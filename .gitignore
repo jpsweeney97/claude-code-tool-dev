@@ -19,3 +19,6 @@ packages/*/dist/
 __pycache__/
 *.pyc
 .venv/
+
+# Migration (keep inventory, ignore backup files)
+*.backup
