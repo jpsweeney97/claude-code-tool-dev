@@ -235,21 +235,22 @@ def main():
     try:
         input_data = json.load(sys.stdin)
     except json.JSONDecodeError:
-        return  # Allow if we can't parse input
+        sys.exit(0)  # Allow if we can't parse input
 
     tool_input = input_data.get("tool_input", {})
     command = tool_input.get("command", "")
 
     if not command:
-        return  # Allow if no command
+        sys.exit(0)  # Allow if no command
 
     should_block, reason = check_command(command)
 
     if should_block:
-        print(json.dumps({
-            "decision": "block",
-            "reason": reason
-        }))
+        # Exit code 2 = block, stderr = message shown to Claude
+        print(reason, file=sys.stderr)
+        sys.exit(2)
+
+    sys.exit(0)  # Allow
 
 
 if __name__ == "__main__":
