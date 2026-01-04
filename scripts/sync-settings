@@ -1,0 +1,213 @@
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["rich"]
+# ///
+"""
+Rebuild ~/.claude/settings.json hooks section from hook file frontmatter.
+
+Usage:
+    uv run scripts/sync-settings [--dry-run] [--force]
+
+Hook frontmatter format (PEP 723 style):
+    # /// hook
+    # event: PreToolUse
+    # matcher: Bash
+    # timeout: 60
+    # ///
+
+Valid events: PreToolUse, PostToolUse, UserPromptSubmit, Stop, SubagentStop,
+              Notification, PermissionRequest, PreCompact, SessionStart, SessionEnd
+"""
+
+import argparse
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+from rich.console import Console
+from rich.syntax import Syntax
+
+console = Console()
+
+SETTINGS_PATH = Path.home() / ".claude/settings.json"
+HOOKS_PATH = Path.home() / ".claude/hooks"
+
+VALID_EVENTS = {
+    "PreToolUse",
+    "PostToolUse",
+    "UserPromptSubmit",
+    "Stop",
+    "SubagentStop",
+    "Notification",
+    "PermissionRequest",
+    "PreCompact",
+    "SessionStart",
+    "SessionEnd",
+}
+
+
+def parse_hook_frontmatter(path: Path) -> dict[str, Any] | None:
+    """Parse hook frontmatter from a script file."""
+    try:
+        content = path.read_text()
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not read {path}: {e}[/yellow]")
+        return None
+
+    # Match PEP 723 style: # /// hook ... # ///
+    pattern = r"#\s*///\s*hook\s*\n((?:#[^\n]*\n)*?)#\s*///"
+    match = re.search(pattern, content)
+    if not match:
+        return None
+
+    # Parse the frontmatter lines
+    frontmatter = {}
+    for line in match.group(1).split("\n"):
+        line = line.strip()
+        if line.startswith("#"):
+            line = line[1:].strip()
+            if ":" in line:
+                key, value = line.split(":", 1)
+                frontmatter[key.strip()] = value.strip()
+
+    # Validate required fields
+    if "event" not in frontmatter:
+        console.print(f"[yellow]Warning: {path.name} missing 'event' in frontmatter[/yellow]")
+        return None
+
+    event = frontmatter["event"]
+    if event not in VALID_EVENTS:
+        console.print(f"[yellow]Warning: {path.name} has invalid event '{event}'[/yellow]")
+        return None
+
+    return frontmatter
+
+
+def build_hooks_config(hooks_dir: Path) -> dict[str, list[dict]]:
+    """Build hooks configuration from frontmatter."""
+    config: dict[str, list[dict]] = {}
+
+    if not hooks_dir.exists():
+        return config
+
+    for hook_file in sorted(hooks_dir.glob("*.py")) + sorted(hooks_dir.glob("*.sh")):
+        if hook_file.name.startswith("."):
+            continue
+
+        frontmatter = parse_hook_frontmatter(hook_file)
+        if not frontmatter:
+            continue
+
+        event = frontmatter["event"]
+        matcher = frontmatter.get("matcher")
+        timeout = int(frontmatter.get("timeout", 60000))
+
+        # Build hook entry
+        hook_entry = {
+            "type": "command",
+            "command": str(hook_file),
+        }
+        if timeout != 60000:
+            hook_entry["timeout"] = timeout
+
+        # Build event entry
+        if matcher:
+            event_entry = {
+                "matcher": matcher,
+                "hooks": [hook_entry],
+            }
+        else:
+            event_entry = {"hooks": [hook_entry]}
+
+        if event not in config:
+            config[event] = []
+        config[event].append(event_entry)
+
+        console.print(f"  [green]Found:[/green] {hook_file.name} -> {event}" +
+                      (f" (matcher: {matcher})" if matcher else ""))
+
+    return config
+
+
+def load_settings() -> dict[str, Any]:
+    """Load current settings.json."""
+    if SETTINGS_PATH.exists():
+        return json.loads(SETTINGS_PATH.read_text())
+    return {}
+
+
+def save_settings(settings: dict[str, Any]) -> None:
+    """Save settings.json."""
+    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_PATH.write_text(json.dumps(settings, indent=2) + "\n")
+
+
+def show_diff(old: dict, new: dict) -> bool:
+    """Show diff between old and new hooks config. Returns True if different."""
+    old_json = json.dumps(old, indent=2, sort_keys=True)
+    new_json = json.dumps(new, indent=2, sort_keys=True)
+
+    if old_json == new_json:
+        console.print("[dim]No changes to hooks section[/dim]")
+        return False
+
+    import difflib
+    diff = list(difflib.unified_diff(
+        old_json.splitlines(keepends=True),
+        new_json.splitlines(keepends=True),
+        "current hooks",
+        "new hooks",
+    ))
+    console.print(Syntax("".join(diff), "diff", line_numbers=False))
+    return True
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Sync settings.json hooks from frontmatter")
+    parser.add_argument("--dry-run", action="store_true", help="Show diff without writing")
+    parser.add_argument("--force", "-f", action="store_true", help="Skip confirmation")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Only output errors")
+    args = parser.parse_args()
+
+    if not args.quiet:
+        console.print("[bold]Scanning hooks for frontmatter...[/bold]\n")
+
+    # Build new hooks config
+    new_hooks = build_hooks_config(HOOKS_PATH)
+
+    if not new_hooks:
+        console.print("\n[yellow]No hooks with valid frontmatter found[/yellow]")
+        return
+
+    # Load current settings
+    settings = load_settings()
+    old_hooks = settings.get("hooks", {})
+
+    # Show diff
+    if not args.quiet:
+        console.print("\n[bold]Changes to hooks section:[/bold]")
+    has_changes = show_diff(old_hooks, new_hooks)
+
+    if not has_changes:
+        return
+
+    if args.dry_run:
+        console.print("\n[yellow]Dry run - no changes made[/yellow]")
+        return
+
+    if not args.force:
+        response = input("\nApply changes to settings.json? [y/N] ").strip().lower()
+        if response != "y":
+            console.print("[yellow]Cancelled[/yellow]")
+            return
+
+    # Update and save
+    settings["hooks"] = new_hooks
+    save_settings(settings)
+    console.print(f"\n[green]Updated {SETTINGS_PATH}[/green]")
+
+
+if __name__ == "__main__":
+    main()
