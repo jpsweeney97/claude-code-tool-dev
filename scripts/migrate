@@ -1,0 +1,236 @@
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["pyyaml", "rich"]
+# ///
+"""
+Process migration inventory and copy extensions to monorepo.
+
+Usage:
+    uv run scripts/migrate [--dry-run] [--inventory FILE]
+
+Reads migration-inventory.yaml and processes extensions based on their 'decision' field:
+    - migrate: Copy to .claude/<type>/ or packages/<type>/
+    - archive: Mark as archived (no action, just status update)
+    - delete: Skip (manual deletion recommended)
+"""
+
+import argparse
+import shutil
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import yaml
+from rich.console import Console
+from rich.table import Table
+
+console = Console()
+
+# Destination mappings
+DESTINATIONS = {
+    "skills": Path(".claude/skills"),
+    "plugins": Path("packages/plugins"),
+    "hooks": Path(".claude/hooks"),
+}
+
+
+def load_inventory(path: Path) -> dict[str, Any]:
+    """Load migration inventory from YAML."""
+    with path.open() as f:
+        return yaml.safe_load(f)
+
+
+def save_inventory(inventory: dict[str, Any], path: Path) -> None:
+    """Save updated inventory to YAML."""
+    with path.open("w") as f:
+        yaml.dump(inventory, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+
+def copy_extension(source: Path, dest: Path, dry_run: bool) -> bool:
+    """Copy an extension directory or file."""
+    if dry_run:
+        console.print(f"  [dim]Would copy:[/dim] {source} -> {dest}")
+        return True
+
+    try:
+        if source.is_dir():
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(source, dest, symlinks=False)
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, dest)
+        return True
+    except Exception as e:
+        console.print(f"  [red]Error copying {source}: {e}[/red]")
+        return False
+
+
+def resolve_source_path(ext: dict[str, Any]) -> Path | None:
+    """Get the actual source path for an extension."""
+    if ext.get("conflict"):
+        selected = ext.get("selected_source")
+        if not selected:
+            return None
+        for src in ext["sources"]:
+            if src["location"] == selected:
+                path = Path(src["path"])
+                # Follow symlinks
+                if src.get("is_symlink") and src.get("symlink_target"):
+                    path = Path(src["symlink_target"])
+                return path
+        return None
+    else:
+        path = Path(ext["path"])
+        # Follow symlinks
+        if ext.get("is_symlink") and ext.get("symlink_target"):
+            path = Path(ext["symlink_target"])
+        return path
+
+
+def process_extensions(
+    inventory: dict[str, Any],
+    ext_type: str,
+    dry_run: bool,
+) -> tuple[int, int, int]:
+    """Process all extensions of a given type. Returns (migrated, skipped, errors)."""
+    extensions = inventory["extensions"].get(ext_type, [])
+    dest_base = DESTINATIONS[ext_type]
+    dest_base.mkdir(parents=True, exist_ok=True)
+
+    migrated = 0
+    skipped = 0
+    errors = 0
+
+    for ext in extensions:
+        name = ext["name"]
+        decision = ext.get("decision")
+        status = ext.get("status", "pending")
+
+        # Skip already processed
+        if status in ("migrated", "archived", "deleted"):
+            console.print(f"  [dim]Skipping {name} (already {status})[/dim]")
+            skipped += 1
+            continue
+
+        # Check decision
+        if not decision:
+            console.print(f"  [yellow]Skipping {name} (no decision set)[/yellow]")
+            skipped += 1
+            continue
+
+        if decision == "archive":
+            ext["status"] = "archived"
+            console.print(f"  [blue]Archived:[/blue] {name}")
+            skipped += 1
+            continue
+
+        if decision == "delete":
+            ext["status"] = "deleted"
+            console.print(f"  [red]Marked deleted:[/red] {name} (manual cleanup needed)")
+            skipped += 1
+            continue
+
+        if decision != "migrate":
+            console.print(f"  [yellow]Unknown decision '{decision}' for {name}[/yellow]")
+            skipped += 1
+            continue
+
+        # Validate conflict resolution
+        if ext.get("conflict") and not ext.get("selected_source"):
+            console.print(f"  [red]Error:[/red] {name} has conflict but no selected_source")
+            errors += 1
+            continue
+
+        # Get source path
+        source = resolve_source_path(ext)
+        if not source or not source.exists():
+            console.print(f"  [red]Error:[/red] Source not found for {name}: {source}")
+            errors += 1
+            continue
+
+        # Determine destination
+        dest = dest_base / name
+
+        # Copy
+        if copy_extension(source, dest, dry_run):
+            if not dry_run:
+                ext["status"] = "migrated"
+                ext["migrated_at"] = datetime.now().isoformat()
+            console.print(f"  [green]Migrated:[/green] {name}")
+            migrated += 1
+        else:
+            errors += 1
+
+    return migrated, skipped, errors
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Process migration inventory")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without making changes",
+    )
+    parser.add_argument(
+        "--inventory",
+        "-i",
+        default="migration-inventory.yaml",
+        help="Inventory file path (default: migration-inventory.yaml)",
+    )
+    args = parser.parse_args()
+
+    inventory_path = Path(args.inventory)
+    if not inventory_path.exists():
+        console.print(f"[red]Error:[/red] Inventory file not found: {inventory_path}")
+        console.print("Run 'uv run scripts/inventory' first.")
+        return
+
+    inventory = load_inventory(inventory_path)
+
+    if args.dry_run:
+        console.print("[bold yellow]DRY RUN - no changes will be made[/bold yellow]\n")
+
+    # Process each type
+    results = {}
+    for ext_type in ["skills", "plugins", "hooks"]:
+        console.print(f"\n[bold]Processing {ext_type}...[/bold]")
+        migrated, skipped, errors = process_extensions(inventory, ext_type, args.dry_run)
+        results[ext_type] = {"migrated": migrated, "skipped": skipped, "errors": errors}
+
+    # Save updated inventory
+    if not args.dry_run:
+        save_inventory(inventory, inventory_path)
+        console.print(f"\n[green]Updated inventory saved to:[/green] {inventory_path}")
+
+    # Print summary
+    table = Table(title="Migration Summary")
+    table.add_column("Type", style="cyan")
+    table.add_column("Migrated", style="green")
+    table.add_column("Skipped", style="yellow")
+    table.add_column("Errors", style="red")
+
+    for ext_type, counts in results.items():
+        table.add_row(
+            ext_type.title(),
+            str(counts["migrated"]),
+            str(counts["skipped"]),
+            str(counts["errors"]) if counts["errors"] else "-",
+        )
+
+    console.print()
+    console.print(table)
+
+    # Next steps
+    if not args.dry_run:
+        total_migrated = sum(r["migrated"] for r in results.values())
+        if total_migrated > 0:
+            console.print("\n[bold]Next steps:[/bold]")
+            console.print("1. Review migrated extensions in .claude/ and packages/")
+            console.print("2. Remove symlinks from ~/.claude/ that point to old repos")
+            console.print("3. Use 'uv run scripts/promote' to deploy to ~/.claude/")
+
+
+if __name__ == "__main__":
+    main()
