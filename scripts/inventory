@@ -1,0 +1,250 @@
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["pyyaml", "rich"]
+# ///
+"""
+Scan extension sources and generate migration inventory.
+
+Usage:
+    uv run scripts/inventory [--output FILE]
+
+Scans:
+    - superserum/plugins/
+    - claude-skill-dev/skills/
+    - ~/.claude/skills/ (orphaned)
+    - ~/.claude/hooks/
+"""
+
+import argparse
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import yaml
+from rich.console import Console
+from rich.table import Table
+
+console = Console()
+
+# Source definitions
+SOURCES = {
+    "superserum": {
+        "path": Path.home() / "Projects/active/superserum",
+        "extensions": {"plugins": "plugins"},
+    },
+    "claude-skill-dev": {
+        "path": Path.home() / "Projects/active/claude-skill-dev",
+        "extensions": {"skills": "skills"},
+    },
+    "orphaned": {
+        "path": Path.home() / ".claude",
+        "extensions": {"skills": "skills", "hooks": "hooks"},
+    },
+}
+
+
+def scan_directory(base: Path, subdir: str) -> list[dict[str, Any]]:
+    """Scan a directory for extensions."""
+    path = base / subdir
+    if not path.exists():
+        return []
+
+    extensions = []
+    for item in sorted(path.iterdir()):
+        if item.name.startswith("."):
+            continue
+
+        # Skip symlinks for orphaned detection
+        is_symlink = item.is_symlink()
+        if is_symlink:
+            target = item.resolve()
+            symlink_target = str(target)
+        else:
+            symlink_target = None
+
+        # Get modification time
+        try:
+            mtime = datetime.fromtimestamp(item.stat().st_mtime)
+        except OSError:
+            mtime = None
+
+        # Count files
+        if item.is_dir():
+            file_count = sum(1 for _ in item.rglob("*") if _.is_file())
+        else:
+            file_count = 1
+
+        extensions.append({
+            "name": item.name,
+            "path": str(item),
+            "is_symlink": is_symlink,
+            "symlink_target": symlink_target,
+            "modified": mtime.isoformat() if mtime else None,
+            "files": file_count,
+        })
+
+    return extensions
+
+
+def detect_conflicts(extensions_by_type: dict[str, list[dict]]) -> dict[str, list[dict]]:
+    """Detect same-named extensions across sources."""
+    # Group by name
+    by_name: dict[str, list[dict]] = {}
+    for ext in extensions_by_type.get("all", []):
+        name = ext["name"]
+        if name not in by_name:
+            by_name[name] = []
+        by_name[name].append(ext)
+
+    # Find conflicts
+    conflicts = {name: sources for name, sources in by_name.items() if len(sources) > 1}
+    return conflicts
+
+
+def generate_inventory() -> dict[str, Any]:
+    """Generate the full migration inventory."""
+    inventory: dict[str, Any] = {
+        "generated": datetime.now().isoformat(),
+        "sources": {},
+        "extensions": {"skills": [], "plugins": [], "hooks": []},
+    }
+
+    all_skills: list[dict] = []
+    all_plugins: list[dict] = []
+    all_hooks: list[dict] = []
+
+    for source_name, source_config in SOURCES.items():
+        base_path = source_config["path"]
+        inventory["sources"][source_name] = {
+            "path": str(base_path),
+            "status": "pending",
+        }
+
+        for ext_type, subdir in source_config["extensions"].items():
+            extensions = scan_directory(base_path, subdir)
+            for ext in extensions:
+                ext["source"] = source_name
+                if ext_type == "skills":
+                    all_skills.append(ext)
+                elif ext_type == "plugins":
+                    all_plugins.append(ext)
+                elif ext_type == "hooks":
+                    all_hooks.append(ext)
+
+    # Process skills - detect conflicts
+    skill_conflicts = detect_conflicts({"all": all_skills})
+    processed_skills = set()
+
+    for ext in all_skills:
+        name = ext["name"]
+        if name in processed_skills:
+            continue
+
+        if name in skill_conflicts:
+            # Conflict case
+            sources = skill_conflicts[name]
+            inventory["extensions"]["skills"].append({
+                "name": name,
+                "conflict": True,
+                "sources": [
+                    {
+                        "location": s["source"],
+                        "path": s["path"],
+                        "modified": s["modified"],
+                        "files": s["files"],
+                        "is_symlink": s["is_symlink"],
+                        "symlink_target": s["symlink_target"],
+                    }
+                    for s in sources
+                ],
+                "decision": None,
+                "selected_source": None,
+                "status": "pending",
+                "notes": "",
+            })
+        else:
+            # No conflict
+            inventory["extensions"]["skills"].append({
+                "name": name,
+                "source": ext["source"],
+                "path": ext["path"],
+                "is_symlink": ext["is_symlink"],
+                "symlink_target": ext["symlink_target"],
+                "decision": None,
+                "status": "pending",
+                "notes": "",
+            })
+        processed_skills.add(name)
+
+    # Process plugins (no conflict detection needed - single source)
+    for ext in all_plugins:
+        inventory["extensions"]["plugins"].append({
+            "name": ext["name"],
+            "source": ext["source"],
+            "path": ext["path"],
+            "decision": None,
+            "status": "pending",
+            "notes": "",
+        })
+
+    # Process hooks (all from orphaned)
+    for ext in all_hooks:
+        inventory["extensions"]["hooks"].append({
+            "name": ext["name"],
+            "source": ext["source"],
+            "path": ext["path"],
+            "decision": None,
+            "status": "pending",
+            "notes": "",
+        })
+
+    return inventory
+
+
+def print_summary(inventory: dict[str, Any]) -> None:
+    """Print a summary table."""
+    table = Table(title="Migration Inventory Summary")
+    table.add_column("Type", style="cyan")
+    table.add_column("Count", style="green")
+    table.add_column("Conflicts", style="yellow")
+
+    for ext_type in ["skills", "plugins", "hooks"]:
+        extensions = inventory["extensions"][ext_type]
+        total = len(extensions)
+        conflicts = sum(1 for e in extensions if e.get("conflict", False))
+        table.add_row(ext_type.title(), str(total), str(conflicts) if conflicts else "-")
+
+    console.print(table)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Generate migration inventory")
+    parser.add_argument(
+        "--output",
+        "-o",
+        default="migration-inventory.yaml",
+        help="Output file path (default: migration-inventory.yaml)",
+    )
+    args = parser.parse_args()
+
+    console.print("[bold]Scanning extension sources...[/bold]")
+    inventory = generate_inventory()
+
+    output_path = Path(args.output)
+    with output_path.open("w") as f:
+        yaml.dump(inventory, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    console.print(f"\n[green]Inventory written to:[/green] {output_path}")
+    print_summary(inventory)
+
+    # Print next steps
+    console.print("\n[bold]Next steps:[/bold]")
+    console.print("1. Review migration-inventory.yaml")
+    console.print("2. Set 'decision' for each extension: migrate | archive | delete")
+    console.print("3. For conflicts, also set 'selected_source'")
+    console.print("4. Run: uv run scripts/migrate")
+
+
+if __name__ == "__main__":
+    main()
