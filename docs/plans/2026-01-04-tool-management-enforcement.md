@@ -158,8 +158,11 @@ Reference: `~/Documents/mise-tool-management.md`
 """
 Enforce tool management patterns.
 
+Output format: Exit code 2 + stderr message (per Claude Code hooks documentation).
+JSON output is NOT used because stdout is ignored for exit code 2.
+
 Blocks:
-- pip install / pip3 install (except -e for editable installs)
+- pip install / pip3 install (except -e/--editable for editable installs)
 - python -m pip install variants
 - uv pip install
 - brew install <dev-tool>
