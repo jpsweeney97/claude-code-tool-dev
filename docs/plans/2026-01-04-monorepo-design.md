@@ -317,15 +317,38 @@ All Python scripts use PEP 723 inline metadata:
 
 **CLAUDE.md section:**
 ```markdown
-## Extension Development Workflow
+## Extension Development
 
-All extensions (commands, agents, skills, hooks) are developed in this repo:
+### Skill Precedence
+Personal (`~/.claude/skills/`) overrides project (`.claude/skills/`).
 
-1. Create in `.claude/<type>/`
-2. Test by running Claude Code in this directory
-3. Promote with `uv run scripts/promote <type> <name>`
+| Scenario | Workflow |
+|----------|----------|
+| **New skill** | Create in `.claude/skills/` → test → promote |
+| **Modify existing** | Copy to `.claude/skills/<name>-dev/` → test with dev name → verify by moving production aside → promote |
 
-Never create extensions directly in `~/.claude/` — they won't be backed up or tested.
+### New Skill
+1. Create `.claude/skills/<name>/SKILL.md`
+2. Test in this directory (project-local loads)
+3. Promote: `uv run scripts/promote skill <name>`
+
+### Existing Skill Iteration
+Personal skills shadow project skills. To test changes:
+
+1. Copy to `.claude/skills/<name>-dev/`
+2. Test with `/<name>-dev` (avoids shadow)
+3. Final verify: move `~/.claude/skills/<name>` aside temporarily
+4. Promote, restore original references
+
+### MCP Server Dependencies
+Extensions using MCP tools require project config:
+
+\`\`\`json
+// .mcp.json
+{ "mcpServers": { "server-name": { "command": "...", "args": [...] } } }
+\`\`\`
+
+Plugins (greptile, context7) work without setup—enabled at user level.
 ```
 
 ## Post-Migration State
