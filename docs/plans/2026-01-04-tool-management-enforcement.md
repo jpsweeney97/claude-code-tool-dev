@@ -32,7 +32,7 @@ Hooks run before permissions, so the hook handles all logic. Permissions are red
 | `uv pip install` | Bypasses lockfile management |
 | `brew install <dev-tool>` | Dev tools need version management via mise |
 
-**Exception:** `pip install -e` (editable install of current project) is allowed.
+**Exception:** `pip install -e` and `pip install --editable` (editable install of current project) are allowed.
 
 ### DEV_TOOLS Set
 
@@ -213,8 +213,9 @@ def check_command(command: str) -> tuple[bool, str]:
     pip_patterns = ["pip install", "pip3 install"]
     for pattern in pip_patterns:
         if pattern in cmd_lower:
-            # Allow editable installs
-            if "install -e" in cmd_lower or "install -e." in cmd_lower.replace(" ", ""):
+            # Allow editable installs (both short and long form)
+            editable_patterns = ["install -e", "install --editable"]
+            if any(p in cmd_lower for p in editable_patterns):
                 return False, ""
             return True, MSG_PIP
 
@@ -319,6 +320,7 @@ After implementation, test these commands:
 | `brew install ruff` | BLOCK with educational message |
 | `brew install pytest` | BLOCK with educational message |
 | `pip install -e .` | ALLOW (editable install exception) |
+| `pip install --editable .` | ALLOW (editable install exception) |
 | `uv add requests` | ALLOW |
 | `uv run scripts/inventory` | ALLOW |
 | `mise install` | ALLOW |
