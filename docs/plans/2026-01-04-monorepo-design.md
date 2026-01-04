@@ -83,6 +83,17 @@ claude-code-tool-dev/
 └── tmp/                         # Ephemeral (gitignored)
 ```
 
+## Scripts Overview
+
+| Script | Purpose |
+|--------|---------|
+| `promote` | Copy validated extension from sandbox to production |
+| `sync-settings` | Rebuild settings.json hooks section from hook frontmatter |
+| `inventory` | Scan sources, generate migration YAML |
+| `migrate` | Process inventory decisions |
+
+---
+
 ## Promote Script
 
 **Purpose:** Controlled gate between sandbox and production.
@@ -115,6 +126,67 @@ uv run scripts/promote agent code-reviewer
 - `--all` — Promote all extensions of a type
 
 **Implementation:** Python with PEP 723 inline metadata, run via `uv run`.
+
+**Hook promotion integration:** After copying a hook, promote asks "Also sync settings.json?" and calls sync-settings if confirmed.
+
+---
+
+## Sync-Settings Script
+
+**Purpose:** Rebuild `~/.claude/settings.json` hooks section from hook file frontmatter.
+
+**Scope:**
+- Reads hook scripts from `~/.claude/hooks/`
+- Parses frontmatter, rebuilds `hooks` section
+- Preserves all other settings.json sections (permissions, sandbox, enabledPlugins)
+- Does NOT handle MCP servers (`~/.claude.json`) or plugins (marketplace-managed)
+
+**Hook frontmatter format:**
+```python
+#!/usr/bin/env python3
+# ---
+# hook-event: PreToolUse
+# matcher: Bash
+# timeout: 60  # optional, defaults to 60
+# ---
+```
+
+Maps to settings.json:
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{"type": "command", "command": "~/.claude/hooks/script.py", "timeout": 60}]
+    }]
+  }
+}
+```
+
+**Algorithm:**
+1. Discover — Glob `~/.claude/hooks/*.{py,sh}`
+2. Parse — Extract frontmatter; warn on files without valid frontmatter
+3. Validate — Check required fields (`hook-event`, `matcher`)
+4. Group — Organize by event type
+5. Read — Load current settings.json
+6. Diff — Compare current vs generated hooks section
+7. Show — Display diff
+8. Confirm — Prompt for approval (unless `--force`)
+9. Write — Update hooks section, preserve everything else
+
+**Usage:**
+```bash
+uv run scripts/sync-settings [OPTIONS]
+```
+
+**Flags:**
+- `--dry-run` — Show diff, don't write
+- `--force` — Skip confirmation
+- `--quiet` — Only output errors
+
+**Key property:** Deleting a hook file → next sync removes it from settings.json. The hooks section is derived, not hand-edited.
+
+---
 
 ## Migration Inventory
 
