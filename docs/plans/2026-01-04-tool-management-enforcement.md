@@ -10,6 +10,20 @@ Enforce mise/uv/brew tool management patterns through automated validation with 
 
 ## Design Decisions
 
+### Documentation Verification
+
+This design was verified against official Claude Code documentation (2026-01-04):
+
+| Claim | Source | Status |
+|-------|--------|--------|
+| Exit code 2 + stderr blocks tool calls | [hooks.md](https://code.claude.com/docs/en/hooks) | ✅ Verified |
+| `hookSpecificOutput.permissionDecision: "deny"` alternative | [hooks.md](https://code.claude.com/docs/en/hooks) | ✅ Verified |
+| JSON in stdout ignored for exit code 2 | [hooks.md](https://code.claude.com/docs/en/hooks) | ✅ Verified |
+| `Bash(pattern:*)` prefix matching | [iam.md](https://code.claude.com/docs/en/iam) | ✅ Verified |
+| Permissions deny bypasses documented | [iam.md](https://code.claude.com/docs/en/iam) | ✅ Verified |
+
+**Key finding:** The original `{"decision": "block"}` format was non-standard. Corrected to use exit code 2 + stderr.
+
 ### Defense in Depth
 
 Two layers protect against tool management violations:
