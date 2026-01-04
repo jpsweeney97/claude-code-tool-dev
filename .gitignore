@@ -1,0 +1,21 @@
+# Old repos (archived reference, not part of this project)
+old-repos/
+
+# macOS
+.DS_Store
+
+# Local settings
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Ephemeral
+tmp/
+
+# Node
+node_modules/
+packages/*/dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
