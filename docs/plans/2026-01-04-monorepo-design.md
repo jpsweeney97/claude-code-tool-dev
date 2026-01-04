@@ -209,11 +209,29 @@ sources:
 
 extensions:
   skills:
+    # Simple case: single source
     - name: deep-exploration
       source: claude-skill-dev
       decision: migrate    # migrate | archive | delete
       status: pending      # pending | migrated | archived | deleted
       notes: "Core skill, actively used"
+
+    # Conflict case: same name in multiple sources
+    - name: foo
+      conflict: true
+      sources:
+        - location: claude-skill-dev
+          path: /Users/jp/Projects/active/claude-skill-dev/skills/foo
+          modified: 2026-01-02T14:30:00
+          files: 3
+        - location: orphaned
+          path: ~/.claude/skills/foo
+          modified: 2026-01-03T09:15:00
+          files: 2
+      decision: null        # REQUIRED before migrate
+      selected_source: null # REQUIRED if decision=migrate
+      status: pending
+      notes: ""
 
   plugins:
     - name: doc-auditor
@@ -222,12 +240,21 @@ extensions:
       status: pending
 ```
 
+**Conflict handling:**
+- Inventory detects same-named extensions across sources
+- Marks with `conflict: true` and lists all sources with metadata
+- Migrate refuses to proceed until conflicts are resolved
+- Resolution requires both `decision` and `selected_source`
+- Non-selected sources remain in place (manual cleanup after verification)
+
 **Migration workflow:**
 1. `uv run scripts/inventory` — Scan all sources, generate YAML
-2. Edit YAML — Set `decision` for each extension
-3. `uv run scripts/migrate` — Process decisions, update status
-4. Remove symlinks from `~/.claude/`
-5. Archive old repos (update READMEs, mark as archived)
+2. Review conflicts — Compare versions, set `selected_source`
+3. Edit YAML — Set `decision` for each extension
+4. `uv run scripts/migrate` — Process decisions, update status
+5. Remove symlinks from `~/.claude/`
+6. Clean up non-selected conflict sources (manual)
+7. Archive old repos (update READMEs, mark as archived)
 
 ## MCP Server Workspaces
 
