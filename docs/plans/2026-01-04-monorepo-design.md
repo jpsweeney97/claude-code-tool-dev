@@ -54,12 +54,12 @@ claude-code-tool-dev/
 │   ├── hooks/                   # Hook scripts (shell/python)
 │   ├── settings.json            # Hook wiring + project config
 │   ├── settings.local.json      # Local experiments (gitignored)
-│   └── rules/                   # Modular Claude context
-│       ├── commands.md
-│       ├── agents.md
-│       ├── skills.md
-│       ├── hooks.md
-│       └── mcp-servers.md
+│   └── rules/                   # Modular Claude context (auto-discovered)
+│       ├── skills.md            # paths: .claude/skills/**
+│       ├── hooks.md             # paths: .claude/hooks/**
+│       ├── commands.md          # paths: .claude/commands/**
+│       ├── agents.md            # paths: .claude/agents/**
+│       └── mcp-servers.md       # paths: packages/mcp-servers/**
 │
 ├── packages/                    # npm workspaces
 │   ├── mcp-servers/             # TypeScript MCP servers
@@ -87,10 +87,25 @@ claude-code-tool-dev/
 
 | Script | Purpose |
 |--------|---------|
-| `promote` | Copy validated extension from sandbox to production |
+| `promote` | Validate and deploy extensions (copy to ~/.claude/ or register MCP) |
 | `sync-settings` | Rebuild settings.json hooks section from hook frontmatter |
 | `inventory` | Scan sources, generate migration YAML |
 | `migrate` | Process inventory decisions |
+
+**Promote supports all extension types:**
+
+```bash
+uv run scripts/promote <type> <name>
+
+# Copy to ~/.claude/<type>/
+uv run scripts/promote skill deep-exploration
+uv run scripts/promote command deploy
+uv run scripts/promote agent code-reviewer
+uv run scripts/promote hook block-credentials
+
+# Build + register via claude mcp add
+uv run scripts/promote mcp-server my-server
+```
 
 ---
 
@@ -135,21 +150,25 @@ uv run scripts/promote agent code-reviewer
 
 **Purpose:** Rebuild `~/.claude/settings.json` hooks section from hook file frontmatter.
 
+**Important:** Hook frontmatter is a **project convention**, not native Claude Code behavior. Claude Code stores all hook configuration in `settings.json`. This script bridges the gap by parsing our frontmatter and generating the config.
+
 **Scope:**
 - Reads hook scripts from `~/.claude/hooks/`
 - Parses frontmatter, rebuilds `hooks` section
 - Preserves all other settings.json sections (permissions, sandbox, enabledPlugins)
-- Does NOT handle MCP servers (`~/.claude.json`) or plugins (marketplace-managed)
+- Does NOT handle MCP servers (use `promote mcp-server`) or plugins (marketplace-managed)
 
-**Hook frontmatter format:**
+**Hook frontmatter format (PEP 723 style):**
 ```python
 #!/usr/bin/env python3
-# ---
-# hook-event: PreToolUse
+# /// hook
+# event: PreToolUse
 # matcher: Bash
-# timeout: 60  # optional, defaults to 60
-# ---
+# timeout: 60
+# ///
 ```
+
+**Valid events:** `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SubagentStop`, `Notification`, `PermissionRequest`, `PreCompact`, `SessionStart`, `SessionEnd`
 
 Maps to settings.json:
 ```json
@@ -280,13 +299,50 @@ npm init -y
 # Add src/, tsconfig.json extending ../../tsconfig.base.json
 ```
 
+**Server package.json with Claude Code metadata:**
+```json
+{
+  "name": "@claude-tools/my-server",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc"
+  },
+  "claudeCode": {
+    "mcp": {
+      "transport": "stdio",
+      "command": "node dist/index.js",
+      "env": ["API_KEY"]
+    }
+  }
+}
+```
+
 **Building:**
 ```bash
 npm install                                    # Install all workspace deps
 npm run build -w packages/mcp-servers/my-server  # Build specific server
 ```
 
-**Registration:** Add to `.claude/settings.json` pointing to built `dist/index.js`.
+**Promotion workflow:**
+```bash
+uv run scripts/promote mcp-server my-server
+```
+
+This runs:
+1. **VALIDATE** — Dir exists, `claudeCode.mcp` in package.json
+2. **BUILD** — `npm run build -w packages/mcp-servers/<name>`
+3. **CHECK** — `claude mcp get <name>` (already registered?)
+4. **REGISTER** — `claude mcp add --transport <type> <name> --scope project -- <command>`
+5. **VERIFY** — `claude mcp get <name>` confirms registration
+6. **UPDATE** — `.mcp.json` auto-updated by `claude mcp add`
+7. **PROMPT** — "Commit updated .mcp.json? [y/N]"
+
+**Team workflow:** Commit `.mcp.json` after promotion. Team members pull and get servers—first use triggers per-user approval prompt (Claude Code security feature).
+
+**Flags:**
+- `--dry-run` — Build and show what would be registered
+- `--force` — Skip confirmation prompts
+- `--rebuild` — Force rebuild even if dist/ exists
 
 ## Python Scripts
 
@@ -304,6 +360,39 @@ All Python scripts use PEP 723 inline metadata:
 - No global pip installs (aligns with mise-tool-management.md)
 - No project .venv needed for utility scripts
 - Dependencies resolved automatically by `uv run`
+
+## Path-Specific Rules
+
+The `.claude/rules/` directory is **natively supported** by Claude Code with auto-discovery. We use path-scoped rules so context stays focused on the current task.
+
+**Example rule file:**
+```markdown
+<!-- .claude/rules/skills.md -->
+---
+paths: .claude/skills/**
+---
+
+# Skill Development
+
+- Skills require `name` and `description` in YAML frontmatter
+- Use `allowed-tools` to grant tool permissions without prompting
+- Test with /<skill-name> before promoting
+- Directory structure: `.claude/skills/<name>/SKILL.md`
+```
+
+**Rule files in this project:**
+
+| File | Scope | Purpose |
+|------|-------|---------|
+| `rules/skills.md` | `.claude/skills/**` | Skill development guidelines |
+| `rules/hooks.md` | `.claude/hooks/**` | Hook development + frontmatter convention |
+| `rules/commands.md` | `.claude/commands/**` | Command development guidelines |
+| `rules/agents.md` | `.claude/agents/**` | Agent development guidelines |
+| `rules/mcp-servers.md` | `packages/mcp-servers/**` | MCP server development + promote workflow |
+
+**How it works:** When Claude edits a file matching a rule's `paths` glob, only that rule loads. Editing a skill loads skill rules; editing an MCP server loads MCP rules. This keeps context lean.
+
+**Rules without paths:** If a rule file omits the `paths` frontmatter, it applies unconditionally to all files.
 
 ## Preventing Backsliding
 
