@@ -10,7 +10,7 @@ This monorepo is the single source of truth for developing Claude Code extension
 | Command | `.claude/commands/<name>.md` | `/<name>` | `uv run scripts/promote command <name>` |
 | Agent | `.claude/agents/<name>.md` | Task tool | `uv run scripts/promote agent <name>` |
 | Hook | `.claude/hooks/<name>.py` | After sync-settings | `uv run scripts/promote hook <name>` |
-| MCP Server | `packages/mcp-servers/<name>/` | After build | `uv run scripts/promote mcp-server <name>` |
+| MCP Server | `packages/mcp-servers/<name>/` | After build | Manual: `claude mcp add` |
 
 ## Workflow
 
