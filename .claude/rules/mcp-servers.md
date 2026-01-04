@@ -47,7 +47,7 @@ packages/mcp-servers/<name>/
 
 1. Create package structure
 2. Develop and test: `npm run build -w packages/mcp-servers/<name>`
-3. Promote: `uv run scripts/promote mcp-server <name>`
-   - Builds server
-   - Registers via `claude mcp add`
-   - Updates `.mcp.json`
+3. Register manually:
+   - Build: `npm run build -w packages/mcp-servers/<name>`
+   - Register: `claude mcp add <name> node packages/mcp-servers/<name>/dist/index.js`
+   - Note: `scripts/promote` doesn't support mcp-server type yet
