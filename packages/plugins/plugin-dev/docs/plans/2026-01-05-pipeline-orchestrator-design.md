@@ -367,6 +367,55 @@ Orchestrator (main thread)
        Orchestrator updates state file
 ```
 
+### Subagent Output Contract
+
+All custom subagents return structured YAML at the end of their response.
+
+**Subagent instruction:**
+> End your response with a fenced YAML block (using `---` delimiters) containing: artifacts, decisions, contracts, errors.
+
+**Schema:**
+
+```yaml
+---
+artifacts:
+  - path: skills/my-skill/SKILL.md
+    type: skill          # skill | hook | agent | command
+    action: created      # created | modified | deleted
+
+decisions:
+  - key: trigger_strategy
+    value: explicit_command_only
+    rationale: "Skill is complex; avoid accidental invocation"
+
+contracts:  # Only for pipeline-implementer
+  - description: "Assumes hook:block-etc blocks /etc writes"
+    source: skill:path-validator
+    target: hook:block-etc
+
+errors:  # Empty array if none
+  - stage: implementation
+    message: "MCP server not responding"
+    recoverable: true
+---
+```
+
+**Field definitions:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `artifacts` | Yes | Files created/modified/deleted during execution |
+| `decisions` | Yes | Key decisions made (for state tracking and resume) |
+| `contracts` | pipeline-implementer only | Cross-component assumptions |
+| `errors` | Yes | Errors encountered (empty array if none) |
+
+**Orchestrator parsing:**
+
+1. Extract YAML block from subagent response (regex: `---\n.*?\n---`)
+2. Parse YAML
+3. Update state file with artifacts, decisions, contracts
+4. If errors non-empty and `recoverable: false`, trigger failure handling
+
 ---
 
 ## Entry Points
