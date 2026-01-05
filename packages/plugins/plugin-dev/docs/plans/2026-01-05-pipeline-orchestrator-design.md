@@ -34,7 +34,7 @@ Design a **smart router orchestrator** that:
 1. Analyzes complexity and recommends appropriate paths
 2. Manages state across sessions
 3. Invokes the right skills at the right time via custom subagents
-4. Supports path graduation (quick → standard → full)
+4. Supports path graduation (minimal → rigorous)
 5. Tracks learnings for future reference
 
 ---
@@ -107,17 +107,14 @@ The orchestrator presents analysis with evidence:
 ## Complexity Analysis
 
 **Component count:** 2 (skill + hook)
-**Target audience:** Marketplace
-**External dependencies:** MCP postgres server
+**Target audience:** Marketplace (others will use it)
 
-**Recommendation:** Standard path
-**Reasoning:** Multiple components + external MCP = coordination complexity.
-              Marketplace target = quality bar requires design + validation.
+**Recommendation:** Rigorous path
+**Reasoning:** Marketplace target requires design docs and integration testing.
 
 Paths available:
-- Quick: Skip design, implement directly (not recommended for this case)
-- Standard: Design → Implement → Integration test (recommended)
-- Full: Design → Implement → Optimize → Deploy
+- Minimal: Implement directly (for personal use only)
+- Rigorous: Design → Implement → Integration test (recommended for shared use)
 ```
 
 User chooses; orchestrator records choice in state.
@@ -126,55 +123,48 @@ User chooses; orchestrator records choice in state.
 
 ## Paths
 
-### Quick Path
+### Minimal Path
 
-**When:** Single component, personal use, no external deps
+**When:** Personal tool, quick iteration
 
 ```
-Triage → Implement → Done
+Implement → Done
 ```
 
-- Skips formal design document
-- Implementing skill asks clarifying questions inline
-- No optimization stage
+- No formal design document
+- Implementing skill handles clarification inline
+- No integration testing stage
 - Exit: Working component for personal use
 
-### Standard Path
+### Rigorous Path
 
-**When:** Multiple components OR external deps OR marketplace target
+**When:** Marketplace quality, shared use
 
 ```
-Triage → Design (per component) → Implement (per component) → Integration Test → Done/Publish-prep
+Design (per component) → Implement (per component) → Integration Test → Done
 ```
 
 - Design document per component
 - Full TDD implementation
 - Integration testing for cross-component contracts
-- Exit: Done (personal) or continue to Publish-prep
-
-### Full Path
-
-**When:** Complex + marketplace quality required
-
-```
-Triage → Design → Implement → Optimize → Deploy → Published
-```
-
-- All standard path stages
-- Six-lens optimization
-- Deployment to marketplace
-- Exit: Published plugin
+- Exit: Done or continue to Optimization/Deployment on request
 
 ### Path Comparison
 
-| Aspect | Quick | Standard | Full |
-|--------|-------|----------|------|
-| Design docs | No | Yes | Yes |
-| Integration test | No | Yes | Yes |
-| Optimization | No | Optional | Yes |
-| Deployment | Manual | Manual | Guided |
-| Estimated overhead | +5 min | +30 min | +60 min |
-| Best for | Personal tools | Team/quality plugins | Marketplace |
+| Aspect | Minimal | Rigorous |
+|--------|---------|----------|
+| Design docs | No | Yes, per component |
+| Integration test | No | Yes, required before "done" |
+| Optimization | On request | On request |
+| Deployment | On request | On request |
+| Best for | Personal tools | Team plugins, marketplace |
+
+### Path Selection
+
+Single question to user: **"Is this plugin for personal use, or will others use it?"**
+
+- Personal use → Minimal path
+- Others will use it → Rigorous path
 
 ---
 
@@ -193,7 +183,7 @@ When user returns to an existing plugin:
 ### Graduation Options
 
 ```
-Quick path completed
+Minimal path completed
         │
         ▼
 ┌───────────────────────────────────────┐
@@ -209,10 +199,11 @@ Quick path completed
         ▼
 ┌───────────────────────────────────────┐
 │ Options:                              │
-│ A) Retrofit design doc                │
+│ A) Retrofit design doc (upgrade to    │
+│    Rigorous path documentation)       │
 │ B) Run optimization (6 lenses)        │
-│ C) Prepare for marketplace (full)     │
-│ D) Add more components (extend)       │
+│ C) Prepare for marketplace            │
+│ D) Add more components                │
 └───────────────────────────────────────┘
 ```
 
@@ -251,11 +242,11 @@ Quick path completed
     "component_count": 2,
     "target_audience": "marketplace",
     "external_deps": ["mcp:postgres", "api:github"],
-    "recommended_path": "standard",
-    "reasoning": "2 components + external MCP = standard path"
+    "recommended_path": "rigorous",
+    "reasoning": "2 components + external MCP = rigorous path"
   },
 
-  "chosen_path": "standard",
+  "chosen_path": "rigorous",
 
   "decisions": {
     "skill:my-skill": {
@@ -488,7 +479,7 @@ Both entry points invoke the same orchestrator logic. The command is explicit; t
 ## Resuming: my-plugin
 
 Last active: [date]
-Path: [Standard/Quick/Full]
+Path: [Minimal/Rigorous]
 Current stage: [stage] → [component]
 
 ### Progress
@@ -631,7 +622,7 @@ sys.exit(2)
 |----------|---------------|
 | Hook with no cross-component contract | Recommended (template provided) |
 | Hook referenced in integration test contract | Required |
-| Quick path hooks | Not required |
+| Minimal path hooks | Not required |
 
 ### Contract Surfacing
 
@@ -685,7 +676,7 @@ Contracts are explicitly surfaced by the implementation subagent, not auto-detec
 |---------|-----------|----------|
 | **Auto (stage transition)** | All components reach "implemented" | Orchestrator prompts: "Ready to run integration tests?" |
 | **Manual** | User requests "run integration tests" | Execute all scenarios |
-| **Pre-deployment gate** | Before optimization or deployment stage | Required pass for Standard/Full paths |
+| **Pre-deployment gate** | Before optimization or deployment stage | Required pass for Rigorous path |
 
 ### Execution Flow
 
@@ -710,9 +701,8 @@ Report summary to user
 
 | Path | Integration Testing |
 |------|---------------------|
-| Quick | Skipped (typically single component, no contracts) |
-| Standard | Required before "done" |
-| Full | Required before optimization |
+| Minimal | Skipped (typically single component, no contracts) |
+| Rigorous | Required before "done" |
 
 ---
 
@@ -752,7 +742,7 @@ This design was informed by a three-lens audit (`--claude-code` preset) of ADR-0
 |---------|---------------|
 | No session resume | State file with explicit tracking + session management |
 | Validation advisory | Failure classification enables gating; state reconciliation catches drift |
-| Pipeline overhead for simple cases | Quick path with minimal stages |
+| Pipeline overhead for simple cases | Minimal path with no design docs |
 | Iron Law enforcement | Deterministic failures require user decision; no silent skips |
 | Multi-component integration | Integration testing phase with contract surfacing and hook testability |
 
