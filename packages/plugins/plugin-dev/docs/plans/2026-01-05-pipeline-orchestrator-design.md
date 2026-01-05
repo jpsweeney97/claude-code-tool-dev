@@ -423,43 +423,26 @@ Both entry points invoke the same orchestrator logic. The command is explicit; t
 ┌─────────────────────────────────────────────────────────────────┐
 │                     ERROR HANDLING LAYERS                        │
 │                                                                  │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────┐ │
-│  │   Checkpoint     │  │  Reconciliation  │  │    Session    │ │
-│  │   System         │  │     Engine       │  │    Manager    │ │
-│  │                  │  │                  │  │               │ │
-│  │  • Progress      │  │  • State/artifact│  │  • Resume UX  │ │
-│  │    tracking      │  │    merge         │  │  • Context    │ │
-│  │  • Retry logic   │  │  • Conflict      │  │    restore    │ │
-│  │  • Resume ctx    │  │    resolution    │  │  • Learning   │ │
-│  │                  │  │  • Backup        │  │    capture    │ │
-│  └────────┬─────────┘  └────────┬─────────┘  └───────┬───────┘ │
-│           │                     │                    │          │
-│           └─────────────────────┼────────────────────┘          │
-│                                 │                               │
-│                                 ▼                               │
-│                    ┌────────────────────────┐                   │
-│                    │    State File          │                   │
-│                    │  plugin-state.json     │                   │
-│                    └────────────────────────┘                   │
+│  ┌──────────────────┐  ┌──────────────────┐                    │
+│  │  Reconciliation  │  │    Session       │                    │
+│  │     Engine       │  │    Manager       │                    │
+│  │                  │  │                  │                    │
+│  │  • State/artifact│  │  • Resume UX     │                    │
+│  │    merge         │  │  • Context       │                    │
+│  │  • Conflict      │  │    restore       │                    │
+│  │    resolution    │  │  • Learning      │                    │
+│  │  • Backup        │  │    capture       │                    │
+│  └────────┬─────────┘  └────────┬─────────┘                    │
+│           │                     │                               │
+│           └──────────┬──────────┘                               │
+│                      │                                          │
+│                      ▼                                          │
+│         ┌────────────────────────┐                              │
+│         │    State File          │                              │
+│         │  plugin-state.json     │                              │
+│         └────────────────────────┘                              │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
-### Checkpoint System
-
-**Purpose:** Track subagent progress to enable recovery from execution failures.
-
-| Aspect | Design |
-|--------|--------|
-| **Location** | `docs/plans/.checkpoint-{stage}.jsonl` |
-| **Format** | JSON Lines (append-only) |
-| **Granularity** | Adaptive: coarse default, fine for high-risk stages |
-| **Events tracked** | `stage_start`, `artifact_created`, `decision`, `validation_*`, `learning`, `error`, `stage_complete` |
-
-**High-risk triggers (fine granularity):**
-- External dependencies (MCP, APIs)
-- Multi-file operations
-- Long-running stages (>2 min)
-- Validation phases
 
 ### Failure Classification & Recovery
 
@@ -467,20 +450,12 @@ Both entry points invoke the same orchestrator logic. The command is explicit; t
 |----------------|-------------------|-----------------|
 | **Transient** | Network timeout, MCP connection failed, rate limit | Auto-retry (max 2, backoff 5s/15s) |
 | **Deterministic** | Context limit, permission error, validation failed | User prompt with options |
-| **Ambiguous** | User abort, no checkpoint + failure | User prompt |
+| **Ambiguous** | User abort, state/artifact mismatch | User prompt |
 
 **User Prompt Options:**
 - Retry stage (fresh start)
-- Resume from checkpoint (skip completed work)
 - Skip stage (mark as manual)
 - Abort pipeline
-
-**Resume Context for Subagent:**
-- Original task description
-- Progress summary from checkpoint
-- Decisions made so far
-- Artifacts already created
-- Explicit "continue from" instruction
 
 ### State Reconciliation
 
@@ -489,7 +464,6 @@ Both entry points invoke the same orchestrator logic. The command is explicit; t
 **Triggers:**
 - Orchestrator entry (every invocation)
 - Stage transition
-- Resume from checkpoint
 - User request
 
 **Merge Strategy (Conservative):**
@@ -500,7 +474,6 @@ Both entry points invoke the same orchestrator logic. The command is explicit; t
 | Artifact exists + state silent | Add as "discovered" |
 | Artifact exists + state says "pending" | Update to "complete" |
 | Artifact missing + state says exists | **Ask user** |
-| Checkpoint exists + state not updated | Apply checkpoint |
 
 **Backup Policy:**
 - Create `plugin-state.json.bak` before conflict resolution or corruption recovery
@@ -537,14 +510,14 @@ Options: Resume | Review decisions | Start fresh | Switch component
 
 | Type | Trigger | Behavior |
 |------|---------|----------|
-| Implicit | User leaves | Checkpoint preserves state |
+| Implicit | User leaves | State file preserves progress |
 | Explicit | `/pause` or "let's stop" | Full handoff with learning prompt |
 
 **Learning Capture:**
 - Always prompt at stage completion
 - Prompt on explicit pause
 - Prompt when errors occur and user stops
-- Stored in checkpoint + state file
+- Stored in state file
 
 ### Error Handling Files
 
@@ -552,7 +525,6 @@ Options: Resume | Review decisions | Start fresh | Switch component
 docs/plans/
 ├── plugin-state.json        # Source of truth (decisions, learnings, progress)
 ├── plugin-state.json.bak    # Backup before conflict resolution
-├── .checkpoint-design.jsonl # Active checkpoint (gitignored)
 └── 2026-01-05-*-design.md   # Design documents
 ```
 
@@ -755,6 +727,10 @@ The following topics will be addressed in a future session:
 - Output format contracts
 - Context handoff mechanisms
 
+### Checkpoint System
+
+Checkpointing deferred to v2 — all three audit lenses questioned whether checkpoint complexity is warranted for workflows that typically complete in one session. Claude Code already provides `/save-handoff` for session continuity. Revisit if users report lost progress in multi-session workflows.
+
 ---
 
 ## Open Questions
@@ -775,7 +751,7 @@ This design was informed by a three-lens audit (`--claude-code` preset) of ADR-0
 | Finding | How Addressed |
 |---------|---------------|
 | No session resume | State file with explicit tracking + session management |
-| Validation advisory | Checkpoint system + failure classification enables gating |
+| Validation advisory | Failure classification enables gating; state reconciliation catches drift |
 | Pipeline overhead for simple cases | Quick path with minimal stages |
 | Iron Law enforcement | Deterministic failures require user decision; no silent skips |
 | Multi-component integration | Integration testing phase with contract surfacing and hook testability |
@@ -787,5 +763,6 @@ This design was informed by a three-lens audit (`--claude-code` preset) of ADR-0
 | Date | Change |
 |------|--------|
 | 2026-01-05 | Initial design draft |
-| 2026-01-05 | Added error handling & recovery section (checkpoint system, failure classification, state reconciliation, session management) |
+| 2026-01-05 | Added error handling & recovery section (failure classification, state reconciliation, session management) |
 | 2026-01-05 | Added integration testing section (scope, scenario format, hook testability, contract surfacing, execution flow) |
+| 2026-01-05 | Removed checkpoint system (deferred to v2 per three-lens audit feedback) |
