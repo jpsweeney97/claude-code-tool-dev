@@ -1,0 +1,51 @@
+{
+  "name": "tool-dev",
+  "description": "Local development marketplace for Claude Code extensions",
+  "owner": {
+    "name": "JP"
+  },
+  "plugins": [
+    {
+      "name": "deep-analysis",
+      "source": "./packages/plugins/deep-analysis",
+      "description": "Structured analysis for complex decisions with semantic search over past analyses",
+      "version": "0.1.0"
+    },
+    {
+      "name": "doc-auditor",
+      "source": "./packages/plugins/doc-auditor",
+      "description": "Documentation audit and repair: coherence analysis, issue detection, and interactive fixes",
+      "version": "1.0.0"
+    },
+    {
+      "name": "docs-kb",
+      "source": "./packages/plugins/docs-kb",
+      "description": "Documentation verification for Claude Code",
+      "version": "1.0.0"
+    },
+    {
+      "name": "ecosystem-builder",
+      "source": "./packages/plugins/ecosystem-builder",
+      "description": "Autonomous workflow that expands the skill ecosystem by finding gaps and building artifacts",
+      "version": "0.1.0"
+    },
+    {
+      "name": "persistent-tasks",
+      "source": "./packages/plugins/persistent-tasks",
+      "description": "Cross-session task persistence with dependency tracking and MCP tools",
+      "version": "0.1.0"
+    },
+    {
+      "name": "plugin-dev",
+      "source": "./packages/plugins/plugin-dev",
+      "description": "Comprehensive toolkit for developing, validating, and maintaining Claude Code plugins",
+      "version": "1.4.0"
+    },
+    {
+      "name": "session-log",
+      "source": "./packages/plugins/session-log",
+      "description": "Captures session summaries for historical record and work pattern reflection",
+      "version": "0.1.0"
+    }
+  ]
+}
