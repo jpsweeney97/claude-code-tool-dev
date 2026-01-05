@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
 # dependencies = ["pyyaml", "rich"]
@@ -62,13 +62,19 @@ def copy_extension(source: Path, dest: Path, dry_run: bool) -> bool:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, dest)
         return True
-    except Exception as e:
-        console.print(f"  [red]Error copying {source}: {e}[/red]")
+    except PermissionError as e:
+        console.print(f"  [red]Permission denied copying {source}: {e}[/red]")
+        return False
+    except FileNotFoundError as e:
+        console.print(f"  [red]File not found (broken symlink?) {source}: {e}[/red]")
+        return False
+    except OSError as e:
+        console.print(f"  [red]OS error copying {source}: {e}[/red]")
         return False
 
 
 def resolve_source_path(ext: dict[str, Any]) -> Path | None:
-    """Get the actual source path for an extension."""
+    """Get the actual source path for an extension. Returns None if path doesn't exist."""
     if ext.get("conflict"):
         selected = ext.get("selected_source")
         if not selected:
@@ -76,16 +82,34 @@ def resolve_source_path(ext: dict[str, Any]) -> Path | None:
         for src in ext["sources"]:
             if src["location"] == selected:
                 path = Path(src["path"])
-                # Follow symlinks
-                if src.get("is_symlink") and src.get("symlink_target"):
-                    path = Path(src["symlink_target"])
+                # Follow symlinks - validate target exists
+                if src.get("is_symlink"):
+                    if src.get("symlink_target"):
+                        target = Path(src["symlink_target"])
+                        if not target.exists():
+                            console.print(f"  [yellow]Warning: broken symlink target {target}[/yellow]")
+                            return None
+                        path = target
+                    else:
+                        # Symlink without target means it was broken at scan time
+                        console.print(f"  [yellow]Warning: {path} was a broken symlink[/yellow]")
+                        return None
                 return path
         return None
     else:
         path = Path(ext["path"])
-        # Follow symlinks
-        if ext.get("is_symlink") and ext.get("symlink_target"):
-            path = Path(ext["symlink_target"])
+        # Follow symlinks - validate target exists
+        if ext.get("is_symlink"):
+            if ext.get("symlink_target"):
+                target = Path(ext["symlink_target"])
+                if not target.exists():
+                    console.print(f"  [yellow]Warning: broken symlink target {target}[/yellow]")
+                    return None
+                path = target
+            else:
+                # Symlink without target means it was broken at scan time
+                console.print(f"  [yellow]Warning: {path} was a broken symlink[/yellow]")
+                return None
         return path
 
 

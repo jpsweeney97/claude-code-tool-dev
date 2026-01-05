@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
 # dependencies = ["pyyaml", "rich"]
@@ -55,11 +55,16 @@ def scan_directory(base: Path, subdir: str) -> list[dict[str, Any]]:
         if item.name.startswith("."):
             continue
 
-        # Skip symlinks for orphaned detection
+        # Handle symlinks - check if target exists
         is_symlink = item.is_symlink()
         if is_symlink:
             target = item.resolve()
-            symlink_target = str(target)
+            if target.exists():
+                symlink_target = str(target)
+            else:
+                # Broken symlink
+                symlink_target = None
+                console.print(f"[yellow]Warning: broken symlink {item} -> {target}[/yellow]")
         else:
             symlink_target = None
 
@@ -164,11 +169,13 @@ def generate_inventory() -> dict[str, Any]:
                 "notes": "",
             })
         else:
-            # No conflict
+            # No conflict - include all metadata
             inventory["extensions"]["skills"].append({
                 "name": name,
                 "source": ext["source"],
                 "path": ext["path"],
+                "modified": ext["modified"],
+                "files": ext["files"],
                 "is_symlink": ext["is_symlink"],
                 "symlink_target": ext["symlink_target"],
                 "decision": None,
@@ -183,6 +190,10 @@ def generate_inventory() -> dict[str, Any]:
             "name": ext["name"],
             "source": ext["source"],
             "path": ext["path"],
+            "modified": ext["modified"],
+            "files": ext["files"],
+            "is_symlink": ext["is_symlink"],
+            "symlink_target": ext["symlink_target"],
             "decision": None,
             "status": "pending",
             "notes": "",
@@ -194,6 +205,10 @@ def generate_inventory() -> dict[str, Any]:
             "name": ext["name"],
             "source": ext["source"],
             "path": ext["path"],
+            "modified": ext["modified"],
+            "files": ext["files"],
+            "is_symlink": ext["is_symlink"],
+            "symlink_target": ext["symlink_target"],
             "decision": None,
             "status": "pending",
             "notes": "",

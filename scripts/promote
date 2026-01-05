@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
 # dependencies = ["pyyaml", "rich"]
@@ -179,12 +179,18 @@ def copy_extension(source: Path, dest: Path) -> bool:
         if source.is_dir():
             if dest.exists():
                 shutil.rmtree(dest)
-            shutil.copytree(source, dest)
+            shutil.copytree(source, dest, symlinks=False)
         else:
             shutil.copy2(source, dest)
         return True
-    except Exception as e:
-        console.print(f"[red]Error copying: {e}[/red]")
+    except PermissionError as e:
+        console.print(f"[red]Permission denied: {e}[/red]")
+        return False
+    except FileNotFoundError as e:
+        console.print(f"[red]File not found (broken symlink?): {e}[/red]")
+        return False
+    except OSError as e:
+        console.print(f"[red]OS error: {e}[/red]")
         return False
 
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
 # dependencies = ["rich"]
@@ -21,6 +21,7 @@ Valid events: PreToolUse, PostToolUse, UserPromptSubmit, Stop, SubagentStop,
 """
 
 import argparse
+import difflib
 import json
 import re
 from pathlib import Path
@@ -102,7 +103,12 @@ def build_hooks_config(hooks_dir: Path) -> dict[str, list[dict]]:
 
         event = frontmatter["event"]
         matcher = frontmatter.get("matcher")
-        timeout = int(frontmatter.get("timeout", 60000))
+        timeout_str = frontmatter.get("timeout", "60000")
+        try:
+            timeout = int(timeout_str)
+        except ValueError:
+            console.print(f"[yellow]Warning: {hook_file.name} has invalid timeout '{timeout_str}', using default[/yellow]")
+            timeout = 60000
 
         # Build hook entry
         hook_entry = {
@@ -134,7 +140,11 @@ def build_hooks_config(hooks_dir: Path) -> dict[str, list[dict]]:
 def load_settings() -> dict[str, Any]:
     """Load current settings.json."""
     if SETTINGS_PATH.exists():
-        return json.loads(SETTINGS_PATH.read_text())
+        try:
+            return json.loads(SETTINGS_PATH.read_text())
+        except json.JSONDecodeError as e:
+            console.print(f"[red]Error: settings.json is malformed: {e}[/red]")
+            return {}
     return {}
 
 
@@ -153,7 +163,6 @@ def show_diff(old: dict, new: dict) -> bool:
         console.print("[dim]No changes to hooks section[/dim]")
         return False
 
-    import difflib
     diff = list(difflib.unified_diff(
         old_json.splitlines(keepends=True),
         new_json.splitlines(keepends=True),
