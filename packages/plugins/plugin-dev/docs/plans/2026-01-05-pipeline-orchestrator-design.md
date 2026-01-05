@@ -411,7 +411,7 @@ errors:  # Empty array if none
 
 **Orchestrator parsing:**
 
-1. Extract YAML block from subagent response (regex: `---\n.*?\n---`)
+1. Extract YAML block from subagent response (regex: `---\n[\s\S]*?\n---`)
 2. Parse YAML
 3. Update state file with artifacts, decisions, contracts
 4. If errors non-empty and `recoverable: false`, trigger failure handling
