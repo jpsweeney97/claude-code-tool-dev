@@ -234,75 +234,38 @@ Minimal path completed
 {
   "schema_version": "1.0",
   "plugin": "my-plugin",
-  "path": "/path/to/plugin",
   "created": "2026-01-05T12:00:00Z",
   "updated": "2026-01-05T14:30:00Z",
-
-  "analysis": {
-    "component_count": 2,
-    "target_audience": "marketplace",
-    "external_deps": ["mcp:postgres", "api:github"],
-    "recommended_path": "rigorous",
-    "reasoning": "2 components + external MCP = rigorous path"
-  },
-
-  "chosen_path": "rigorous",
-
-  "decisions": {
-    "skill:my-skill": {
-      "design_approach": "light",
-      "trigger_strategy": "explicit command only"
-    }
-  },
-
+  "path": "rigorous",
+  "stage": "implementing",
   "components": [
     {
       "type": "skill",
       "name": "my-skill",
-      "stage": "implementing",
-      "design_doc": "docs/plans/2026-01-05-my-skill-design.md",
-      "artifacts": ["skills/my-skill/SKILL.md"],
-      "validation": { "passed": true, "last_run": "2026-01-05T14:00:00Z" }
-    },
-    {
-      "type": "hook",
-      "name": "validate-writes",
-      "stage": "pending",
-      "design_doc": null,
-      "artifacts": []
+      "status": "implemented",
+      "design_doc": "docs/plans/2026-01-05-my-skill-design.md"
     }
   ],
-
-  "integration": {
-    "status": "pending",
-    "contracts": ["skill:my-skill assumes hook:validate-writes blocks invalid paths"],
-    "test_results": null
-  },
-
-  "learnings": [
-    {
-      "stage": "implementing",
-      "component": "hook:validate-writes",
-      "type": "gotcha",
-      "description": "Exit code 2 shows stderr to Claude, not user",
-      "resolution": "Made error messages instructional for Claude",
-      "timestamp": "2026-01-05T13:45:00Z"
-    }
+  "contracts": [
+    "skill:path-validator assumes hook:block-etc blocks /etc writes"
   ],
-
-  "escalation_triggers": [],
-  "blockers": []
+  "notes": "Exit code 2 shows stderr to Claude, not user."
 }
 ```
 
-### Learning Types
+**Field definitions:**
 
-| Type | Meaning |
-|------|---------|
-| `gotcha` | Unexpected behavior / easy mistake |
-| `lesson` | General insight worth remembering |
-| `workaround` | Limitation that required creative solution |
-| `assumption_violated` | Something we thought was true but wasn't |
+| Field | Type | Description |
+|-------|------|-------------|
+| `schema_version` | string | Schema version for migrations |
+| `plugin` | string | Plugin name |
+| `created` | ISO 8601 | Creation timestamp |
+| `updated` | ISO 8601 | Last modification timestamp |
+| `path` | enum | `minimal` or `rigorous` |
+| `stage` | enum | `designing`, `implementing`, `testing`, `done` |
+| `components` | array | Component tracking (type, name, status, design_doc) |
+| `contracts` | array | Cross-component assumptions as strings |
+| `notes` | string | Free-form notes/learnings |
 
 ### Artifact Inference (for re-entry)
 
@@ -598,7 +561,7 @@ Integration tests verify **observable, external behavior** — not Claude's inte
 ```
 docs/plans/
 ├── integration-tests.md     # Scenario definitions (static)
-├── plugin-state.json        # Results in integration.results[] (dynamic)
+├── plugin-state.json        # State tracking (stage, contracts, notes)
 └── .hook-audit.log          # Test artifact (gitignored)
 ```
 
@@ -685,39 +648,13 @@ Contracts are explicitly surfaced by the implementation subagent, not auto-detec
 
 **Orchestrator response:**
 
-1. Add to `plugin-state.json` → `integration.contracts[]`
+1. Add to `plugin-state.json` → `contracts[]` (top-level)
 2. Create skeleton scenario in `integration-tests.md`
 3. Flag component as "has untested contracts"
 
 ### State Schema (integration section)
 
-```json
-"integration": {
-  "status": "pending",
-  "contracts": [
-    {
-      "id": "skill-hook-block-etc",
-      "description": "skill:path-validator assumes hook:block-etc blocks /etc writes",
-      "source_component": "skill:path-validator",
-      "target_component": "hook:block-etc",
-      "test_scenario": "hook-blocks-etc-writes",
-      "status": "untested"
-    }
-  ],
-  "results": [
-    {
-      "scenario": "hook-blocks-etc-writes",
-      "timestamp": "2026-01-05T15:00:00Z",
-      "status": "passed",
-      "checks": [
-        {"name": "file-blocked", "passed": true},
-        {"name": "logged", "passed": true}
-      ],
-      "output": "PASS:file-blocked\nPASS:logged"
-    }
-  ]
-}
-```
+Integration status is tracked via component status and contracts array. No separate integration section needed — contracts are top-level in simplified schema.
 
 ### Trigger Points
 
@@ -805,3 +742,4 @@ This design was informed by a three-lens audit (`--claude-code` preset) of ADR-0
 | 2026-01-05 | Added error handling & recovery section (failure classification, state reconciliation, session management) |
 | 2026-01-05 | Added integration testing section (scope, scenario format, hook testability, contract surfacing, execution flow) |
 | 2026-01-05 | Removed checkpoint system (deferred to v2 per three-lens audit feedback) |
+| 2026-01-05 | Simplified state schema from 83 lines to 9 fields; removed learnings taxonomy |
