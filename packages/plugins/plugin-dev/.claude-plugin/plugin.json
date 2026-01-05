@@ -1,6 +1,6 @@
 {
   "name": "plugin-dev",
-  "version": "1.4.0",
+  "version": "1.4.2",
   "description": "Comprehensive toolkit for developing, validating, and maintaining high-quality Claude Code plugins",
   "author": {
     "name": "JP"

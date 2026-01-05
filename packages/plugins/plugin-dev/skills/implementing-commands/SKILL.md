@@ -155,7 +155,7 @@ DEBUG: args=$1
 
 # After (complete)
 Validate plugin path:
-!`test -d $1 && echo "OK" || echo "MISSING: $1"`
+`test -d $1 && echo "OK" || echo "MISSING: $1"`
 
 Use the optimizing-plugins skill to analyze this plugin:
 @$1

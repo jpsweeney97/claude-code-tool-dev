@@ -93,7 +93,7 @@ Ask one question at a time:
 
 | Question | Explores |
 |----------|----------|
-| Does it gather context first? | Uses `!` or `@` |
+| Does it gather context first? | Uses `@` or bash execution |
 | Does it delegate work? | To skill, agent, or inline |
 | Is it interactive? | Uses AskUserQuestion |
 | Does it chain multiple actions? | Pipeline vs single action |
@@ -118,7 +118,7 @@ Ask one question at a time:
 | Question | Purpose |
 |----------|---------|
 | What input does the user provide? | Identifies argument needs |
-| What context does the command gather? | Identifies `!`, `@` needs |
+| What context does the command gather? | Identifies `@` and bash execution needs |
 | Does it need plugin resources? | Identifies `${CLAUDE_PLUGIN_ROOT}` needs |
 
 **Argument patterns:**
@@ -136,20 +136,20 @@ Ask one question at a time:
 |---------|--------|-------------|---------|
 | File reference | `@path` | Include file contents | `Review @src/main.ts` |
 | Dynamic file ref | `@$1` | File from argument | `Review @$1` |
-| Bash execution | `` !`command` `` | Gather dynamic context | `` Status: !`git status` `` |
+| Bash execution | `!\`command\`` | Gather dynamic context | `Status: !\`git status\`` |
 | Plugin resource | `${CLAUDE_PLUGIN_ROOT}` | Access plugin files | `@${CLAUDE_PLUGIN_ROOT}/templates/report.md` |
 
 > **Note:** `${CLAUDE_PLUGIN_ROOT}` is only available in plugin commands. User commands (in `~/.claude/commands/`) and project commands (in `.claude/commands/`) should use absolute paths or paths relative to the working directory.
 
 **Output:**
 - `argument-hint`: string showing expected args
-- Context gathering: list of `!`, `@`, or `${CLAUDE_PLUGIN_ROOT}` patterns
+- Context gathering: list of `@`, bash execution, or `${CLAUDE_PLUGIN_ROOT}` patterns
 
 **Example:**
 ```yaml
 argument-hint: "<file-path> [--verbose]"
 ```
-Context: `@$1` for file, `` !`git log -1` `` for recent commit
+Context: `@$1` for file, `!\`git log -1\`` for recent commit
 
 ---
 
@@ -183,8 +183,8 @@ Ask one question at a time:
 **Example:**
 ```markdown
 Validate:
-1. File exists: !`test -f $1 && echo "OK" || echo "MISSING"`
-2. Is TypeScript: !`echo "$1" | grep -E "\.tsx?$" || echo "NOT_TS"`
+1. File exists: `test -f $1 && echo "OK" || echo "MISSING"`
+2. Is TypeScript: `echo "$1" | grep -E "\.tsx?$" || echo "NOT_TS"`
 ```
 
 ---
@@ -205,7 +205,7 @@ Ask one question at a time:
 |---------|-------------|----------------|
 | Invoke skill | Skill has the knowledge | `Use the commit-message skill to...` |
 | Launch agent | Complex delegated task | `Launch the code-reviewer agent to...` |
-| Run script | Deterministic operation | `` !`bash ${CLAUDE_PLUGIN_ROOT}/scripts/build.sh` `` |
+| Run script | Deterministic operation | `bash ${CLAUDE_PLUGIN_ROOT}/scripts/build.sh` |
 | Inline work | Simple, self-contained | (just write the instructions) |
 | Pipeline | Multiple steps | Phase 1: skill, Phase 2: script, Phase 3: agent |
 
@@ -235,7 +235,7 @@ Ask one question at a time:
 
 | Pattern | When to use | Example |
 |---------|-------------|---------|
-| Validation script | Verify output quality | `` !`python ${CLAUDE_PLUGIN_ROOT}/scripts/validate.py` `` |
+| Validation script | Verify output quality | `python ${CLAUDE_PLUGIN_ROOT}/scripts/validate.py` |
 | Git operations | Commit, stage, push | Stage changes, create commit |
 | Summary output | User feedback | "Created X, modified Y" |
 | Next step suggestion | Guide workflow | "Run /implementing-X to continue" |
@@ -247,7 +247,7 @@ Ask one question at a time:
 **Example:**
 ```markdown
 Post-processing:
-1. Run validation: !`python ${CLAUDE_PLUGIN_ROOT}/scripts/validate.py $1`
+1. Run validation: `python ${CLAUDE_PLUGIN_ROOT}/scripts/validate.py $1`
 2. Suggest next step: "Run /implementing-commands to build from this design"
 ```
 
