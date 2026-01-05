@@ -35,7 +35,7 @@ Design a **smart router orchestrator** that:
 2. Manages state across sessions
 3. Invokes the right skills at the right time via custom subagents
 4. Supports path graduation (minimal → rigorous)
-5. Tracks learnings for future reference
+5. Captures notes (decisions and learnings) for future reference
 
 ---
 
@@ -324,7 +324,7 @@ Orchestrator (main thread)
        Task tool → custom subagent with skills
            │
            ▼
-       Subagent returns: artifacts created, decisions made, learnings
+       Subagent returns: artifacts, decisions, contracts, errors
            │
            ▼
        Orchestrator updates state file
@@ -376,8 +376,11 @@ errors:  # Empty array if none
 
 1. Extract YAML block from subagent response (regex: `---\n[\s\S]*?\n---`)
 2. Parse YAML
-3. Update state file with artifacts, decisions, contracts
-4. If errors non-empty and `recoverable: false`, trigger failure handling
+3. Update state file:
+   - `artifacts` → update `components` array (type, name, status from action)
+   - `decisions` → append summary to `notes` field
+   - `contracts` → add to `contracts` array
+   - `errors` → if non-empty and `recoverable: false`, trigger failure handling
 
 ---
 
@@ -497,13 +500,13 @@ Current stage: [stage] → [component]
 ### Progress
 [Table of components and their status]
 
-### Key Decisions Made
-[List of important decisions]
+### Notes
+[Key decisions and learnings captured during development]
 
 ### What's Next
 [Numbered list of upcoming steps]
 
-Options: Resume | Review decisions | Start fresh | Switch component
+Options: Resume | Review notes | Start fresh | Switch component
 ```
 
 - Summary length: Same always (user can skim)
@@ -526,7 +529,7 @@ Options: Resume | Review decisions | Start fresh | Switch component
 
 ```
 docs/plans/
-├── plugin-state.json        # Source of truth (decisions, learnings, progress)
+├── plugin-state.json        # Source of truth (stage, contracts, notes)
 ├── plugin-state.json.bak    # Backup before conflict resolution
 └── 2026-01-05-*-design.md   # Design documents
 ```
@@ -712,7 +715,7 @@ Checkpointing deferred to v2 — all three audit lenses questioned whether check
 ## Open Questions
 
 1. **State file location:** `docs/plans/plugin-state.json` vs root-level `plugin-state.json`?
-2. **Learnings export:** Should learnings auto-export to README at publish time?
+2. **Notes export:** Should notes auto-export to README at publish time?
 3. **Parallel component work:** Can multiple components be designed/implemented in parallel?
 4. **Validation enforcement:** Should stage transitions be gated by validation, or advisory?
 
