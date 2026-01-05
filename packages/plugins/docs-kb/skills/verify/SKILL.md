@@ -1,3 +1,8 @@
+---
+name: verify
+description: Verify API usage against documentation before writing code
+---
+
 # docs-kb:verify
 
 Verify API usage against documentation before writing code.
