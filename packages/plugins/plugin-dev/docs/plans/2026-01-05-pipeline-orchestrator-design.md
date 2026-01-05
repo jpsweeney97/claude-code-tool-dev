@@ -273,7 +273,7 @@ When no state file exists but artifacts are present:
 
 | Artifact Found | Inferred State |
 |----------------|----------------|
-| `plugin.json` | Plugin exists |
+| `.claude-plugin/plugin.json` | Plugin initialized |
 | `skills/*/SKILL.md` | Skill implemented |
 | `hooks/*.py` | Hook implemented |
 | `docs/plans/*-design.md` | Design completed |
@@ -418,6 +418,66 @@ allowed-tools: Read, Write, Bash, Task, Glob, Grep, TodoWrite, AskUserQuestion
 ### Relationship
 
 Both entry points invoke the same orchestrator logic. The command is explicit; the skill is discoverable via natural language.
+
+---
+
+## Plugin Manifest Creation
+
+The orchestrator creates `.claude-plugin/plugin.json` automatically.
+
+### Trigger
+
+After the first component reaches "implemented" status.
+
+### Template
+
+```json
+{
+  "name": "my-plugin",
+  "version": "0.1.0",
+  "description": "Created by pipeline orchestrator",
+  "author": {
+    "name": "User"
+  },
+  "components": {
+    "skills": "./skills/"
+  }
+}
+```
+
+### User Prompt
+
+After creating the manifest:
+
+> Created `.claude-plugin/plugin.json`. Update `description` and `author.name` before publishing.
+
+### Component Discovery
+
+The orchestrator adds component directories as they're created:
+
+| Component Type | Manifest Entry |
+|----------------|----------------|
+| Skill | `"skills": "./skills/"` |
+| Hook | `"hooks": "./hooks/"` |
+| Agent | `"agents": "./agents/"` |
+| Command | `"commands": "./commands/"` |
+
+**Example** (plugin with skill and hook):
+
+```json
+{
+  "name": "my-plugin",
+  "version": "0.1.0",
+  "description": "A plugin for X",
+  "author": {
+    "name": "Your Name"
+  },
+  "components": {
+    "skills": "./skills/",
+    "hooks": "./hooks/"
+  }
+}
+```
 
 ---
 
