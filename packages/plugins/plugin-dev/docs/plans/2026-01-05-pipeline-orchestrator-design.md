@@ -369,7 +369,7 @@ errors:  # Empty array if none
 |-------|----------|-------------|
 | `artifacts` | Yes | Files created/modified/deleted during execution |
 | `decisions` | Yes | Key decisions made (for state tracking and resume) |
-| `contracts` | pipeline-implementer only | Cross-component assumptions |
+| `contracts` | No | Deprecated — use `# CONTRACT:` comments instead |
 | `errors` | Yes | Errors encountered (empty array if none) |
 
 **Orchestrator parsing:**
@@ -641,19 +641,25 @@ sys.exit(2)
 
 ### Contract Surfacing
 
-Contracts are explicitly surfaced by the implementation subagent, not auto-detected.
+Contracts are surfaced via post-hoc grep, not subagent self-reporting.
 
-**Pipeline-implementer instruction:**
+**Comment convention:**
 
-> When your implementation assumes behavior from another component:
-> 1. Add a comment: `# CONTRACT: assumes hook:X blocks Y`
-> 2. Include in return output: `contracts: [{description, source, target}]`
+```python
+# CONTRACT: assumes hook:block-etc blocks /etc/* writes
+```
 
-**Orchestrator response:**
+**Subagent instruction:**
+> When your implementation assumes behavior from another component, add a comment: `# CONTRACT: assumes {component}:{name} {behavior}`. You do NOT need to report contracts in your YAML output.
 
-1. Add to `plugin-state.json` → `contracts[]` (top-level)
-2. Create skeleton scenario in `integration-tests.md`
-3. Flag component as "has untested contracts"
+**Extraction:**
+
+```bash
+grep -rh "# CONTRACT:" skills/ hooks/ agents/ commands/ | \
+  sed 's/.*# CONTRACT: //' | sort -u
+```
+
+**Rationale:** Post-hoc grep is deterministic. Expecting Claude to self-report assumptions produces unreliable results — Claude doesn't notice assumptions it made implicitly.
 
 ### State Schema (integration section)
 
