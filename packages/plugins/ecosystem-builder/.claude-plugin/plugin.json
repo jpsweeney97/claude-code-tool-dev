@@ -1,0 +1,10 @@
+{
+  "name": "ecosystem-builder",
+  "version": "0.1.0",
+  "description": "Autonomous workflow that expands the skill ecosystem by finding gaps, building artifacts, and staging for review",
+  "author": {
+    "name": "JP"
+  },
+  "license": "MIT",
+  "keywords": ["ecosystem", "autonomous", "skills", "gap-analysis"]
+}

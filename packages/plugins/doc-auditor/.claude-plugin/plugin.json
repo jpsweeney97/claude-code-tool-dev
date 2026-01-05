@@ -1,0 +1,21 @@
+{
+  "name": "doc-auditor",
+  "version": "1.0.0",
+  "description": "Documentation audit and repair: coherence analysis, 15-category issue detection, template compliance, and interactive fixes",
+  "author": {
+    "name": "jp"
+  },
+  "license": "MIT",
+  "keywords": [
+    "documentation",
+    "audit",
+    "quality",
+    "markdown",
+    "consistency"
+  ],
+  "commands": "./commands/",
+  "agents": [
+    "./agents/coherence-analyzer.md",
+    "./agents/issue-detector.md"
+  ]
+}

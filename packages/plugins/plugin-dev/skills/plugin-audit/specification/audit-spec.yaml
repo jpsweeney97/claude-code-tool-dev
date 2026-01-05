@@ -1,0 +1,1055 @@
+# Plugin Audit Specification
+#
+# Evidence-backed rules for plugin validation.
+# Each rule includes source documentation and derivation logic.
+#
+# Design principles:
+# 1. Rules are derived from official Claude Code documentation
+# 2. Each rule has explicit evidence (quote + source)
+# 3. Context patterns prevent false positives
+# 4. Confidence thresholds ensure appropriate reporting
+
+meta:
+  version: "1.1.0"
+  last_verified: "2025-12-29"
+  verification_sources:
+    - name: "Claude Code Documentation - Plugins Technical Reference"
+      type: official
+      authority: primary
+      url: "https://code.claude.com/docs/en/plugins-reference"
+    - name: "Claude Code Documentation - Skills Overview"
+      type: official
+      authority: primary
+      url: "https://code.claude.com/docs/en/skills"
+    - name: "Claude Code Documentation - Skill Best Practices"
+      type: official
+      authority: primary
+      url: "https://code.claude.com/docs/en/skill-best-practices"
+    - name: "Claude Code Documentation - Hooks Technical Reference"
+      type: official
+      authority: primary
+      url: "https://code.claude.com/docs/en/hooks"
+    - name: "Claude Code Documentation - Subagents Overview"
+      type: official
+      authority: primary
+      url: "https://code.claude.com/docs/en/sub-agents"
+    - name: "Anthropic Engineering Blog"
+      type: official
+      authority: secondary
+    - name: "Claude Code Source (observed behavior)"
+      type: empirical
+      authority: tertiary
+
+# Severity levels and their semantics
+severity_definitions:
+  critical:
+    meaning: "Plugin will not load or function correctly"
+    action: "Must fix before plugin can work"
+    examples:
+      - "Missing manifest file"
+      - "Invalid JSON/YAML syntax"
+      - "Missing required fields for component type"
+
+  warning:
+    meaning: "Plugin works but has quality/reliability issues"
+    action: "Should fix for production use"
+    examples:
+      - "Missing recommended fields"
+      - "Poor naming conventions"
+      - "Weak trigger phrases"
+
+  info:
+    meaning: "Suggestions for improvement"
+    action: "Consider for better user experience"
+    examples:
+      - "Missing optional metadata"
+      - "Style improvements"
+      - "Additional documentation"
+
+# Component type definitions with discovery and validation rules
+component_types:
+  command:
+    description: "Slash commands (commands/*.md)"
+    discovery:
+      directory: "commands"
+      pattern: "*.md"
+      entry_file: null  # Individual files, not directories
+
+    frontmatter:
+      fields:
+        name:
+          required: false
+          severity: info
+          evidence:
+            source: "Claude Code Documentation"
+            quote: "Command name is derived from the filename"
+            url: null
+          derivation: |
+            Documentation explicitly states command names come from filenames.
+            The `name` field in frontmatter is optional and used for display/override only.
+            Flagging missing `name` as error is a FALSE POSITIVE.
+          validation:
+            pattern: "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+            pattern_description: "kebab-case"
+
+        description:
+          required: false
+          severity: warning
+          evidence:
+            source: "Claude Code Documentation"
+            quote: "Description is shown in /help output"
+          derivation: |
+            Description is recommended for user experience but not required
+            for command to function. Missing description should be WARNING.
+          validation:
+            min_length: 10
+            max_length: 200
+
+        allowed-tools:
+          required: false
+          severity: warning
+          evidence:
+            source: "Claude Code Documentation"
+            quote: "Commands can restrict available tools"
+          derivation: |
+            Principle of least privilege suggests specifying tools,
+            but commands work without this field (full tool access).
+
+        argument-hint:
+          required: false
+          severity: info
+          evidence:
+            source: "Claude Code Documentation"
+            quote: "Shows in /help as usage hint"
+          derivation: |
+            Only meaningful if command uses $ARGUMENTS.
+            Conditional: check for $ARGUMENTS in body.
+          conditional:
+            when: "body contains '$ARGUMENTS'"
+            then_severity: warning
+
+        model:
+          required: false
+          severity: info
+          evidence:
+            source: "Claude Code Documentation"
+            quote: "Override model for specific commands"
+
+    content:
+      rules:
+        - id: C-BODY-001
+          name: "Instructions written for Claude"
+          severity: warning
+          description: "Command body should be instructions TO Claude, not documentation ABOUT the command"
+          evidence:
+            source: "Best practice derived from prompt engineering"
+            quote: "Commands are prompts that Claude executes"
+          detection:
+            patterns:
+              - "This command (?:helps|allows|enables)"
+              - "Users can"
+              - "The user should"
+            context_exemptions:
+              - "within example blocks"
+              - "within comments"
+
+  skill:
+    description: "Skills (skills/*/SKILL.md)"
+    discovery:
+      directory: "skills"
+      pattern: "*/SKILL.md"
+      entry_file: "SKILL.md"
+
+    frontmatter:
+      fields:
+        name:
+          required: true
+          severity: critical
+          evidence:
+            source: "Claude Code Documentation - Skills Overview"
+            quote: "name: Maximum 64 characters, must contain only lowercase letters, numbers, and hyphens, cannot contain XML tags, cannot contain reserved words: anthropic, claude"
+          derivation: |
+            Skill names have strict validation rules enforced by Claude Code.
+            Using invalid names will cause skill loading to fail.
+          validation:
+            pattern: "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+            pattern_description: "lowercase letters, numbers, and hyphens only"
+            min_length: 1
+            max_length: 64
+            forbidden_patterns:
+              - "anthropic"
+              - "claude"
+              - "<[^>]+>"
+            forbidden_reason: "Reserved words and XML tags not allowed"
+
+        description:
+          required: true
+          severity: critical
+          evidence:
+            source: "Claude Code Documentation - Skills Overview"
+            quote: "description: Must be non-empty, maximum 1024 characters, cannot contain XML tags"
+          derivation: |
+            Description is the TRIGGERING MECHANISM for skills.
+            Claude uses it to decide when to load the skill.
+            Must follow strict formatting rules.
+          validation:
+            min_length: 10
+            max_length: 1024
+            should_contain_triggers: true
+            forbidden_patterns:
+              - "<[^>]+>"
+            forbidden_reason: "XML tags not allowed in description"
+
+        version:
+          required: false
+          severity: info
+          evidence:
+            source: "Best practice"
+            quote: "Version tracking for skill updates"
+
+    content:
+      rules:
+        - id: SK-BODY-001
+          name: "Body uses imperative form"
+          severity: warning
+          description: "Skill body should use imperative form, not 'you should'"
+          evidence:
+            source: "Claude Code style conventions"
+            quote: "Imperative form is clearer for AI consumption"
+          detection:
+            patterns:
+              - "\\bYou should\\b"
+              - "\\bYou need to\\b"
+              - "\\bYou can\\b"
+              - "\\bYou must\\b"
+              - "\\bClaude should\\b"
+            context_exemptions:
+              - "within <example> blocks"
+              - "within quoted user messages"
+
+        - id: SK-BODY-002
+          name: "Body length appropriate"
+          severity: warning
+          description: "SKILL.md body should not exceed 500 lines; move details to separate files"
+          evidence:
+            source: "Claude Code Documentation - Skill Best Practices"
+            quote: "Keep SKILL.md body under 500 lines for optimal performance"
+          detection:
+            max_lines: 500
+            recommended_lines: 300
+
+        - id: SK-REF-001
+          name: "References one level deep"
+          severity: warning
+          description: "Referenced files should be directly from SKILL.md, not nested"
+          evidence:
+            source: "Claude Code Documentation - Skill Best Practices"
+            quote: "Keep references one level deep from SKILL.md... All reference files should link directly from SKILL.md"
+          detection:
+            check_reference_depth: true
+            max_depth: 1
+
+        - id: SK-REF-002
+          name: "Long reference files have TOC"
+          severity: info
+          description: "Reference files over 100 lines should have a table of contents"
+          evidence:
+            source: "Claude Code Documentation - Skill Best Practices"
+            quote: "For reference files longer than 100 lines, include a table of contents at the top"
+          detection:
+            applies_to: "reference files over 100 lines"
+            should_contain:
+              - "## Contents"
+              - "## Table of Contents"
+
+        - id: SK-DESC-001
+          name: "Description has trigger phrases"
+          severity: warning
+          description: "Description should contain specific quoted trigger phrases"
+          evidence:
+            source: "Claude Code triggering mechanism"
+            quote: "Specific trigger phrases ensure skill loads at right time"
+          detection:
+            should_contain: "quoted strings in description"
+            patterns:
+              - '"[^"]{3,}"'  # At least one quoted phrase
+
+        - id: SK-DESC-002
+          name: "Description uses third person"
+          severity: warning
+          description: "Description should be written in third person, not first or second person"
+          evidence:
+            source: "Claude Code Documentation - Skill Best Practices"
+            quote: "Always write in third person. The description is injected into the system prompt."
+          detection:
+            patterns:
+              - "^I can"
+              - "^I will"
+              - "^You can"
+              - "^You should"
+              - "\\bI help\\b"
+            context_exemptions:
+              - "within example blocks"
+
+  agent:
+    description: "Subagents (agents/*.md)"
+    discovery:
+      directory: "agents"
+      pattern: "*.md"
+      entry_file: null
+
+    frontmatter:
+      fields:
+        name:
+          required: true
+          severity: critical
+          evidence:
+            source: "Claude Code Documentation - Subagents Overview"
+            quote: "name: Yes - Unique identifier using lowercase letters and hyphens"
+          derivation: |
+            Agent name is REQUIRED for identification in /agents interface.
+          validation:
+            pattern: "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+            pattern_description: "lowercase letters and hyphens only"
+            min_length: 2
+            max_length: 64
+
+        description:
+          required: true
+          severity: critical
+          evidence:
+            source: "Claude Code Documentation - Subagents Overview"
+            quote: "Description is used by Claude to decide when to invoke the agent via Task tool"
+          derivation: |
+            The description field is REQUIRED for agent registration.
+            Without it, Claude cannot know when to dispatch the agent.
+          validation:
+            min_length: 20
+            max_length: 500
+
+        tools:
+          required: false
+          severity: info
+          evidence:
+            source: "Claude Code Documentation - Subagents Overview"
+            quote: "Omit the tools field to inherit all tools from the main thread (default)"
+          derivation: |
+            Tools field is OPTIONAL. When omitted, agent inherits all tools
+            from the parent context. Only specify when restricting access.
+          validation:
+            type: array_or_csv
+            valid_values:
+              - Read
+              - Write
+              - Edit
+              - Glob
+              - Grep
+              - Bash
+              - WebFetch
+              - WebSearch
+              - AskUserQuestion
+              - TodoWrite
+              - Task
+              - NotebookEdit
+              - Skill
+              - KillShell
+
+        model:
+          required: false
+          severity: info
+          evidence:
+            source: "Claude Code Documentation - Subagents Overview"
+            quote: "Override model for specific agents"
+          validation:
+            valid_values:
+              - sonnet
+              - opus
+              - haiku
+              - inherit
+
+        permissionMode:
+          required: false
+          severity: info
+          evidence:
+            source: "Claude Code Documentation - Subagents Overview"
+            quote: "Permission mode for the subagent. Valid values: default, acceptEdits, bypassPermissions, plan, ignore"
+          validation:
+            valid_values:
+              - default
+              - acceptEdits
+              - bypassPermissions
+              - plan
+              - ignore
+
+        skills:
+          required: false
+          severity: info
+          evidence:
+            source: "Claude Code Documentation - Subagents Overview"
+            quote: "Comma-separated list of skill names to auto-load when the subagent starts"
+          derivation: |
+            Subagents do not inherit Skills from parent conversation.
+            Use this field to preload specific skills.
+          validation:
+            type: array_or_csv
+
+        color:
+          required: false
+          severity: info
+          evidence:
+            source: "Claude Code Documentation"
+            quote: "Visual distinction in UI"
+
+    content:
+      rules:
+        - id: A-BODY-001
+          name: "Has example blocks"
+          severity: warning
+          description: "Agent body should contain <example> blocks showing trigger scenarios"
+          evidence:
+            source: "Claude Code best practices"
+            quote: "Examples help Claude understand exactly when to use the agent"
+          detection:
+            should_contain: "<example>"
+
+        - id: A-BODY-002
+          name: "Substantive system prompt"
+          severity: warning
+          description: "Agent body should provide meaningful guidance"
+          evidence:
+            source: "Agent design best practices"
+            quote: "The body becomes the agent's system prompt"
+          detection:
+            min_words: 50
+
+  hook:
+    description: "Hooks (hooks/hooks.json)"
+    discovery:
+      directory: "hooks"
+      pattern: "hooks.json"
+      entry_file: "hooks.json"
+
+    schema:
+      valid_events:
+        - PreToolUse
+        - PostToolUse
+        - PostToolUseFailure
+        - PermissionRequest
+        - Stop
+        - SubagentStop
+        - SubagentStart
+        - SessionStart
+        - SessionEnd
+        - UserPromptSubmit
+        - PreCompact
+        - Notification
+      evidence:
+        source: "Claude Code Documentation - Hooks Technical Reference"
+        quote: "Available events: PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, Stop, SubagentStop, SubagentStart, SessionStart, SessionEnd, UserPromptSubmit, PreCompact, Notification"
+        note: "Any other event name is silently ignored"
+
+    fields:
+      matcher:
+        rule_id: H-FIELD-001
+        required: true
+        severity: critical
+        description: "Regex pattern for matching"
+        validation:
+          type: regex
+          must_compile: true
+
+      type:
+        rule_id: H-FIELD-002
+        required: true
+        severity: critical
+        valid_values:
+          - command
+          - prompt
+          - agent
+        evidence:
+          source: "Claude Code Documentation - Hooks Technical Reference"
+          quote: "Hook types: command (execute shell commands), prompt (evaluate with LLM), agent (run agentic verifier with tools)"
+
+      command:
+        rule_id: H-FIELD-003
+        required: false  # Required only if type=command
+        severity: critical
+        conditional:
+          when: "type == 'command'"
+          then_required: true
+        validation:
+          must_use_plugin_root: true
+
+      prompt:
+        rule_id: H-FIELD-004
+        required: false  # Required only if type=prompt
+        severity: critical
+        conditional:
+          when: "type == 'prompt'"
+          then_required: true
+        validation:
+          must_use_plugin_root: true
+
+      timeout:
+        rule_id: H-FIELD-005
+        required: false
+        severity: warning
+        evidence:
+          source: "Claude Code Documentation"
+          quote: "Default timeout is 30 seconds"
+        derivation: |
+          Explicit timeout improves reliability and documentation.
+          Missing timeout uses default but should be flagged.
+        validation:
+          type: integer
+          min: 1000
+          max: 600000
+          recommended_min: 5000
+          recommended_max: 60000
+
+      description:
+        rule_id: H-FIELD-006
+        required: false
+        severity: info
+        evidence:
+          source: "Claude Code Documentation - Hooks Technical Reference"
+          quote: "Plugin hooks use the same format as regular hooks with an optional description field"
+        derivation: |
+          Description field explains hook purpose. Optional but recommended for plugin hooks.
+
+  mcp:
+    description: "MCP servers (.mcp.json)"
+    discovery:
+      pattern: ".mcp.json"
+      entry_file: ".mcp.json"
+
+    schema:
+      root_key: "mcpServers"
+
+    fields:
+      command:
+        rule_id: M-FIELD-001
+        required: true
+        severity: critical
+        evidence:
+          source: "Claude Code Documentation"
+          quote: "Command is required to start the MCP server process"
+        validation:
+          must_be_accessible: true
+
+      args:
+        rule_id: M-FIELD-002
+        required: false
+        severity: info
+        validation:
+          type: array
+          must_use_plugin_root: true
+
+      env:
+        rule_id: M-FIELD-003
+        required: false
+        severity: info
+        validation:
+          type: object
+          secrets_must_use_substitution: true
+
+  lsp:
+    description: "LSP servers (.lsp.json)"
+    discovery:
+      pattern: ".lsp.json"
+      entry_file: ".lsp.json"
+
+    schema:
+      root_key: null  # Keys are language server names
+
+    fields:
+      command:
+        rule_id: L-FIELD-001
+        required: true
+        severity: critical
+        evidence:
+          source: "Claude Code Documentation - Plugins Technical Reference"
+          quote: "command: The LSP binary to execute (must be in PATH)"
+        validation:
+          must_be_accessible: true
+
+      extensionToLanguage:
+        rule_id: L-FIELD-002
+        required: true
+        severity: critical
+        evidence:
+          source: "Claude Code Documentation - Plugins Technical Reference"
+          quote: "extensionToLanguage: Maps file extensions to language identifiers"
+        validation:
+          type: object
+          key_pattern: "^\\.[a-z0-9]+$"
+
+      args:
+        rule_id: L-FIELD-003
+        required: false
+        severity: info
+        validation:
+          type: array
+
+      transport:
+        rule_id: L-FIELD-004
+        required: false
+        severity: info
+        validation:
+          valid_values:
+            - stdio
+            - socket
+          default: stdio
+
+      env:
+        rule_id: L-FIELD-005
+        required: false
+        severity: info
+        validation:
+          type: object
+
+      initializationOptions:
+        rule_id: L-FIELD-006
+        required: false
+        severity: info
+
+      settings:
+        rule_id: L-FIELD-007
+        required: false
+        severity: info
+
+      workspaceFolder:
+        rule_id: L-FIELD-008
+        required: false
+        severity: info
+
+      startupTimeout:
+        rule_id: L-FIELD-009
+        required: false
+        severity: info
+        validation:
+          type: integer
+          min: 1000
+
+      shutdownTimeout:
+        rule_id: L-FIELD-010
+        required: false
+        severity: info
+        validation:
+          type: integer
+          min: 1000
+
+      restartOnCrash:
+        rule_id: L-FIELD-011
+        required: false
+        severity: info
+        validation:
+          type: boolean
+
+      maxRestarts:
+        rule_id: L-FIELD-012
+        required: false
+        severity: info
+        validation:
+          type: integer
+          min: 0
+
+      loggingConfig:
+        rule_id: L-FIELD-013
+        required: false
+        severity: info
+        evidence:
+          source: "Claude Code Documentation - Plugins Technical Reference"
+          quote: "Debug logging configuration enabled with --enable-lsp-logging"
+        validation:
+          type: object
+          allowed_keys:
+            - args
+            - env
+
+  manifest:
+    description: "Plugin manifest (.claude-plugin/plugin.json)"
+    discovery:
+      directory: ".claude-plugin"
+      pattern: "plugin.json"
+      entry_file: "plugin.json"
+
+    fields:
+      name:
+        rule_id: MF-FIELD-001
+        required: true
+        severity: critical
+        evidence:
+          source: "Claude Code Documentation - Plugins Technical Reference"
+          quote: "name: Unique identifier (kebab-case, no spaces)"
+        validation:
+          pattern: "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+
+      version:
+        rule_id: MF-FIELD-002
+        required: false
+        severity: warning
+        evidence:
+          source: "Claude Code Documentation - Plugins Technical Reference"
+          quote: "version: Semantic version"
+        validation:
+          pattern: "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?$"
+
+      description:
+        rule_id: MF-FIELD-003
+        required: false
+        severity: warning
+        validation:
+          min_length: 10
+          max_length: 500
+
+      author:
+        rule_id: MF-FIELD-004
+        required: false
+        severity: info
+        validation:
+          type: object
+          allowed_keys:
+            - name
+            - email
+            - url
+
+      homepage:
+        rule_id: MF-FIELD-005
+        required: false
+        severity: info
+        evidence:
+          source: "Claude Code Documentation - Plugins Technical Reference"
+          quote: "homepage: Documentation URL"
+        validation:
+          pattern: "^https?://"
+
+      repository:
+        rule_id: MF-FIELD-006
+        required: false
+        severity: info
+        evidence:
+          source: "Claude Code Documentation - Plugins Technical Reference"
+          quote: "repository: Source code URL"
+        validation:
+          pattern: "^https?://"
+
+      license:
+        rule_id: MF-FIELD-007
+        required: false
+        severity: info
+        evidence:
+          source: "Claude Code Documentation - Plugins Technical Reference"
+          quote: "license: License identifier (MIT, Apache-2.0, etc.)"
+
+      keywords:
+        rule_id: MF-FIELD-008
+        required: false
+        severity: info
+        evidence:
+          source: "Claude Code Documentation - Plugins Technical Reference"
+          quote: "keywords: Discovery tags"
+        validation:
+          type: array
+
+      commands:
+        rule_id: MF-FIELD-009
+        required: false
+        severity: info
+        validation:
+          type: string_or_array
+          must_start_with: "./"
+
+      agents:
+        rule_id: MF-FIELD-010
+        required: false
+        severity: info
+        validation:
+          type: string_or_array
+          must_start_with: "./"
+
+      skills:
+        rule_id: MF-FIELD-011
+        required: false
+        severity: info
+        validation:
+          type: string_or_array
+          must_start_with: "./"
+
+      hooks:
+        rule_id: MF-FIELD-012
+        required: false
+        severity: info
+        validation:
+          type: string_or_object
+
+      mcpServers:
+        rule_id: MF-FIELD-013
+        required: false
+        severity: info
+        validation:
+          type: string_or_object
+
+      lspServers:
+        rule_id: MF-FIELD-014
+        required: false
+        severity: info
+        evidence:
+          source: "Claude Code Documentation - Plugins Technical Reference"
+          quote: "lspServers: Language Server Protocol config"
+        validation:
+          type: string_or_object
+
+      outputStyles:
+        rule_id: MF-FIELD-015
+        required: false
+        severity: info
+        validation:
+          type: string_or_array
+          must_start_with: "./"
+
+# Security rules with context-aware detection
+security:
+  rules:
+    - id: SEC-PATH-001
+      name: "No hardcoded absolute paths"
+      severity: critical
+      description: "All paths to plugin files must use $CLAUDE_PLUGIN_ROOT"
+      evidence:
+        source: "Claude Code Documentation"
+        quote: "Use $CLAUDE_PLUGIN_ROOT for portable plugin paths"
+      detection:
+        patterns:
+          - "/Users/"
+          - "/home/"
+          - "C:\\\\"
+          - "/var/"
+          - "/etc/"
+        files:
+          - "*.json"
+          - "*.md"
+        context_exemptions:
+          - pattern: "Bad:|BAD:|DON'T:|example of what NOT"
+            description: "Anti-pattern examples in documentation"
+          - pattern: "<!-- example -->"
+            description: "Marked example blocks"
+
+    - id: SEC-PATH-002
+      name: "No home directory shortcuts"
+      severity: critical
+      description: "Tilde (~/) paths don't expand reliably in JSON"
+      evidence:
+        source: "Shell/JSON behavior"
+        quote: "Tilde expansion is shell-specific"
+      detection:
+        patterns:
+          - "~/"
+        files:
+          - "*.json"
+
+    - id: SEC-CRED-001
+      name: "No hardcoded credentials"
+      severity: critical
+      description: "No API keys, tokens, or passwords in code"
+      evidence:
+        source: "Security best practices"
+        quote: "Credentials in code are exposed to anyone with access"
+      detection:
+        patterns:
+          - "(api[_-]?key|apikey)\\s*[:=]\\s*[\"'][^\"']{10,}[\"']"
+          - "(token|secret|password|passwd|pwd)\\s*[:=]\\s*[\"'][^\"']+[\"']"
+          - "AKIA[0-9A-Z]{16}"  # AWS access key
+          - "sk-[a-zA-Z0-9]{20,}"  # OpenAI-style keys
+        files:
+          - "*.json"
+          - "*.md"
+          - "*.sh"
+          - "*.py"
+        context_exemptions:
+          - pattern: "\\$\\{[A-Z_]+\\}"
+            description: "Environment variable substitution"
+          - pattern: "<YOUR_.*_HERE>"
+            description: "Placeholder tokens"
+          - pattern: "xxx|REDACTED|placeholder"
+            description: "Intentional placeholders"
+
+    - id: SEC-CMD-001
+      name: "Dangerous commands require safeguards"
+      severity: warning
+      description: "Potentially destructive commands should have guards"
+      evidence:
+        source: "Security best practices"
+        quote: "Destructive operations need validation"
+      detection:
+        patterns:
+          - "rm\\s+-rf?"
+          - "DROP\\s+(TABLE|DATABASE)"
+          - "DELETE\\s+FROM.*WHERE"
+          - "TRUNCATE"
+          - "chmod\\s+777"
+          - "\\bsudo\\b"
+        files:
+          - "*.sh"
+          - "*.py"
+          - "*.md"
+        context_exemptions:
+          - pattern: "if\\s*\\[|\\$\\{.*\\}/"
+            description: "Has conditional guard"
+          - pattern: "# DANGER|# WARNING|# CAUTION"
+            description: "Has explicit warning comment"
+          - pattern: "sandbox.*deny|denyOnly|denyWithinAllow"
+            description: "Within sandbox deny configuration"
+
+    - id: SEC-ENV-001
+      name: "Sensitive env vars use substitution"
+      severity: warning
+      description: "Environment variables for secrets should use ${VAR} syntax"
+      evidence:
+        source: "Claude Code Documentation"
+        quote: "Use ${VAR} for runtime configuration"
+      detection:
+        key_patterns:
+          - "(?i)(key|secret|token|password|credential)"
+        value_should_match: "^\\$\\{[A-Z_]+\\}"
+
+# Context patterns for false positive detection
+context_patterns:
+  example_block:
+    description: "Content within example blocks should not trigger most rules"
+    markers:
+      - start: "<example>"
+        end: "</example>"
+      - start: "```"
+        end: "```"
+      - start: "<!-- example -->"
+        end: "<!-- /example -->"
+
+  anti_pattern_documentation:
+    description: "Anti-pattern examples in documentation"
+    patterns:
+      - "Bad:|BAD:"
+      - "DON'T:|Don't:"
+      - "WRONG:|Wrong:"
+      - "example of what NOT"
+      - "❌"
+      - "Avoid:|AVOID:"
+
+  security_deny_block:
+    description: "Security configurations that DENY access (not vulnerabilities)"
+    patterns:
+      - "denyOnly"
+      - "denyWithinAllow"
+      - "blocked_domains"
+      - "deny.*read|deny.*write"
+    note: |
+      Paths in deny blocks are SECURITY CONTROLS, not hardcoded paths.
+      These should NOT be flagged as SEC-PATH-001 violations.
+
+  quoted_user_speech:
+    description: "Quoted user messages in examples"
+    patterns:
+      - "User: \"[^\"]*\""
+      - "User says:"
+      - "When user asks:"
+
+# Confidence thresholds for reporting
+confidence:
+  thresholds:
+    high: 0.9     # Clear violation, report always
+    medium: 0.7   # Likely violation, report by default
+    low: 0.5      # Possible violation, report with flag
+
+  rules:
+    # High confidence: Objective checks
+    - pattern: "syntax_error"
+      confidence: 1.0
+      reason: "Deterministic check"
+
+    - pattern: "missing_required_field"
+      confidence: 0.95
+      reason: "Clear requirement from docs"
+
+    - pattern: "invalid_event_name"
+      confidence: 1.0
+      reason: "Enumerated valid values"
+
+    # Medium confidence: Heuristic checks
+    - pattern: "hardcoded_path"
+      confidence: 0.8
+      reason: "May be in documentation example"
+
+    - pattern: "weak_trigger_phrase"
+      confidence: 0.7
+      reason: "Subjective quality assessment"
+
+    # Low confidence: Style suggestions
+    - pattern: "second_person_language"
+      confidence: 0.6
+      reason: "Context-dependent"
+
+    - pattern: "missing_optional_field"
+      confidence: 0.5
+      reason: "Purely optional"
+
+# Validation script integration
+scripts:
+  json_syntax:
+    script: "scripts/validate-json.sh"
+    checks:
+      - hooks/hooks.json
+      - .mcp.json
+      - .claude-plugin/plugin.json
+
+  yaml_frontmatter:
+    script: "scripts/validate-yaml-frontmatter.sh"
+    checks:
+      - "commands/*.md"
+      - "skills/*/SKILL.md"
+      - "agents/*.md"
+
+  path_security:
+    script: "scripts/check-paths.sh"
+    checks:
+      - "all files"
+
+  file_references:
+    script: "scripts/check-file-references.sh"
+    checks:
+      - "referenced files exist"
+
+# Rule ID conventions
+# Format: {PREFIX}-{CATEGORY}-{NUM}
+# Examples: SK-BODY-001, SEC-PATH-001, H-FIELD-001
+rule_id_format: "{PREFIX}-{CATEGORY}-{NUM}"
+rule_id_prefixes:
+  S: "Structure"
+  C: "Command"
+  SK: "Skill"
+  A: "Agent"
+  H: "Hook"
+  M: "MCP"
+  L: "LSP"
+  MF: "Manifest"
+  SEC: "Security"
+  X: "Cross-cutting"
+
+# Report format specification
+report:
+  structure:
+    - summary
+    - critical_issues
+    - warning_issues
+    - info_issues
+    - passed_checks
+
+  issue_format:
+    required_fields:
+      - id
+      - severity
+      - file
+      - message
+      - fix
+    optional_fields:
+      - line
+      - evidence
+      - confidence

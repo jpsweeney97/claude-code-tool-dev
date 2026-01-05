@@ -1,0 +1,6 @@
+{
+  "name": "docs-kb",
+  "version": "1.0.0",
+  "description": "Documentation verification for Claude Code",
+  "skills": "./skills/"
+}

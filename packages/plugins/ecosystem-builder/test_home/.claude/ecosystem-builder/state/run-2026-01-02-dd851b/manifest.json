@@ -1,0 +1,30 @@
+{
+  "run_id": "run-2026-01-02-dd851b",
+  "started": "2026-01-02T00:42:00.311454+00:00",
+  "budget": {
+    "artifacts": {
+      "limit": 1,
+      "used": 0
+    },
+    "hours": {
+      "limit": 4.0,
+      "used": 0
+    },
+    "tokens": {
+      "limit": 5000000,
+      "used": 0
+    },
+    "cost_usd": {
+      "limit": 50.0,
+      "used": 0
+    }
+  },
+  "progress": {
+    "analyzed": 0,
+    "built": 0,
+    "passed": 0,
+    "failed": 0
+  },
+  "status": "running",
+  "completion_reason": null
+}
