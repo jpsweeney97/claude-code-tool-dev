@@ -32,36 +32,12 @@ from dataclasses import dataclass, asdict, field
 from datetime import date, datetime
 from pathlib import Path
 
+from _common import parse_verified_date, DEFAULT_MAX_AGE_DAYS, SECTION_ALIASES
+
 
 # =============================================================================
 # STALENESS CONFIGURATION
 # =============================================================================
-
-DEFAULT_MAX_AGE_DAYS: int = 90  # Claims older than this are considered stale
-
-
-def parse_verified_date(verified_date: str | None) -> date | None:
-    """
-    Parse a verification date, handling both plain and version-tagged formats.
-
-    Supported formats:
-        - "2026-01-05"               → plain ISO date
-        - "2026-01-05 (v2.0.76)"     → date with version suffix (from promote_claims.py)
-
-    Returns:
-        Parsed date object or None if invalid/missing.
-    """
-    if not verified_date:
-        return None
-
-    # Extract date portion (handles both plain dates and version-tagged dates)
-    # Format: "YYYY-MM-DD" or "YYYY-MM-DD (vX.Y.Z)"
-    date_str = verified_date.split(" ")[0].strip()
-
-    try:
-        return datetime.strptime(date_str, "%Y-%m-%d").date()
-    except ValueError:
-        return None
 
 
 def check_staleness(verified_date: str | None, max_age_days: int = DEFAULT_MAX_AGE_DAYS) -> tuple[int | None, bool]:
@@ -194,18 +170,6 @@ SYNONYM_GROUPS: list[tuple[str, ...]] = [
     ("max", "maximum", "limit"),
     ("config", "configuration", "configure", "configured", "configurable"),
 ]
-
-# Section normalization: map common variants to canonical names
-# Keys are lowercase for case-insensitive matching
-SECTION_ALIASES: dict[str, str] = {
-    "feature": "Features",
-    "setting": "Settings",
-    "hook": "Hooks",
-    "command": "Commands",
-    "skill": "Skills",
-    "agent": "Agents",
-}
-
 
 def discover_sections(cache_path: Path) -> set[str]:
     """
