@@ -54,6 +54,7 @@ python scripts/verify.py --sections
 | Refresh | `--refresh` | List claims needing re-verification |
 | Promote | `--promote` | Move pending → known cache |
 | Sections | `--sections` | List available sections |
+| Add | `--add` | Add verified claim to pending-claims.md |
 
 ### Options
 
@@ -62,8 +63,36 @@ python scripts/verify.py --sections
 | `--section NAME` | Filter to specific section |
 | `--check-freshness` | Show verification dates |
 | `--max-age DAYS` | Custom staleness threshold (default: 90) |
-| `--dry-run` | Preview changes (with --promote) |
+| `--dry-run` | Preview changes (with --promote or --add) |
 | `--interactive` | Confirm each claim (with --promote) |
+
+### Add Mode Options
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--claim TEXT` | Yes | The claim text to add |
+| `--verdict TYPE` | Yes | verified, false, contradicted, partial, unverified |
+| `--evidence TEXT` | Yes | Evidence/quote supporting the verdict |
+| `--add-section NAME` | Yes | Section: Skills, Hooks, Commands, MCP, etc. |
+| `--severity LEVEL` | No | CRITICAL, HIGH, or LOW |
+| `--source URL` | No | Direct documentation URL for the claim |
+| `--force` | No | Add even if similar claim exists |
+
+### Add Mode Examples
+
+```bash
+# Basic add
+python verify.py --add --claim "Exit code 2 blocks" --verdict verified \
+  --evidence "Exit code 2: Blocking error" --add-section Hooks
+
+# With severity and source
+python verify.py --add --claim "Exit code 2 blocks" --verdict verified \
+  --evidence "Exit code 2: Blocking error" --add-section Hooks \
+  --severity CRITICAL --source "https://code.claude.com/docs/en/hooks.md"
+
+# Preview without writing
+python verify.py --add --claim "..." --verdict ... --dry-run
+```
 
 ### Exit Codes
 

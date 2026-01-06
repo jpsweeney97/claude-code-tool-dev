@@ -3,9 +3,9 @@ name: verify
 description: Verify claims about Claude Code against official Anthropic documentation. Use when fact-checking Claude Code features, behaviors, or configurations.
 license: MIT
 metadata:
-  version: "2.5.1"
+  version: "2.6.1"
   model: claude-sonnet-4-20250514
-  timelessness_score: 8
+  timelessness_score: 7
 ---
 
 # Verify Claude Code Claims
@@ -44,7 +44,16 @@ Fact-check claims about Claude Code against official documentation.
 → Verifies all pending claims → Updates verdicts → Optional auto-promote
 ```
 
-**Output:** Confidence symbol (✓ ~ ? ✗) + evidence + source URL
+**Add claim (after verification):**
+```
+python scripts/verify.py --add --claim "Exit code 2 blocks" --verdict verified \
+  --evidence "Exit code 2: Blocking error" --add-section Hooks \
+  --severity CRITICAL --source "https://code.claude.com/docs/en/hooks.md"
+
+→ Appends to pending-claims.md with severity and source URL
+```
+
+**Output:** Confidence symbol (✓ ~ ? ✗) + severity + evidence + source URL
 
 ---
 
@@ -56,6 +65,7 @@ Fact-check claims about Claude Code against official documentation.
 | **Document** | `/verify /path/to/file.md`, "verify claims in [file]" |
 | **Capture** | `/verify --capture`, "capture claims from this conversation" |
 | **Batch** | `/verify --batch`, "verify pending claims" |
+| **Add** | `--add --claim "..." --verdict ... --evidence ... --add-section ...` |
 
 ## When to Use
 
@@ -77,6 +87,28 @@ Fact-check claims about Claude Code against official documentation.
 | Partial | ~ | Concept exists, details may differ |
 | Unverified | ? | No official documentation found |
 | Contradicted | ✗ | Official docs state otherwise |
+
+## Claim Severity
+
+Claims can be tagged with severity to prioritize verification:
+
+| Severity | Meaning | Example |
+|----------|---------|---------|
+| **CRITICAL** | Breaks workflows if wrong | Exit code handling, required fields |
+| **HIGH** | Behavior change impact | Default values, feature capabilities |
+| **LOW** | Guidance/best practice | Recommended patterns, style |
+
+**Usage:** `--severity CRITICAL` when adding claims
+**Display:** `[CRITICAL]` shown after verdict in output
+
+## Per-Claim Source URLs
+
+Claims can include direct links to source documentation:
+
+**Format:** `(https://code.claude.com/docs/en/hooks.md#exit-codes)` appended to evidence
+**Display:** `Source:` line shown in output when present
+
+This improves traceability and speeds up re-verification.
 
 ## Cache Freshness
 
@@ -283,6 +315,7 @@ Automatically append verified/contradicted claims to `pending-claims.md`:
 | `verify.py` | `python scripts/verify.py --health` |
 | `verify.py` | `python scripts/verify.py --refresh` |
 | `verify.py` | `python scripts/verify.py --promote --dry-run` |
+| `verify.py` | `python scripts/verify.py --add --claim "..." --verdict ... --evidence ... --add-section ...` |
 | `match_claim.py` | `python scripts/match_claim.py "claim" --top 5` (advanced) |
 | `refresh_claims.py` | `python scripts/refresh_claims.py --version-aware --summary` |
 | `batch_verify.py` | `python scripts/batch_verify.py --auto-promote` |
@@ -317,6 +350,27 @@ See `references/scripts-reference.md` for full documentation.
 ---
 
 ## Changelog
+
+### v2.6.1
+- **Fix**: Consistent severity display - severity now always appears next to verdict, not between status markers
+- **Fix**: Adjusted timelessness score to 7 (was 9) - reflects schema constraints on extensibility
+- Note: Core concept remains highly timeless; score reflects implementation architecture limitations
+
+### v2.6.0
+- **Auto-add claims**: New `--add` command to add verified claims directly to pending-claims.md
+  - `python scripts/verify.py --add --claim "..." --verdict ... --evidence ... --add-section ...`
+  - Supports optional `--severity` (CRITICAL, HIGH, LOW) and `--source` URL
+  - Duplicate detection with `--force` override
+- **Claim severity classification**: Claims can be tagged with severity level
+  - CRITICAL: Breaks workflows if wrong (exit codes, required fields)
+  - HIGH: Behavior change impact
+  - LOW: Guidance/best practice
+  - Displayed as `[CRITICAL]` after verdict in output
+- **Per-claim source URLs**: Claims can include direct documentation links
+  - Appended to evidence: `"evidence text (https://...)"`
+  - Displayed as `Source:` line in output
+  - Improves traceability and re-verification speed
+- **Parsing improvements**: `parse_severity()` and `parse_source_url()` functions extract embedded metadata
 
 ### v2.5.1
 - **Bug fix**: Fixed section insertion offset bug in `promote_claims.py` that could corrupt file structure

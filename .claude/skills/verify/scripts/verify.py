@@ -117,9 +117,12 @@ def cmd_check(args: argparse.Namespace) -> int:
         )
         if result.matched:
             stale = " ⚠️ STALE" if result.is_stale else ""
-            print(f"✓ CACHED{stale}: {result.verdict}")
+            severity = f" [{result.severity}]" if result.severity else ""
+            print(f"✓ CACHED{stale}: {result.verdict}{severity}")
             print(f"  {result.known_claim}")
             print(f"  Evidence: {result.evidence}")
+            if result.source_url:
+                print(f"  Source: {result.source_url}")
             if args.check_freshness and result.verified_date:
                 age = f"{result.days_since_verified}d ago" if result.days_since_verified else "?"
                 print(f"  Verified: {result.verified_date} ({age})")
@@ -144,9 +147,12 @@ def cmd_check(args: argparse.Namespace) -> int:
 
     if score >= THRESHOLD_HIGH:
         stale = " ⚠️ STALE" if best.is_stale else ""
+        severity = f" [{best.severity}]" if best.severity else ""
         print(f"✓ HIGH CONFIDENCE ({score:.2f}){stale}")
-        print(f"  {best.verdict}: {best.known_claim}")
+        print(f"  {best.verdict}{severity}: {best.known_claim}")
         print(f"  Evidence: {best.evidence}")
+        if best.source_url:
+            print(f"  Source: {best.source_url}")
         print(f"  Section: {best.section}")
         if args.check_freshness and best.verified_date:
             age = f"{best.days_since_verified}d ago" if best.days_since_verified else "?"
@@ -158,7 +164,8 @@ def cmd_check(args: argparse.Namespace) -> int:
         for i, m in enumerate(top_results.matches, 1):
             marker = "→" if i == 1 else " "
             stale = " ⚠️ STALE" if m.is_stale else ""
-            print(f"  {marker} {i}. [{m.confidence:.3f}] {m.verdict}{stale}")
+            severity = f" [{m.severity}]" if m.severity else ""
+            print(f"  {marker} {i}. [{m.confidence:.3f}]{stale} {m.verdict}{severity}")
             print(f"       {m.known_claim}")
         print("\n  Query documentation to confirm.")
         return 1
@@ -327,6 +334,86 @@ def cmd_sections(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_add(args: argparse.Namespace) -> int:
+    """Add a verified claim to pending-claims.md for later promotion."""
+    from datetime import date as date_module
+
+    # Validate required args
+    if not args.claim:
+        print("Error: --claim is required", file=sys.stderr)
+        return 1
+    if not args.verdict:
+        print("Error: --verdict is required", file=sys.stderr)
+        return 1
+    if not args.evidence:
+        print("Error: --evidence is required", file=sys.stderr)
+        return 1
+    if not args.add_section:
+        print("Error: --add-section is required", file=sys.stderr)
+        return 1
+
+    # Validate verdict format
+    valid_verdicts = {"✓ Verified", "✗ False", "✗ Contradicted", "~ Partial", "? Unverified"}
+    verdict_aliases = {
+        "verified": "✓ Verified",
+        "true": "✓ Verified",
+        "false": "✗ False",
+        "contradicted": "✗ Contradicted",
+        "partial": "~ Partial",
+        "unverified": "? Unverified",
+    }
+    verdict = verdict_aliases.get(args.verdict.lower(), args.verdict)
+    if verdict not in valid_verdicts:
+        print(f"Error: Invalid verdict '{args.verdict}'", file=sys.stderr)
+        print(f"Valid: {', '.join(sorted(valid_verdicts))}", file=sys.stderr)
+        return 1
+
+    # Build row
+    today = date_module.today().isoformat()
+    verdict_col = verdict
+    if args.severity:
+        verdict_col = f"{verdict} [{args.severity}]"
+    evidence_col = args.evidence
+    if args.source:
+        evidence_col = f"{args.evidence} ({args.source})"
+    row = f"| {args.claim} | {verdict_col} | {evidence_col} | {args.add_section} | {today} |"
+
+    # Check for duplicate in pending
+    if PENDING_CLAIMS_PATH.exists():
+        content = PENDING_CLAIMS_PATH.read_text()
+        claim_lower = args.claim.lower()
+        for line in content.splitlines():
+            if line.startswith("|") and claim_lower in line.lower():
+                print(f"⚠️  Similar claim already in pending: {line.strip()}")
+                if not args.force:
+                    print("Use --force to add anyway.")
+                    return 1
+
+    # Append to pending-claims.md
+    if args.dry_run:
+        print(f"[DRY RUN] Would add to pending-claims.md:")
+        print(f"  {row}")
+        return 0
+
+    # Read existing content
+    if PENDING_CLAIMS_PATH.exists():
+        content = PENDING_CLAIMS_PATH.read_text(encoding="utf-8")
+    else:
+        content = "# Pending Claims\n\n| Claim | Verdict | Evidence | Section | Date |\n|-------|---------|----------|---------|------|\n"
+
+    # Append row and use atomic write
+    from _common import atomic_write
+    content = content.rstrip() + "\n" + row + "\n"
+    atomic_write(PENDING_CLAIMS_PATH, content)
+
+    print(f"✓ Added to pending-claims.md:")
+    print(f"  [{args.add_section}] {args.claim}")
+    print(f"  Verdict: {verdict}")
+    print(f"\nRun: python verify.py --promote")
+
+    return 0
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -390,6 +477,11 @@ Examples:
         action="store_true",
         help="List available sections",
     )
+    mode_group.add_argument(
+        "--add",
+        action="store_true",
+        help="Add a verified claim to pending-claims.md",
+    )
 
     # Check options
     parser.add_argument(
@@ -432,6 +524,44 @@ Examples:
         help="Don't record Claude Code version in dates",
     )
 
+    # Add claim options (for --add mode)
+    parser.add_argument(
+        "--claim",
+        type=str,
+        help="Claim text to add (with --add)",
+    )
+    parser.add_argument(
+        "--verdict",
+        type=str,
+        help="Verdict: verified, false, contradicted, partial, unverified (with --add)",
+    )
+    parser.add_argument(
+        "--evidence",
+        type=str,
+        help="Evidence/quote supporting the verdict (with --add)",
+    )
+    parser.add_argument(
+        "--add-section",
+        type=str,
+        help="Section for the claim: Skills, Hooks, Commands, MCP, etc. (with --add)",
+    )
+    parser.add_argument(
+        "--severity",
+        type=str,
+        choices=["CRITICAL", "HIGH", "LOW"],
+        help="Claim severity: CRITICAL (breaks things), HIGH (behavior), LOW (guidance)",
+    )
+    parser.add_argument(
+        "--source",
+        type=str,
+        help="Source URL for the claim (with --add)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force add even if similar claim exists (with --add)",
+    )
+
     args = parser.parse_args()
 
     # Route to appropriate handler
@@ -443,6 +573,8 @@ Examples:
         return cmd_promote(args)
     elif args.sections:
         return cmd_sections(args)
+    elif args.add:
+        return cmd_add(args)
     elif args.input:
         return cmd_check(args)
     else:

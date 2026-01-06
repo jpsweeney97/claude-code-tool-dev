@@ -409,6 +409,8 @@ class MatchResult:
     verified_date: str | None = None
     days_since_verified: int | None = None
     is_stale: bool = False
+    severity: str | None = None  # CRITICAL, HIGH, LOW
+    source_url: str | None = None  # Per-claim documentation URL
 
 
 @dataclass
@@ -418,6 +420,41 @@ class MultiMatchResult:
     claim: str
     matches: list[MatchResult] = field(default_factory=list)
     total_checked: int = 0
+
+
+def parse_severity(verdict: str) -> tuple[str, str | None]:
+    """
+    Extract severity from verdict string.
+
+    Format: "✓ Verified [CRITICAL]" → ("✓ Verified", "CRITICAL")
+
+    Returns:
+        Tuple of (base_verdict, severity or None)
+    """
+    match = re.search(r'\[(CRITICAL|HIGH|LOW)\]', verdict)
+    if match:
+        severity = match.group(1)
+        base_verdict = verdict.replace(f" [{severity}]", "").strip()
+        return (base_verdict, severity)
+    return (verdict, None)
+
+
+def parse_source_url(evidence: str) -> tuple[str, str | None]:
+    """
+    Extract source URL from evidence string.
+
+    Format: "Evidence text (https://...)" → ("Evidence text", "https://...")
+
+    Returns:
+        Tuple of (base_evidence, source_url or None)
+    """
+    # Match URL at end of evidence in parentheses
+    match = re.search(r'\s*\((https?://[^\)]+)\)\s*$', evidence)
+    if match:
+        source_url = match.group(1)
+        base_evidence = evidence[:match.start()].strip()
+        return (base_evidence, source_url)
+    return (evidence, None)
 
 
 def parse_known_claims(path: Path) -> list[dict]:
@@ -436,12 +473,21 @@ def parse_known_claims(path: Path) -> list[dict]:
         if line.startswith("|") and not line.startswith("| Claim") and not line.startswith("|---"):
             parts = [p.strip() for p in line.split("|")[1:-1]]
             if len(parts) >= 3:
+                raw_verdict = parts[1]
+                raw_evidence = parts[2]
+
+                # Extract severity and source
+                base_verdict, severity = parse_severity(raw_verdict)
+                base_evidence, source_url = parse_source_url(raw_evidence)
+
                 claims.append({
                     "claim": parts[0].strip("`"),
-                    "verdict": parts[1],
-                    "evidence": parts[2],
+                    "verdict": base_verdict,
+                    "evidence": base_evidence,
                     "section": current_section,
                     "verified_date": parts[3] if len(parts) >= 4 else None,
+                    "severity": severity,
+                    "source_url": source_url,
                 })
 
     return claims
@@ -482,6 +528,8 @@ def find_best_match(
             verified_date=verified_date,
             days_since_verified=days_since,
             is_stale=is_stale,
+            severity=best_match.get("severity"),
+            source_url=best_match.get("source_url"),
         )
 
     return MatchResult(matched=False, claim=query, confidence=round(best_score, 4))
@@ -538,6 +586,8 @@ def find_top_matches(
             verified_date=verified_date,
             days_since_verified=days_since,
             is_stale=is_stale,
+            severity=entry.get("severity"),
+            source_url=entry.get("source_url"),
         ))
 
     return MultiMatchResult(
@@ -742,10 +792,13 @@ Examples:
             else:
                 for i, m in enumerate(result.matches, 1):
                     stale_marker = " ⚠️ STALE" if m.is_stale else ""
-                    print(f"{i}. [{m.confidence:.3f}] {m.verdict}{stale_marker}")
+                    severity_marker = f" [{m.severity}]" if m.severity else ""
+                    print(f"{i}. [{m.confidence:.3f}] {m.verdict}{severity_marker}{stale_marker}")
                     print(f"   Claim: {m.known_claim}")
                     print(f"   Evidence: {m.evidence}")
                     print(f"   Section: {m.section}")
+                    if m.source_url:
+                        print(f"   Source: {m.source_url}")
                     if args.check_freshness and m.verified_date:
                         age_str = f"{m.days_since_verified}d ago" if m.days_since_verified else "unknown"
                         print(f"   Verified: {m.verified_date} ({age_str})")
@@ -841,9 +894,12 @@ Examples:
         if tier == "high":
             # High confidence: return immediately
             stale_marker = " ⚠️ STALE" if result.is_stale else ""
-            print(f"✓ HIGH CONFIDENCE ({best_score:.2f}){stale_marker}")
+            severity_marker = f" [{result.severity}]" if result.severity else ""
+            print(f"✓ HIGH CONFIDENCE ({best_score:.2f}){severity_marker}{stale_marker}")
             print(f"{result.verdict} | {result.known_claim}")
             print(f"Evidence: {result.evidence}")
+            if result.source_url:
+                print(f"Source: {result.source_url}")
             print(f"Section: {result.section}{format_freshness(result)}")
         elif tier == "confirm":
             # Medium confidence: show candidates
@@ -852,9 +908,12 @@ Examples:
             for i, m in enumerate(top_results.matches, 1):
                 marker = "→" if i == 1 else " "
                 stale_marker = " ⚠️ STALE" if m.is_stale else ""
-                print(f"  {marker} {i}. [{m.confidence:.3f}] {m.verdict}{stale_marker}")
+                severity_marker = f" [{m.severity}]" if m.severity else ""
+                print(f"  {marker} {i}. [{m.confidence:.3f}] {m.verdict}{severity_marker}{stale_marker}")
                 print(f"       {m.known_claim}")
                 print(f"       Evidence: {m.evidence}")
+                if m.source_url:
+                    print(f"       Source: {m.source_url}")
                 if args.check_freshness and m.verified_date:
                     age = f"{m.days_since_verified}d ago" if m.days_since_verified else "?"
                     print(f"       Verified: {m.verified_date} ({age})")
@@ -863,8 +922,11 @@ Examples:
         elif tier == "threshold" and result.matched:
             # Explicit threshold mode with match
             stale_marker = " ⚠️ STALE" if result.is_stale else ""
-            print(f"{result.verdict} | {result.known_claim}{stale_marker}")
+            severity_marker = f" [{result.severity}]" if result.severity else ""
+            print(f"{result.verdict}{severity_marker} | {result.known_claim}{stale_marker}")
             print(f"Evidence: {result.evidence}")
+            if result.source_url:
+                print(f"Source: {result.source_url}")
             print(f"Section: {result.section}")
             print(f"Confidence: {result.confidence:.2f}{format_freshness(result)}")
         else:
