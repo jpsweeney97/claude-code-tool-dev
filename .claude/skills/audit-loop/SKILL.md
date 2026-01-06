@@ -476,3 +476,67 @@ Which findings will you address this cycle?
 2. Add history event: `triage_complete` with counts
 3. If findings to address → Proceed to Design Handoff
 4. If no findings → Skip to Ship decision
+
+---
+
+### Design Handoff
+
+**Purpose:** Delegate to brainstorming skill with audit context.
+
+**Before handoff, update state:**
+
+```json
+{
+  "phase": "design",
+  "design_context": {
+    "findings_to_address": [
+      { "id": "F1", "description": "...", "priority": "high" }
+    ]
+  }
+}
+```
+
+**Present this prompt:**
+
+```
+Design Phase
+
+Handing off to brainstorming skill.
+
+Context being passed:
+- ARTIFACT: [path]
+- AUDIT CYCLE: [N]
+- FINDINGS TO ADDRESS:
+  [F1]: [description] [priority]
+  [F2]: [description] [priority]
+  ...
+
+Constraint: Design solutions that resolve these specific findings.
+
+Invoking superpowers:brainstorming...
+```
+
+**Invoke brainstorming:**
+
+Use the Skill tool to invoke `superpowers:brainstorming` with context:
+- Provide the artifact path
+- List findings to address
+- Constrain scope to resolving audit findings
+
+**After brainstorming completes:**
+1. Note the design output path (typically `docs/plans/YYYY-MM-DD-<topic>-design.md`)
+2. Add history event: `design_complete` with output path
+3. Proceed to Verify phase
+
+**If brainstorming unavailable:**
+
+```
+Brainstorming skill not available. Simplified design guidance:
+
+For each finding:
+1. What are 2-3 approaches to resolve it?
+2. What are the trade-offs of each?
+3. Which approach do you recommend and why?
+
+Document your design decisions, then continue to Verify phase.
+```
