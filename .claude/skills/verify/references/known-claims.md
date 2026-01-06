@@ -81,8 +81,7 @@ Pre-verified claims sourced from official Claude Code documentation.
 |-------|---------|----------|----------|
 | Commands use $ARGUMENTS for user input | ✓ Verified | "`$ARGUMENTS` placeholder captures all arguments" | 2026-01-05 |
 | Commands support positional args ($1, $2) | ✓ Verified | "Access specific arguments individually using positional parameters" | 2026-01-05 |
-| `description` field is required | ✗ False | Optional, "Uses the first line from the prompt" if missing | 2026-01-05 |
-| `description` field is optional | ✓ Verified | Default provided if missing | 2026-01-05 |
+| `description` field is optional | ✓ Verified | Optional, "Uses the first line from the prompt" if missing | 2026-01-05 |
 | Commands use Markdown format | ✓ Verified | "Command files support frontmatter" in .md files | 2026-01-05 |
 | Project commands override personal commands | ✓ Verified | "project command takes precedence and the user command is silently ignored" | 2026-01-05 |
 | Subdirectories affect command name | ✗ False | "Subdirectories appear in the command description but don't affect the command name" | 2026-01-05 |
