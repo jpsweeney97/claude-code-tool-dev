@@ -78,6 +78,8 @@ from validate_sources import validate_sources, ValidationResult
 from backup_cache import create_backup, list_backups, restore_backup
 from detect_duplicates import find_duplicate_groups
 from coverage_analysis import analyze_coverage, KNOWN_SECTIONS
+from export_import import export_claims, import_claims, ExportResult, ImportResult
+from detect_contradictions import find_contradictions
 
 
 # =============================================================================
@@ -598,6 +600,99 @@ def cmd_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    """Export claims to JSON or CSV format."""
+    if not KNOWN_CLAIMS_PATH.exists():
+        print("No cache file found.")
+        return 1
+
+    content, result = export_claims(
+        KNOWN_CLAIMS_PATH,
+        format=args.format,
+        section_filter=args.section,
+    )
+
+    if args.output:
+        args.output.write_text(content, encoding="utf-8")
+        print(f"Exported {result.count} claims to {args.output}")
+        print(f"Sections: {', '.join(result.sections)}")
+        return 0
+    else:
+        print(content)
+        return 0
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    """Import claims from JSON or CSV file."""
+    if not args.import_file.exists():
+        print(f"Error: File not found: {args.import_file}", file=sys.stderr)
+        return 1
+
+    # Auto-detect format from extension
+    format = args.format
+    if not format:
+        if args.import_file.suffix == ".csv":
+            format = "csv"
+        else:
+            format = "json"
+
+    content = args.import_file.read_text(encoding="utf-8")
+    result = import_claims(
+        KNOWN_CLAIMS_PATH,
+        content,
+        format=format,
+        force=args.force,
+        dry_run=args.dry_run,
+    )
+
+    mode = "[DRY RUN] " if args.dry_run else ""
+
+    print(f"{mode}Import Results")
+    print("=" * 40)
+    print(f"Added: {result.added}")
+    print(f"Skipped: {result.skipped}")
+
+    if result.conflicts:
+        print(f"\nConflicts ({len(result.conflicts)}):")
+        for c in result.conflicts:
+            print(f"  ⚠️ {c}")
+        if not args.force and not args.dry_run:
+            print("\nUse --force to override conflicts")
+            return 2
+
+    return 0
+
+
+def cmd_contradictions(args: argparse.Namespace) -> int:
+    """Find contradictory claims in cache."""
+    if not KNOWN_CLAIMS_PATH.exists():
+        print("No cache file found.")
+        return 1
+
+    contradictions = find_contradictions(
+        KNOWN_CLAIMS_PATH,
+        same_section_only=args.same_section,
+    )
+
+    if not contradictions:
+        print("No contradictions found.")
+        return 0
+
+    print(f"Found {len(contradictions)} contradiction(s):\n")
+
+    for i, c in enumerate(contradictions, 1):
+        severity_icon = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}.get(c.severity, "⚪")
+        print(f"{severity_icon} Contradiction {i}: {c.reason}")
+        print(f"   [{c.claim1['section']}] {c.claim1['claim']}")
+        print(f"      Verdict: {c.claim1['verdict']}")
+        print(f"   [{c.claim2['section']}] {c.claim2['claim']}")
+        print(f"      Verdict: {c.claim2['verdict']}")
+        print()
+
+    print("Action: Review and resolve conflicting claims")
+    return 2
+
+
 def cmd_add(args: argparse.Namespace) -> int:
     """Add a verified claim to pending-claims.md for later promotion."""
     from datetime import date as date_module
@@ -930,6 +1025,23 @@ Examples:
         action="store_true",
         help="Analyze documentation coverage",
     )
+    mode_group.add_argument(
+        "--export",
+        action="store_true",
+        help="Export claims to JSON or CSV format",
+    )
+    mode_group.add_argument(
+        "--import",
+        dest="import_file",
+        type=Path,
+        metavar="FILE",
+        help="Import claims from JSON or CSV file",
+    )
+    mode_group.add_argument(
+        "--contradictions",
+        action="store_true",
+        help="Find contradictory claims in cache",
+    )
 
     # Check options
     parser.add_argument(
@@ -970,6 +1082,19 @@ Examples:
         type=int,
         default=3,
         help="Minimum claims for adequate coverage (default: 3, for --coverage)",
+    )
+
+    # Export/Import options
+    parser.add_argument(
+        "--format",
+        choices=["json", "csv"],
+        default="json",
+        help="Export/import format (default: json)",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        type=Path,
+        help="Output file for --export (stdout if omitted)",
     )
 
     # Promote options
@@ -1057,6 +1182,12 @@ Examples:
         return cmd_find_duplicates(args)
     elif args.coverage:
         return cmd_coverage(args)
+    elif args.export:
+        return cmd_export(args)
+    elif args.import_file:
+        return cmd_import(args)
+    elif args.contradictions:
+        return cmd_contradictions(args)
     elif args.quick_add:
         # Standalone --quick-add mode
         args.add = True  # Enable add mode

@@ -3,7 +3,7 @@ name: verify
 description: Verify claims about Claude Code against official Anthropic documentation. Use when fact-checking Claude Code features, behaviors, or configurations.
 license: MIT
 metadata:
-  version: "3.1.0"
+  version: "3.2.0"
   model: claude-sonnet-4-20250514
   timelessness_score: 8
 ---
@@ -84,6 +84,29 @@ python scripts/verify.py --find-duplicates
 python scripts/verify.py --coverage
 
 → Identifies documentation sections lacking claims
+```
+
+**Export claims:**
+```
+python scripts/verify.py --export --format json -o claims.json
+python scripts/verify.py --export --format csv --section Skills
+
+→ Export claims to JSON/CSV for sharing or backup
+```
+
+**Import claims:**
+```
+python scripts/verify.py --import claims.json
+python scripts/verify.py --import claims.csv --dry-run
+
+→ Import claims from another cache with conflict detection
+```
+
+**Find contradictions:**
+```
+python scripts/verify.py --contradictions
+
+→ Detects logically conflicting claims (required vs optional, opposite verdicts)
 ```
 
 **Quick-add mode:**
@@ -359,6 +382,8 @@ Automatically append verified/contradicted claims to `pending-claims.md`:
 | `scripts/backup_cache.py` | Backup and restore cache |
 | `scripts/detect_duplicates.py` | Find similar/duplicate claims |
 | `scripts/coverage_analysis.py` | Analyze documentation coverage |
+| `scripts/export_import.py` | Export/import claims to JSON/CSV |
+| `scripts/detect_contradictions.py` | Find contradictory claims |
 | `tests/` | Unit tests for scripts |
 
 ## Scripts Quick Reference
@@ -382,6 +407,9 @@ Automatically append verified/contradicted claims to `pending-claims.md`:
 | `verify.py` | `python scripts/verify.py --stats` |
 | `verify.py` | `python scripts/verify.py --find-duplicates` |
 | `verify.py` | `python scripts/verify.py --coverage` |
+| `verify.py` | `python scripts/verify.py --export --format json -o claims.json` |
+| `verify.py` | `python scripts/verify.py --import claims.json` |
+| `verify.py` | `python scripts/verify.py --contradictions` |
 
 See `references/scripts-reference.md` for full documentation.
 
@@ -413,6 +441,19 @@ See `references/scripts-reference.md` for full documentation.
 ---
 
 ## Changelog
+
+### v3.2.0
+- **Export/Import**: `--export` and `--import` for claim portability
+  - JSON format preserves all metadata and structure
+  - CSV format enables spreadsheet editing
+  - Import with conflict detection and merge logic
+  - Section filtering: `--export --section Skills`
+- **Contradiction detection**: `--contradictions` finds logically conflicting claims
+  - Detects antonym pairs (required vs optional, blocks vs non-blocking)
+  - Finds same subject with opposite verdicts
+  - Severity levels (HIGH/MEDIUM/LOW) for prioritization
+- New scripts: `export_import.py`, `detect_contradictions.py`
+- Test coverage: `test_export_import.py`, `test_contradictions.py` (29 new tests)
 
 ### v3.1.0
 - **Cache statistics**: `--stats` shows comprehensive breakdown by verdict, section, and age
