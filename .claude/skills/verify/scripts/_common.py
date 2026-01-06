@@ -8,9 +8,12 @@ multiple scripts to maintain consistency and reduce duplication.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
+import tempfile
 from datetime import date, datetime
+from pathlib import Path
 from typing import NamedTuple
 
 
@@ -126,3 +129,38 @@ class Version(NamedTuple):
             patch=int(match.group(3)),
             prerelease=match.group(4),
         )
+
+
+# =============================================================================
+# FILE OPERATIONS
+# =============================================================================
+
+
+def atomic_write(path: Path, content: str) -> None:
+    """
+    Write content to file atomically using temp file + rename.
+
+    Prevents data corruption if process is interrupted during write.
+
+    Args:
+        path: Target file path
+        content: Content to write
+    """
+    # Create temp file in same directory (ensures same filesystem for rename)
+    fd, temp_path = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        # Atomic rename
+        Path(temp_path).rename(path)
+    except Exception:
+        # Clean up temp file on failure
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
