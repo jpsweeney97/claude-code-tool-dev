@@ -77,6 +77,7 @@ from promote_claims import (
 from validate_sources import validate_sources, ValidationResult
 from backup_cache import create_backup, list_backups, restore_backup
 from detect_duplicates import find_duplicate_groups
+from coverage_analysis import analyze_coverage, KNOWN_SECTIONS
 
 
 # =============================================================================
@@ -560,6 +561,43 @@ def cmd_find_duplicates(args: argparse.Namespace) -> int:
     return 2
 
 
+def cmd_coverage(args: argparse.Namespace) -> int:
+    """Analyze documentation coverage."""
+    if not KNOWN_CLAIMS_PATH.exists():
+        print("No cache file found.")
+        return 1
+
+    min_claims = getattr(args, 'min_claims', 3)
+    result = analyze_coverage(KNOWN_CLAIMS_PATH, min_claims)
+
+    print("Coverage Analysis")
+    print("=" * 40)
+    print()
+    print(f"Total claims: {result['total_claims']}")
+    print(f"Coverage score: {result['coverage_score']:.0%}")
+    print()
+
+    # Sections with claims
+    print(f"Sections (min {min_claims} claims for adequate):")
+    for section, data in sorted(result["sections"].items(), key=lambda x: -x[1]["count"]):
+        status = "SPARSE" if data["sparse"] else "ok"
+        print(f"  [{status:6}] {section}: {data['count']} claims")
+
+    # Missing sections
+    if result["missing_sections"]:
+        print()
+        print("Missing sections (no claims):")
+        for section in result["missing_sections"]:
+            print(f"  [MISSING] {section}")
+
+    print()
+    if result["coverage_score"] < 0.7:
+        print("Action: Add claims for sparse/missing sections")
+        return 2
+
+    return 0
+
+
 def cmd_add(args: argparse.Namespace) -> int:
     """Add a verified claim to pending-claims.md for later promotion."""
     from datetime import date as date_module
@@ -802,6 +840,7 @@ Modes:
     verify.py --refresh         List stale claims
     verify.py --promote         Promote pending to known cache
     verify.py --sections        List available sections
+    verify.py --coverage        Analyze documentation coverage
 
 Examples:
     # Quick cache lookup
@@ -886,6 +925,11 @@ Examples:
         action="store_true",
         help="Find duplicate or similar claims in cache",
     )
+    mode_group.add_argument(
+        "--coverage",
+        action="store_true",
+        help="Analyze documentation coverage",
+    )
 
     # Check options
     parser.add_argument(
@@ -920,6 +964,12 @@ Examples:
         "--same-section",
         action="store_true",
         help="Only compare claims within the same section (for --find-duplicates)",
+    )
+    parser.add_argument(
+        "--min-claims",
+        type=int,
+        default=3,
+        help="Minimum claims for adequate coverage (default: 3, for --coverage)",
     )
 
     # Promote options
@@ -1005,6 +1055,8 @@ Examples:
         return cmd_stats(args)
     elif args.find_duplicates:
         return cmd_find_duplicates(args)
+    elif args.coverage:
+        return cmd_coverage(args)
     elif args.quick_add:
         # Standalone --quick-add mode
         args.add = True  # Enable add mode
