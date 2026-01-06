@@ -28,48 +28,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 import sys
 from dataclasses import dataclass, asdict, field
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import NamedTuple
 
-
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
-
-DEFAULT_MAX_AGE_DAYS: int = 90
-
-
-# =============================================================================
-# DATE PARSING
-# =============================================================================
-
-
-def parse_verified_date(verified_date: str | None) -> date | None:
-    """
-    Parse a verification date, handling both plain and version-tagged formats.
-
-    Supported formats:
-        - "2026-01-05"               → plain ISO date
-        - "2026-01-05 (v2.0.76)"     → date with version suffix (from promote_claims.py)
-
-    Returns:
-        Parsed date object or None if invalid/missing.
-    """
-    if not verified_date:
-        return None
-
-    # Extract date portion (handles both plain dates and version-tagged dates)
-    # Format: "YYYY-MM-DD" or "YYYY-MM-DD (vX.Y.Z)"
-    date_str = verified_date.split(" ")[0].strip()
-
-    try:
-        return datetime.strptime(date_str, "%Y-%m-%d").date()
-    except ValueError:
-        return None
+from _common import parse_verified_date, get_claude_code_version, DEFAULT_MAX_AGE_DAYS
 
 
 # =============================================================================
@@ -98,24 +63,6 @@ class VersionStatus:
     stored: str | None
     changed: bool
     change_type: str  # "none", "patch", "minor", "major", "unknown"
-
-
-def get_claude_code_version() -> str | None:
-    """Get current Claude Code version."""
-    try:
-        result = subprocess.run(
-            ["claude", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            match = re.search(r"(\d+\.\d+\.\d+)", result.stdout)
-            if match:
-                return match.group(1)
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-    return None
 
 
 def get_stored_version(path: Path) -> str | None:
