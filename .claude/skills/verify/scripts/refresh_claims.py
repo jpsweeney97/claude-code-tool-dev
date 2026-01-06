@@ -33,7 +33,7 @@ from dataclasses import dataclass, asdict, field
 from datetime import date
 from pathlib import Path
 
-from _common import parse_verified_date, get_claude_code_version, DEFAULT_MAX_AGE_DAYS, Version
+from _common import parse_verified_date, get_claude_code_version, DEFAULT_MAX_AGE_DAYS, Version, atomic_write
 
 
 # =============================================================================
@@ -235,7 +235,7 @@ def update_claim_date(
                 break
 
     if updated:
-        path.write_text("\n".join(lines) + "\n")
+        atomic_write(path, "\n".join(lines) + "\n")
 
     return updated
 
@@ -279,7 +279,7 @@ def update_all_claims_date(path: Path, new_date: str | None = None) -> int:
             lines[i] = f"**Last verified:** {new_date}"
             break
 
-    path.write_text("\n".join(lines) + "\n")
+    atomic_write(path, "\n".join(lines) + "\n")
     return updated_count
 
 
