@@ -6,12 +6,71 @@ Complete documentation for verify skill scripts.
 
 | Script | Purpose | Key Exit Codes |
 |--------|---------|----------------|
+| `verify.py` | **Unified CLI** - single entry point | 0=success, 1=confirm, 10=none |
 | `match_claim.py` | Fuzzy match against known-claims.md | 0=high, 1=confirm, 10=none |
 | `promote_claims.py` | Move pending → known-claims.md | 0=success, 10=nothing |
 | `extract_claims.py` | Extract claims from documents | 0=success, 10=none |
 | `refresh_claims.py` | Find/update stale claims | 0=success |
 | `check_version.py` | Track Claude Code versions | 0=match, 2=refresh |
 | `batch_verify.py` | Batch verify pending claims | 0=success |
+
+---
+
+## verify.py (Unified CLI)
+
+Single entry point for all verify operations. Start here.
+
+### Usage
+
+```bash
+# Check a claim (tiered response)
+python scripts/verify.py "exit code 0 means success"
+
+# Quick cache-only check (no agent query, high threshold)
+python scripts/verify.py --quick "hooks timeout"
+
+# Cache health summary
+python scripts/verify.py --health
+
+# List stale claims
+python scripts/verify.py --refresh
+python scripts/verify.py --refresh --section Hooks
+
+# Promote pending claims
+python scripts/verify.py --promote
+python scripts/verify.py --promote --dry-run
+
+# List sections
+python scripts/verify.py --sections
+```
+
+### Modes
+
+| Mode | Flag | Description |
+|------|------|-------------|
+| Check | (default) | Verify claim against cache with tiered response |
+| Quick | `--quick` | Cache-only, high confidence threshold |
+| Health | `--health` | Version + staleness summary |
+| Refresh | `--refresh` | List claims needing re-verification |
+| Promote | `--promote` | Move pending → known cache |
+| Sections | `--sections` | List available sections |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--section NAME` | Filter to specific section |
+| `--check-freshness` | Show verification dates |
+| `--max-age DAYS` | Custom staleness threshold (default: 90) |
+| `--dry-run` | Preview changes (with --promote) |
+| `--interactive` | Confirm each claim (with --promote) |
+
+### Exit Codes
+
+- `0` - Success / high confidence match
+- `1` - Confirm needed (medium confidence)
+- `2` - Version change detected (with --health)
+- `10` - No match / nothing to do
 
 ---
 
@@ -301,6 +360,17 @@ class OperationResult:
 | 1 | Input error (file not found, invalid args) |
 | 2 | Special signal (version change detected) |
 | 10 | Nothing to do (no matches, no claims) |
+
+### Date Format Handling
+
+Scripts support both plain and version-tagged verification dates:
+
+| Format | Example | Source |
+|--------|---------|--------|
+| Plain ISO | `2026-01-05` | Legacy/manual entries |
+| Version-tagged | `2026-01-05 (v2.0.76)` | `promote_claims.py` with `--version` |
+
+All scripts use `parse_verified_date()` to extract the date portion, ensuring compatibility with both formats.
 
 ### JSON Output
 

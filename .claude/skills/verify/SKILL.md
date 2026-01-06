@@ -3,7 +3,7 @@ name: verify
 description: Verify claims about Claude Code against official Anthropic documentation. Use when fact-checking Claude Code features, behaviors, or configurations.
 license: MIT
 metadata:
-  version: "2.2.0"
+  version: "2.4.0"
   model: claude-sonnet-4-20250514
   timelessness_score: 8
 ---
@@ -218,6 +218,7 @@ Automatically append verified/contradicted claims to `pending-claims.md`:
 | `references/document-mode.md` | Document verification workflow |
 | `references/capture-mode.md` | Conversation capture workflow |
 | `references/scripts-reference.md` | Complete script documentation |
+| `scripts/verify.py` | **Unified CLI** - single entry point for all operations |
 | `scripts/match_claim.py` | Fuzzy matching against cache |
 | `scripts/promote_claims.py` | Move pending → known (with version tracking) |
 | `scripts/extract_claims.py` | Extract claims from documents |
@@ -231,10 +232,12 @@ Automatically append verified/contradicted claims to `pending-claims.md`:
 
 | Script | Common Usage |
 |--------|--------------|
-| `match_claim.py` | `python scripts/match_claim.py "claim" --top 5` |
-| `promote_claims.py` | `python scripts/promote_claims.py --dry-run` |
+| `verify.py` | `python scripts/verify.py --quick "claim"` ← **Start here** |
+| `verify.py` | `python scripts/verify.py --health` |
+| `verify.py` | `python scripts/verify.py --refresh` |
+| `verify.py` | `python scripts/verify.py --promote --dry-run` |
+| `match_claim.py` | `python scripts/match_claim.py "claim" --top 5` (advanced) |
 | `refresh_claims.py` | `python scripts/refresh_claims.py --version-aware --summary` |
-| `check_version.py` | `python scripts/check_version.py` |
 | `batch_verify.py` | `python scripts/batch_verify.py --auto-promote` |
 
 See `references/scripts-reference.md` for full documentation.
@@ -267,6 +270,21 @@ See `references/scripts-reference.md` for full documentation.
 ---
 
 ## Changelog
+
+### v2.4.0
+- **Unified CLI**: Added `scripts/verify.py` as single entry point for all operations
+  - `verify.py --quick "claim"` - fast cache-only check
+  - `verify.py --health` - cache health summary
+  - `verify.py --refresh` - list stale claims
+  - `verify.py --promote` - promote pending claims
+  - `verify.py --sections` - list available sections
+- Reduces friction: one script to remember instead of five
+
+### v2.3.0
+- **Bug fix**: Date parsing now handles version-tagged dates (e.g., `"2026-01-05 (v2.0.76)"`)
+  - Added `parse_verified_date()` utility to `match_claim.py`, `refresh_claims.py`, and health hook
+  - Fixes `ValueError` when checking freshness of claims promoted with `--version` tracking
+- Scripts now correctly report staleness for both plain and version-tagged verification dates
 
 ### v2.2.0
 - **Version-aware staleness**: `refresh_claims.py --version-aware` flags all claims when Claude Code version changes

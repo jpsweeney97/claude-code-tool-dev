@@ -44,6 +44,35 @@ DEFAULT_MAX_AGE_DAYS: int = 90
 
 
 # =============================================================================
+# DATE PARSING
+# =============================================================================
+
+
+def parse_verified_date(verified_date: str | None) -> date | None:
+    """
+    Parse a verification date, handling both plain and version-tagged formats.
+
+    Supported formats:
+        - "2026-01-05"               → plain ISO date
+        - "2026-01-05 (v2.0.76)"     → date with version suffix (from promote_claims.py)
+
+    Returns:
+        Parsed date object or None if invalid/missing.
+    """
+    if not verified_date:
+        return None
+
+    # Extract date portion (handles both plain dates and version-tagged dates)
+    # Format: "YYYY-MM-DD" or "YYYY-MM-DD (vX.Y.Z)"
+    date_str = verified_date.split(" ")[0].strip()
+
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+# =============================================================================
 # VERSION CHECKING
 # =============================================================================
 
@@ -203,8 +232,9 @@ def find_stale_claims(
         if not verified_date:
             continue
 
-        try:
-            verified = datetime.strptime(verified_date, "%Y-%m-%d").date()
+        # Use parse_verified_date to handle version-tagged dates like "2026-01-05 (v2.0.76)"
+        verified = parse_verified_date(verified_date)
+        if verified:
             days_ago = (today - verified).days
 
             if days_ago > max_age_days:
@@ -217,7 +247,7 @@ def find_stale_claims(
                     days_since_verified=days_ago,
                     line_number=claim["line_number"],
                 ))
-        except ValueError:
+        else:
             # Invalid date format, treat as stale
             stale.append(StaleClaim(
                 claim=claim["claim"],

@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+"""
+Unified entry point for the verify skill.
+
+Routes to appropriate verification functionality based on input:
+- Claim text → check against cache
+- File path → document mode (extract and verify claims)
+- Flags → maintenance operations (refresh, promote, health, batch)
+
+Exit codes:
+    0: Success / match found
+    1: Input error / confirm needed
+    2: Version change detected (with --health)
+    10: No match / nothing to do
+
+Usage:
+    python verify.py "Skills require a license"     # Check single claim
+    python verify.py /path/to/doc.md                # Document mode
+    python verify.py --quick "exit code"            # Cache-only (no agent)
+    python verify.py --health                       # Cache health check
+    python verify.py --refresh                      # List stale claims
+    python verify.py --promote                      # Promote pending claims
+    python verify.py --batch                        # Batch verify pending
+
+Examples:
+    # Quick cache check (fastest, no external queries)
+    python verify.py --quick "hooks use exit code 2 to block"
+
+    # Full verification with freshness info
+    python verify.py "frontmatter required" --check-freshness
+
+    # Health check before starting work
+    python verify.py --health
+
+    # Maintenance: find and refresh stale claims
+    python verify.py --refresh --section Hooks
+
+    # Promote verified claims to permanent cache
+    python verify.py --promote --dry-run
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+# Import from sibling scripts
+from match_claim import (
+    parse_known_claims,
+    find_best_match,
+    find_top_matches,
+    discover_sections,
+    normalize_section,
+    list_sections,
+    THRESHOLD_HIGH,
+    THRESHOLD_MEDIUM,
+    THRESHOLD_LOW,
+    DEFAULT_MAX_AGE_DAYS,
+)
+from refresh_claims import (
+    parse_claims_with_dates,
+    find_stale_claims,
+    check_version_status,
+    RefreshResult,
+)
+from promote_claims import (
+    parse_pending_claims,
+    promote_claims,
+    PromotionResult,
+)
+
+
+# =============================================================================
+# PATH CONFIGURATION
+# =============================================================================
+
+SKILL_ROOT = Path(__file__).parent.parent
+REFERENCES_DIR = SKILL_ROOT / "references"
+KNOWN_CLAIMS_PATH = REFERENCES_DIR / "known-claims.md"
+PENDING_CLAIMS_PATH = REFERENCES_DIR / "pending-claims.md"
+
+
+# =============================================================================
+# COMMAND HANDLERS
+# =============================================================================
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """Check a claim against the cache."""
+    if not KNOWN_CLAIMS_PATH.exists():
+        print(f"Error: Cache not found: {KNOWN_CLAIMS_PATH}", file=sys.stderr)
+        return 1
+
+    claims = parse_known_claims(KNOWN_CLAIMS_PATH)
+    valid_sections = discover_sections(KNOWN_CLAIMS_PATH)
+
+    # Normalize section if provided
+    section = args.section
+    if section:
+        normalized = normalize_section(section, valid_sections)
+        if normalized is None:
+            print(f"Error: Unknown section '{section}'", file=sys.stderr)
+            print(f"Available: {', '.join(sorted(valid_sections))}", file=sys.stderr)
+            return 1
+        section = normalized
+
+    # Quick mode: cache-only, return immediately
+    if args.quick:
+        result = find_best_match(
+            args.input,
+            claims,
+            threshold=THRESHOLD_HIGH,
+            section=section,
+            max_age_days=args.max_age,
+        )
+        if result.matched:
+            stale = " ⚠️ STALE" if result.is_stale else ""
+            print(f"✓ CACHED{stale}: {result.verdict}")
+            print(f"  {result.known_claim}")
+            print(f"  Evidence: {result.evidence}")
+            if args.check_freshness and result.verified_date:
+                age = f"{result.days_since_verified}d ago" if result.days_since_verified else "?"
+                print(f"  Verified: {result.verified_date} ({age})")
+            return 0
+        else:
+            print(f"✗ NOT IN CACHE (best score: {result.confidence:.2f})")
+            print("  Use without --quick to query documentation.")
+            return 10
+
+    # Standard mode: tiered response
+    top_results = find_top_matches(
+        args.input,
+        claims,
+        top_n=3,
+        threshold=THRESHOLD_LOW,
+        section=section,
+        max_age_days=args.max_age,
+    )
+
+    best = top_results.matches[0] if top_results.matches else None
+    score = best.confidence if best else 0.0
+
+    if score >= THRESHOLD_HIGH:
+        stale = " ⚠️ STALE" if best.is_stale else ""
+        print(f"✓ HIGH CONFIDENCE ({score:.2f}){stale}")
+        print(f"  {best.verdict}: {best.known_claim}")
+        print(f"  Evidence: {best.evidence}")
+        print(f"  Section: {best.section}")
+        if args.check_freshness and best.verified_date:
+            age = f"{best.days_since_verified}d ago" if best.days_since_verified else "?"
+            print(f"  Verified: {best.verified_date} ({age})")
+        return 0
+
+    elif score >= THRESHOLD_MEDIUM:
+        print(f"? CONFIRM NEEDED ({score:.2f}) - Multiple candidates:")
+        for i, m in enumerate(top_results.matches, 1):
+            marker = "→" if i == 1 else " "
+            stale = " ⚠️ STALE" if m.is_stale else ""
+            print(f"  {marker} {i}. [{m.confidence:.3f}] {m.verdict}{stale}")
+            print(f"       {m.known_claim}")
+        print("\n  Query documentation to confirm.")
+        return 1
+
+    else:
+        print(f"✗ NO MATCH (best: {score:.2f})")
+        if top_results.matches:
+            print(f"  Closest: {top_results.matches[0].known_claim}")
+        print("  Query documentation for verification.")
+        return 10
+
+
+def cmd_health(args: argparse.Namespace) -> int:
+    """Check cache health."""
+    if not KNOWN_CLAIMS_PATH.exists():
+        print("No cache file found. Nothing to check.")
+        return 0
+
+    # Version check
+    version_status = check_version_status(KNOWN_CLAIMS_PATH)
+
+    # Staleness check
+    claims = parse_claims_with_dates(KNOWN_CLAIMS_PATH)
+    stale = find_stale_claims(claims, args.max_age)
+
+    total = len(claims)
+    stale_count = len(stale)
+    stale_pct = (stale_count / total * 100) if total else 0
+
+    print(f"Cache Health Report (TTL: {args.max_age} days)")
+    print()
+
+    # Version status
+    vs = version_status
+    print("Version:")
+    print(f"  Current: {vs.current or 'unknown'}")
+    print(f"  Cached:  {vs.stored or 'unknown'}")
+    if vs.changed:
+        print(f"  ⚠️  {vs.change_type.upper()} version change!")
+    else:
+        print(f"  ✓ Current")
+    print()
+
+    # Claims summary
+    print("Claims:")
+    print(f"  Total: {total}")
+    print(f"  Fresh: {total - stale_count} ({100 - stale_pct:.1f}%)")
+    print(f"  Stale: {stale_count} ({stale_pct:.1f}%)")
+
+    if stale:
+        print()
+        print("Stale by section:")
+        by_section: dict[str, int] = {}
+        for c in stale:
+            by_section[c.section] = by_section.get(c.section, 0) + 1
+        for sec, count in sorted(by_section.items(), key=lambda x: -x[1]):
+            print(f"  {sec}: {count}")
+
+    # Pending claims
+    pending = parse_pending_claims(PENDING_CLAIMS_PATH)
+    if pending:
+        print()
+        print(f"Pending: {len(pending)} claims awaiting promotion")
+        print("  Run: python verify.py --promote")
+
+    return 2 if vs.changed else 0
+
+
+def cmd_refresh(args: argparse.Namespace) -> int:
+    """List stale claims."""
+    if not KNOWN_CLAIMS_PATH.exists():
+        print("No cache file found.")
+        return 1
+
+    claims = parse_claims_with_dates(KNOWN_CLAIMS_PATH)
+
+    # Normalize section if provided
+    section = args.section
+    if section:
+        valid_sections = discover_sections(KNOWN_CLAIMS_PATH)
+        normalized = normalize_section(section, valid_sections)
+        if normalized is None:
+            print(f"Error: Unknown section '{section}'", file=sys.stderr)
+            return 1
+        section = normalized
+
+    stale = find_stale_claims(claims, args.max_age, section)
+
+    section_note = f" in {section}" if section else ""
+    print(f"Stale claims{section_note} (>{args.max_age} days)")
+    print(f"Found: {len(stale)} of {len(claims)} total")
+    print()
+
+    if not stale:
+        print("✓ All claims are fresh!")
+        return 0
+
+    for c in stale:
+        age = f"{c.days_since_verified}d ago" if c.days_since_verified >= 0 else "unknown"
+        print(f"⚠️  [{c.section}] {c.claim}")
+        print(f"    {c.verdict} | Last: {c.verified_date} ({age})")
+        print()
+
+    print("To refresh: re-verify each claim, then update date with:")
+    print("  python scripts/refresh_claims.py --update \"claim text\"")
+
+    return 0
+
+
+def cmd_promote(args: argparse.Namespace) -> int:
+    """Promote pending claims to known cache."""
+    if not PENDING_CLAIMS_PATH.exists():
+        print("No pending claims file found.")
+        return 1
+
+    if not KNOWN_CLAIMS_PATH.exists():
+        print("No known claims file found.")
+        return 1
+
+    result = promote_claims(
+        PENDING_CLAIMS_PATH,
+        KNOWN_CLAIMS_PATH,
+        dry_run=args.dry_run,
+        interactive=args.interactive,
+        record_version=not args.no_version,
+    )
+
+    mode = "[DRY RUN] " if args.dry_run else ""
+
+    if result.normalized_sections:
+        print(f"Normalized {len(result.normalized_sections)} section(s):")
+        for orig, norm in result.normalized_sections:
+            print(f"  ~ '{orig}' → '{norm}'")
+        print()
+
+    if result.promoted:
+        print(f"{mode}Promoted {len(result.promoted)} claim(s):")
+        for c in result.promoted:
+            print(f"  ✓ [{c.section}] {c.claim}")
+
+    if result.skipped_duplicates:
+        print(f"\nSkipped {len(result.skipped_duplicates)} duplicate(s):")
+        for c in result.skipped_duplicates:
+            print(f"  ⊘ [{c.section}] {c.claim}")
+
+    if not result.promoted and not result.skipped_duplicates:
+        print("No pending claims to promote.")
+        return 10
+
+    return 0
+
+
+def cmd_sections(args: argparse.Namespace) -> int:
+    """List available sections."""
+    if not KNOWN_CLAIMS_PATH.exists():
+        print("No cache file found.")
+        return 1
+
+    claims = parse_known_claims(KNOWN_CLAIMS_PATH)
+    sections = list_sections(claims)
+
+    print("Available sections:")
+    for sec, count in sorted(sections.items()):
+        print(f"  {sec}: {count} claims")
+
+    return 0
+
+
+# =============================================================================
+# CLI
+# =============================================================================
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Unified verify skill CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Modes:
+    verify.py "claim"           Check claim against cache
+    verify.py --quick "claim"   Cache-only check (no agent query)
+    verify.py --health          Cache health summary
+    verify.py --refresh         List stale claims
+    verify.py --promote         Promote pending to known cache
+    verify.py --sections        List available sections
+
+Examples:
+    # Quick cache lookup
+    python verify.py --quick "exit code 0 means success"
+
+    # Full check with freshness info
+    python verify.py "frontmatter required" --check-freshness
+
+    # Check hooks section only
+    python verify.py "timeout" --section Hooks
+
+    # Daily maintenance
+    python verify.py --health
+    python verify.py --refresh
+    python verify.py --promote --dry-run
+        """,
+    )
+
+    # Input (positional, optional for flag modes)
+    parser.add_argument(
+        "input",
+        nargs="?",
+        help="Claim text to verify",
+    )
+
+    # Mode flags (mutually exclusive)
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--health",
+        action="store_true",
+        help="Show cache health summary",
+    )
+    mode_group.add_argument(
+        "--refresh",
+        action="store_true",
+        help="List stale claims needing re-verification",
+    )
+    mode_group.add_argument(
+        "--promote",
+        action="store_true",
+        help="Promote pending claims to known cache",
+    )
+    mode_group.add_argument(
+        "--sections",
+        action="store_true",
+        help="List available sections",
+    )
+
+    # Check options
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help="Cache-only check (high confidence threshold, no agent)",
+    )
+    parser.add_argument(
+        "--section",
+        type=str,
+        help="Filter to specific section",
+    )
+    parser.add_argument(
+        "--check-freshness",
+        action="store_true",
+        help="Show verification dates and staleness",
+    )
+    parser.add_argument(
+        "--max-age",
+        type=int,
+        default=DEFAULT_MAX_AGE_DAYS,
+        metavar="DAYS",
+        help=f"Staleness threshold (default: {DEFAULT_MAX_AGE_DAYS})",
+    )
+
+    # Promote options
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview changes without writing",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Confirm each claim before promoting",
+    )
+    parser.add_argument(
+        "--no-version",
+        action="store_true",
+        help="Don't record Claude Code version in dates",
+    )
+
+    args = parser.parse_args()
+
+    # Route to appropriate handler
+    if args.health:
+        return cmd_health(args)
+    elif args.refresh:
+        return cmd_refresh(args)
+    elif args.promote:
+        return cmd_promote(args)
+    elif args.sections:
+        return cmd_sections(args)
+    elif args.input:
+        return cmd_check(args)
+    else:
+        parser.print_help()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

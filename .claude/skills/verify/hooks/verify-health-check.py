@@ -99,6 +99,28 @@ def version_changed(cache_path: Path) -> tuple[bool, str]:
 
 
 # =============================================================================
+# DATE PARSING
+# =============================================================================
+
+
+def parse_verified_date(verified_date: str | None) -> date | None:
+    """
+    Parse a verification date, handling both plain and version-tagged formats.
+
+    Supported formats:
+        - "2026-01-05"               → plain ISO date
+        - "2026-01-05 (v2.0.76)"     → date with version suffix (from promote_claims.py)
+    """
+    if not verified_date:
+        return None
+    date_str = verified_date.split(" ")[0].strip()
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+# =============================================================================
 # STALENESS CHECKING
 # =============================================================================
 
@@ -124,11 +146,11 @@ def get_staleness_stats(cache_path: Path) -> tuple[int, int]:
             parts = [p.strip() for p in line.split("|")[1:-1]]
             if len(parts) >= 4:
                 total += 1
-                try:
-                    verified = datetime.strptime(parts[3], "%Y-%m-%d").date()
+                verified = parse_verified_date(parts[3])
+                if verified:
                     if (today - verified).days > MAX_AGE_DAYS:
                         stale += 1
-                except ValueError:
+                else:
                     stale += 1  # Invalid date = stale
 
     return total, stale

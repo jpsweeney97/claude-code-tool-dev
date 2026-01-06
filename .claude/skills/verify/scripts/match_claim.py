@@ -40,27 +40,48 @@ from pathlib import Path
 DEFAULT_MAX_AGE_DAYS: int = 90  # Claims older than this are considered stale
 
 
+def parse_verified_date(verified_date: str | None) -> date | None:
+    """
+    Parse a verification date, handling both plain and version-tagged formats.
+
+    Supported formats:
+        - "2026-01-05"               → plain ISO date
+        - "2026-01-05 (v2.0.76)"     → date with version suffix (from promote_claims.py)
+
+    Returns:
+        Parsed date object or None if invalid/missing.
+    """
+    if not verified_date:
+        return None
+
+    # Extract date portion (handles both plain dates and version-tagged dates)
+    # Format: "YYYY-MM-DD" or "YYYY-MM-DD (vX.Y.Z)"
+    date_str = verified_date.split(" ")[0].strip()
+
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
 def check_staleness(verified_date: str | None, max_age_days: int = DEFAULT_MAX_AGE_DAYS) -> tuple[int | None, bool]:
     """
     Check if a claim is stale based on its verification date.
 
     Args:
-        verified_date: ISO date string (e.g., "2026-01-05") or None
+        verified_date: ISO date string (e.g., "2026-01-05" or "2026-01-05 (v2.0.76)")
         max_age_days: Maximum age before claim is considered stale
 
     Returns:
         Tuple of (days_since_verified, is_stale).
         Returns (None, False) if date is missing or invalid.
     """
-    if not verified_date:
+    verified = parse_verified_date(verified_date)
+    if not verified:
         return (None, False)
 
-    try:
-        verified = datetime.strptime(verified_date, "%Y-%m-%d").date()
-        days_ago = (date.today() - verified).days
-        return (days_ago, days_ago > max_age_days)
-    except ValueError:
-        return (None, False)
+    days_ago = (date.today() - verified).days
+    return (days_ago, days_ago > max_age_days)
 
 
 # =============================================================================
