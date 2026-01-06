@@ -540,3 +540,67 @@ For each finding:
 
 Document your design decisions, then continue to Verify phase.
 ```
+
+---
+
+### Verify Phase
+
+**Purpose:** Confirm design addressed the findings.
+
+**Present this prompt:**
+
+```
+Verify Phase
+
+Design complete. Now verifying findings were addressed.
+
+Reading design output: [path]
+```
+
+**For each finding that was to be addressed:**
+
+```
+Finding [ID]: "[description]"
+Original evidence: [citation]
+
+Scanning design doc for relevant sections...
+
+[Quote relevant section from design if found]
+
+Does this adequately resolve the finding?
+[A] Yes — fully addressed
+[B] Partially — some aspects missing
+[C] No — not addressed
+[D] Let me review the design doc first
+```
+
+**If B or C:**
+
+```
+What's missing or incomplete?
+[User describes gap]
+
+[Add as note to finding, or create new finding for next cycle]
+```
+
+**After all findings reviewed:**
+
+```
+New Gaps Check
+
+The design may have introduced new elements. Quick review:
+- Do any new elements introduce concerns?
+- Anything feel underspecified?
+
+[A] No new concerns
+[B] Found new issue: ___
+
+[If B: Add as new finding with "introduced_in_design" flag]
+```
+
+**After Verify:**
+1. Update finding statuses: `addressed`, `partial`, or `open`
+2. Add resolutions to addressed findings
+3. Add any new findings from design review
+4. Add history event: `verify_complete`
+5. Proceed to Iterate/Ship Decision
