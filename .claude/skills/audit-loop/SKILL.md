@@ -356,3 +356,74 @@ If all findings point one direction, actively seek counterexamples.
 1. Save findings to `state.findings`
 2. Add history event: `findings_complete` with count
 3. Proceed to Phase 3: Verification
+
+---
+
+### Phase 3: Verification
+
+**Calibration requirements:**
+
+| Check | Light | Medium | Deep |
+|-------|-------|--------|------|
+| Coverage verified | Quick check | Full check | Independent check |
+| Reasoning verified | Self-check | Self-check | Peer check |
+| Limitations stated | Key | Full | Comprehensive |
+| Counter-conclusion | — | Yes | Adversarial |
+| Confidence labeled | Yes | Yes | Yes |
+
+**Present these prompts:**
+
+```
+Phase 3: Verification
+
+1. COVERAGE CHECK — Review the coverage matrix. Any gaps?
+
+   [Deep: Would an independent reviewer find the same things?]
+```
+
+```
+2. REASONING CHECK — For each finding:
+
+   Finding [ID]: [description]
+   Evidence: [citation]
+
+   Does the evidence actually support this conclusion?
+   [Yes / No / Partially]
+
+   [If No/Partially: Revise finding or demote confidence]
+```
+
+For Medium/Deep calibration:
+
+```
+3. COUNTER-CONCLUSION — What's the best argument that this artifact is FINE as-is?
+
+   [Medium: State the argument]
+   [Deep: Steelman it — make it as strong as possible, then respond]
+```
+
+```
+4. CONFIDENCE LABELS — Review each finding:
+
+   [List findings]
+
+   For each, assign: Certain / Probable / Possible / Unknown
+
+   Certain = Direct evidence, no alternative explanation
+   Probable = Strong evidence, alternatives unlikely
+   Possible = Some evidence, alternatives exist
+   Unknown = Insufficient evidence to judge
+```
+
+```
+5. LIMITATIONS — What did this audit NOT examine?
+
+   List blind spots readers should know about:
+   - [user provides]
+```
+
+**After Phase 3:**
+1. Save verification to `state.verification`
+2. Update finding confidence levels
+3. Add history event: `verification_complete`
+4. Proceed to Triage
