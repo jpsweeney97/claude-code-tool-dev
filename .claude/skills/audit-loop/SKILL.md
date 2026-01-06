@@ -77,3 +77,78 @@ docs/plans/feature-x.audit.json
 docs/plans/feature-x.audit.2026-01-06.json       # State archive
 docs/plans/feature-x.audit-report.2026-01-06.md  # Final report
 ```
+
+---
+
+## State Management
+
+### Schema (v1.0)
+
+```json
+{
+  "version": "1.0",
+  "artifact": "path/to/artifact.md",
+  "created": "2026-01-06T12:00:00Z",
+  "updated": "2026-01-06T14:30:00Z",
+
+  "calibration": {
+    "stakes": {
+      "reversibility": 2,
+      "blast_radius": 2,
+      "precedent": 1,
+      "visibility": 2
+    },
+    "score": 7,
+    "level": "medium"
+  },
+
+  "cycle": 1,
+  "phase": "execution",
+
+  "definition": {
+    "goal": "string",
+    "scope": ["string"],
+    "excluded": ["string"],
+    "excluded_rationale": "string",
+    "assumptions": ["string"],
+    "done_criteria": "string"
+  },
+
+  "findings": [
+    {
+      "id": "F1",
+      "description": "string",
+      "confidence": "certain|probable|possible|unknown",
+      "priority": "high|medium|low",
+      "evidence": "string",
+      "status": "open|addressed|partial",
+      "resolution": "string (optional)"
+    }
+  ],
+
+  "verification": {
+    "counter_conclusion": "string",
+    "limitations": ["string"]
+  },
+
+  "history": [
+    { "timestamp": "ISO-8601", "event": "string", "data": {} }
+  ]
+}
+```
+
+### State Checkpoints
+
+State is saved automatically at:
+- After stakes assessment (calibration determined)
+- After Phase 1: Definition
+- After Phase 2: Execution (findings captured)
+- After Phase 3: Verification
+- After Triage (priorities assigned)
+- Before Design handoff
+- After Verify phase
+- On Ship (archived with timestamp)
+
+### Phase Values
+
+`stakes_assessment` → `definition` → `execution` → `verification` → `triage` → `design` → `verify` → `ship`
