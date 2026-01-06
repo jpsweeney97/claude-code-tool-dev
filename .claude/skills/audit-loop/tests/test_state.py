@@ -51,3 +51,144 @@ def test_create_fails_if_state_exists(tmp_path):
 
     assert not result.ok
     assert "exists" in result.message.lower()
+
+
+# =============================================================================
+# UPDATE TESTS
+# =============================================================================
+
+
+def test_update_phase(tmp_path):
+    """update --phase transitions to new phase."""
+    from state import create_state, update_state
+
+    artifact = tmp_path / "feature.md"
+    artifact.write_text("# Feature")
+    create_state(artifact)
+
+    result = update_state(artifact, phase="definition")
+
+    assert result.ok
+    state = result.data["state"]
+    assert state["phase"] == "definition"
+
+
+def test_update_phase_invalid(tmp_path):
+    """update --phase rejects invalid phase."""
+    from state import create_state, update_state
+
+    artifact = tmp_path / "feature.md"
+    artifact.write_text("# Feature")
+    create_state(artifact)
+
+    result = update_state(artifact, phase="invalid_phase")
+
+    assert not result.ok
+    assert "invalid phase" in result.message.lower()
+
+
+def test_update_add_finding(tmp_path):
+    """update --add-finding adds new finding with auto-ID."""
+    from state import create_state, update_state
+
+    artifact = tmp_path / "feature.md"
+    artifact.write_text("# Feature")
+    create_state(artifact)
+
+    result = update_state(
+        artifact,
+        add_finding={
+            "description": "Missing error handling",
+            "confidence": "probable",
+            "priority": "high",
+            "evidence": "lines 45-50",
+        },
+    )
+
+    assert result.ok
+    state = result.data["state"]
+    assert len(state["findings"]) == 1
+    assert state["findings"][0]["id"] == "F1"
+    assert state["findings"][0]["status"] == "open"
+
+
+def test_update_next_cycle(tmp_path):
+    """update --next-cycle increments cycle."""
+    from state import create_state, update_state
+
+    artifact = tmp_path / "feature.md"
+    artifact.write_text("# Feature")
+    create_state(artifact)
+
+    result = update_state(artifact, next_cycle=True)
+
+    assert result.ok
+    assert result.data["state"]["cycle"] == 2
+
+
+def test_update_cycle_limit(tmp_path):
+    """update --next-cycle enforces MAX_CYCLES limit."""
+    from state import create_state, update_state
+    import json
+    from _common import MAX_CYCLES, get_state_path
+
+    artifact = tmp_path / "feature.md"
+    artifact.write_text("# Feature")
+    create_state(artifact)
+
+    # Manually set cycle to MAX_CYCLES
+    state_path = get_state_path(artifact)
+    state = json.loads(state_path.read_text())
+    state["cycle"] = MAX_CYCLES
+    state_path.write_text(json.dumps(state))
+
+    result = update_state(artifact, next_cycle=True)
+
+    assert not result.ok
+    assert "limit" in result.message.lower()
+
+
+# =============================================================================
+# VALIDATE TESTS
+# =============================================================================
+
+
+def test_validate_valid_state(tmp_path):
+    """validate returns success for valid state."""
+    from state import create_state, validate_state
+
+    artifact = tmp_path / "feature.md"
+    artifact.write_text("# Feature")
+    create_state(artifact)
+
+    result = validate_state(artifact)
+
+    assert result.ok
+
+
+def test_validate_missing_state(tmp_path):
+    """validate fails when state doesn't exist."""
+    from state import validate_state
+
+    artifact = tmp_path / "feature.md"
+    artifact.write_text("# Feature")
+
+    result = validate_state(artifact)
+
+    assert not result.ok
+
+
+def test_validate_corrupt_state(tmp_path):
+    """validate fails for invalid JSON."""
+    from state import validate_state
+    from _common import get_state_path
+
+    artifact = tmp_path / "feature.md"
+    artifact.write_text("# Feature")
+    state_path = get_state_path(artifact)
+    state_path.write_text("not valid json")
+
+    result = validate_state(artifact)
+
+    assert not result.ok
+    assert "json" in result.message.lower() or "invalid" in result.message.lower()

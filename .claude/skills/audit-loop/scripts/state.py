@@ -149,6 +149,176 @@ def read_state(artifact_path: Path) -> Result:
         )
 
 
+def update_state(
+    artifact_path: Path,
+    phase: str | None = None,
+    add_finding: dict[str, Any] | None = None,
+    next_cycle: bool = False,
+    calibration: dict[str, Any] | None = None,
+) -> Result:
+    """
+    Update audit state.
+
+    Args:
+        artifact_path: Path to the artifact being audited
+        phase: New phase value
+        add_finding: Finding dict to add (auto-generates ID)
+        next_cycle: Increment cycle counter
+        calibration: Calibration data to set
+
+    Returns:
+        Result with updated state
+    """
+    read_result = read_state(artifact_path)
+    if not read_result.ok:
+        return read_result
+
+    state = read_result.data["state"]
+    state_path = Path(read_result.data["state_path"])
+    now = datetime.now(timezone.utc).isoformat()
+    events = []
+
+    # Update phase
+    if phase is not None:
+        if phase not in PHASES:
+            return Result.failure(
+                f"Invalid phase: {phase}",
+                errors=[f"Valid phases: {', '.join(PHASES)}"],
+            )
+        old_phase = state["phase"]
+        state["phase"] = phase
+        events.append({
+            "timestamp": now,
+            "event": "phase_changed",
+            "data": {"from": old_phase, "to": phase},
+        })
+
+    # Add finding
+    if add_finding is not None:
+        # Generate next finding ID
+        existing_ids = [f["id"] for f in state["findings"]]
+        next_num = 1
+        while f"F{next_num}" in existing_ids:
+            next_num += 1
+        finding_id = f"F{next_num}"
+
+        finding = {
+            "id": finding_id,
+            "description": add_finding.get("description", ""),
+            "confidence": add_finding.get("confidence", "unknown"),
+            "priority": add_finding.get("priority", "medium"),
+            "evidence": add_finding.get("evidence", ""),
+            "status": "open",
+            "resolution": None,
+        }
+        state["findings"].append(finding)
+        events.append({
+            "timestamp": now,
+            "event": "finding_added",
+            "data": {"id": finding_id},
+        })
+
+    # Next cycle
+    if next_cycle:
+        if state["cycle"] >= MAX_CYCLES:
+            return Result.failure(
+                f"Cycle limit reached ({MAX_CYCLES})",
+                errors=["Cannot exceed maximum cycles. Consider archiving this audit."],
+            )
+        state["cycle"] += 1
+        events.append({
+            "timestamp": now,
+            "event": "cycle_started",
+            "data": {"cycle": state["cycle"]},
+        })
+
+    # Set calibration
+    if calibration is not None:
+        state["calibration"] = calibration
+        events.append({
+            "timestamp": now,
+            "event": "calibration_set",
+            "data": calibration,
+        })
+
+    # Update timestamp and history
+    state["updated"] = now
+    state["history"].extend(events)
+
+    try:
+        atomic_write(state_path, json.dumps(state, indent=2))
+        return Result.success(
+            f"Updated state: {state_path}",
+            data={"state_path": str(state_path), "state": state},
+        )
+    except OSError as e:
+        return Result.failure(
+            f"Failed to write state: {e}",
+            errors=[str(e)],
+        )
+
+
+def validate_state(artifact_path: Path) -> Result:
+    """
+    Validate audit state integrity.
+
+    Checks:
+        - State file exists and is valid JSON
+        - Required fields present
+        - Phase is valid
+        - Cycle is within limits
+        - Finding IDs are unique
+
+    Returns:
+        Result with validation details
+    """
+    read_result = read_state(artifact_path)
+    if not read_result.ok:
+        return read_result
+
+    state = read_result.data["state"]
+    errors = []
+    warnings = []
+
+    # Check required fields
+    required = ["version", "artifact", "phase", "cycle", "findings"]
+    for field in required:
+        if field not in state:
+            errors.append(f"Missing required field: {field}")
+
+    if errors:
+        return Result.failure(
+            "State validation failed",
+            errors=errors,
+        )
+
+    # Check phase validity
+    if state["phase"] not in PHASES:
+        errors.append(f"Invalid phase: {state['phase']}")
+
+    # Check cycle limits
+    if state["cycle"] > MAX_CYCLES:
+        errors.append(f"Cycle {state['cycle']} exceeds limit {MAX_CYCLES}")
+
+    # Check finding ID uniqueness
+    finding_ids = [f["id"] for f in state["findings"]]
+    if len(finding_ids) != len(set(finding_ids)):
+        errors.append("Duplicate finding IDs detected")
+
+    if errors:
+        return Result.failure(
+            "State validation failed",
+            errors=errors,
+            data={"state": state},
+        )
+
+    return Result.success(
+        "State is valid",
+        data={"state": state},
+        warnings=warnings,
+    )
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -187,6 +357,46 @@ def cmd_read(args: argparse.Namespace) -> int:
     return EXIT_SUCCESS
 
 
+def cmd_update(args: argparse.Namespace) -> int:
+    """Handle update subcommand."""
+    add_finding = None
+    if args.add_finding:
+        # Parse finding from comma-separated key=value pairs
+        finding = {}
+        for pair in args.add_finding.split(","):
+            if "=" in pair:
+                key, value = pair.split("=", 1)
+                finding[key.strip()] = value.strip()
+        add_finding = finding
+
+    result = update_state(
+        Path(args.artifact),
+        phase=args.phase,
+        add_finding=add_finding,
+        next_cycle=args.next_cycle,
+    )
+
+    if args.json:
+        print(result.to_json())
+    else:
+        print(result.message)
+
+    return EXIT_SUCCESS if result.ok else EXIT_ERROR
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Handle validate subcommand."""
+    result = validate_state(Path(args.artifact))
+    if args.json:
+        print(result.to_json())
+    else:
+        print(result.message)
+        for error in result.errors:
+            print(f"  - {error}")
+
+    return EXIT_SUCCESS if result.ok else EXIT_VALIDATION
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -206,6 +416,19 @@ def main(argv: list[str] | None = None) -> int:
     p_read = subparsers.add_parser("read", help="Display current state")
     p_read.add_argument("artifact", help="Path to artifact being audited")
     p_read.set_defaults(func=cmd_read)
+
+    # update
+    p_update = subparsers.add_parser("update", help="Modify state fields")
+    p_update.add_argument("artifact", help="Path to artifact being audited")
+    p_update.add_argument("--phase", help="Set phase")
+    p_update.add_argument("--add-finding", help="Add finding: description=...,priority=...,confidence=...")
+    p_update.add_argument("--next-cycle", action="store_true", help="Increment cycle")
+    p_update.set_defaults(func=cmd_update)
+
+    # validate
+    p_validate = subparsers.add_parser("validate", help="Check state integrity")
+    p_validate.add_argument("artifact", help="Path to artifact being audited")
+    p_validate.set_defaults(func=cmd_validate)
 
     args = parser.parse_args(argv)
     return args.func(args)
