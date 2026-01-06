@@ -3,7 +3,7 @@ name: verify
 description: Verify claims about Claude Code against official Anthropic documentation. Use when fact-checking Claude Code features, behaviors, or configurations.
 license: MIT
 metadata:
-  version: "2.5.0"
+  version: "2.5.1"
   model: claude-sonnet-4-20250514
   timelessness_score: 8
 ---
@@ -317,6 +317,14 @@ See `references/scripts-reference.md` for full documentation.
 ---
 
 ## Changelog
+
+### v2.5.1
+- **Bug fix**: Fixed section insertion offset bug in `promote_claims.py` that could corrupt file structure
+- **Bug fix**: Fixed case-sensitive section lookup causing duplicate detection failures
+- **Safety**: Added atomic write pattern to all file-modifying scripts (prevents data corruption on interrupted writes)
+- **Refactor**: Consolidated `Version` class into `_common.py` (was duplicated in 3 files)
+- **Refactor**: Canonical import source for `DEFAULT_MAX_AGE_DAYS` from `_common.py`
+- **Improvement**: Added verbose mode to `get_claude_code_version()` for debugging
 
 ### v2.5.0
 - **Scope Definition (Step 0)**: New step clarifies what claims are in/out of scope
