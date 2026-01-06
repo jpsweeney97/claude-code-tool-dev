@@ -51,13 +51,6 @@ python scripts/batch_verify.py --interactive
 → Per-claim confirm/skip/edit/quit → Human oversight for batch operations
 ```
 
-**Quick-add mode:**
-```
-python scripts/verify.py --quick-add "claim text"
-
-→ Smart section/severity inference → Adds to pending with minimal input
-```
-
 **Validate source URLs:**
 ```
 python scripts/verify.py --validate-urls
@@ -93,7 +86,7 @@ python scripts/verify.py --coverage
 → Identifies documentation sections lacking claims
 ```
 
-**Simplified quick-add:**
+**Quick-add mode:**
 ```
 python scripts/verify.py --quick-add "hooks timeout is 60 seconds"
 
