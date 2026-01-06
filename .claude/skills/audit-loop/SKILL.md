@@ -23,6 +23,8 @@ Execute rigorous audits on artifacts (plans, designs, docs) with state persisten
 - [State Management](#state-management)
 - [Workflow](#workflow)
 - [Prompts Reference](#prompts-reference)
+- [Error Handling](#error-handling)
+- [Integration](#integration)
 
 ---
 
@@ -654,3 +656,66 @@ Your choice?
 2. Add history event: `scope_expanded`
 3. Return to Phase 1 to redefine scope
 4. Incorporate new concerns from design
+
+---
+
+## Prompts Reference
+
+### Quick Reference by Phase
+
+| Phase | Key Prompts |
+|-------|------------|
+| Stakes | 4 questions (reversibility, blast radius, precedent, visibility) |
+| Definition | 6 prompts (goal, scope, exclusions, assumptions, done criteria, simple path) |
+| Execution | Per-scope evidence collection + coverage matrix |
+| Verification | 5 checks (coverage, reasoning, counter-conclusion, confidence, limitations) |
+| Triage | Priority assignment per finding |
+| Design | Handoff to brainstorming with context |
+| Verify | Per-finding resolution check + new gaps check |
+| Ship/Iterate | Exit criteria check + decision |
+
+### Calibration Quick Reference
+
+| Level | Score | Rigor |
+|-------|-------|-------|
+| Light | 4-6 | Key elements only, implicit OK |
+| Medium | 7-9 | Full coverage, explicit criteria |
+| Deep | 10-12 | Exhaustive, adversarial, documented |
+
+### Red Flags
+
+Watch for these anti-patterns:
+
+| Anti-Pattern | Signal | Response |
+|--------------|--------|----------|
+| Confirmation bias | Only finding supporting evidence | Actively seek counterexamples |
+| Scope creep | Exclusions are "hard" areas | Reconsider if they should be in scope |
+| Premature completion | "LGTM" without evidence | Require citations for each scope area |
+| Over-analysis | Deep audit on trivial artifact | Recalibrate stakes, consider Light |
+| Under-analysis | Light audit on critical artifact | Recalibrate stakes, consider Deep |
+
+---
+
+## Error Handling
+
+| Scenario | Response |
+|----------|----------|
+| Artifact not found | "Artifact not found: [path]. Check the path and try again." |
+| State file corrupted | "[A] Start fresh  [B] Show raw state for recovery" |
+| Brainstorming unavailable | Provide inline design guidance |
+| User abandons mid-audit | State is preserved; offer resume on next invocation |
+
+---
+
+## Integration
+
+**Delegates to:**
+- `superpowers:brainstorming` — Design phase
+
+**References:**
+- `~/.claude/references/framework-for-rigor.md` — Audit methodology
+- `~/.claude/references/audit-design-loop.md` — Loop pattern
+
+**Uses:**
+- `TodoWrite` — Track audit progress
+- JSON state files — Persist across sessions
