@@ -22,10 +22,31 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, asdict, field
 from datetime import date
 from pathlib import Path
+
+
+# =============================================================================
+# VERSION DETECTION
+# =============================================================================
+
+def get_claude_code_version() -> str | None:
+    """Get current Claude Code version."""
+    try:
+        result = subprocess.run(
+            ["claude", "--version"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            match = re.search(r"(\d+\.\d+\.\d+)", result.stdout)
+            if match:
+                return match.group(1)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return None
 
 
 # =============================================================================
@@ -61,6 +82,45 @@ SECTION_ALIASES: dict[str, str] = {
     "command": "Commands",
     "skill": "Skills",
     "agent": "Agents",
+}
+
+# Source URLs for known documentation sections
+# Used when creating new sections to provide traceable evidence
+SECTION_SOURCES: dict[str, str] = {
+    # Core extension types
+    "Skills": "https://code.claude.com/docs/en/skills.md",
+    "Hooks": "https://code.claude.com/docs/en/hooks.md",
+    "Commands": "https://code.claude.com/docs/en/slash-commands.md",
+    "MCP": "https://code.claude.com/docs/en/mcp.md",
+    "Agents": "https://code.claude.com/docs/en/agents.md",
+
+    # Configuration and settings
+    "Settings": "https://code.claude.com/docs/en/interactive-mode.md",
+    "Permissions": "https://code.claude.com/docs/en/permissions.md",
+    "Configuration": "https://code.claude.com/docs/en/configuration.md",
+
+    # Features and capabilities
+    "CLI": "https://code.claude.com/docs/en/cli.md",
+    "Features": "https://code.claude.com/docs/en/overview.md",
+    "Memory": "https://code.claude.com/docs/en/memory.md",
+    "Context": "https://code.claude.com/docs/en/context.md",
+
+    # Integrations
+    "IDE": "https://code.claude.com/docs/en/ide-integrations.md",
+    "GitHub": "https://code.claude.com/docs/en/github.md",
+    "Git": "https://code.claude.com/docs/en/git.md",
+
+    # Advanced topics
+    "Plugins": "https://code.claude.com/docs/en/plugins.md",
+    "SDK": "https://code.claude.com/docs/en/sdk.md",
+    "API": "https://code.claude.com/docs/en/api.md",
+    "Security": "https://code.claude.com/docs/en/security.md",
+    "Bedrock": "https://code.claude.com/docs/en/bedrock.md",
+    "Vertex": "https://code.claude.com/docs/en/vertex.md",
+
+    # Troubleshooting
+    "Troubleshooting": "https://code.claude.com/docs/en/troubleshooting.md",
+    "Debugging": "https://code.claude.com/docs/en/debugging.md",
 }
 
 
@@ -201,17 +261,27 @@ def find_maintenance_section_line(content: str) -> int | None:
     return None
 
 
+def infer_source_url(section: str) -> str:
+    """
+    Infer the documentation source URL for a section.
+
+    Returns the known URL for recognized sections, or a placeholder for unknown sections.
+    """
+    return SECTION_SOURCES.get(section, "(pending verification)")
+
+
 def create_new_section(section: str) -> str:
     """
     Generate a new section block for known-claims.md.
 
-    The section is created with a placeholder source URL and empty table.
+    The section is created with an inferred source URL (or placeholder for unknown sections).
     """
+    source_url = infer_source_url(section)
     return f"""---
 
 ## {section}
 
-**Source:** (pending verification)
+**Source:** {source_url}
 
 | Claim | Verdict | Evidence | Verified |
 |-------|---------|----------|----------|"""
@@ -221,9 +291,16 @@ def create_new_section(section: str) -> str:
 # PROMOTION LOGIC
 # =============================================================================
 
-def format_known_claim_row(claim: PendingClaim) -> str:
-    """Format a pending claim as a known-claims.md table row (with verified date)."""
-    return f"| {claim.claim} | {claim.verdict} | {claim.evidence} | {claim.date} |"
+def format_known_claim_row(claim: PendingClaim, version: str | None = None) -> str:
+    """Format a pending claim as a known-claims.md table row.
+
+    If version is provided, appends it to the date for traceability.
+    Format: "2026-01-06 (v2.0.76)" or just "2026-01-06" if no version.
+    """
+    date_col = claim.date
+    if version:
+        date_col = f"{claim.date} (v{version})"
+    return f"| {claim.claim} | {claim.verdict} | {claim.evidence} | {date_col} |"
 
 
 def promote_claims(
@@ -231,6 +308,7 @@ def promote_claims(
     known_path: Path,
     dry_run: bool = False,
     interactive: bool = False,
+    record_version: bool = True,
 ) -> PromotionResult:
     """
     Promote pending claims to known-claims.md.
@@ -240,10 +318,13 @@ def promote_claims(
         known_path: Path to known-claims.md
         dry_run: If True, don't write changes
         interactive: If True, prompt for each claim
+        record_version: If True, append Claude Code version to verification date
 
     Returns:
         PromotionResult with promoted/skipped claims and any errors
     """
+    # Get version for recording (if requested)
+    version = get_claude_code_version() if record_version else None
     result = PromotionResult()
 
     # Parse pending claims
@@ -313,7 +394,7 @@ def promote_claims(
         else:
             # Add all claims for this section
             for claim in claims:
-                row = format_known_claim_row(claim)
+                row = format_known_claim_row(claim, version)
                 insertions.append((insert_point, row))
                 result.promoted.append(claim)
 
@@ -337,7 +418,7 @@ def promote_claims(
             # Add claims to the new section
             claims_for_section = by_section[section]
             for claim in claims_for_section:
-                section_lines.append(format_known_claim_row(claim))
+                section_lines.append(format_known_claim_row(claim, version))
 
             if maintenance_line is not None:
                 # Insert before Maintenance, with blank line before ---
@@ -426,6 +507,11 @@ Examples:
         action="store_true",
         help="Output as JSON",
     )
+    parser.add_argument(
+        "--no-version",
+        action="store_true",
+        help="Don't record Claude Code version in verification date",
+    )
     args = parser.parse_args()
 
     # Validate inputs
@@ -443,6 +529,7 @@ Examples:
         args.known,
         dry_run=args.dry_run,
         interactive=args.interactive,
+        record_version=not args.no_version,
     )
 
     # Output

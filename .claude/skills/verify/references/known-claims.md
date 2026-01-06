@@ -3,6 +3,7 @@
 Pre-verified claims sourced from official Claude Code documentation.
 
 **Last verified:** 2026-01-06
+**Claude Code version:** 2.0.76
 **Method:** Queried via claude-code-guide agent against official docs
 
 ---
