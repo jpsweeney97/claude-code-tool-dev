@@ -3,7 +3,7 @@ name: audit-loop
 description: Execute the Audit → Design Loop workflow with guided prompts and state persistence. Reduces friction in applying Framework for Rigor, prevents state loss across sessions, and enforces completeness.
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   model: claude-opus-4-5-20251101
   timelessness_score: 8
 ---
@@ -719,3 +719,75 @@ Watch for these anti-patterns:
 **Uses:**
 - `TodoWrite` — Track audit progress
 - JSON state files — Persist across sessions
+
+---
+
+## Scripts Reference
+
+Scripts enable agentic operation with persistent state.
+
+### state.py
+
+State CRUD operations:
+
+```bash
+# Initialize audit
+python scripts/state.py create docs/plan.md
+
+# View state
+python scripts/state.py read docs/plan.md --json
+
+# Update phase
+python scripts/state.py update docs/plan.md --phase definition
+
+# Add finding
+python scripts/state.py update docs/plan.md --add-finding "description=Missing validation,priority=high"
+
+# Start next cycle
+python scripts/state.py update docs/plan.md --next-cycle
+
+# List active audits
+python scripts/state.py list docs/
+
+# Archive completed audit
+python scripts/state.py archive docs/plan.md
+```
+
+### generate_report.py
+
+Generate markdown report:
+
+```bash
+# Output to stdout
+python scripts/generate_report.py docs/plan.md
+
+# Save to dated file
+python scripts/generate_report.py docs/plan.md --save
+```
+
+### validate_state.py
+
+Pre-operation validation:
+
+```bash
+# Check ship criteria
+python scripts/validate_state.py docs/plan.md --for ship
+
+# Check iteration allowed
+python scripts/validate_state.py docs/plan.md --for iterate
+
+# Check phase transition
+python scripts/validate_state.py docs/plan.md --for phase --target-phase design
+```
+
+### calculate_stakes.py
+
+Calculate calibration level:
+
+```bash
+# Direct values (reversibility, blast_radius, precedent, visibility)
+python scripts/calculate_stakes.py 2 2 2 2
+
+# Interactive mode
+python scripts/calculate_stakes.py --interactive
+```
