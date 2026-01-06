@@ -604,3 +604,53 @@ The design may have introduced new elements. Quick review:
 3. Add any new findings from design review
 4. Add history event: `verify_complete`
 5. Proceed to Iterate/Ship Decision
+
+---
+
+### Iterate or Ship
+
+**Present this prompt:**
+
+```
+Iterate or Ship?
+
+Cycle [N] complete.
+
+Results:
+- High findings: [X] addressed, [Y] remaining
+- Medium findings: [X] addressed, [Y] remaining
+- Low findings: [X] addressed, [Y] deferred
+
+Exit criteria (calibration: [level]):
+[✓/○] No High findings remain
+[✓/○] No Medium findings remain (Deep calibration only)
+
+Options:
+[A] Ship — Findings meet exit criteria. Generate final report.
+[B] Iterate — Start Cycle [N+1] to address remaining findings.
+[C] Expand — Re-audit with new scope (design introduced concerns).
+
+Recommendation based on calibration [level]:
+→ [provide recommendation with rationale]
+
+Your choice?
+```
+
+**If Ship:**
+1. Generate final report (see Report Template)
+2. Archive state file: rename to `artifact.audit.YYYY-MM-DD.json`
+3. Save report to `artifact.audit-report.YYYY-MM-DD.md`
+4. Add history event: `shipped`
+
+**If Iterate:**
+1. Increment `state.cycle`
+2. Set `state.phase` to `execution`
+3. Add history event: `cycle_started`
+4. Return to Phase 2 (Definition already established)
+5. Focus on remaining/new findings
+
+**If Expand:**
+1. Set `state.phase` to `definition`
+2. Add history event: `scope_expanded`
+3. Return to Phase 1 to redefine scope
+4. Incorporate new concerns from design
