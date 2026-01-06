@@ -120,6 +120,29 @@ def infer_severity(claim: str) -> str:
     return "LOW"
 
 
+def parse_quick_add_input(text: str) -> tuple[str, str | None, str | None]:
+    """
+    Parse quick-add input text.
+
+    Supports formats:
+        "claim text"
+        "claim text | verdict | evidence"
+
+    Args:
+        text: Raw input string
+
+    Returns:
+        Tuple of (claim, verdict, evidence) - verdict/evidence may be None
+    """
+    if "|" in text:
+        parts = [p.strip() for p in text.split("|")]
+        claim = parts[0]
+        verdict = parts[1] if len(parts) > 1 else None
+        evidence = parts[2] if len(parts) > 2 else None
+        return claim, verdict, evidence
+    return text.strip(), None, None
+
+
 # =============================================================================
 # CACHE STATISTICS
 # =============================================================================
@@ -541,10 +564,35 @@ def cmd_add(args: argparse.Namespace) -> int:
     """Add a verified claim to pending-claims.md for later promotion."""
     from datetime import date as date_module
 
+    # Handle standalone --quick-add with positional input
+    if args.quick_add and args.input and not args.claim:
+        claim, verdict, evidence = parse_quick_add_input(args.input)
+        args.claim = claim
+        if verdict:
+            args.verdict = verdict
+        if evidence:
+            args.evidence = evidence
+
     # Validate required args
     if not args.claim:
-        print("Error: --claim is required", file=sys.stderr)
+        print("Error: --claim is required (or provide claim text with --quick-add)", file=sys.stderr)
         return 1
+
+    # For quick-add, prompt interactively if verdict/evidence missing
+    if args.quick_add:
+        if not args.verdict:
+            try:
+                args.verdict = input("Verdict (verified/false/partial/unverified): ").strip() or "unverified"
+            except (EOFError, KeyboardInterrupt):
+                print("\nCancelled.")
+                return 1
+        if not args.evidence:
+            try:
+                args.evidence = input("Evidence: ").strip() or "(pending verification)"
+            except (EOFError, KeyboardInterrupt):
+                print("\nCancelled.")
+                return 1
+
     if not args.verdict:
         print("Error: --verdict is required", file=sys.stderr)
         return 1
@@ -957,6 +1005,10 @@ Examples:
         return cmd_stats(args)
     elif args.find_duplicates:
         return cmd_find_duplicates(args)
+    elif args.quick_add:
+        # Standalone --quick-add mode
+        args.add = True  # Enable add mode
+        return cmd_add(args)
     elif args.add:
         return cmd_add(args)
     elif args.input:
