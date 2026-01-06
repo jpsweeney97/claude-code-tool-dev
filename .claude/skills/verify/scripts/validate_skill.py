@@ -176,6 +176,7 @@ def validate_scripts(skill_dir: Path, result: ValidationResult) -> None:
         return
 
     expected_scripts = [
+        "verify.py",
         "match_claim.py",
         "promote_claims.py",
         "extract_claims.py",
@@ -183,6 +184,7 @@ def validate_scripts(skill_dir: Path, result: ValidationResult) -> None:
         "check_version.py",
         "batch_verify.py",
         "validate_skill.py",
+        "_common.py",
     ]
 
     for script_name in expected_scripts:
