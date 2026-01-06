@@ -3,7 +3,7 @@ name: verify
 description: Verify claims about Claude Code against official Anthropic documentation. Use when fact-checking Claude Code features, behaviors, or configurations.
 license: MIT
 metadata:
-  version: "1.6.0"
+  version: "1.7.0"
   model: claude-sonnet-4-20250514
   timelessness_score: 8
 ---
@@ -16,10 +16,18 @@ Fact-check claims about Claude Code against official documentation.
 
 ## Quick Start
 
+**Single claim:**
 ```
 /verify "Skills require a license field in frontmatter"
 
 → Extracts claim → Queries claude-code-guide → Returns verdict with citation
+```
+
+**Document mode:**
+```
+/verify /path/to/document.md
+
+→ Extracts claims → Batches by topic → Parallel verification → Document report
 ```
 
 **Output:** Confidence symbol (✓ ~ ? ✗) + evidence + source URL
@@ -28,11 +36,16 @@ Fact-check claims about Claude Code against official documentation.
 
 ## Triggers
 
+**Single claim mode:**
 - `/verify "..."` - Verify a specific claim
 - "Is it true that..." - Natural language verification
 - "Does Claude Code support..." - Feature verification
 - "fact-check" / "verify claim" - General verification
-- "Check if [statement about Claude Code] is accurate"
+
+**Document mode:**
+- `/verify /path/to/document.md` - Verify all claims in a document
+- `/verify guide.md --verbose` - Aggressive claim extraction
+- "verify claims in [file path]" - Natural language
 
 ## When to Use
 
@@ -40,6 +53,93 @@ Fact-check claims about Claude Code against official documentation.
 - When documentation seems inconsistent or outdated
 - When verifying third-party tutorials or guides
 - After "I think..." or "I believe..." statements about Claude Code
+- **Document mode:** When auditing a guide, tutorial, or reference doc for accuracy
+
+---
+
+## Document Mode
+
+Verify all verifiable claims in a markdown document. Useful for auditing guides, tutorials, or reference documentation.
+
+### Document Workflow
+
+```
+Input: /verify /path/to/document.md
+              │
+              ▼
+┌─────────────────────────────────────────────────────────┐
+│ Step D0: Extract Claims                                  │
+│ scripts/extract_claims.py scans document for:            │
+│ • **Bold:** labeled assertions                           │
+│ • Technical values (timeouts, limits, exit codes)        │
+│ • Required/optional field statements                     │
+│ • Capability assertions (supports X, cannot Y)           │
+└─────────────────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────┐
+│ Step D1: Group by Topic                                  │
+│ Claims clustered by detected topic:                      │
+│ Hooks, Skills, Commands, MCP, Agents, Settings, CLI     │
+└─────────────────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────┐
+│ Step D2: Cache Lookup                                    │
+│ For each claim, run match_claim.py                       │
+│ • Match found → use cached verdict                       │
+│ • No match → queue for verification                      │
+└─────────────────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────┐
+│ Step D3: Batch Verification                              │
+│ Launch parallel claude-code-guide agents by topic        │
+│ (e.g., all Hooks claims in one query)                    │
+└─────────────────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────┐
+│ Step D4: Document Report                                 │
+│ Generate summary with reliability score                  │
+│ List contradicted claims with corrections                │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Extraction Modes
+
+| Mode | Pattern | Coverage |
+|------|---------|----------|
+| Conservative (default) | High-confidence technical assertions | Lower recall, fewer false positives |
+| Verbose (`--verbose`) | Aggressive pattern matching | Higher recall, more noise |
+
+### Document Report Format
+
+```markdown
+## Document Verification Report
+
+**Document:** /path/to/guide.md
+**Claims extracted:** 47
+**Verified:** 38 (81%)
+
+### Summary by Topic
+
+| Topic | Claims | ✓ | ~ | ? | ✗ |
+|-------|--------|---|---|---|---|
+| Hooks | 15 | 12 | 1 | 1 | 1 |
+| Skills | 8 | 7 | 0 | 1 | 0 |
+| MCP | 6 | 5 | 1 | 0 | 0 |
+
+### Contradicted Claims (Corrections Needed)
+
+| Line | Claim | Correct Value |
+|------|-------|---------------|
+| 142 | "Exit code 1 blocks execution" | Exit code 1 is non-blocking |
+
+### Reliability Score: 87%
+
+Formula: (✓ + 0.5×~) / total
+```
 
 ## Quick Reference
 
@@ -323,10 +423,60 @@ Added 2 claims to pending-claims.md. They'll be reviewed on next /verify.
 |-----------|---------|
 | `references/known-claims.md` | Permanent cache of verified claims |
 | `references/pending-claims.md` | Transient queue awaiting promotion |
+| `scripts/extract_claims.py` | Extract claims from documents (doc mode) |
 | `scripts/match_claim.py` | Fuzzy matching against known claims |
 | `scripts/promote_claims.py` | Promote pending claims to known cache |
 
 ## Scripts
+
+### extract_claims.py
+
+Extract verifiable claims from a markdown document. Used in document mode (Step D0).
+
+**Algorithm:**
+1. Scan for **bold-label:** patterns (common in docs)
+2. Detect technical values (timeouts, exit codes, limits)
+3. Identify required/optional/capability assertions
+4. Cluster by topic keywords (Hooks, Skills, MCP, etc.)
+
+**Usage:**
+
+```bash
+# Conservative extraction (default)
+python scripts/extract_claims.py /path/to/guide.md
+
+# Aggressive extraction
+python scripts/extract_claims.py guide.md --verbose
+
+# Group by topic
+python scripts/extract_claims.py guide.md --by-topic
+
+# Group by document section
+python scripts/extract_claims.py guide.md --by-section
+
+# JSON output for pipeline
+python scripts/extract_claims.py guide.md --json
+
+# Filter by confidence
+python scripts/extract_claims.py guide.md --min-confidence high
+
+# Limit output
+python scripts/extract_claims.py guide.md --limit 30
+```
+
+**Extraction patterns:**
+
+| Pattern | Example | Confidence |
+|---------|---------|------------|
+| `**Label:** value` | "**Timeout:** 60s default" | High |
+| `exit code N` | "Exit code 2 means blocking" | High |
+| `N seconds/tokens` | "default is 60 seconds" | High |
+| `required/optional` | "`name` field is required" | High |
+| Table rows | Technical spec tables | Medium |
+
+**Exit codes:** 0 = success, 1 = input error, 10 = no claims found
+
+---
 
 ### match_claim.py
 
@@ -420,6 +570,19 @@ python scripts/promote_claims.py --json
 ---
 
 ## Changelog
+
+### v1.7.0
+- **Document mode**: Verify all claims in a markdown document
+  - New trigger: `/verify /path/to/document.md`
+  - Batch verification by topic cluster
+  - Document-level reliability scoring
+- Added `scripts/extract_claims.py` for claim extraction
+  - Conservative (default) and verbose extraction modes
+  - Topic clustering (Hooks, Skills, MCP, etc.)
+  - Bold-label, exit code, and technical value detection
+  - `--by-topic`, `--by-section`, `--json` output options
+- Updated SKILL.md with Document Mode section and workflow diagram
+- Updated Components table with extract_claims.py
 
 ### v1.6.0
 - **Section normalization**: Common variants automatically mapped (e.g., "Hook" → "Hooks", "Feature" → "Features")

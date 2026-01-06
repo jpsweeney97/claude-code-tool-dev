@@ -2,7 +2,7 @@
 
 Pre-verified claims sourced from official Claude Code documentation.
 
-**Last verified:** 2026-01-05
+**Last verified:** 2026-01-06
 **Method:** Queried via claude-code-guide agent against official docs
 
 ---
@@ -35,6 +35,7 @@ Pre-verified claims sourced from official Claude Code documentation.
 | SKILL.md should be under 500 lines | ✓ Verified | "Keep `SKILL.md` under 500 lines for optimal performance" |
 | Frontmatter must start on line 1 | ✓ Verified | "must start with `---` on line 1 (no blank lines before it)" |
 | Frontmatter uses spaces not tabs | ✓ Verified | "use spaces for indentation (not tabs)" |
+| allowed-tools field enforces permitted operations | ✓ Verified | "limit which tools Claude can use when a Skill is active" |
 
 ---
 
@@ -61,6 +62,13 @@ Pre-verified claims sourced from official Claude Code documentation.
 | CLAUDE_ENV_FILE only for SessionStart | ✓ Verified | "CLAUDE_ENV_FILE is only available for SessionStart hooks" |
 | MCP tools use mcp__server__tool pattern | ✓ Verified | "MCP tools follow the pattern mcp__<server>__<tool>" |
 | Hooks support a timeout field in frontmatter | ✗ Contradicted | "hooks use JSON configuration format, not frontmatter" |
+| Hooks run in current directory with Claude Code environment | ✓ Verified | "Runs in current directory with Claude Code's environment" |
+| SessionStart has exclusive access to CLAUDE_ENV_FILE | ✓ Verified | "CLAUDE_ENV_FILE is only available for SessionStart hooks" |
+| Prompt hooks send input to Haiku for evaluation | ✓ Verified | "Send the hook input and your prompt to a fast LLM (Haiku)" |
+| Command hooks execute bash commands or scripts | ✓ Verified | "type: command for bash commands" |
+| Hook modification requires /hooks menu review | ✓ Verified | "Requires review in /hooks menu for changes to apply" |
+| Exit code 2 stderr returned to Claude for most hooks | ~ Partial | "stderr is used as error message and fed back to Claude" (varies by hook type) |
+| Exit code 0 stdout injected for UserPromptSubmit/SessionStart | ✓ Verified | "stdout is added to the context" for these hooks |
 
 ---
 
@@ -112,6 +120,13 @@ Pre-verified claims sourced from official Claude Code documentation.
 |-------|---------|----------|
 | Agents invoked via Task tool | ✓ Verified | subagent_type parameter in Task tool |
 | Agents use markdown format | ✓ Verified | .md files in agents directory |
+| run_in_background parameter launches agent without waiting | ~ Partial | Exists in Task tool schema but not in public docs |
+| Users can request specific subagent by name | ✓ Verified | "Request a specific subagent by mentioning it in your command" |
+| Claude delegates based on agent descriptions | ✓ Verified | "Claude Code proactively delegates tasks based on description field" |
+| Each agent runs in isolated context | ✓ Verified | "Each subagent operates in its own context" |
+| Multiple Task calls in one message run in parallel | ✓ Verified | "Claude can call multiple tools in parallel within a single response" |
+| Agents support sequential and parallel execution | ✓ Verified | "Multiple subagents can run concurrently" |
+| Agents use .md file format | ✓ Verified | "stored as Markdown files with YAML frontmatter" |
 
 ---
 
@@ -122,6 +137,8 @@ Pre-verified claims sourced from official Claude Code documentation.
 | Claim | Verdict | Evidence |
 |-------|---------|----------|
 | Claude Code supports custom keyboard shortcuts through the settings.json file | ✗ False | "Keyboard shortcuts vary by platform and terminal" - customization handled at terminal level |
+| Output styles configured at ~/.claude/output-styles/ | ✓ Verified | "save these files at user level (~/.claude/output-styles)" |
+| Settings changes load on session start not immediately | ✓ Verified | "captures a snapshot of hooks at startup" |
 
 ---
 
@@ -132,6 +149,7 @@ Pre-verified claims sourced from official Claude Code documentation.
 | Claim | Verdict | Evidence |
 |-------|---------|----------|
 | Claude Code CLI supports --version flag | ✓ Verified | "claude --version" returns version info |
+| /compact accepts optional focus instructions | ✓ Verified | "/compact [instructions] - Compact conversation with optional focus" |
 
 ---
 
