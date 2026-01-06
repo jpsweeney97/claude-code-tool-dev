@@ -32,28 +32,13 @@ import sys
 from dataclasses import dataclass, asdict, field
 from datetime import date
 from pathlib import Path
-from typing import NamedTuple
 
-from _common import parse_verified_date, get_claude_code_version, DEFAULT_MAX_AGE_DAYS
+from _common import parse_verified_date, get_claude_code_version, DEFAULT_MAX_AGE_DAYS, Version
 
 
 # =============================================================================
 # VERSION CHECKING
 # =============================================================================
-
-class Version(NamedTuple):
-    """Parsed semantic version."""
-    major: int
-    minor: int
-    patch: int
-
-    @classmethod
-    def parse(cls, version_str: str) -> "Version | None":
-        """Parse a version string like '1.2.3'."""
-        match = re.match(r"v?(\d+)\.(\d+)\.(\d+)", version_str.strip())
-        if not match:
-            return None
-        return cls(int(match.group(1)), int(match.group(2)), int(match.group(3)))
 
 
 @dataclass

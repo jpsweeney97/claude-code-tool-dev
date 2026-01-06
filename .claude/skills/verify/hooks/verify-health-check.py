@@ -27,11 +27,10 @@ import re
 import sys
 from datetime import date
 from pathlib import Path
-from typing import NamedTuple
 
 # Add scripts directory to path for _common import
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-from _common import get_claude_code_version, parse_verified_date
+from _common import get_claude_code_version, parse_verified_date, Version
 
 
 # =============================================================================
@@ -46,16 +45,6 @@ CACHE_PATH = Path(__file__).parent.parent / "references" / "known-claims.md"
 # =============================================================================
 # VERSION CHECKING
 # =============================================================================
-
-class Version(NamedTuple):
-    major: int
-    minor: int
-    patch: int
-
-    @classmethod
-    def parse(cls, s: str) -> "Version | None":
-        m = re.match(r"v?(\d+)\.(\d+)\.(\d+)", s.strip())
-        return cls(int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
 
 
 def get_stored_version(path: Path) -> str | None:

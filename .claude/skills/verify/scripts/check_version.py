@@ -24,44 +24,8 @@ import re
 import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import NamedTuple
 
-from _common import get_claude_code_version
-
-
-# =============================================================================
-# VERSION PARSING
-# =============================================================================
-
-class Version(NamedTuple):
-    """Parsed semantic version."""
-    major: int
-    minor: int
-    patch: int
-    prerelease: str | None = None
-
-    def __str__(self) -> str:
-        base = f"{self.major}.{self.minor}.{self.patch}"
-        if self.prerelease:
-            base += f"-{self.prerelease}"
-        return base
-
-    @classmethod
-    def parse(cls, version_str: str) -> "Version | None":
-        """Parse a version string like '1.2.3' or '1.2.3-beta.1'."""
-        # Match semantic version patterns
-        match = re.match(
-            r"v?(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9.-]+))?",
-            version_str.strip()
-        )
-        if not match:
-            return None
-        return cls(
-            major=int(match.group(1)),
-            minor=int(match.group(2)),
-            patch=int(match.group(3)),
-            prerelease=match.group(4),
-        )
+from _common import get_claude_code_version, Version
 
 
 @dataclass

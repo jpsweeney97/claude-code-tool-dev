@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import subprocess
 from datetime import date, datetime
+from typing import NamedTuple
 
 
 # =============================================================================
@@ -90,3 +91,38 @@ def get_claude_code_version() -> str | None:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     return None
+
+
+# =============================================================================
+# VERSION PARSING
+# =============================================================================
+
+
+class Version(NamedTuple):
+    """Parsed semantic version."""
+    major: int
+    minor: int
+    patch: int
+    prerelease: str | None = None
+
+    def __str__(self) -> str:
+        base = f"{self.major}.{self.minor}.{self.patch}"
+        if self.prerelease:
+            base += f"-{self.prerelease}"
+        return base
+
+    @classmethod
+    def parse(cls, version_str: str) -> "Version | None":
+        """Parse a version string like '1.2.3' or '1.2.3-beta.1'."""
+        match = re.match(
+            r"v?(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9.-]+))?",
+            version_str.strip()
+        )
+        if not match:
+            return None
+        return cls(
+            major=int(match.group(1)),
+            minor=int(match.group(2)),
+            patch=int(match.group(3)),
+            prerelease=match.group(4),
+        )
