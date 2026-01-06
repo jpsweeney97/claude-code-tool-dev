@@ -45,6 +45,9 @@ import argparse
 import sys
 from pathlib import Path
 
+# Import from common utilities
+from _common import DEFAULT_MAX_AGE_DAYS
+
 # Import from sibling scripts
 from match_claim import (
     parse_known_claims,
@@ -56,7 +59,6 @@ from match_claim import (
     THRESHOLD_HIGH,
     THRESHOLD_MEDIUM,
     THRESHOLD_LOW,
-    DEFAULT_MAX_AGE_DAYS,
 )
 from refresh_claims import (
     parse_claims_with_dates,
