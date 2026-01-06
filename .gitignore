@@ -22,3 +22,6 @@ __pycache__/
 
 # Migration (keep inventory, ignore backup files)
 *.backup
+
+# Git worktrees (isolated workspaces)
+.worktrees/
