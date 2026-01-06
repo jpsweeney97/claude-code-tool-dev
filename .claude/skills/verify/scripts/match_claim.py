@@ -18,6 +18,8 @@ Usage:
     python match_claim.py "exit code 1 blocks" --json
     python match_claim.py "timeout" --top 5
     python match_claim.py "required field" --section Skills
+    python match_claim.py "timeout" --check-freshness        # Warn about stale claims
+    python match_claim.py "timeout" --max-age 60             # Custom TTL (days)
 """
 
 from __future__ import annotations
@@ -27,7 +29,38 @@ import json
 import re
 import sys
 from dataclasses import dataclass, asdict, field
+from datetime import date, datetime
 from pathlib import Path
+
+
+# =============================================================================
+# STALENESS CONFIGURATION
+# =============================================================================
+
+DEFAULT_MAX_AGE_DAYS: int = 90  # Claims older than this are considered stale
+
+
+def check_staleness(verified_date: str | None, max_age_days: int = DEFAULT_MAX_AGE_DAYS) -> tuple[int | None, bool]:
+    """
+    Check if a claim is stale based on its verification date.
+
+    Args:
+        verified_date: ISO date string (e.g., "2026-01-05") or None
+        max_age_days: Maximum age before claim is considered stale
+
+    Returns:
+        Tuple of (days_since_verified, is_stale).
+        Returns (None, False) if date is missing or invalid.
+    """
+    if not verified_date:
+        return (None, False)
+
+    try:
+        verified = datetime.strptime(verified_date, "%Y-%m-%d").date()
+        days_ago = (date.today() - verified).days
+        return (days_ago, days_ago > max_age_days)
+    except ValueError:
+        return (None, False)
 
 
 # =============================================================================
@@ -388,6 +421,9 @@ class MatchResult:
     evidence: str | None = None
     section: str | None = None
     confidence: float = 0.0
+    verified_date: str | None = None
+    days_since_verified: int | None = None
+    is_stale: bool = False
 
 
 @dataclass
@@ -411,7 +447,7 @@ def parse_known_claims(path: Path) -> list[dict]:
             current_section = line[3:].strip()
             continue
 
-        # Parse table rows: | Claim | Verdict | Evidence |
+        # Parse table rows: | Claim | Verdict | Evidence | Verified |
         if line.startswith("|") and not line.startswith("| Claim") and not line.startswith("|---"):
             parts = [p.strip() for p in line.split("|")[1:-1]]
             if len(parts) >= 3:
@@ -420,6 +456,7 @@ def parse_known_claims(path: Path) -> list[dict]:
                     "verdict": parts[1],
                     "evidence": parts[2],
                     "section": current_section,
+                    "verified_date": parts[3] if len(parts) >= 4 else None,
                 })
 
     return claims
@@ -430,6 +467,7 @@ def find_best_match(
     claims: list[dict],
     threshold: float,
     section: str | None = None,
+    max_age_days: int = DEFAULT_MAX_AGE_DAYS,
 ) -> MatchResult:
     """Find the single best matching claim above threshold."""
     best_match: dict | None = None
@@ -439,13 +477,15 @@ def find_best_match(
         # Apply section filter if specified
         if section and entry.get("section") != section:
             continue
-            
+
         score = calculate_similarity(query, entry["claim"])
         if score > best_score:
             best_score = score
             best_match = entry
 
     if best_match and best_score >= threshold:
+        verified_date = best_match.get("verified_date")
+        days_since, is_stale = check_staleness(verified_date, max_age_days)
         return MatchResult(
             matched=True,
             claim=query,
@@ -454,6 +494,9 @@ def find_best_match(
             evidence=best_match["evidence"],
             section=best_match["section"],
             confidence=round(best_score, 4),
+            verified_date=verified_date,
+            days_since_verified=days_since,
+            is_stale=is_stale,
         )
 
     return MatchResult(matched=False, claim=query, confidence=round(best_score, 4))
@@ -465,36 +508,41 @@ def find_top_matches(
     top_n: int,
     threshold: float = 0.0,
     section: str | None = None,
+    max_age_days: int = DEFAULT_MAX_AGE_DAYS,
 ) -> MultiMatchResult:
     """
     Find the top N matching claims, optionally filtered by section.
-    
+
     Args:
         query: User's claim to match
         claims: Parsed claims from known-claims.md
         top_n: Number of top matches to return
         threshold: Minimum score to include (default 0.0 = include all)
         section: Optional section filter (e.g., "Skills", "Hooks")
-    
+        max_age_days: Maximum age before claim is considered stale
+
     Returns:
         MultiMatchResult with up to top_n matches sorted by confidence descending
     """
     scored: list[tuple[float, dict]] = []
-    
+
     for entry in claims:
         # Apply section filter if specified
         if section and entry.get("section") != section:
             continue
-            
+
         score = calculate_similarity(query, entry["claim"])
         if score >= threshold:
             scored.append((score, entry))
-    
+
     # Sort by score descending
     scored.sort(key=lambda x: x[0], reverse=True)
-    
-    matches = [
-        MatchResult(
+
+    matches = []
+    for score, entry in scored[:top_n]:
+        verified_date = entry.get("verified_date")
+        days_since, is_stale = check_staleness(verified_date, max_age_days)
+        matches.append(MatchResult(
             matched=True,
             claim=query,
             known_claim=entry["claim"],
@@ -502,10 +550,11 @@ def find_top_matches(
             evidence=entry["evidence"],
             section=entry["section"],
             confidence=round(score, 4),
-        )
-        for score, entry in scored[:top_n]
-    ]
-    
+            verified_date=verified_date,
+            days_since_verified=days_since,
+            is_stale=is_stale,
+        ))
+
     return MultiMatchResult(
         claim=query,
         matches=matches,
@@ -544,27 +593,36 @@ Exit codes:
 Examples:
     # Default auto mode with tiered response
     python match_claim.py "Skills require a license field"
-    
+
     # Force confirmation display
     python match_claim.py "required field" --mode confirm
-    
+
     # Top 5 matches
     python match_claim.py "required field" --top 5
-    
+
     # Filter by section
     python match_claim.py "timeout" --section Hooks
-    
+
     # Explicit threshold (overrides mode)
     python match_claim.py "license" --threshold 0.5
-    
+
     # JSON output for scripting
     python match_claim.py "exit code" --json
-    
+
     # Debug: show focal terms and weights
     python match_claim.py "license required" --debug
-    
+
     # List available sections
     python match_claim.py --list-sections
+
+    # Check freshness (show staleness warnings)
+    python match_claim.py "timeout" --check-freshness
+
+    # Find stale claims needing refresh
+    python match_claim.py "*" --top 100 --stale-only
+
+    # Custom TTL threshold (60 days)
+    python match_claim.py "exit code" --check-freshness --max-age 60
         """,
     )
     parser.add_argument("claim", nargs="?", help="Claim text to match")
@@ -603,6 +661,23 @@ Examples:
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--debug", action="store_true", help="Show token breakdown for best match")
     parser.add_argument("--list-sections", action="store_true", help="List available sections and exit")
+    parser.add_argument(
+        "--check-freshness",
+        action="store_true",
+        help="Show staleness warnings for matched claims",
+    )
+    parser.add_argument(
+        "--max-age",
+        type=int,
+        default=DEFAULT_MAX_AGE_DAYS,
+        metavar="DAYS",
+        help=f"Maximum age in days before claim is stale (default: {DEFAULT_MAX_AGE_DAYS})",
+    )
+    parser.add_argument(
+        "--stale-only",
+        action="store_true",
+        help="Only return stale claims (use with --top to find claims needing refresh)",
+    )
     args = parser.parse_args()
 
     # Validate inputs
@@ -646,40 +721,51 @@ Examples:
     if args.top is not None:
         if args.top < 1:
             parser.error("--top must be >= 1")
-        
+
         # Use explicit threshold or default to THRESHOLD_LOW
         top_threshold = args.threshold if args.threshold is not None else THRESHOLD_LOW
-        
+
         result = find_top_matches(
             args.claim,
             claims,
             top_n=args.top,
             threshold=top_threshold,
             section=args.section,
+            max_age_days=args.max_age,
         )
-        
+
+        # Filter to stale-only if requested
+        if args.stale_only:
+            result.matches = [m for m in result.matches if m.is_stale]
+
         if args.json:
             output = {
                 "claim": result.claim,
                 "total_checked": result.total_checked,
+                "max_age_days": args.max_age,
                 "matches": [asdict(m) for m in result.matches],
             }
             print(json.dumps(output, indent=2))
         else:
             section_note = f" in {args.section}" if args.section else ""
-            print(f"Top {args.top} matches for: {result.claim!r}{section_note}")
+            stale_note = " (stale only)" if args.stale_only else ""
+            print(f"Top {args.top} matches for: {result.claim!r}{section_note}{stale_note}")
             print(f"(checked {result.total_checked} claims, threshold: {top_threshold})\n")
             
             if not result.matches:
                 print("No matches above threshold.")
             else:
                 for i, m in enumerate(result.matches, 1):
-                    print(f"{i}. [{m.confidence:.3f}] {m.verdict}")
+                    stale_marker = " ⚠️ STALE" if m.is_stale else ""
+                    print(f"{i}. [{m.confidence:.3f}] {m.verdict}{stale_marker}")
                     print(f"   Claim: {m.known_claim}")
                     print(f"   Evidence: {m.evidence}")
                     print(f"   Section: {m.section}")
+                    if args.check_freshness and m.verified_date:
+                        age_str = f"{m.days_since_verified}d ago" if m.days_since_verified else "unknown"
+                        print(f"   Verified: {m.verified_date} ({age_str})")
                     print()
-        
+
         return 0 if result.matches else 10
 
     # Single-match mode (default)
@@ -700,6 +786,7 @@ Examples:
         top_n=3,
         threshold=effective_threshold,
         section=args.section,
+        max_age_days=args.max_age,
     )
     
     # Determine action based on mode and scores
@@ -750,35 +837,51 @@ Examples:
         output = asdict(result) if result.matched else asdict(MatchResult(matched=False, claim=args.claim, confidence=best_score))
         output["tier"] = tier
         output["mode"] = mode_behavior
+        output["max_age_days"] = args.max_age
         if tier == "confirm":
             output["candidates"] = [asdict(m) for m in top_results.matches]
         print(json.dumps(output, indent=2))
     else:
         section_note = f" in {args.section}" if args.section else ""
-        
+
+        # Helper for staleness display
+        def format_freshness(m: MatchResult) -> str:
+            if not args.check_freshness or not m.verified_date:
+                return ""
+            age = f"{m.days_since_verified}d ago" if m.days_since_verified is not None else "unknown"
+            if m.is_stale:
+                return f"\n⚠️  STALE: verified {m.verified_date} ({age}) - consider /verify --refresh"
+            return f"\n   Verified: {m.verified_date} ({age})"
+
         if tier == "high":
             # High confidence: return immediately
-            print(f"✓ HIGH CONFIDENCE ({best_score:.2f})")
+            stale_marker = " ⚠️ STALE" if result.is_stale else ""
+            print(f"✓ HIGH CONFIDENCE ({best_score:.2f}){stale_marker}")
             print(f"{result.verdict} | {result.known_claim}")
             print(f"Evidence: {result.evidence}")
-            print(f"Section: {result.section}")
+            print(f"Section: {result.section}{format_freshness(result)}")
         elif tier == "confirm":
             # Medium confidence: show candidates
             print(f"? CONFIRM ({best_score:.2f}) - Multiple candidates{section_note}:")
             print()
             for i, m in enumerate(top_results.matches, 1):
                 marker = "→" if i == 1 else " "
-                print(f"  {marker} {i}. [{m.confidence:.3f}] {m.verdict}")
+                stale_marker = " ⚠️ STALE" if m.is_stale else ""
+                print(f"  {marker} {i}. [{m.confidence:.3f}] {m.verdict}{stale_marker}")
                 print(f"       {m.known_claim}")
                 print(f"       Evidence: {m.evidence}")
+                if args.check_freshness and m.verified_date:
+                    age = f"{m.days_since_verified}d ago" if m.days_since_verified else "?"
+                    print(f"       Verified: {m.verified_date} ({age})")
                 print()
             print("Suggestion: Verify with documentation or select a candidate.")
         elif tier == "threshold" and result.matched:
             # Explicit threshold mode with match
-            print(f"{result.verdict} | {result.known_claim}")
+            stale_marker = " ⚠️ STALE" if result.is_stale else ""
+            print(f"{result.verdict} | {result.known_claim}{stale_marker}")
             print(f"Evidence: {result.evidence}")
             print(f"Section: {result.section}")
-            print(f"Confidence: {result.confidence:.2f}")
+            print(f"Confidence: {result.confidence:.2f}{format_freshness(result)}")
         else:
             # No match
             print(f"✗ NO MATCH{section_note} (best score: {best_score:.2f})")

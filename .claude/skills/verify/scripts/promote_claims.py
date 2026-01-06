@@ -3,7 +3,7 @@
 Promote claims from pending-claims.md to known-claims.md.
 
 Moves verified claims from the pending queue to the permanent cache,
-inserting them into the appropriate section.
+inserting them into the appropriate section with their verification date.
 
 Exit codes:
     0: Success (≥1 claim promoted)
@@ -213,8 +213,8 @@ def create_new_section(section: str) -> str:
 
 **Source:** (pending verification)
 
-| Claim | Verdict | Evidence |
-|-------|---------|----------|"""
+| Claim | Verdict | Evidence | Verified |
+|-------|---------|----------|----------|"""
 
 
 # =============================================================================
@@ -222,8 +222,8 @@ def create_new_section(section: str) -> str:
 # =============================================================================
 
 def format_known_claim_row(claim: PendingClaim) -> str:
-    """Format a pending claim as a known-claims.md table row."""
-    return f"| {claim.claim} | {claim.verdict} | {claim.evidence} |"
+    """Format a pending claim as a known-claims.md table row (with verified date)."""
+    return f"| {claim.claim} | {claim.verdict} | {claim.evidence} | {claim.date} |"
 
 
 def promote_claims(

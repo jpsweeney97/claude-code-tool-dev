@@ -3,7 +3,7 @@ name: verify
 description: Verify claims about Claude Code against official Anthropic documentation. Use when fact-checking Claude Code features, behaviors, or configurations.
 license: MIT
 metadata:
-  version: "1.7.0"
+  version: "1.8.0"
   model: claude-sonnet-4-20250514
   timelessness_score: 8
 ---
@@ -149,6 +149,39 @@ Formula: (✓ + 0.5×~) / total
 | Partial | ~ | Concept exists, details may differ |
 | Unverified | ? | No official documentation found |
 | Contradicted | ✗ | Official docs state otherwise |
+
+## Cache Freshness
+
+Cached claims have a verification date and TTL (time-to-live). Stale claims are flagged for re-verification.
+
+**Default TTL:** 90 days
+
+**Staleness indicators:**
+
+| Indicator | Meaning |
+|-----------|---------|
+| (no marker) | Fresh - verified within TTL |
+| ⚠️ STALE | Verified date exceeds TTL - consider refreshing |
+
+**Checking freshness:**
+
+```bash
+# Show freshness info for matched claims
+python scripts/match_claim.py "timeout" --check-freshness
+
+# Find all stale claims needing refresh
+python scripts/match_claim.py "*" --top 100 --stale-only
+
+# Custom TTL threshold (60 days)
+python scripts/match_claim.py "exit code" --check-freshness --max-age 60
+```
+
+**Refresh workflow:**
+
+When a claim is stale:
+1. Run `/verify "claim text"` to re-verify against current docs
+2. If verdict unchanged, the claim is promoted with updated date
+3. If verdict changed, the old claim is corrected
 
 ## Documentation Clusters
 
@@ -508,6 +541,15 @@ python scripts/match_claim.py "exit code" --json
 
 # List sections
 python scripts/match_claim.py --list-sections
+
+# Check freshness (show staleness warnings)
+python scripts/match_claim.py "timeout" --check-freshness
+
+# Find stale claims needing refresh
+python scripts/match_claim.py "*" --top 100 --stale-only
+
+# Custom TTL threshold (60 days)
+python scripts/match_claim.py "exit code" --check-freshness --max-age 60
 ```
 
 **Modes:**
@@ -517,6 +559,14 @@ python scripts/match_claim.py --list-sections
 | `auto` (default) | ≥0.60 returns, 0.40-0.59 shows candidates, <0.40 no match |
 | `confirm` | Always show top 3 candidates |
 | `search` | Only match if ≥0.60 (strict) |
+
+**Freshness flags:**
+
+| Flag | Purpose |
+|------|---------|
+| `--check-freshness` | Show verification date and staleness warnings |
+| `--max-age DAYS` | Custom TTL (default: 90 days) |
+| `--stale-only` | Filter to only stale claims (use with --top) |
 
 **Exit codes:** 0 = high confidence, 1 = confirm needed, 10 = no match
 
@@ -570,6 +620,17 @@ python scripts/promote_claims.py --json
 ---
 
 ## Changelog
+
+### v1.8.0
+- **Cache freshness**: Claims now track verification dates with configurable TTL
+  - Added `Verified` column to `known-claims.md` with ISO dates
+  - Added `--check-freshness` flag to show verification age
+  - Added `--max-age DAYS` flag for custom TTL (default: 90 days)
+  - Added `--stale-only` flag to filter to claims needing refresh
+  - Stale claims marked with ⚠️ STALE indicator
+- Added Cache Freshness section to SKILL.md documenting refresh workflow
+- Updated `promote_claims.py` to write verification dates
+- Updated `create_new_section()` with Verified column
 
 ### v1.7.0
 - **Document mode**: Verify all claims in a markdown document
