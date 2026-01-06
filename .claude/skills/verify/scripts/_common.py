@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from datetime import date, datetime
 from pathlib import Path
@@ -73,9 +74,12 @@ def parse_verified_date(verified_date: str | None) -> date | None:
 # =============================================================================
 
 
-def get_claude_code_version() -> str | None:
+def get_claude_code_version(verbose: bool = False) -> str | None:
     """
     Get current Claude Code version by running 'claude --version'.
+
+    Args:
+        verbose: If True, print error details to stderr
 
     Returns:
         Version string (e.g., "2.0.76") or None if unavailable.
@@ -91,8 +95,19 @@ def get_claude_code_version() -> str | None:
             match = re.search(r"(\d+\.\d+\.\d+)", result.stdout)
             if match:
                 return match.group(1)
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
+            if verbose:
+                print(f"Warning: Could not parse version from: {result.stdout[:100]}", file=sys.stderr)
+        elif verbose:
+            print(f"Warning: claude --version returned {result.returncode}", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        if verbose:
+            print("Warning: claude --version timed out", file=sys.stderr)
+    except FileNotFoundError:
+        if verbose:
+            print("Warning: claude executable not found", file=sys.stderr)
+    except OSError as e:
+        if verbose:
+            print(f"Warning: OSError running claude --version: {e}", file=sys.stderr)
     return None
 
 
