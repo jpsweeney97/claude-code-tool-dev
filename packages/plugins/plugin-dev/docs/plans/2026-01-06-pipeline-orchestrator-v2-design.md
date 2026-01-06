@@ -2,6 +2,7 @@
 
 **Status:** Approved
 **Created:** 2026-01-06
+**Revised:** 2026-01-06 (audit response)
 **Goal:** Connect existing plugin-dev skills with automated handoff and state management
 
 ## Problem Statement
@@ -9,6 +10,28 @@
 The plugin-dev plugin has individual skills (brainstorming-*, implementing-*) that work in isolation, but:
 - **Handoff problem:** After finishing one skill, users don't know what's next
 - **State loss:** Context/decisions from earlier skills get lost in later ones
+
+## Assumptions
+
+These assumptions underpin the design. If any prove false, revisit the affected components.
+
+| Assumption | Risk if Wrong | Mitigation |
+|------------|---------------|------------|
+| **Subagents produce parseable YAML ≥80% of time** | Pipeline unreliable | Fail-fast recovery; user can manually extract decisions |
+| **PyYAML is acceptable dependency** | Adds install step for users | Document in setup; consider stdlib `json` fallback |
+| **Single user per state file** | Race conditions, state corruption | State file per session (future: add session ID) |
+| **Users invoke orchestrator, not skills directly** | State drift | Orchestrator detects orphan artifacts via reconciliation |
+| **`docs/plans/` is appropriate state location** | Clutters plans directory | Alternative: `.pipeline-state.json` at plugin root |
+
+### Validated Assumptions
+
+- ✓ Existing brainstorming-* skills produce structured output (verified in prior sessions)
+- ✓ Task tool can invoke agents with skill access (core Claude Code capability)
+
+### Unvalidated Assumptions
+
+- ⚠️ 80% YAML success rate (needs Phase 1 testing to confirm)
+- ⚠️ Resume screen provides sufficient context (needs user feedback)
 
 ## Design Approach
 
@@ -35,19 +58,18 @@ The plugin-dev plugin has individual skills (brainstorming-*, implementing-*) th
 │                     ┌─────────────────┐                         │
 │                     │   Task Tool     │                         │
 │                     └────────┬────────┘                         │
-└──────────────────────────────┼──────────────────────────────────┘
-                               │
-             ┌─────────────────┼─────────────────┐
-             │                 │                 │
-             ▼                 ▼                 ▼
-      ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-      │  pipeline-  │  │  pipeline-  │  │  pipeline-  │
-      │  designer   │  │ implementer │  │  optimizer  │
-      │             │  │             │  │             │
-      │  skills:    │  │  skills:    │  │  skills:    │
-      │  brainstorm-│  │  implement- │  │  optimizing-│
-      │  ing-*      │  │  ing-*      │  │  plugins    │
-      └─────────────┘  └─────────────┘  └─────────────┘
+│                              │                                   │
+│              ┌───────────────┴───────────────┐                  │
+│              ▼                               ▼                   │
+│       ┌─────────────┐                 ┌─────────────┐           │
+│       │  pipeline-  │                 │  pipeline-  │           │
+│       │  designer   │────────────────▶│ implementer │           │
+│       │             │   state file    │             │           │
+│       │  skills:    │                 │  skills:    │           │
+│       │  brainstorm-│                 │  implement- │           │
+│       │  ing-*      │                 │  ing-*      │           │
+│       └─────────────┘                 └─────────────┘           │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -272,6 +294,32 @@ if __name__ == "__main__":
 
 Run pipeline-designer with 5 real scenarios. Pass = 4/5 produce valid, parseable YAML.
 
+### Error Recovery
+
+The pipeline uses **fail-fast with user control**. When YAML parsing fails:
+
+1. **Detect** — Parser returns exit code 1 (no block) or 2 (parse error)
+2. **Preserve** — Save raw subagent output to `docs/plans/.failed-outputs/<timestamp>.txt`
+3. **Report** — Show user: what failed, which subagent, truncated output preview
+4. **Ask** — Present options:
+   - **Retry** — Re-invoke same subagent with same prompt
+   - **Edit** — User manually extracts decisions, orchestrator continues
+   - **Abort** — Stop pipeline, preserve state at last successful point
+
+**Why fail-fast over retry:**
+- LLM outputs are non-deterministic; silent retry may produce different (wrong) results
+- User visibility into failures prevents state corruption
+- Manual recovery is rare enough that automation isn't worth the complexity
+
+**State on failure:**
+- State file updated to `stage: blocked`
+- `blocked_reason` field added with error details
+- Resume capability: orchestrator shows recovery options on next invocation
+
+**Changes to `scripts/parse_subagent_output.py`:**
+- Add `--save-on-fail <dir>` flag to preserve raw output
+- Return structured error JSON on failure (not just stderr message)
+
 ---
 
 ## Phase 2: State Management
@@ -288,6 +336,7 @@ Run pipeline-designer with 5 real scenarios. Pass = 4/5 produce valid, parseable
   "updated": "2026-01-06T14:30:00Z",
   "path": "rigorous",
   "stage": "implementing",
+  "blocked_reason": null,
   "components": [
     {
       "type": "skill",
@@ -344,6 +393,7 @@ class PluginState:
     updated: str = ""
     path: Path_Type = "rigorous"
     stage: str = "triage"
+    blocked_reason: str | None = None
     components: list[Component] = field(default_factory=list)
     notes: str = ""
 
@@ -355,6 +405,7 @@ class PluginState:
             'updated': self.updated,
             'path': self.path,
             'stage': self.stage,
+            'blocked_reason': self.blocked_reason,
             'components': [asdict(c) for c in self.components],
             'notes': self.notes,
         }
@@ -371,6 +422,7 @@ class PluginState:
             updated=data.get('updated', ''),
             path=data.get('path', 'rigorous'),
             stage=data.get('stage', 'triage'),
+            blocked_reason=data.get('blocked_reason'),
             components=components,
             notes=data.get('notes', ''),
         )
@@ -476,13 +528,77 @@ All reconciliation test cases pass:
 
 **File:** `skills/pipeline-orchestrator/SKILL.md`
 
-See full content in brainstorming session. Key behaviors:
+### Skill Frontmatter
 
-1. **Resume screen** on return — shows full context
-2. **Single triage question** — "Personal or shared use?"
-3. **Route to subagents** via Task tool
-4. **Update state** after every subagent call
-5. **Show next_action** from subagent output
+```yaml
+---
+name: pipeline-orchestrator
+description: Coordinate plugin development through design and implementation phases
+metadata:
+  version: "2.0.0"
+---
+```
+
+### Entry Behavior
+
+On invocation, orchestrator checks state:
+
+| State | Behavior |
+|-------|----------|
+| No state file | Ask triage question, create state, route to designer |
+| `stage: blocked` | Show recovery screen with options |
+| `stage: designing` | Resume designer with context |
+| `stage: implementing` | Resume implementer with context |
+| `stage: complete` | Show summary, ask "Start new plugin?" |
+
+### Triage Question
+
+Single question to determine development path:
+
+> "What are you building?"
+> - **A. Personal tool** — Skip docs, minimal testing (→ minimal path)
+> - **B. Shared plugin** — Full docs, testing, review (→ rigorous path)
+
+Path stored in state file, affects which skill variants subagents use.
+
+### Routing Logic
+
+After each subagent completes, orchestrator:
+
+1. **Parse output** — Run `parse_subagent_output.py` on response
+2. **Check status**:
+   - `completed` → Update state, check `next_action`
+   - `needs_input` → Surface question to user, re-invoke with answer
+   - `error` → Enter blocked state, show recovery options
+3. **Route next**:
+   - `next_action: "Run implementing-*"` → Invoke pipeline-implementer
+   - `next_action: null` + all components implemented → Mark complete
+   - `next_action: "Awaiting user input"` → Wait for user
+
+### Resume Screen
+
+When user returns to in-progress pipeline:
+
+```
+┌─ Plugin: my-plugin ──────────────────────────────┐
+│ Path: rigorous │ Stage: implementing             │
+├──────────────────────────────────────────────────┤
+│ Components:                                       │
+│   ✓ skill:my-skill (implemented)                 │
+│   ◐ hook:validator (designing)                   │
+├──────────────────────────────────────────────────┤
+│ Last: pipeline-designer completed skill design   │
+│ Next: Continue hook design                       │
+└──────────────────────────────────────────────────┘
+```
+
+### Pass Criteria
+
+- [ ] Triage routes correctly to designer
+- [ ] Designer completion triggers state update
+- [ ] Blocked state shows recovery options
+- [ ] Resume screen displays accurate context
+- [ ] End-to-end: triage → design → implement → complete
 
 ---
 
@@ -534,6 +650,7 @@ User Entry → Orchestrator → Triage → pipeline-designer → State Update
 | YAML vs JSON output | YAML (more readable, PyYAML handles parsing) |
 | Subagent output contract | Structured YAML with status/stage/artifacts/decisions/next_action |
 | State drift handling | Conservative: flag DRIFT, don't auto-delete |
+| Error recovery | Fail-fast with user control; preserve failed output |
 
 ---
 
@@ -543,10 +660,12 @@ This design replaces the 814-line `2026-01-05-pipeline-orchestrator-design.md` w
 
 | Aspect | Previous | This Design |
 |--------|----------|-------------|
-| Lines | 814 | ~400 |
+| Lines | 814 | ~500 |
 | Paths | Minimal/Rigorous with complexity analyzer | Same, but simpler triage |
 | Checkpoints | Deferred to v2 | Removed (state file sufficient) |
 | Integration tests | Detailed spec | Deferred until basic flow works |
 | Subagent contracts | Self-reported + grep | YAML output contract only |
+| Error handling | Not specified | Fail-fast with recovery options |
+| Assumptions | Implicit | Explicit section with risks |
 
 Key simplification: **build risky parts first, prove they work, then add complexity.**
