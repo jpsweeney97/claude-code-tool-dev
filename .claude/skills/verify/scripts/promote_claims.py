@@ -26,7 +26,7 @@ from dataclasses import dataclass, asdict, field
 from datetime import date
 from pathlib import Path
 
-from _common import get_claude_code_version, SECTION_ALIASES
+from _common import get_claude_code_version, SECTION_ALIASES, atomic_write
 
 
 # =============================================================================
@@ -375,10 +375,6 @@ def promote_claims(
 
     # Create new sections before Maintenance (at end of file if no Maintenance)
     if sections_to_create:
-        # Re-read lines after insertions
-        current_content = "\n".join(lines)
-        maintenance_line = find_maintenance_section_line(current_content)
-
         # Sort sections alphabetically for consistent ordering
         for section in sorted(sections_to_create, reverse=True):
             section_block = create_new_section(section)
@@ -389,10 +385,17 @@ def promote_claims(
             for claim in claims_for_section:
                 section_lines.append(format_known_claim_row(claim, version))
 
+            # Recalculate maintenance line from current lines state
+            # (must be inside loop - previous insertions modify line offsets)
+            maintenance_line = None
+            for i, line in enumerate(lines):
+                if line.startswith("## Maintenance"):
+                    maintenance_line = i
+                    break
+
             if maintenance_line is not None:
-                # Insert before Maintenance, with blank line before ---
-                insert_idx = maintenance_line
                 # Find the --- separator before Maintenance
+                insert_idx = maintenance_line
                 for i in range(maintenance_line - 1, -1, -1):
                     if lines[i].strip() == "---":
                         insert_idx = i
@@ -411,7 +414,7 @@ def promote_claims(
     # Write changes
     if not dry_run and result.promoted:
         # Write updated known-claims.md
-        known_path.write_text("\n".join(lines) + "\n")
+        atomic_write(known_path, "\n".join(lines) + "\n")
 
         # Clear pending-claims.md (keep header)
         pending_header = """# Pending Claims
@@ -421,7 +424,7 @@ Claims verified but not yet promoted to `known-claims.md`. Review during next `/
 | Claim | Verdict | Evidence | Section | Date |
 |-------|---------|----------|---------|------|
 """
-        pending_path.write_text(pending_header)
+        atomic_write(pending_path, pending_header)
 
     return result
 
