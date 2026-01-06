@@ -23,13 +23,15 @@ Integration:
 
 from __future__ import annotations
 
-import json
 import re
-import subprocess
 import sys
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import NamedTuple
+
+# Add scripts directory to path for _common import
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+from _common import get_claude_code_version, parse_verified_date
 
 
 # =============================================================================
@@ -54,20 +56,6 @@ class Version(NamedTuple):
     def parse(cls, s: str) -> "Version | None":
         m = re.match(r"v?(\d+)\.(\d+)\.(\d+)", s.strip())
         return cls(int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
-
-
-def get_claude_code_version() -> str | None:
-    try:
-        result = subprocess.run(
-            ["claude", "--version"],
-            capture_output=True, text=True, timeout=5
-        )
-        if result.returncode == 0:
-            m = re.search(r"(\d+\.\d+\.\d+)", result.stdout)
-            return m.group(1) if m else None
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-    return None
 
 
 def get_stored_version(path: Path) -> str | None:
@@ -96,28 +84,6 @@ def version_changed(cache_path: Path) -> tuple[bool, str]:
     if cur_v.minor != sto_v.minor:
         return True, "minor"
     return False, "none"
-
-
-# =============================================================================
-# DATE PARSING
-# =============================================================================
-
-
-def parse_verified_date(verified_date: str | None) -> date | None:
-    """
-    Parse a verification date, handling both plain and version-tagged formats.
-
-    Supported formats:
-        - "2026-01-05"               → plain ISO date
-        - "2026-01-05 (v2.0.76)"     → date with version suffix (from promote_claims.py)
-    """
-    if not verified_date:
-        return None
-    date_str = verified_date.split(" ")[0].strip()
-    try:
-        return datetime.strptime(date_str, "%Y-%m-%d").date()
-    except ValueError:
-        return None
 
 
 # =============================================================================
