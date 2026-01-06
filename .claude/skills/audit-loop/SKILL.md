@@ -198,3 +198,75 @@ Visibility — who will see this?
 3. Save to state: `calibration.stakes`, `calibration.score`, `calibration.level`
 4. Report: "Calibration: [level] (score [N]). This affects rigor requirements for each phase."
 5. Proceed to Phase 1: Definition
+
+---
+
+### Phase 1: Definition
+
+**Calibration requirements:**
+
+| Check | Light | Medium | Deep |
+|-------|-------|--------|------|
+| Goal | Brief | Full | Full |
+| Scope | Key boundaries | Complete | Exhaustive + justified |
+| Done criteria | Implicit OK | Explicit | Explicit + verified |
+| Assumptions | Key only | All | All + testable |
+| Simple path | Yes | Yes | Yes + documented |
+
+**Present these prompts sequentially:**
+
+```
+Phase 1: Definition
+
+1. AUDIT GOAL — What outcome do you want from this audit?
+   (Not the artifact's purpose — YOUR investigation goal)
+   Example: "Confidence the design is implementable without major rework"
+```
+
+After response, continue:
+
+```
+2. SCOPE — What aspects will you examine?
+   [A] Architecture & structure
+   [B] Error handling & edge cases
+   [C] Data flow & state
+   [D] Dependencies & integrations
+   [E] Security implications
+   [F] Other: ___
+
+   (Select all that apply)
+```
+
+After scope selection:
+
+```
+3. EXCLUSIONS — What are you explicitly NOT examining, and why?
+
+   ⚠️ Red flag check: Are excluded areas actually harder to audit?
+   If so, reconsider whether they should be in scope.
+```
+
+For Medium/Deep calibration:
+
+```
+4. ASSUMPTIONS — What are you taking for granted?
+   List each assumption.
+   [Deep only: How would you test each?]
+```
+
+```
+5. DONE CRITERIA — How will you know the audit is complete?
+   [Light: Can be implicit, but state it]
+   [Medium+: Must be explicit and measurable]
+```
+
+```
+6. SIMPLE PATH — Is there an obvious conclusion already?
+   If so, why isn't it sufficient?
+   [Deep: Document this reasoning in state]
+```
+
+**After all prompts:**
+1. Save responses to `state.definition`
+2. Add history event: `phase_1_complete`
+3. Proceed to Phase 2: Execution
