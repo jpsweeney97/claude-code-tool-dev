@@ -3,9 +3,9 @@ name: verify
 description: Verify claims about Claude Code against official Anthropic documentation. Use when fact-checking Claude Code features, behaviors, or configurations.
 license: MIT
 metadata:
-  version: "2.6.1"
+  version: "3.0.0"
   model: claude-sonnet-4-20250514
-  timelessness_score: 7
+  timelessness_score: 8
 ---
 
 # Verify Claude Code Claims
@@ -42,6 +42,34 @@ Fact-check claims about Claude Code against official documentation.
 /verify --batch
 
 → Verifies all pending claims → Updates verdicts → Optional auto-promote
+```
+
+**Interactive batch:**
+```
+python scripts/batch_verify.py --interactive
+
+→ Per-claim confirm/skip/edit/quit → Human oversight for batch operations
+```
+
+**Quick-add mode:**
+```
+python scripts/verify.py --quick-add "claim text"
+
+→ Smart section/severity inference → Adds to pending with minimal input
+```
+
+**Validate source URLs:**
+```
+python scripts/verify.py --validate-urls
+
+→ Checks documentation URLs → Reports broken links
+```
+
+**Backup and restore:**
+```
+python scripts/backup_cache.py backup    # Create backup
+python scripts/backup_cache.py list      # List backups
+python scripts/backup_cache.py restore   # Restore latest
 ```
 
 **Add claim (after verification):**
@@ -306,6 +334,9 @@ Automatically append verified/contradicted claims to `pending-claims.md`:
 | `scripts/batch_verify.py` | Batch verification |
 | `hooks/verify-capture-reminder.py` | Session-end reminder |
 | `hooks/verify-health-check.py` | SessionStart health warning |
+| `scripts/validate_sources.py` | Validate documentation source URLs |
+| `scripts/backup_cache.py` | Backup and restore cache |
+| `tests/` | Unit tests for scripts |
 
 ## Scripts Quick Reference
 
@@ -319,6 +350,12 @@ Automatically append verified/contradicted claims to `pending-claims.md`:
 | `match_claim.py` | `python scripts/match_claim.py "claim" --top 5` (advanced) |
 | `refresh_claims.py` | `python scripts/refresh_claims.py --version-aware --summary` |
 | `batch_verify.py` | `python scripts/batch_verify.py --auto-promote` |
+| `batch_verify.py` | `python scripts/batch_verify.py --interactive` |
+| `verify.py` | `python scripts/verify.py --quick-add "claim"` |
+| `verify.py` | `python scripts/verify.py --validate-urls` |
+| `verify.py` | `python scripts/verify.py --backup` |
+| `verify.py` | `python scripts/verify.py --restore` |
+| `backup_cache.py` | `python scripts/backup_cache.py list --diff` |
 
 See `references/scripts-reference.md` for full documentation.
 
@@ -350,6 +387,19 @@ See `references/scripts-reference.md` for full documentation.
 ---
 
 ## Changelog
+
+### v3.0.0
+- **Source URL validation**: New `validate_sources.py` detects broken documentation links
+  - Rate limiting prevents server blocking
+  - `--validate-urls` flag in unified CLI
+- **Cache backup/restore**: Automatic backups before promotion, manual control via `backup_cache.py`
+  - Rolling backups (keeps last 5)
+  - `--backup`, `--restore`, `--list-backups` flags
+- **Interactive batch mode**: `batch_verify.py --interactive` for human oversight
+  - Per-claim confirm/skip/edit/quit
+- **Quick-add mode**: `verify.py --quick-add` with smart section/severity inference
+- **Test coverage**: Unit tests for _common.py, match_claim.py, validate_sources.py, backup_cache.py
+- Timelessness score increased from 7 to 8 (added resilience, not just features)
 
 ### v2.6.1
 - **Fix**: Consistent severity display - severity now always appears next to verdict, not between status markers
