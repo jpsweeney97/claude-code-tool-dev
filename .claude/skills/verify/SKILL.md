@@ -3,7 +3,7 @@ name: verify
 description: Verify claims about Claude Code against official Anthropic documentation. Use when fact-checking Claude Code features, behaviors, or configurations.
 license: MIT
 metadata:
-  version: "2.4.0"
+  version: "2.5.0"
   model: claude-sonnet-4-20250514
   timelessness_score: 8
 ---
@@ -119,16 +119,35 @@ Claims map to documentation sections for efficient query batching.
 
 ## Core Process
 
-### Step 0: Check Cache
+### Step 0: Define Scope
 
-**0a. Check pending claims:**
+Before verification, determine if the claim is in scope:
+
+| In Scope | Out of Scope |
+|----------|--------------|
+| Claude Code CLI features | General Claude model capabilities |
+| Configuration (settings.json, .mcp.json) | API pricing or quotas |
+| Hooks, skills, commands, agents | Anthropic Console features |
+| MCP servers | Claude.ai web interface |
+| Permissions system | Third-party integrations |
+
+**Boundary claims** (handle carefully):
+- "Claude Code can..." → In scope (CLI behavior)
+- "Claude can..." → Likely out of scope (model capability)
+- "The model in Claude Code..." → In scope only if about CLI-specific behavior
+
+**Action:** If out of scope, respond: "This claim is about [X], not Claude Code. The verify skill covers Claude Code CLI features."
+
+### Step 1: Check Cache
+
+**1a. Check pending claims:**
 
 If `pending-claims.md` has entries:
 ```
 "You have N pending claims awaiting review. Promote now? [Y/n]"
 ```
 
-**0b. Check known claims:**
+**1b. Check known claims:**
 
 ```bash
 python scripts/match_claim.py "Skills require a license field"
@@ -138,9 +157,9 @@ python scripts/match_claim.py "Skills require a license field"
 |-----------|---------|--------|
 | 0 | HIGH (≥0.60) | Return cached verdict |
 | 1 | CONFIRM (0.40-0.59) | Show candidates |
-| 10 | No match (<0.40) | Proceed to Step 1 |
+| 10 | No match (<0.40) | Proceed to Step 2 |
 
-### Step 1: Extract and Cluster
+### Step 2: Extract and Cluster
 
 Parse input, decompose compound claims, assign clusters:
 
@@ -150,7 +169,7 @@ Parse input, decompose compound claims, assign clusters:
 | Compound | Split ("Skills and hooks...") |
 | Relational | Query primary subject |
 
-### Step 2: Query Official Sources
+### Step 3: Query Official Sources
 
 Use `claude-code-guide` agent via Task tool:
 
@@ -162,7 +181,7 @@ Use `claude-code-guide` agent via Task tool:
 
 **Source priority:** code.claude.com/docs → platform.claude.com → github.com/anthropics
 
-### Step 3: Assess Confidence
+### Step 4: Assess Confidence
 
 | Evidence | Confidence |
 |----------|------------|
@@ -171,7 +190,35 @@ Use `claude-code-guide` agent via Task tool:
 | No documentation | ? Unverified |
 | Documentation contradicts | ✗ Contradicted |
 
-### Step 4: Report
+### Step 5: Disconfirmation
+
+Before finalizing, actively search for contradicting evidence:
+
+| Check | What to Look For |
+|-------|------------------|
+| **Exceptions** | "except when...", "unless...", "only if..." |
+| **Version notes** | "as of v2.0...", "deprecated in...", "changed in..." |
+| **Caveats** | "Note:", "Warning:", "Important:" |
+| **Contradictions** | Same topic, different answer elsewhere |
+| **Scope limits** | Feature exists but with restrictions |
+
+**Required action:** Document disconfirmation search:
+```
+Disconfirmation search: Checked [sources]. Found: [evidence or "no contradicting evidence"]
+```
+
+**Confidence adjustments:**
+
+| Finding | Adjustment |
+|---------|------------|
+| Exception applies to claim | ✓ → ~ Partial |
+| Deprecated/changed feature | ✓ → ~ with version note |
+| Contradicting documentation | ✓ → ✗ Contradicted |
+| No contradicting evidence found | Confidence unchanged |
+
+**Why this matters:** Confirmation bias leads to finding only supporting evidence. Disconfirmation actively seeks what would prove the claim wrong.
+
+### Step 6: Report
 
 | Claims | Format |
 |--------|--------|
@@ -179,7 +226,7 @@ Use `claude-code-guide` agent via Task tool:
 | 2-3 | Summary table + synthesis |
 | 4+ | Table + synthesis + corrections only |
 
-### Step 5: Auto-Capture
+### Step 7: Auto-Capture
 
 Automatically append verified/contradicted claims to `pending-claims.md`:
 - Verdict ✓ or ✗ (not ~ or ?)
@@ -270,6 +317,17 @@ See `references/scripts-reference.md` for full documentation.
 ---
 
 ## Changelog
+
+### v2.5.0
+- **Scope Definition (Step 0)**: New step clarifies what claims are in/out of scope
+  - Explicit in-scope: Claude Code CLI features, configuration, hooks, skills, etc.
+  - Explicit out-of-scope: General Claude model capabilities, API pricing, Console features
+  - Boundary claim guidance for ambiguous "Claude can..." vs "Claude Code can..." statements
+- **Disconfirmation (Step 5)**: New step actively searches for contradicting evidence
+  - Checks for exceptions, version notes, caveats, contradictions, scope limits
+  - Required documentation of disconfirmation search in verdict
+  - Confidence adjustment rules when contradicting evidence found
+- Core Process now has 8 steps (0-7) vs previous 6 (0-5)
 
 ### v2.4.0
 - **Unified CLI**: Added `scripts/verify.py` as single entry point for all operations
