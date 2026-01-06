@@ -21,32 +21,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
-import subprocess
 import sys
 from dataclasses import dataclass, asdict, field
 from datetime import date
 from pathlib import Path
 
-
-# =============================================================================
-# VERSION DETECTION
-# =============================================================================
-
-def get_claude_code_version() -> str | None:
-    """Get current Claude Code version."""
-    try:
-        result = subprocess.run(
-            ["claude", "--version"],
-            capture_output=True, text=True, timeout=5
-        )
-        if result.returncode == 0:
-            match = re.search(r"(\d+\.\d+\.\d+)", result.stdout)
-            if match:
-                return match.group(1)
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-    return None
+from _common import get_claude_code_version, SECTION_ALIASES
 
 
 # =============================================================================
@@ -72,17 +52,6 @@ class PromotionResult:
     normalized_sections: list[tuple[str, str]] = field(default_factory=list)  # (original, normalized)
     errors: list[str] = field(default_factory=list)
 
-
-# Section normalization: map common variants to canonical names
-# Keys are lowercase for case-insensitive matching
-SECTION_ALIASES: dict[str, str] = {
-    "feature": "Features",
-    "setting": "Settings",
-    "hook": "Hooks",
-    "command": "Commands",
-    "skill": "Skills",
-    "agent": "Agents",
-}
 
 # Source URLs for known documentation sections
 # Used when creating new sections to provide traceable evidence
