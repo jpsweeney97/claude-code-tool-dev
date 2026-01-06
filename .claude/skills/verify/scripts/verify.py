@@ -20,7 +20,7 @@ Usage:
     python verify.py --health                       # Cache health check
     python verify.py --refresh                      # List stale claims
     python verify.py --promote                      # Promote pending claims
-    python verify.py --batch                        # Batch verify pending
+    python verify.py --find-duplicates              # Find similar claims
 
 Examples:
     # Quick cache check (fastest, no external queries)
@@ -37,6 +37,9 @@ Examples:
 
     # Promote verified claims to permanent cache
     python verify.py --promote --dry-run
+
+    # Find duplicate or similar claims
+    python verify.py --find-duplicates --threshold 0.6
 """
 
 from __future__ import annotations
@@ -73,6 +76,7 @@ from promote_claims import (
 )
 from validate_sources import validate_sources, ValidationResult
 from backup_cache import create_backup, list_backups, restore_backup
+from detect_duplicates import find_duplicate_groups
 
 
 # =============================================================================
@@ -504,6 +508,35 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_find_duplicates(args: argparse.Namespace) -> int:
+    """Find duplicate or similar claims in cache."""
+    if not KNOWN_CLAIMS_PATH.exists():
+        print("No cache file found.")
+        return 1
+
+    groups = find_duplicate_groups(
+        KNOWN_CLAIMS_PATH,
+        threshold=args.threshold,
+        same_section_only=args.same_section,
+    )
+
+    if not groups:
+        print("No duplicate claims found.")
+        return 0
+
+    print(f"Found {len(groups)} group(s) of similar claims:\n")
+
+    for i, group in enumerate(groups, 1):
+        print(f"Group {i} (similarity: {group['similarity']:.2f}):")
+        for claim in group["claims"]:
+            print(f"  [{claim['section']}] {claim['claim']}")
+            print(f"    Verdict: {claim['verdict']}")
+        print()
+
+    print("Consider consolidating or removing redundant claims.")
+    return 2
+
+
 def cmd_add(args: argparse.Namespace) -> int:
     """Add a verified claim to pending-claims.md for later promotion."""
     from datetime import date as date_module
@@ -800,6 +833,11 @@ Examples:
         action="store_true",
         help="List available backups",
     )
+    mode_group.add_argument(
+        "--find-duplicates",
+        action="store_true",
+        help="Find duplicate or similar claims in cache",
+    )
 
     # Check options
     parser.add_argument(
@@ -823,6 +861,17 @@ Examples:
         default=DEFAULT_MAX_AGE_DAYS,
         metavar="DAYS",
         help=f"Staleness threshold (default: {DEFAULT_MAX_AGE_DAYS})",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.7,
+        help="Similarity threshold for duplicate detection (default: 0.7)",
+    )
+    parser.add_argument(
+        "--same-section",
+        action="store_true",
+        help="Only compare claims within the same section (for --find-duplicates)",
     )
 
     # Promote options
@@ -906,6 +955,8 @@ Examples:
         return cmd_sections(args)
     elif args.stats:
         return cmd_stats(args)
+    elif args.find_duplicates:
+        return cmd_find_duplicates(args)
     elif args.add:
         return cmd_add(args)
     elif args.input:
