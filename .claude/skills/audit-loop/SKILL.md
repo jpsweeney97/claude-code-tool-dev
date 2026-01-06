@@ -152,3 +152,49 @@ State is saved automatically at:
 ### Phase Values
 
 `stakes_assessment` → `definition` → `execution` → `verification` → `triage` → `design` → `verify` → `ship`
+
+---
+
+## Workflow
+
+### Stakes Assessment
+
+**Purpose:** Determine calibration level before auditing.
+
+**Present this prompt:**
+
+```
+Stakes Assessment
+
+Reversibility — if this design is wrong, how hard to fix?
+  [A] Easy to undo (1)
+  [B] Moderate effort (2)
+  [C] Permanent/very costly (3)
+
+Blast radius — who's affected if it fails?
+  [A] Just you (1)
+  [B] Your team (2)
+  [C] Users or organization (3)
+
+Precedent — will this be referenced later?
+  [A] One-off (1)
+  [B] May be referenced (2)
+  [C] Sets a pattern (3)
+
+Visibility — who will see this?
+  [A] Internal only (1)
+  [B] Shared with others (2)
+  [C] Public (3)
+```
+
+**Scoring:**
+- 4-6 = **Light** calibration
+- 7-9 = **Medium** calibration
+- 10-12 = **Deep** calibration
+
+**After user responds:**
+1. Calculate score by summing values
+2. Determine calibration level
+3. Save to state: `calibration.stakes`, `calibration.score`, `calibration.level`
+4. Report: "Calibration: [level] (score [N]). This affects rigor requirements for each phase."
+5. Proceed to Phase 1: Definition
