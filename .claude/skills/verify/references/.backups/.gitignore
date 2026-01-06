@@ -1,0 +1,4 @@
+# Ignore backup files (they're local state)
+known-claims_*.md
+!.gitkeep
+!.gitignore

@@ -27,6 +27,7 @@ from datetime import date
 from pathlib import Path
 
 from _common import get_claude_code_version, SECTION_ALIASES, atomic_write
+from backup_cache import create_backup
 
 
 # =============================================================================
@@ -295,6 +296,10 @@ def promote_claims(
     # Get version for recording (if requested)
     version = get_claude_code_version() if record_version else None
     result = PromotionResult()
+
+    # Create backup before modifying known-claims.md
+    if not dry_run:
+        create_backup(known_path)
 
     # Parse pending claims
     pending = parse_pending_claims(pending_path)

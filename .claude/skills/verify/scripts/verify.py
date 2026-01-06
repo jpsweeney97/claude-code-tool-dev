@@ -72,6 +72,7 @@ from promote_claims import (
     PromotionResult,
 )
 from validate_sources import validate_sources, ValidationResult
+from backup_cache import create_backup, list_backups, restore_backup
 
 
 # =============================================================================
@@ -463,6 +464,66 @@ def cmd_validate_urls(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backup(args: argparse.Namespace) -> int:
+    """Create backup of known-claims cache."""
+    backup_path = create_backup(KNOWN_CLAIMS_PATH)
+    if backup_path:
+        print(f"Created backup: {backup_path.name}")
+        return 0
+    else:
+        print("Error: No cache to backup", file=sys.stderr)
+        return 1
+
+
+def cmd_list_backups(args: argparse.Namespace) -> int:
+    """List available backups."""
+    backups = list_backups()
+    if not backups:
+        print("No backups found")
+        return 0
+
+    print("Available backups:")
+    for i, b in enumerate(backups):
+        timestamp = b.stem.replace("known-claims_", "")
+        size = b.stat().st_size
+        marker = " (latest)" if i == 0 else ""
+        print(f"  {i+1}. {timestamp} ({size:,} bytes){marker}")
+    return 0
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    """Restore cache from backup."""
+    backups = list_backups()
+
+    if not backups:
+        print("No backups available", file=sys.stderr)
+        return 10
+
+    if args.restore == "latest":
+        backup_path = backups[0]
+    else:
+        # Find matching backup
+        backup_path = None
+        for b in backups:
+            if args.restore in str(b):
+                backup_path = b
+                break
+        if not backup_path:
+            print(f"Backup not found: {args.restore}", file=sys.stderr)
+            return 1
+
+    if args.dry_run:
+        print(f"[DRY RUN] Would restore from: {backup_path.name}")
+        return 0
+
+    if restore_backup(backup_path, KNOWN_CLAIMS_PATH):
+        print(f"Restored from: {backup_path.name}")
+        return 0
+    else:
+        print("Restore failed", file=sys.stderr)
+        return 1
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -535,6 +596,23 @@ Examples:
         "--validate-urls",
         action="store_true",
         help="Validate source documentation URLs",
+    )
+    mode_group.add_argument(
+        "--backup",
+        action="store_true",
+        help="Create backup of known-claims cache",
+    )
+    mode_group.add_argument(
+        "--restore",
+        nargs="?",
+        const="latest",
+        metavar="BACKUP",
+        help="Restore cache from backup (latest if no argument)",
+    )
+    mode_group.add_argument(
+        "--list-backups",
+        action="store_true",
+        help="List available backups",
     )
 
     # Check options
@@ -619,7 +697,13 @@ Examples:
     args = parser.parse_args()
 
     # Route to appropriate handler
-    if args.validate_urls:
+    if args.backup:
+        return cmd_backup(args)
+    elif args.list_backups:
+        return cmd_list_backups(args)
+    elif args.restore:
+        return cmd_restore(args)
+    elif args.validate_urls:
         return cmd_validate_urls(args)
     elif args.health:
         return cmd_health(args)
