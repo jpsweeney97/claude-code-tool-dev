@@ -76,6 +76,47 @@ from backup_cache import create_backup, list_backups, restore_backup
 
 
 # =============================================================================
+# QUICK-ADD INFERENCE
+# =============================================================================
+
+def infer_section(claim: str) -> str:
+    """Infer section from claim keywords."""
+    claim_lower = claim.lower()
+
+    # Check for specific keywords
+    section_keywords = {
+        "Hooks": ["hook", "exit code", "pretooluse", "posttooluse", "timeout", "matcher"],
+        "Skills": ["skill", "frontmatter", "allowed-tools", "skill.md"],
+        "Commands": ["command", "$arguments", "slash", "argument-hint"],
+        "MCP": ["mcp", ".mcp.json", "server", "mcpservers"],
+        "Agents": ["agent", "task tool", "subagent", "subagent_type"],
+        "Settings": ["setting", "permissions", "settings.json"],
+        "CLI": ["cli", "flag", "--", "environment variable"],
+    }
+
+    for section, keywords in section_keywords.items():
+        if any(kw in claim_lower for kw in keywords):
+            return section
+
+    return "General"
+
+
+def infer_severity(claim: str) -> str:
+    """Infer severity from claim keywords."""
+    claim_lower = claim.lower()
+
+    # Critical indicators
+    if any(kw in claim_lower for kw in ["exit code", "required", "must", "block", "error"]):
+        return "CRITICAL"
+
+    # High indicators
+    if any(kw in claim_lower for kw in ["default", "limit", "max", "min", "timeout"]):
+        return "HIGH"
+
+    return "LOW"
+
+
+# =============================================================================
 # PATH CONFIGURATION
 # =============================================================================
 
@@ -350,8 +391,20 @@ def cmd_add(args: argparse.Namespace) -> int:
     if not args.evidence:
         print("Error: --evidence is required", file=sys.stderr)
         return 1
+
+    # Handle quick-add: infer missing fields
+    if args.quick_add:
+        if not args.add_section:
+            args.add_section = infer_section(args.claim)
+            print(f"Inferred section: {args.add_section}")
+
+        if not args.severity:
+            args.severity = infer_severity(args.claim)
+            print(f"Inferred severity: {args.severity}")
+
+    # Validate section (now required after potential inference)
     if not args.add_section:
-        print("Error: --add-section is required", file=sys.stderr)
+        print("Error: --add-section is required (or use --quick-add)", file=sys.stderr)
         return 1
 
     # Validate verdict format
@@ -692,6 +745,11 @@ Examples:
         "--force",
         action="store_true",
         help="Force add even if similar claim exists (with --add)",
+    )
+    parser.add_argument(
+        "--quick-add",
+        action="store_true",
+        help="Quick add with smart defaults (infers section and severity)",
     )
 
     args = parser.parse_args()
