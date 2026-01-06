@@ -51,7 +51,8 @@ class PromotionResult:
     errors: list[str] = field(default_factory=list)
 
 
-VALID_SECTIONS = {"Skills", "Hooks", "Commands", "MCP", "Agents"}
+# Sections are discovered dynamically from known-claims.md
+# New sections are created automatically when needed
 
 
 # =============================================================================
@@ -96,13 +97,18 @@ def parse_known_claims_structure(path: Path) -> dict[str, list[str]]:
     sections: dict[str, list[str]] = {}
     current_section: str | None = None
 
+    # Sections to skip (not claim containers)
+    skip_sections = {"How to Use", "Maintenance"}
+
     for line in content.splitlines():
-        # Track section headers
-        if line.startswith("## ") and not line.startswith("## How") and not line.startswith("## Maintenance"):
+        # Track section headers - discover sections dynamically
+        if line.startswith("## "):
             section_name = line[3:].strip()
-            if section_name in VALID_SECTIONS:
+            if section_name not in skip_sections:
                 current_section = section_name
                 sections[current_section] = []
+            else:
+                current_section = None
             continue
 
         # Parse table rows to extract claim text
@@ -142,6 +148,30 @@ def find_section_insert_point(content: str, section: str) -> int | None:
             last_table_row = i
 
     return last_table_row
+
+
+def find_maintenance_section_line(content: str) -> int | None:
+    """Find the line number of the Maintenance section header."""
+    for i, line in enumerate(content.splitlines()):
+        if line.startswith("## Maintenance"):
+            return i
+    return None
+
+
+def create_new_section(section: str) -> str:
+    """
+    Generate a new section block for known-claims.md.
+
+    The section is created with a placeholder source URL and empty table.
+    """
+    return f"""---
+
+## {section}
+
+**Source:** (pending verification)
+
+| Claim | Verdict | Evidence |
+|-------|---------|----------|"""
 
 
 # =============================================================================
@@ -188,11 +218,6 @@ def promote_claims(
     by_section: dict[str, list[PendingClaim]] = {}
 
     for claim in pending:
-        # Validate section
-        if claim.section not in VALID_SECTIONS:
-            result.skipped_invalid_section.append(claim)
-            continue
-
         # Check for duplicates
         claim_normalized = claim.claim.strip("`").lower()
         existing = known_structure.get(claim.section, [])
@@ -217,28 +242,62 @@ def promote_claims(
     # Insert claims into known-claims.md content
     lines = known_content.splitlines()
 
+    # Track sections that need to be created
+    sections_to_create: set[str] = set()
+
     # Process sections in reverse order of line numbers to avoid offset issues
     insertions: list[tuple[int, str]] = []
 
     for section, claims in by_section.items():
         insert_point = find_section_insert_point(known_content, section)
-        if insert_point is None:
-            for claim in claims:
-                result.errors.append(f"Section '{section}' not found in known-claims.md")
-                result.skipped_invalid_section.append(claim)
-            continue
 
-        # Add all claims for this section
-        for claim in claims:
-            row = format_known_claim_row(claim)
-            insertions.append((insert_point, row))
-            result.promoted.append(claim)
+        if insert_point is None:
+            # Section doesn't exist - mark for creation
+            sections_to_create.add(section)
+            # Claims will be added after section creation
+            for claim in claims:
+                result.promoted.append(claim)
+        else:
+            # Add all claims for this section
+            for claim in claims:
+                row = format_known_claim_row(claim)
+                insertions.append((insert_point, row))
+                result.promoted.append(claim)
 
     # Sort insertions by line number descending (insert from bottom up)
     insertions.sort(key=lambda x: x[0], reverse=True)
 
     for insert_after, row in insertions:
         lines.insert(insert_after + 1, row)
+
+    # Create new sections before Maintenance (at end of file if no Maintenance)
+    if sections_to_create:
+        # Re-read lines after insertions
+        current_content = "\n".join(lines)
+        maintenance_line = find_maintenance_section_line(current_content)
+
+        # Sort sections alphabetically for consistent ordering
+        for section in sorted(sections_to_create, reverse=True):
+            section_block = create_new_section(section)
+            section_lines = section_block.splitlines()
+
+            # Add claims to the new section
+            claims_for_section = by_section[section]
+            for claim in claims_for_section:
+                section_lines.append(format_known_claim_row(claim))
+
+            if maintenance_line is not None:
+                # Insert before Maintenance, with blank line before ---
+                insert_idx = maintenance_line
+                # Find the --- separator before Maintenance
+                for i in range(maintenance_line - 1, -1, -1):
+                    if lines[i].strip() == "---":
+                        insert_idx = i
+                        break
+                lines = lines[:insert_idx] + section_lines + [""] + lines[insert_idx:]
+            else:
+                # Append at end
+                lines.extend([""] + section_lines)
 
     # Update "Last verified" date
     for i, line in enumerate(lines):

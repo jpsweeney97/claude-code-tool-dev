@@ -60,6 +60,7 @@ Pre-verified claims sourced from official Claude Code documentation.
 | CLAUDE_PROJECT_DIR available for all hooks | ✓ Verified | "CLAUDE_PROJECT_DIR environment variable is available" |
 | CLAUDE_ENV_FILE only for SessionStart | ✓ Verified | "CLAUDE_ENV_FILE is only available for SessionStart hooks" |
 | MCP tools use mcp__server__tool pattern | ✓ Verified | "MCP tools follow the pattern mcp__<server>__<tool>" |
+| Hooks support a timeout field in frontmatter | ✗ Contradicted | "hooks use JSON configuration format, not frontmatter" |
 
 ---
 
@@ -110,6 +111,26 @@ Pre-verified claims sourced from official Claude Code documentation.
 |-------|---------|----------|
 | Agents invoked via Task tool | ✓ Verified | subagent_type parameter in Task tool |
 | Agents use markdown format | ✓ Verified | .md files in agents directory |
+
+---
+
+## Settings
+
+**Source:** https://code.claude.com/docs/en/interactive-mode.md
+
+| Claim | Verdict | Evidence |
+|-------|---------|----------|
+| Claude Code supports custom keyboard shortcuts through the settings.json file | ✗ False | "Keyboard shortcuts vary by platform and terminal" - customization handled at terminal level |
+
+---
+
+## CLI
+
+**Source:** (pending verification)
+
+| Claim | Verdict | Evidence |
+|-------|---------|----------|
+| Claude Code CLI supports --version flag | ✓ Verified | "claude --version" returns version info |
 
 ---
 
