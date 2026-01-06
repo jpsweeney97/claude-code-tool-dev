@@ -192,3 +192,73 @@ def test_validate_corrupt_state(tmp_path):
 
     assert not result.ok
     assert "json" in result.message.lower() or "invalid" in result.message.lower()
+
+
+# =============================================================================
+# LIST TESTS
+# =============================================================================
+
+
+def test_list_finds_active_audits(tmp_path):
+    """list finds all .audit.json files in directory."""
+    from state import create_state, list_audits
+
+    # Create two audits
+    a1 = tmp_path / "feature1.md"
+    a1.write_text("# Feature 1")
+    create_state(a1)
+
+    a2 = tmp_path / "feature2.md"
+    a2.write_text("# Feature 2")
+    create_state(a2)
+
+    result = list_audits(tmp_path)
+
+    assert result.ok
+    assert len(result.data["audits"]) == 2
+
+
+def test_list_empty_directory(tmp_path):
+    """list returns empty list when no audits exist."""
+    from state import list_audits
+
+    result = list_audits(tmp_path)
+
+    assert result.ok
+    assert result.data["audits"] == []
+
+
+# =============================================================================
+# ARCHIVE TESTS
+# =============================================================================
+
+
+def test_archive_moves_state(tmp_path):
+    """archive renames state file with date suffix."""
+    from state import create_state, archive_audit
+    from _common import get_state_path
+
+    artifact = tmp_path / "feature.md"
+    artifact.write_text("# Feature")
+    create_state(artifact)
+
+    result = archive_audit(artifact, "2026-01-06")
+
+    assert result.ok
+    # Original state gone
+    assert not get_state_path(artifact).exists()
+    # Archived state exists
+    archived = tmp_path / "feature.audit.2026-01-06.json"
+    assert archived.exists()
+
+
+def test_archive_fails_if_no_state(tmp_path):
+    """archive fails when no state exists."""
+    from state import archive_audit
+
+    artifact = tmp_path / "feature.md"
+    artifact.write_text("# Feature")
+
+    result = archive_audit(artifact, "2026-01-06")
+
+    assert not result.ok

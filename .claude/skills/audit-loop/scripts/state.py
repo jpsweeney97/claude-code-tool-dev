@@ -319,6 +319,102 @@ def validate_state(artifact_path: Path) -> Result:
     )
 
 
+def list_audits(directory: Path) -> Result:
+    """
+    Find all active audits in a directory.
+
+    Args:
+        directory: Directory to search (non-recursive)
+
+    Returns:
+        Result with list of audit info
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        return Result.failure(
+            f"Not a directory: {directory}",
+            errors=[str(directory)],
+        )
+
+    audits = []
+    for state_path in directory.glob("*.audit.json"):
+        # Skip archived audits (have date suffix before .json)
+        name = state_path.stem  # e.g., "feature.audit"
+        if name.count(".") > 1:
+            continue  # Looks like "feature.audit.2026-01-06"
+
+        try:
+            state = json.loads(state_path.read_text())
+            audits.append({
+                "state_path": str(state_path),
+                "artifact": state.get("artifact", "unknown"),
+                "phase": state.get("phase", "unknown"),
+                "cycle": state.get("cycle", 0),
+                "findings": len(state.get("findings", [])),
+            })
+        except (json.JSONDecodeError, OSError):
+            audits.append({
+                "state_path": str(state_path),
+                "error": "Failed to read state",
+            })
+
+    return Result.success(
+        f"Found {len(audits)} active audit(s)",
+        data={"audits": audits},
+    )
+
+
+def archive_audit(artifact_path: Path, date_str: str | None = None) -> Result:
+    """
+    Archive completed audit by renaming state file with date suffix.
+
+    Args:
+        artifact_path: Path to the artifact
+        date_str: Date string for archive (default: today)
+
+    Returns:
+        Result with archive path
+    """
+    state_path = get_state_path(artifact_path)
+
+    if not state_path.exists():
+        return Result.failure(
+            f"No audit state found: {state_path}",
+            errors=["Nothing to archive"],
+        )
+
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+
+    archive_path = get_archive_path(artifact_path, date_str)
+
+    try:
+        # Read state, add archived event
+        state = json.loads(state_path.read_text())
+        now = datetime.now(timezone.utc).isoformat()
+        state["history"].append({
+            "timestamp": now,
+            "event": "archived",
+            "data": {"archive_path": str(archive_path)},
+        })
+
+        # Write to archive location
+        atomic_write(archive_path, json.dumps(state, indent=2))
+
+        # Remove original
+        state_path.unlink()
+
+        return Result.success(
+            f"Archived to: {archive_path}",
+            data={"archive_path": str(archive_path)},
+        )
+    except OSError as e:
+        return Result.failure(
+            f"Archive failed: {e}",
+            errors=[str(e)],
+        )
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -397,6 +493,36 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return EXIT_SUCCESS if result.ok else EXIT_VALIDATION
 
 
+def cmd_list(args: argparse.Namespace) -> int:
+    """Handle list subcommand."""
+    directory = Path(args.directory) if args.directory else Path.cwd()
+    result = list_audits(directory)
+
+    if args.json:
+        print(result.to_json())
+    else:
+        print(result.message)
+        for audit in result.data["audits"]:
+            if "error" in audit:
+                print(f"  - {audit['state_path']}: {audit['error']}")
+            else:
+                print(f"  - {Path(audit['artifact']).name}: {audit['phase']} (cycle {audit['cycle']}, {audit['findings']} findings)")
+
+    return EXIT_SUCCESS if result.ok else EXIT_ERROR
+
+
+def cmd_archive(args: argparse.Namespace) -> int:
+    """Handle archive subcommand."""
+    result = archive_audit(Path(args.artifact), args.date)
+
+    if args.json:
+        print(result.to_json())
+    else:
+        print(result.message)
+
+    return EXIT_SUCCESS if result.ok else EXIT_ERROR
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -429,6 +555,17 @@ def main(argv: list[str] | None = None) -> int:
     p_validate = subparsers.add_parser("validate", help="Check state integrity")
     p_validate.add_argument("artifact", help="Path to artifact being audited")
     p_validate.set_defaults(func=cmd_validate)
+
+    # list
+    p_list = subparsers.add_parser("list", help="Find active audits")
+    p_list.add_argument("directory", nargs="?", help="Directory to search (default: cwd)")
+    p_list.set_defaults(func=cmd_list)
+
+    # archive
+    p_archive = subparsers.add_parser("archive", help="Archive completed audit")
+    p_archive.add_argument("artifact", help="Path to artifact being audited")
+    p_archive.add_argument("--date", help="Date suffix (default: today)")
+    p_archive.set_defaults(func=cmd_archive)
 
     args = parser.parse_args(argv)
     return args.func(args)
