@@ -3,7 +3,7 @@ name: verify
 description: Verify claims about Claude Code against official Anthropic documentation. Use when fact-checking Claude Code features, behaviors, or configurations.
 license: MIT
 metadata:
-  version: "1.4.0"
+  version: "1.5.0"
   model: claude-sonnet-4-20250514
   timelessness_score: 8
 ---
@@ -84,20 +84,33 @@ If user confirms, for each pending claim:
 
 **0b. Quick check known claims:**
 
-Check `references/known-claims.md` for pre-verified claims.
+Use `scripts/match_claim.py` to fuzzy-match against `references/known-claims.md`:
 
+```bash
+python scripts/match_claim.py "Skills require a license field"
 ```
-Input: "Skills require a license field"
+
+**Script responses (exit codes):**
+
+| Exit Code | Meaning | Action |
+|-----------|---------|--------|
+| 0 | HIGH confidence (≥0.60) | Return cached verdict immediately |
+| 1 | CONFIRM needed (0.40-0.59) | Show candidates, ask user to confirm |
+| 10 | No match (<0.40) | Proceed to Step 1 |
+
+**Example flow:**
+```
+Input: "is license field required"
   ↓
-Check known-claims.md → Match found: "Skills require license" = ✗ False
+match_claim.py → Score 0.80 (HIGH) → Exit 0
   ↓
-Return immediately (no query needed)
+Return: ✗ False | license field is required in frontmatter
 ```
 
 **When to skip to Step 1:**
-- Claim not in known-claims.md
-- Claim requires current documentation (behavioral edge cases)
+- Script returns exit code 10 (no match)
 - User explicitly requests fresh verification
+- Claim requires current documentation (behavioral edge cases)
 
 ### Step 1: Extract and Cluster Claims
 
@@ -310,6 +323,80 @@ Added 2 claims to pending-claims.md. They'll be reviewed on next /verify.
 |-----------|---------|
 | `references/known-claims.md` | Permanent cache of verified claims |
 | `references/pending-claims.md` | Transient queue awaiting promotion |
+| `scripts/match_claim.py` | Fuzzy matching against known claims |
+| `scripts/promote_claims.py` | Promote pending claims to known cache |
+
+## Scripts
+
+### match_claim.py
+
+Fuzzy-match claims against `known-claims.md` using weighted Jaccard similarity with query-focal boosting.
+
+**Algorithm:**
+1. Tokenize and normalize (synonyms: "need" → "required", "licence" → "license")
+2. Identify focal terms (domain terms in query)
+3. Compute weighted Jaccard with 2x boost for matching focal terms
+4. Apply penalty for missing focal terms (caps score below 0.60)
+
+**Usage:**
+
+```bash
+# Single match (default)
+python scripts/match_claim.py "Skills require a license"
+
+# Show top N candidates
+python scripts/match_claim.py "required field" --top 5
+
+# Filter by section
+python scripts/match_claim.py "timeout" --section Hooks
+
+# Debug: show token breakdown
+python scripts/match_claim.py "license required" --debug
+
+# JSON output for scripting
+python scripts/match_claim.py "exit code" --json
+
+# List sections
+python scripts/match_claim.py --list-sections
+```
+
+**Modes:**
+
+| Mode | Behavior |
+|------|----------|
+| `auto` (default) | ≥0.60 returns, 0.40-0.59 shows candidates, <0.40 no match |
+| `confirm` | Always show top 3 candidates |
+| `search` | Only match if ≥0.60 (strict) |
+
+**Exit codes:** 0 = high confidence, 1 = confirm needed, 10 = no match
+
+### promote_claims.py
+
+Move claims from `pending-claims.md` to `known-claims.md`, inserting into the appropriate section.
+
+**Usage:**
+
+```bash
+# Promote all pending claims (default)
+python scripts/promote_claims.py
+
+# Preview without writing
+python scripts/promote_claims.py --dry-run
+
+# Confirm each claim interactively
+python scripts/promote_claims.py --interactive
+
+# JSON output for scripting
+python scripts/promote_claims.py --json
+```
+
+**Features:**
+- Automatic section detection and insertion
+- Duplicate detection (skips existing claims)
+- Updates "Last verified" date in known-claims.md
+- Clears pending-claims.md after promotion
+
+**Exit codes:** 0 = success, 1 = input error, 10 = no claims to promote
 
 ## Extension Points
 
@@ -318,8 +405,10 @@ Added 2 claims to pending-claims.md. They'll be reviewed on next /verify.
 | New documentation source | Add to source priority in Step 2 | Open |
 | New claim type | Add to claim types in Step 1 | Open |
 | Custom confidence levels | Extend the 4-level taxonomy | Open |
-| Claim caching | Add scripts/cache.py + data/verified-claims.json | Open |
-| Known claims | Add to references/known-claims.md | **Implemented** |
+| Fuzzy matching | `scripts/match_claim.py` | **Implemented** |
+| Known claims | `references/known-claims.md` | **Implemented** |
+| Pending claims | `references/pending-claims.md` | **Implemented** |
+| Claim promotion | `scripts/promote_claims.py` | **Implemented** |
 
 ---
 
@@ -331,6 +420,20 @@ Added 2 claims to pending-claims.md. They'll be reviewed on next /verify.
 ---
 
 ## Changelog
+
+### v1.5.0
+- Added `scripts/match_claim.py` for fuzzy claim matching
+  - Weighted Jaccard similarity with synonym normalization
+  - Query-focal boosting: domain terms in query get 2x weight when matched
+  - Missing focal penalty: prevents wrong high-confidence matches
+  - Tiered thresholds: ≥0.60 auto-return, 0.40-0.59 confirm, <0.40 no match
+  - Exit codes: 0 (high), 1 (confirm), 10 (no match)
+- Added `scripts/promote_claims.py` for cache management
+  - Automatic section detection and insertion
+  - Duplicate detection
+  - Dry-run and interactive modes
+- Updated Step 0b to use match_claim.py with tiered response
+- Added Scripts section with usage documentation
 
 ### v1.4.0
 - Added `references/pending-claims.md` for transient claim queue
