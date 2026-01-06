@@ -321,9 +321,15 @@ def promote_claims(
             result.normalized_sections.append((original_section, normalized_section))
             claim.section = normalized_section
 
-        # Check for duplicates (using normalized section)
+        # Check for duplicates (case-insensitive section lookup)
         claim_normalized = claim.claim.strip("`").lower()
-        existing = known_structure.get(claim.section, [])
+        # Find section case-insensitively
+        section_lower = claim.section.lower()
+        existing: list[str] = []
+        for known_section, known_claims in known_structure.items():
+            if known_section.lower() == section_lower:
+                existing = known_claims
+                break
         if claim_normalized in existing:
             result.skipped_duplicates.append(claim)
             continue
