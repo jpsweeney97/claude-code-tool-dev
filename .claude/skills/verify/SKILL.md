@@ -3,7 +3,7 @@ name: verify
 description: Verify claims about Claude Code against official Anthropic documentation. Use when fact-checking Claude Code features, behaviors, or configurations.
 license: MIT
 metadata:
-  version: "3.0.0"
+  version: "3.1.0"
   model: claude-sonnet-4-20250514
   timelessness_score: 8
 ---
@@ -70,6 +70,34 @@ python scripts/verify.py --validate-urls
 python scripts/backup_cache.py backup    # Create backup
 python scripts/backup_cache.py list      # List backups
 python scripts/backup_cache.py restore   # Restore latest
+```
+
+**Cache statistics:**
+```
+python scripts/verify.py --stats
+
+→ Shows claims by verdict, section, and age bucket
+```
+
+**Find duplicates:**
+```
+python scripts/verify.py --find-duplicates
+
+→ Detects similar claims that may need consolidation
+```
+
+**Coverage analysis:**
+```
+python scripts/verify.py --coverage
+
+→ Identifies documentation sections lacking claims
+```
+
+**Simplified quick-add:**
+```
+python scripts/verify.py --quick-add "hooks timeout is 60 seconds"
+
+→ Interactive prompts for verdict/evidence, infers section/severity
 ```
 
 **Add claim (after verification):**
@@ -336,6 +364,8 @@ Automatically append verified/contradicted claims to `pending-claims.md`:
 | `hooks/verify-health-check.py` | SessionStart health warning |
 | `scripts/validate_sources.py` | Validate documentation source URLs |
 | `scripts/backup_cache.py` | Backup and restore cache |
+| `scripts/detect_duplicates.py` | Find similar/duplicate claims |
+| `scripts/coverage_analysis.py` | Analyze documentation coverage |
 | `tests/` | Unit tests for scripts |
 
 ## Scripts Quick Reference
@@ -356,6 +386,9 @@ Automatically append verified/contradicted claims to `pending-claims.md`:
 | `verify.py` | `python scripts/verify.py --backup` |
 | `verify.py` | `python scripts/verify.py --restore` |
 | `backup_cache.py` | `python scripts/backup_cache.py list --diff` |
+| `verify.py` | `python scripts/verify.py --stats` |
+| `verify.py` | `python scripts/verify.py --find-duplicates` |
+| `verify.py` | `python scripts/verify.py --coverage` |
 
 See `references/scripts-reference.md` for full documentation.
 
@@ -387,6 +420,13 @@ See `references/scripts-reference.md` for full documentation.
 ---
 
 ## Changelog
+
+### v3.1.0
+- **Cache statistics**: `--stats` shows comprehensive breakdown by verdict, section, and age
+- **Duplicate detection**: `--find-duplicates` identifies similar claims using fuzzy matching
+- **Coverage analysis**: `--coverage` finds documentation sections lacking verification
+- **Simplified quick-add**: `--quick-add` now works standalone with interactive prompts
+- Test coverage expanded with test_stats.py, test_detect_duplicates.py, test_quick_add.py, test_coverage.py
 
 ### v3.0.0
 - **Source URL validation**: New `validate_sources.py` detects broken documentation links

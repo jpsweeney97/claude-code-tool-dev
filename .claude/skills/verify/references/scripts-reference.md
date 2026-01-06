@@ -15,6 +15,8 @@ Complete documentation for verify skill scripts.
 | `batch_verify.py` | Batch verify pending claims | 0=success |
 | `validate_sources.py` | Validate source URLs in known-claims.md | 0=valid, 2=invalid |
 | `backup_cache.py` | Backup/restore known-claims.md | 0=success, 10=no backups |
+| `detect_duplicates.py` | Find similar/duplicate claims | 0=none, 2=found |
+| `coverage_analysis.py` | Analyze documentation coverage | 0=good, 2=sparse |
 
 ---
 
@@ -53,10 +55,14 @@ python scripts/verify.py --sections
 | Check | (default) | Verify claim against cache with tiered response |
 | Quick | `--quick` | Cache-only, high confidence threshold |
 | Health | `--health` | Version + staleness summary |
+| Stats | `--stats` | Comprehensive cache statistics |
 | Refresh | `--refresh` | List claims needing re-verification |
 | Promote | `--promote` | Move pending → known cache |
 | Sections | `--sections` | List available sections |
 | Add | `--add` | Add verified claim to pending-claims.md |
+| Quick Add | `--quick-add` | Interactive add with smart defaults |
+| Find Duplicates | `--find-duplicates` | Detect similar claims |
+| Coverage | `--coverage` | Analyze documentation coverage |
 
 ### Options
 
@@ -407,6 +413,140 @@ python scripts/backup_cache.py restore --dry-run
 - Creates backup of current file before restore (safety net)
 - Backups stored in `references/.backups/`
 - Auto-backup runs before every promote operation
+
+---
+
+## detect_duplicates.py
+
+Detect duplicate or near-duplicate claims using fuzzy word matching.
+
+### Usage
+
+```bash
+# Find duplicates with default threshold (0.7)
+python scripts/detect_duplicates.py
+
+# Lower threshold for more matches
+python scripts/detect_duplicates.py --threshold 0.5
+
+# Only compare within same section
+python scripts/detect_duplicates.py --same-section
+
+# JSON output for scripting
+python scripts/detect_duplicates.py --json
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--known-claims PATH` | references/known-claims.md | Path to claims file |
+| `--threshold FLOAT` | 0.7 | Similarity threshold (0.0-1.0) |
+| `--same-section` | false | Only compare within same section |
+| `--json` | false | Output as JSON |
+
+### Algorithm
+
+Uses Jaccard similarity on normalized word sets:
+1. Lowercase and tokenize both claims
+2. Remove stopwords (the, a, is, etc.)
+3. Calculate intersection / union of word sets
+4. Group claims exceeding threshold
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | No duplicates found |
+| 1 | Input error |
+| 2 | Duplicates found (review recommended) |
+
+### Output Example
+
+```
+Found 2 group(s) of similar claims:
+
+Group 1 (similarity: 0.85):
+  [Hooks] Exit code 0 means allow/success
+    Verdict: verified
+  [Hooks] Exit code 0 indicates success
+    Verdict: verified
+
+Consider consolidating or removing redundant claims.
+```
+
+---
+
+## coverage_analysis.py
+
+Analyze documentation coverage to identify sections lacking verification claims.
+
+### Usage
+
+```bash
+# Analyze coverage with default threshold (3 claims minimum)
+python scripts/coverage_analysis.py
+
+# Higher threshold for strict coverage
+python scripts/coverage_analysis.py --min-claims 5
+
+# JSON output for scripting
+python scripts/coverage_analysis.py --json
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--known-claims PATH` | references/known-claims.md | Path to claims file |
+| `--min-claims INT` | 3 | Minimum claims for adequate coverage |
+| `--json` | false | Output as JSON |
+
+### Known Sections
+
+The script tracks these expected documentation areas:
+- Skills, Hooks, Commands, MCP, Agents
+- Settings, CLI, IDE, Permissions, Memory
+
+### Coverage Score
+
+Coverage score = (sections with adequate claims) / (total known sections)
+
+| Score | Status |
+|-------|--------|
+| >= 70% | Good coverage (exit 0) |
+| < 70% | Sparse coverage (exit 2) |
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Good coverage (>= 70%) |
+| 1 | Input error |
+| 2 | Sparse coverage (< 70%) |
+
+### Output Example
+
+```
+Coverage Analysis
+========================================
+
+Total claims: 42
+Coverage score: 60%
+
+Sections (min 3 claims for adequate):
+  [ok    ] Hooks: 15 claims
+  [ok    ] Skills: 12 claims
+  [ok    ] Commands: 8 claims
+  [SPARSE] MCP: 2 claims
+  [SPARSE] Settings: 1 claims
+
+Missing sections (no claims):
+  [MISSING] Agents
+  [MISSING] Memory
+
+Action: Add claims for sparse/missing sections
+```
 
 ---
 
