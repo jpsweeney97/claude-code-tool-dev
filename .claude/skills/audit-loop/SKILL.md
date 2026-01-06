@@ -270,3 +270,89 @@ For Medium/Deep calibration:
 1. Save responses to `state.definition`
 2. Add history event: `phase_1_complete`
 3. Proceed to Phase 2: Execution
+
+---
+
+### Phase 2: Execution
+
+**Calibration requirements:**
+
+| Check | Light | Medium | Deep |
+|-------|-------|--------|------|
+| Evidence collected | Key sources | Multiple sources | Exhaustive |
+| Evidence levels noted | — | Yes | Yes |
+| Disconfirmation | Brief | Systematic | Adversarial |
+| Negative findings | — | Documented | Documented |
+| Coverage tracked | List | Matrix | Matrix + verified |
+| Methodology recorded | Brief | Full | Timestamped |
+
+**Evidence Hierarchy:**
+- **Primary:** Direct observation (read file, run code, see output)
+- **Secondary:** Documentation (README says, comments state)
+- **Tertiary:** Inference (pattern suggests, absence implies)
+
+**Present this prompt:**
+
+```
+Phase 2: Execution
+
+For each scope area, we'll:
+1. Collect evidence (cite specific lines/sections)
+2. Note evidence level (Primary/Secondary/Tertiary)
+3. Seek DISCONFIRMATION — what would prove this area is fine?
+4. Document negatives — what did you look for but NOT find?
+
+Let's start with: [first scope item]
+
+Read the artifact and share your observations.
+```
+
+**For each scope area, guide the user through:**
+
+```
+Coverage for [scope item]:
+
+Evidence collected:
+- [user provides]
+
+Evidence level: [Primary/Secondary/Tertiary]
+
+Disconfirmation attempt:
+- What would prove this area is correct? [user responds]
+- Did you find that proof? [yes/no/partial]
+
+Negative findings:
+- What did you look for but NOT find?
+
+Findings from this area:
+- [capture any issues discovered]
+```
+
+**Finding format:**
+
+```
+Finding [ID]: [description]
+Evidence: [specific citation with line numbers]
+Evidence level: [Primary/Secondary/Tertiary]
+Confidence: [Certain/Probable/Possible/Unknown]
+```
+
+**After all scope areas examined:**
+
+```
+Coverage Matrix
+
+| Area | Examined | Evidence Level | Findings | Gaps |
+|------|----------|----------------|----------|------|
+[auto-populate from responses]
+
+[Medium+: Methodology — what tools/process did you use?]
+
+⚠️ Red flag check: Are you only finding confirming evidence?
+If all findings point one direction, actively seek counterexamples.
+```
+
+**After Phase 2:**
+1. Save findings to `state.findings`
+2. Add history event: `findings_complete` with count
+3. Proceed to Phase 3: Verification
