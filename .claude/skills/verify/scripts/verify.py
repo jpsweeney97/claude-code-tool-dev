@@ -71,6 +71,7 @@ from promote_claims import (
     promote_claims,
     PromotionResult,
 )
+from validate_sources import validate_sources, ValidationResult
 
 
 # =============================================================================
@@ -414,6 +415,54 @@ def cmd_add(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_validate_urls(args: argparse.Namespace) -> int:
+    """Validate source documentation URLs."""
+    if not KNOWN_CLAIMS_PATH.exists():
+        print(f"Error: Cache not found: {KNOWN_CLAIMS_PATH}", file=sys.stderr)
+        return 1
+
+    print("Validating source URLs (this may take a moment)...")
+    print()
+
+    result = validate_sources(
+        KNOWN_CLAIMS_PATH,
+        timeout=10,
+        rate_limit=1.0,
+        section_filter=args.section,
+    )
+
+    # Display results
+    section_note = f" for {args.section}" if args.section else ""
+    print(f"Source URL Validation{section_note}")
+    print("=" * 40)
+
+    if result.valid:
+        print(f"\n[ok] Valid ({len(result.valid)}):")
+        for r in result.valid:
+            print(f"    {r.section}: {r.url}")
+
+    if result.invalid:
+        print(f"\n[!] Invalid ({len(result.invalid)}):")
+        for r in result.invalid:
+            status = r.status or "unreachable"
+            print(f"    {r.section}: {r.url}")
+            print(f"      -> {status}: {r.error}")
+
+    if result.skipped:
+        print(f"\n[-] Skipped ({len(result.skipped)}):")
+        for s in result.skipped:
+            print(f"    {s}")
+
+    print()
+    print(f"Summary: {len(result.valid)} valid, {len(result.invalid)} invalid, {len(result.skipped)} skipped")
+
+    if result.invalid:
+        print("\nAction: Review claims in sections with broken URLs")
+        return 2
+
+    return 0
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -481,6 +530,11 @@ Examples:
         "--add",
         action="store_true",
         help="Add a verified claim to pending-claims.md",
+    )
+    mode_group.add_argument(
+        "--validate-urls",
+        action="store_true",
+        help="Validate source documentation URLs",
     )
 
     # Check options
@@ -565,7 +619,9 @@ Examples:
     args = parser.parse_args()
 
     # Route to appropriate handler
-    if args.health:
+    if args.validate_urls:
+        return cmd_validate_urls(args)
+    elif args.health:
         return cmd_health(args)
     elif args.refresh:
         return cmd_refresh(args)
