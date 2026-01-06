@@ -141,8 +141,64 @@ SYNONYM_GROUPS: list[tuple[str, ...]] = [
     ("config", "configuration", "configure", "configured", "configurable"),
 ]
 
-# Valid section names for filtering
-VALID_SECTIONS: set[str] = {"Skills", "Hooks", "Commands", "MCP", "Agents"}
+# Section normalization: map common variants to canonical names
+# Keys are lowercase for case-insensitive matching
+SECTION_ALIASES: dict[str, str] = {
+    "feature": "Features",
+    "setting": "Settings",
+    "hook": "Hooks",
+    "command": "Commands",
+    "skill": "Skills",
+    "agent": "Agents",
+}
+
+
+def discover_sections(cache_path: Path) -> set[str]:
+    """
+    Discover valid section names from known-claims.md.
+
+    Sections are identified by ## headers, excluding meta-sections
+    like "How to Use" and "Maintenance".
+    """
+    if not cache_path.exists():
+        return set()
+
+    skip_sections = {"How to Use", "Maintenance"}
+    sections: set[str] = set()
+
+    for line in cache_path.read_text().splitlines():
+        if line.startswith("## "):
+            section_name = line[3:].strip()
+            if section_name not in skip_sections:
+                sections.add(section_name)
+
+    return sections
+
+
+def normalize_section(section: str, valid_sections: set[str]) -> str | None:
+    """
+    Normalize a section name to its canonical form.
+
+    Returns:
+        Canonical section name if valid/aliased, None if unknown.
+    """
+    # Exact match (case-sensitive)
+    if section in valid_sections:
+        return section
+
+    # Check aliases (case-insensitive)
+    section_lower = section.lower()
+    if section_lower in SECTION_ALIASES:
+        canonical = SECTION_ALIASES[section_lower]
+        if canonical in valid_sections:
+            return canonical
+
+    # Case-insensitive match against valid sections
+    for valid in valid_sections:
+        if valid.lower() == section_lower:
+            return valid
+
+    return None
 
 # Query-focal boost: domain terms in query get this multiplier when they match
 # Rationale: "Skills need a license" → "license" is what user is asking about
@@ -536,8 +592,7 @@ Examples:
         "--section",
         type=str,
         default=None,
-        choices=list(VALID_SECTIONS),
-        help="Filter matches to a specific section",
+        help="Filter matches to a specific section (discovered from known-claims.md)",
     )
     parser.add_argument(
         "--cache",
@@ -557,7 +612,21 @@ Examples:
 
     # Parse claims
     claims = parse_known_claims(args.cache)
-    
+
+    # Discover valid sections dynamically
+    valid_sections = discover_sections(args.cache)
+
+    # Validate and normalize --section if provided
+    if args.section:
+        normalized = normalize_section(args.section, valid_sections)
+        if normalized is None:
+            print(f"Error: Unknown section '{args.section}'", file=sys.stderr)
+            print(f"Available sections: {', '.join(sorted(valid_sections))}", file=sys.stderr)
+            return 1
+        if normalized != args.section:
+            print(f"Note: Normalized '{args.section}' → '{normalized}'", file=sys.stderr)
+        args.section = normalized
+
     # Handle --list-sections
     if args.list_sections:
         sections = list_sections(claims)

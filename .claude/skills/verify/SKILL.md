@@ -3,7 +3,7 @@ name: verify
 description: Verify claims about Claude Code against official Anthropic documentation. Use when fact-checking Claude Code features, behaviors, or configurations.
 license: MIT
 metadata:
-  version: "1.5.0"
+  version: "1.6.0"
   model: claude-sonnet-4-20250514
   timelessness_score: 8
 ---
@@ -420,6 +420,19 @@ python scripts/promote_claims.py --json
 ---
 
 ## Changelog
+
+### v1.6.0
+- **Section normalization**: Common variants automatically mapped (e.g., "Hook" → "Hooks", "Feature" → "Features")
+- **Dynamic section discovery**: Both scripts now discover sections from known-claims.md instead of hardcoding
+- `match_claim.py`: Removed hardcoded `VALID_SECTIONS`, now discovers from file
+- `match_claim.py`: Added `--section` normalization with user feedback
+- `promote_claims.py`: Added section normalization during promotion
+- `promote_claims.py`: Reports normalized sections in output
+
+### v1.5.1
+- **Dynamic section creation**: `promote_claims.py` now creates new sections automatically
+- New sections inserted alphabetically before Maintenance section
+- Placeholder source URL signals need for human curation
 
 ### v1.5.0
 - Added `scripts/match_claim.py` for fuzzy claim matching

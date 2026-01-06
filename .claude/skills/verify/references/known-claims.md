@@ -80,6 +80,7 @@ Pre-verified claims sourced from official Claude Code documentation.
 | Commands support `!` for bash execution | ✓ Verified | "Execute bash commands... using the `!` prefix" |
 | Commands support `@` for file references | ✓ Verified | "Include file contents... using the `@` prefix" |
 | SlashCommand tool has 15000 char budget | ✓ Verified | "Default limit: 15,000 characters" |
+| Commands use YAML frontmatter in markdown files | ✓ Verified | "commands do use YAML frontmatter in markdown files" |
 
 ---
 
@@ -131,6 +132,16 @@ Pre-verified claims sourced from official Claude Code documentation.
 | Claim | Verdict | Evidence |
 |-------|---------|----------|
 | Claude Code CLI supports --version flag | ✓ Verified | "claude --version" returns version info |
+
+---
+
+## Features
+
+**Source:** (pending verification)
+
+| Claim | Verdict | Evidence |
+|-------|---------|----------|
+| Claude Code supports real-time collaboration features | ✗ Contradicted | "designed as a personal AI development tool" |
 
 ---
 

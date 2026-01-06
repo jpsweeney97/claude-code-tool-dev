@@ -48,11 +48,54 @@ class PromotionResult:
     promoted: list[PendingClaim] = field(default_factory=list)
     skipped_duplicates: list[PendingClaim] = field(default_factory=list)
     skipped_invalid_section: list[PendingClaim] = field(default_factory=list)
+    normalized_sections: list[tuple[str, str]] = field(default_factory=list)  # (original, normalized)
     errors: list[str] = field(default_factory=list)
 
 
-# Sections are discovered dynamically from known-claims.md
-# New sections are created automatically when needed
+# Section normalization: map common variants to canonical names
+# Keys are lowercase for case-insensitive matching
+SECTION_ALIASES: dict[str, str] = {
+    "feature": "Features",
+    "setting": "Settings",
+    "hook": "Hooks",
+    "command": "Commands",
+    "skill": "Skills",
+    "agent": "Agents",
+}
+
+
+def normalize_section(section: str, valid_sections: set[str]) -> tuple[str, bool]:
+    """
+    Normalize a section name to its canonical form.
+
+    Args:
+        section: The section name to normalize
+        valid_sections: Set of existing section names in known-claims.md
+
+    Returns:
+        Tuple of (normalized_name, was_normalized).
+        If section is unknown and not aliased, returns (section, False) for new section creation.
+    """
+    # Exact match (case-sensitive)
+    if section in valid_sections:
+        return (section, False)
+
+    # Check aliases (case-insensitive)
+    section_lower = section.lower()
+    if section_lower in SECTION_ALIASES:
+        canonical = SECTION_ALIASES[section_lower]
+        if canonical in valid_sections:
+            return (canonical, True)
+        # Alias exists but section doesn't - use canonical form for new section
+        return (canonical, True)
+
+    # Case-insensitive match against valid sections
+    for valid in valid_sections:
+        if valid.lower() == section_lower:
+            return (valid, True)
+
+    # Unknown section - will create new one
+    return (section, False)
 
 
 # =============================================================================
@@ -211,6 +254,9 @@ def promote_claims(
     # Parse known claims for duplicate detection
     known_structure = parse_known_claims_structure(known_path)
 
+    # Get valid sections for normalization
+    valid_sections = set(known_structure.keys())
+
     # Read known-claims.md content for modification
     known_content = known_path.read_text()
 
@@ -218,7 +264,14 @@ def promote_claims(
     by_section: dict[str, list[PendingClaim]] = {}
 
     for claim in pending:
-        # Check for duplicates
+        # Normalize section name
+        original_section = claim.section
+        normalized_section, was_normalized = normalize_section(original_section, valid_sections)
+        if was_normalized:
+            result.normalized_sections.append((original_section, normalized_section))
+            claim.section = normalized_section
+
+        # Check for duplicates (using normalized section)
         claim_normalized = claim.claim.strip("`").lower()
         existing = known_structure.get(claim.section, [])
         if claim_normalized in existing:
@@ -398,12 +451,19 @@ Examples:
             "promoted": [asdict(c) for c in result.promoted],
             "skipped_duplicates": [asdict(c) for c in result.skipped_duplicates],
             "skipped_invalid_section": [asdict(c) for c in result.skipped_invalid_section],
+            "normalized_sections": result.normalized_sections,
             "errors": result.errors,
             "dry_run": args.dry_run,
         }
         print(json.dumps(output, indent=2))
     else:
         mode = "[DRY RUN] " if args.dry_run else ""
+
+        if result.normalized_sections:
+            print(f"Normalized {len(result.normalized_sections)} section name(s):")
+            for original, normalized in result.normalized_sections:
+                print(f"  ~ '{original}' → '{normalized}'")
+            print()
 
         if result.promoted:
             print(f"{mode}Promoted {len(result.promoted)} claim(s):")
