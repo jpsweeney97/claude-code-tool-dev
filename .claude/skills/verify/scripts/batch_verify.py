@@ -28,6 +28,10 @@ from dataclasses import dataclass, asdict, field
 from datetime import date
 from pathlib import Path
 
+# Import from common utilities
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import atomic_write
+
 
 # =============================================================================
 # DATA STRUCTURES
@@ -165,7 +169,7 @@ def update_claim_verdict(
                 break
 
     if updated:
-        path.write_text("\n".join(lines) + "\n")
+        atomic_write(path, "\n".join(lines) + "\n")
 
     return updated
 
