@@ -13,6 +13,8 @@ Complete documentation for verify skill scripts.
 | `refresh_claims.py` | Find/update stale claims | 0=success |
 | `check_version.py` | Track Claude Code versions | 0=match, 2=refresh |
 | `batch_verify.py` | Batch verify pending claims | 0=success |
+| `validate_sources.py` | Validate source URLs in known-claims.md | 0=valid, 2=invalid |
+| `backup_cache.py` | Backup/restore known-claims.md | 0=success, 10=no backups |
 
 ---
 
@@ -324,6 +326,87 @@ python scripts/batch_verify.py --json
 - `0` - Success (claims verified)
 - `1` - Input error
 - `10` - No pending claims
+
+---
+
+## validate_sources.py
+
+Validate source documentation URLs in known-claims.md.
+
+### Usage
+
+```bash
+# Validate all source URLs
+python scripts/validate_sources.py
+
+# Validate specific section
+python scripts/validate_sources.py --section Skills
+
+# JSON output for scripting
+python scripts/validate_sources.py --json
+
+# Custom timeout and rate limit
+python scripts/validate_sources.py --timeout 15 --rate-limit 2.0
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--known-claims PATH` | references/known-claims.md | Path to claims file |
+| `--timeout SECONDS` | 10 | HTTP request timeout |
+| `--rate-limit SECONDS` | 1.0 | Delay between requests |
+| `--section NAME` | (all) | Filter to specific section |
+| `--json` | false | Output as JSON |
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | All URLs valid |
+| 1 | Input error (file not found) |
+| 2 | One or more URLs invalid |
+
+---
+
+## backup_cache.py
+
+Backup and restore known-claims.md cache.
+
+### Usage
+
+```bash
+# Create backup
+python scripts/backup_cache.py backup
+
+# List available backups
+python scripts/backup_cache.py list
+python scripts/backup_cache.py list --diff  # Show changes
+
+# Restore from latest backup
+python scripts/backup_cache.py restore
+
+# Restore specific backup
+python scripts/backup_cache.py restore 20260106_120000
+
+# Preview restore
+python scripts/backup_cache.py restore --dry-run
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Input error |
+| 10 | No backups available to restore |
+
+### Behavior
+
+- Keeps rolling 5 backups (oldest automatically deleted)
+- Creates backup of current file before restore (safety net)
+- Backups stored in `references/.backups/`
+- Auto-backup runs before every promote operation
 
 ---
 
