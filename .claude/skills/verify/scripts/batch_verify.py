@@ -15,7 +15,7 @@ Usage:
     python batch_verify.py --section Hooks    # Filter to specific section
     python batch_verify.py --dry-run          # Preview plan only
     python batch_verify.py --update-verdict CLAIM VERDICT EVIDENCE  # Update a claim
-    python batch_verify.py --auto-promote     # Auto-promote after verification
+    python batch_verify.py --interactive      # Review each claim before including
     python batch_verify.py --json             # JSON output for scripting
 """
 
@@ -75,6 +75,71 @@ class BatchVerifyResult:
     total_claims: int = 0
     claims_by_section: dict[str, int] = field(default_factory=dict)
     updated_claims: list[str] = field(default_factory=list)
+
+
+# =============================================================================
+# INTERACTIVE MODE
+# =============================================================================
+
+def confirm_claim(claim: PendingClaim, index: int, total: int) -> str:
+    """
+    Prompt user to confirm, skip, or edit a claim verdict.
+
+    Returns: 'confirm', 'skip', 'edit', or 'quit'
+    """
+    print(f"\n[{index}/{total}] Claim: {claim.claim}")
+    print(f"  Section: {claim.section}")
+    print(f"  Current verdict: {claim.verdict}")
+    print(f"  Evidence: {claim.evidence[:100]}{'...' if len(claim.evidence) > 100 else ''}")
+
+    while True:
+        try:
+            response = input("\n[c]onfirm, [s]kip, [e]dit verdict, [q]uit? ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nInterrupted.")
+            return "quit"
+        if response in ("c", "confirm", ""):
+            return "confirm"
+        elif response in ("s", "skip"):
+            return "skip"
+        elif response in ("e", "edit"):
+            return "edit"
+        elif response in ("q", "quit"):
+            return "quit"
+        else:
+            print("Invalid response. Use c/s/e/q")
+
+
+def edit_claim_verdict(claim: PendingClaim) -> PendingClaim:
+    """Prompt user to edit claim verdict and evidence."""
+    print("\nEdit claim:")
+    print("  Current verdict:", claim.verdict)
+
+    try:
+        new_verdict = input("  New verdict (verified/false/partial/unverified) [keep]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nInterrupted. Keeping original values.")
+        return claim
+    if new_verdict and new_verdict in ("verified", "false", "partial", "unverified", "✓", "✗", "~", "?"):
+        # Normalize to symbols
+        verdict_map = {
+            "verified": "✓ Verified",
+            "false": "✗ Contradicted",
+            "partial": "~ Partial",
+            "unverified": "? Unverified",
+        }
+        claim.verdict = verdict_map.get(new_verdict, new_verdict)
+
+    print("  Current evidence:", claim.evidence[:50] + "..." if len(claim.evidence) > 50 else claim.evidence)
+    try:
+        new_evidence = input("  New evidence [keep]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nInterrupted. Keeping original values.")
+        return claim
+    if new_evidence:
+        claim.evidence = new_evidence
+
+    return claim
 
 
 # =============================================================================
@@ -204,6 +269,9 @@ Examples:
     # Update a claim's verdict after verification
     python batch_verify.py --update-verdict "Exit code 2 blocks" "✓ Verified" "Official docs confirm"
 
+    # Interactive review of each claim
+    python batch_verify.py --interactive
+
     # JSON output for pipeline
     python batch_verify.py --json
         """,
@@ -240,6 +308,11 @@ Examples:
         "--json",
         action="store_true",
         help="Output as JSON",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Confirm each claim interactively before including in batch",
     )
     args = parser.parse_args()
 
@@ -302,6 +375,39 @@ Examples:
             filter_note = f" (section={args.section})" if args.section else ""
             print(f"No pending claims match filters{filter_note}.")
         return 10
+
+    # Interactive mode: confirm each claim
+    if args.interactive:
+        if args.json:
+            print(json.dumps({"error": "--interactive and --json are mutually exclusive"}))
+            return 1
+
+        confirmed_claims: list[PendingClaim] = []
+        skipped_claims: list[PendingClaim] = []
+
+        for i, claim in enumerate(claims, 1):
+            action = confirm_claim(claim, i, len(claims))
+
+            if action == "quit":
+                print(f"\nQuitting. Processed {i-1}/{len(claims)} claims.")
+                break
+            elif action == "skip":
+                skipped_claims.append(claim)
+            elif action == "edit":
+                edited = edit_claim_verdict(claim)
+                confirmed_claims.append(edited)
+            else:  # confirm
+                confirmed_claims.append(claim)
+
+        claims = confirmed_claims
+
+        print(f"\nInteractive review complete:")
+        print(f"  Confirmed: {len(confirmed_claims)}")
+        print(f"  Skipped: {len(skipped_claims)}")
+
+        if not claims:
+            print("No claims to process after review.")
+            return 10
 
     # Group into batches
     batches = group_by_section(claims)
