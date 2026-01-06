@@ -427,3 +427,52 @@ For Medium/Deep calibration:
 2. Update finding confidence levels
 3. Add history event: `verification_complete`
 4. Proceed to Triage
+
+---
+
+### Triage
+
+**Purpose:** Prioritize findings before design phase.
+
+**Present this prompt:**
+
+```
+Triage: Prioritizing Findings
+
+You have [N] findings. Let's prioritize each.
+
+Priority levels:
+- HIGH — Blocks proceeding. Must address before implementation.
+- MEDIUM — Should fix. Address if time permits.
+- LOW — Nice to have. Document for future.
+```
+
+**For each finding:**
+
+```
+Finding [ID]: "[description]"
+Confidence: [level]
+Evidence: [citation]
+
+Priority? [High / Medium / Low]
+Brief rationale: ___
+```
+
+**After all prioritized:**
+
+```
+Triage Summary
+
+- High: [N] findings (must address)
+- Medium: [N] findings (should address)
+- Low: [N] findings (defer)
+
+Which findings will you address this cycle?
+[Default: All High, optionally include Medium]
+```
+
+**After Triage:**
+1. Update `state.findings[].priority`
+2. Add history event: `triage_complete` with counts
+3. If findings to address → Proceed to Design Handoff
+4. If no findings → Skip to Ship decision
