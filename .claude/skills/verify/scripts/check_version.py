@@ -21,11 +21,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import NamedTuple
+
+from _common import get_claude_code_version
 
 
 # =============================================================================
@@ -118,27 +119,6 @@ def compare_versions(current: Version, stored: Version | None) -> VersionCheck:
 # =============================================================================
 # VERSION DETECTION
 # =============================================================================
-
-def get_claude_code_version() -> str | None:
-    """Get current Claude Code version by running 'claude --version'."""
-    try:
-        result = subprocess.run(
-            ["claude", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            # Parse version from output (format varies: "claude 1.2.3" or "1.2.3")
-            output = result.stdout.strip()
-            # Try to find version pattern
-            match = re.search(r"(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?)", output)
-            if match:
-                return match.group(1)
-            return output  # Return raw output if no version pattern found
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-    return None
 
 
 def get_stored_version(path: Path) -> str | None:
