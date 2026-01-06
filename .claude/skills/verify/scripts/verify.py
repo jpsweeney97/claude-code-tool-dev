@@ -117,6 +117,88 @@ def infer_severity(claim: str) -> str:
 
 
 # =============================================================================
+# CACHE STATISTICS
+# =============================================================================
+
+def calculate_cache_stats(known_path: Path, max_age_days: int = 90) -> dict:
+    """
+    Calculate comprehensive cache statistics.
+
+    Returns dict with:
+        total: int
+        by_section: dict[str, int]
+        by_verdict: dict[str, int]  # verified, false, partial, unverified
+        by_age: dict[str, int]  # fresh (<30d), aging (30-90d), stale (>90d)
+        oldest_claim: str | None
+        newest_claim: str | None
+    """
+    from datetime import date as date_module
+    from _common import parse_verified_date
+
+    if not known_path.exists():
+        return {
+            "total": 0,
+            "by_section": {},
+            "by_verdict": {},
+            "by_age": {"fresh": 0, "aging": 0, "stale": 0},
+            "oldest_claim": None,
+            "newest_claim": None,
+        }
+
+    claims = parse_known_claims(known_path)
+    today = date_module.today()
+
+    stats = {
+        "total": len(claims),
+        "by_section": {},
+        "by_verdict": {"verified": 0, "false": 0, "partial": 0, "unverified": 0},
+        "by_age": {"fresh": 0, "aging": 0, "stale": 0},
+        "oldest_claim": None,
+        "newest_claim": None,
+    }
+
+    oldest_date = None
+    newest_date = None
+
+    for claim in claims:
+        # Count by section
+        section = claim.get("section") or "Unknown"
+        stats["by_section"][section] = stats["by_section"].get(section, 0) + 1
+
+        # Count by verdict
+        verdict_str = claim.get("verdict", "").lower()
+        if "verified" in verdict_str and "unverified" not in verdict_str:
+            stats["by_verdict"]["verified"] += 1
+        elif "false" in verdict_str or "contradicted" in verdict_str:
+            stats["by_verdict"]["false"] += 1
+        elif "partial" in verdict_str:
+            stats["by_verdict"]["partial"] += 1
+        else:
+            stats["by_verdict"]["unverified"] += 1
+
+        # Count by age
+        verified_date = parse_verified_date(claim.get("verified_date"))
+        if verified_date:
+            age_days = (today - verified_date).days
+            if age_days < 30:
+                stats["by_age"]["fresh"] += 1
+            elif age_days < max_age_days:
+                stats["by_age"]["aging"] += 1
+            else:
+                stats["by_age"]["stale"] += 1
+
+            # Track oldest/newest
+            if oldest_date is None or verified_date < oldest_date:
+                oldest_date = verified_date
+                stats["oldest_claim"] = claim.get("claim")
+            if newest_date is None or verified_date > newest_date:
+                newest_date = verified_date
+                stats["newest_claim"] = claim.get("claim")
+
+    return stats
+
+
+# =============================================================================
 # PATH CONFIGURATION
 # =============================================================================
 
@@ -377,6 +459,51 @@ def cmd_sections(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_stats(args: argparse.Namespace) -> int:
+    """Display comprehensive cache statistics."""
+    if not KNOWN_CLAIMS_PATH.exists():
+        print("No cache file found.")
+        return 1
+
+    stats = calculate_cache_stats(KNOWN_CLAIMS_PATH, args.max_age)
+
+    print("Cache Statistics")
+    print("=" * 40)
+    print()
+
+    # Total
+    print(f"Total claims: {stats['total']}")
+    print()
+
+    # By verdict
+    print("By verdict:")
+    for verdict, count in sorted(stats["by_verdict"].items(), key=lambda x: -x[1]):
+        if count > 0:
+            pct = count / stats["total"] * 100 if stats["total"] else 0
+            print(f"  {verdict.capitalize():12} {count:3} ({pct:4.1f}%)")
+    print()
+
+    # By section
+    print("By section:")
+    for section, count in sorted(stats["by_section"].items(), key=lambda x: -x[1]):
+        print(f"  {section:12} {count:3}")
+    print()
+
+    # By age
+    print(f"By age (TTL: {args.max_age}d):")
+    labels = {
+        "fresh": "Fresh (<30d)",
+        "aging": f"Aging (30-{args.max_age}d)",
+        "stale": f"Stale (>{args.max_age}d)",
+    }
+    for age_bucket in ["fresh", "aging", "stale"]:
+        count = stats["by_age"][age_bucket]
+        pct = count / stats["total"] * 100 if stats["total"] else 0
+        print(f"  {labels[age_bucket]:20} {count:3} ({pct:4.1f}%)")
+
+    return 0
+
+
 def cmd_add(args: argparse.Namespace) -> int:
     """Add a verified claim to pending-claims.md for later promotion."""
     from datetime import date as date_module
@@ -590,6 +717,7 @@ Modes:
     verify.py "claim"           Check claim against cache
     verify.py --quick "claim"   Cache-only check (no agent query)
     verify.py --health          Cache health summary
+    verify.py --stats           Comprehensive cache statistics
     verify.py --refresh         List stale claims
     verify.py --promote         Promote pending to known cache
     verify.py --sections        List available sections
@@ -639,6 +767,11 @@ Examples:
         "--sections",
         action="store_true",
         help="List available sections",
+    )
+    mode_group.add_argument(
+        "--stats",
+        action="store_true",
+        help="Display comprehensive cache statistics",
     )
     mode_group.add_argument(
         "--add",
@@ -771,6 +904,8 @@ Examples:
         return cmd_promote(args)
     elif args.sections:
         return cmd_sections(args)
+    elif args.stats:
+        return cmd_stats(args)
     elif args.add:
         return cmd_add(args)
     elif args.input:
