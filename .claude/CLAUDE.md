@@ -1,10 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Overview
-
-This monorepo is the single source of truth for developing Claude Code extensions.
+Monorepo for developing Claude Code extensions: skills, commands, agents, hooks, plugins, and MCP servers.
 
 ## Quick Reference
 
@@ -49,11 +45,38 @@ Plugins use the marketplace system instead of the promote script.
 
 **Available plugins:** deep-analysis, doc-auditor, docs-kb, ecosystem-builder, persistent-tasks, plugin-dev, session-log
 
-**Plugin manifest requirements** (`.claude-plugin/plugin.json`):
+**Plugin manifest** (`.claude-plugin/plugin.json`):
 
-- `author` must be object: `{"name": "..."}` not string
-- Paths must start with `./`: `"./skills/"` not `"skills/"`
-- Use `mcpServers` not `mcp` for MCP config
+Required fields:
+- `name`, `version`, `description`
+- `author`: `{"name": "..."}` (object format)
+
+Optional fields:
+- `license`, `keywords`, `homepage`
+- `skills`: `"./skills/"` (directory) or `["./skills/one.md"]` (array)
+- `commands`: `"./commands/"` (directory)
+- `agents`: `["./agents/analyzer.md"]` (array of file paths)
+- `mcpServers`: `"./.mcp.json"` (file reference)
+
+All paths use `./` prefix for portability across plugin installations.
+
+### Plugin pyproject.toml
+
+Plugins with Python code use `dependency-groups` (PEP 735) for dev dependencies, NOT `optional-dependencies`:
+
+```toml
+# Correct — dev tools hidden from users
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+# Wrong — exposes dev tools as installable extras
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]  # Users can accidentally: pip install plugin[dev]
+```
+
+**Why:** When plugins are published, `optional-dependencies` exposes dev tools as user-installable extras. `dependency-groups` keeps dev tools invisible to end users.
+
+**Install dev deps:** `uv sync --group dev` (not `--extra dev`)
 
 ### Plugin Installation Internals
 
@@ -62,11 +85,11 @@ Plugin installation is a two-step process:
 1. **Cache creation** — Plugin files copied to `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`
 2. **Registration** — Entry added to `~/.claude/plugins/installed_plugins.json`
 
-**Important behaviors:**
-
-- Skills are loaded at session start — new installs require Claude Code restart
-- Cache can exist without registration (orphaned cache)
-- Registration without cache causes skill loading errors
+| Condition | Result |
+|-----------|--------|
+| New plugin installed | Restart Claude Code (skills load at session start) |
+| Cache exists, no registration | Orphaned cache, plugin won't load |
+| Registration exists, no cache | Skill loading errors |
 
 **Troubleshooting plugin issues:**
 
@@ -115,6 +138,35 @@ Hooks require frontmatter for sync-settings to work:
 # ///
 ```
 
+## Rules Directory
+
+`.claude/rules/` contains path-scoped context files that Claude Code auto-discovers. Each rule provides guidance when working in specific areas:
+
+| File | Scope |
+|------|-------|
+| `skills.md` | Skill development conventions |
+| `hooks.md` | Hook development conventions |
+| `commands.md` | Command development conventions |
+| `agents.md` | Agent development conventions |
+| `mcp-servers.md` | MCP server development conventions |
+
+Rules are loaded automatically based on file paths being edited.
+
+## Command Format
+
+Commands use YAML frontmatter with `$ARGUMENTS` substitution:
+
+```markdown
+---
+description: What this command does
+argument-hint: <optional hint shown to user>
+---
+
+Command instructions here.
+
+User provided: $ARGUMENTS
+```
+
 ## Directory Structure
 
 ```
@@ -122,7 +174,7 @@ Hooks require frontmatter for sync-settings to work:
 ├── skills/       # 14 skills (SKILL.md required)
 ├── hooks/        # 5 Python hooks
 ├── rules/        # Path-specific context (auto-discovered)
-├── commands/     # Slash commands (placeholder)
+├── commands/     # 11 slash commands (adr, audit, cli, explore, etc.)
 └── agents/       # Subagents (placeholder)
 
 packages/
@@ -139,22 +191,36 @@ old-repos/        # Archived source repos (gitignored)
 
 Skills follow two patterns:
 
-**Minimal** (4 skills): Just `SKILL.md` with basic frontmatter
+**Minimal**: Just `SKILL.md` (e.g., config-optimize, deep-synthesis)
 
 ```
 .claude/skills/<name>/
 └── SKILL.md
 ```
 
-**Full** (10 skills): Extended structure with references and scripts
+**Extended**: Additional supporting files as needed
 
 ```
 .claude/skills/<name>/
 ├── SKILL.md           # Required
-├── references/        # Deep documentation
-├── scripts/           # Automation (stdlib only, no PEP 723)
-├── templates/         # Output templates
-└── assets/            # Images, prompts
+├── references/        # Deep documentation (optional)
+├── scripts/           # Automation - stdlib only, no PEP 723 (optional)
+├── templates/         # Output templates (optional)
+└── assets/            # Images, prompts (optional)
+```
+
+**SKILL.md frontmatter** supports these fields:
+
+```yaml
+---
+name: skill-name
+description: One-line description
+license: MIT                              # optional
+metadata:                                 # optional block
+  version: "1.0.0"
+  model: claude-opus-4-5-20251101        # recommended model
+  timelessness_score: 8                  # quality indicator 1-10
+---
 ```
 
 ### Script Conventions
@@ -169,12 +235,27 @@ Skills follow two patterns:
 # ///
 ```
 
-**Skill-embedded scripts**: Standard library only, no PEP 723
+**Skill-embedded scripts**: Standard library only (skills execute in environments that may lack package managers)
 
 ```python
 #!/usr/bin/env python3
 # Exit codes: 0=success, 1=input error, 2=system error
 ```
+
+### Why PEP 723 (No Root pyproject.toml)
+
+This is a **federated monorepo** — plugins are independent packages with their own `pyproject.toml`, and top-level scripts are cross-package utilities. PEP 723 inline metadata is intentional:
+
+| Benefit | Explanation |
+|---------|-------------|
+| Zero-setup execution | `uv run scripts/promote skill foo` works without `uv sync` first |
+| Script independence | Each script declares exactly what it needs |
+| Portability | Scripts can be copied to other repos and still work |
+| No shared state | No root `.venv` to maintain or sync |
+
+**When to reconsider:** If many scripts share the same dependencies, a root `pyproject.toml` with `[dependency-groups] dev` may reduce duplication.
+
+**Plugin packages** use standard `pyproject.toml` with `[dependency-groups] dev` for their own dev tools — this follows the "git repo → project-level deps" rule at the package level.
 
 ### Hook Exit Codes
 
@@ -184,6 +265,10 @@ Skills follow two patterns:
 
 ## Current State
 
-- **Commands/Agents/MCP Servers**: Placeholders only, workflow documented but not populated
-- **Hooks**: Exist and work, but missing PEP 723 frontmatter (sync-settings won't detect them)
-- **Plugins**: 7 plugins in `packages/plugins/`, deployed via `tool-dev` marketplace
+| Component | Status | Action |
+|-----------|--------|--------|
+| Commands | 11 implemented | Ready to use |
+| Plugins | 7 packages | Deploy via `tool-dev` marketplace |
+| Hooks | Work, missing frontmatter | Add frontmatter to enable sync-settings |
+| Agents | Placeholder | Create in `.claude/agents/` when needed |
+| MCP Servers | Placeholder | Create in `packages/mcp-servers/` when needed |
