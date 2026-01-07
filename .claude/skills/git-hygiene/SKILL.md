@@ -114,9 +114,9 @@ Branch found
 
 | Script | Purpose | Exit Codes |
 |--------|---------|------------|
-| `preflight.py` | Safety check | 0=safe, 2=blocked |
+| `preflight.py` | Safety check | 0=safe, 1=error, 2=blocked |
 | `analyze.py` | Scan repo | 0=success, 1=error |
-| `cleanup.py` | Execute ops | 0=success, 2=partial |
+| `cleanup.py` | Execute ops | 0=success, 2=partial, 10=blocked |
 
 ## Blocking Behavior
 
