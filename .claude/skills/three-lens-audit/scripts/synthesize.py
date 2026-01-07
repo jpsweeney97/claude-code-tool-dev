@@ -398,6 +398,107 @@ def format_pairs_for_prompt(pairs: List[Tuple[Finding, Finding]]) -> str:
     return "\n".join(lines)
 
 
+SEMANTIC_MATCH_PROMPT = '''You identify whether audit findings from different perspectives describe the SAME element.
+
+## Background
+
+Three auditors reviewed a document from opposing perspectives:
+- **Adversarial**: Finds vulnerabilities, exploits, gaps (wants completeness)
+- **Pragmatic**: Finds usability issues, friction, confusion (wants simplicity)
+- **Cost/Benefit**: Finds inefficiencies, low ROI, waste (wants efficiency)
+- **Robustness**: Finds gaps, edge cases, incomplete handling (wants durability)
+- **Minimalist**: Finds unnecessary complexity, bloat (wants simplicity)
+- **Capability**: Finds unrealistic assumptions about system behavior (wants realism)
+- **Implementation**: Finds technical feasibility issues (wants correctness)
+
+These perspectives are deliberately opposed. When they agree something is problematic, it's significant.
+
+## Your Task
+
+For each pair of findings below, determine if they describe THE SAME ELEMENT (file, section, feature, concept).
+
+**Key distinction:**
+- SAME element, different perspectives → MATCH
+- SAME problem type, different elements → NOT A MATCH
+
+## Decision Process
+
+For each pair, follow these steps:
+
+1. **Extract elements**: What specific thing does each finding reference?
+2. **Compare elements**: Are they the same file/section/feature/concept?
+3. **Assess confidence**: How certain are you they're the same element?
+
+## Examples
+
+### TRUE MATCHES (same element, different lenses)
+
+**Example 1: Both reference same file**
+- Adversarial: "Token count for `principles.md` is vague, may exceed context limits"
+- Pragmatic: "`principles.md` at 8K tokens is too heavy to load casually"
+- Element A: principles.md | Element B: principles.md | **MATCH: yes**
+- Rationale: Both identify principles.md as problematically large
+- Confidence: high (explicit file reference in both)
+
+**Example 2: Both reference same function**
+- Adversarial: "The `validateInput()` function has no sanitization, allowing injection"
+- Pragmatic: "Users get cryptic errors when `validateInput()` receives bad data"
+- Element A: validateInput() | Element B: validateInput() | **MATCH: yes**
+- Rationale: Both describe input handling issues in the same function
+- Confidence: high (explicit function reference in both)
+
+**Example 3: Same concept, different vocabulary**
+- Adversarial: "Priority ordering (P2 vs P7) is subjective, can justify contradictory edits"
+- Cost/Benefit: "Conflict resolution section has high cognitive overhead for unclear benefit"
+- Element A: priority/conflict resolution | Element B: conflict resolution | **MATCH: yes**
+- Rationale: Both describe the priority/conflict system as problematic
+- Confidence: medium (same concept, different terms)
+
+### FALSE MATCHES (same category, different elements)
+
+**Example 4: Both about "missing X" but different X**
+- Adversarial: "Missing input validation in the auth module"
+- Pragmatic: "Missing examples in the tutorial section"
+- Element A: auth module validation | Element B: tutorial examples | **MATCH: no**
+- Rationale: Different elements entirely (auth vs tutorial)
+
+**Example 5: Same file, different sections**
+- Adversarial: "`README.md` has outdated security warnings"
+- Pragmatic: "`README.md` installation instructions are unclear"
+- Element A: README.md security section | Element B: README.md installation section
+- **MATCH: no** — Same file but different sections/concerns
+
+## Confidence Calibration
+
+| Confidence | Criteria |
+|------------|----------|
+| **high** | Same element explicitly named in both (file, function, section) |
+| **medium** | Same element implied but named differently, OR same concept described |
+| **low** | Possibly the same element, but significant ambiguity remains |
+
+**When in doubt, say NO.** False positives (claiming match when none exists) are worse than false negatives.
+
+## Finding Pairs to Review
+
+{pairs_formatted}
+
+## Output Format
+
+For EACH pair, respond EXACTLY in this format:
+
+```
+PAIR N:
+ELEMENT_A: [element from first finding]
+ELEMENT_B: [element from second finding]
+MATCH: yes|no
+SHARED_ELEMENT: [the common element, or "none"]
+RATIONALE: [1 sentence explaining your decision]
+CONFIDENCE: high|medium|low
+```
+
+Where N is the pair number (1, 2, 3, etc.). Respond for all pairs in order.'''
+
+
 def identify_unique_findings(
     findings_by_lens: Dict[str, List[Finding]],
     convergent_3: List[ConvergentFinding],
