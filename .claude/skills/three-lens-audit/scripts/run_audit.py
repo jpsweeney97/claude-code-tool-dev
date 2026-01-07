@@ -33,7 +33,7 @@ from typing import List, Dict, Optional, Tuple
 # Import sibling modules
 try:
     from validate_output import validate_output, LENS_REQUIREMENTS
-    from synthesize import synthesize, generate_synthesis_markdown, detect_lens_from_content
+    from synthesize import synthesize, generate_synthesis_markdown, generate_implementation_spec_markdown, detect_lens_from_content
 except ImportError:
     # Handle running from different directory
     import importlib.util
@@ -50,6 +50,7 @@ except ImportError:
     spec.loader.exec_module(synthesize_module)
     synthesize = synthesize_module.synthesize
     generate_synthesis_markdown = synthesize_module.generate_synthesis_markdown
+    generate_implementation_spec_markdown = synthesize_module.generate_implementation_spec_markdown
     detect_lens_from_content = synthesize_module.detect_lens_from_content
 
 
@@ -160,7 +161,7 @@ class ValidationSummary:
 class FinalizeResult:
     """Result of finalize command."""
     validation: ValidationSummary
-    synthesis_markdown: Optional[str]
+    synthesis_result: Optional["SynthesisResult"]  # Store raw result, defer formatting to CLI
     warnings: List[str] = field(default_factory=list)
 
 
@@ -337,7 +338,7 @@ def finalize(
         if validation.passed_count < 2:
             return FinalizeResult(
                 validation=validation,
-                synthesis_markdown=None,
+                synthesis_result=None,
                 warnings=warnings + ["Insufficient valid outputs for synthesis (need ≥2)"]
             )
 
@@ -347,14 +348,13 @@ def finalize(
 
     # Synthesize
     result = synthesize(valid_lens_files, target, threshold=threshold)
-    markdown = generate_synthesis_markdown(result)
 
     if result.warnings:
         warnings.extend(result.warnings)
 
     return FinalizeResult(
         validation=validation,
-        synthesis_markdown=markdown,
+        synthesis_result=result,
         warnings=warnings
     )
 
@@ -455,8 +455,11 @@ def cmd_finalize(args):
         print("", file=sys.stderr)
 
     # Print synthesis if available
-    if result.synthesis_markdown:
-        print(result.synthesis_markdown)
+    if result.synthesis_result:
+        if args.impl_spec:
+            print(generate_implementation_spec_markdown(result.synthesis_result))
+        else:
+            print(generate_synthesis_markdown(result.synthesis_result))
         sys.exit(0)
     else:
         print("Synthesis not generated due to validation failures.", file=sys.stderr)
@@ -559,6 +562,11 @@ Examples:
         type=float,
         default=0.3,
         help="Keyword overlap threshold for convergence (default: 0.3)"
+    )
+    finalize_parser.add_argument(
+        "--impl-spec",
+        action="store_true",
+        help="Generate implementation spec format (prioritized tasks for execution)"
     )
     finalize_parser.set_defaults(func=cmd_finalize)
 
