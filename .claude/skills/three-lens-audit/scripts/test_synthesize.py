@@ -158,3 +158,77 @@ def test_format_pairs_for_prompt_quotes_finding_text():
     formatted = format_pairs_for_prompt(pairs)
     assert '"config has issues"' in formatted
     assert '"config is broken"' in formatted
+
+
+# ===========================================================================
+# parse_semantic_response tests
+# ===========================================================================
+
+from synthesize import parse_semantic_response
+
+
+def test_parse_semantic_response_extracts_matches():
+    """parse_semantic_response should extract yes matches."""
+    response = """
+PAIR 1:
+ELEMENT_A: config.yaml validation
+ELEMENT_B: config.yaml errors
+MATCH: yes
+SHARED_ELEMENT: config.yaml validation
+RATIONALE: Both describe config.yaml validation issues
+CONFIDENCE: high
+
+PAIR 2:
+ELEMENT_A: README security
+ELEMENT_B: auth.py tokens
+MATCH: no
+SHARED_ELEMENT: none
+RATIONALE: Different elements entirely
+CONFIDENCE: n/a
+"""
+    pairs = [
+        (Finding("config no validation", "adversarial"), Finding("config confusing", "pragmatic")),
+        (Finding("README security", "adversarial"), Finding("auth tokens", "cost-benefit"))
+    ]
+    result = parse_semantic_response(response, pairs)
+
+    assert len(result.matches) == 1
+    assert result.matches[0].shared_element == "config.yaml validation"
+    assert result.matches[0].confidence == "high"
+    assert len(result.no_matches) == 1
+
+
+def test_parse_semantic_response_handles_medium_confidence():
+    """parse_semantic_response should handle medium confidence matches."""
+    response = """
+PAIR 1:
+ELEMENT_A: caching layer
+ELEMENT_B: cache invalidation
+MATCH: yes
+SHARED_ELEMENT: cache
+RATIONALE: Both reference caching
+CONFIDENCE: medium
+"""
+    pairs = [
+        (Finding("cache vulnerable", "adversarial"), Finding("cache overhead", "cost-benefit"))
+    ]
+    result = parse_semantic_response(response, pairs)
+
+    assert len(result.matches) == 1
+    assert result.matches[0].confidence == "medium"
+
+
+def test_parse_semantic_response_handles_malformed_response():
+    """parse_semantic_response should gracefully handle missing fields."""
+    response = """
+PAIR 1:
+MATCH: yes
+SHARED_ELEMENT: something
+"""
+    pairs = [
+        (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+    ]
+    result = parse_semantic_response(response, pairs)
+
+    # Should not crash, may return empty if can't parse
+    assert isinstance(result.matches, list)

@@ -499,6 +499,62 @@ CONFIDENCE: high|medium|low
 Where N is the pair number (1, 2, 3, etc.). Respond for all pairs in order.'''
 
 
+def parse_semantic_response(
+    response: str,
+    pairs: List[Tuple[Finding, Finding]]
+) -> SemanticReviewResult:
+    """Parse LLM response into structured matches.
+
+    Args:
+        response: Raw LLM response text
+        pairs: Original pairs that were reviewed
+
+    Returns:
+        SemanticReviewResult with matches and no_matches populated
+    """
+    matches = []
+    no_matches = []
+
+    # Pattern for structured output - flexible whitespace handling
+    pattern = re.compile(
+        r'PAIR\s*(\d+).*?'
+        r'ELEMENT_A:\s*(.+?)\s*'
+        r'ELEMENT_B:\s*(.+?)\s*'
+        r'MATCH:\s*(yes|no)\s*'
+        r'SHARED_ELEMENT:\s*(.+?)\s*'
+        r'RATIONALE:\s*(.+?)\s*'
+        r'CONFIDENCE:\s*(high|medium|low|n/?a|-)',
+        re.IGNORECASE | re.DOTALL
+    )
+
+    for match in pattern.finditer(response):
+        pair_num = int(match.group(1)) - 1  # Convert to 0-indexed
+
+        if pair_num >= len(pairs) or pair_num < 0:
+            continue
+
+        f_a, f_b = pairs[pair_num]
+        is_match = match.group(4).lower() == 'yes'
+
+        if is_match:
+            matches.append(SemanticMatch(
+                finding_a=f_a,
+                finding_b=f_b,
+                shared_element=match.group(5).strip(),
+                rationale=match.group(6).strip(),
+                confidence=match.group(7).lower().replace('/', '')
+            ))
+        else:
+            no_matches.append((f_a, f_b))
+
+    return SemanticReviewResult(
+        matches=matches,
+        no_matches=no_matches,
+        token_usage={},  # Filled by caller
+        model_used=""    # Filled by caller
+    )
+
+
 def identify_unique_findings(
     findings_by_lens: Dict[str, List[Finding]],
     convergent_3: List[ConvergentFinding],
