@@ -55,6 +55,32 @@ Multi-repo value extraction and integration into your Claude Code configuration.
 [ ] Plan: Integration plan with evidence
 ```
 
+## Exploration Output Contract
+
+When running `deep-exploration` in Phase 2, request this output structure:
+
+```text
+## [Repo Name] Exploration Findings
+
+### Standout Items
+| ID | Item | Type | Evidence | Notes |
+|----|------|------|----------|-------|
+| E1 | [name] | [skill/hook/pattern/config] | [file:line or observation] | [brief note] |
+
+### Red Flags
+- [flag]: [evidence]
+
+### Quality Signals
+| Signal | Present | Evidence |
+|--------|---------|----------|
+| Tests | Y/N | [location or "not found"] |
+| Types | Y/N | [observation] |
+| Documentation | Y/N | [location] |
+| Recent activity | Y/N | [last commit date] |
+```
+
+**Why structured:** Standardized format enables direct comparison in Phase 3 without normalization overhead.
+
 ## Inputs & Outputs
 
 | Input | Required | Description |
@@ -86,7 +112,7 @@ Score 4-6 → Light | 7-9 → Medium | 10-12 → Deep
 |---|-------|------------|-----------|
 | 0 | Pre-Flight | Analyze `~/.claude/`, define scope | — |
 | 1 | Triage | Score repos, filter to High/Medium | [triage-criteria](references/triage-criteria.md) |
-| 2 | Exploration | Run `deep-exploration` on each | — |
+| 2 | Exploration | Run `deep-exploration` with [output contract](#exploration-output-contract) | — |
 | 3 | Value ID | Apply 4 criteria, classify findings | [value-criteria](references/value-criteria.md) |
 | 4 | Synthesis | Resolve conflicts, verify compatible | [conflict-protocol](references/conflict-protocol.md) |
 | 5 | Planning | Ordered changes with rollback | [compatibility-checklist](references/compatibility-checklist.md) |
