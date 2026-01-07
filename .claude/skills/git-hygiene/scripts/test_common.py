@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for common.py utilities."""
 
+import shutil
 import subprocess
 import tempfile
 import os
@@ -49,14 +50,15 @@ class TestInTempRepo:
         cls.original_dir = os.getcwd()
         cls.temp_dir = tempfile.mkdtemp()
         os.chdir(cls.temp_dir)
-        subprocess.run(["git", "init"], capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@test.com"], capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Test"], capture_output=True)
-        subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], capture_output=True)
+        subprocess.run(["git", "init"], capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], capture_output=True, check=True)
+        subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], capture_output=True, check=True)
 
     @classmethod
     def teardown_class(cls):
         os.chdir(cls.original_dir)
+        shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
     def test_get_git_dir(self):
         """get_git_dir finds .git directory."""
