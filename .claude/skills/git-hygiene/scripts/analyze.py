@@ -234,17 +234,30 @@ def analyze_stashes(days_threshold: int = 30) -> list[dict]:
     return stashes
 
 
-def matches_pattern(filename: str, patterns: set[str]) -> bool:
-    """Check if filename matches any pattern."""
-    name = os.path.basename(filename)
+def matches_pattern(filepath: str, patterns: set[str]) -> bool:
+    """Check if filepath matches any pattern.
+
+    Handles:
+    - Exact basename: .DS_Store
+    - Suffix glob: *.pyc, *~ (matches files ending with suffix)
+    - Prefix glob: test* (matches files starting with prefix)
+    - Directory: node_modules (matches any path component)
+    """
+    name = os.path.basename(filepath)
+    parts = filepath.replace("\\", "/").split("/")
+
     for pattern in patterns:
-        if pattern.startswith("*."):
-            if name.endswith(pattern[1:]):
-                return True
-        elif pattern.endswith("*"):
-            if name.startswith(pattern[:-1]):
-                return True
-        elif name == pattern or filename.endswith("/" + pattern) or "/" + pattern + "/" in filename:
+        # Exact basename match
+        if name == pattern:
+            return True
+        # Suffix glob (*.pyc, *~) - asterisk at start
+        if pattern.startswith("*") and name.endswith(pattern[1:]):
+            return True
+        # Prefix glob (test*) - asterisk at end
+        if pattern.endswith("*") and name.startswith(pattern[:-1]):
+            return True
+        # Directory pattern - check path components
+        if pattern in parts:
             return True
     return False
 
