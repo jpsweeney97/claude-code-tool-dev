@@ -140,6 +140,31 @@ See [evidence-hierarchy.md](evidence-hierarchy.md) for definitions.
 
 ---
 
+### Step 8: Draft Counter-Argument
+
+Before finalizing this resolution, challenge it:
+
+```markdown
+**Strongest argument against this resolution:**
+[What would someone who disagrees say?]
+
+**What would need to be true for the opposite choice to be correct?**
+[Under what conditions would you reverse this decision?]
+
+**Response:**
+[Brief response to the counter-argument, or acknowledgment of legitimate concern]
+```
+
+**Why this step matters:**
+- Prevents post-hoc rationalization
+- Surfaces blind spots before they become problems
+- Creates honest documentation of decision quality
+- Reduces "we should have considered X" regrets
+
+**Skip only if:** Resolution is trivially obvious (e.g., one option literally doesn't work).
+
+---
+
 ## Special Cases
 
 ### Philosophical Conflicts Without Target Philosophy

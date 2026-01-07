@@ -114,7 +114,7 @@ Score 4-6 → Light | 7-9 → Medium | 10-12 → Deep
 | 1 | Triage | Score repos, filter to High/Medium | [triage-criteria](references/triage-criteria.md) |
 | 2 | Exploration | Run `deep-exploration` with [output contract](#exploration-output-contract) | — |
 | 3 | Value ID | Apply 4 criteria, classify findings | [value-criteria](references/value-criteria.md) |
-| 4 | Synthesis | Resolve conflicts, verify compatible | [conflict-protocol](references/conflict-protocol.md) |
+| 4 | Synthesis | Resolve conflicts (with counter-arguments), verify compatible | [conflict-protocol](references/conflict-protocol.md) |
 | 5 | Planning | Ordered changes with rollback | [compatibility-checklist](references/compatibility-checklist.md) |
 
 ## Abort Conditions
