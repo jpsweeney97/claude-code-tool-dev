@@ -19,6 +19,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+from common import is_branch_merged
+
 
 @dataclass
 class BranchInfo:
@@ -162,8 +164,7 @@ def analyze_branches(days_threshold: int = 30) -> dict:
             continue
 
         # Check if merged into default branch
-        code, _, _ = run_git(["merge-base", "--is-ancestor", branch_name, default_branch])
-        is_merged = code == 0
+        is_merged, _ = is_branch_merged(branch_name, default_branch)
 
         # Get last commit date
         code, date_str, _ = run_git([

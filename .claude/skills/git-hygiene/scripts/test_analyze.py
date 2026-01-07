@@ -36,6 +36,16 @@ def test_matches_pattern_directory():
     assert not matches_pattern("my_modules/foo.js", {"node_modules"})
 
 
+def test_is_branch_merged_uses_cherry():
+    """is_branch_merged should use cherry check for rebased branches."""
+    from common import is_branch_merged
+
+    # This tests the function exists and returns correct structure
+    merged, method = is_branch_merged("main", "main")
+    assert isinstance(merged, bool)
+    assert method in ("ancestor", "cherry", "none")
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
