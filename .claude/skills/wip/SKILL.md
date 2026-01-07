@@ -41,9 +41,11 @@ Track active work streams that persist across Claude Code sessions.
 
 **Storage:** `.claude/wip/WIP.md` - single markdown file, version controlled.
 
+**Auto-init:** WIP.md is created automatically on first `/wip add` if it doesn't exist.
+
 **Sections:** Items organized by status (Active/Paused/Completed). Items move between sections on status change.
 
-**IDs:** Sequential `W001`, `W002`, etc. Never reused.
+**IDs:** Sequential `W001`, `W002`, etc. Format supports unlimited digits (W001 through W99999+). Never reused.
 
 **Archive:** Completed items stay in WIP.md until `/wip archive` moves them to `WIP-archive.md`.
 
