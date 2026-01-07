@@ -2,7 +2,7 @@
 """Tests for semantic review functionality in synthesize.py."""
 
 import pytest
-from synthesize import SemanticMatch, SemanticReviewResult, Finding
+from synthesize import SemanticMatch, SemanticReviewResult, Finding, extract_references
 
 
 def test_semantic_match_creation():
@@ -36,3 +36,35 @@ def test_semantic_review_result_creation():
     assert result.matches == []
     assert result.model_used == "haiku"
     assert result.token_usage["input"] == 1000
+
+
+def test_extract_references_finds_file_paths():
+    """extract_references should find backtick-wrapped file paths."""
+    text = "The `config.yaml` file has issues and `auth.py` is broken"
+    refs = extract_references(text)
+    assert "config.yaml" in refs
+    assert "auth.py" in refs
+
+
+def test_extract_references_finds_quoted_names():
+    """extract_references should find quoted element names."""
+    text = 'The "Getting Started" section and "API Reference" need work'
+    refs = extract_references(text)
+    assert "getting started" in refs
+    assert "api reference" in refs
+
+
+def test_extract_references_finds_section_patterns():
+    """extract_references should find 'the X section' patterns."""
+    text = "Check the Security section and in Overview section"
+    refs = extract_references(text)
+    assert "security" in refs
+    assert "overview" in refs
+
+
+def test_extract_references_returns_lowercase():
+    """extract_references should normalize to lowercase."""
+    text = "`README.md` in the Security Section"
+    refs = extract_references(text)
+    assert "readme.md" in refs
+    assert "security" in refs

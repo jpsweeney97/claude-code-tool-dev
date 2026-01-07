@@ -128,6 +128,38 @@ def extract_keywords(text: str) -> Set[str]:
     return keywords
 
 
+def extract_references(text: str) -> Set[str]:
+    """Extract file paths, section names, and element names from text.
+
+    Looks for:
+    - Backtick-wrapped paths: `config.yaml`, `auth.py`
+    - Quoted names: "Getting Started", "API Reference"
+    - Section patterns: "the X section", "in X section"
+
+    Returns lowercase set for case-insensitive matching.
+    """
+    refs = set()
+
+    # Backtick-wrapped file paths (with common extensions)
+    for match in re.findall(r'`([^`]+\.(?:md|py|json|yaml|yml|ts|js|toml))`', text):
+        refs.add(match.lower())
+
+    # Backtick-wrapped function/element names
+    for match in re.findall(r'`([^`]+\(\))`', text):
+        refs.add(match.lower())
+
+    # Quoted element names
+    for match in re.findall(r'"([^"]+)"', text):
+        refs.add(match.lower())
+
+    # Section patterns: "the X section" or "in X section"
+    # Match single capitalized word before "section" (e.g., "the Security section")
+    for match in re.findall(r'(?:the|in)\s+([A-Za-z]+)\s+[Ss]ection', text):
+        refs.add(match.lower())
+
+    return refs
+
+
 def extract_sections(content: str) -> Dict[str, str]:
     """Extract section content from markdown."""
     sections = {}
