@@ -74,7 +74,7 @@ Target File
 | `/three-lens-audit <file> --design` | Design audit |
 | `/three-lens-audit <file> --lens adversarial` | Single lens only |
 | `/three-lens-audit <file> --quick` | Two-lens (skip cost-benefit) |
-| `/three-lens-audit <file> --impl-spec` | Output implementation spec for fixes |
+| `finalize ... --impl-spec` | Output implementation spec instead of synthesis |
 
 ## Workflow
 
@@ -86,7 +86,10 @@ python scripts/run_audit.py prepare target.md
 # Save outputs to adversarial.md, pragmatic.md, cost-benefit.md
 
 # 3. Finalize — validate + synthesize
-python scripts/run_audit.py finalize adversarial.md pragmatic.md cost-benefit.md --target "Name"
+python scripts/run_audit.py finalize adversarial.md pragmatic.md --target "Name"
+
+# 3b. (Alternative) Generate implementation spec for execution
+python scripts/run_audit.py finalize adversarial.md pragmatic.md --target "Name" --impl-spec
 ```
 
 See [Workflow Details](references/workflow-details.md) for cost estimation, incremental mode, and recovery procedures.
