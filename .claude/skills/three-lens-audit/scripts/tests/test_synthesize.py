@@ -12,6 +12,7 @@ from synthesize import (
     ConvergentFinding,
     SynthesisResult,
     calculate_overlap,
+    detect_lens_from_content,
     extract_keywords,
     extract_sections,
     find_convergent_findings,
@@ -448,3 +449,52 @@ Needs work.
         assert any("insufficient" in w.lower() for w in result.warnings)
         assert result.convergent_3 == []
         assert result.convergent_2 == []
+
+
+class TestDetectLensFromContent:
+    """Tests for detect_lens_from_content function."""
+
+    def test_detects_adversarial(self):
+        """Detects adversarial lens from content."""
+        content = "As an Adversarial Auditor, I found these attack vectors..."
+        assert detect_lens_from_content(content) == "adversarial"
+
+    def test_detects_pragmatic(self):
+        """Detects pragmatic lens from content."""
+        content = "As a Pragmatic Practitioner, here's what works..."
+        assert detect_lens_from_content(content) == "pragmatic"
+
+    def test_detects_cost_benefit(self):
+        """Detects cost-benefit lens from content."""
+        content = "The Cost/Benefit analysis shows effort vs benefit..."
+        assert detect_lens_from_content(content) == "cost-benefit"
+
+    def test_detects_robustness(self):
+        """Detects robustness lens from content."""
+        content = "As the Robustness Advocate, I identified gaps..."
+        assert detect_lens_from_content(content) == "robustness"
+
+    def test_detects_minimalist(self):
+        """Detects minimalist lens from content."""
+        content = "The Minimalist Advocate recommends cutting..."
+        assert detect_lens_from_content(content) == "minimalist"
+
+    def test_detects_capability(self):
+        """Detects capability lens from content."""
+        content = "As the Capability Realist, the assumption vs reality..."
+        assert detect_lens_from_content(content) == "capability"
+
+    def test_detects_arbiter(self):
+        """Detects arbiter lens from content."""
+        content = "The Arbiter's verdict on critical path..."
+        assert detect_lens_from_content(content) == "arbiter"
+
+    def test_returns_none_for_unknown(self):
+        """Returns None when lens cannot be detected."""
+        content = "This is some generic content without lens markers."
+        assert detect_lens_from_content(content) is None
+
+    def test_case_insensitive(self):
+        """Detection is case-insensitive."""
+        content = "ADVERSARIAL AUDITOR found vulnerabilities"
+        assert detect_lens_from_content(content) == "adversarial"
