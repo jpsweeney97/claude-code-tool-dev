@@ -88,7 +88,19 @@ Before combining any items classified as "Complementary" in conflict detection.
 
 ---
 
-### 5. Dry-Run Test (Deep calibration only)
+### 5. Dry-Run Test
+
+**When required:**
+
+| Calibration | Condition | Required |
+|-------------|-----------|----------|
+| Deep | Always | Yes |
+| Medium | Check 4 shows "potential interference" | Yes |
+| Medium | Check 4 shows "independent execution" | No |
+| Light | Check 4 shows "potential interference" AND items modify same files | Yes |
+| Light | Otherwise | No |
+
+**Process (when required):**
 
 ```markdown
 [ ] Install A alone: works? ____
@@ -102,7 +114,11 @@ Before combining any items classified as "Complementary" in conflict detection.
 |--------|--------|
 | All tests pass | Pass ✅ |
 | Combined installation fails | Fail ❌ |
-| Interaction issues | Document and assess severity |
+| Interaction issues | Document severity; assess if acceptable |
+
+**When skipped:** Add to Limitations section of deliverable:
+
+> Dry-run testing not performed for [Item A] + [Item B]. Theoretical compatibility verified via Checks 1-4. Confidence capped at Probable pending runtime verification.
 
 ---
 
