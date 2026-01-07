@@ -168,8 +168,8 @@ def parse_items_in_section(section_content: str, status: Status) -> List[WipItem
     """Parse individual items from a section."""
     items = []
 
-    # Split by ### [WXXX] headers
-    item_pattern = r'^### \[(W\d{3})\] (.+?)$'
+    # Split by ### [WXXX] headers (W followed by any number of digits)
+    item_pattern = r'^### \[(W\d+)\] (.+?)$'
     parts = re.split(item_pattern, section_content, flags=re.MULTILINE)
 
     # parts: ['', 'W001', 'Title1', 'content1', 'W002', 'Title2', 'content2', ...]

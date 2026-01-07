@@ -147,6 +147,46 @@ More context.
     assert wip.items[1].files == ["src/b.py", "src/c.py"]
 
 
+def test_parse_wip_large_ids():
+    """IDs beyond W999 should parse correctly."""
+    content = """---
+version: 1
+project: test
+updated: 2026-01-07T10:00:00
+next_id: 1001
+---
+
+# Work In Progress
+
+## Active
+
+### [W1000] Large ID item
+**Added:** 2026-01-07 | **Files:** src/x.py
+
+Context here.
+
+**Blocker:** None
+**Next:** Test
+
+---
+
+## Paused
+
+(none)
+
+---
+
+## Completed
+
+(none)
+
+---
+"""
+    wip = parse_wip(content)
+    assert len(wip.items) == 1
+    assert wip.items[0].id == "W1000"
+
+
 def test_serialize_wip_roundtrip():
     """Parse then serialize should produce equivalent content."""
     original = """---
@@ -200,5 +240,6 @@ if __name__ == "__main__":
     test_parse_frontmatter()
     test_parse_wip_empty()
     test_parse_wip_with_items()
+    test_parse_wip_large_ids()
     test_serialize_wip_roundtrip()
     print("All tests passed!")
