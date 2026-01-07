@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from common import Result, WipItem, WipFile, Status, parse_frontmatter, parse_wip, serialize_wip
 from datetime import datetime
+import tempfile
 
 
 def test_result_to_dict():
@@ -233,6 +234,24 @@ Context here.
     assert reparsed.items[0].description == wip.items[0].description
 
 
+def test_locked_wip_file_basic():
+    """locked_wip_file context manager should read/write with locking."""
+    from common import locked_wip_file
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "test.txt"
+
+        # Write with lock
+        with locked_wip_file(path, 'w') as f:
+            f.write("test content")
+
+        # Read with lock
+        with locked_wip_file(path, 'r') as f:
+            content = f.read()
+
+        assert content == "test content"
+
+
 if __name__ == "__main__":
     test_result_to_dict()
     test_wip_item_creation()
@@ -242,4 +261,5 @@ if __name__ == "__main__":
     test_parse_wip_with_items()
     test_parse_wip_large_ids()
     test_serialize_wip_roundtrip()
+    test_locked_wip_file_basic()
     print("All tests passed!")

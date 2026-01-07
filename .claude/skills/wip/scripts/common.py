@@ -9,14 +9,35 @@ Provides:
 - Directory resolution functions
 """
 
+import fcntl
 import json
 import re
 import subprocess
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+@contextmanager
+def locked_wip_file(path: Path, mode: str = 'r'):
+    """Context manager for locked file access.
+
+    Uses shared lock (LOCK_SH) for reading, exclusive lock (LOCK_EX) for writing.
+    """
+    if 'w' in mode or 'a' in mode:
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+    f = open(path, mode)
+    try:
+        lock_type = fcntl.LOCK_EX if ('w' in mode or 'a' in mode) else fcntl.LOCK_SH
+        fcntl.flock(f.fileno(), lock_type)
+        yield f
+    finally:
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        f.close()
 
 
 class Status(Enum):
