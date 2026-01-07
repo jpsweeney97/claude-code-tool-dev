@@ -2,6 +2,16 @@
 
 All notable changes to three-lens-audit.
 
+## [1.16.0] - 2026-01-07
+
+### Added
+- `--impl-spec` flag for finalize command - generates prioritized task list
+- Test coverage for run_audit.py (estimate_cost, load_prompts, generate_prompts, validate_outputs)
+- Tests for generate_implementation_spec_markdown function
+
+### Changed
+- FinalizeResult now stores SynthesisResult for flexible output formatting
+
 ## [1.15.0] - 2026-01-06
 
 ### Changed
