@@ -12,14 +12,13 @@ import argparse
 import json
 import os
 import re
-import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from common import is_branch_merged
+from common import run_git, get_git_dir, get_default_branch, is_branch_merged
 
 
 @dataclass
@@ -84,34 +83,6 @@ TEMP_PATTERNS = {
     ".DS_Store", "Thumbs.db", "*.swp", "*.swo", "*.tmp", "*.temp",
     "*~", "*.bak", "*.log", ".env.local",
 }
-
-
-def run_git(args: list[str], timeout: int = 60) -> tuple[int, str, str]:
-    """Run a git command and return (returncode, stdout, stderr)."""
-    try:
-        result = subprocess.run(
-            ["git"] + args,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return result.returncode, result.stdout.strip(), result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return 1, "", "Command timed out"
-    except FileNotFoundError:
-        return 1, "", "git not found in PATH"
-
-
-def get_default_branch() -> str:
-    """Get the default branch name (main or master)."""
-    code, stdout, _ = run_git(["symbolic-ref", "refs/remotes/origin/HEAD"])
-    if code == 0 and stdout:
-        return stdout.split("/")[-1]
-    # Fallback: check if main or master exists
-    code, _, _ = run_git(["rev-parse", "--verify", "main"])
-    if code == 0:
-        return "main"
-    return "master"
 
 
 def get_current_branch() -> Optional[str]:
