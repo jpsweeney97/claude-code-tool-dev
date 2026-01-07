@@ -30,6 +30,33 @@ def test_delete_branch_blocks_worktree():
     assert branches is None or isinstance(branches, set)
 
 
+def test_invalid_stash_index_shows_error():
+    """Non-integer stash index gives user-friendly error."""
+    import subprocess
+    result = subprocess.run(
+        [sys.executable, "cleanup.py", "--stashes", "0,abc,2", "--dry-run"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).parent,
+    )
+    assert result.returncode != 0
+    assert "invalid" in result.stderr.lower() or "integer" in result.stderr.lower()
+
+
+def test_negative_stash_index_shows_error():
+    """Negative stash index gives user-friendly error."""
+    import subprocess
+    # Use --stashes=VALUE syntax because -1 looks like a flag to argparse
+    result = subprocess.run(
+        [sys.executable, "cleanup.py", "--stashes=-1,0", "--dry-run"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).parent,
+    )
+    assert result.returncode != 0
+    assert "non-negative" in result.stderr.lower() or "negative" in result.stderr.lower()
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])

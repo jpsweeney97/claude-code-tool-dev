@@ -444,7 +444,15 @@ def main():
 
     # Parse inputs
     branches = args.branches.split(",") if args.branches else None
-    stashes = [int(i) for i in args.stashes.split(",")] if args.stashes else None
+
+    stashes = None
+    if args.stashes:
+        try:
+            stashes = [int(i.strip()) for i in args.stashes.split(",")]
+        except ValueError:
+            parser.error(f"Invalid stash index in '{args.stashes}': expected comma-separated integers")
+        if any(i < 0 for i in stashes):
+            parser.error(f"Invalid stash index in '{args.stashes}': indices must be non-negative")
 
     result = run_cleanup(
         branches=branches,
