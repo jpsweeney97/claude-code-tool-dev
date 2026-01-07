@@ -418,3 +418,143 @@ def test_merge_semantic_matches_avoids_duplicates():
 
     # Should not create duplicate
     assert len(convergent_2) == 1
+
+
+# ===========================================================================
+# synthesize() semantic review integration tests
+# ===========================================================================
+
+from synthesize import synthesize, SynthesisResult
+from pathlib import Path
+import tempfile
+
+
+def test_synthesize_with_semantic_review_flag():
+    """synthesize() with semantic_review=True should call semantic review."""
+    # Create temp files with lens outputs that have LOW keyword overlap
+    # but shared file reference (to generate candidates)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        adv_path = Path(tmpdir) / "adversarial.md"
+        prag_path = Path(tmpdir) / "pragmatic.md"
+
+        # Different keywords (validation vs usability) but same file ref
+        adv_path.write_text("""
+# Adversarial Audit
+
+| Issue | Severity |
+|-------|----------|
+| `settings.json` allows injection attacks through unvalidated input | High |
+""")
+        prag_path.write_text("""
+# Pragmatic Audit
+
+| Issue | Impact |
+|-------|--------|
+| `settings.json` editor experience poor due to cryptic interface | Medium |
+""")
+
+        # Mock run_semantic_review to track if it's called
+        with patch('synthesize.run_semantic_review') as mock_review:
+            mock_review.return_value = SemanticReviewResult(
+                matches=[],
+                no_matches=[],
+                token_usage={},
+                model_used="haiku"
+            )
+
+            result = synthesize(
+                {"adversarial": adv_path, "pragmatic": prag_path},
+                target="test",
+                semantic_review=True
+            )
+
+            # Should have called semantic review
+            assert mock_review.called
+
+
+def test_synthesize_without_semantic_review_flag():
+    """synthesize() with semantic_review=False should skip semantic review."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        adv_path = Path(tmpdir) / "adversarial.md"
+        prag_path = Path(tmpdir) / "pragmatic.md"
+
+        adv_path.write_text("# Adversarial\n\n| Issue | Severity |\n|-------|----------|\n| issue A | High |")
+        prag_path.write_text("# Pragmatic\n\n| Issue | Impact |\n|-------|--------|\n| issue B | Medium |")
+
+        with patch('synthesize.run_semantic_review') as mock_review:
+            result = synthesize(
+                {"adversarial": adv_path, "pragmatic": prag_path},
+                target="test",
+                semantic_review=False
+            )
+
+            # Should NOT have called semantic review
+            assert not mock_review.called
+
+
+def test_synthesize_semantic_review_default_off():
+    """synthesize() should default to semantic_review=False."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        adv_path = Path(tmpdir) / "adversarial.md"
+        prag_path = Path(tmpdir) / "pragmatic.md"
+
+        adv_path.write_text("# Adversarial\n\n| Issue | Severity |\n|-------|----------|\n| issue A | High |")
+        prag_path.write_text("# Pragmatic\n\n| Issue | Impact |\n|-------|--------|\n| issue B | Medium |")
+
+        with patch('synthesize.run_semantic_review') as mock_review:
+            # Call without semantic_review parameter
+            result = synthesize(
+                {"adversarial": adv_path, "pragmatic": prag_path},
+                target="test"
+            )
+
+            # Should NOT have called semantic review (default is off)
+            assert not mock_review.called
+
+
+def test_synthesize_semantic_review_merges_matches():
+    """synthesize() should merge semantic matches into convergent findings."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        adv_path = Path(tmpdir) / "adversarial.md"
+        prag_path = Path(tmpdir) / "pragmatic.md"
+
+        # Create findings that won't match by keyword but will by semantic review
+        adv_path.write_text("""
+# Adversarial Audit
+
+| Issue | Severity |
+|-------|----------|
+| `config.yaml` has exploitable validation gaps | High |
+""")
+        prag_path.write_text("""
+# Pragmatic Audit
+
+| Issue | Impact |
+|-------|--------|
+| `config.yaml` error messages confuse users | Medium |
+""")
+
+        with patch('synthesize.run_semantic_review') as mock_review:
+            # Simulate finding a semantic match
+            mock_review.return_value = SemanticReviewResult(
+                matches=[SemanticMatch(
+                    finding_a=Finding("`config.yaml` has exploitable validation gaps", "adversarial"),
+                    finding_b=Finding("`config.yaml` error messages confuse users", "pragmatic"),
+                    shared_element="config.yaml",
+                    rationale="Both describe config.yaml issues",
+                    confidence="high"
+                )],
+                no_matches=[],
+                token_usage={},
+                model_used="haiku"
+            )
+
+            result = synthesize(
+                {"adversarial": adv_path, "pragmatic": prag_path},
+                target="test",
+                semantic_review=True
+            )
+
+            # Should have warnings about semantic review
+            semantic_warnings = [w for w in result.warnings if "Semantic review" in w]
+            assert len(semantic_warnings) >= 1

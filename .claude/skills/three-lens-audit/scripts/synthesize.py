@@ -969,7 +969,10 @@ def generate_implementation_spec_markdown(result: SynthesisResult) -> str:
 def synthesize(
     lens_files: Dict[str, Path],
     target: str = "Unknown Target",
-    threshold: float = 0.3
+    threshold: float = 0.3,
+    semantic_review: bool = False,
+    semantic_model: str = "haiku",
+    max_semantic_pairs: int = 20
 ) -> SynthesisResult:
     """
     Synthesize findings from multiple lens outputs.
@@ -978,6 +981,9 @@ def synthesize(
         lens_files: Dict mapping lens name to file path
         target: Name of the audit target
         threshold: Keyword overlap threshold for convergence detection (default: 0.3)
+        semantic_review: Enable LLM-assisted semantic review for additional matches
+        semantic_model: Model for semantic review (haiku, sonnet, opus)
+        max_semantic_pairs: Maximum pairs to review semantically (cost control)
 
     Returns:
         SynthesisResult with all findings organized
@@ -1019,6 +1025,26 @@ def synthesize(
     # Warn if no 3-lens convergence found
     if len(findings_by_lens) >= 3 and not convergent_3:
         warnings.append("No 3-lens convergent findings detected. Manual synthesis review recommended.")
+
+    # Semantic review for additional matches
+    if semantic_review and len(findings_by_lens) >= 2:
+        # Generate candidate pairs (findings that failed keyword matching)
+        candidates = generate_candidate_pairs(
+            findings_by_lens,
+            keyword_threshold=threshold,
+            max_pairs_per_lens_combo=max_semantic_pairs // max(1, len(findings_by_lens) - 1)
+        )
+
+        if candidates:
+            # Run LLM semantic review
+            semantic_result = run_semantic_review(candidates, model=semantic_model)
+
+            if semantic_result.matches:
+                # Merge matches into convergent findings
+                merge_semantic_matches(semantic_result.matches, convergent_3, convergent_2)
+
+                # Note the enhancement in warnings
+                warnings.append(f"Semantic review found {len(semantic_result.matches)} additional matches using {semantic_model}")
 
     # Identify unique findings
     unique = identify_unique_findings(findings_by_lens, convergent_3, convergent_2)
