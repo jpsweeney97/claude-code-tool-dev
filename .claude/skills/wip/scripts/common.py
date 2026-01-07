@@ -253,3 +253,97 @@ def parse_item_content(item_id: str, description: str, content: str, status: Sta
         paused_date=paused_date,
         completed_date=completed_date
     )
+
+
+def serialize_wip(wip: WipFile) -> str:
+    """Serialize WipFile to markdown string."""
+    lines = [
+        "---",
+        f"version: {wip.version}",
+        f"project: {wip.project}",
+        f"updated: {wip.updated.isoformat()}",
+        f"next_id: {wip.next_id}",
+        "---",
+        "",
+        "# Work In Progress",
+        ""
+    ]
+
+    # Group items by status
+    active = [i for i in wip.items if i.status == Status.ACTIVE]
+    paused = [i for i in wip.items if i.status == Status.PAUSED]
+    completed = [i for i in wip.items if i.status == Status.COMPLETED]
+
+    # Active section
+    lines.append("## Active")
+    lines.append("")
+    if active:
+        for item in active:
+            lines.extend(serialize_item(item))
+    else:
+        lines.append("(none)")
+        lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # Paused section
+    lines.append("## Paused")
+    lines.append("")
+    if paused:
+        for item in paused:
+            lines.extend(serialize_item(item))
+    else:
+        lines.append("(none)")
+        lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # Completed section
+    lines.append("## Completed")
+    lines.append("")
+    if completed:
+        for item in completed:
+            lines.extend(serialize_item(item))
+    else:
+        lines.append("(none)")
+        lines.append("")
+    lines.append("---")
+
+    return "\n".join(lines)
+
+
+def serialize_item(item: WipItem) -> List[str]:
+    """Serialize a single WipItem to markdown lines."""
+    lines = []
+
+    # Header
+    lines.append(f"### [{item.id}] {item.description}")
+
+    # Metadata line
+    meta_parts = [f"**Added:** {item.added.strftime('%Y-%m-%d')}"]
+    if item.files:
+        meta_parts.append(f"**Files:** {', '.join(item.files)}")
+    if item.paused_date:
+        meta_parts.append(f"**Paused:** {item.paused_date.strftime('%Y-%m-%d')}")
+    if item.completed_date:
+        meta_parts.append(f"**Completed:** {item.completed_date.strftime('%Y-%m-%d')}")
+    lines.append(" | ".join(meta_parts))
+    lines.append("")
+
+    # Context
+    if item.context:
+        lines.append(item.context)
+        lines.append("")
+
+    # Blocker and Next (only for active items typically)
+    if item.status == Status.ACTIVE:
+        blocker_text = item.blocker if item.blocker else "None"
+        lines.append(f"**Blocker:** {blocker_text}")
+        if item.next_action:
+            lines.append(f"**Next:** {item.next_action}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("")
+
+    return lines

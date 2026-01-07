@@ -7,7 +7,7 @@ from pathlib import Path
 # Add scripts to path for testing
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from common import Result, WipItem, WipFile, Status, parse_frontmatter, parse_wip
+from common import Result, WipItem, WipFile, Status, parse_frontmatter, parse_wip, serialize_wip
 from datetime import datetime
 
 
@@ -147,6 +147,52 @@ More context.
     assert wip.items[1].files == ["src/b.py", "src/c.py"]
 
 
+def test_serialize_wip_roundtrip():
+    """Parse then serialize should produce equivalent content."""
+    original = """---
+version: 1
+project: test
+updated: 2026-01-07T10:00:00
+next_id: 3
+---
+
+# Work In Progress
+
+## Active
+
+### [W001] First item
+**Added:** 2026-01-05 | **Files:** src/a.py
+
+Context here.
+
+**Blocker:** None
+**Next:** Do something
+
+---
+
+## Paused
+
+(none)
+
+---
+
+## Completed
+
+(none)
+
+---
+"""
+    wip = parse_wip(original)
+    serialized = serialize_wip(wip)
+    reparsed = parse_wip(serialized)
+
+    assert reparsed.version == wip.version
+    assert reparsed.next_id == wip.next_id
+    assert len(reparsed.items) == len(wip.items)
+    assert reparsed.items[0].id == wip.items[0].id
+    assert reparsed.items[0].description == wip.items[0].description
+
+
 if __name__ == "__main__":
     test_result_to_dict()
     test_wip_item_creation()
@@ -154,4 +200,5 @@ if __name__ == "__main__":
     test_parse_frontmatter()
     test_parse_wip_empty()
     test_parse_wip_with_items()
+    test_serialize_wip_roundtrip()
     print("All tests passed!")
