@@ -16,6 +16,7 @@ from synthesize import (
     extract_sections,
     extract_table_rows,
     generate_implementation_spec_markdown,
+    synthesize,
 )
 
 
@@ -259,3 +260,82 @@ class TestGenerateImplementationSpecMarkdown:
         )
         output = generate_implementation_spec_markdown(result)
         assert "## P3 Tasks" in output
+
+
+class TestSynthesize:
+    """Tests for synthesize function."""
+
+    def test_synthesize_returns_synthesis_result(self, tmp_path):
+        """Synthesize returns SynthesisResult with valid inputs."""
+        # Create minimal valid outputs
+        adv = tmp_path / "adversarial.md"
+        adv.write_text("""# Adversarial
+| Vulnerability | Evidence | Attack Scenario | Severity |
+|---------------|----------|-----------------|----------|
+| Input validation missing | line 42 | Inject bad data | Major |
+""")
+        prag = tmp_path / "pragmatic.md"
+        prag.write_text("""# Pragmatic
+## What Works
+- Clear structure
+## What's Missing
+- Input validation is missing
+## Friction Points
+- Setup is complex
+## Verdict
+Needs work.
+""")
+        cb = tmp_path / "cost-benefit.md"
+        cb.write_text("""# Cost/Benefit
+| Element | Effort | Benefit | Verdict |
+|---------|--------|---------|---------|
+| Validation | L | H | Add |
+## High-ROI
+- Add input validation
+## Low-ROI
+- Complex features
+## Recommendations
+- Start with validation
+""")
+
+        lens_files = {
+            "adversarial": adv,
+            "pragmatic": prag,
+            "cost-benefit": cb
+        }
+
+        result = synthesize(lens_files, target="test.md")
+
+        assert isinstance(result, SynthesisResult)
+        assert result.target == "test.md"
+        assert "adversarial" in result.lens_outputs
+        assert "pragmatic" in result.lens_outputs
+        assert "cost-benefit" in result.lens_outputs
+
+    def test_synthesize_warns_on_missing_file(self, tmp_path):
+        """Synthesize adds warning for missing files."""
+        existing = tmp_path / "adversarial.md"
+        existing.write_text("Some content here that is long enough to pass")
+        missing = tmp_path / "missing.md"
+
+        lens_files = {
+            "adversarial": existing,
+            "pragmatic": missing
+        }
+
+        result = synthesize(lens_files, target="test.md")
+
+        assert any("not found" in w.lower() for w in result.warnings)
+
+    def test_synthesize_warns_with_single_output(self, tmp_path):
+        """Synthesize warns when only one lens output provided."""
+        single = tmp_path / "adversarial.md"
+        single.write_text("Content that is long enough to be processed by the system")
+
+        lens_files = {"adversarial": single}
+
+        result = synthesize(lens_files, target="test.md")
+
+        assert any("insufficient" in w.lower() for w in result.warnings)
+        assert result.convergent_3 == []
+        assert result.convergent_2 == []
