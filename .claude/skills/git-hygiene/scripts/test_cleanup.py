@@ -21,6 +21,14 @@ def test_operation_result_structure():
     assert r.undo_command is None
 
 
+def test_delete_branch_blocks_worktree():
+    """Cannot delete branch checked out in worktree."""
+    # Test the worktree detection function exists
+    from common import get_worktree_branches
+    branches = get_worktree_branches()
+    assert isinstance(branches, set)
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])

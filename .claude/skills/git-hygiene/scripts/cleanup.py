@@ -17,6 +17,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
+from common import get_worktree_branches
+
 
 @dataclass
 class OperationResult:
@@ -107,6 +109,16 @@ def delete_branch(branch: str, force: bool = False) -> OperationResult:
             target=branch,
             success=False,
             message="Cannot delete current branch",
+        )
+
+    # Check if branch is in a worktree
+    worktree_branches = get_worktree_branches()
+    if branch in worktree_branches:
+        return OperationResult(
+            operation="delete_branch",
+            target=branch,
+            success=False,
+            message=f"Branch '{branch}' is checked out in a worktree",
         )
 
     default = get_default_branch()
