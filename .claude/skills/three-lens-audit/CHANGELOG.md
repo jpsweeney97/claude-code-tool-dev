@@ -2,6 +2,22 @@
 
 All notable changes to three-lens-audit.
 
+## [1.17.0] - 2026-01-07
+
+### Added
+- `common.py` module with consolidated markdown table parsing
+- Test coverage for `finalize()` function (3 tests)
+- Test coverage for `synthesize()` function (3 tests)
+- Test coverage for `find_convergent_findings()` function (5 tests)
+- Test coverage for `detect_lens_from_content()` function (9 tests)
+
+### Changed
+- `synthesize.py` now imports table parsing from `common.py`
+- `validate_output.py` now imports table parsing from `common.py`
+
+### Fixed
+- SKILL.md Commands table incorrectly showed `--impl-spec` as slash command flag
+
 ## [1.16.1] - 2026-01-07
 
 ### Fixed
