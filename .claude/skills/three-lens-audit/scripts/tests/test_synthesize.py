@@ -9,10 +9,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from synthesize import (
     STOP_WORDS,
     Finding,
+    ConvergentFinding,
+    SynthesisResult,
     calculate_overlap,
     extract_keywords,
     extract_sections,
     extract_table_rows,
+    generate_implementation_spec_markdown,
 )
 
 
@@ -182,3 +185,77 @@ class TestFinding:
         keywords = {"validation", "error"}
         f = Finding(text="test", lens="test", keywords=keywords)
         assert f.keywords == keywords
+
+
+class TestGenerateImplementationSpecMarkdown:
+    """Tests for generate_implementation_spec_markdown function."""
+
+    def test_includes_summary_table(self):
+        """Output includes priority summary table."""
+        result = SynthesisResult(
+            target="test.md",
+            convergent_3=[],
+            convergent_2=[],
+            unique={},
+            recommendations=[],
+            lens_outputs={},
+        )
+        output = generate_implementation_spec_markdown(result)
+        assert "| Priority | Count |" in output
+        assert "| P1 |" in output
+
+    def test_p1_tasks_from_convergent_3(self):
+        """P1 tasks come from 3-lens convergent findings."""
+        result = SynthesisResult(
+            target="test.md",
+            convergent_3=[
+                ConvergentFinding(
+                    description="Test issue found by all lenses",
+                    lenses={"adversarial": "evidence1", "pragmatic": "evidence2", "cost-benefit": "evidence3"},
+                    confidence=0.75,
+                )
+            ],
+            convergent_2=[],
+            unique={},
+            recommendations=[],
+            lens_outputs={},
+        )
+        output = generate_implementation_spec_markdown(result)
+        assert "## P1 Tasks" in output
+        assert "Task 1.1" in output
+        assert "75%" in output
+
+    def test_p2_tasks_from_convergent_2(self):
+        """P2 tasks come from 2-lens convergent findings."""
+        result = SynthesisResult(
+            target="test.md",
+            convergent_3=[],
+            convergent_2=[
+                ConvergentFinding(
+                    description="Two-lens issue",
+                    lenses={"adversarial": "ev1", "pragmatic": "ev2"},
+                    confidence=0.6,
+                )
+            ],
+            unique={},
+            recommendations=[],
+            lens_outputs={},
+        )
+        output = generate_implementation_spec_markdown(result)
+        assert "## P2 Tasks" in output
+        assert "Task 2.1" in output
+
+    def test_p3_tasks_from_unique_findings(self):
+        """P3 tasks come from single-lens unique findings."""
+        result = SynthesisResult(
+            target="test.md",
+            convergent_3=[],
+            convergent_2=[],
+            unique={
+                "adversarial": [Finding(text="Unique adversarial finding", lens="adversarial")]
+            },
+            recommendations=[],
+            lens_outputs={},
+        )
+        output = generate_implementation_spec_markdown(result)
+        assert "## P3 Tasks" in output

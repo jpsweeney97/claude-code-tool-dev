@@ -441,6 +441,119 @@ def generate_synthesis_markdown(result: SynthesisResult) -> str:
     return "\n".join(lines)
 
 
+def generate_implementation_spec_markdown(result: SynthesisResult) -> str:
+    """Generate implementation spec format for Claude Code execution.
+
+    Maps synthesis findings to priority levels:
+    - P1: All 3 lenses convergent (detailed implementation steps)
+    - P2: 2 lenses convergent (high-level action + done criteria)
+    - P3: Single lens unique (brief description)
+
+    Args:
+        result: SynthesisResult from synthesize()
+
+    Returns:
+        Markdown string in implementation spec format
+    """
+    lines = [
+        f"# Implementation Spec: {result.target}",
+        "",
+        f"*Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}*",
+        "",
+        "## Summary",
+        "",
+        "| Priority | Count | Convergence | Detail Level |",
+        "|----------|-------|-------------|--------------|",
+    ]
+
+    p3_count = sum(len(findings) for findings in result.unique.values())
+
+    lines.append(f"| P1 | {len(result.convergent_3)} | All 3 lenses | Detailed |")
+    lines.append(f"| P2 | {len(result.convergent_2)} | 2 lenses | High-level |")
+    lines.append(f"| P3 | {p3_count} | Single lens | Brief |")
+    lines.append("")
+
+    # P1 Tasks (Detailed)
+    if result.convergent_3:
+        lines.extend([
+            "## P1 Tasks (Detailed)",
+            "",
+            "*These issues were flagged by all 3 lenses -- highest priority.*",
+            ""
+        ])
+
+        for i, c in enumerate(result.convergent_3, 1):
+            lines.extend([
+                f"### Task 1.{i}: {c.description}",
+                "",
+                f"**File:** `{result.target}`",
+                f"**Convergence:** All 3 lenses (confidence: {c.confidence:.0%})",
+                "",
+                "**Rationale:**",
+            ])
+            for lens_name, evidence in c.lenses.items():
+                truncated = evidence[:80] + "..." if len(evidence) > 80 else evidence
+                lines.append(f"- {lens_name.title()}: \"{truncated}\"")
+
+            lines.extend([
+                "",
+                "**Implementation:**",
+                "1. Locate the relevant section in the target file",
+                "2. Address the issue identified by all three perspectives",
+                "3. Verify the fix satisfies each lens's concern",
+                "",
+                "**Done Criteria:**",
+                "- [ ] Issue no longer flagged by adversarial review",
+                "- [ ] Pragmatic usability improved",
+                "- [ ] Cost/benefit ratio justified",
+                "",
+            ])
+
+    # P2 Tasks (High-Level)
+    if result.convergent_2:
+        lines.extend([
+            "## P2 Tasks (High-Level)",
+            "",
+            "*These issues were flagged by 2 lenses.*",
+            ""
+        ])
+
+        for i, c in enumerate(result.convergent_2, 1):
+            lens_names = ", ".join(c.lenses.keys())
+            lines.extend([
+                f"### Task 2.{i}: {c.description}",
+                "",
+                f"**Lenses:** {lens_names} (confidence: {c.confidence:.0%})",
+                f"**Action:** Address the concern shared by both perspectives",
+                f"**Done Criteria:** Issue no longer flagged by either lens",
+                "",
+            ])
+
+    # P3 Tasks (Optional)
+    if p3_count > 0:
+        lines.extend([
+            "## P3 Tasks (Optional)",
+            "",
+            "*Single-lens findings -- consider if time permits.*",
+            ""
+        ])
+
+        task_num = 1
+        for lens, findings in result.unique.items():
+            for f in findings[:3]:  # Top 3 per lens
+                truncated = f.text[:60] + "..." if len(f.text) > 60 else f.text
+                lines.extend([
+                    f"### Task 3.{task_num}: {truncated}",
+                    "",
+                    f"**Lens:** {lens.title()}",
+                    f"**Action:** {f.text[:100]}",
+                    "",
+                ])
+                task_num += 1
+
+    return "\n".join(lines)
+
+
 # ===========================================================================
 # MAIN LOGIC
 # ===========================================================================
