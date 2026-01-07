@@ -2,6 +2,18 @@
 
 All notable changes to three-lens-audit.
 
+## [1.15.0] - 2026-01-06
+
+### Changed
+- Condensed SKILL.md from 387 to 131 lines
+- Extracted Cost Estimation, Incremental Mode, Execution to workflow-details.md
+- Extracted Implementation Spec format to implementation-spec.md
+- Moved lens philosophy to variants-and-custom-lenses.md
+
+### Fixed
+- Added semantic convergence guidance to synthesis template (addresses keyword-only detection limitation)
+- Strengthened synthesize.py warning when no 3-lens convergence found
+
 ## [1.13.0] - 2026-01-04
 
 ### Fixed
