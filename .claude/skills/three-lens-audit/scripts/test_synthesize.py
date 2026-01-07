@@ -68,3 +68,55 @@ def test_extract_references_returns_lowercase():
     refs = extract_references(text)
     assert "readme.md" in refs
     assert "security" in refs
+
+
+# ===========================================================================
+# generate_candidate_pairs tests
+# ===========================================================================
+
+from synthesize import generate_candidate_pairs
+
+
+def test_generate_candidate_pairs_excludes_keyword_matches():
+    """Pairs that already passed keyword threshold should be excluded."""
+    findings = {
+        "adversarial": [Finding("tokens too large", "adversarial", keywords={"tokens", "large", "context"})],
+        "pragmatic": [Finding("tokens too big", "pragmatic", keywords={"tokens", "big", "context"})]
+    }
+    # These share "tokens" and "context" so keyword overlap is high
+    candidates = generate_candidate_pairs(findings, keyword_threshold=0.3)
+    assert len(candidates) == 0
+
+
+def test_generate_candidate_pairs_includes_shared_refs():
+    """Pairs with shared references should be included even with low keyword overlap."""
+    findings = {
+        "adversarial": [Finding("`config.yaml` may exceed limits", "adversarial", keywords={"exceed", "limits"})],
+        "pragmatic": [Finding("`config.yaml` is confusing to edit", "pragmatic", keywords={"confusing", "edit"})]
+    }
+    # Different keywords but both reference config.yaml
+    candidates = generate_candidate_pairs(findings, keyword_threshold=0.3)
+    assert len(candidates) == 1
+
+
+def test_generate_candidate_pairs_skips_same_lens():
+    """Pairs from the same lens should be excluded."""
+    findings = {
+        "adversarial": [
+            Finding("`config.yaml` issue A", "adversarial", keywords={"config", "issue"}),
+            Finding("`config.yaml` issue B", "adversarial", keywords={"config", "problem"})
+        ]
+    }
+    candidates = generate_candidate_pairs(findings, keyword_threshold=0.3)
+    assert len(candidates) == 0
+
+
+def test_generate_candidate_pairs_respects_max_pairs():
+    """Should cap pairs per lens combination."""
+    findings = {
+        "adversarial": [Finding(f"`file{i}.py` issue", "adversarial", keywords={f"file{i}"}) for i in range(10)],
+        "pragmatic": [Finding(f"`file{i}.py` confusing", "pragmatic", keywords={f"conf{i}"}) for i in range(10)]
+    }
+    # All pairs have zero overlap but same file refs
+    candidates = generate_candidate_pairs(findings, keyword_threshold=0.3, max_pairs_per_lens_combo=5)
+    assert len(candidates) <= 5

@@ -320,6 +320,66 @@ def find_convergent_findings(
     return convergent_3, convergent_2
 
 
+def generate_candidate_pairs(
+    findings_by_lens: Dict[str, List[Finding]],
+    keyword_threshold: float = 0.3,
+    max_pairs_per_lens_combo: int = 10
+) -> List[Tuple[Finding, Finding]]:
+    """
+    Generate finding pairs that might be semantically equivalent
+    but failed keyword matching.
+
+    Filtering heuristics:
+    1. Skip pairs that already passed keyword threshold
+    2. Skip pairs from the same lens
+    3. Skip pairs with 0 keyword overlap AND no shared references
+    4. Prioritize pairs that reference the same file/section/element
+
+    Args:
+        findings_by_lens: Dict mapping lens name to list of findings
+        keyword_threshold: Pairs above this overlap are already matched
+        max_pairs_per_lens_combo: Cap per lens combination (cost control)
+
+    Returns:
+        List of (finding_a, finding_b) tuples to review semantically
+    """
+    candidates = []
+
+    lenses = list(findings_by_lens.keys())
+
+    for i, lens_a in enumerate(lenses):
+        for lens_b in lenses[i + 1:]:  # Avoid duplicates and same-lens
+            pairs_for_combo = []
+
+            for f_a in findings_by_lens[lens_a]:
+                for f_b in findings_by_lens[lens_b]:
+                    # Calculate keyword overlap
+                    overlap = calculate_overlap(f_a.keywords, f_b.keywords)
+
+                    # Skip if already convergent
+                    if overlap >= keyword_threshold:
+                        continue
+
+                    # Check for shared references
+                    refs_a = extract_references(f_a.text)
+                    refs_b = extract_references(f_b.text)
+                    shared_refs = refs_a & refs_b
+
+                    # Skip if completely unrelated (no overlap AND no shared refs)
+                    if overlap == 0 and not shared_refs:
+                        continue
+
+                    # Score by potential relatedness
+                    score = overlap + (0.3 if shared_refs else 0)
+                    pairs_for_combo.append((f_a, f_b, score))
+
+            # Sort by score descending, take top N
+            pairs_for_combo.sort(key=lambda x: -x[2])
+            candidates.extend([(a, b) for a, b, _ in pairs_for_combo[:max_pairs_per_lens_combo]])
+
+    return candidates
+
+
 def identify_unique_findings(
     findings_by_lens: Dict[str, List[Finding]],
     convergent_3: List[ConvergentFinding],
