@@ -232,3 +232,108 @@ SHARED_ELEMENT: something
 
     # Should not crash, may return empty if can't parse
     assert isinstance(result.matches, list)
+
+
+# ===========================================================================
+# run_semantic_review tests
+# ===========================================================================
+
+import subprocess
+from unittest.mock import patch, MagicMock
+from synthesize import run_semantic_review
+
+
+def test_run_semantic_review_calls_claude_cli():
+    """run_semantic_review should call claude CLI with correct arguments."""
+    pairs = [
+        (Finding("config no validation", "adversarial"), Finding("config confusing", "pragmatic"))
+    ]
+
+    mock_response = """
+PAIR 1:
+ELEMENT_A: config.yaml
+ELEMENT_B: config.yaml
+MATCH: yes
+SHARED_ELEMENT: config.yaml
+RATIONALE: Same file
+CONFIDENCE: high
+"""
+
+    with patch('synthesize.subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=mock_response,
+            returncode=0
+        )
+
+        result = run_semantic_review(pairs, model="haiku")
+
+        # Verify subprocess was called
+        assert mock_run.called
+        call_args = mock_run.call_args
+
+        # Should use claude CLI with model flag
+        assert "claude" in call_args[0][0]
+        assert "--model" in call_args[0][0]
+
+        # Should return parsed result
+        assert result.model_used == "haiku"
+        assert len(result.matches) == 1
+
+
+def test_run_semantic_review_handles_empty_pairs():
+    """run_semantic_review should handle empty pair list."""
+    result = run_semantic_review([], model="haiku")
+
+    assert result.matches == []
+    assert result.no_matches == []
+
+
+def test_run_semantic_review_handles_cli_error():
+    """run_semantic_review should handle non-zero exit code."""
+    pairs = [
+        (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+    ]
+
+    with patch('synthesize.subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout="",
+            returncode=1
+        )
+
+        result = run_semantic_review(pairs, model="haiku")
+
+        # Should return empty result on error
+        assert result.matches == []
+        assert result.model_used == "haiku"
+
+
+def test_run_semantic_review_handles_timeout():
+    """run_semantic_review should handle subprocess timeout."""
+    pairs = [
+        (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+    ]
+
+    with patch('synthesize.subprocess.run') as mock_run:
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="claude", timeout=120)
+
+        result = run_semantic_review(pairs, model="haiku")
+
+        # Should return empty result on timeout
+        assert result.matches == []
+        assert result.model_used == "haiku"
+
+
+def test_run_semantic_review_handles_missing_cli():
+    """run_semantic_review should handle missing claude CLI."""
+    pairs = [
+        (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+    ]
+
+    with patch('synthesize.subprocess.run') as mock_run:
+        mock_run.side_effect = FileNotFoundError("claude not found")
+
+        result = run_semantic_review(pairs, model="haiku")
+
+        # Should return empty result when CLI not found
+        assert result.matches == []
+        assert result.model_used == "haiku"

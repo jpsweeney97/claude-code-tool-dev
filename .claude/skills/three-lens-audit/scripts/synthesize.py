@@ -23,6 +23,7 @@ Exit Codes:
 
 import argparse
 import re
+import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
@@ -553,6 +554,68 @@ def parse_semantic_response(
         token_usage={},  # Filled by caller
         model_used=""    # Filled by caller
     )
+
+
+def run_semantic_review(
+    pairs: List[Tuple[Finding, Finding]],
+    model: str = "haiku"
+) -> SemanticReviewResult:
+    """Run semantic review on finding pairs using Claude CLI.
+
+    Args:
+        pairs: List of (finding_a, finding_b) tuples to review
+        model: Model to use (haiku, sonnet, opus)
+
+    Returns:
+        SemanticReviewResult with matches and metadata
+    """
+    if not pairs:
+        return SemanticReviewResult(
+            matches=[],
+            no_matches=[],
+            token_usage={},
+            model_used=model
+        )
+
+    # Format the prompt
+    pairs_formatted = format_pairs_for_prompt(pairs)
+    full_prompt = SEMANTIC_MATCH_PROMPT.format(pairs_formatted=pairs_formatted)
+
+    # Call Claude CLI
+    # Using print mode (-p) for non-interactive output
+    try:
+        result = subprocess.run(
+            ["claude", "-p", "--model", model, full_prompt],
+            capture_output=True,
+            text=True,
+            timeout=120  # 2 minute timeout
+        )
+
+        if result.returncode != 0:
+            # Return empty result on error
+            return SemanticReviewResult(
+                matches=[],
+                no_matches=[],
+                token_usage={},
+                model_used=model
+            )
+
+        response = result.stdout
+
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        # Claude CLI not available or timed out
+        return SemanticReviewResult(
+            matches=[],
+            no_matches=[],
+            token_usage={},
+            model_used=model
+        )
+
+    # Parse response
+    semantic_result = parse_semantic_response(response, pairs)
+    semantic_result.model_used = model
+
+    return semantic_result
 
 
 def identify_unique_findings(
