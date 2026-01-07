@@ -87,10 +87,29 @@ See [evidence-hierarchy.md](evidence-hierarchy.md) for detailed guidance.
 
 ### Step 6: Assign Confidence
 
-| Level | Basis |
-|-------|-------|
-| **Certain** | Primary evidence, clear winner, no reasonable alternative |
-| **Probable** | Secondary evidence or slight edge, reasonable confidence |
+**Evidence ceiling applies:** Your confidence CANNOT exceed the maximum allowed by your evidence basis.
+
+| Evidence Basis | Maximum Confidence |
+|----------------|-------------------|
+| Primary + cross-reference | Certain |
+| Primary alone | Probable |
+| Secondary only | Probable |
+| Tertiary only | Possible |
+
+See [evidence-hierarchy.md](evidence-hierarchy.md) for definitions.
+
+**Process:**
+1. Identify your strongest evidence for this resolution
+2. Classify it as Primary/Secondary/Tertiary
+3. Look up the maximum confidence allowed
+4. Assign confidence AT OR BELOW that ceiling
+
+**If you believe higher confidence is warranted:** Gather stronger evidence first. Do not override the ceiling—it exists to prevent false precision.
+
+| Confidence | Meaning |
+|------------|---------|
+| **Certain** | Primary evidence with cross-reference, clear winner, no reasonable alternative |
+| **Probable** | Primary or strong secondary evidence, reasonable confidence |
 | **Possible** | Tertiary evidence or close call, notable uncertainty |
 
 ---
