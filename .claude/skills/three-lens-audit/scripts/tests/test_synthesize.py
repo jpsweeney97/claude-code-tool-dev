@@ -15,6 +15,7 @@ from synthesize import (
     extract_keywords,
     extract_sections,
     extract_table_rows,
+    find_convergent_findings,
     generate_implementation_spec_markdown,
     synthesize,
 )
@@ -113,6 +114,114 @@ class TestCalculateOverlap:
         # union = {shared, unique1, unique2} = 3
         # Jaccard = 1/3 = 0.333...
         assert abs(calculate_overlap(kw1, kw2) - 1 / 3) < 0.01
+
+
+class TestFindConvergentFindings:
+    """Tests for find_convergent_findings function."""
+
+    def test_no_convergence_with_disjoint_findings(self):
+        """No convergent findings when keywords don't overlap."""
+        findings = {
+            "adversarial": [
+                Finding(text="Security vulnerability in auth", lens="adversarial",
+                        keywords={"security", "vulnerability", "auth"})
+            ],
+            "pragmatic": [
+                Finding(text="Database performance issues", lens="pragmatic",
+                        keywords={"database", "performance", "issues"})
+            ],
+            "cost-benefit": [
+                Finding(text="Marketing budget allocation", lens="cost-benefit",
+                        keywords={"marketing", "budget", "allocation"})
+            ]
+        }
+
+        conv_3, conv_2 = find_convergent_findings(findings, threshold=0.3)
+
+        assert conv_3 == []
+        assert conv_2 == []
+
+    def test_two_lens_convergence_detected(self):
+        """Detects convergence when 2 lenses share keywords."""
+        # Jaccard similarity for adversarial/pragmatic:
+        # intersection = {input, validation, error} = 3
+        # union = {input, validation, error, security, confusing} = 5
+        # Jaccard = 3/5 = 0.6 >= 0.3 threshold
+        findings = {
+            "adversarial": [
+                Finding(text="Input validation error causes security risk", lens="adversarial",
+                        keywords={"input", "validation", "error", "security"})
+            ],
+            "pragmatic": [
+                Finding(text="Input validation error is confusing", lens="pragmatic",
+                        keywords={"input", "validation", "error", "confusing"})
+            ],
+            "cost-benefit": [
+                Finding(text="Completely unrelated topic here", lens="cost-benefit",
+                        keywords={"completely", "unrelated", "topic"})
+            ]
+        }
+
+        conv_3, conv_2 = find_convergent_findings(findings, threshold=0.3)
+
+        assert conv_3 == []
+        assert len(conv_2) >= 1
+        # Verify the convergent finding involves adversarial and pragmatic
+        lenses_found = set()
+        for c in conv_2:
+            lenses_found.update(c.lenses.keys())
+        assert "adversarial" in lenses_found
+        assert "pragmatic" in lenses_found
+
+    def test_three_lens_convergence_detected(self):
+        """Detects convergence when all 3 lenses share keywords."""
+        findings = {
+            "adversarial": [
+                Finding(text="Authentication system has critical vulnerability", lens="adversarial",
+                        keywords={"authentication", "system", "critical", "vulnerability"})
+            ],
+            "pragmatic": [
+                Finding(text="Authentication system is hard to use correctly", lens="pragmatic",
+                        keywords={"authentication", "system", "hard", "correctly"})
+            ],
+            "cost-benefit": [
+                Finding(text="Authentication system maintenance is expensive", lens="cost-benefit",
+                        keywords={"authentication", "system", "maintenance", "expensive"})
+            ]
+        }
+
+        conv_3, conv_2 = find_convergent_findings(findings, threshold=0.3)
+
+        assert len(conv_3) >= 1
+        # 3-lens convergent should have all 3 lenses
+        for c in conv_3:
+            assert len(c.lenses) == 3
+
+    def test_handles_empty_findings(self):
+        """Handles empty findings gracefully."""
+        findings = {
+            "adversarial": [],
+            "pragmatic": [],
+            "cost-benefit": []
+        }
+
+        conv_3, conv_2 = find_convergent_findings(findings, threshold=0.3)
+
+        assert conv_3 == []
+        assert conv_2 == []
+
+    def test_handles_single_lens(self):
+        """Returns empty when only one lens provided."""
+        findings = {
+            "adversarial": [
+                Finding(text="Some finding", lens="adversarial", keywords={"some", "finding"})
+            ]
+        }
+
+        conv_3, conv_2 = find_convergent_findings(findings, threshold=0.3)
+
+        assert conv_3 == []
+        assert conv_2 == []
 
 
 class TestExtractTableRows:
