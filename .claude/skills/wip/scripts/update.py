@@ -73,6 +73,11 @@ def add_item(
     if err:
         return Result(success=False, message=err)
 
+    # Sanitize description - newlines break markdown structure
+    description = ' '.join(description.split())
+    if not description:
+        return Result(success=False, message="Description cannot be empty")
+
     # Generate ID
     item_id = f"W{wip.next_id:03d}"
     wip.next_id += 1

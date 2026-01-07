@@ -66,8 +66,39 @@ def test_add_item_auto_init():
         assert wip_path.exists()
 
 
+def test_add_item_sanitizes_newlines():
+    """Newlines in description should be replaced with spaces."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        wip_path = Path(tmpdir) / "WIP.md"
+        wip = WipFile(version=1, project="test",
+                      updated=datetime.now(), next_id=1, items=[])
+        wip_path.write_text(serialize_wip(wip))
+
+        result = add_item(wip_path, "Task with\nnewline\r\nhere")
+
+        assert result.success
+        reparsed = parse_wip(wip_path.read_text())
+        assert reparsed.items[0].description == "Task with newline here"
+
+
+def test_add_item_rejects_empty_description():
+    """Empty description after sanitization should fail."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        wip_path = Path(tmpdir) / "WIP.md"
+        wip = WipFile(version=1, project="test",
+                      updated=datetime.now(), next_id=1, items=[])
+        wip_path.write_text(serialize_wip(wip))
+
+        result = add_item(wip_path, "   \n\r\n   ")
+
+        assert not result.success
+        assert "empty" in result.message.lower()
+
+
 if __name__ == "__main__":
     test_add_item()
     test_move_item()
     test_add_item_auto_init()
+    test_add_item_sanitizes_newlines()
+    test_add_item_rejects_empty_description()
     print("All tests passed!")
