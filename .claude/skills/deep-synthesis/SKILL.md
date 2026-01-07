@@ -7,7 +7,7 @@ description: >
   Use when evaluating plugins, skills, or MCP servers to adopt.
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   model: claude-opus-4-5-20251101
   timelessness_score: 8
 ---
