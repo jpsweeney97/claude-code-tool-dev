@@ -73,6 +73,25 @@ class SynthesisResult:
     warnings: List[str] = field(default_factory=list)
 
 
+@dataclass
+class SemanticMatch:
+    """A potential semantic match between findings from different lenses."""
+    finding_a: Finding
+    finding_b: Finding
+    shared_element: str
+    rationale: str
+    confidence: str  # "high", "medium", or "low"
+
+
+@dataclass
+class SemanticReviewResult:
+    """Result of LLM semantic review."""
+    matches: List[SemanticMatch]
+    no_matches: List[Tuple[Finding, Finding]]
+    token_usage: Dict[str, int]
+    model_used: str
+
+
 # ===========================================================================
 # TEXT PROCESSING
 # ===========================================================================
