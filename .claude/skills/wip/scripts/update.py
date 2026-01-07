@@ -61,8 +61,15 @@ def add_item(
     context: str = "",
     next_action: str = None
 ) -> Result:
-    """Add new item to WIP."""
+    """Add new item to WIP. Auto-creates WIP.md if missing."""
     wip, err = load_wip(path)
+    if err and "not found" in err.lower():
+        # Auto-initialize WIP file
+        from init import create_wip_file
+        init_result = create_wip_file(path)
+        if not init_result.success:
+            return init_result
+        wip, err = load_wip(path)
     if err:
         return Result(success=False, message=err)
 

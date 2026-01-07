@@ -53,7 +53,21 @@ def test_move_item():
         assert reparsed.items[0].status == Status.COMPLETED
 
 
+def test_add_item_auto_init():
+    """Adding to non-existent WIP.md should auto-create it."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        wip_path = Path(tmpdir) / "subdir" / "WIP.md"
+        # Don't create the file first
+
+        result = add_item(wip_path, "First task")
+
+        assert result.success, f"Expected success but got: {result.message}"
+        assert result.data["id"] == "W001"
+        assert wip_path.exists()
+
+
 if __name__ == "__main__":
     test_add_item()
     test_move_item()
+    test_add_item_auto_init()
     print("All tests passed!")
