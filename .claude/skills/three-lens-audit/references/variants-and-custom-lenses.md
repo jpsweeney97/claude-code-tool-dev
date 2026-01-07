@@ -11,6 +11,31 @@ Built-in presets and custom lens configurations.
 | `--claude-code` | Implementation, Adversarial, Cost/Benefit    | Claude Code feature proposals    |
 | `--quick`       | Adversarial, Pragmatic                       | Fast review, skip ROI analysis   |
 
+## Why These Lenses?
+
+The default trio creates **productive tension**:
+
+| Lens             | Pushes Toward                       | Checks Against                                   |
+| ---------------- | ----------------------------------- | ------------------------------------------------ |
+| **Adversarial**  | Completeness — cover all edge cases | Over-simplification that creates vulnerabilities |
+| **Pragmatic**    | Simplicity — reduce cognitive load  | Over-engineering that nobody can use             |
+| **Cost/Benefit** | Efficiency — maximize ROI           | Both extremes — arbitrates the tradeoff          |
+
+**Why tension matters:** A single perspective optimizes for one dimension. Multiple aligned perspectives create echo chambers. Deliberately opposed perspectives surface issues that consensus-seeking misses.
+
+**When findings converge:** If Adversarial (wanting completeness) and Pragmatic (wanting simplicity) both flag the same issue, it's likely a real problem — not just one lens's bias.
+
+**Design your own:** When creating custom lenses, ensure they push in different directions. Three lenses asking "is it complete?" from different angles won't find simplicity issues.
+
+## When to Use Each Lens Alone
+
+| Situation                | Lens         |
+| ------------------------ | ------------ |
+| Security review          | Adversarial  |
+| Onboarding documentation | Pragmatic    |
+| Process optimization     | Cost/Benefit |
+| High-stakes artifact     | All three    |
+
 ## Custom Lens Configuration
 
 For domain-specific audits, define custom lenses with:
