@@ -303,7 +303,10 @@ def finalize(
     target: str = "[Audit Target]",
     preset: str = "default",
     auto_detect: bool = False,
-    threshold: float = 0.3
+    threshold: float = 0.3,
+    semantic_review: bool = False,
+    semantic_model: str = "haiku",
+    max_semantic_pairs: int = 20
 ) -> FinalizeResult:
     """Validate outputs and synthesize findings."""
     warnings = []
@@ -347,7 +350,14 @@ def finalize(
                         if validation.results.get(l, (False, ""))[0]}
 
     # Synthesize
-    result = synthesize(valid_lens_files, target, threshold=threshold)
+    result = synthesize(
+        valid_lens_files,
+        target,
+        threshold=threshold,
+        semantic_review=semantic_review,
+        semantic_model=semantic_model,
+        max_semantic_pairs=max_semantic_pairs
+    )
 
     if result.warnings:
         warnings.extend(result.warnings)
@@ -433,7 +443,10 @@ def cmd_finalize(args):
         target=args.target,
         preset=args.preset,
         auto_detect=args.auto_detect,
-        threshold=args.threshold
+        threshold=args.threshold,
+        semantic_review=args.semantic_review,
+        semantic_model=args.semantic_model,
+        max_semantic_pairs=args.max_pairs
     )
 
     # Print validation summary
@@ -567,6 +580,23 @@ Examples:
         "--impl-spec",
         action="store_true",
         help="Generate implementation spec format (prioritized tasks for execution)"
+    )
+    finalize_parser.add_argument(
+        "--semantic-review",
+        action="store_true",
+        help="Enable LLM-assisted semantic review for additional convergent findings"
+    )
+    finalize_parser.add_argument(
+        "--semantic-model",
+        choices=["haiku", "sonnet", "opus"],
+        default="haiku",
+        help="Model for semantic review (default: haiku, cheapest)"
+    )
+    finalize_parser.add_argument(
+        "--max-pairs",
+        type=int,
+        default=20,
+        help="Maximum pairs to review semantically (cost control, default: 20)"
     )
     finalize_parser.set_defaults(func=cmd_finalize)
 
