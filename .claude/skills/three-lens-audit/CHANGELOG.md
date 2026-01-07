@@ -18,11 +18,6 @@ All notable changes to three-lens-audit.
 ### Fixed
 - SKILL.md Commands table incorrectly showed `--impl-spec` as slash command flag
 
-## [1.16.1] - 2026-01-07
-
-### Fixed
-- SKILL.md Commands table incorrectly showed `--impl-spec` as slash command flag
-
 ## [1.16.0] - 2026-01-07
 
 ### Added
