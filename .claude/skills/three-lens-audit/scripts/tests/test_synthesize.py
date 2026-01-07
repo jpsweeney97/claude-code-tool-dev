@@ -14,11 +14,11 @@ from synthesize import (
     calculate_overlap,
     extract_keywords,
     extract_sections,
-    extract_table_rows,
     find_convergent_findings,
     generate_implementation_spec_markdown,
     synthesize,
 )
+from common import parse_markdown_table
 
 
 class TestStopWords:
@@ -224,8 +224,8 @@ class TestFindConvergentFindings:
         assert conv_2 == []
 
 
-class TestExtractTableRows:
-    """Tests for extract_table_rows function."""
+class TestParseMarkdownTable:
+    """Tests for parse_markdown_table function (from common.py)."""
 
     def test_extracts_data_rows(self):
         """Extracts data rows from a markdown table."""
@@ -235,7 +235,7 @@ class TestExtractTableRows:
 | value1  | value2  |
 | value3  | value4  |
 """
-        rows = extract_table_rows(content)
+        rows = parse_markdown_table(content)
         assert len(rows) == 2
         assert rows[0]["Header1"] == "value1"
         assert rows[0]["Header2"] == "value2"
@@ -243,7 +243,7 @@ class TestExtractTableRows:
     def test_handles_no_table(self):
         """Returns empty list when no table present."""
         content = "Just some text without any tables."
-        rows = extract_table_rows(content)
+        rows = parse_markdown_table(content)
         assert rows == []
 
 

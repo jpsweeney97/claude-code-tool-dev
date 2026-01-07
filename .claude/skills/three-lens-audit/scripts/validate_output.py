@@ -27,6 +27,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
+try:
+    from common import count_table_rows
+except ImportError:
+    from .common import count_table_rows
+
 
 # ===========================================================================
 # RESULT TYPES
@@ -145,30 +150,6 @@ LENS_REQUIREMENTS = {
 }
 
 
-def find_table_rows(content: str) -> int:
-    """Count non-header rows in markdown tables."""
-    # Find all tables (lines between |---|)
-    lines = content.split('\n')
-    table_rows = 0
-    in_table = False
-
-    for line in lines:
-        stripped = line.strip()
-        if '|' in stripped:
-            if re.match(r'^\|[\s\-:|]+\|$', stripped):
-                # This is a separator row, table header is above
-                in_table = True
-            elif in_table and stripped.startswith('|') and stripped.endswith('|'):
-                # This is a data row
-                table_rows += 1
-            elif not stripped.startswith('|'):
-                in_table = False
-        else:
-            in_table = False
-
-    return table_rows
-
-
 def check_table_columns(content: str, required_columns: List[str]) -> tuple[bool, List[str]]:
     """Check if table contains required columns (case-insensitive)."""
     content_lower = content.lower()
@@ -270,7 +251,7 @@ def validate_output(lens: str, content: str) -> ValidationResult:
 
     # Check for minimum table rows
     if reqs["min_rows"] > 0:
-        row_count = find_table_rows(content)
+        row_count = count_table_rows(content)
         result.check(
             "table_rows",
             row_count >= reqs["min_rows"],

@@ -30,6 +30,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Set, Tuple, Optional
 
+try:
+    from common import parse_markdown_table
+except ImportError:
+    from .common import parse_markdown_table
+
 
 # ===========================================================================
 # RESULT TYPES
@@ -104,38 +109,6 @@ def extract_keywords(text: str) -> Set[str]:
     return keywords
 
 
-def extract_table_rows(content: str) -> List[Dict[str, str]]:
-    """Extract data rows from markdown tables."""
-    rows = []
-    lines = content.split('\n')
-    current_table_headers = []
-    in_table = False
-
-    for line in lines:
-        stripped = line.strip()
-        if '|' in stripped:
-            cells = [c.strip() for c in stripped.split('|')[1:-1]]
-
-            if re.match(r'^[\s\-:|]+$', stripped.replace('|', '')):
-                # Separator row - previous row was headers
-                in_table = True
-            elif not in_table and cells:
-                # This might be header row
-                current_table_headers = cells
-            elif in_table and cells:
-                # Data row
-                if len(cells) == len(current_table_headers):
-                    row = dict(zip(current_table_headers, cells))
-                    rows.append(row)
-                else:
-                    rows.append({'raw': ' | '.join(cells)})
-        else:
-            if stripped and not stripped.startswith('#'):
-                in_table = False
-
-    return rows
-
-
 def extract_sections(content: str) -> Dict[str, str]:
     """Extract section content from markdown."""
     sections = {}
@@ -169,7 +142,7 @@ def extract_findings(content: str, lens: str) -> List[Finding]:
     findings = []
 
     # Extract from tables
-    for row in extract_table_rows(content):
+    for row in parse_markdown_table(content):
         # Get the main content (first non-trivial column)
         text_parts = []
         severity = None

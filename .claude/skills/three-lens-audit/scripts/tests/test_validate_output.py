@@ -11,9 +11,9 @@ from validate_output import (
     ValidationResult,
     check_sections,
     check_table_columns,
-    find_table_rows,
     validate_output,
 )
+from common import count_table_rows
 
 
 class TestLensRequirements:
@@ -78,8 +78,8 @@ class TestValidationResult:
         assert len(result.errors) == 0
 
 
-class TestFindTableRows:
-    """Tests for find_table_rows function."""
+class TestCountTableRows:
+    """Tests for count_table_rows function (from common.py)."""
 
     def test_counts_data_rows(self):
         """Correctly counts data rows in a markdown table."""
@@ -90,7 +90,7 @@ class TestFindTableRows:
 | row2    | data    |
 | row3    | data    |
 """
-        assert find_table_rows(content) == 3
+        assert count_table_rows(content) == 3
 
     def test_ignores_header_and_separator(self):
         """Does not count header or separator as data rows."""
@@ -98,12 +98,12 @@ class TestFindTableRows:
 | Just Header |
 |-------------|
 """
-        assert find_table_rows(content) == 0
+        assert count_table_rows(content) == 0
 
     def test_handles_no_table(self):
         """Returns 0 when there's no table."""
         content = "Just some text without any tables."
-        assert find_table_rows(content) == 0
+        assert count_table_rows(content) == 0
 
 
 class TestCheckTableColumns:
