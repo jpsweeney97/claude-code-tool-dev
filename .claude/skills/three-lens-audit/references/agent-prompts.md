@@ -167,11 +167,20 @@ After all agents return, synthesize using this process:
 
 Scan all three agent outputs for issues mentioned by multiple lenses:
 
+> **Critical:** Keyword matching is a starting hint, not definitive. Actively scan for semantically equivalent findings using different vocabulary—e.g., "exploitable" (adversarial), "confusing" (pragmatic), and "high maintenance" (cost/benefit) may describe the same problematic element.
+
 | Convergence | Meaning | Priority |
 |-------------|---------|----------|
 | All 3 lenses | Critical — multiple perspectives agree this matters | Highest |
 | 2 lenses | Important — likely a real issue | High |
 | 1 lens only | Lens-specific — may be perspective-dependent | Medium |
+
+**Examples of semantic equivalence to watch for:**
+| Adversarial Says | Pragmatic Says | Cost/Benefit Says | Same Issue? |
+|------------------|----------------|-------------------|-------------|
+| "Can be exploited via..." | "Users find this confusing" | "High maintenance burden" | Yes—same element |
+| "Missing validation" | "No error feedback" | "Support costs high" | Yes—input handling gap |
+| "Race condition possible" | "Inconsistent behavior" | "Debugging time sink" | Yes—concurrency issue |
 
 **How to detect convergence:**
 - Look for same concept described differently (e.g., "exploitable" + "confusing" + "high effort" = same problematic element)
