@@ -120,7 +120,7 @@ def get_current_branch() -> Optional[str]:
     return stdout if code == 0 and stdout else None
 
 
-def analyze_branches(days_threshold: int = 30) -> dict:
+def analyze_branches(days_threshold: int = 30, merged_days_threshold: int = 7) -> dict:
     """Analyze all local branches."""
     result = {
         "gone": [],
@@ -179,7 +179,7 @@ def analyze_branches(days_threshold: int = 30) -> dict:
                 pass
 
         # Categorize
-        if is_merged and (last_commit_days is None or last_commit_days > 7):
+        if is_merged and (last_commit_days is None or last_commit_days > merged_days_threshold):
             result["merged_stale"].append(branch_name)
         elif not is_merged and last_commit_days and last_commit_days > days_threshold:
             result["unmerged_stale"].append(branch_name)
@@ -338,6 +338,7 @@ def get_gc_stats() -> dict:
 
 def run_analysis(
     days_threshold: int = 30,
+    merged_days_threshold: int = 7,
     large_threshold_mb: float = 1.0,
     category: str = "all",
 ) -> AnalysisResult:
@@ -351,7 +352,7 @@ def run_analysis(
 
     # Analyze based on category
     if category in ("all", "branches"):
-        result.branches = analyze_branches(days_threshold)
+        result.branches = analyze_branches(days_threshold, merged_days_threshold)
 
     if category in ("all", "stashes"):
         result.stashes = analyze_stashes(days_threshold)
@@ -447,6 +448,12 @@ def main():
         help="Staleness threshold in days (default: 30)",
     )
     parser.add_argument(
+        "--merged-days",
+        type=int,
+        default=7,
+        help="Staleness threshold for merged branches (default: 7)",
+    )
+    parser.add_argument(
         "--large-mb",
         type=float,
         default=1.0,
@@ -467,6 +474,7 @@ def main():
 
     result = run_analysis(
         days_threshold=args.days,
+        merged_days_threshold=args.merged_days,
         large_threshold_mb=args.large_mb,
         category=args.category,
     )
