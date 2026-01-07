@@ -351,13 +351,17 @@ def generate_synthesis_markdown(result: SynthesisResult) -> str:
         lines.extend([
             "### Convergent Findings (All 3 Lenses)",
             "",
-            "> **Warning:** No findings flagged by all 3 lenses. This is unusual and may indicate:",
-            "> - Agent outputs used different terminology for the same issues",
-            "> - Target artifact has no cross-cutting concerns",
-            "> - Manual synthesis review is strongly recommended",
+            "> **⚠️ No automated 3-lens convergence detected.**",
+            ">",
+            "> Keyword matching (Jaccard similarity ≥ 0.3) often misses semantically equivalent findings.",
+            ">",
+            "> **Action required:** Manually scan each lens output for:",
+            "> - Same element described with different terminology",
+            "> - Same root cause surfaced through different perspectives",
+            "> - Issues that Adversarial calls \"exploitable\", Pragmatic calls \"confusing\", Cost/Benefit calls \"high-effort\"",
+            ">",
+            "> See `references/agent-prompts.md#synthesis-template` for semantic equivalence examples.",
             "",
-            "*Automated keyword matching (Jaccard similarity >= 0.3) may miss semantically related findings stated differently.*",
-            ""
         ])
 
     # Convergent findings (2 lenses)
