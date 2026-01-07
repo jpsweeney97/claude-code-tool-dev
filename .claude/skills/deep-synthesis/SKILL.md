@@ -110,7 +110,7 @@ Score 4-6 → Light | 7-9 → Medium | 10-12 → Deep
 
 | # | Phase | Key Action | Reference |
 |---|-------|------------|-----------|
-| 0 | Pre-Flight | Analyze `~/.claude/`, define scope | — |
+| 0 | Pre-Flight | Complete [target-analysis.md](templates/target-analysis.md) | — |
 | 1 | Triage | Score repos, filter to High/Medium | [triage-criteria](references/triage-criteria.md) |
 | 2 | Exploration | Run `deep-exploration` with [output contract](#exploration-output-contract) | — |
 | 3 | Value ID | Apply 4 criteria, classify findings | [value-criteria](references/value-criteria.md) |
@@ -154,6 +154,7 @@ Score 4-6 → Light | 7-9 → Medium | 10-12 → Deep
 
 ## Templates
 
+- [Target Analysis](templates/target-analysis.md) — Phase 0 working doc
 - [Deliverable](templates/deliverable.md) — Final output structure
 - [Triage Worksheet](templates/triage-worksheet.md) — Phase 1 working doc
 - [Conflict Log](templates/conflict-log.md) — Phase 4 working doc
