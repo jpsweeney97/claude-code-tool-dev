@@ -102,17 +102,21 @@ python scripts/run_audit.py prepare target.md --output-dir ./audit_outputs
 python scripts/run_audit.py finalize adversarial.md pragmatic.md cost-benefit.md --target "CLAUDE.md"
 python scripts/run_audit.py finalize outputs/*.md --auto-detect --target "My Skill"
 
+# Finalize with implementation spec output (for TodoWrite workflow)
+python scripts/run_audit.py finalize outputs/*.md --target "Name" --impl-spec
+
 # Status: Check audit progress
 python scripts/run_audit.py status ./audit_outputs
 ```
 
 **Subcommands:**
 
-| Command            | Action                                                           |
-| ------------------ | ---------------------------------------------------------------- |
-| `prepare <target>` | Generate agent prompts, estimate cost, output Task tool template |
-| `finalize <files>` | Validate all outputs, synthesize if valid                        |
-| `status <dir>`     | Check which outputs exist and their validation status            |
+| Command                      | Action                                                           |
+| ---------------------------- | ---------------------------------------------------------------- |
+| `prepare <target>`           | Generate agent prompts, estimate cost, output Task tool template |
+| `finalize <files>`           | Validate all outputs, synthesize if valid                        |
+| `finalize <files> --impl-spec` | Output implementation spec instead of synthesis (for TodoWrite) |
+| `status <dir>`               | Check which outputs exist and their validation status            |
 
 **Prepare output includes:**
 
