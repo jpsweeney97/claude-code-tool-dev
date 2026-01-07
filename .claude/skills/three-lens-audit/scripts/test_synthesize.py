@@ -337,3 +337,84 @@ def test_run_semantic_review_handles_missing_cli():
         # Should return empty result when CLI not found
         assert result.matches == []
         assert result.model_used == "haiku"
+
+
+# ===========================================================================
+# merge_semantic_matches tests
+# ===========================================================================
+
+from synthesize import merge_semantic_matches, ConvergentFinding
+
+
+def test_merge_semantic_matches_creates_convergent_finding():
+    """merge_semantic_matches should create new ConvergentFinding from match."""
+    match = SemanticMatch(
+        finding_a=Finding("config no validation", "adversarial", keywords={"config", "validation"}),
+        finding_b=Finding("config confusing", "pragmatic", keywords={"config", "confusing"}),
+        shared_element="config.yaml",
+        rationale="Both about config",
+        confidence="high"
+    )
+
+    convergent_3 = []
+    convergent_2 = []
+
+    merge_semantic_matches([match], convergent_3, convergent_2)
+
+    # Should create a 2-lens convergent finding
+    assert len(convergent_2) == 1
+    assert "adversarial" in convergent_2[0].lenses
+    assert "pragmatic" in convergent_2[0].lenses
+
+
+def test_merge_semantic_matches_extends_to_3_lens():
+    """If a 2-match involves a lens already in convergent_2, try to extend to 3."""
+    existing = ConvergentFinding(
+        description="config issue",
+        lenses={"adversarial": "validation", "cost-benefit": "overhead"},
+        confidence=0.5,
+        keywords={"config"}
+    )
+    convergent_3 = []
+    convergent_2 = [existing]
+
+    # New match involves adversarial and pragmatic
+    match = SemanticMatch(
+        finding_a=Finding("config no validation", "adversarial", keywords={"config"}),
+        finding_b=Finding("config confusing", "pragmatic", keywords={"config"}),
+        shared_element="config.yaml",
+        rationale="Both about config",
+        confidence="high"
+    )
+
+    merge_semantic_matches([match], convergent_3, convergent_2)
+
+    # Should extend to 3-lens
+    assert len(convergent_3) == 1
+    assert len(convergent_3[0].lenses) == 3
+
+
+def test_merge_semantic_matches_avoids_duplicates():
+    """merge_semantic_matches should not duplicate existing findings."""
+    existing = ConvergentFinding(
+        description="config issue",
+        lenses={"adversarial": "validation", "pragmatic": "confusing"},
+        confidence=0.5,
+        keywords={"config", "validation", "confusing"}
+    )
+    convergent_2 = [existing]
+    convergent_3 = []
+
+    # Match with same findings
+    match = SemanticMatch(
+        finding_a=Finding("validation", "adversarial", keywords={"config", "validation"}),
+        finding_b=Finding("confusing", "pragmatic", keywords={"config", "confusing"}),
+        shared_element="config",
+        rationale="Same",
+        confidence="high"
+    )
+
+    merge_semantic_matches([match], convergent_3, convergent_2)
+
+    # Should not create duplicate
+    assert len(convergent_2) == 1

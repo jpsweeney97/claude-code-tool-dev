@@ -618,6 +618,92 @@ def run_semantic_review(
     return semantic_result
 
 
+def merge_semantic_matches(
+    matches: List[SemanticMatch],
+    convergent_3: List[ConvergentFinding],
+    convergent_2: List[ConvergentFinding]
+) -> None:
+    """Merge semantic matches into convergent findings (mutates lists in place).
+
+    Strategy:
+    1. For each semantic match, check if either finding is already in a 2-lens convergent
+    2. If so, try to extend to 3-lens convergent
+    3. Otherwise, create new 2-lens convergent
+
+    Args:
+        matches: List of semantic matches to merge
+        convergent_3: Existing 3-lens convergent findings (mutated)
+        convergent_2: Existing 2-lens convergent findings (mutated)
+    """
+    for match in matches:
+        lens_a = match.finding_a.lens
+        lens_b = match.finding_b.lens
+        combined_keywords = match.finding_a.keywords | match.finding_b.keywords
+
+        # Check for extension to 3-lens
+        extended = False
+        for c2 in convergent_2[:]:  # Iterate over copy since we may modify
+            # Check if one lens from the match is in this convergent finding
+            if lens_a in c2.lenses and lens_b not in c2.lenses:
+                # Extend with lens_b
+                new_lenses = dict(c2.lenses)
+                new_lenses[lens_b] = match.finding_b.text
+                new_keywords = c2.keywords | combined_keywords
+
+                convergent_3.append(ConvergentFinding(
+                    description=c2.description,
+                    lenses=new_lenses,
+                    confidence=c2.confidence * 0.9,  # Slightly lower confidence
+                    keywords=new_keywords
+                ))
+                convergent_2.remove(c2)
+                extended = True
+                break
+
+            elif lens_b in c2.lenses and lens_a not in c2.lenses:
+                # Extend with lens_a
+                new_lenses = dict(c2.lenses)
+                new_lenses[lens_a] = match.finding_a.text
+                new_keywords = c2.keywords | combined_keywords
+
+                convergent_3.append(ConvergentFinding(
+                    description=c2.description,
+                    lenses=new_lenses,
+                    confidence=c2.confidence * 0.9,
+                    keywords=new_keywords
+                ))
+                convergent_2.remove(c2)
+                extended = True
+                break
+
+        if extended:
+            continue
+
+        # Check for duplicate before creating new convergent
+        is_duplicate = False
+        for c2 in convergent_2:
+            if lens_a in c2.lenses and lens_b in c2.lenses:
+                # Already have this lens combination
+                keyword_overlap = calculate_overlap(combined_keywords, c2.keywords)
+                if keyword_overlap > 0.5:
+                    is_duplicate = True
+                    break
+
+        if is_duplicate:
+            continue
+
+        # Create new 2-lens convergent
+        convergent_2.append(ConvergentFinding(
+            description=match.shared_element,
+            lenses={
+                lens_a: match.finding_a.text,
+                lens_b: match.finding_b.text
+            },
+            confidence=0.8 if match.confidence == "high" else 0.6 if match.confidence == "medium" else 0.4,
+            keywords=combined_keywords
+        ))
+
+
 def identify_unique_findings(
     findings_by_lens: Dict[str, List[Finding]],
     convergent_3: List[ConvergentFinding],
