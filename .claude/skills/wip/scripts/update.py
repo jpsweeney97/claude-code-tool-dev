@@ -25,27 +25,30 @@ from typing import Optional, List
 
 from common import (
     Result, WipFile, WipItem, Status,
-    get_wip_path, get_archive_path, parse_wip, serialize_wip
+    get_wip_path, get_archive_path, parse_wip, serialize_wip,
+    locked_wip_file
 )
 
 
 def load_wip(path: Path) -> tuple[Optional[WipFile], Optional[str]]:
-    """Load WIP file, return (wip, error_message)."""
+    """Load WIP file with shared lock."""
     if not path.exists():
         return None, f"WIP file not found: {path}"
     try:
-        content = path.read_text()
+        with locked_wip_file(path, 'r') as f:
+            content = f.read()
         return parse_wip(content), None
     except Exception as e:
         return None, f"Failed to parse WIP: {e}"
 
 
 def save_wip(path: Path, wip: WipFile) -> Optional[str]:
-    """Save WIP file, return error message or None."""
+    """Save WIP file with exclusive lock."""
     wip.updated = datetime.now()
     try:
         content = serialize_wip(wip)
-        path.write_text(content)
+        with locked_wip_file(path, 'w') as f:
+            f.write(content)
         return None
     except Exception as e:
         return f"Failed to write WIP: {e}"
