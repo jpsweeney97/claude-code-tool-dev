@@ -12,12 +12,11 @@ Exit codes:
 
 import argparse
 import json
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
-from common import get_worktree_branches
+from common import run_git, get_default_branch, get_worktree_branches
 
 
 @dataclass
@@ -47,31 +46,6 @@ class CleanupResult:
             "blocked_count": self.blocked_count,
             "error": self.error,
         }
-
-
-def run_git(args: list[str], timeout: int = 60) -> tuple[int, str, str]:
-    """Run a git command and return (returncode, stdout, stderr)."""
-    try:
-        result = subprocess.run(
-            ["git"] + args,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return result.returncode, result.stdout.strip(), result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return 1, "", "Command timed out"
-    except FileNotFoundError:
-        return 1, "", "git not found in PATH"
-
-
-def get_default_branch() -> str:
-    """Get the default branch name."""
-    code, stdout, _ = run_git(["symbolic-ref", "refs/remotes/origin/HEAD"])
-    if code == 0 and stdout:
-        return stdout.split("/")[-1]
-    code, _, _ = run_git(["rev-parse", "--verify", "main"])
-    return "main" if code == 0 else "master"
 
 
 def is_branch_merged(branch: str, target: str = None) -> bool:
