@@ -59,11 +59,11 @@ def get_default_branch() -> str:
     return "main" if code == 0 else "master"
 
 
-def get_worktree_branches() -> set[str]:
-    """Get branches checked out in worktrees."""
+def get_worktree_branches() -> Optional[set[str]]:
+    """Get branches checked out in worktrees. Returns None on error."""
     code, stdout, _ = run_git(["worktree", "list", "--porcelain"])
     if code != 0:
-        return set()
+        return None
     branches = set()
     for line in stdout.split("\n"):
         if line.startswith("branch refs/heads/"):

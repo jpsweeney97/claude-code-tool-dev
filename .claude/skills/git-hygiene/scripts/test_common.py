@@ -39,7 +39,21 @@ def test_run_git_failure():
 def test_get_worktree_branches_empty():
     """get_worktree_branches returns set."""
     result = get_worktree_branches()
-    assert isinstance(result, set)
+    # Result can be set or None (on error), check for set when successful
+    assert result is None or isinstance(result, set)
+
+
+def test_get_worktree_branches_returns_none_on_error(monkeypatch):
+    """get_worktree_branches returns None when git command fails."""
+    def mock_run_git(args, timeout=60):
+        if args[0] == "worktree":
+            return 1, "", "error: unknown option"
+        return 0, "", ""
+
+    monkeypatch.setattr("common.run_git", mock_run_git)
+    from common import get_worktree_branches
+    result = get_worktree_branches()
+    assert result is None
 
 
 class TestInTempRepo:

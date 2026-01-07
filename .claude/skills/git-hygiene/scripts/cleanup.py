@@ -87,6 +87,13 @@ def delete_branch(branch: str, force: bool = False) -> OperationResult:
 
     # Check if branch is in a worktree
     worktree_branches = get_worktree_branches()
+    if worktree_branches is None:
+        return OperationResult(
+            operation="delete_branch",
+            target=branch,
+            success=False,
+            message="Could not verify worktree status - refusing to delete for safety",
+        )
     if branch in worktree_branches:
         return OperationResult(
             operation="delete_branch",

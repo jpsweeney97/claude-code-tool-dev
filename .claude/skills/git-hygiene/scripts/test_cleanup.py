@@ -23,10 +23,11 @@ def test_operation_result_structure():
 
 def test_delete_branch_blocks_worktree():
     """Cannot delete branch checked out in worktree."""
-    # Test the worktree detection function exists
+    # Test the worktree detection function exists and returns expected types
     from common import get_worktree_branches
     branches = get_worktree_branches()
-    assert isinstance(branches, set)
+    # Returns set on success, None on error
+    assert branches is None or isinstance(branches, set)
 
 
 if __name__ == "__main__":
