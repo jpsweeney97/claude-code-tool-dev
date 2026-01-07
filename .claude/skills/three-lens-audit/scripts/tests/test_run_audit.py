@@ -14,8 +14,10 @@ from run_audit import (
     estimate_cost,
     generate_prompts,
     validate_outputs,
+    finalize,
     PrepareResult,
     ValidationSummary,
+    FinalizeResult,
 )
 
 
@@ -111,3 +113,88 @@ class TestValidateOutputs:
         result = validate_outputs(files)
         passed, _ = result.results["adversarial"]
         assert passed
+
+
+class TestFinalize:
+    """Tests for finalize function."""
+
+    def test_successful_finalize_with_valid_outputs(self, tmp_path):
+        """Finalize succeeds when all outputs are valid."""
+        # Create valid adversarial output with extractable findings
+        adv = tmp_path / "adversarial.md"
+        adv.write_text("""# Adversarial
+| Vulnerability | Evidence | Attack Scenario | Severity |
+|---------------|----------|-----------------|----------|
+| Authentication bypass vulnerability | Missing token validation on line 42 | Attacker sends requests without valid tokens | Major |
+| SQL injection risk | User input not sanitized | Attacker injects malicious queries | Critical |
+""")
+        # Create valid pragmatic output with extractable findings
+        prag = tmp_path / "pragmatic.md"
+        prag.write_text("""# Pragmatic
+## What Works
+- Authentication system provides reasonable security baseline
+- Token validation flow is conceptually correct
+## What's Missing
+- Input sanitization is incomplete for user-provided data
+- Error handling for authentication failures needs improvement
+## Friction Points
+- Token validation logic is scattered across multiple files
+## Verdict
+Acceptable with improvements needed.
+""")
+        # Create valid cost-benefit output with extractable findings
+        cb = tmp_path / "cost-benefit.md"
+        cb.write_text("""# Cost/Benefit
+| Element | Effort | Benefit | Verdict |
+|---------|--------|---------|---------|
+| Token validation refactor | M | H | Keep |
+| Input sanitization layer | L | H | Keep |
+
+## High-ROI
+- Adding input sanitization is low effort high benefit
+## Low-ROI
+- Major authentication overhaul would be expensive
+## Recommendations
+- Prioritize input sanitization before token changes
+""")
+
+        result = finalize([adv, prag, cb], target="test.md")
+
+        assert result.validation.all_passed
+        assert result.synthesis_result is not None
+        # Validation warnings are empty (synthesis may still warn about convergence)
+        assert all("Validation failed" not in w for w in result.warnings)
+
+    def test_finalize_with_insufficient_outputs_returns_no_synthesis(self, tmp_path):
+        """Finalize returns no synthesis when < 2 outputs pass validation."""
+        # Create one valid file
+        adv = tmp_path / "adversarial.md"
+        adv.write_text("""# Adversarial
+| Vulnerability | Evidence | Attack Scenario | Severity |
+|---------------|----------|-----------------|----------|
+| Issue | Proof | Attack | Major |
+""")
+        # Create one invalid file (too short)
+        prag = tmp_path / "pragmatic.md"
+        prag.write_text("too short")
+
+        # Create another invalid file
+        cb = tmp_path / "cost-benefit.md"
+        cb.write_text("also too short")
+
+        result = finalize([adv, prag, cb], target="test.md")
+
+        assert not result.validation.all_passed
+        assert result.synthesis_result is None
+        assert any("Insufficient" in w for w in result.warnings)
+
+    def test_finalize_handles_missing_files(self, tmp_path):
+        """Finalize handles missing files gracefully."""
+        missing1 = tmp_path / "nonexistent1.md"
+        missing2 = tmp_path / "nonexistent2.md"
+        missing3 = tmp_path / "nonexistent3.md"
+
+        result = finalize([missing1, missing2, missing3], target="test.md")
+
+        assert not result.validation.all_passed
+        assert result.synthesis_result is None
