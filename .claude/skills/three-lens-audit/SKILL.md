@@ -3,7 +3,7 @@ name: three-lens-audit
 description: Deploy 3+ parallel agents with competing philosophies to stress-test documents, frameworks, or designs
 license: MIT
 metadata:
-  version: 1.17.0
+  version: 1.18.0
   model: claude-opus-4-5-20251101
   timelessness_score: 8
 ---

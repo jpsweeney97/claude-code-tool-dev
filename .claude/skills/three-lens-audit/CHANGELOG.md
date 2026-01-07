@@ -2,6 +2,31 @@
 
 All notable changes to three-lens-audit.
 
+## [1.18.0] - 2026-01-07
+
+### Added
+- **Semantic Review**: LLM-assisted detection of semantically equivalent findings
+  - `--semantic-review` flag enables semantic matching for findings that keyword matching misses
+  - `--semantic-model` flag to choose model (haiku default, sonnet, opus)
+  - `--max-pairs` flag for cost control
+- New functions in `synthesize.py`:
+  - `extract_references()` - Extract file/section/element references from text
+  - `generate_candidate_pairs()` - Identify pairs for semantic review
+  - `format_pairs_for_prompt()` - Format pairs for LLM prompt
+  - `parse_semantic_response()` - Parse LLM response into structured matches
+  - `run_semantic_review()` - Execute semantic review via Claude CLI
+  - `merge_semantic_matches()` - Merge semantic matches into convergent findings
+- New dataclasses: `SemanticMatch`, `SemanticReviewResult`
+- 28 new tests for semantic review functionality
+
+### Changed
+- `synthesize()` now accepts `semantic_review`, `semantic_model`, `max_semantic_pairs` parameters
+- `finalize()` in `run_audit.py` passes semantic review flags to synthesize
+
+### Cost
+- Semantic review adds ~$0.002-0.01 per synthesis using Haiku
+- 93.3% accuracy, 0% false positive rate based on 45-test evaluation
+
 ## [1.17.0] - 2026-01-07
 
 ### Added

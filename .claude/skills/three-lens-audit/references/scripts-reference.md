@@ -86,7 +86,37 @@ The automated synthesis uses keyword overlap (Jaccard similarity) to detect conv
 | Explicit keyword matches         | Conceptually related issues using synonyms       |
 | Direct overlaps                  | Higher-level pattern convergence                 |
 
-**Recommendation:** Always review the synthesis output manually. If you see 0 convergent findings but the individual lens outputs seem related, the algorithm may have missed semantic overlap. Use the `--threshold` flag (default 0.3) to adjust sensitivity.
+**Recommendation:** Always review the synthesis output manually. If you see 0 convergent findings but the individual lens outputs seem related, the algorithm may have missed semantic overlap. Use the `--threshold` flag (default 0.3) to adjust sensitivity, or enable `--semantic-review` for LLM-assisted matching.
+
+### Semantic Review
+
+Keyword-based convergence detection (Jaccard similarity ≥0.3) misses semantically equivalent findings that use different vocabulary. The `--semantic-review` flag enables LLM-assisted matching.
+
+```bash
+# Enable semantic review (uses Haiku by default, ~$0.002-0.01 per synthesis)
+python scripts/run_audit.py finalize *.md --target "X" --semantic-review
+
+# Use Sonnet for higher accuracy (more expensive)
+python scripts/run_audit.py finalize *.md --target "X" --semantic-review --semantic-model sonnet
+
+# Limit pairs reviewed (cost control)
+python scripts/run_audit.py finalize *.md --target "X" --semantic-review --max-pairs 10
+```
+
+**How it works:**
+
+1. Generates candidate pairs from findings that failed keyword matching
+2. Filters to pairs with shared file/element references
+3. Sends pairs to Claude for semantic comparison
+4. Merges confirmed matches into convergent findings
+
+**When to use:**
+
+- When no 3-lens convergence is detected automatically
+- When findings describe the same element using different terms
+- When vocabulary differs across lenses (e.g., "exploitable" vs "confusing")
+
+**Cost:** ~$0.002-0.01 per synthesis using Haiku (default).
 
 ## run_audit.py
 
@@ -105,6 +135,11 @@ python scripts/run_audit.py finalize outputs/*.md --auto-detect --target "My Ski
 # Finalize with implementation spec output (for TodoWrite workflow)
 python scripts/run_audit.py finalize outputs/*.md --target "Name" --impl-spec
 
+# Finalize with semantic review (LLM-assisted matching)
+python scripts/run_audit.py finalize outputs/*.md --target "Name" --semantic-review
+python scripts/run_audit.py finalize outputs/*.md --target "Name" --semantic-review --semantic-model sonnet
+python scripts/run_audit.py finalize outputs/*.md --target "Name" --semantic-review --max-pairs 10
+
 # Status: Check audit progress
 python scripts/run_audit.py status ./audit_outputs
 ```
@@ -116,6 +151,7 @@ python scripts/run_audit.py status ./audit_outputs
 | `prepare <target>`           | Generate agent prompts, estimate cost, output Task tool template |
 | `finalize <files>`           | Validate all outputs, synthesize if valid                        |
 | `finalize <files> --impl-spec` | Output implementation spec instead of synthesis (for TodoWrite) |
+| `finalize <files> --semantic-review` | Enable LLM-assisted semantic matching (finds keyword misses) |
 | `status <dir>`               | Check which outputs exist and their validation status            |
 
 **Prepare output includes:**
