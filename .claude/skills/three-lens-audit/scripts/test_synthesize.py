@@ -120,3 +120,41 @@ def test_generate_candidate_pairs_respects_max_pairs():
     # All pairs have zero overlap but same file refs
     candidates = generate_candidate_pairs(findings, keyword_threshold=0.3, max_pairs_per_lens_combo=5)
     assert len(candidates) <= 5
+
+
+# ===========================================================================
+# format_pairs_for_prompt tests
+# ===========================================================================
+
+from synthesize import format_pairs_for_prompt
+
+
+def test_format_pairs_for_prompt_includes_lens_labels():
+    """format_pairs_for_prompt should include capitalized lens names."""
+    pairs = [
+        (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+    ]
+    formatted = format_pairs_for_prompt(pairs)
+    assert "**Adversarial:**" in formatted
+    assert "**Pragmatic:**" in formatted
+
+
+def test_format_pairs_for_prompt_numbers_pairs():
+    """format_pairs_for_prompt should number pairs sequentially."""
+    pairs = [
+        (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic")),
+        (Finding("issue C", "cost-benefit"), Finding("issue D", "pragmatic"))
+    ]
+    formatted = format_pairs_for_prompt(pairs)
+    assert "### Pair 1" in formatted
+    assert "### Pair 2" in formatted
+
+
+def test_format_pairs_for_prompt_quotes_finding_text():
+    """format_pairs_for_prompt should quote finding text."""
+    pairs = [
+        (Finding("config has issues", "adversarial"), Finding("config is broken", "pragmatic"))
+    ]
+    formatted = format_pairs_for_prompt(pairs)
+    assert '"config has issues"' in formatted
+    assert '"config is broken"' in formatted

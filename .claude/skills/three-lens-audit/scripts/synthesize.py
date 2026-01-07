@@ -380,6 +380,24 @@ def generate_candidate_pairs(
     return candidates
 
 
+def format_pairs_for_prompt(pairs: List[Tuple[Finding, Finding]]) -> str:
+    """Format finding pairs for the semantic match prompt.
+
+    Args:
+        pairs: List of (finding_a, finding_b) tuples
+
+    Returns:
+        Formatted markdown string for prompt insertion
+    """
+    lines = []
+    for i, (f_a, f_b) in enumerate(pairs, 1):
+        lines.append(f"### Pair {i}")
+        lines.append(f'**{f_a.lens.title().replace("-", "/")}:** "{f_a.text}"')
+        lines.append(f'**{f_b.lens.title().replace("-", "/")}:** "{f_b.text}"')
+        lines.append("")
+    return "\n".join(lines)
+
+
 def identify_unique_findings(
     findings_by_lens: Dict[str, List[Finding]],
     convergent_3: List[ConvergentFinding],
