@@ -66,14 +66,18 @@ Detailed criteria for Phase 3: Value Identification. Each finding must pass all 
 
 **Question:** Does this clash with existing patterns or other candidates?
 
-| Risk Level | Description | Action |
-|------------|-------------|--------|
-| **None** | No overlap with target or other candidates | Pass ✅ |
-| **Low** | Minor overlap, easily resolved | Pass ✅ with note |
-| **Medium** | Significant overlap, resolution needed | Conditional ⚠️ |
-| **High** | Fundamental incompatibility | Fail ❌ or triggers conflict resolution |
+| Risk Level | Result | Next Step |
+|------------|--------|-----------|
+| **None** | Pass ✅ | Proceed to Synthesis |
+| **Low** | Pass ✅ | Proceed; note overlap in documentation |
+| **Medium** | Conditional ⚠️ | Proceed to Synthesis; MUST resolve before adoption |
+| **High** | Fail ❌ | Do NOT proceed—excluded until conflict resolved |
 
-**Evidence required:** Conflict analysis against target + other candidates.
+**Key distinction:**
+- **Medium:** Item proceeds to Phase 4 as Conditional candidate. Conflict resolution determines whether it becomes Candidate or Excluded.
+- **High:** Item is Excluded immediately. To reconsider: resolve the fundamental conflict first, then re-evaluate from Phase 3.
+
+**Evidence required:** Conflict analysis against target config + other candidates from this synthesis.
 
 ---
 
