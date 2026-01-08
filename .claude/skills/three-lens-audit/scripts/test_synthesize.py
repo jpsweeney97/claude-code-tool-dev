@@ -579,9 +579,52 @@ def test_synthesize_semantic_review_merges_matches():
                 semantic_review=True
             )
 
-            # Should have warnings about semantic review
+            # Success message should go to stderr, not warnings
             semantic_warnings = [w for w in result.warnings if "Semantic review" in w]
-            assert len(semantic_warnings) >= 1
+            assert len(semantic_warnings) == 0  # Success is not a warning
+
+
+def test_synthesize_reports_semantic_review_error_in_warnings():
+    """synthesize should add semantic review error to warnings, not just success."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        adv_path = Path(tmpdir) / "adversarial.md"
+        prag_path = Path(tmpdir) / "pragmatic.md"
+
+        # Create findings with shared file reference to generate candidates
+        adv_path.write_text("""
+# Adversarial Audit
+
+| Issue | Severity |
+|-------|----------|
+| `settings.json` allows injection attacks | High |
+""")
+        prag_path.write_text("""
+# Pragmatic Audit
+
+| Issue | Impact |
+|-------|--------|
+| `settings.json` has poor usability | Medium |
+""")
+
+        with patch('synthesize.run_semantic_review') as mock_review:
+            mock_review.return_value = SemanticReviewResult(
+                matches=[],
+                no_matches=[],
+                token_usage={},
+                model_used="haiku",
+                error="Claude CLI failed (exit 1)"
+            )
+
+            result = synthesize(
+                {"adversarial": adv_path, "pragmatic": prag_path},
+                target="test",
+                semantic_review=True
+            )
+
+            # Error should be reported in warnings
+            error_warnings = [w for w in result.warnings if "Semantic review failed" in w]
+            assert len(error_warnings) == 1
+            assert "Claude CLI failed" in error_warnings[0]
 
 
 # ===========================================================================

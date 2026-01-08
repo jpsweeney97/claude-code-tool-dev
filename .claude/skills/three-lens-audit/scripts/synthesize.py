@@ -1068,12 +1068,15 @@ def synthesize(
             # Run LLM semantic review
             semantic_result = run_semantic_review(candidates, model=semantic_model)
 
-            if semantic_result.matches:
+            if semantic_result.error:
+                # Report the error in warnings
+                warnings.append(f"Semantic review failed: {semantic_result.error}")
+            elif semantic_result.matches:
                 # Merge matches into convergent findings
                 merge_semantic_matches(semantic_result.matches, convergent_3, convergent_2)
 
-                # Note the enhancement in warnings
-                warnings.append(f"Semantic review found {len(semantic_result.matches)} additional matches using {semantic_model}")
+                # Note the enhancement (info, not warning)
+                print(f"Info: Semantic review found {len(semantic_result.matches)} additional matches using {semantic_model}", file=sys.stderr)
 
     # Identify unique findings
     unique = identify_unique_findings(findings_by_lens, convergent_3, convergent_2)
