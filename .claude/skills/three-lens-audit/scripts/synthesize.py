@@ -605,33 +605,39 @@ def run_semantic_review(
         )
 
         if result.returncode != 0:
-            print(f"Warning: Claude CLI failed (exit {result.returncode})", file=sys.stderr)
+            error_msg = f"Claude CLI failed (exit {result.returncode})"
+            print(f"Warning: {error_msg}", file=sys.stderr)
             if result.stderr:
                 print(f"  stderr: {result.stderr[:200]}", file=sys.stderr)
             return SemanticReviewResult(
                 matches=[],
                 no_matches=[],
                 token_usage={},
-                model_used=model
+                model_used=model,
+                error=error_msg
             )
 
         response = result.stdout
 
     except subprocess.TimeoutExpired:
-        print("Warning: Claude CLI timed out after 120s", file=sys.stderr)
+        error_msg = "Claude CLI timed out after 120s"
+        print(f"Warning: {error_msg}", file=sys.stderr)
         return SemanticReviewResult(
             matches=[],
             no_matches=[],
             token_usage={},
-            model_used=model
+            model_used=model,
+            error=error_msg
         )
     except FileNotFoundError:
-        print("Warning: 'claude' CLI not found - semantic review skipped", file=sys.stderr)
+        error_msg = "'claude' CLI not found - semantic review skipped"
+        print(f"Warning: {error_msg}", file=sys.stderr)
         return SemanticReviewResult(
             matches=[],
             no_matches=[],
             token_usage={},
-            model_used=model
+            model_used=model,
+            error=error_msg
         )
 
     # Parse response

@@ -689,6 +689,57 @@ class TestRunSemanticReviewErrorLogging:
 
 
 # ===========================================================================
+# run_semantic_review error field tests
+# ===========================================================================
+
+
+def test_run_semantic_review_sets_error_on_cli_failure():
+    """run_semantic_review should set error field when CLI fails."""
+    pairs = [
+        (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+    ]
+
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stderr = "Authentication failed"
+
+    with patch('synthesize.subprocess.run', return_value=mock_result):
+        result = run_semantic_review(pairs, model="haiku")
+
+    assert result.error is not None
+    assert "exit 1" in result.error
+    assert result.matches == []
+
+
+def test_run_semantic_review_sets_error_on_timeout():
+    """run_semantic_review should set error field on timeout."""
+    pairs = [
+        (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+    ]
+
+    with patch('synthesize.subprocess.run', side_effect=subprocess.TimeoutExpired("claude", 120)):
+        result = run_semantic_review(pairs, model="haiku")
+
+    assert result.error is not None
+    assert "timed out" in result.error.lower()
+    assert result.matches == []
+
+
+def test_run_semantic_review_sets_error_on_missing_cli():
+    """run_semantic_review should set error field when claude CLI not found."""
+    pairs = [
+        (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+    ]
+
+    with patch('synthesize.subprocess.run', side_effect=FileNotFoundError("claude")):
+        result = run_semantic_review(pairs, model="haiku")
+
+    assert result.error is not None
+    assert "not found" in result.error.lower()
+    assert result.matches == []
+
+
+# ===========================================================================
 # Direct execution test
 # ===========================================================================
 
