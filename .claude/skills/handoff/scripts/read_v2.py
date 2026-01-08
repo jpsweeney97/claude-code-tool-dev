@@ -17,6 +17,7 @@ Exit Codes:
 
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 
 def get_project_name() -> str:
@@ -33,3 +34,21 @@ def get_project_name() -> str:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
     return Path.cwd().name
+
+
+def get_handoffs_dir() -> Path:
+    """Get handoffs directory: ~/.claude/handoffs/<project>/"""
+    return Path.home() / ".claude" / "handoffs" / get_project_name()
+
+
+def find_latest_handoff(handoffs_dir: Path) -> Optional[Path]:
+    """Find the most recent handoff file by modification time."""
+    if not handoffs_dir.exists():
+        return None
+
+    handoffs = sorted(
+        handoffs_dir.glob("*.md"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return handoffs[0] if handoffs else None

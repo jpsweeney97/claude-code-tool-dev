@@ -74,3 +74,54 @@ class TestGetProjectName:
         with patch("read_v2.subprocess.run") as mock_run:
             mock_run.side_effect = FileNotFoundError("git not found")
             assert read_v2.get_project_name() == "no-git-test"
+
+
+class TestGetHandoffsDir:
+    """Test handoffs directory resolution."""
+
+    def test_returns_global_handoffs_path(self):
+        """Handoffs directory is ~/.claude/handoffs/<project>/"""
+        with patch("read_v2.get_project_name", return_value="my-project"):
+            from read_v2 import get_handoffs_dir
+
+            expected = Path.home() / ".claude" / "handoffs" / "my-project"
+            assert get_handoffs_dir() == expected
+
+
+class TestFindLatestHandoff:
+    """Test finding most recent handoff file."""
+
+    def test_returns_most_recent_by_mtime(self, tmp_path: Path):
+        """Finds handoff with newest modification time."""
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir(parents=True)
+
+        # Create older file
+        old = handoffs_dir / "2026-01-01_10-00_old.md"
+        old.write_text("old content")
+
+        # Create newer file (touch to ensure newer mtime)
+        import time
+
+        time.sleep(0.01)
+        new = handoffs_dir / "2026-01-08_14-30_new.md"
+        new.write_text("new content")
+
+        from read_v2 import find_latest_handoff
+
+        assert find_latest_handoff(handoffs_dir) == new
+
+    def test_returns_none_when_no_handoffs(self, tmp_path: Path):
+        """Returns None when directory is empty."""
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir(parents=True)
+
+        from read_v2 import find_latest_handoff
+
+        assert find_latest_handoff(handoffs_dir) is None
+
+    def test_returns_none_when_dir_missing(self, tmp_path: Path):
+        """Returns None when directory doesn't exist."""
+        from read_v2 import find_latest_handoff
+
+        assert find_latest_handoff(tmp_path / "nonexistent") is None
