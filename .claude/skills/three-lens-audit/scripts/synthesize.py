@@ -29,7 +29,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Set, Tuple, Optional
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 # Ensure common module is importable when running directly from different directories
 _script_dir = Path(__file__).parent
@@ -71,7 +71,7 @@ class SynthesisResult:
     convergent_3: List[ConvergentFinding]  # All 3 lenses
     convergent_2: List[ConvergentFinding]  # 2 lenses
     unique: Dict[str, List[Finding]]  # lens -> unique findings
-    recommendations: List[Dict]
+    recommendations: List[Dict[str, Any]]
     lens_outputs: Dict[str, str]  # raw outputs for reference
     warnings: List[str] = field(default_factory=list)
 
@@ -83,7 +83,7 @@ class SemanticMatch:
     finding_b: Finding
     shared_element: str
     rationale: str
-    confidence: str  # "high", "medium", or "low"
+    confidence: Literal["high", "medium", "low"]
 
 
 @dataclass
@@ -99,24 +99,34 @@ class SemanticReviewResult:
 # TEXT PROCESSING
 # ===========================================================================
 
-# Common stop words to ignore in keyword extraction
+# Stop words for keyword extraction (NLTK English stopwords subset, organized for readability)
+# Source: Adapted from nltk.corpus.stopwords with additions for technical content
 STOP_WORDS = {
-    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-    'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'dare',
-    'ought', 'used', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by',
-    'from', 'as', 'into', 'through', 'during', 'before', 'after', 'above',
-    'below', 'between', 'under', 'again', 'further', 'then', 'once',
-    'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each', 'few',
-    'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
-    'own', 'same', 'so', 'than', 'too', 'very', 'just', 'and', 'but',
-    'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by',
-    'about', 'against', 'between', 'into', 'through', 'during', 'before',
-    'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out',
-    'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once',
-    'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom',
-    'it', 'its', 'they', 'them', 'their', 'we', 'us', 'our', 'you', 'your',
-    'he', 'him', 'his', 'she', 'her', 'i', 'me', 'my', 'mine',
+    # Articles and determiners
+    'a', 'an', 'the', 'this', 'that', 'these', 'those',
+    # Be verbs
+    'be', 'been', 'being', 'is', 'are', 'was', 'were',
+    # Auxiliary verbs
+    'have', 'has', 'had', 'do', 'does', 'did',
+    # Modal verbs
+    'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall', 'can',
+    'need', 'dare', 'ought', 'used',
+    # Prepositions
+    'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into',
+    'through', 'during', 'before', 'after', 'above', 'below', 'between', 'under',
+    'about', 'against', 'up', 'down', 'out', 'off', 'over',
+    # Conjunctions
+    'and', 'but', 'if', 'or', 'because', 'until', 'while', 'nor',
+    # Adverbs
+    'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why',
+    'how', 'all', 'each', 'few', 'more', 'most', 'other', 'some', 'such',
+    'no', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 'just',
+    # Pronouns
+    'i', 'me', 'my', 'mine', 'we', 'us', 'our',
+    'you', 'your',
+    'he', 'him', 'his', 'she', 'her',
+    'it', 'its', 'they', 'them', 'their',
+    'what', 'which', 'who', 'whom',
 }
 
 
