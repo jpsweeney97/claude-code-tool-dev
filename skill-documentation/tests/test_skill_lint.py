@@ -27,11 +27,10 @@ class TestDecisionPointDetection:
         body = "If the file exists, then read it, otherwise create it."
         assert _count_decision_points(body) >= 1
 
-    def test_else_not_detected_currently(self):
-        """'else' is NOT detected - this documents current behavior."""
+    def test_else_detected(self):
+        """'else' should be recognized as a decision point branch."""
         body = "If the file exists, then read it, else create it."
-        # Current behavior: else not recognized
-        assert _count_decision_points(body) == 0
+        assert _count_decision_points(body) >= 1
 
     def test_multiple_decision_points(self):
         """Multiple decision points should all be counted."""
@@ -100,6 +99,20 @@ class TestContentAreaDetection:
         chunk = _find_section_chunk(lines, headings, spans, CONTENT_AREAS["when_to_use"])
         # "Triggers" is now in synonyms
         assert chunk is not None
+
+
+class TestDecisionPointSynonyms:
+    """Test expanded decision point detection."""
+
+    def test_else_detected_as_otherwise(self):
+        """'else' should be recognized like 'otherwise'."""
+        body = "If the file exists, then read it, else create it."
+        assert _count_decision_points(body) >= 1
+
+    def test_if_not_detected(self):
+        """'if not' patterns should count as decision points."""
+        body = "If not found, then search deeper, otherwise report missing."
+        assert _count_decision_points(body) >= 1
 
 
 class TestContentAreaSynonyms:

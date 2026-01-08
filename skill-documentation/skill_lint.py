@@ -114,8 +114,14 @@ STOP_PATTERNS: Tuple[re.Pattern[str], ...] = (
 )
 
 DECISION_POINT_REGEXES: Tuple[re.Pattern[str], ...] = (
+    # Original: if ... then ... otherwise
     re.compile(r"(?i)\bif\b.{0,200}\bthen\b.{0,200}\botherwise\b"),
     re.compile(r"(?i)^\s*[-*]?\s*if\b.*\bthen\b.*\botherwise\b", re.MULTILINE),
+    # New: if ... then ... else
+    re.compile(r"(?i)\bif\b.{0,200}\bthen\b.{0,200}\belse\b"),
+    re.compile(r"(?i)^\s*[-*]?\s*if\b.*\bthen\b.*\belse\b", re.MULTILINE),
+    # New: if ... else (without explicit then)
+    re.compile(r"(?i)\bif\b.{0,100}\belse\b"),
 )
 
 @dataclasses.dataclass(frozen=True)
@@ -194,12 +200,15 @@ def _count_decision_points(body: str) -> int:
     count = 0
     for rx in DECISION_POINT_REGEXES:
         count += len(list(rx.finditer(body)))
-    # De-dupe crude overlaps: if both regexes hit same lines, count may inflate.
-    # Clamp by counting unique line numbers that contain "if" AND "otherwise".
+    # De-dupe crude overlaps
     lines = body.splitlines()
     unique = 0
     for line in lines:
-        if re.search(r"(?i)\bif\b", line) and re.search(r"(?i)\botherwise\b", line) and re.search(r"(?i)\bthen\b", line):
+        has_if = re.search(r"(?i)\bif\b", line)
+        has_branch = re.search(r"(?i)\b(otherwise|else)\b", line)
+        has_then = re.search(r"(?i)\bthen\b", line)
+        # Count if line has if + (otherwise|else), with or without then
+        if has_if and has_branch:
             unique += 1
     return max(unique, count)
 
