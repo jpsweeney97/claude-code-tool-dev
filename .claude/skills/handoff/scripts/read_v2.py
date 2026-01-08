@@ -16,8 +16,9 @@ Exit Codes:
 """
 
 import subprocess
+import time
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 
 def get_project_name() -> str:
@@ -52,3 +53,19 @@ def find_latest_handoff(handoffs_dir: Path) -> Optional[Path]:
         reverse=True,
     )
     return handoffs[0] if handoffs else None
+
+
+def prune_old_handoffs(handoffs_dir: Path, max_age_days: int = 30) -> List[Path]:
+    """Delete handoff files older than max_age_days. Returns list of deleted files."""
+    if not handoffs_dir.exists():
+        return []
+
+    deleted = []
+    cutoff = time.time() - (max_age_days * 24 * 60 * 60)
+
+    for handoff in handoffs_dir.glob("*.md"):
+        if handoff.stat().st_mtime < cutoff:
+            handoff.unlink()
+            deleted.append(handoff)
+
+    return deleted

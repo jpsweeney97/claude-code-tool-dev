@@ -125,3 +125,55 @@ class TestFindLatestHandoff:
         from read_v2 import find_latest_handoff
 
         assert find_latest_handoff(tmp_path / "nonexistent") is None
+
+
+class TestPruneOldHandoffs:
+    """Test 30-day retention pruning."""
+
+    def test_deletes_files_older_than_30_days(self, tmp_path: Path):
+        """Files older than 30 days are deleted."""
+        import os
+        import time
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir(parents=True)
+
+        # Create old file (simulate 31 days ago via mtime)
+        old = handoffs_dir / "2025-12-01_10-00_ancient.md"
+        old.write_text("old content")
+        old_time = time.time() - (31 * 24 * 60 * 60)
+        os.utime(old, (old_time, old_time))
+
+        # Create recent file
+        recent = handoffs_dir / "2026-01-08_14-30_recent.md"
+        recent.write_text("recent content")
+
+        from read_v2 import prune_old_handoffs
+
+        deleted = prune_old_handoffs(handoffs_dir, max_age_days=30)
+
+        assert deleted == [old]
+        assert not old.exists()
+        assert recent.exists()
+
+    def test_keeps_files_within_retention(self, tmp_path: Path):
+        """Files within 30 days are kept."""
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir(parents=True)
+
+        recent = handoffs_dir / "2026-01-08_14-30_recent.md"
+        recent.write_text("recent content")
+
+        from read_v2 import prune_old_handoffs
+
+        deleted = prune_old_handoffs(handoffs_dir, max_age_days=30)
+
+        assert deleted == []
+        assert recent.exists()
+
+    def test_handles_missing_directory(self, tmp_path: Path):
+        """Gracefully handles missing directory."""
+        from read_v2 import prune_old_handoffs
+
+        deleted = prune_old_handoffs(tmp_path / "nonexistent", max_age_days=30)
+        assert deleted == []
