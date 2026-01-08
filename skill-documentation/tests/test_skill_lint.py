@@ -141,6 +141,44 @@ class TestVerificationFormats:
         assert _has_quick_check_with_expected(chunk) is True
 
 
+class TestDangerousCommandContext:
+    """Test context-aware dangerous command detection."""
+
+    def test_deploy_in_fenced_code_not_flagged(self):
+        """Commands in fenced code blocks are examples, not instructions."""
+        body = """
+        ## Example
+
+        ```bash
+        kubectl deploy my-app
+        ```
+
+        This shows how deployment works.
+        """
+        fail_codes, details = lint_text(body)
+        # Should NOT trigger unsafe-default for example code
+        assert "FAIL.unsafe-default" not in fail_codes
+
+    def test_deploy_in_inline_code_flagged(self):
+        """Inline backtick commands ARE instructions."""
+        body = """
+        Run `kubectl deploy my-app` to deploy.
+        """
+        fail_codes, details = lint_text(body)
+        # Should trigger - inline code is actionable
+        assert "FAIL.unsafe-default" in fail_codes
+
+    def test_deploy_in_prose_not_flagged(self):
+        """'deploy' in prose text shouldn't trigger."""
+        body = """
+        This skill helps you deploy applications safely.
+        We deploy to staging first.
+        """
+        fail_codes, details = lint_text(body)
+        # Should NOT trigger for prose
+        assert "FAIL.unsafe-default" not in fail_codes
+
+
 class TestContentAreaSynonyms:
     """Test expanded synonym detection."""
 

@@ -140,6 +140,15 @@ def _strip_frontmatter(md: str) -> str:
                 return "\n".join(lines[i + 1 :])
     return md
 
+
+def _strip_fenced_code_blocks(text: str) -> str:
+    """Remove fenced code blocks (```...```) from text.
+
+    These are examples, not actionable instructions.
+    """
+    # Match ``` optionally with language, then content, then closing ```
+    return re.sub(r"```[^\n]*\n.*?```", "", text, flags=re.DOTALL)
+
 @dataclasses.dataclass
 class Heading:
     level: int
@@ -382,7 +391,9 @@ def lint_text(md_text: str, *, assumed_annex: Optional[str] = None) -> Tuple[Lis
         strict_details.append("Assumptions: could not detect constraints/assumptions (tools/network/permissions/repo) or fallbacks.")
 
     # FAIL.unsafe-default (heuristic)
-    backticked_cmds = _extract_backticked_commands(body)
+    # Only check inline backtick commands, not fenced code blocks (examples)
+    body_no_fenced = _strip_fenced_code_blocks(body)
+    backticked_cmds = _extract_backticked_commands(body_no_fenced)
     dangerous_cmds = [c for c in backticked_cmds if _looks_like_dangerous_command(c)]
     if dangerous_cmds and not _has_ask_first(body):
         strict_fail_codes.append("FAIL.unsafe-default")
