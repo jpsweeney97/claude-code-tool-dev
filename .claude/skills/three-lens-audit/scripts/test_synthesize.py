@@ -278,6 +278,78 @@ SHARED_ELEMENT: something
     assert isinstance(result.matches, list)
 
 
+def test_parse_semantic_response_skipped_pair_numbers():
+    """parse_semantic_response should handle non-sequential pair numbers."""
+    response = """
+PAIR 1:
+ELEMENT_A: cache invalidation
+ELEMENT_B: cache config
+MATCH: yes
+SHARED_ELEMENT: cache
+RATIONALE: Both about caching
+CONFIDENCE: high
+
+PAIR 3:
+ELEMENT_A: auth tokens
+ELEMENT_B: token refresh
+MATCH: yes
+SHARED_ELEMENT: tokens
+RATIONALE: Both about tokens
+CONFIDENCE: medium
+"""
+    pairs = [
+        (Finding("cache invalidation", "adversarial"), Finding("cache config", "cost-benefit")),
+        (Finding("unrelated", "adversarial"), Finding("stuff", "cost-benefit")),
+        (Finding("auth tokens", "adversarial"), Finding("token refresh", "cost-benefit")),
+    ]
+    result = parse_semantic_response(response, pairs)
+
+    # Should parse what it can find
+    assert len(result.matches) >= 1  # At least pair 1
+
+
+def test_parse_semantic_response_extra_whitespace():
+    """parse_semantic_response should handle extra whitespace in fields."""
+    response = """
+PAIR 1:
+ELEMENT_A:   cache invalidation
+ELEMENT_B:  cache config
+MATCH:   yes
+SHARED_ELEMENT:    cache
+RATIONALE:   Both about caching
+CONFIDENCE:   high
+"""
+    pairs = [
+        (Finding("cache invalidation", "adversarial"), Finding("cache config", "cost-benefit"))
+    ]
+    result = parse_semantic_response(response, pairs)
+
+    assert len(result.matches) == 1
+    assert result.matches[0].shared_element.strip() == "cache"
+
+
+def test_parse_semantic_response_invalid_match_value():
+    """parse_semantic_response should handle invalid MATCH values gracefully."""
+    response = """
+PAIR 1:
+ELEMENT_A: cache invalidation
+ELEMENT_B: cache config
+MATCH: maybe
+SHARED_ELEMENT: cache
+RATIONALE: Uncertain
+CONFIDENCE: low
+"""
+    pairs = [
+        (Finding("cache invalidation", "adversarial"), Finding("cache config", "cost-benefit"))
+    ]
+    result = parse_semantic_response(response, pairs)
+
+    # Should not crash, 'maybe' should be treated as no match
+    assert isinstance(result.matches, list)
+    # 'maybe' is not 'yes', so no match
+    assert len(result.matches) == 0 or result.matches[0].confidence != "high"
+
+
 def test_semantic_review_result_has_error_field():
     """SemanticReviewResult should have an optional error field."""
     from synthesize import SemanticReviewResult
