@@ -29,7 +29,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Ensure common module is importable when running directly from different directories
 _script_dir = Path(__file__).parent
@@ -83,7 +83,7 @@ class SemanticMatch:
     finding_b: Finding
     shared_element: str
     rationale: str
-    confidence: Literal["high", "medium", "low"]
+    confidence: str  # "high", "medium", or "low" (or edge cases from LLM parsing)
 
 
 @dataclass
