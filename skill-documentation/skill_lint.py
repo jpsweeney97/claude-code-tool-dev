@@ -206,7 +206,6 @@ def _count_decision_points(body: str) -> int:
     for line in lines:
         has_if = re.search(r"(?i)\bif\b", line)
         has_branch = re.search(r"(?i)\b(otherwise|else)\b", line)
-        has_then = re.search(r"(?i)\bthen\b", line)
         # Count if line has if + (otherwise|else), with or without then
         if has_if and has_branch:
             unique += 1
