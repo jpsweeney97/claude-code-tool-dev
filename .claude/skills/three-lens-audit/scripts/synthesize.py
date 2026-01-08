@@ -1027,7 +1027,18 @@ def synthesize(
             warnings.append(f"File not found for {lens}: {path}")
             continue
 
-        content = path.read_text()
+        try:
+            content = path.read_text()
+        except PermissionError as e:
+            warnings.append(f"Could not read {lens} output ({path}): {e}")
+            continue
+        except UnicodeDecodeError as e:
+            warnings.append(f"Encoding error in {lens} output ({path}): {e}")
+            continue
+        except OSError as e:
+            warnings.append(f"Could not read {lens} output ({path}): {e}")
+            continue
+
         lens_outputs[lens] = content
 
         # Extract findings

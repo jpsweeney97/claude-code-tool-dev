@@ -810,3 +810,61 @@ def test_synthesize_direct_execution():
     # Should not have import errors
     assert "ImportError" not in result.stderr
     assert "ModuleNotFoundError" not in result.stderr
+
+
+# ===========================================================================
+# File loading error handling tests (CRITICAL FIX)
+# ===========================================================================
+
+
+def test_synthesize_handles_permission_error_on_read(tmp_path: Path):
+    """synthesize should handle PermissionError gracefully, not crash."""
+    from synthesize import synthesize
+
+    # Create files
+    good_file = tmp_path / "adversarial.md"
+    good_file.write_text("# Adversarial Auditor\n| Finding | Description |\n|---------|-------------|\n| Issue | Desc |")
+
+    bad_file = tmp_path / "pragmatic.md"
+    bad_file.write_text("# Pragmatic Practitioner\n| Finding | Description |\n|---------|-------------|\n| Issue | Desc |")
+
+    lens_files = {
+        "adversarial": good_file,
+        "pragmatic": bad_file
+    }
+
+    # Mock read_text to raise PermissionError for bad_file
+    original_read_text = Path.read_text
+    def mock_read_text(self, *args, **kwargs):
+        if self == bad_file:
+            raise PermissionError("Permission denied")
+        return original_read_text(self, *args, **kwargs)
+
+    with patch.object(Path, 'read_text', mock_read_text):
+        result = synthesize(lens_files, target="test")
+
+    # Should not crash, should have warning
+    assert any("Permission denied" in w or "Could not read" in w for w in result.warnings)
+
+
+def test_synthesize_handles_unicode_error_on_read(tmp_path: Path):
+    """synthesize should handle UnicodeDecodeError gracefully."""
+    from synthesize import synthesize
+
+    # Create a file with valid content
+    good_file = tmp_path / "adversarial.md"
+    good_file.write_text("# Adversarial Auditor\n| Finding | Description |\n|---------|-------------|\n| Issue | Desc |")
+
+    # Create a file with binary content that will fail to decode
+    bad_file = tmp_path / "pragmatic.md"
+    bad_file.write_bytes(b'\x80\x81\x82')  # Invalid UTF-8
+
+    lens_files = {
+        "adversarial": good_file,
+        "pragmatic": bad_file
+    }
+
+    result = synthesize(lens_files, target="test")
+
+    # Should not crash, should have warning about encoding
+    assert any("Encoding error" in w or "decode" in w.lower() for w in result.warnings)
