@@ -25,3 +25,10 @@ __pycache__/
 
 # Git worktrees (isolated workspaces)
 .worktrees/
+
+# Session artifacts
+docs/plans/
+docs/audits/
+docs/designs/
+.claude/handoffs/
+packages/plugins/plugin-dev/.claude/
