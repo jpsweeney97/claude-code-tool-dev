@@ -71,6 +71,50 @@ def test_extract_references_returns_lowercase():
 
 
 # ===========================================================================
+# calculate_overlap tests
+# ===========================================================================
+
+from synthesize import calculate_overlap
+
+
+def test_calculate_overlap_identical_sets():
+    """calculate_overlap should return 1.0 for identical sets."""
+    set_a = {"cache", "validation", "error"}
+    set_b = {"cache", "validation", "error"}
+
+    assert calculate_overlap(set_a, set_b) == 1.0
+
+
+def test_calculate_overlap_disjoint_sets():
+    """calculate_overlap should return 0.0 for disjoint sets."""
+    set_a = {"cache", "validation"}
+    set_b = {"logging", "metrics"}
+
+    assert calculate_overlap(set_a, set_b) == 0.0
+
+
+def test_calculate_overlap_partial_overlap():
+    """calculate_overlap should return correct Jaccard coefficient."""
+    set_a = {"cache", "validation", "error"}
+    set_b = {"cache", "validation", "logging"}
+
+    # Intersection: {cache, validation} = 2
+    # Union: {cache, validation, error, logging} = 4
+    # Jaccard: 2/4 = 0.5
+    assert calculate_overlap(set_a, set_b) == 0.5
+
+
+def test_calculate_overlap_empty_sets():
+    """calculate_overlap should return 0.0 for empty sets."""
+    # Both empty
+    assert calculate_overlap(set(), set()) == 0.0
+
+    # One empty
+    assert calculate_overlap({"cache"}, set()) == 0.0
+    assert calculate_overlap(set(), {"cache"}) == 0.0
+
+
+# ===========================================================================
 # generate_candidate_pairs tests
 # ===========================================================================
 
