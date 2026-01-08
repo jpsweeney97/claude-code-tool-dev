@@ -15,6 +15,7 @@ Exit Codes:
     1  - No handoff found (silent exit for hook)
 """
 
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -69,3 +70,27 @@ def prune_old_handoffs(handoffs_dir: Path, max_age_days: int = 30) -> List[Path]
             deleted.append(handoff)
 
     return deleted
+
+
+def is_recent(path: Path, hours: int = 24) -> bool:
+    """Check if file was modified within the last N hours."""
+    cutoff = time.time() - (hours * 60 * 60)
+    return path.stat().st_mtime > cutoff
+
+
+def extract_title(content: str) -> str:
+    """Extract handoff title from frontmatter or heading."""
+    # Try frontmatter title first
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            for line in parts[1].split("\n"):
+                if line.startswith("title:"):
+                    return line.split(":", 1)[1].strip().strip("\"'")
+
+    # Fall back to H1 heading "# Handoff: <title>"
+    match = re.search(r"^# Handoff: (.+)$", content, re.MULTILINE)
+    if match:
+        return match.group(1).strip()
+
+    return "Untitled"

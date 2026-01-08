@@ -177,3 +177,69 @@ class TestPruneOldHandoffs:
 
         deleted = prune_old_handoffs(tmp_path / "nonexistent", max_age_days=30)
         assert deleted == []
+
+
+class TestCheckRecency:
+    """Test 24-hour recency threshold."""
+
+    def test_recent_under_24h(self, tmp_path: Path):
+        """File under 24h old is 'recent'."""
+        handoff = tmp_path / "handoff.md"
+        handoff.write_text("content")
+        # File is just created, so definitely under 24h
+
+        from read_v2 import is_recent
+
+        assert is_recent(handoff, hours=24) is True
+
+    def test_old_over_24h(self, tmp_path: Path):
+        """File over 24h old is not 'recent'."""
+        import os
+        import time
+
+        handoff = tmp_path / "handoff.md"
+        handoff.write_text("content")
+
+        # Set mtime to 25 hours ago
+        old_time = time.time() - (25 * 60 * 60)
+        os.utime(handoff, (old_time, old_time))
+
+        from read_v2 import is_recent
+
+        assert is_recent(handoff, hours=24) is False
+
+
+class TestExtractTitle:
+    """Test extracting title from handoff frontmatter and content."""
+
+    def test_extracts_from_frontmatter(self):
+        """Extracts title from YAML frontmatter."""
+        content = """---
+date: 2026-01-08
+title: Auth middleware implementation
+---
+
+# Handoff: Auth middleware implementation
+"""
+        from read_v2 import extract_title
+
+        assert extract_title(content) == "Auth middleware implementation"
+
+    def test_falls_back_to_heading(self):
+        """Falls back to H1 heading if no frontmatter title."""
+        content = """---
+date: 2026-01-08
+---
+
+# Handoff: JWT token refresh
+"""
+        from read_v2 import extract_title
+
+        assert extract_title(content) == "JWT token refresh"
+
+    def test_returns_untitled_when_missing(self):
+        """Returns 'Untitled' when no title found."""
+        content = "Just some content"
+        from read_v2 import extract_title
+
+        assert extract_title(content) == "Untitled"
