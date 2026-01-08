@@ -31,10 +31,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Set, Tuple, Optional
 
-try:
-    from common import parse_markdown_table
-except ImportError:
-    from .common import parse_markdown_table
+# Ensure common module is importable when running directly from different directories
+_script_dir = Path(__file__).parent
+if str(_script_dir) not in sys.path:
+    sys.path.insert(0, str(_script_dir))
+
+from common import parse_markdown_table
 
 
 # ===========================================================================
@@ -592,7 +594,9 @@ def run_semantic_review(
         )
 
         if result.returncode != 0:
-            # Return empty result on error
+            print(f"Warning: Claude CLI failed (exit {result.returncode})", file=sys.stderr)
+            if result.stderr:
+                print(f"  stderr: {result.stderr[:200]}", file=sys.stderr)
             return SemanticReviewResult(
                 matches=[],
                 no_matches=[],
@@ -602,8 +606,16 @@ def run_semantic_review(
 
         response = result.stdout
 
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        # Claude CLI not available or timed out
+    except subprocess.TimeoutExpired:
+        print("Warning: Claude CLI timed out after 120s", file=sys.stderr)
+        return SemanticReviewResult(
+            matches=[],
+            no_matches=[],
+            token_usage={},
+            model_used=model
+        )
+    except FileNotFoundError:
+        print("Warning: 'claude' CLI not found - semantic review skipped", file=sys.stderr)
         return SemanticReviewResult(
             matches=[],
             no_matches=[],

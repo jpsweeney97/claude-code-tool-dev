@@ -558,3 +558,137 @@ def test_synthesize_semantic_review_merges_matches():
             # Should have warnings about semantic review
             semantic_warnings = [w for w in result.warnings if "Semantic review" in w]
             assert len(semantic_warnings) >= 1
+
+
+# ===========================================================================
+# run_semantic_review error logging tests
+# ===========================================================================
+
+import sys
+from io import StringIO
+
+
+class TestRunSemanticReviewErrorLogging:
+    """Tests for stderr logging in run_semantic_review failure modes."""
+
+    def test_nonzero_exit_logs_to_stderr(self, monkeypatch):
+        """Non-zero exit logs error to stderr."""
+        pairs = [
+            (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+        ]
+
+        stderr_capture = StringIO()
+        monkeypatch.setattr(sys, "stderr", stderr_capture)
+
+        with patch('synthesize.subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                stdout="",
+                stderr="API error: rate limited",
+                returncode=1
+            )
+
+            result = run_semantic_review(pairs, model="haiku")
+
+            # Should return empty result
+            assert result.matches == []
+
+            # Should log error to stderr
+            stderr_output = stderr_capture.getvalue()
+            assert "Warning" in stderr_output
+            assert "exit" in stderr_output.lower() or "failed" in stderr_output.lower()
+
+    def test_nonzero_exit_includes_stderr_content(self, monkeypatch):
+        """Non-zero exit includes stderr content in log message."""
+        pairs = [
+            (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+        ]
+
+        stderr_capture = StringIO()
+        monkeypatch.setattr(sys, "stderr", stderr_capture)
+
+        with patch('synthesize.subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(
+                stdout="",
+                stderr="API error: invalid model",
+                returncode=1
+            )
+
+            run_semantic_review(pairs, model="haiku")
+
+            stderr_output = stderr_capture.getvalue()
+            # Should include the stderr content from the failed command
+            assert "API error" in stderr_output or "invalid model" in stderr_output
+
+    def test_timeout_logs_to_stderr(self, monkeypatch):
+        """Timeout logs warning to stderr."""
+        pairs = [
+            (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+        ]
+
+        stderr_capture = StringIO()
+        monkeypatch.setattr(sys, "stderr", stderr_capture)
+
+        with patch('synthesize.subprocess.run') as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="claude", timeout=120)
+
+            result = run_semantic_review(pairs, model="haiku")
+
+            # Should return empty result
+            assert result.matches == []
+
+            # Should log timeout to stderr
+            stderr_output = stderr_capture.getvalue()
+            assert "Warning" in stderr_output
+            assert "timeout" in stderr_output.lower() or "timed out" in stderr_output.lower()
+
+    def test_cli_not_found_logs_to_stderr(self, monkeypatch):
+        """FileNotFoundError logs helpful message to stderr."""
+        pairs = [
+            (Finding("issue A", "adversarial"), Finding("issue B", "pragmatic"))
+        ]
+
+        stderr_capture = StringIO()
+        monkeypatch.setattr(sys, "stderr", stderr_capture)
+
+        with patch('synthesize.subprocess.run') as mock_run:
+            mock_run.side_effect = FileNotFoundError("claude not found")
+
+            result = run_semantic_review(pairs, model="haiku")
+
+            # Should return empty result
+            assert result.matches == []
+
+            # Should log helpful message to stderr
+            stderr_output = stderr_capture.getvalue()
+            assert "Warning" in stderr_output
+            assert "claude" in stderr_output.lower() or "not found" in stderr_output.lower()
+
+
+# ===========================================================================
+# Direct execution test
+# ===========================================================================
+
+
+def test_synthesize_direct_execution():
+    """Script runnable via python synthesize.py --help."""
+    import subprocess as sp
+    from pathlib import Path
+
+    script_path = Path(__file__).parent / "synthesize.py"
+
+    # Run script directly with --help from a DIFFERENT directory
+    # to test the import path handling
+    result = sp.run(
+        [sys.executable, str(script_path), "--help"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        cwd="/tmp"  # Run from /tmp, not from the script's directory
+    )
+
+    # Should exit successfully with help text
+    assert result.returncode == 0
+    assert "usage" in result.stdout.lower() or "synthesize" in result.stdout.lower()
+    # Should not have import errors
+    assert "ImportError" not in result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
