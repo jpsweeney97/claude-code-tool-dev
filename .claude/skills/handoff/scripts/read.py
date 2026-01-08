@@ -85,9 +85,15 @@ def prune_old_handoffs(handoffs_dir: Path, max_age_days: int = 30) -> List[Path]
 
 
 def is_recent(path: Path, hours: int = 24) -> bool:
-    """Check if file was modified within the last N hours."""
-    cutoff = time.time() - (hours * 60 * 60)
-    return path.stat().st_mtime > cutoff
+    """Check if file was modified within the last N hours.
+
+    Returns False if stat fails (conservative default for error cases).
+    """
+    try:
+        cutoff = time.time() - (hours * 60 * 60)
+        return path.stat().st_mtime > cutoff
+    except OSError:
+        return False
 
 
 def extract_title(content: str) -> str:
@@ -109,7 +115,10 @@ def extract_title(content: str) -> str:
 
 
 def extract_date(path: Path) -> str:
-    """Extract date from filename (YYYY-MM-DD_HH-MM_slug.md) or mtime."""
+    """Extract date from filename (YYYY-MM-DD_HH-MM_slug.md) or mtime.
+
+    Returns "unknown" if both filename parsing and mtime stat fail.
+    """
     from datetime import datetime
 
     name = path.stem
@@ -118,7 +127,10 @@ def extract_date(path: Path) -> str:
     if match:
         return match.group(1)
     # Fall back to mtime
-    return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+    except OSError:
+        return "unknown"
 
 
 def format_output(path: Path, is_recent: bool) -> str:

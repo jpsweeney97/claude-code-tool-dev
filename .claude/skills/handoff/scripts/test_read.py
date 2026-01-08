@@ -527,3 +527,116 @@ class TestGetProjectNameRobustness:
         assert result == "timeout-warning-test"
         assert "Warning" in stderr_capture.getvalue()
         assert "timed out" in stderr_capture.getvalue()
+
+
+class TestPruneOldHandoffsBoundary:
+    """Test 30-day boundary precision."""
+
+    def test_boundary_file_just_under_30_days(self, tmp_path: Path):
+        """File just under 30 days should NOT be deleted."""
+        import os
+        import time
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir(parents=True)
+
+        # Create file at 29 days, 23 hours, 59 minutes old (just under 30 days)
+        boundary = handoffs_dir / "2025-12-09_10-00_boundary.md"
+        boundary.write_text("just under 30 days old")
+        # 30 days minus 1 minute = safely under the boundary
+        boundary_time = time.time() - (30 * 24 * 60 * 60) + 60
+        os.utime(boundary, (boundary_time, boundary_time))
+
+        from read import prune_old_handoffs
+
+        deleted = prune_old_handoffs(handoffs_dir, max_age_days=30)
+
+        # File just under 30 days should be KEPT
+        assert deleted == []
+        assert boundary.exists()
+
+    def test_boundary_file_just_over_30_days(self, tmp_path: Path):
+        """File just over 30 days should be deleted."""
+        import os
+        import time
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir(parents=True)
+
+        # Create file at 30 days + 1 minute old (just over 30 days)
+        boundary = handoffs_dir / "2025-12-09_10-00_boundary.md"
+        boundary.write_text("just over 30 days old")
+        # 30 days plus 1 minute = safely over the boundary
+        boundary_time = time.time() - (30 * 24 * 60 * 60) - 60
+        os.utime(boundary, (boundary_time, boundary_time))
+
+        from read import prune_old_handoffs
+
+        deleted = prune_old_handoffs(handoffs_dir, max_age_days=30)
+
+        # File just over 30 days should be DELETED
+        assert len(deleted) == 1
+        assert not boundary.exists()
+
+
+class TestIsRecentErrorHandling:
+    """Test error handling in is_recent function."""
+
+    def test_is_recent_handles_stat_error(self, tmp_path: Path, monkeypatch):
+        """stat() error in is_recent should return False (conservative default)."""
+        handoff = tmp_path / "handoff.md"
+        handoff.write_text("content")
+
+        # Mock stat to raise OSError
+        original_stat = Path.stat
+
+        def mock_stat(self, *, follow_symlinks=True):
+            if self.name == "handoff.md":
+                raise OSError("Permission denied")
+            return original_stat(self, follow_symlinks=follow_symlinks)
+
+        monkeypatch.setattr(Path, "stat", mock_stat)
+
+        from read import is_recent
+
+        # Should return False (conservative default), not crash
+        result = is_recent(handoff, hours=24)
+        assert result is False
+
+
+class TestExtractDateErrorHandling:
+    """Test error handling in extract_date mtime fallback."""
+
+    def test_extract_date_handles_stat_error(self, tmp_path: Path, monkeypatch):
+        """stat() error in mtime fallback should return 'unknown'."""
+        # Create file with non-date filename (forces mtime fallback)
+        handoff = tmp_path / "random-name-no-date.md"
+        handoff.write_text("content")
+
+        # Mock stat to raise OSError
+        original_stat = Path.stat
+
+        def mock_stat(self, *, follow_symlinks=True):
+            if self.name == "random-name-no-date.md":
+                raise OSError("Permission denied")
+            return original_stat(self, follow_symlinks=follow_symlinks)
+
+        monkeypatch.setattr(Path, "stat", mock_stat)
+
+        from read import extract_date
+
+        # Should return "unknown", not crash
+        result = extract_date(handoff)
+        assert result == "unknown"
+
+    def test_extract_date_uses_filename_when_parseable(self, tmp_path: Path):
+        """Date from filename takes precedence, stat not called."""
+        # Create file with parseable date in filename
+        handoff = tmp_path / "2026-01-08_14-30_test.md"
+        handoff.write_text("content")
+
+        from read import extract_date
+
+        # Should extract from filename without needing stat
+        result = extract_date(handoff)
+        assert result == "2026-01-08"
