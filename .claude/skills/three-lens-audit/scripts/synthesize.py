@@ -1116,7 +1116,7 @@ def detect_lens_from_content(content: str) -> Optional[str]:
         return 'adversarial'
     elif 'pragmatic practitioner' in content_lower or 'what works' in content_lower:
         return 'pragmatic'
-    elif 'cost/benefit' in content_lower or 'effort' in content_lower and 'benefit' in content_lower:
+    elif 'cost/benefit' in content_lower or ('effort' in content_lower and 'benefit' in content_lower):
         return 'cost-benefit'
     elif 'robustness advocate' in content_lower:
         return 'robustness'

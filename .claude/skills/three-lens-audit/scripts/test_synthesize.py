@@ -875,6 +875,32 @@ def test_synthesize_handles_unicode_error_on_read(tmp_path: Path):
 # ===========================================================================
 
 
+# ===========================================================================
+# detect_lens_from_content tests
+# ===========================================================================
+
+
+def test_detect_lens_from_content_cost_benefit_patterns():
+    """detect_lens_from_content should detect cost-benefit from various patterns."""
+    from synthesize import detect_lens_from_content
+
+    # Explicit cost/benefit
+    assert detect_lens_from_content("# Cost/Benefit Analysis") == "cost-benefit"
+
+    # Effort AND benefit together
+    assert detect_lens_from_content("Consider the effort required and benefit gained") == "cost-benefit"
+
+    # Just effort alone should NOT match
+    # The logic is: 'cost/benefit' OR ('effort' AND 'benefit')
+    # Without parentheses this could be misread as: ('cost/benefit' OR 'effort') AND 'benefit'
+    content_just_effort = "This requires effort but no payoff mentioned"
+    assert detect_lens_from_content(content_just_effort) is None
+
+    # Just benefit alone should NOT match either
+    content_just_benefit = "The benefit is clear but work not mentioned"
+    assert detect_lens_from_content(content_just_benefit) is None
+
+
 def test_auto_detect_handles_permission_error(tmp_path: Path, capsys):
     """Auto-detect mode should handle PermissionError gracefully."""
     import sys
