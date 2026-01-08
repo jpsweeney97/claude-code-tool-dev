@@ -131,6 +131,19 @@ class FileLintResult:
     strict_fail_codes: List[str]
     strict_details: List[str]
 
+
+@dataclasses.dataclass
+class CheckResults:
+    """Results from running all validation checks on a skill."""
+    has_objective_dod: bool
+    has_stop: bool
+    has_quick_check: bool
+    decision_point_count: int
+    has_numbered_procedure: bool
+    has_declared_assumptions: bool
+    dangerous_unchecked_cmds: List[str]  # Keep actual commands for messages
+
+
 def _strip_frontmatter(md: str) -> str:
     lines = md.splitlines()
     if len(lines) >= 2 and lines[0].strip() == "---":
@@ -328,10 +341,12 @@ def _assumptions_declared(body: str, inputs_chunk: Optional[str]) -> bool:
     )
     return any(m in hay for m in markers)
 
-def lint_text(md_text: str, *, assumed_annex: Optional[str] = None) -> Tuple[List[str], List[str]]:
-    """
+
+def _parse_md_structure(md_text: str) -> Tuple[str, Dict[str, Optional[str]], List[str]]:
+    """Parse markdown and extract section structure.
+
     Returns:
-      (strict_fail_codes, strict_details)
+        (body, section_chunks, missing_areas)
     """
     body = _strip_frontmatter(md_text)
     lines = body.splitlines()
@@ -347,6 +362,39 @@ def lint_text(md_text: str, *, assumed_annex: Optional[str] = None) -> Tuple[Lis
         if chunk is None:
             missing_areas.append(area)
 
+    return body, section_chunks, missing_areas
+
+
+def _run_all_checks(body: str, section_chunks: Dict[str, Optional[str]]) -> CheckResults:
+    """Run all validation checks on the parsed skill content."""
+    outputs_chunk = section_chunks.get("outputs") or ""
+    verification_chunk = section_chunks.get("verification") or ""
+    procedure_chunk = section_chunks.get("procedure") or ""
+    inputs_chunk = section_chunks.get("inputs")
+
+    # Extract dangerous commands (from non-fenced code only)
+    body_no_fenced = _strip_fenced_code_blocks(body)
+    backticked_cmds = _extract_backticked_commands(body_no_fenced)
+    dangerous_cmds = [c for c in backticked_cmds if _looks_like_dangerous_command(c)]
+
+    # Determine if dangerous commands lack ask-first gate
+    dangerous_unchecked = dangerous_cmds if (dangerous_cmds and not _has_ask_first(body)) else []
+
+    return CheckResults(
+        has_objective_dod=_has_objective_dod(outputs_chunk, body),
+        has_stop=_has_stop(body),
+        has_quick_check=_has_quick_check_with_expected(verification_chunk),
+        decision_point_count=_count_decision_points(body),
+        has_numbered_procedure=_procedure_is_numbered(procedure_chunk),
+        has_declared_assumptions=_assumptions_declared(body, inputs_chunk),
+        dangerous_unchecked_cmds=dangerous_unchecked,
+    )
+
+
+def _format_strict_results(
+    missing_areas: List[str], checks: CheckResults
+) -> Tuple[List[str], List[str]]:
+    """Format check results as strict FAIL codes with details."""
     strict_fail_codes: List[str] = []
     strict_details: List[str] = []
 
@@ -354,61 +402,122 @@ def lint_text(md_text: str, *, assumed_annex: Optional[str] = None) -> Tuple[Lis
         strict_fail_codes.append("FAIL.missing-content-areas")
         strict_details.append(f"Missing content areas: {', '.join(sorted(missing_areas))}")
 
-    outputs_chunk = section_chunks.get("outputs") or ""
-    verification_chunk = section_chunks.get("verification") or ""
-    procedure_chunk = section_chunks.get("procedure") or ""
-    inputs_chunk = section_chunks.get("inputs")
-
-    # FAIL.no-objective-dod
-    if not _has_objective_dod(outputs_chunk, body):
+    if not checks.has_objective_dod:
         strict_fail_codes.append("FAIL.no-objective-dod")
-        strict_details.append("Outputs/DoD: could not detect an objective, checkable DoD (look for 'Definition of Done' + an observable check).")
+        strict_details.append(
+            "Outputs/DoD: could not detect an objective, checkable DoD "
+            "(look for 'Definition of Done' + an observable check)."
+        )
 
-    # FAIL.no-stop-ask
-    if not _has_stop(body):
+    if not checks.has_stop:
         strict_fail_codes.append("FAIL.no-stop-ask")
-        strict_details.append("No explicit STOP/ask behavior detected (need at least one STOP for missing inputs or ambiguity).")
+        strict_details.append(
+            "No explicit STOP/ask behavior detected "
+            "(need at least one STOP for missing inputs or ambiguity)."
+        )
 
-    # FAIL.no-quick-check
-    if not _has_quick_check_with_expected(verification_chunk):
+    if not checks.has_quick_check:
         strict_fail_codes.append("FAIL.no-quick-check")
-        strict_details.append("Verification: could not find a 'Quick check' with an 'Expected' result shape.")
+        strict_details.append(
+            "Verification: could not find a 'Quick check' with an 'Expected' result shape."
+        )
 
-    # FAIL.too-few-decision-points
-    dp_count = _count_decision_points(body)
-    if dp_count < 2:
+    if checks.decision_point_count < 2:
         strict_fail_codes.append("FAIL.too-few-decision-points")
-        strict_details.append(f"Decision points: found {dp_count} explicit 'If ... then ... otherwise ...' decision points (need ≥2 or a justified exception).")
+        strict_details.append(
+            f"Decision points: found {checks.decision_point_count} explicit "
+            "'If ... then ... otherwise ...' decision points (need ≥2 or a justified exception)."
+        )
 
-    # FAIL.non-operational-procedure
-    if not _procedure_is_numbered(procedure_chunk):
+    if not checks.has_numbered_procedure:
         strict_fail_codes.append("FAIL.non-operational-procedure")
-        strict_details.append("Procedure: could not detect a numbered procedure (lines like '1. ...').")
+        strict_details.append(
+            "Procedure: could not detect a numbered procedure (lines like '1. ...')."
+        )
 
-    # FAIL.undeclared-assumptions
-    if not _assumptions_declared(body, inputs_chunk):
+    if not checks.has_declared_assumptions:
         strict_fail_codes.append("FAIL.undeclared-assumptions")
-        strict_details.append("Assumptions: could not detect constraints/assumptions (tools/network/permissions/repo) or fallbacks.")
+        strict_details.append(
+            "Assumptions: could not detect constraints/assumptions "
+            "(tools/network/permissions/repo) or fallbacks."
+        )
 
-    # FAIL.unsafe-default (heuristic)
-    # Only check inline backtick commands, not fenced code blocks (examples)
-    body_no_fenced = _strip_fenced_code_blocks(body)
-    backticked_cmds = _extract_backticked_commands(body_no_fenced)
-    dangerous_cmds = [c for c in backticked_cmds if _looks_like_dangerous_command(c)]
-    if dangerous_cmds and not _has_ask_first(body):
+    if checks.dangerous_unchecked_cmds:
         strict_fail_codes.append("FAIL.unsafe-default")
         strict_details.append(
-            "Unsafe default heuristic: detected potentially destructive commands without an ask-first gate. "
-            f"Examples: {', '.join(dangerous_cmds[:3])}"
+            "Unsafe default heuristic: detected potentially destructive commands "
+            f"without an ask-first gate. Examples: {', '.join(checks.dangerous_unchecked_cmds[:3])}"
         )
 
     # Deterministic ordering / de-dupe
-    strict_fail_codes = sorted(set(strict_fail_codes), key=lambda x: STRICT_FAIL_CODES.index(x) if x in STRICT_FAIL_CODES else 999)
+    strict_fail_codes = sorted(
+        set(strict_fail_codes),
+        key=lambda x: STRICT_FAIL_CODES.index(x) if x in STRICT_FAIL_CODES else 999,
+    )
     strict_details = list(dict.fromkeys(strict_details))
 
-    # Attach strict_details to semantic? We'll return strict_details separately via wrapper.
-    # For API simplicity, we embed strict_details into strict_fail_codes? No — callers keep details separately.
     return strict_fail_codes, strict_details
+
+
+def _format_relaxed_results(
+    missing_areas: List[str], checks: CheckResults
+) -> Tuple[List[str], List[str]]:
+    """Format check results as relaxed warnings (only structure failures are FAIL)."""
+    strict_fail_codes: List[str] = []
+    warnings: List[str] = []
+
+    # Only fail on truly missing content areas
+    if missing_areas:
+        strict_fail_codes.append("FAIL.missing-content-areas")
+        warnings.append(f"Missing content areas: {', '.join(sorted(missing_areas))}")
+
+    # Everything else becomes a warning in relaxed mode
+    if not checks.has_objective_dod:
+        warnings.append(
+            "WARN: No objective DoD detected "
+            "(consider adding 'Definition of Done' with checkable criteria)"
+        )
+
+    if not checks.has_stop:
+        warnings.append(
+            "WARN: No explicit STOP behavior (consider adding STOP for missing inputs)"
+        )
+
+    if not checks.has_quick_check:
+        warnings.append(
+            "WARN: Verification could be strengthened with 'Quick check' + 'Expected'"
+        )
+
+    if checks.decision_point_count < 2:
+        warnings.append(
+            f"WARN: Found {checks.decision_point_count} decision points "
+            "(consider adding 'if...then...otherwise' patterns)"
+        )
+
+    if not checks.has_numbered_procedure:
+        warnings.append("WARN: Procedure not numbered (consider '1. ...' format)")
+
+    if not checks.has_declared_assumptions:
+        warnings.append("WARN: No explicit assumptions/constraints declared")
+
+    if checks.dangerous_unchecked_cmds:
+        warnings.append(
+            "WARN: Potentially destructive commands without ask-first: "
+            f"{', '.join(checks.dangerous_unchecked_cmds[:3])}"
+        )
+
+    return strict_fail_codes, warnings
+
+
+def lint_text(md_text: str, *, assumed_annex: Optional[str] = None) -> Tuple[List[str], List[str]]:
+    """Lint skill markdown in strict mode.
+
+    Returns:
+        (strict_fail_codes, strict_details)
+    """
+    body, section_chunks, missing_areas = _parse_md_structure(md_text)
+    checks = _run_all_checks(body, section_chunks)
+    return _format_strict_results(missing_areas, checks)
 
 def lint_path(path: Path, *, annex: Optional[str] = None) -> FileLintResult:
     text = path.read_text(encoding="utf-8")
@@ -428,67 +537,14 @@ def lint_path(path: Path, *, annex: Optional[str] = None) -> FileLintResult:
 
 
 def lint_text_relaxed(md_text: str, *, assumed_annex: Optional[str] = None) -> Tuple[List[str], List[str]]:
-    """
-    Relaxed linting: PASS on structural presence, WARN on phrasing.
+    """Lint skill markdown in relaxed mode.
 
     Returns:
-      (strict_fail_codes, warnings) - fail_codes only for missing structure
+        (strict_fail_codes, warnings) - fail_codes only for missing structure
     """
-    body = _strip_frontmatter(md_text)
-    lines = body.splitlines()
-    headings = _parse_headings(lines)
-    spans = _heading_spans(lines, headings)
-
-    missing_areas: List[str] = []
-    section_chunks: Dict[str, Optional[str]] = {}
-
-    for area, keys in CONTENT_AREAS.items():
-        chunk = _find_section_chunk(lines, headings, spans, keys)
-        section_chunks[area] = chunk
-        if chunk is None:
-            missing_areas.append(area)
-
-    strict_fail_codes: List[str] = []
-    warnings: List[str] = []
-
-    # Only fail on truly missing content areas
-    if missing_areas:
-        strict_fail_codes.append("FAIL.missing-content-areas")
-        warnings.append(f"Missing content areas: {', '.join(sorted(missing_areas))}")
-
-    # Everything else becomes a warning in relaxed mode
-    outputs_chunk = section_chunks.get("outputs") or ""
-    verification_chunk = section_chunks.get("verification") or ""
-    procedure_chunk = section_chunks.get("procedure") or ""
-    inputs_chunk = section_chunks.get("inputs")
-
-    if not _has_objective_dod(outputs_chunk, body):
-        warnings.append("WARN: No objective DoD detected (consider adding 'Definition of Done' with checkable criteria)")
-
-    if not _has_stop(body):
-        warnings.append("WARN: No explicit STOP behavior (consider adding STOP for missing inputs)")
-
-    if not _has_quick_check_with_expected(verification_chunk):
-        warnings.append("WARN: Verification could be strengthened with 'Quick check' + 'Expected'")
-
-    dp_count = _count_decision_points(body)
-    if dp_count < 2:
-        warnings.append(f"WARN: Found {dp_count} decision points (consider adding 'if...then...otherwise' patterns)")
-
-    if not _procedure_is_numbered(procedure_chunk):
-        warnings.append("WARN: Procedure not numbered (consider '1. ...' format)")
-
-    if not _assumptions_declared(body, inputs_chunk):
-        warnings.append("WARN: No explicit assumptions/constraints declared")
-
-    # Unsafe default check (still important even in relaxed)
-    body_no_fenced = _strip_fenced_code_blocks(body)
-    backticked_cmds = _extract_backticked_commands(body_no_fenced)
-    dangerous_cmds = [c for c in backticked_cmds if _looks_like_dangerous_command(c)]
-    if dangerous_cmds and not _has_ask_first(body):
-        warnings.append(f"WARN: Potentially destructive commands without ask-first: {', '.join(dangerous_cmds[:3])}")
-
-    return strict_fail_codes, warnings
+    body, section_chunks, missing_areas = _parse_md_structure(md_text)
+    checks = _run_all_checks(body, section_chunks)
+    return _format_relaxed_results(missing_areas, checks)
 
 
 def lint_path_relaxed(path: Path, *, annex: Optional[str] = None) -> FileLintResult:
