@@ -242,6 +242,46 @@ date: 2026-01-08
 
         assert extract_title(content) == "Untitled"
 
+    def test_extracts_title_with_colon(self):
+        """Handles title containing colons."""
+        content = """---
+date: 2026-01-08
+title: Auth: JWT Implementation: Phase 1
+---
+
+# Handoff: Auth: JWT Implementation: Phase 1
+"""
+        from read import extract_title
+
+        # Should get everything after first "title:"
+        assert extract_title(content) == "Auth: JWT Implementation: Phase 1"
+
+    def test_extracts_quoted_title(self):
+        """Handles quoted title in frontmatter."""
+        content = '''---
+date: 2026-01-08
+title: "Feature: Add logging"
+---
+
+# Handoff
+'''
+        from read import extract_title
+
+        assert extract_title(content) == "Feature: Add logging"
+
+    def test_handles_malformed_frontmatter(self):
+        """Handles frontmatter without closing ---."""
+        content = """---
+date: 2026-01-08
+title: Incomplete frontmatter
+
+# Handoff: Fallback Title
+"""
+        from read import extract_title
+
+        # Falls back to heading since frontmatter is malformed
+        assert extract_title(content) == "Fallback Title"
+
 
 class TestFormatOutput:
     """Test the three output modes based on recency."""
