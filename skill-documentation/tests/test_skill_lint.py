@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
 """Tests for skill_lint.py"""
 
-import pytest
 from pathlib import Path
 import sys
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from skill_lint import (
-    lint_text,
+    CONTENT_AREAS,
     _count_decision_points,
+    _find_section_chunk,
     _has_quick_check_with_expected,
     _has_stop,
-    _find_section_chunk,
-    _parse_headings,
     _heading_spans,
-    _extract_backticked_commands,
     _looks_like_dangerous_command,
+    _parse_headings,
 )
 
 
@@ -99,8 +97,7 @@ class TestContentAreaDetection:
         lines = ["# Triggers", "Use when you need to audit"]
         headings = _parse_headings(lines)
         spans = _heading_spans(lines, headings)
-        from skill_lint import CONTENT_AREAS
         chunk = _find_section_chunk(lines, headings, spans, CONTENT_AREAS["when_to_use"])
         # Current: "Triggers" is NOT in synonyms, so this returns None
         # This test documents the gap
-        pass  # Just documenting for now
+        assert chunk is None  # Current: "Triggers" is NOT in synonyms
