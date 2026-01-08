@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for read_v2.py - handoff skill v2 read script."""
+"""Tests for read.py - handoff skill read script."""
 
 import subprocess
 from pathlib import Path
@@ -20,7 +20,7 @@ class TestGetProjectName:
 
         monkeypatch.chdir(repo)
 
-        from read_v2 import get_project_name
+        from read import get_project_name
 
         assert get_project_name() == "my-cool-project"
 
@@ -34,14 +34,14 @@ class TestGetProjectName:
         # Need fresh import after changing directory
         import importlib
 
-        import read_v2
+        import read
 
-        importlib.reload(read_v2)
+        importlib.reload(read)
 
         # Mock git failing to simulate non-git directory
-        with patch("read_v2.subprocess.run") as mock_run:
+        with patch("read.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 1
-            assert read_v2.get_project_name() == "some-directory"
+            assert read.get_project_name() == "some-directory"
 
     def test_git_timeout_falls_back_to_cwd(self, tmp_path: Path, monkeypatch):
         """If git times out, fall back to current directory name."""
@@ -51,13 +51,13 @@ class TestGetProjectName:
 
         import importlib
 
-        import read_v2
+        import read
 
-        importlib.reload(read_v2)
+        importlib.reload(read)
 
-        with patch("read_v2.subprocess.run") as mock_run:
+        with patch("read.subprocess.run") as mock_run:
             mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=5)
-            assert read_v2.get_project_name() == "timeout-test"
+            assert read.get_project_name() == "timeout-test"
 
     def test_git_not_found_falls_back_to_cwd(self, tmp_path: Path, monkeypatch):
         """If git is not installed, fall back to current directory name."""
@@ -67,13 +67,13 @@ class TestGetProjectName:
 
         import importlib
 
-        import read_v2
+        import read
 
-        importlib.reload(read_v2)
+        importlib.reload(read)
 
-        with patch("read_v2.subprocess.run") as mock_run:
+        with patch("read.subprocess.run") as mock_run:
             mock_run.side_effect = FileNotFoundError("git not found")
-            assert read_v2.get_project_name() == "no-git-test"
+            assert read.get_project_name() == "no-git-test"
 
 
 class TestGetHandoffsDir:
@@ -81,8 +81,8 @@ class TestGetHandoffsDir:
 
     def test_returns_global_handoffs_path(self):
         """Handoffs directory is ~/.claude/handoffs/<project>/"""
-        with patch("read_v2.get_project_name", return_value="my-project"):
-            from read_v2 import get_handoffs_dir
+        with patch("read.get_project_name", return_value="my-project"):
+            from read import get_handoffs_dir
 
             expected = Path.home() / ".claude" / "handoffs" / "my-project"
             assert get_handoffs_dir() == expected
@@ -107,7 +107,7 @@ class TestFindLatestHandoff:
         new = handoffs_dir / "2026-01-08_14-30_new.md"
         new.write_text("new content")
 
-        from read_v2 import find_latest_handoff
+        from read import find_latest_handoff
 
         assert find_latest_handoff(handoffs_dir) == new
 
@@ -116,13 +116,13 @@ class TestFindLatestHandoff:
         handoffs_dir = tmp_path / "handoffs"
         handoffs_dir.mkdir(parents=True)
 
-        from read_v2 import find_latest_handoff
+        from read import find_latest_handoff
 
         assert find_latest_handoff(handoffs_dir) is None
 
     def test_returns_none_when_dir_missing(self, tmp_path: Path):
         """Returns None when directory doesn't exist."""
-        from read_v2 import find_latest_handoff
+        from read import find_latest_handoff
 
         assert find_latest_handoff(tmp_path / "nonexistent") is None
 
@@ -148,7 +148,7 @@ class TestPruneOldHandoffs:
         recent = handoffs_dir / "2026-01-08_14-30_recent.md"
         recent.write_text("recent content")
 
-        from read_v2 import prune_old_handoffs
+        from read import prune_old_handoffs
 
         deleted = prune_old_handoffs(handoffs_dir, max_age_days=30)
 
@@ -164,7 +164,7 @@ class TestPruneOldHandoffs:
         recent = handoffs_dir / "2026-01-08_14-30_recent.md"
         recent.write_text("recent content")
 
-        from read_v2 import prune_old_handoffs
+        from read import prune_old_handoffs
 
         deleted = prune_old_handoffs(handoffs_dir, max_age_days=30)
 
@@ -173,7 +173,7 @@ class TestPruneOldHandoffs:
 
     def test_handles_missing_directory(self, tmp_path: Path):
         """Gracefully handles missing directory."""
-        from read_v2 import prune_old_handoffs
+        from read import prune_old_handoffs
 
         deleted = prune_old_handoffs(tmp_path / "nonexistent", max_age_days=30)
         assert deleted == []
@@ -188,7 +188,7 @@ class TestCheckRecency:
         handoff.write_text("content")
         # File is just created, so definitely under 24h
 
-        from read_v2 import is_recent
+        from read import is_recent
 
         assert is_recent(handoff, hours=24) is True
 
@@ -204,7 +204,7 @@ class TestCheckRecency:
         old_time = time.time() - (25 * 60 * 60)
         os.utime(handoff, (old_time, old_time))
 
-        from read_v2 import is_recent
+        from read import is_recent
 
         assert is_recent(handoff, hours=24) is False
 
@@ -221,7 +221,7 @@ title: Auth middleware implementation
 
 # Handoff: Auth middleware implementation
 """
-        from read_v2 import extract_title
+        from read import extract_title
 
         assert extract_title(content) == "Auth middleware implementation"
 
@@ -233,14 +233,14 @@ date: 2026-01-08
 
 # Handoff: JWT token refresh
 """
-        from read_v2 import extract_title
+        from read import extract_title
 
         assert extract_title(content) == "JWT token refresh"
 
     def test_returns_untitled_when_missing(self):
         """Returns 'Untitled' when no title found."""
         content = "Just some content"
-        from read_v2 import extract_title
+        from read import extract_title
 
         assert extract_title(content) == "Untitled"
 
@@ -264,7 +264,7 @@ Implement JWT authentication.
 1. Add refresh endpoint
 """)
 
-        from read_v2 import format_output
+        from read import format_output
 
         output = format_output(handoff, is_recent=True)
 
@@ -282,7 +282,7 @@ date: 2026-01-05
 # Handoff: Database migration
 """)
 
-        from read_v2 import format_output
+        from read import format_output
 
         output = format_output(handoff, is_recent=False)
 
@@ -315,13 +315,13 @@ Test goal content.
 """)
 
         # Mock get_handoffs_dir to return our test directory
-        monkeypatch.setattr("read_v2.get_handoffs_dir", lambda: handoffs_dir)
+        monkeypatch.setattr("read.get_handoffs_dir", lambda: handoffs_dir)
 
         # Capture stdout
         captured = StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
 
-        from read_v2 import main
+        from read import main
 
         exit_code = main()
 
@@ -337,12 +337,12 @@ Test goal content.
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir(parents=True)
 
-        monkeypatch.setattr("read_v2.get_handoffs_dir", lambda: empty_dir)
+        monkeypatch.setattr("read.get_handoffs_dir", lambda: empty_dir)
 
         captured = StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
 
-        from read_v2 import main
+        from read import main
 
         exit_code = main()
 

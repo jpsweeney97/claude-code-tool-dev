@@ -1,209 +1,157 @@
 #!/usr/bin/env python3
 """
-read.py - Load a handoff for context injection.
-
-Part of the handoff skill.
+read.py - Handoff skill SessionStart hook script.
 
 Responsibilities:
 - Find latest handoff for current project
-- Load specific handoff by path
-- Output compact or full format
-
-Usage:
-    python read.py                    # Latest handoff, full
-    python read.py --compact          # Latest handoff, compact (for injection)
-    python read.py --path file.md     # Specific handoff
-
-Examples:
-    python read.py --compact 2>/dev/null || true  # SessionStart hook
+- Prune handoffs older than 30 days
+- Output based on recency:
+  - <24h: Auto-inject content
+  - >24h: Prompt to resume
+  - None: Signal no handoff
 
 Exit Codes:
-    0  - Success
-    1  - No handoff found
-    2  - Read error
+    0  - Success (output produced)
+    1  - No handoff found (silent exit for hook)
 """
 
-import argparse
-import json
 import re
+import subprocess
 import sys
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
-from common import Result, get_project_handoffs_dir, parse_frontmatter
+
+def get_project_name() -> str:
+    """Get project name from git root directory or current directory."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return Path(result.stdout.strip()).name
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return Path.cwd().name
+
+
+def get_handoffs_dir() -> Path:
+    """Get handoffs directory: ~/.claude/handoffs/<project>/"""
+    return Path.home() / ".claude" / "handoffs" / get_project_name()
 
 
 def find_latest_handoff(handoffs_dir: Path) -> Optional[Path]:
-    """Find the most recent handoff file."""
+    """Find the most recent handoff file by modification time."""
     if not handoffs_dir.exists():
         return None
 
-    # Filter out symlinks to avoid FileNotFoundError on broken symlinks
-    # (symlinks in global dir point to project-local files which may be deleted)
     handoffs = sorted(
-        [p for p in handoffs_dir.glob("*.md") if not p.is_symlink()],
+        handoffs_dir.glob("*.md"),
         key=lambda p: p.stat().st_mtime,
-        reverse=True
+        reverse=True,
     )
-
     return handoffs[0] if handoffs else None
 
 
-def extract_section(content: str, section_name: str) -> List[str]:
-    """Extract items from a markdown section."""
-    pattern = rf"## {re.escape(section_name)}\n(.*?)(?=\n## |\Z)"
-    match = re.search(pattern, content, re.DOTALL)
-
-    if not match:
+def prune_old_handoffs(handoffs_dir: Path, max_age_days: int = 30) -> List[Path]:
+    """Delete handoff files older than max_age_days. Returns list of deleted files."""
+    if not handoffs_dir.exists():
         return []
 
-    section_content = match.group(1).strip()
-    lines = []
+    deleted = []
+    cutoff = time.time() - (max_age_days * 24 * 60 * 60)
 
-    for line in section_content.split("\n"):
-        line = line.strip()
-        if line and not line.startswith("```"):
-            # Clean up list markers
-            if line.startswith("- "):
-                line = line[2:]
-            elif re.match(r"^\d+\. ", line):
-                line = re.sub(r"^\d+\. ", "", line)
-            if line:
-                lines.append(line)
+    for handoff in handoffs_dir.glob("*.md"):
+        if handoff.stat().st_mtime < cutoff:
+            handoff.unlink()
+            deleted.append(handoff)
 
-    return lines
+    return deleted
+
+
+def is_recent(path: Path, hours: int = 24) -> bool:
+    """Check if file was modified within the last N hours."""
+    cutoff = time.time() - (hours * 60 * 60)
+    return path.stat().st_mtime > cutoff
 
 
 def extract_title(content: str) -> str:
-    """Extract handoff title from markdown."""
+    """Extract handoff title from frontmatter or heading."""
+    # Try frontmatter title first
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            for line in parts[1].split("\n"):
+                if line.startswith("title:"):
+                    return line.split(":", 1)[1].strip().strip("\"'")
+
+    # Fall back to H1 heading "# Handoff: <title>"
     match = re.search(r"^# Handoff: (.+)$", content, re.MULTILINE)
-    return match.group(1) if match else "Untitled"
+    if match:
+        return match.group(1).strip()
+
+    return "Untitled"
 
 
-def format_compact(content: str, frontmatter: Dict[str, Any]) -> str:
-    """Format handoff for compact injection (<500 tokens target)."""
+def extract_date(path: Path) -> str:
+    """Extract date from filename (YYYY-MM-DD_HH-MM_slug.md) or mtime."""
+    from datetime import datetime
+
+    name = path.stem
+    # Try to parse date from filename
+    match = re.match(r"(\d{4}-\d{2}-\d{2})_", name)
+    if match:
+        return match.group(1)
+    # Fall back to mtime
+    return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+
+
+def format_output(path: Path, is_recent: bool) -> str:
+    """Format output based on recency.
+
+    - Recent (<24h): Auto-inject with content
+    - Old (>24h): Prompt to resume
+    """
+    content = path.read_text()
     title = extract_title(content)
-    goal = extract_section(content, "Goal")
-    decisions = extract_section(content, "Key Decisions")[:3]  # Top 3
-    next_steps = extract_section(content, "Next Steps")[:3]  # Top 3
 
-    lines = [f"[Resuming: {title}]"]
-
-    if frontmatter.get("branch"):
-        lines.append(f"Branch: {frontmatter['branch']}")
-
-    if goal:
-        lines.append(f"Goal: {goal[0]}")
-
-    if decisions:
-        lines.append("Decisions:")
-        for d in decisions:
-            lines.append(f"  - {d[:100]}")  # Truncate long decisions
-
-    if next_steps:
-        lines.append("Next:")
-        for i, step in enumerate(next_steps, 1):
-            lines.append(f"  {i}. {step[:80]}")
-
-    return "\n".join(lines)
-
-
-def read_handoff(path: Path, compact: bool = False) -> Result:
-    """Read and optionally format handoff."""
-    if not path.exists():
-        return Result(
-            success=False,
-            message=f"Handoff not found: {path}",
-            errors=["File not found"]
-        )
-
-    try:
-        content = path.read_text()
-    except Exception as e:
-        return Result(
-            success=False,
-            message=f"Failed to read handoff: {e}",
-            errors=[str(e)]
-        )
-
-    frontmatter = parse_frontmatter(content)
-
-    if compact:
-        output = format_compact(content, frontmatter)
+    if is_recent:
+        # Auto-inject: prefix with resuming marker, include content
+        return f"[Resuming: {title}]\n{content}"
     else:
-        output = content
-
-    return Result(
-        success=True,
-        message="Handoff loaded",
-        data={
-            "path": str(path),
-            "title": extract_title(content),
-            "content": output,
-            "frontmatter": frontmatter
-        }
-    )
+        # Prompt: ask whether to resume
+        date = extract_date(path)
+        return f"[Found handoff from {date}: {title}. Resume from this?]"
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Load a handoff for context injection",
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+def main() -> int:
+    """Main entry point for SessionStart hook.
 
-    parser.add_argument(
-        "--path", "-p",
-        type=Path,
-        help="Specific handoff file to load"
-    )
+    Returns:
+        0 on success (output produced)
+        1 on no handoff found (silent exit)
+    """
+    handoffs_dir = get_handoffs_dir()
 
-    parser.add_argument(
-        "--compact", "-c",
-        action="store_true",
-        help="Output compact format for injection (<500 tokens)"
-    )
+    # Prune old handoffs first
+    prune_old_handoffs(handoffs_dir, max_age_days=30)
 
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Output result as JSON"
-    )
+    # Find latest handoff
+    latest = find_latest_handoff(handoffs_dir)
+    if not latest:
+        return 1  # Silent exit for hook
 
-    parser.add_argument(
-        "--project-dir",
-        type=Path,
-        help="Override project handoffs directory"
-    )
+    # Format and output based on recency
+    recent = is_recent(latest, hours=24)
+    output = format_output(latest, is_recent=recent)
+    print(output)
 
-    args = parser.parse_args()
-
-    # Find handoff
-    if args.path:
-        handoff_path = args.path
-    else:
-        project_dir = args.project_dir or get_project_handoffs_dir()
-        handoff_path = find_latest_handoff(project_dir)
-
-        if not handoff_path:
-            if args.json:
-                print(json.dumps({"success": False, "message": "No handoff found"}))
-            # Silent exit for SessionStart hook - no error message
-            sys.exit(1)
-
-    # Read handoff
-    result = read_handoff(handoff_path, compact=args.compact)
-
-    # Output
-    if args.json:
-        print(json.dumps(result.to_dict(), indent=2))
-    else:
-        if result.success:
-            print(result.data["content"])
-        else:
-            print(f"Error: {result.message}", file=sys.stderr)
-
-    sys.exit(0 if result.success else 1)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
