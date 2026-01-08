@@ -868,3 +868,37 @@ def test_synthesize_handles_unicode_error_on_read(tmp_path: Path):
 
     # Should not crash, should have warning about encoding
     assert any("Encoding error" in w or "decode" in w.lower() for w in result.warnings)
+
+
+# ===========================================================================
+# Auto-detect mode error handling tests (CRITICAL FIX)
+# ===========================================================================
+
+
+def test_auto_detect_handles_permission_error(tmp_path: Path, capsys):
+    """Auto-detect mode should handle PermissionError gracefully."""
+    import sys
+    from synthesize import main
+
+    # Create a file
+    test_file = tmp_path / "test.md"
+    test_file.write_text("# Adversarial Auditor\nContent")
+
+    # Mock to raise PermissionError
+    original_read_text = Path.read_text
+    def mock_read_text(self, *args, **kwargs):
+        if "test.md" in str(self):
+            raise PermissionError("Permission denied")
+        return original_read_text(self, *args, **kwargs)
+
+    with patch.object(Path, 'read_text', mock_read_text):
+        with patch('sys.argv', ['synthesize.py', '--auto-detect', str(test_file)]):
+            # Should not crash
+            try:
+                main()
+            except SystemExit as e:
+                # May exit with error code, but should not crash
+                pass
+
+    captured = capsys.readouterr()
+    assert "Permission denied" in captured.err or "Could not read" in captured.err

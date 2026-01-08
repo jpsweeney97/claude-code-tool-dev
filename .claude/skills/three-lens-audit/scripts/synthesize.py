@@ -1201,7 +1201,17 @@ Output:
             if not path.exists():
                 print(f"Warning: File not found: {path}", file=sys.stderr)
                 continue
-            content = path.read_text()
+            try:
+                content = path.read_text()
+            except PermissionError as e:
+                print(f"Warning: Could not read {path}: {e}", file=sys.stderr)
+                continue
+            except UnicodeDecodeError as e:
+                print(f"Warning: Encoding error in {path}: {e}", file=sys.stderr)
+                continue
+            except OSError as e:
+                print(f"Warning: Could not read {path}: {e}", file=sys.stderr)
+                continue
             lens = detect_lens_from_content(content)
             if lens:
                 lens_files[lens] = path
