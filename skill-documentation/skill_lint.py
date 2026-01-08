@@ -426,6 +426,87 @@ def lint_path(path: Path, *, annex: Optional[str] = None) -> FileLintResult:
         strict_details=strict_details,
     )
 
+
+def lint_text_relaxed(md_text: str, *, assumed_annex: Optional[str] = None) -> Tuple[List[str], List[str]]:
+    """
+    Relaxed linting: PASS on structural presence, WARN on phrasing.
+
+    Returns:
+      (strict_fail_codes, warnings) - fail_codes only for missing structure
+    """
+    body = _strip_frontmatter(md_text)
+    lines = body.splitlines()
+    headings = _parse_headings(lines)
+    spans = _heading_spans(lines, headings)
+
+    missing_areas: List[str] = []
+    section_chunks: Dict[str, Optional[str]] = {}
+
+    for area, keys in CONTENT_AREAS.items():
+        chunk = _find_section_chunk(lines, headings, spans, keys)
+        section_chunks[area] = chunk
+        if chunk is None:
+            missing_areas.append(area)
+
+    strict_fail_codes: List[str] = []
+    warnings: List[str] = []
+
+    # Only fail on truly missing content areas
+    if missing_areas:
+        strict_fail_codes.append("FAIL.missing-content-areas")
+        warnings.append(f"Missing content areas: {', '.join(sorted(missing_areas))}")
+
+    # Everything else becomes a warning in relaxed mode
+    outputs_chunk = section_chunks.get("outputs") or ""
+    verification_chunk = section_chunks.get("verification") or ""
+    procedure_chunk = section_chunks.get("procedure") or ""
+    inputs_chunk = section_chunks.get("inputs")
+
+    if not _has_objective_dod(outputs_chunk, body):
+        warnings.append("WARN: No objective DoD detected (consider adding 'Definition of Done' with checkable criteria)")
+
+    if not _has_stop(body):
+        warnings.append("WARN: No explicit STOP behavior (consider adding STOP for missing inputs)")
+
+    if not _has_quick_check_with_expected(verification_chunk):
+        warnings.append("WARN: Verification could be strengthened with 'Quick check' + 'Expected'")
+
+    dp_count = _count_decision_points(body)
+    if dp_count < 2:
+        warnings.append(f"WARN: Found {dp_count} decision points (consider adding 'if...then...otherwise' patterns)")
+
+    if not _procedure_is_numbered(procedure_chunk):
+        warnings.append("WARN: Procedure not numbered (consider '1. ...' format)")
+
+    if not _assumptions_declared(body, inputs_chunk):
+        warnings.append("WARN: No explicit assumptions/constraints declared")
+
+    # Unsafe default check (still important even in relaxed)
+    body_no_fenced = _strip_fenced_code_blocks(body)
+    backticked_cmds = _extract_backticked_commands(body_no_fenced)
+    dangerous_cmds = [c for c in backticked_cmds if _looks_like_dangerous_command(c)]
+    if dangerous_cmds and not _has_ask_first(body):
+        warnings.append(f"WARN: Potentially destructive commands without ask-first: {', '.join(dangerous_cmds[:3])}")
+
+    return strict_fail_codes, warnings
+
+
+def lint_path_relaxed(path: Path, *, annex: Optional[str] = None) -> FileLintResult:
+    text = path.read_text(encoding="utf-8")
+    strict_fail_codes, warnings = lint_text_relaxed(text, assumed_annex=annex)
+
+    if strict_fail_codes:
+        disposition = "FAIL"
+    else:
+        disposition = "PASS"
+
+    return FileLintResult(
+        path=str(path),
+        disposition=disposition,
+        strict_fail_codes=strict_fail_codes,
+        strict_details=warnings,  # Reuse field for warnings
+    )
+
 def _iter_skill_files(paths: Sequence[Path], recursive: bool) -> List[Path]:
     results: List[Path] = []
     for p in paths:
@@ -459,6 +540,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("paths", nargs="+", help="SKILL.md file(s) or directory(ies) to scan")
     ap.add_argument("--recursive", action="store_true", help="Recurse into directories")
     ap.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    ap.add_argument("--relaxed", action="store_true", help="Relaxed mode: PASS on structure, WARN on phrasing")
     args = ap.parse_args(list(argv) if argv is not None else None)
 
     in_paths = [Path(p) for p in args.paths]
@@ -467,7 +549,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("No files found.", file=sys.stderr)
         return 2
 
-    results = [lint_path(p) for p in files]
+    if args.relaxed:
+        results = [lint_path_relaxed(p) for p in files]
+    else:
+        results = [lint_path(p) for p in files]
 
     if args.format == "json":
         payload = [dataclasses.asdict(r) for r in results]

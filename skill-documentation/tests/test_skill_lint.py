@@ -207,3 +207,42 @@ class TestContentAreaSynonyms:
         # Should NOT have when_not_to_use in missing areas
         missing_areas_detail = next((d for d in details if "Missing content areas:" in d), "")
         assert "when_not_to_use" not in missing_areas_detail, f"'Anti-Patterns' should map to when_not_to_use but got: {missing_areas_detail}"
+
+
+class TestRelaxedMode:
+    """Test --relaxed mode for gradual adoption."""
+
+    def test_relaxed_mode_passes_structural_presence(self):
+        """Relaxed mode should pass if sections exist, even with phrasing issues."""
+        md = """# My Skill
+
+## When to Use
+Use this for testing.
+
+## Anti-Patterns
+Don't use for production.
+
+## Inputs
+Needs a file path.
+
+## Outputs
+Produces a report.
+
+## Steps
+1. Do thing one
+2. Do thing two
+
+## Decision Points
+Choose based on input type.
+
+## Verification
+- Check the output file exists
+
+## Troubleshooting
+If it fails, check permissions.
+"""
+        # Import the relaxed lint function
+        from skill_lint import lint_text_relaxed
+        fail_codes, warnings = lint_text_relaxed(md)
+        # Should PASS (no fail codes) but may have warnings
+        assert len(fail_codes) == 0
