@@ -93,6 +93,7 @@ class SemanticReviewResult:
     no_matches: List[Tuple[Finding, Finding]]
     token_usage: Dict[str, int]
     model_used: str
+    error: Optional[str] = None
 
 
 # ===========================================================================

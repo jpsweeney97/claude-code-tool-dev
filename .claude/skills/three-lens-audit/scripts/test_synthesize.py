@@ -234,6 +234,30 @@ SHARED_ELEMENT: something
     assert isinstance(result.matches, list)
 
 
+def test_semantic_review_result_has_error_field():
+    """SemanticReviewResult should have an optional error field."""
+    from synthesize import SemanticReviewResult
+
+    # Without error
+    result = SemanticReviewResult(
+        matches=[],
+        no_matches=[],
+        token_usage={},
+        model_used="haiku"
+    )
+    assert result.error is None
+
+    # With error
+    result_with_error = SemanticReviewResult(
+        matches=[],
+        no_matches=[],
+        token_usage={},
+        model_used="haiku",
+        error="Claude CLI failed"
+    )
+    assert result_with_error.error == "Claude CLI failed"
+
+
 # ===========================================================================
 # run_semantic_review tests
 # ===========================================================================
