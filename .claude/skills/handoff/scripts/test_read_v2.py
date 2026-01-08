@@ -289,3 +289,62 @@ date: 2026-01-05
         assert "[Found handoff from" in output
         assert "Database migration" in output
         assert "Resume from this?]" in output
+
+
+class TestMain:
+    """Test CLI entry point."""
+
+    def test_outputs_recent_handoff(self, tmp_path: Path, monkeypatch):
+        """Outputs auto-injected content for recent handoff."""
+        import sys
+        from io import StringIO
+
+        # Create handoffs directory structure
+        handoffs_dir = tmp_path / ".claude" / "handoffs" / "test-project"
+        handoffs_dir.mkdir(parents=True)
+
+        handoff = handoffs_dir / "2026-01-08_14-30_test.md"
+        handoff.write_text("""---
+title: Test handoff
+---
+
+# Handoff: Test handoff
+
+## Goal
+Test goal content.
+""")
+
+        # Mock get_handoffs_dir to return our test directory
+        monkeypatch.setattr("read_v2.get_handoffs_dir", lambda: handoffs_dir)
+
+        # Capture stdout
+        captured = StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
+
+        from read_v2 import main
+
+        exit_code = main()
+
+        output = captured.getvalue()
+        assert "[Resuming: Test handoff]" in output
+        assert exit_code == 0
+
+    def test_silent_exit_when_no_handoff(self, tmp_path: Path, monkeypatch):
+        """Exits silently (no output) when no handoff found."""
+        import sys
+        from io import StringIO
+
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir(parents=True)
+
+        monkeypatch.setattr("read_v2.get_handoffs_dir", lambda: empty_dir)
+
+        captured = StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
+
+        from read_v2 import main
+
+        exit_code = main()
+
+        assert captured.getvalue() == ""
+        assert exit_code == 1

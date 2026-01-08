@@ -17,6 +17,7 @@ Exit Codes:
 
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -125,3 +126,32 @@ def format_output(path: Path, is_recent: bool) -> str:
         # Prompt: ask whether to resume
         date = extract_date(path)
         return f"[Found handoff from {date}: {title}. Resume from this?]"
+
+
+def main() -> int:
+    """Main entry point for SessionStart hook.
+
+    Returns:
+        0 on success (output produced)
+        1 on no handoff found (silent exit)
+    """
+    handoffs_dir = get_handoffs_dir()
+
+    # Prune old handoffs first
+    prune_old_handoffs(handoffs_dir, max_age_days=30)
+
+    # Find latest handoff
+    latest = find_latest_handoff(handoffs_dir)
+    if not latest:
+        return 1  # Silent exit for hook
+
+    # Format and output based on recency
+    recent = is_recent(latest, hours=24)
+    output = format_output(latest, is_recent=recent)
+    print(output)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
