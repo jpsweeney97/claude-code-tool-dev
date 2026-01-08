@@ -243,3 +243,49 @@ date: 2026-01-08
         from read_v2 import extract_title
 
         assert extract_title(content) == "Untitled"
+
+
+class TestFormatOutput:
+    """Test the three output modes based on recency."""
+
+    def test_recent_auto_injects_content(self, tmp_path: Path):
+        """<24h: outputs [Resuming: title] with content."""
+        handoff = tmp_path / "handoff.md"
+        handoff.write_text("""---
+title: Auth middleware
+---
+
+# Handoff: Auth middleware
+
+## Goal
+Implement JWT authentication.
+
+## Next Steps
+1. Add refresh endpoint
+""")
+
+        from read_v2 import format_output
+
+        output = format_output(handoff, is_recent=True)
+
+        assert output.startswith("[Resuming: Auth middleware]")
+        assert "Implement JWT authentication" in output
+
+    def test_old_prompts_for_resume(self, tmp_path: Path):
+        """>24h: outputs prompt asking whether to resume."""
+        handoff = tmp_path / "2026-01-05_10-00_old-work.md"
+        handoff.write_text("""---
+title: Database migration
+date: 2026-01-05
+---
+
+# Handoff: Database migration
+""")
+
+        from read_v2 import format_output
+
+        output = format_output(handoff, is_recent=False)
+
+        assert "[Found handoff from" in output
+        assert "Database migration" in output
+        assert "Resume from this?]" in output

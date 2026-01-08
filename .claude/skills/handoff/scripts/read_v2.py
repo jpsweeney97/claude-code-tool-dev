@@ -94,3 +94,34 @@ def extract_title(content: str) -> str:
         return match.group(1).strip()
 
     return "Untitled"
+
+
+def extract_date(path: Path) -> str:
+    """Extract date from filename (YYYY-MM-DD_HH-MM_slug.md) or mtime."""
+    from datetime import datetime
+
+    name = path.stem
+    # Try to parse date from filename
+    match = re.match(r"(\d{4}-\d{2}-\d{2})_", name)
+    if match:
+        return match.group(1)
+    # Fall back to mtime
+    return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+
+
+def format_output(path: Path, is_recent: bool) -> str:
+    """Format output based on recency.
+
+    - Recent (<24h): Auto-inject with content
+    - Old (>24h): Prompt to resume
+    """
+    content = path.read_text()
+    title = extract_title(content)
+
+    if is_recent:
+        # Auto-inject: prefix with resuming marker, include content
+        return f"[Resuming: {title}]\n{content}"
+    else:
+        # Prompt: ask whether to resume
+        date = extract_date(path)
+        return f"[Found handoff from {date}: {title}. Resume from this?]"
