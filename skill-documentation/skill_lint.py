@@ -236,18 +236,45 @@ def _looks_like_dangerous_command(cmd: str) -> bool:
     return any(tok in c for tok in DANGEROUS_TOKENS)
 
 def _has_quick_check_with_expected(verification_chunk: str) -> bool:
+    """
+    Check if verification section has testable criteria.
+
+    Accepts:
+    - "Quick check" + "Expected" (original)
+    - "Verification" heading with checkbox items
+    - "Verification" heading with bullet criteria
+    - Any verifiable criteria patterns
+    """
     vc = verification_chunk.lower()
-    if "quick check" not in vc and "quick checks" not in vc:
-        return False
-    # Require "Expected" near a "quick check" mention (heuristic window).
-    for m in re.finditer(r"(?i)quick check(s)?", verification_chunk):
-        window = verification_chunk[m.start() : m.start() + 400]
-        if re.search(r"(?i)\bexpected\b", window):
+
+    # Original: Quick check + Expected
+    if "quick check" in vc or "quick checks" in vc:
+        for m in re.finditer(r"(?i)quick check(s)?", verification_chunk):
+            window = verification_chunk[m.start() : m.start() + 400]
+            if re.search(r"(?i)\bexpected\b", window):
+                return True
+        for line in verification_chunk.splitlines():
+            if re.search(r"(?i)quick", line) and re.search(r"(?i)\bexpected\b", line):
+                return True
+
+    # New: Checkbox items (- [ ] or - [x])
+    if re.search(r"^\s*[-*]\s*\[[ x]\]", verification_chunk, re.MULTILINE | re.IGNORECASE):
+        return True
+
+    # New: "complete when" or "done when" with criteria
+    if re.search(r"(?i)(complete|done|finished|verified)\s+when", vc):
+        # Check for bullet points or numbered items following
+        if re.search(r"^\s*[-*\d]", verification_chunk, re.MULTILINE):
             return True
-    # Or: any line that contains both "Quick" and "Expected"
-    for line in verification_chunk.splitlines():
-        if re.search(r"(?i)quick", line) and re.search(r"(?i)\bexpected\b", line):
+
+    # New: Verification heading with any structured criteria
+    if "verification" in vc:
+        # Has bullet points or numbered list
+        if re.search(r"^\s*[-*]\s+\S", verification_chunk, re.MULTILINE):
             return True
+        if re.search(r"^\s*\d+\.\s+\S", verification_chunk, re.MULTILINE):
+            return True
+
     return False
 
 def _has_objective_dod(outputs_chunk: str, body: str) -> bool:

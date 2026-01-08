@@ -53,14 +53,14 @@ class TestQuickCheckDetection:
         """
         assert _has_quick_check_with_expected(chunk) is True
 
-    def test_verification_checkbox_not_detected(self):
-        """Verification with checkboxes but no 'Quick check' fails - documents current behavior."""
+    def test_verification_checkbox_detected(self):
+        """Verification with checkboxes should now pass."""
         chunk = """
         ## Verification
         - [ ] Tests pass
         - [ ] Build succeeds
         """
-        assert _has_quick_check_with_expected(chunk) is False
+        assert _has_quick_check_with_expected(chunk) is True
 
 
 class TestStopDetection:
@@ -113,6 +113,32 @@ class TestDecisionPointSynonyms:
         """'if not' patterns should count as decision points."""
         body = "If not found, then search deeper, otherwise report missing."
         assert _count_decision_points(body) >= 1
+
+
+class TestVerificationFormats:
+    """Test various verification format acceptance."""
+
+    def test_checkbox_verification_accepted(self):
+        """Verification with checkboxes should pass."""
+        chunk = """
+        ## Verification
+
+        Audit is complete when:
+        - [ ] All agents returned findings
+        - [ ] Convergent findings identified
+        - [ ] Recommendations prioritized
+        """
+        assert _has_quick_check_with_expected(chunk) is True
+
+    def test_verification_heading_with_criteria(self):
+        """'Verification' heading with any criteria should pass."""
+        chunk = """
+        ## Verification
+
+        - Tests pass
+        - Build succeeds
+        """
+        assert _has_quick_check_with_expected(chunk) is True
 
 
 class TestContentAreaSynonyms:
