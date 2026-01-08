@@ -8,11 +8,10 @@ Responsibilities:
 - Output based on recency:
   - <24h: Auto-inject content
   - >24h: Prompt to resume
-  - None: Signal no handoff
+  - None: Silent exit (no output)
 
 Exit Codes:
-    0  - Success (output produced)
-    1  - No handoff found (silent exit for hook)
+    0  - Success (output produced or no handoff found)
 """
 
 import re
@@ -34,7 +33,9 @@ def get_project_name() -> str:
         )
         if result.returncode == 0:
             return Path(result.stdout.strip()).name
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired:
+        print("Warning: git timed out, using directory name", file=sys.stderr)
+    except FileNotFoundError:
         pass
     return Path.cwd().name
 
@@ -49,9 +50,16 @@ def find_latest_handoff(handoffs_dir: Path) -> Optional[Path]:
     if not handoffs_dir.exists():
         return None
 
+    def safe_mtime(p: Path) -> float:
+        """Get mtime safely, returning 0 on error."""
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return 0
+
     handoffs = sorted(
         handoffs_dir.glob("*.md"),
-        key=lambda p: p.stat().st_mtime,
+        key=safe_mtime,
         reverse=True,
     )
     return handoffs[0] if handoffs else None
@@ -66,9 +74,12 @@ def prune_old_handoffs(handoffs_dir: Path, max_age_days: int = 30) -> List[Path]
     cutoff = time.time() - (max_age_days * 24 * 60 * 60)
 
     for handoff in handoffs_dir.glob("*.md"):
-        if handoff.stat().st_mtime < cutoff:
-            handoff.unlink()
-            deleted.append(handoff)
+        try:
+            if handoff.stat().st_mtime < cutoff:
+                handoff.unlink(missing_ok=True)
+                deleted.append(handoff)
+        except OSError as e:
+            print(f"Warning: could not prune {handoff.name}: {e}", file=sys.stderr)
 
     return deleted
 
@@ -116,7 +127,10 @@ def format_output(path: Path, is_recent: bool) -> str:
     - Recent (<24h): Auto-inject with content
     - Old (>24h): Prompt to resume
     """
-    content = path.read_text()
+    try:
+        content = path.read_text()
+    except OSError as e:
+        return f"[Error reading handoff: {e}]"
     title = extract_title(content)
 
     if is_recent:
@@ -132,8 +146,7 @@ def main() -> int:
     """Main entry point for SessionStart hook.
 
     Returns:
-        0 on success (output produced)
-        1 on no handoff found (silent exit)
+        0 on success (output produced or no handoff found)
     """
     handoffs_dir = get_handoffs_dir()
 
@@ -143,7 +156,7 @@ def main() -> int:
     # Find latest handoff
     latest = find_latest_handoff(handoffs_dir)
     if not latest:
-        return 1  # Silent exit for hook
+        return 0  # No handoff is a valid state, not an error
 
     # Format and output based on recency
     recent = is_recent(latest, hours=24)

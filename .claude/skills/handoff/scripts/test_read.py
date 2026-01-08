@@ -5,8 +5,6 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 
 class TestGetProjectName:
     """Test project name detection from git or directory."""
@@ -330,7 +328,7 @@ Test goal content.
         assert exit_code == 0
 
     def test_silent_exit_when_no_handoff(self, tmp_path: Path, monkeypatch):
-        """Exits silently (no output) when no handoff found."""
+        """Exits silently with exit code 0 when no handoff found."""
         import sys
         from io import StringIO
 
@@ -347,4 +345,185 @@ Test goal content.
         exit_code = main()
 
         assert captured.getvalue() == ""
-        assert exit_code == 1
+        assert exit_code == 0  # No handoff is a valid state, not an error
+
+
+class TestPruneOldHandoffsRobustness:
+    """Test race condition and permission handling in prune_old_handoffs."""
+
+    def test_handles_file_deleted_between_stat_and_unlink(self, tmp_path: Path):
+        """Race condition: file deleted after stat, before unlink."""
+        import os
+        import time
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir(parents=True)
+
+        # Create old file
+        old = handoffs_dir / "2025-12-01_10-00_race.md"
+        old.write_text("content")
+        old_time = time.time() - (31 * 24 * 60 * 60)
+        os.utime(old, (old_time, old_time))
+
+        from read import prune_old_handoffs
+
+        # File should be pruned without error even if missing_ok handles deletion
+        prune_old_handoffs(handoffs_dir, max_age_days=30)
+
+        # Should complete without raising, file should be gone
+        assert not old.exists()
+
+    def test_handles_permission_error_on_unlink(self, tmp_path: Path, monkeypatch):
+        """Permission error logs warning, continues."""
+        import os
+        import sys
+        import time
+        from io import StringIO
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir(parents=True)
+
+        # Create old files
+        old1 = handoffs_dir / "2025-12-01_10-00_first.md"
+        old1.write_text("content")
+        old_time = time.time() - (31 * 24 * 60 * 60)
+        os.utime(old1, (old_time, old_time))
+
+        old2 = handoffs_dir / "2025-12-02_10-00_second.md"
+        old2.write_text("content")
+        os.utime(old2, (old_time, old_time))
+
+        # Mock unlink to raise PermissionError on first file
+        original_unlink = Path.unlink
+
+        def mock_unlink(self, missing_ok=False):
+            if self.name == "2025-12-01_10-00_first.md":
+                raise PermissionError("Access denied")
+            return original_unlink(self, missing_ok=missing_ok)
+
+        monkeypatch.setattr(Path, "unlink", mock_unlink)
+
+        # Capture stderr for warning
+        stderr_capture = StringIO()
+        monkeypatch.setattr(sys, "stderr", stderr_capture)
+
+        from read import prune_old_handoffs
+
+        # Should complete without raising
+        prune_old_handoffs(handoffs_dir, max_age_days=30)
+
+        # Second file should be deleted, first should still exist
+        assert old1.exists()  # Permission error prevented deletion
+        assert not old2.exists()  # Successfully deleted
+        assert "Warning" in stderr_capture.getvalue()
+        assert "first.md" in stderr_capture.getvalue()
+
+
+class TestFindLatestHandoffRobustness:
+    """Test permission error handling in find_latest_handoff."""
+
+    def test_handles_stat_permission_error(self, tmp_path: Path, monkeypatch):
+        """Permission error on stat skips file, doesn't crash."""
+        import time
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir(parents=True)
+
+        # Create two files
+        unreadable = handoffs_dir / "2026-01-01_10-00_unreadable.md"
+        unreadable.write_text("unreadable content")
+
+        time.sleep(0.01)
+        readable = handoffs_dir / "2026-01-02_10-00_readable.md"
+        readable.write_text("readable content")
+
+        # Mock stat to raise on first file (must accept follow_symlinks kwarg)
+        original_stat = Path.stat
+
+        def mock_stat(self, *, follow_symlinks=True):
+            if self.name == "2026-01-01_10-00_unreadable.md":
+                raise PermissionError("Access denied")
+            return original_stat(self, follow_symlinks=follow_symlinks)
+
+        monkeypatch.setattr(Path, "stat", mock_stat)
+
+        from read import find_latest_handoff
+
+        # Should return the readable file, not crash
+        result = find_latest_handoff(handoffs_dir)
+        assert result == readable
+
+
+class TestFormatOutputRobustness:
+    """Test file read error handling in format_output."""
+
+    def test_handles_unreadable_file(self, tmp_path: Path, monkeypatch):
+        """Returns error message, doesn't crash."""
+        handoff = tmp_path / "unreadable.md"
+        handoff.write_text("content")
+
+        # Mock read_text to raise
+        original_read_text = Path.read_text
+
+        def mock_read_text(self, *args, **kwargs):
+            if self.name == "unreadable.md":
+                raise PermissionError("Access denied")
+            return original_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", mock_read_text)
+
+        from read import format_output
+
+        result = format_output(handoff, is_recent=True)
+        assert "[Error reading handoff:" in result
+        assert "Access denied" in result
+
+
+class TestExtractDateRobustness:
+    """Test mtime fallback when filename is unparseable."""
+
+    def test_fallback_to_mtime_when_filename_unparseable(self, tmp_path: Path):
+        """Uses mtime when no date in filename."""
+        from datetime import datetime
+
+        handoff = tmp_path / "random-name-no-date.md"
+        handoff.write_text("content")
+
+        from read import extract_date
+
+        result = extract_date(handoff)
+
+        # Should return today's date (file was just created)
+        expected = datetime.now().strftime("%Y-%m-%d")
+        assert result == expected
+
+
+class TestGetProjectNameRobustness:
+    """Test timeout warning in get_project_name."""
+
+    def test_git_timeout_logs_warning(self, tmp_path: Path, monkeypatch):
+        """Logs to stderr on timeout."""
+        import sys
+        from io import StringIO
+
+        non_git = tmp_path / "timeout-warning-test"
+        non_git.mkdir()
+        monkeypatch.chdir(non_git)
+
+        import importlib
+
+        import read
+
+        importlib.reload(read)
+
+        # Capture stderr
+        stderr_capture = StringIO()
+        monkeypatch.setattr(sys, "stderr", stderr_capture)
+
+        with patch("read.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=5)
+            result = read.get_project_name()
+
+        assert result == "timeout-warning-test"
+        assert "Warning" in stderr_capture.getvalue()
+        assert "timed out" in stderr_capture.getvalue()
