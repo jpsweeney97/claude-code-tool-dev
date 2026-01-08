@@ -15,6 +15,7 @@ from skill_lint import (
     _heading_spans,
     _looks_like_dangerous_command,
     _parse_headings,
+    lint_text,
 )
 
 
@@ -92,12 +93,40 @@ class TestContentAreaDetection:
     """Test section/content area detection."""
 
     def test_triggers_section_detected_as_when_to_use(self):
-        """'Triggers' section should be recognized as when_to_use - NOT CURRENTLY."""
-        # Document current behavior
+        """'Triggers' section should be recognized as when_to_use."""
         lines = ["# Triggers", "Use when you need to audit"]
         headings = _parse_headings(lines)
         spans = _heading_spans(lines, headings)
         chunk = _find_section_chunk(lines, headings, spans, CONTENT_AREAS["when_to_use"])
-        # Current: "Triggers" is NOT in synonyms, so this returns None
-        # This test documents the gap
-        assert chunk is None  # Current: "Triggers" is NOT in synonyms
+        # "Triggers" is now in synonyms
+        assert chunk is not None
+
+
+class TestContentAreaSynonyms:
+    """Test expanded synonym detection."""
+
+    def test_triggers_detected_as_when_to_use(self):
+        """'Triggers' should be recognized as when_to_use."""
+        md = """# My Skill
+
+## Triggers
+- `/command arg` — Do something
+"""
+        fail_codes, details = lint_text(md)
+        # Should NOT have when_to_use in missing areas
+        missing_areas_detail = next((d for d in details if "Missing content areas:" in d), "")
+        assert "when_to_use" not in missing_areas_detail, f"'Triggers' should map to when_to_use but got: {missing_areas_detail}"
+
+    def test_anti_patterns_detected_as_when_not_to_use(self):
+        """'Anti-Patterns' should be recognized as when_not_to_use."""
+        md = """# My Skill
+
+## Anti-Patterns
+| Avoid | Why |
+|-------|-----|
+| Bad thing | Reason |
+"""
+        fail_codes, details = lint_text(md)
+        # Should NOT have when_not_to_use in missing areas
+        missing_areas_detail = next((d for d in details if "Missing content areas:" in d), "")
+        assert "when_not_to_use" not in missing_areas_detail, f"'Anti-Patterns' should map to when_not_to_use but got: {missing_areas_detail}"
