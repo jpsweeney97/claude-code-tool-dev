@@ -248,18 +248,23 @@ Show executive summary and verdict to user.
 ## Verification
 
 ### Quick Check
-**Check:** All lens outputs are valid markdown with structured findings.
-**Expected:** Each lens output contains at least one `### Finding` section OR explicitly states "No findings in this lens."
-**Command:** Validate output file contains "Convergent Findings" and "Verdict" sections (full mode) or "Verdict" section (quick mode).
+**Check:** Output files exist and contain required sections.
+**Full mode:** Run `grep -c "## Convergent Findings\|## Verdict" audit-report.md`. Expected: 2 matches.
+**Quick mode:** Run `grep -c "## Verdict" quick-audit.md`. Expected: 1 match.
+**If check fails:** Do not mark complete; review lens outputs for malformed structure.
 
 ### Deep Check
-**Check:** Cross-reference a sample finding against the target document.
-**Expected:** The `Evidence` field quotes actual content from the design; the `Element` field uses the taxonomy.
-**Command:** Spot-check 2-3 findings manually to confirm evidence accuracy.
+**Check:** Findings cite actual evidence from target document.
+**Method:** Select 2-3 findings at random. For each:
+1. Locate the `Evidence` field quote in the original target document
+2. Verify `Element` uses taxonomy pattern (e.g., `frontmatter.*`, `workflow.*`)
+**Expected:** All sampled findings have verifiable evidence; Element follows taxonomy.
+**If check fails:** Flag findings as potentially hallucinated; re-run lens with stricter format instructions.
 
-### Hierarchical Audit Verification
-**Check:** Structure pass identified high-risk sections; deep dive covered those sections.
-**Expected:** Output notes which sections received deep analysis and which were structure-only.
+### Hierarchical Audit Verification (when applicable)
+**Check:** Output declares coverage scope.
+**Method:** Verify `## Audit Coverage` section exists with `Structure-only sections` and `Deep-dive sections` lists.
+**Expected:** Lists are non-empty and rationale is provided for deep-dive selection.
 
 ---
 
