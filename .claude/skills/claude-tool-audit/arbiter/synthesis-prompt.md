@@ -76,3 +76,22 @@ Findings from single lenses that add value:
 - **Critical path:** [findings that MUST be fixed]
 - **Deferred:** [can wait for later iteration]
 - **Summary:** [2-3 sentence assessment]
+
+## Edge Cases
+
+### No Findings from Any Lens
+If all lenses report 0 findings:
+- Verdict: **ready**
+- Summary: "All lenses found no significant issues. Design appears well-constructed."
+
+### Zero Convergence (All Findings Unique)
+If no findings overlap across lenses:
+- List all unique findings under "Unique Insights"
+- Note: "No convergent findings detected. Each lens identified distinct concerns."
+- Prioritize by severity alone (Critical > Major > Minor)
+
+### Malformed Lens Output
+If a lens output lacks required structure:
+- Note which lens is malformed in Verdict warnings
+- Synthesize from remaining valid outputs
+- Recommend re-running malformed lens

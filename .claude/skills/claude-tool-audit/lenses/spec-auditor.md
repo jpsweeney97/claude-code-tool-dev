@@ -37,5 +37,18 @@ Use this exact structure:
 ### Summary
 - Total findings: X (Y Critical, Z Major, W Minor)
 
+## Severity Criteria
+- **Critical:** Violates required field/structure; design cannot work as written
+- **Major:** Violates recommended practice; will cause problems but may work
+- **Minor:** Style/convention issue; works but non-compliant
+
+## If No Findings
+If the design fully complies with specifications, output:
+```
+### Summary
+- Total findings: 0
+- Assessment: Design complies with all checked specifications.
+```
+
 ## Design to Audit
 {{TARGET_CONTENT}}

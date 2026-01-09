@@ -59,5 +59,18 @@ Use this exact structure:
 ### Summary
 - Total findings: X (Y Critical, Z Major, W Minor)
 
+## Severity Criteria
+- **Critical:** Design assumes behavior Claude cannot perform; will fail
+- **Major:** Design assumes behavior that's unreliable; may fail intermittently
+- **Minor:** Suboptimal assumption; works but could be improved
+
+## If No Findings
+If the design aligns with Claude's actual behavior, output:
+```
+### Summary
+- Total findings: 0
+- Assessment: Design assumptions align with documented Claude behavior.
+```
+
 ## Design to Audit
 {{TARGET_CONTENT}}

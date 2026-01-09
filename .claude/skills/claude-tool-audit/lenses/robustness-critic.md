@@ -68,5 +68,18 @@ Use this exact structure:
 ### Summary
 - Total findings: X (Y Critical, Z Major, W Minor)
 
+## Severity Criteria
+- **Critical:** Unhandled failure causes data loss, security breach, or silent corruption
+- **Major:** Unhandled failure causes visible errors but no permanent damage
+- **Minor:** Edge case unlikely to occur; low impact if it does
+
+## If No Findings
+If the design handles failure modes adequately, output:
+```
+### Summary
+- Total findings: 0
+- Assessment: Design addresses common failure modes adequately.
+```
+
 ## Design to Audit
 {{TARGET_CONTENT}}

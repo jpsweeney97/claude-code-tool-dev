@@ -63,5 +63,19 @@ Use this exact structure:
 - Total findings: X (Y Critical, Z Major, W Minor)
 - Estimated complexity reduction if findings addressed: X%
 
+## Severity Criteria
+- **Critical:** Complexity blocks adoption; users will abandon before succeeding
+- **Major:** Unnecessary complexity adds significant cost/latency without value
+- **Minor:** Could be simpler but functional as-is
+
+## If No Findings
+If the design is appropriately scoped, output:
+```
+### Summary
+- Total findings: 0
+- Estimated complexity reduction: 0%
+- Assessment: Design scope is appropriate for its goals.
+```
+
 ## Design to Audit
 {{TARGET_CONTENT}}
