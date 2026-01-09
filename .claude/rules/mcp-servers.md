@@ -22,7 +22,9 @@ MCP (Model Context Protocol) servers extend Claude Code with custom tools, resou
 
 ## Structure
 
-MCP servers are TypeScript packages:
+> **Note:** This section describes project-specific TypeScript conventions. Claude Code supports MCP servers in any language — see official docs for language-agnostic configuration via `.mcp.json`.
+
+MCP servers in this repo are TypeScript packages:
 
 ```
 packages/mcp-servers/<name>/

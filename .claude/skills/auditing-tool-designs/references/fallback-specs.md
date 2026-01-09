@@ -1,7 +1,8 @@
 # Claude Code Artifact Specifications (Fallback)
 
 > **Last verified:** 2026-01-09
-> **Update trigger:** Re-verify when claude-code-guide returns significantly different specs
+> **Version:** Based on Claude Code documentation as of 2026-01-09
+> **Update trigger:** Re-verify monthly or when claude-code-guide returns significantly different specs
 > **Owner:** Manual update by skill maintainer
 > **Source:** Official Anthropic documentation via claude-code-guide agent
 
@@ -37,6 +38,31 @@
 - Assuming cross-session memory
 - SKILL.md body over 500 lines without progressive disclosure
 
+### Required Body Sections
+Skills MUST contain these 8 content areas (equivalent headings allowed):
+
+| Section | Purpose |
+|---------|---------|
+| When to use | Triggers and conditions for invocation |
+| When NOT to use | Explicit boundaries and exclusions |
+| Inputs | What the skill needs to operate |
+| Outputs / Definition of Done | Artifacts produced and completion criteria |
+| Procedure | Step-by-step workflow |
+| Decision points | ≥2 explicit "If...then...otherwise" with observable triggers |
+| Verification | How to confirm the skill worked |
+| Troubleshooting | ≥1 common failure mode with cause and fix |
+
+### Risk Tiering
+| Tier | Criteria | Minimum Requirements |
+|------|----------|---------------------|
+| Low | Read-only, no external calls, reversible | Basic 8 sections |
+| Medium | Writes files, calls external services | + explicit rollback guidance |
+| High | Destructive operations, irreversible changes | + confirmation gates, dry-run option |
+
+### Definition of Done Requirements
+- **Objective DoD:** Completion must be verifiable without human judgment (file exists, command exits 0, grep matches)
+- **Subjective guidance is NOT DoD:** "looks good", "user satisfied", "seems complete" are anti-patterns
+
 ---
 
 ## Hooks
@@ -70,7 +96,9 @@
 | 2 | Block with message (stderr used) |
 
 ### Component-Scoped Hooks
-Skills, commands, and agents can define hooks in frontmatter. The `once: true` option is supported for skills and commands only (NOT agents).
+Skills, commands, and agents can define hooks in frontmatter:
+- **Skills/Commands:** Full support including `once: true` option
+- **Agents:** Can use hooks, but `once: true` is NOT supported
 
 ### Anti-patterns
 - Exit code 1 for blocking (use 2)
@@ -99,8 +127,17 @@ Skills, commands, and agents can define hooks in frontmatter. The `once: true` o
 | disable-model-invocation | No | boolean | Blocks Skill tool invocation |
 | hooks | No | object | PreToolUse, PostToolUse, or Stop handlers |
 
-### Placeholder
-- `$ARGUMENTS` — substituted with user input after command name
+### Argument Substitution
+| Placeholder | Substitution |
+|-------------|--------------|
+| `$ARGUMENTS` | All user input after command name |
+| `$1`, `$2`, ... | Positional arguments (space-separated) |
+
+### Special Syntax
+| Prefix | Behavior |
+|--------|----------|
+| `!` | Execute as bash command (e.g., `!npm run build`) |
+| `@` | Include file contents (e.g., `@./README.md`) |
 
 ---
 

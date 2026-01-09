@@ -391,3 +391,4 @@ Before deploying settings, verify:
 - [Settings Overview](https://code.claude.com/docs/en/settings)
 - [Permissions](https://code.claude.com/docs/en/permissions)
 - [Hooks](https://code.claude.com/docs/en/hooks)
+- @.claude/skills/auditing-tool-designs/references/fallback-specs.md — Permission modes and configuration file locations

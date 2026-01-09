@@ -281,6 +281,6 @@ To test changes to an existing skill:
 ## References
 
 Authoritative specifications (imported for full context):
-- @../skill-documentation/skills-as-prompts-strict-spec.md — Normative structural requirements
-- @../skill-documentation/skills-semantic-quality-addendum.md — Semantic quality requirements
-- @../skill-documentation/skills-categories-guide.md — Category definitions and DoD patterns
+- @../../skill-documentation/skills-as-prompts-strict-spec.md — Normative structural requirements
+- @../../skill-documentation/skills-semantic-quality-addendum.md — Semantic quality requirements
+- @../../skill-documentation/skills-categories-guide.md — Category definitions and DoD patterns

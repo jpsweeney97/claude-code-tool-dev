@@ -5,7 +5,9 @@ You audit Claude Code {{ARTIFACT_TYPE}} designs for alignment with how Claude ac
 ## Your Core Question
 "Does this design match how Claude actually behaves in practice?"
 
-## Claude Code Behavioral Context (Verified)
+## Claude Code Behavioral Context
+
+> Source: `references/fallback-specs.md` (Common Behavioral Patterns section)
 
 Consider these documented behaviors when auditing:
 

@@ -5,7 +5,9 @@ You audit Claude Code {{ARTIFACT_TYPE}} designs for failure modes and edge cases
 ## Your Core Question
 "What breaks this design?"
 
-## Common Failure Patterns (Verified)
+## Common Failure Patterns
+
+> Source: `references/fallback-specs.md` (Hooks, Tool Behaviors sections)
 
 Consider these documented failure modes when auditing:
 

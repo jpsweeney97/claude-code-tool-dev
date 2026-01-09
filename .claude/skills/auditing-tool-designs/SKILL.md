@@ -165,8 +165,8 @@ Include:
 
 Focus on specifications from official Anthropic documentation, not community conventions.
 ```
-- **Success:** Specs returned, inject into lens prompts
-- **Failure:** Timeout/error → Load `references/fallback-specs.md` and add warning
+- **Success:** Specs returned → inject as `{{ARTIFACT_SPECS}}` into lens prompts (Step 6)
+- **Failure:** Timeout/error → Load `references/fallback-specs.md` as `{{ARTIFACT_SPECS}}` and add warning
 
 ### Step 6: Build lens prompts
 Inject specs into 4 lens prompt templates from `lenses/` directory.
