@@ -13,7 +13,7 @@ Consider these documented failure modes when auditing:
 - Exit code 1 logs error but CONTINUES execution (doesn't block)
 - Exit code 2 blocks but ignores JSON in stdout (only stderr used)
 - JSON output only processed at exit 0; malformed JSON silently ignored
-- Default 60-second timeout; timed-out hooks don't retry
+- Default timeouts: command hooks 60s, prompt hooks 30s; timed-out hooks don't retry
 - Hooks run in parallel; no shared state without explicit locking
 
 **Input/Output Failures:**

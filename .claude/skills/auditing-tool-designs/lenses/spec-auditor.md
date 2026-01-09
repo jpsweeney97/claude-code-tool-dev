@@ -15,7 +15,7 @@ For each, note violations with evidence:
 - [ ] Field values: Only documented values used, no invented properties
 - [ ] Patterns: Exit codes, events, transports match official docs
 - [ ] Cross-references: References to other artifacts are valid paths
-- [ ] Semantics: Description explains when/why, **uses third-person** ("Processes..." not "Process...")
+- [ ] Semantics: Description explains when/why to use
 - [ ] Deprecations: No documented anti-patterns used
 
 ## Output Format
