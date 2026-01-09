@@ -3,7 +3,7 @@ id: security-managed
 topic: Managed Settings Deployment
 category: security
 tags: [managed, enterprise, deployment, it]
-related_to: [security-mcp-restrictions, security-marketplace-restrictions, settings-scopes]
+related_to: [security-mcp-restrictions, security-marketplace-restrictions, security-hooks-restrictions, settings-scopes]
 official_docs: https://code.claude.com/en/iam
 ---
 

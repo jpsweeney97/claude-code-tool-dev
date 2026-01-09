@@ -4,7 +4,7 @@ topic: Agent Frontmatter Schema
 category: agents
 tags: [frontmatter, yaml, schema, configuration]
 requires: [agents-overview]
-related_to: [agents-permissions, agents-task-tool]
+related_to: [agents-permissions, agents-task-tool, agents-builtin]
 official_docs: https://code.claude.com/en/sub-agents
 ---
 

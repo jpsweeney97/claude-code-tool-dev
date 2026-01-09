@@ -31,7 +31,7 @@ Control which MCP servers users can access.
 }
 ```
 
-Users cannot add any other servers when this file exists.
+Users cannot add other MCP servers.
 
 ## Option 2: Allowlist/Denylist
 
@@ -56,7 +56,7 @@ In `managed-settings.json`:
 | `allowedMcpServers` Value | Behavior |
 |---------------------------|----------|
 | `undefined` | No restrictions |
-| `[]` | Complete lockdown |
+| `[]` | All additions blocked |
 | `[entries...]` | Only matching servers allowed |
 
 ## Key Points

@@ -32,7 +32,7 @@ In `managed-settings.json`:
 | Value | Behavior |
 |-------|----------|
 | `undefined` | No restrictions |
-| `[]` | No marketplaces can be added |
+| `[]` | Users cannot add marketplaces |
 | `[sources...]` | Only exact matches allowed |
 
 ## Source Types
@@ -56,7 +56,7 @@ Pin to specific version:
 ## Key Points
 
 - undefined = no restrictions
-- [] = complete lockdown
+- [] = all additions blocked
 - Array = only listed marketplaces
 - Supports github, url, npm sources
 - Can pin to specific versions

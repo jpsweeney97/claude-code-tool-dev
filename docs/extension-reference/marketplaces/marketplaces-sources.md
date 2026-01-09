@@ -2,7 +2,7 @@
 id: marketplaces-sources
 topic: Marketplace Source Types
 category: marketplaces
-tags: [sources, github, npm, git, local]
+tags: [sources, github, npm, git, local, file, directory]
 requires: [marketplaces-overview, marketplaces-schema]
 related_to: [marketplaces-examples]
 official_docs: https://code.claude.com/en/plugin-marketplaces
@@ -72,9 +72,48 @@ For non-GitHub repositories:
 }
 ```
 
+## File Source
+
+Reference a specific marketplace JSON file.
+
+```json
+{
+  "name": "local-marketplace",
+  "source": {
+    "source": "file",
+    "path": "/absolute/path/to/marketplace.json"
+  }
+}
+```
+
+**Use cases:**
+- Testing marketplace definitions before publishing
+- Local-only marketplaces not suitable for version control
+- Temporary marketplace configurations
+
+## Directory Source
+
+Reference a directory containing a plugin.
+
+```json
+{
+  "name": "dev-plugin",
+  "source": {
+    "source": "directory",
+    "path": "/path/to/plugin-directory"
+  }
+}
+```
+
+**Use cases:**
+- Local plugin development workflows
+- Directory-based plugin distribution
+- Development environments with multiple local plugins
+
 ## Key Points
 
 - Relative paths simplest for bundled plugins
 - GitHub for community distribution
 - URL for GitLab/Bitbucket/self-hosted
 - NPM for JavaScript ecosystem
+- File/Directory for local development

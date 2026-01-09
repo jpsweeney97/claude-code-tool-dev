@@ -3,7 +3,7 @@ id: mcp-overview
 topic: MCP Servers Overview
 category: mcp
 tags: [mcp, servers, external, tools, apis]
-related_to: [mcp-transports, mcp-scopes, mcp-authentication]
+related_to: [mcp-transports, mcp-scopes, mcp-authentication, mcp-resources]
 official_docs: https://code.claude.com/en/mcp
 ---
 

@@ -4,7 +4,7 @@ topic: Hook Configuration Schema
 category: hooks
 tags: [configuration, schema, settings, json]
 requires: [hooks-overview]
-related_to: [hooks-events, hooks-matchers, hooks-types]
+related_to: [hooks-events, hooks-matchers, hooks-types, hooks-environment]
 official_docs: https://code.claude.com/en/hooks
 ---
 
