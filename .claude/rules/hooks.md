@@ -226,7 +226,7 @@ Event-specific additional fields:
 | `Notification` | `message`, `notification_type` |
 | `Stop`, `SubagentStop` | `stop_hook_active` |
 | `PreCompact` | `trigger` (manual/auto), `custom_instructions` |
-| `SessionStart` | `source` (startup/resume/clear/compact) |
+| `SessionStart` | `source` (startup/resume/clear/compact), `agent_type` (if `--agent` specified) |
 | `SessionEnd` | `reason` (clear/logout/prompt_input_exit/other) |
 
 **SessionStart special**: Receives `CLAUDE_ENV_FILE` environment variable for persisting env vars.

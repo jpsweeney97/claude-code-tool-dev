@@ -82,6 +82,24 @@ skills: sql-analysis, chart-generation
 
 Skills are loaded into subagent context at start. Must be discoverable from same locations as the subagent (personal `~/.claude/skills/`, project `.claude/skills/`, or plugin).
 
+### Hooks Field Example
+
+```yaml
+---
+name: secure-executor
+description: Executes code with command validation
+tools: Bash, Read
+hooks:
+  PreToolUse:
+    - matcher: Bash
+      command: ./scripts/validate-command.sh
+  Stop:
+    - command: ./scripts/cleanup.sh
+---
+```
+
+Agent hooks are scoped to the subagent's execution lifecycle. `once: true` is NOT supported for agent hooks.
+
 ## Invoking Agents
 
 Agents are invoked via the Task tool:

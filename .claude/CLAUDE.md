@@ -24,6 +24,7 @@ CREATE in .claude/  →  TEST locally  →  PROMOTE to ~/.claude/
 - Project-local `.claude/` is auto-discovered by Claude Code
 - Sandbox testing requires no setup
 - Promotion is explicit with validation
+- Skills auto-reload — no restart needed during development
 
 ## Plugin Workflow
 

@@ -17,6 +17,10 @@ Skills are directories containing `SKILL.md`:
 └── assets/           # Images, prompts (optional)
 ```
 
+## Hot-Reload
+
+Skills auto-reload when modified. Changes to files in `~/.claude/skills/` or `.claude/skills/` are immediately available without restarting the session.
+
 ## SKILL.md Format
 
 ### Frontmatter
@@ -280,7 +284,7 @@ To test changes to an existing skill:
 
 ## References
 
-Authoritative specifications (imported for full context):
-- @../../skill-documentation/skills-as-prompts-strict-spec.md — Normative structural requirements
-- @../../skill-documentation/skills-semantic-quality-addendum.md — Semantic quality requirements
-- @../../skill-documentation/skills-categories-guide.md — Category definitions and DoD patterns
+Authoritative specifications (read when needed for detailed guidance):
+- `skill-documentation/skills-as-prompts-strict-spec.md` — Normative structural requirements, reviewer checklist, fail codes
+- `skill-documentation/skills-semantic-quality-addendum.md` — Semantic quality requirements, templates
+- `skill-documentation/skills-categories-guide.md` — Category definitions, DoD patterns, decision point libraries
