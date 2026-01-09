@@ -20,15 +20,18 @@
 ### Valid Frontmatter Fields
 | Field | Required | Type | Constraints |
 |-------|----------|------|-------------|
-| name | Yes | string | Max 64 chars. Lowercase, numbers, hyphens only. **Cannot contain reserved words: "anthropic", "claude"**. Gerund form recommended (e.g., `processing-pdfs`). |
-| description | Yes | string | Max 1024 chars. **Must use third-person** (e.g., "Processes files..." not "Process files..."). Describes what it does + when to use. |
-| model | No | string | Specific Claude model for this skill |
-| allowed-tools | No | array | Restrict which tools Claude can use |
-| user-invocable | No | boolean | Hide from slash menu if false |
+| name | Yes | string | Max 64 chars. Lowercase, numbers, hyphens only. |
+| description | Yes | string | Max 1024 chars. Describes what it does + when to use. |
+| allowed-tools | No | string/array | Comma-separated or YAML list |
+| model | No | string | Specific Claude model (e.g., `claude-sonnet-4-20250514`) |
+| context | No | string | Set to `fork` for isolated subagent execution |
+| agent | No | string | Agent type when `context: fork` (e.g., `general-purpose`) |
+| hooks | No | object | Component-scoped hooks (PreToolUse, PostToolUse, Stop) |
+| user-invocable | No | boolean | Controls visibility in slash menu (default: true) |
+| disable-model-invocation | No | boolean | Blocks Skill tool from invoking this skill |
 
 ### Anti-patterns
 - Reserved words in name ("anthropic", "claude")
-- Imperative or second-person descriptions ("Use this to...", "You can...")
 - Hardcoded file paths (use relative or ask user)
 - Dependencies on external packages (skills run in minimal environment)
 - Assuming cross-session memory
@@ -38,11 +41,12 @@
 
 ## Hooks
 
-### Required Structure
-| Element | Requirement |
-|---------|-------------|
-| File | Script with settings.json entry |
-| Location | Configured in settings.json hooks section |
+### Hook Types
+| Type | Description | Model | Availability |
+|------|-------------|-------|--------------|
+| `command` | Execute bash script | N/A | All hooks |
+| `prompt` | LLM-based evaluation | Haiku | All hooks |
+| `agent` | Agentic verifier with tools | Configurable | Plugins only |
 
 ### Event Types
 | Event | Runs When | Can Block |
@@ -65,11 +69,68 @@
 | 1 | Error (logged, does NOT block) |
 | 2 | Block with message (stderr used) |
 
+### Component-Scoped Hooks
+Skills, commands, and agents can define hooks in frontmatter. The `once: true` option is supported for skills and commands only (NOT agents).
+
 ### Anti-patterns
 - Exit code 1 for blocking (use 2)
 - JSON in stdout at exit 2 (ignored; use stderr)
 - Not reading stdin JSON
 - Synchronous network calls without timeout
+- Using `once: true` on agent hooks (not supported)
+
+---
+
+## Commands
+
+### Required Structure
+| Element | Requirement |
+|---------|-------------|
+| File | Markdown file |
+| Location | `.claude/commands/<name>.md` |
+
+### Frontmatter Fields
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| description | No | string | Shown in command list (recommended) |
+| argument-hint | No | string | Placeholder text for arguments |
+| allowed-tools | No | string | Comma-separated list of tools |
+| model | No | string | Specific Claude model |
+| disable-model-invocation | No | boolean | Blocks Skill tool invocation |
+| hooks | No | object | PreToolUse, PostToolUse, or Stop handlers |
+
+### Placeholder
+- `$ARGUMENTS` — substituted with user input after command name
+
+---
+
+## Subagents
+
+### Frontmatter Fields
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| name | Yes | string | Lowercase + hyphens only |
+| description | Yes | string | Purpose description |
+| tools | No | string | Comma-separated tool list |
+| model | No | string | sonnet, opus, haiku, or 'inherit' |
+| permissionMode | No | string | default, acceptEdits, dontAsk, bypassPermissions, plan, ignore |
+| skills | No | string | Comma-separated skills to auto-load |
+| hooks | No | object | PreToolUse, PostToolUse, or Stop handlers |
+
+### Configuration via Task Tool
+| Field | Type | Notes |
+|-------|------|-------|
+| subagent_type | string | Agent type identifier |
+| prompt | string | Task description |
+| model | string | sonnet, opus, haiku |
+| max_turns | number | API round-trips limit |
+
+### Built-in Types
+| Type | Purpose | Model |
+|------|---------|-------|
+| general-purpose | Multi-step tasks | sonnet |
+| Explore | Fast codebase exploration | haiku |
+| Plan | Codebase research in plan mode | sonnet |
 
 ---
 
@@ -91,7 +152,10 @@
 | skills | No | path or array |
 | commands | No | path or array |
 | agents | No | array of file paths |
+| hooks | No | path or inline config |
 | mcpServers | No | path to .mcp.json |
+| outputStyles | No | path or array |
+| lspServers | No | path to .lsp.json |
 
 ### Path Conventions
 - All paths use `./` prefix for portability
@@ -99,40 +163,39 @@
 
 ---
 
-## Commands
+## MCP Servers
 
 ### Required Structure
 | Element | Requirement |
 |---------|-------------|
-| File | Markdown file |
-| Location | `.claude/commands/<name>.md` |
+| Config | `.mcp.json` or `~/.claude.json` |
+| Transport | stdio (local) or http (remote) |
 
-### Frontmatter Fields
-| Field | Required | Notes |
-|-------|----------|-------|
-| description | No | Shown in command list (recommended) |
-| argument-hint | No | Placeholder text for arguments |
-
-### Placeholder
-- `$ARGUMENTS` — substituted with user input after command name
+### Tool Output Limits
+- Warning at 10K tokens
+- Max 25K tokens per tool response
 
 ---
 
-## Subagents
+## Settings
 
-### Configuration via Task Tool
-| Field | Type | Notes |
-|-------|------|-------|
-| subagent_type | string | Agent type identifier |
-| prompt | string | Task description |
-| model | string | sonnet, opus, haiku |
-| max_turns | number | API round-trips limit |
+### Configuration Files
+| Scope | Location |
+|-------|----------|
+| Managed | System directories (IT/enterprise) |
+| Local project | `.claude/settings.local.json` |
+| Shared project | `.claude/settings.json` |
+| User | `~/.claude/settings.json` |
 
-### Built-in Types
-- general-purpose: Multi-step tasks with all tools
-- Explore: Fast codebase exploration
-- Plan: Architecture planning
-- claude-code-guide: Documentation queries (uses haiku)
+### Permission Modes
+| Mode | Behavior |
+|------|----------|
+| default | Prompts for permission on first use |
+| acceptEdits | Auto-accepts file edits |
+| plan | Analyze only, no modifications |
+| dontAsk | Auto-denies unless pre-approved |
+| bypassPermissions | Skips all prompts |
+| ignore | No permissions enforced |
 
 ---
 
