@@ -272,24 +272,22 @@ packages/plugins/skillsmith/
 - [ ] 5.1 Create `agents/design-agent.md`:
   - Focus: Structure, patterns, technical correctness
   - Dimensions: Constraint completeness, Decision sufficiency, Minimality
-  - Include spec consultation triggers
-  - Follow agent review format from design doc Section 9
+  - Reference: Design doc Section 9 (Agent Review Format)
 
 - [ ] 5.2 Create `agents/audience-agent.md`:
   - Focus: Clarity, triggers, discoverability
   - Dimensions: Intent fidelity, Terminology clarity, Artifact usefulness
-  - Include spec consultation triggers
+  - Reference: Design doc Section 9 (Agent Review Format)
 
 - [ ] 5.3 Create `agents/evolution-agent.md`:
   - Focus: Timelessness scoring, extension points, ecosystem fit
-  - Include temporal projection methodology
-  - Include scoring rubric reference
-  - Threshold: ≥7 required
+  - Threshold: Score ≥7 required
+  - Reference: Design doc Section 9 (Agent Review Format), Section 11b (Timelessness)
 
 - [ ] 5.4 Create `agents/script-agent.md`:
-  - Focus: Script quality (conditional, only if scripts/ exists)
-  - Include pattern compliance checks
-  - Include self-verification requirements
+  - Focus: Script quality (conditional—only if scripts/ exists)
+  - Checks: Pattern compliance, self-verification, documentation
+  - Reference: Design doc Section 9 (Agent Review Format)
 
 ### Verification
 
