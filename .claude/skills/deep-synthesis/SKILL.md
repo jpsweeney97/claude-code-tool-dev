@@ -14,16 +14,19 @@ metadata:
 
 # Deep Synthesis
 
-Multi-repo value extraction and integration into your Claude Code configuration.
+Multi-repo value extraction and synthesis, merging "best of both worlds" into unified single source of truth.
 
 ## When to Use
 
 **Use when:**
+
 - Evaluating Claude Code plugins/skills/MCP servers to adopt
+- Merging multiple repos to synthesize a more robust single repo that unifies the best of both
 - Learning how other developers configure their Claude setups
-- Absorbing best practices from multiple sources into your config
+- Absorbing best practices from multiple sources into config
 
 **Don't use when:**
+
 - Exploring a single codebase → use `deep-exploration`
 - No intent to adopt → manual exploration
 - Obvious best choice exists → adopt directly
@@ -46,6 +49,7 @@ Multi-repo value extraction and integration into your Claude Code configuration.
 ```
 
 **Minimum checklist:**
+
 ```markdown
 [ ] Pre-flight: Target analyzed, focus areas defined
 [ ] Triage: Repos scored, High/Medium selected
@@ -83,64 +87,66 @@ When running `deep-exploration` in Phase 2, request this output structure:
 
 ## Inputs & Outputs
 
-| Input | Required | Description |
-|-------|----------|-------------|
-| Source repos | Yes (2-6) | GitHub URLs or local paths |
-| Focus areas | Yes | "hooks", "MCP servers", "skills", etc. |
-| Calibration | Default: Medium | Light / Medium / Deep |
+| Input        | Required        | Description                            |
+| ------------ | --------------- | -------------------------------------- |
+| Source repos | Yes (2-6)       | GitHub URLs or local paths             |
+| Focus areas  | Yes             | "hooks", "MCP servers", "skills", etc. |
+| Calibration  | Default: Medium | Light / Medium / Deep                  |
 
-| Output | Location |
-|--------|----------|
-| Synthesis report | `docs/synthesis/YYYY-MM-DD-topic.md` |
-| Integration plan | Within report |
-| Conflict log | Within report or `templates/conflict-log.md` |
+| Output           | Location                                     |
+| ---------------- | -------------------------------------------- |
+| Synthesis report | `docs/synthesis/YYYY-MM-DD-topic.md`         |
+| Integration plan | Within report                                |
+| Conflict log     | Within report or `templates/conflict-log.md` |
 
 ## Calibration
 
-| Level | When | Agents/Repo | Conflict Resolution |
-|-------|------|-------------|---------------------|
-| **Light** | Low stakes, 2 repos, obvious choices | 2 | Author decides |
-| **Medium** | Standard, 3-4 repos, some conflicts | 4 | Evidence-based |
-| **Deep** | High stakes, 5-6 repos, complex | 4+ | Multiple rounds |
+| Level      | When                                 | Agents/Repo | Conflict Resolution |
+| ---------- | ------------------------------------ | ----------- | ------------------- |
+| **Light**  | Low stakes, 2 repos, obvious choices | 2           | Author decides      |
+| **Medium** | Standard, 3-4 repos, some conflicts  | 4           | Evidence-based      |
+| **Deep**   | High stakes, 5-6 repos, complex      | 4+          | Multiple rounds     |
 
 **Stakes:** Reversibility × Blast radius × Precedent × Complexity
 Score 4-6 → Light | 7-9 → Medium | 10-12 → Deep
 
 ## Phases
 
-| # | Phase | Key Action | Reference |
-|---|-------|------------|-----------|
-| 0 | Pre-Flight | Complete [target-analysis.md](templates/target-analysis.md) | — |
-| 1 | Triage | Score repos, filter to High/Medium | [triage-criteria](references/triage-criteria.md) |
-| 2 | Exploration | Run `deep-exploration` with [output contract](#exploration-output-contract) | — |
-| 3 | Value ID | Apply 4 criteria, classify findings | [value-criteria](references/value-criteria.md) |
-| 4 | Synthesis | Resolve conflicts (with counter-arguments), verify compatible | [conflict-protocol](references/conflict-protocol.md) |
-| 5 | Planning | Ordered changes with rollback | [compatibility-checklist](references/compatibility-checklist.md) |
+| #   | Phase       | Key Action                                                                  | Reference                                                        |
+| --- | ----------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| 0   | Pre-Flight  | Complete [target-analysis.md](templates/target-analysis.md)                 | —                                                                |
+| 1   | Triage      | Score repos, filter to High/Medium                                          | [triage-criteria](references/triage-criteria.md)                 |
+| 2   | Exploration | Run `deep-exploration` with [output contract](#exploration-output-contract) | —                                                                |
+| 3   | Value ID    | Apply 4 criteria, classify findings                                         | [value-criteria](references/value-criteria.md)                   |
+| 4   | Synthesis   | Resolve conflicts (with counter-arguments), verify compatible               | [conflict-protocol](references/conflict-protocol.md)             |
+| 5   | Planning    | Ordered changes with rollback                                               | [compatibility-checklist](references/compatibility-checklist.md) |
 
 ## Abort Conditions
 
-| Condition | Action |
-|-----------|--------|
-| All repos Low/Skip in triage | Abort: "nothing worth adopting" |
+| Condition                        | Action                          |
+| -------------------------------- | ------------------------------- |
+| All repos Low/Skip in triage     | Abort: "nothing worth adopting" |
 | All findings fail value criteria | Abort: "nothing meets criteria" |
-| Unresolvable conflicts | Abort: "incompatible sources" |
+| Unresolvable conflicts           | Abort: "incompatible sources"   |
 
 ## Anti-Patterns
 
-| Avoid | Instead |
-|-------|---------|
-| Adopting without evidence | Require source citation |
-| Ignoring conflicts | Document and resolve all |
-| Skipping target analysis | Analyze `~/.claude/` first |
-| Feature maximalism | Apply value criteria strictly |
+| Avoid                     | Instead                       |
+| ------------------------- | ----------------------------- |
+| Adopting without evidence | Require source citation       |
+| Ignoring conflicts        | Document and resolve all      |
+| Skipping target analysis  | Analyze `~/.claude/` first    |
+| Feature maximalism        | Apply value criteria strictly |
 
 ## Integration
 
 **Uses:**
+
 - `deep-exploration` — Run on each repo (Phase 2)
 - `episodic-memory:search` — Prior decisions (Phase 0)
 
 **Pairs with:**
+
 - `superpowers:brainstorming` — Define synthesis goals
 - `superpowers:writing-plans` — Implementation after synthesis
 

@@ -48,11 +48,13 @@ Plugins use the marketplace system instead of the promote script.
 **Plugin manifest** (`.claude-plugin/plugin.json`):
 
 Required fields:
-- `name`, `version`, `description`
-- `author`: `{"name": "..."}` (object format)
+- `name`: unique identifier (kebab-case)
 
 Optional fields:
-- `license`, `keywords`, `homepage`
+- `version`: semver string (e.g., `"1.0.0"`)
+- `description`: brief explanation of plugin purpose
+- `author`: `{"name": "..."}` (object format)
+- `license`, `keywords`, `homepage`, `repository`
 - `skills`: `"./skills/"` (directory) or `["./skills/one.md"]` (array)
 - `commands`: `"./commands/"` (directory)
 - `agents`: `["./agents/analyzer.md"]` (array of file paths)
