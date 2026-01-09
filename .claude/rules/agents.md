@@ -65,7 +65,7 @@ Return your findings as:
 | `description` | Yes | string | Natural language description of purpose |
 | `tools` | No | string | Comma-separated list; omit to inherit all tools |
 | `model` | No | string | `sonnet`, `opus`, `haiku`, or `'inherit'` |
-| `permissionMode` | No | string | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` |
+| `permissionMode` | No | string | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan`, `ignore` |
 | `skills` | No | string | Comma-separated skills to auto-load (subagents don't inherit parent skills) |
 | `hooks` | No | object | `PreToolUse`, `PostToolUse`, or `Stop` handlers scoped to subagent |
 
@@ -327,4 +327,4 @@ Custom agents extend these capabilities for specialized workflows.
 ## References
 
 Authoritative specification (imported for full context):
-- @.claude/skills/claude-tool-audit/references/fallback-specs.md — Subagent configuration and built-in types
+- @.claude/skills/auditing-tool-designs/references/fallback-specs.md — Subagent configuration and built-in types

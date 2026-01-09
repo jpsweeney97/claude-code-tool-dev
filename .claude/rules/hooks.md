@@ -79,6 +79,62 @@ if __name__ == "__main__":
 | **Notification** | Notification sent | No | External integrations |
 | **PermissionRequest** | Permission dialog | Yes | Auto-approve/deny patterns |
 
+## Hook Types
+
+| Type | Description | Model | Availability |
+|------|-------------|-------|--------------|
+| `command` | Execute bash script | N/A | All hooks |
+| `prompt` | LLM-based evaluation | Haiku | All hooks |
+| `agent` | Agentic verifier with tools | Configurable | Plugins only |
+
+### Command Hook (Default)
+
+```json
+{
+  "type": "command",
+  "command": "~/.claude/hooks/validate.py",
+  "timeout": 30
+}
+```
+
+### Prompt Hook
+
+```json
+{
+  "type": "prompt",
+  "prompt": "Is this command safe to run? Respond ALLOW or BLOCK."
+}
+```
+
+### Agent Hook (Plugins Only)
+
+```json
+{
+  "type": "agent",
+  "agent": "security-reviewer",
+  "timeout": 120
+}
+```
+
+## Component-Scoped Hooks
+
+Skills, commands, and agents can define hooks directly in their frontmatter:
+
+```yaml
+---
+name: my-skill
+hooks:
+  PreToolUse:
+    - matcher: Bash
+      command: ./validate.sh
+      once: true          # Skills/commands only; NOT agents
+  Stop:
+    - command: ./cleanup.sh
+---
+```
+
+**Note:** The `once: true` option is supported for skills and commands only (NOT agents).
+
 ## Exit Codes
 
 | Code | Meaning | Behavior |
@@ -317,4 +373,4 @@ Before promoting a hook, verify:
 ## References
 
 Authoritative specification (imported for full context):
-- @.claude/skills/claude-tool-audit/references/fallback-specs.md — Hook event types, exit codes, anti-patterns
+- @.claude/skills/auditing-tool-designs/references/fallback-specs.md — Hook event types, exit codes, anti-patterns

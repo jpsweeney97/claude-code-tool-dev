@@ -177,7 +177,12 @@ Configure in `hooks/hooks.json` or inline in `plugin.json`:
 }
 ```
 
-**Available events**: PreToolUse, PostToolUse, PermissionRequest, UserPromptSubmit, Notification, Stop, SubagentStop, SessionStart, SessionEnd, PreCompact
+**Hook types**:
+- `command`: Execute shell commands or scripts
+- `prompt`: Evaluate a prompt with an LLM (uses `$ARGUMENTS` placeholder)
+- `agent`: Run an agentic verifier with tools (plugins only)
+
+**Available events**: PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, UserPromptSubmit, Notification, Stop, SubagentStart, SubagentStop, SessionStart, SessionEnd, PreCompact
 
 ### MCP Servers
 
@@ -434,4 +439,4 @@ Official documentation:
 - [Plugin Marketplaces](https://code.claude.com/docs/en/plugin-marketplaces)
 
 Project-specific:
-- @.claude/skills/claude-tool-audit/references/fallback-specs.md — Plugin manifest fields
+- @.claude/skills/auditing-tool-designs/references/fallback-specs.md — Plugin manifest fields

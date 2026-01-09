@@ -422,4 +422,4 @@ Tools should request minimal permissions. Read-only where possible.
 
 - [MCP Specification](https://modelcontextprotocol.io/docs) — Official protocol documentation
 - [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) — SDK reference
-- @.claude/skills/claude-tool-audit/references/fallback-specs.md — Tool behavioral patterns
+- @.claude/skills/auditing-tool-designs/references/fallback-specs.md — Tool behavioral patterns

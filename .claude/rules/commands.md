@@ -53,6 +53,7 @@ The user wants: $ARGUMENTS
 | `allowed-tools` | No | string | Space/comma-separated list of tools |
 | `model` | No | string | Specific model (e.g., `claude-3-5-haiku-20241022`) |
 | `disable-model-invocation` | No | boolean | Prevent Skill tool from calling this command |
+| `hooks` | No | object | PreToolUse, PostToolUse, or Stop handlers scoped to command |
 
 ## Argument Substitution
 
@@ -252,4 +253,4 @@ Before promoting a command, verify:
 ## References
 
 Authoritative specification (imported for full context):
-- @.claude/skills/claude-tool-audit/references/fallback-specs.md — Command structure and placeholder rules
+- @.claude/skills/auditing-tool-designs/references/fallback-specs.md — Command structure and placeholder rules

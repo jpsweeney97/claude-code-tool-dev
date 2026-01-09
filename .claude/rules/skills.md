@@ -23,13 +23,18 @@ Skills are directories containing `SKILL.md`:
 
 ```yaml
 ---
-name: skill-name
-description: One-line description for skill list
-allowed-tools: ["Tool1", "Tool2"]  # Optional: auto-approve these tools
-metadata:                           # Optional
-  version: "1.0.0"
-  model: claude-opus-4-5-20251101
-  timelessness_score: 8
+name: skill-name                    # Required: lowercase, hyphens, max 64 chars
+description: One-line description   # Required: max 1024 chars
+allowed-tools: Tool1, Tool2         # Optional: comma or YAML list
+model: claude-sonnet-4-20250514     # Optional: specific model
+context: fork                       # Optional: run in isolated subagent
+agent: general-purpose              # Optional: agent type when context: fork
+hooks:                              # Optional: component-scoped hooks
+  PreToolUse:
+    - matcher: Bash
+      command: ./validate.sh
+user-invocable: true                # Optional: controls slash menu visibility
+disable-model-invocation: false     # Optional: blocks Skill tool invocation
 ---
 ```
 

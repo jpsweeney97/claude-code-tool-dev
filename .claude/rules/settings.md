@@ -81,6 +81,7 @@ MCP servers use separate files:
 | `plan` | Analyze only, no modifications |
 | `dontAsk` | Auto-denies unless pre-approved |
 | `bypassPermissions` | Skips all prompts (requires safe environment) |
+| `ignore` | No permissions enforced |
 
 ### Permission Rule Syntax
 
