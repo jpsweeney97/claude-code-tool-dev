@@ -238,7 +238,7 @@ This resolves to the plugin's installed location regardless of where it's instal
 
 ### No Path Traversal
 
-**Critical limitation**: Plugins cannot reference files outside their directory.
+**Critical limitation**: Plugins cannot reference files outside their directory via `../` paths.
 
 ```json
 // WRONG - will not work after installation
@@ -248,7 +248,7 @@ This resolves to the plugin's installed location regardless of where it's instal
 "${CLAUDE_PLUGIN_ROOT}/utils/helper.sh"
 ```
 
-External files are not copied during installation.
+Files reached via `../` paths are not copied during installation. **Exception**: Symlinks within the plugin directory are resolved and their content is copied into the cache.
 
 ## Installation
 
@@ -259,6 +259,7 @@ External files are not copied during installation.
 | `user` | `~/.claude/settings.json` | Personal plugins across projects |
 | `project` | `.claude/settings.json` | Team plugins via git |
 | `local` | `.claude/settings.local.json` | Project-specific, gitignored |
+| `managed` | `managed-settings.json` | Organization-managed (read-only, update only) |
 
 ### CLI Commands
 
@@ -315,6 +316,18 @@ Installation is two-step:
   ]
 }
 ```
+
+**Plugin entry fields:**
+
+| Field | Description |
+|-------|-------------|
+| `name` | Plugin identifier (required) |
+| `source` | Path to plugin directory (required) |
+| `description` | Brief description |
+| `version` | Semver version |
+| `strict` | When `false`, marketplace entry defines everything (no `plugin.json` needed) |
+
+Use `strict: false` when the marketplace entry should fully define the plugin without requiring a separate `plugin.json` manifest.
 
 ### Local Development Marketplace
 

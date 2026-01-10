@@ -83,35 +83,13 @@ Agent definition files:
 }
 ```
 
-**Agent structure:**
+Plugin agents use the same markdown format as local agents. See `agents-overview` for when to use agents, and `agents-frontmatter` for the complete schema.
 
-```markdown
----
-description: What this agent specializes in
-capabilities: ['task1', 'task2', 'task3']
----
+**Integration:**
 
-# Agent Name
-
-Detailed description of the agent's role, expertise, and when Claude should invoke it.
-
-## Capabilities
-
-- Specific task the agent excels at
-- Another specialized capability
-- When to use this agent vs others
-
-## Context and examples
-
-Examples of when this agent should be used and what problems it solves.
-```
-
-**Integration points:**
-
-- Agents appear in the `/agents` interface
-- Claude can invoke agents automatically based on task context
-- Agents can be invoked manually by users
-- Plugin agents work alongside built-in Claude agents
+- Plugin agents appear in `/agents` command
+- Claude can invoke automatically based on task context
+- Plugin agents work alongside built-in and local agents
 
 ## Hooks
 

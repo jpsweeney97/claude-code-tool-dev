@@ -18,6 +18,20 @@ Plugins bundle multiple extension types for distribution. A single plugin can co
 - Share tools across teams
 - Package complete workflows
 
+## When to Use Plugins
+
+- **Bundling related extensions**: Group skills, commands, agents that work together
+- **Team distribution**: Share curated tooling via git-based marketplaces
+- **Versioned releases**: Semantic versioning with changelog tracking
+- **Cross-project reuse**: Install once, use across multiple projects
+
+## When NOT to Use Plugins
+
+- **Single skill/command**: Just create in `.claude/skills/` or `.claude/commands/`
+- **Project-specific tooling**: Use local `.claude/` directory
+- **Rapid iteration**: Plugin installation adds overhead; develop locally first
+- **Simple hooks**: Use `settings.json` hooks directly
+
 ## Directory Structure
 
 ```

@@ -58,7 +58,9 @@ The plugin manifest `.claude-plugin/plugin.json` defines plugin metadata and com
 | `hooks` | string/object | No | Hook config file or inline |
 | `mcpServers` | string/object | No | MCP config file or inline |
 | `lspServers` | string/object | No | LSP config file or inline |
-| `outputStyles` | string/array | No | Output style files/directories |
+| `outputStyles` | string/array | No | Custom output style markdown files (customize system prompt behavior) |
+
+**Output styles** are markdown files with YAML frontmatter (`name`, `description`, `keep-coding-instructions`) that modify Claude's system prompt. See [output styles documentation](https://code.claude.com/docs/en/output-styles) for file format.
 
 ## Key Points
 
