@@ -71,7 +71,7 @@ if __name__ == "__main__":
 | **PreToolUse** | Before tool call | Yes | Validate commands, enforce policies |
 | **PostToolUse** | After tool completes | No | Log results, capture outputs |
 | **UserPromptSubmit** | User submits prompt | Yes | Inject context, validate input |
-| **Stop** | Main agent finishes | Yes | Cleanup, final checks |
+| **Stop** | Main agent finishes (not on user interrupt) | Yes | Cleanup, final checks |
 | **SubagentStop** | Subagent completes | Yes | Validate subagent output |
 | **SessionStart** | Session begins | No | Initialize state, load context |
 | **SessionEnd** | Session terminates | No | Cleanup, persist state |
@@ -81,11 +81,11 @@ if __name__ == "__main__":
 
 ## Hook Types
 
-| Type | Description | Model | Availability |
-|------|-------------|-------|--------------|
-| `command` | Execute bash script | N/A | All hooks |
-| `prompt` | LLM-based evaluation | Haiku | All hooks |
-| `agent` | Agentic verifier with tools | Configurable | Plugins only |
+| Type | Description | Model | Default Timeout | Availability |
+|------|-------------|-------|-----------------|--------------|
+| `command` | Execute bash script | N/A | 60s | All hooks |
+| `prompt` | LLM-based evaluation | Haiku | 30s | All hooks |
+| `agent` | Agentic verifier with tools | Configurable | — | Plugins only |
 
 ### Command Hook (Default)
 
@@ -106,6 +106,8 @@ if __name__ == "__main__":
 }
 ```
 
+Use `$ARGUMENTS` as a placeholder for hook input JSON. If omitted, input is appended to the prompt.
+
 ### Agent Hook (Plugins Only)
 
 ```json
@@ -118,7 +120,9 @@ if __name__ == "__main__":
 
 ## Component-Scoped Hooks
 
-Skills, commands, and agents can define hooks directly in their frontmatter:
+Skills, commands, and agents can define hooks directly in their frontmatter.
+
+**Supported events:** `PreToolUse`, `PostToolUse`, `Stop` only. Other events (SessionStart, UserPromptSubmit, etc.) are not supported in component-scoped hooks.
 
 ```yaml
 ---
@@ -134,6 +138,29 @@ hooks:
 ```
 
 **Note:** The `once: true` option is supported for skills and commands only (NOT agents).
+
+## Hook Merging
+
+When hooks are defined in multiple locations, they are merged and run in parallel:
+
+1. User hooks (`~/.claude/settings.json`)
+2. Project hooks (`.claude/settings.json`)
+3. Local hooks (`.claude/settings.local.json` — not committed)
+4. Plugin hooks (each enabled plugin)
+5. Component-scoped hooks (active skill/command/agent)
+
+**No source takes precedence**—all matching hooks execute in parallel. Design hooks to be independent; don't assume execution order.
+
+## Configuration Safety
+
+Hooks are captured at session start—changes during a session don't take effect immediately:
+
+1. **Snapshot at startup**: Hooks are captured when session starts
+2. **Snapshot used throughout**: Same hooks apply for entire session
+3. **External changes detected**: Claude Code warns if hooks modified externally
+4. **Review required**: Changes apply after review in `/hooks` menu
+
+This prevents malicious hook modifications from affecting your current session.
 
 ## Exit Codes
 
@@ -229,14 +256,21 @@ Event-specific additional fields:
 | `SessionStart` | `source` (startup/resume/clear/compact), `agent_type` (if `--agent` specified) |
 | `SessionEnd` | `reason` (clear/logout/prompt_input_exit/other) |
 
-**SessionStart special**: Receives `CLAUDE_ENV_FILE` environment variable for persisting env vars.
-
 ### Output
 
 | Channel | Exit 0 | Exit 2 | Other Exit |
 |---------|--------|--------|------------|
 | **stdout** | Processed (JSON or text) | Ignored | Ignored |
 | **stderr** | Ignored | Shown as error | Shown in verbose mode |
+
+### Environment Variables
+
+| Variable | Description | Available In |
+|----------|-------------|--------------|
+| `CLAUDE_PROJECT_DIR` | Project root directory (absolute path) | All events |
+| `CLAUDE_CODE_REMOTE` | `"true"` if remote/web, empty if local CLI | All events |
+| `CLAUDE_PLUGIN_ROOT` | Plugin directory (absolute path) | Plugin hooks only |
+| `CLAUDE_ENV_FILE` | Path for env persistence | SessionStart only |
 
 ## Frontmatter Fields (Project Convention)
 
@@ -246,7 +280,8 @@ Event-specific additional fields:
 |-------|----------|------|-------|
 | `event` | Yes | string | Event type from table above |
 | `matcher` | No | string | Filter pattern (tool/notification type/etc.) |
-| `timeout` | No | integer | Seconds (default 60) |
+| `timeout` (command) | No | integer | Seconds (default 60) |
+| `timeout` (prompt) | No | integer | Seconds (default 30) |
 
 ## Design Principles
 
@@ -337,6 +372,20 @@ echo $?  # Check exit code
 3. Run `uv run scripts/sync-settings` to register
 4. Start new Claude Code session
 5. Trigger the event and verify behavior
+
+### Debugging
+
+| Tool | Purpose |
+|------|---------|
+| `/hooks` | View registered hooks in current session |
+| `claude --debug` | See detailed hook execution logs |
+| `Ctrl+O` | Toggle verbose mode to see hook output during session |
+
+**Common issues:**
+- **Quotes not escaped**: Use `\"` inside JSON strings
+- **Wrong matcher case**: Tool names are case-sensitive (`Bash` not `bash`)
+- **Script not found**: Use absolute paths or `$CLAUDE_PROJECT_DIR`
+- **Script not executable**: Run `chmod +x` on hook scripts
 
 ## Workflow
 

@@ -3,7 +3,7 @@ id: hooks-overview
 topic: Hooks Overview
 category: hooks
 tags: [hooks, events, automation, validation]
-related_to: [hooks-events, hooks-types, hooks-exit-codes, hooks-input-schema, hooks-mcp, hooks-security, hooks-debugging, hooks-plugins]
+related_to: [hooks-events, hooks-types, hooks-best-practices, hooks-anti-patterns, hooks-exit-codes, hooks-input-schema, hooks-mcp, hooks-security, hooks-debugging, hooks-plugins]
 official_docs: https://code.claude.com/en/hooks
 ---
 
@@ -39,9 +39,10 @@ Use hooks when:
 - Want to block dangerous operations
 
 Don't use hooks when:
-- Logic belongs in skill/command content
-- Manual verification is preferred
-- One-time operation
+- **Complex logic requiring conversation** — use skills instead
+- **One-off commands** — use slash commands instead
+- **Subagent orchestration** — use agents instead
+- **Heavy computation** — hooks block execution (<1s ideal)
 
 ## Execution Details
 
@@ -69,6 +70,8 @@ Don't use hooks when:
 
 - [hooks-events](hooks-events.md) - Event types and matchers
 - [hooks-types](hooks-types.md) - Hook type details
+- [hooks-best-practices](hooks-best-practices.md) - Design principles
+- [hooks-anti-patterns](hooks-anti-patterns.md) - Common mistakes
 - [hooks-input-schema](hooks-input-schema.md) - JSON input per event
 - [hooks-exit-codes](hooks-exit-codes.md) - Exit codes and JSON output
 - [hooks-mcp](hooks-mcp.md) - MCP tool integration
