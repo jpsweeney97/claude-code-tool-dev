@@ -36,12 +36,48 @@ Simple path relative to marketplace root:
 
 ## GitHub Source
 
+Basic usage:
+
 ```json
 {
   "name": "community-tool",
   "source": {
     "source": "github",
     "repo": "owner/repo"
+  }
+}
+```
+
+### GitHub Source Options
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `repo` | Yes | Repository in `owner/repo` format |
+| `ref` | No | Branch, tag, or commit SHA |
+| `path` | No | Subdirectory within the repository |
+
+### Pin to Branch or Tag
+
+```json
+{
+  "name": "stable-tool",
+  "source": {
+    "source": "github",
+    "repo": "company/plugins",
+    "ref": "v2.0"
+  }
+}
+```
+
+### Plugin in Subdirectory
+
+```json
+{
+  "name": "monorepo-plugin",
+  "source": {
+    "source": "github",
+    "repo": "company/monorepo",
+    "path": "tools/claude-plugin"
   }
 }
 ```
@@ -61,6 +97,8 @@ For non-GitHub repositories:
 ```
 
 ## NPM Source
+
+> **Note:** NPM source is not yet fully implemented. Use `github` or local path sources instead.
 
 ```json
 {

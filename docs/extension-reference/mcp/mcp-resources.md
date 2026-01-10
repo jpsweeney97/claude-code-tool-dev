@@ -24,6 +24,21 @@ Reference MCP resources with @ mentions:
 
 Format: `@<server>:<resource-type>://<identifier>`
 
+Multiple resources in a single prompt:
+```
+> Compare @postgres:schema://users with @docs:file://database/user-model
+```
+
+### Resource Features
+
+| Feature | Behavior |
+|---------|----------|
+| Autocomplete | Type `@` to see available resources |
+| Fuzzy search | Resource paths are fuzzy-searchable |
+| Auto-fetch | Resources automatically fetched and included as attachments when referenced |
+| Content types | Text, JSON, structured data (varies by server) |
+| List/read tools | Claude Code automatically provides tools to list and read MCP resources when servers support them |
+
 ## MCP Prompts as Commands
 
 MCP servers expose prompts as slash commands:
@@ -35,6 +50,15 @@ MCP servers expose prompts as slash commands:
 ```
 
 Format: `/mcp__<server>__<prompt-name> [args]`
+
+### Prompt Features
+
+| Feature | Behavior |
+|---------|----------|
+| Dynamic discovery | Prompts discovered from connected servers |
+| Argument parsing | Based on prompt's defined parameters |
+| Name normalization | Spaces become underscores |
+| Direct injection | Results injected into conversation |
 
 ## Output Limits
 
@@ -50,13 +74,21 @@ export MAX_MCP_OUTPUT_TOKENS=50000
 claude
 ```
 
+Higher limits useful for MCP servers that:
+- Query large datasets or databases
+- Generate detailed reports or documentation
+- Process extensive log files or debugging information
+
+If you frequently encounter output warnings with specific MCP servers, consider increasing the limit or configuring the server to paginate/filter responses.
+
 ## Dynamic Tool Updates
 
-MCP servers can send `list_changed` notifications to dynamically update available tools without reconnecting.
+MCP servers can send `list_changed` notifications, allowing them to dynamically update their available tools, prompts, and resources without requiring you to disconnect and reconnect. When an MCP server sends a `list_changed` notification, Claude Code automatically refreshes the available capabilities from that server.
 
 ## Key Points
 
-- @ mentions for resources
+- @ mentions for resources (fuzzy-searchable, auto-fetched)
 - /mcp__server__prompt for commands
-- Default 25,000 token output limit
-- Servers can update tools dynamically
+- Prompts dynamically discovered, names normalized
+- Default 25,000 token output limit (configurable)
+- Servers can update tools dynamically via `list_changed`

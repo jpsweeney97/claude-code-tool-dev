@@ -3,7 +3,7 @@ id: settings-overview
 topic: Settings Overview
 category: settings
 tags: [settings, configuration, preferences]
-related_to: [settings-scopes, settings-permissions, precedence]
+related_to: [settings-scopes, settings-permissions, settings-schema, settings-environment-variables, settings-tools]
 official_docs: https://code.claude.com/en/settings
 ---
 
@@ -17,6 +17,17 @@ Settings control Claude Code behavior, permissions, hooks, and integrations.
 - Define hooks for automation
 - Set model and display preferences
 - Configure sandbox and security
+
+## Configuration System
+
+| Component | Format | Purpose |
+|-----------|--------|---------|
+| Memory files (CLAUDE.md) | Markdown | Instructions and context loaded at startup |
+| Settings files | JSON | Permissions, environment variables, tool behavior |
+| Slash commands | Markdown | Custom `/command-name` invocations |
+| MCP servers | JSON | Additional tools and integrations |
+
+Settings merge across scopes, with more specific settings overriding broader ones.
 
 ## Configuration Files
 
@@ -41,3 +52,4 @@ Settings control Claude Code behavior, permissions, hooks, and integrations.
 - Higher scope always wins
 - Deny rules override allow rules
 - Local for testing before promoting to project
+- Claude Code's internal system prompt is not published; use `CLAUDE.md` files or `--append-system-prompt` flag for custom instructions

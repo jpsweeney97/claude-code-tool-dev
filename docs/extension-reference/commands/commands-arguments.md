@@ -21,6 +21,14 @@ Commands support argument substitution and dynamic content injection.
 | `$2` | Second argument | `with $2` |
 | `$N` | Nth argument | Positional access |
 
+### When to Use Positional Arguments
+
+Use `$1`, `$2`, etc. instead of `$ARGUMENTS` when you need to:
+
+- Access arguments individually in different parts of your command
+- Provide defaults for missing arguments
+- Build more structured commands with specific parameter roles
+
 ## Bash Execution
 
 Execute commands before prompt injection with backticks and `!`:

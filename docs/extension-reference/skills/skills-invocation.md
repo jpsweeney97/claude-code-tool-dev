@@ -43,11 +43,11 @@ Claude matches user's task to skill description and invokes automatically. Requi
 
 ## Visibility Matrix
 
-| Setting | Slash Menu | Skill Tool | Auto-discovery |
-|---------|------------|------------|----------------|
-| Default | ✓ | ✓ | ✓ |
-| `user-invocable: false` | ✗ | ✓ | ✓ |
-| `disable-model-invocation: true` | ✓ | ✗ | ✓ |
+| Setting | Slash Menu | Skill Tool | Auto-discovery | Use Case |
+|---------|------------|------------|----------------|----------|
+| Default | Visible | Allowed | Yes | Skills you want users to invoke directly |
+| `user-invocable: false` | Hidden | Allowed | Yes | Skills that Claude can use but users shouldn't invoke manually |
+| `disable-model-invocation: true` | Visible | Blocked | Yes | Skills you want users to invoke but not Claude programmatically |
 
 ## Example: Model-Only Skill
 

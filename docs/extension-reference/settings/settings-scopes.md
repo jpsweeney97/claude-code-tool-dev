@@ -16,7 +16,12 @@ Four scope levels with clear precedence rules.
 
 ### Managed Scope
 
-Location: `/Library/Application Support/ClaudeCode/managed-settings.json` (macOS)
+Locations:
+- macOS: `/Library/Application Support/ClaudeCode/managed-settings.json`
+- Linux/WSL: `/etc/claude-code/managed-settings.json`
+- Windows: `C:\Program Files\ClaudeCode\managed-settings.json`
+
+**Note:** These are system-wide paths (not user home directories like `~/Library/...`) that require administrator privileges. They are designed to be deployed by IT administrators.
 
 - Deployed by IT/admins
 - Cannot be overridden by users
@@ -51,6 +56,8 @@ Location: `.claude/settings.local.json`
 - Higher scope always wins
 - **Deny always wins**: Any deny blocks regardless of allows elsewhere
 - Settings merge, with higher scope taking precedence
+
+**Example:** If user settings allow `Bash(npm run:*)` but project settings deny it, the project setting takes precedence and the command is blocked.
 
 ## Key Points
 

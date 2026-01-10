@@ -36,7 +36,7 @@ hooks:                               # Component-scoped hooks
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `description` | string | No | First line of prompt | Shown in slash menu and Skill tool |
-| `argument-hint` | string | No | None | Hint shown for expected arguments |
+| `argument-hint` | string | No | None | Hint shown for expected arguments (supports alternatives: `add [id] \| remove [id] \| list`) |
 | `model` | string | No | Inherits from conversation | Override model for this command (see [Models overview](https://docs.claude.com/en/docs/about-claude/models/overview)) |
 | `allowed-tools` | string | No | Inherits from conversation | Comma-separated tool whitelist |
 | `disable-model-invocation` | boolean | No | `false` | Prevent Skill tool from invoking this command |

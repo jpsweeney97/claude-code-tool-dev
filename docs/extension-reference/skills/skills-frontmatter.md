@@ -66,17 +66,17 @@ hooks:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Kebab-case identifier (max 64 chars). Should match directory name. |
+| `name` | string | Yes | Lowercase letters, numbers, and hyphens only (max 64 chars). Should match directory name. |
 | `description` | string | Yes | Shown in slash menu, used for auto-discovery (max 1024 chars) |
 | `license` | string | No | License type (e.g., MIT) |
 | `metadata` | object | No | Version, model, quality indicators |
-| `model` | string | No | Model to use when skill is active (overrides conversation model) |
+| `model` | string | No | [Model](https://docs.claude.com/en/docs/about-claude/models/overview) to use when skill is active (e.g., `claude-sonnet-4-20250514`). Overrides conversation model. |
 | `user-invocable` | boolean | No | Show in slash menu (default: true) |
 | `disable-model-invocation` | boolean | No | Prevent Skill tool invocation (default: false) |
 | `allowed-tools` | string/list | No | Tool whitelist (comma-separated string or YAML list). **Claude Code only.** |
 | `context` | string | No | Set to `fork` for isolation |
-| `agent` | string | No | Subagent type when forked. Defaults to `general-purpose`. Only applicable with `context: fork`. |
-| `hooks` | object | No | Component-scoped hook definitions |
+| `agent` | string | No | [Agent type](/en/sub-agents#built-in-subagents) when forked (e.g., `Explore`, `Plan`, `general-purpose`). Defaults to `general-purpose`. Only applicable with `context: fork`. |
+| `hooks` | object | No | Component-scoped hook definitions. Supports `PreToolUse`, `PostToolUse`, and `Stop` events. |
 
 See [best practices guide](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/best-practices) for complete authoring guidance including validation rules.
 
@@ -101,5 +101,5 @@ When specified, useful for:
 - `model` overrides the conversation model when skill is active
 - `allowed-tools` accepts comma-separated string or YAML list
 - `once: true` on hooks runs them only once per session
-- Component-scoped hooks run only during skill execution
+- Component-scoped hooks run only during skill execution and are automatically cleaned up when the skill finishes
 - `context: fork` runs skill in separate subagent

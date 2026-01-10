@@ -4,6 +4,7 @@ topic: Settings Examples
 category: settings
 tags: [examples, templates, patterns]
 requires: [settings-overview, settings-permissions, settings-sandbox, settings-schema]
+related_to: [settings-authentication, settings-attribution, settings-plugins-advanced]
 official_docs: https://code.claude.com/en/settings
 ---
 

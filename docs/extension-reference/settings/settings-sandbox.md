@@ -32,19 +32,28 @@ Sandbox isolates Claude Code from the system for security.
 }
 ```
 
+## Important Note
+
+**Filesystem and network restrictions** are configured via Read, Edit, and WebFetch permission rules, not via sandbox settings.
+
+Use:
+- `Read` deny rules to block file/directory reading
+- `Edit` allow/deny rules to control write access
+- `WebFetch` allow/deny rules to control network domains
+
 ## Field Reference
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `enabled` | boolean | Enable sandboxing |
+| `enabled` | boolean | Enable sandboxing (macOS/Linux only) |
 | `autoAllowBashIfSandboxed` | boolean | Auto-allow Bash when sandboxed |
 | `excludedCommands` | array | Commands to run outside sandbox |
-| `allowUnsandboxedCommands` | boolean | Allow non-sandboxed execution |
-| `network.allowUnixSockets` | array | Unix sockets to allow |
-| `network.allowLocalBinding` | boolean | Allow local port binding |
-| `network.httpProxyPort` | number | HTTP proxy port |
-| `network.socksProxyPort` | number | SOCKS proxy port |
-| `enableWeakerNestedSandbox` | boolean | Allow weaker nested sandboxing |
+| `allowUnsandboxedCommands` | boolean | Allow `dangerouslyDisableSandbox` escape hatch. When `false`, all commands must run sandboxed or be in `excludedCommands`. Useful for enterprise policies. |
+| `network.allowUnixSockets` | array | Unix sockets to allow (for SSH agents, etc.) |
+| `network.allowLocalBinding` | boolean | Allow local port binding (macOS only) |
+| `network.httpProxyPort` | number | HTTP proxy port (bring your own proxy) |
+| `network.socksProxyPort` | number | SOCKS5 proxy port (bring your own proxy) |
+| `enableWeakerNestedSandbox` | boolean | Enable weaker sandbox for unprivileged Docker (Linux only). **Reduces security.** |
 
 ## Key Points
 

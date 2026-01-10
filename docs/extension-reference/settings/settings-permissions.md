@@ -4,7 +4,7 @@ topic: Settings Permissions
 category: settings
 tags: [permissions, allow, deny, patterns]
 requires: [settings-overview, settings-scopes]
-related_to: [settings-sandbox]
+related_to: [settings-sandbox, settings-tools, security-managed]
 official_docs: https://code.claude.com/en/settings
 ---
 
@@ -54,6 +54,27 @@ Control what tools Claude can use without prompting.
 | `mcp__server__tool` | Specific MCP tool |
 | `Task(Explore)` | Specific subagent type |
 
+## Excluding Sensitive Files
+
+Prevent Claude Code from accessing sensitive files using deny rules:
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./config/credentials.json)"
+    ]
+  }
+}
+```
+
+Files matching deny patterns are completely invisible to Claude Code.
+
+**Note:** This replaces the deprecated `ignorePatterns` configuration.
+
 ## Default Mode
 
 ```json
@@ -65,6 +86,34 @@ Control what tools Claude can use without prompting.
 ```
 
 Options: `default`, `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions`
+
+## Managed Restrictions
+
+### disableBypassPermissionsMode
+
+Prevent `bypassPermissions` mode from being activated. Set in managed settings only.
+
+```json
+{
+  "permissions": {
+    "disableBypassPermissionsMode": "disable"
+  }
+}
+```
+
+This disables the `--dangerously-skip-permissions` command-line flag.
+
+### additionalDirectories
+
+Add directories outside the project that Claude can access:
+
+```json
+{
+  "permissions": {
+    "additionalDirectories": ["../docs/", "/shared/config/"]
+  }
+}
+```
 
 ## Key Points
 
