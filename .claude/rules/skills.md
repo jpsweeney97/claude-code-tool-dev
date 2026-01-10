@@ -44,6 +44,26 @@ disable-model-invocation: false     # Optional: blocks Skill tool invocation
 ---
 ```
 
+### Context Fork Behavior
+
+When `context: fork` is set, the skill runs in a separate subagent. However:
+
+- **Built-in agents** (Explore, Plan, general-purpose) cannot access your skills
+- **Custom subagents** need an explicit `skills` field to load skills
+
+To give a custom subagent access to skills, define it in `.claude/agents/`:
+
+```yaml
+# .claude/agents/code-reviewer.md
+---
+name: code-reviewer
+description: Review code for quality and best practices
+skills: pr-review, security-check
+---
+```
+
+If `skills` is omitted, no skills are preloaded into the subagent context.
+
 ### Body (Required Content Areas)
 
 The body MUST contain all 8 content areas. Equivalent headings are allowed, but the information MUST exist and be findable quickly:
