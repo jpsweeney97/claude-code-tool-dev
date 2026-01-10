@@ -36,7 +36,9 @@ agent: general-purpose              # Optional: agent type when context: fork
 hooks:                              # Optional: component-scoped hooks
   PreToolUse:
     - matcher: Bash
-      command: ./validate.sh
+      hooks:
+        - type: command
+          command: ./validate.sh
 user-invocable: true                # Optional: controls slash menu visibility
 disable-model-invocation: false     # Optional: blocks Skill tool invocation
 ---
