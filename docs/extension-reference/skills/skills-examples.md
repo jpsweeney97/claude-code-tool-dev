@@ -39,6 +39,85 @@ description: Generates clear commit messages from git diffs. Use when writing co
 - Explain what and why, not how
 ```
 
+## Complete 8-Section Skill
+
+A skill with all 8 mandatory sections. Use this as a template for complex skills.
+
+`.claude/skills/code-reviewer/SKILL.md`:
+
+```yaml
+---
+name: code-reviewer
+description: Reviews code for bugs, security issues, and style violations. Use when you need systematic code review with actionable findings.
+allowed-tools: ["Read", "Grep", "Glob"]
+---
+
+# Code Reviewer
+
+## When to Use
+
+- User asks for code review or feedback on implementation
+- Before merging a feature branch
+- After significant refactoring
+
+## When NOT to Use
+
+- Simple typo fixes (overkill)
+- Documentation-only changes (different skill)
+- Performance optimization (use profiling skill instead)
+
+## Inputs
+
+**Required:**
+- File path(s) or directory to review
+
+**Optional:**
+- Focus areas (security, performance, style)
+- Severity threshold (report only high/medium issues)
+
+**Constraints:**
+- Assumes code is syntactically valid
+- Does not execute code
+
+## Outputs
+
+**Artifacts:**
+- Review report with issues categorized by severity
+
+**Definition of Done:**
+- [ ] All specified files have been read
+- [ ] Report contains at least one of: issues found OR explicit "no issues" statement
+- [ ] Each issue includes: location (file:line), description, suggested fix
+
+## Procedure
+
+1. Read the specified files using Read tool
+2. For each file, analyze for:
+   - Logic errors and bugs
+   - Security vulnerabilities
+   - Style violations
+3. Categorize findings by severity (High/Medium/Low)
+4. Generate report with actionable recommendations
+5. Run verification check
+
+## Decision Points
+
+- If file doesn't exist, STOP and ask user to verify path
+- If file is >1000 lines, ask user whether to review in sections or full file
+- If security issue found, prioritize it regardless of other findings
+
+## Verification
+
+Quick check: Report contains "## Issues" or "## No Issues Found" heading.
+If missing, regenerate report.
+
+## Troubleshooting
+
+**Symptom:** "File not found" error
+**Cause:** Path is incorrect or file was moved
+**Next steps:** Ask user to verify path; use Glob to search for similar filenames
+```
+
 ## Database Migration Skill
 
 `.claude/skills/database-migration/SKILL.md`:

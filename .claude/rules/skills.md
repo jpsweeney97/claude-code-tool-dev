@@ -43,6 +43,14 @@ Run the validation script: `python scripts/validate.py input.pdf`
 
 Skills auto-reload when modified. Changes to files in `~/.claude/skills/` or `.claude/skills/` are immediately available without restarting the session.
 
+## Skill Lifecycle
+
+When you send a request, Claude follows these steps:
+
+1. **Discovery**: At startup, loads only name + description of each skill (keeps startup fast)
+2. **Activation**: When request matches a skill's description, Claude asks to use it. Full SKILL.md loads after user confirms.
+3. **Execution**: Claude follows the skill's instructions, loading referenced files or running bundled scripts as needed.
+
 ## SKILL.md Format
 
 ### Frontmatter
@@ -51,6 +59,10 @@ Skills auto-reload when modified. Changes to files in `~/.claude/skills/` or `.c
 ---
 name: skill-name                    # Required: lowercase, hyphens, max 64 chars
 description: One-line description   # Required: max 1024 chars
+license: MIT                        # Optional: license type
+metadata:                           # Optional: version and quality info
+  version: "1.0.0"
+  timelessness_score: 8
 allowed-tools: Tool1, Tool2         # Optional: comma or YAML list
 model: claude-sonnet-4-20250514     # Optional: specific model
 context: fork                       # Optional: run in isolated subagent
@@ -61,6 +73,7 @@ hooks:                              # Optional: component-scoped hooks
       hooks:
         - type: command
           command: ./validate.sh
+          once: true                # Optional: run only once per session
 user-invocable: true                # Optional: controls slash menu visibility
 disable-model-invocation: false     # Optional: blocks Skill tool invocation
 ---
@@ -259,6 +272,25 @@ When assumptions aren't met, provide:
 - "Paste outputs" alternative, OR
 - Explicit STOP with what's needed
 
+## Operational Notes
+
+### External Packages
+
+If your skill uses external packages, they must be installed in the environment before Claude can use them. List required packages in the description:
+
+```yaml
+description: Extract text from PDFs. Requires pypdf and pdfplumber packages.
+```
+
+### Script Requirements
+
+- Scripts need execute permissions: `chmod +x scripts/*.py`
+- Use forward slashes in all paths: `scripts/helper.py` (not `scripts\helper.py`)
+
+### Environment Variables
+
+- `SLASH_COMMAND_TOOL_CHAR_BUDGET`: Character budget for skill metadata (default: 15,000)
+
 ## Risk Tiering
 
 Risk determines minimum strictness:
@@ -312,12 +344,30 @@ Before promoting a skill, verify:
 
 ## Precedence
 
-Personal (`~/.claude/skills/`) overrides project (`.claude/skills/`).
+Enterprise > Personal (`~/.claude/skills/`) > Project (`.claude/skills/`) > Plugin.
+
+If two skills have the same name, higher scope wins.
 
 To test changes to an existing skill:
 1. Use a dev name: `.claude/skills/<name>-dev/`
 2. Test with `/<name>-dev`
 3. When ready, promote overwrites production
+
+## Troubleshooting
+
+### Debug Mode
+
+Use `claude --debug` to see skill loading errors in console output.
+
+### Plugin Skills Not Appearing
+
+Clear the plugin cache and reinstall:
+
+```bash
+rm -rf ~/.claude/plugins/cache
+```
+
+Restart Claude Code, then reinstall the plugin.
 
 ## See Also
 
@@ -325,6 +375,7 @@ To test changes to an existing skill:
 - **agents.md** — Autonomous subagents (use when multi-turn isolation is needed)
 - **plugins.md** — Bundle skills for distribution via marketplaces
 - **settings.md** — Configure permissions and hooks in settings.json
+- **docs/extension-reference/skills/skills-overview.md** — Skills vs other extensions comparison
 
 ## References
 

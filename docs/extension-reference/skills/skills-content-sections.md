@@ -4,7 +4,7 @@ topic: Skill Content Structure
 category: skills
 tags: [structure, sections, procedure, verification, progressive-disclosure]
 requires: [skills-overview]
-related_to: [skills-examples]
+related_to: [skills-examples, skills-validation]
 official_docs: https://code.claude.com/en/skills
 ---
 
@@ -229,3 +229,4 @@ Risk level determines minimum verification requirements.
 - Risk level determines verification stringency
 - Decision points prevent undefined behavior
 - Troubleshooting reduces support burden
+- See [skills-validation](skills-validation.md) for compliance checklist and quality standards

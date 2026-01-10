@@ -3,7 +3,7 @@ id: skills-overview
 topic: Skills Overview
 category: skills
 tags: [skills, workflow, verification, procedures]
-related_to: [skills-frontmatter, skills-invocation, commands-overview, skills-troubleshooting, skills-getting-started]
+related_to: [skills-frontmatter, skills-invocation, commands-overview, skills-troubleshooting, skills-getting-started, skills-validation]
 official_docs: https://code.claude.com/en/skills
 ---
 
