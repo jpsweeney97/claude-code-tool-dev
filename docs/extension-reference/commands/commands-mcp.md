@@ -4,7 +4,7 @@ topic: MCP Slash Commands
 category: commands
 tags: [commands, mcp, servers, prompts]
 requires: [commands-overview]
-related_to: [mcp-configuration]
+related_to: [mcp-overview]
 official_docs: https://code.claude.com/en/slash-commands
 ---
 
