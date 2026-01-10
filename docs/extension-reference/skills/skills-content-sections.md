@@ -71,12 +71,47 @@ Required and optional parameters:
 
 ### 4. Outputs
 
-What the skill produces:
+What the skill produces and how to verify success.
+
 ```markdown
 ## Outputs
+
+**Artifacts:**
 - Migration status report
 - Schema diff summary
+
+**Definition of Done:**
+- [ ] Migration applied without errors
+- [ ] Schema matches expected state
 ```
+
+Outputs MUST distinguish:
+- **Artifacts**: Files, patches, reports, commands the skill produces
+- **Definition of Done**: Objective checks that verify success without reading the agent's mind
+
+#### Objective Definition of Done
+
+Good DoD criteria are observable and deterministic:
+
+| Type | Example |
+|------|---------|
+| Artifact existence/shape | File exists, contains required keys |
+| Deterministic query | `grep` finds/doesn't find pattern |
+| Executable check | Command exits 0, output matches pattern |
+| Logical condition | All X remain unchanged except Y |
+
+#### Avoid Subjective Criteria
+
+These are too vague to verify:
+
+| Bad | Why |
+|-----|-----|
+| "Verify it works" | Works how? What's the test? |
+| "Ensure quality" | Quality by what measure? |
+| "Make sure tests pass" | Which tests? Where? |
+| "Check for errors" | Where? What counts as error-free? |
+
+Every DoD item should be checkable by running a command or inspecting a file.
 
 ### 5. Procedure
 
