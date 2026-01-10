@@ -30,6 +30,27 @@ Commands are single markdown files:
 └── ...
 ```
 
+## Locations
+
+| Scope | Path | Precedence |
+|-------|------|------------|
+| Project | `.claude/commands/<name>.md` | Wins over user |
+| User | `~/.claude/commands/<name>.md` | Fallback |
+
+Project commands override user commands with the same name. The user command is silently ignored.
+
+### Subdirectory Organization
+
+Subdirectories organize commands and appear in the description:
+
+| File | Command | Description |
+|------|---------|-------------|
+| `.claude/commands/test.md` | `/test` | (project) |
+| `.claude/commands/frontend/test.md` | `/test` | (project:frontend) |
+| `~/.claude/commands/test.md` | `/test` | (user) |
+
+Commands in different subdirectories can share names—the subdirectory distinguishes them.
+
 ## Command Format
 
 ```markdown
@@ -54,6 +75,9 @@ The user wants: $ARGUMENTS
 | `model` | No | string | Specific model (e.g., `claude-3-5-haiku-20241022`) |
 | `disable-model-invocation` | No | boolean | Prevent Skill tool from calling this command |
 | `hooks` | No | object | PreToolUse, PostToolUse, or Stop handlers scoped to command |
+| `hooks.*.once` | No | boolean | Run hook only once per session, then remove |
+
+Hooks defined in commands are **automatically cleaned up** when the command finishes executing.
 
 ## Argument Substitution
 
@@ -247,8 +271,17 @@ Before promoting a command, verify:
 
 - **skills.md** — Complex workflows with verification (use when commands aren't enough)
 - **agents.md** — Autonomous multi-turn work (use for isolated execution)
-- **plugins.md** — Bundle commands for distribution via marketplaces
+- **plugins.md** — Bundle commands for distribution via marketplaces (use `/plugin-name:command-name` format)
 - **settings.md** — Configure permissions and hooks in settings.json
+
+## Skill Tool Integration
+
+The Skill tool allows Claude to programmatically invoke commands. Key points:
+
+- Commands need `description` frontmatter for Skill tool access
+- Use `disable-model-invocation: true` to block programmatic invocation
+- **Character budget**: 15,000 chars default; override with `SLASH_COMMAND_TOOL_CHAR_BUDGET` env var
+- Built-in commands (like `/compact`) are not available via Skill tool
 
 ## References
 

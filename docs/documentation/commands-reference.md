@@ -294,7 +294,7 @@ Include specific guidance on parameters, expected outcomes, and any special cons
 
 **Advanced command features**:
 
-- **Arguments**: Use placeholders like `{arg1}` in command descriptions
+- **Arguments**: Use `$ARGUMENTS` and `$1`, `$2` placeholders
 - **Subdirectories**: Organize commands in subdirectories for namespacing
 - **Bash integration**: Commands can execute shell scripts and programs
 - **File references**: Commands can reference and modify project files

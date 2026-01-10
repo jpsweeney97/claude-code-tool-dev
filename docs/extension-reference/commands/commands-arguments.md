@@ -34,9 +34,9 @@ Use `$1`, `$2`, etc. instead of `$ARGUMENTS` when you need to:
 Execute commands before prompt injection with backticks and `!`:
 
 ```markdown
-Current branch: `!git branch --show-current`
-Recent commits: `!git log --oneline -5`
-Status: `!git status --short`
+Current branch: !`git branch --show-current`
+Recent commits: !`git log --oneline -5`
+Status: !`git status --short`
 ```
 
 Output is inserted where the backticks appear.
@@ -66,8 +66,8 @@ description: Review changes on current branch
 allowed-tools: Bash(git branch:*), Bash(git diff:*)
 ---
 
-Branch: `!git branch --show-current`
-Diff from main: `!git diff main --stat`
+Branch: !`git branch --show-current`
+Diff from main: !`git diff main --stat`
 
 Review these changes for:
 - Bugs and edge cases
@@ -81,5 +81,5 @@ User focus: $ARGUMENTS
 
 - `$ARGUMENTS` for full argument string
 - `$1`, `$2` for positional arguments
-- `` `!command` `` executes bash, injects output
+- `!`command`` executes bash, injects output
 - `@path` includes file contents
