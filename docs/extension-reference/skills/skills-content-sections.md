@@ -2,7 +2,7 @@
 id: skills-content-sections
 topic: Skill Content Structure
 category: skills
-tags: [structure, sections, procedure, verification]
+tags: [structure, sections, procedure, verification, progressive-disclosure]
 requires: [skills-overview]
 related_to: [skills-examples]
 official_docs: https://code.claude.com/en/skills
@@ -11,6 +11,34 @@ official_docs: https://code.claude.com/en/skills
 # Skill Content Structure
 
 Well-structured skills include 8 mandatory sections for clarity and reliability.
+
+## Progressive Disclosure
+
+Skills share Claude's context window with conversation history, other skills, and your request. Use progressive disclosure to keep context focused:
+
+- **SKILL.md**: Essential information, navigation to references
+- **Supporting files**: Detailed reference material Claude reads only when needed
+
+**Keep SKILL.md under 500 lines** for optimal performance. If content exceeds this, split detailed reference into separate files.
+
+**Keep references one level deep.** Link directly from SKILL.md to reference files. Deeply nested references (file A → B → C) may result in Claude partially reading files.
+
+### Zero-Context Script Execution
+
+Scripts in your skill directory can be executed without loading their contents into context. Claude runs the script and only the output consumes tokens.
+
+Use for:
+- Complex validation logic verbose to describe in prose
+- Data processing more reliable as tested code than generated code
+- Operations benefiting from consistency across uses
+
+In SKILL.md, tell Claude to run (not read) the script:
+```markdown
+Run the validation script to check the form:
+python scripts/validate_form.py input.pdf
+```
+
+See [best practices guide](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/best-practices#progressive-disclosure-patterns) for complete structuring guidance.
 
 ## Mandatory Sections
 

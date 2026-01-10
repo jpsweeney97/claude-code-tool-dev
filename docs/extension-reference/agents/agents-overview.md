@@ -3,7 +3,7 @@ id: agents-overview
 topic: Subagents Overview
 category: agents
 tags: [agents, subagents, autonomous, task-tool]
-related_to: [agents-frontmatter, agents-task-tool, skills-overview]
+related_to: [agents-frontmatter, agents-task-tool, agents-patterns, skills-overview]
 official_docs: https://code.claude.com/en/sub-agents
 ---
 
@@ -17,15 +17,20 @@ Subagents are autonomous AI workers that run in separate conversation contexts. 
 - Parallel work streams
 - Specialized autonomous workers
 - Long-running background analysis
+- Control costs by routing tasks to faster, cheaper models (e.g., Haiku for exploration)
 
 ## Location
 
-| Scope | Path |
-|-------|------|
-| Project | `.claude/agents/<name>.md` |
-| User | `~/.claude/agents/<name>.md` |
+| Priority | Scope | Path |
+|----------|-------|------|
+| 1 (highest) | Session | `--agents` CLI flag (JSON) |
+| 2 | Project | `.claude/agents/<name>.md` |
+| 3 | User | `~/.claude/agents/<name>.md` |
+| 4 (lowest) | Plugin | Plugin's `agents/` directory |
 
-User agents override project agents with the same name.
+When multiple agents share the same name, higher priority wins. Use `/agents` command to see which agent is active.
+
+Agents load at session start. If you create an agent by adding a file, restart your session or use `/agents` to load it immediately.
 
 ## When to Use
 
@@ -45,4 +50,10 @@ Use skills instead when:
 - Agents run in separate conversation contexts
 - Invoked via Task tool, not slash commands
 - Can be resumed to continue work
-- Support 6 permission modes
+- Support 5 permission modes
+- **Cannot spawn other agents** — use skills or chain from main conversation
+
+## See Also
+
+- [Agent SDK](/en/agent-sdk/subagents) — programmatic agent usage
+- [Plugin components](/en/plugins-reference#agents) — creating plugin agents

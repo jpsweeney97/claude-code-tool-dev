@@ -35,7 +35,17 @@ Task(
 | `run_in_background` | boolean | No | Async execution |
 | `resume` | string | No | Agent ID to resume |
 
-## Background Execution
+## Foreground vs Background Execution
+
+Agents can run in **foreground** (blocking) or **background** (concurrent).
+
+### Foreground Agents
+
+- Block the main conversation until complete
+- Permission prompts and `AskUserQuestion` pass through to user
+- Inherit all tools from main conversation, **including MCP tools**
+
+### Background Agents
 
 Run agents asynchronously:
 
@@ -50,9 +60,23 @@ Task(
 // Use Read tool to check progress
 ```
 
+| Aspect | Behavior |
+|--------|----------|
+| Permissions | Inherit parent permissions; auto-deny anything not pre-approved |
+| MCP tools | Not available in background agents |
+| Questions | `AskUserQuestion` fails (agent continues) |
+| Recovery | Resume in foreground to retry with prompts |
+
+### Switching Execution Mode
+
+- Ask Claude to "run this in the background"
+- Press **Ctrl+B** to send a running foreground task to background
+
 ## Key Points
 
 - Task tool is the only way to invoke agents
 - `subagent_type` matches agent name or built-in type
-- Background agents run asynchronously
+- Foreground agents pass through prompts and inherit MCP tools
+- Background agents auto-deny and skip MCP tools
+- Ctrl+B or "run in background" switches execution mode
 - Model can be overridden per invocation

@@ -77,6 +77,32 @@ Compare these files:
 Identify differences and suggest which approach is better.
 ```
 
+## Git Commit Command (Full Example)
+
+Shows the relationship between `allowed-tools` frontmatter and bash execution.
+
+`.claude/commands/commit.md`:
+
+```markdown
+---
+allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*)
+description: Create a git commit
+---
+
+## Context
+
+- Current git status: !`git status`
+- Current git diff (staged and unstaged changes): !`git diff HEAD`
+- Current branch: !`git branch --show-current`
+- Recent commits: !`git log --oneline -10`
+
+## Your task
+
+Based on the above changes, create a single git commit.
+```
+
+**Note:** The `allowed-tools` frontmatter is required for bash execution to work. Without it, the `!` backtick commands won't execute.
+
 ## Key Points
 
 - Keep commands focused on one task

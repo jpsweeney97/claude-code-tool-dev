@@ -12,16 +12,16 @@ official_docs: https://code.claude.com/en/hooks
 
 Matchers determine which tools or events trigger hooks.
 
-## Pattern Types
+## Pattern Syntax
 
-| Pattern | Matches |
-|---------|---------|
-| `Bash` | All Bash tool uses |
-| `Bash(npm run test)` | Exact command match |
-| `Bash(npm run:*)` | Commands starting with `npm run` |
-| `Write\|Edit` | Either Write or Edit tool |
-| `*` | All tools |
-| `startup` | SessionStart event |
+Matchers are **case-sensitive** and support:
+
+| Syntax | Description | Example |
+|--------|-------------|---------|
+| Simple string | Exact tool name match | `Write` matches Write only |
+| Regex | Regular expression pattern | `Edit\|Write` or `Notebook.*` |
+| `*` | Match all tools | Wildcard for any tool |
+| `""` or omitted | Match all tools | Same as `*` |
 
 ## Examples
 
@@ -33,27 +33,19 @@ Matchers determine which tools or events trigger hooks.
 }
 ```
 
-### Match Exact Command
-
-```json
-{
-  "matcher": "Bash(rm -rf)"
-}
-```
-
-### Match Command Prefix
-
-```json
-{
-  "matcher": "Bash(git:*)"
-}
-```
-
-### Match Multiple Tools
+### Match Multiple Tools (Regex OR)
 
 ```json
 {
   "matcher": "Write|Edit|NotebookEdit"
+}
+```
+
+### Match Pattern (Regex)
+
+```json
+{
+  "matcher": "Notebook.*"
 }
 ```
 
@@ -65,7 +57,7 @@ Matchers determine which tools or events trigger hooks.
 }
 ```
 
-### No Matcher (All)
+### No Matcher (Match All)
 
 ```json
 {
@@ -76,9 +68,20 @@ Matchers determine which tools or events trigger hooks.
 }
 ```
 
+## Event-Specific Matchers
+
+Some events use matchers for non-tool values:
+
+| Event | Matcher Values |
+|-------|---------------|
+| `SessionStart` | `startup`, `resume`, `clear`, `compact` |
+| `PreCompact` | `manual`, `auto` |
+| `Notification` | `permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog` |
+
 ## Key Points
 
-- Omit matcher to match all
-- Use `|` for OR matching
-- Use `:*` suffix for prefix matching
-- `startup` is special for SessionStart
+- Matchers are case-sensitive (`Bash` not `bash`)
+- Use `|` for OR matching (regex syntax)
+- Use `.*` for wildcard matching (regex syntax)
+- Omit matcher or use `*` to match all
+- Only applies to PreToolUse, PostToolUse, PermissionRequest, and some other events

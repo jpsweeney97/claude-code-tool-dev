@@ -33,9 +33,17 @@ Status: `!git status --short`
 
 Output is inserted where the backticks appear.
 
+**Requirement:** You must include `allowed-tools` with the `Bash` tool in frontmatter for bash execution to work. You can restrict to specific commands:
+
+```yaml
+---
+allowed-tools: Bash(git status:*), Bash(git log:*)
+---
+```
+
 ## File References
 
-Include file contents with `@`:
+Include file contents with `@` to [reference files and directories](https://code.claude.com/en/common-workflows#reference-files-and-directories):
 
 ```markdown
 Review this file: @src/main.ts
@@ -47,6 +55,7 @@ Consider these patterns: @src/patterns/
 ```markdown
 ---
 description: Review changes on current branch
+allowed-tools: Bash(git branch:*), Bash(git diff:*)
 ---
 
 Branch: `!git branch --show-current`

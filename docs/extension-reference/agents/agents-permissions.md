@@ -10,7 +10,7 @@ official_docs: https://code.claude.com/en/sub-agents
 
 # Agent Permission Modes
 
-Agents support 6 permission modes that control tool access prompting.
+Agents support 5 permission modes that control tool access prompting.
 
 ## Permission Modes
 
@@ -21,7 +21,10 @@ Agents support 6 permission modes that control tool access prompting.
 | `plan` | Analyze only, no modifications |
 | `dontAsk` | Auto-deny unless pre-approved in settings |
 | `bypassPermissions` | Skip all permission prompts |
-| `ignore` | No permissions enforced |
+
+**Warning:** `bypassPermissions` skips all permission checks. Use only for trusted automation.
+
+If the parent conversation uses `bypassPermissions`, agents inherit this and cannot override it.
 
 ## Mode Selection Guide
 
@@ -32,7 +35,6 @@ Agents support 6 permission modes that control tool access prompting.
 | Analysis and review | `plan` |
 | Restricted agents | `dontAsk` |
 | Trusted automation | `bypassPermissions` |
-| Testing only | `ignore` |
 
 ## Configuration
 
@@ -55,7 +57,10 @@ Or in settings.json for all agents:
 
 ## Key Points
 
-- 6 modes from most to least restrictive
+- 5 modes from most to least restrictive
 - `plan` is safest for analysis agents
-- `bypassPermissions` for trusted automation
+- `bypassPermissions` skips all checks — use with caution
+- Parent's `bypassPermissions` cannot be overridden
 - Mode can be set per-agent or globally
+
+See [IAM documentation](/en/iam#tool-specific-permission-rules) for advanced permission rules.

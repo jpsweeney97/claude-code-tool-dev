@@ -16,34 +16,34 @@ Claude Code includes three built-in agent types for common use cases.
 
 | Type | Model | Tools | Use Case |
 |------|-------|-------|----------|
-| `general-purpose` | sonnet | All | Multi-step modification tasks |
-| `Plan` | sonnet | Read, Glob, Grep, Bash | Plan mode architecture |
-| `Explore` | haiku | Glob, Grep, Read, Bash (read-only) | Codebase exploration |
+| `general-purpose` | Inherits | All | Multi-step modification tasks |
+| `Plan` | Inherits | Read, Glob, Grep, Bash | Plan mode architecture |
+| `Explore` | Haiku | Glob, Grep, Read, Bash (read-only) | Codebase exploration |
 
 ## general-purpose
 
 Default agent type for complex multi-step tasks:
 - Full tool access
-- Uses sonnet model
+- Inherits model from main conversation
 - Good for implementation tasks
 
 ## Plan
 
-Architecture and planning agent:
+Architecture and planning agent used during plan mode:
 - Read-only tools plus Bash
-- Uses sonnet for quality
-- No file modifications
+- Inherits model from main conversation
+- Prevents infinite nesting (agents cannot spawn agents)
 
 ## Explore
 
 Fast codebase exploration:
 - Read-only operations
-- Uses haiku for speed
-- Best for finding patterns
+- Uses Haiku for speed
+- Thoroughness levels: **quick** (targeted), **medium** (balanced), **very thorough** (comprehensive)
 
 ## Disabling Built-ins
 
-Add to permissions deny array:
+Add to permissions deny array in settings:
 
 ```json
 {
@@ -53,9 +53,16 @@ Add to permissions deny array:
 }
 ```
 
+Or use the CLI flag:
+
+```bash
+claude --disallowedTools "Task(Explore)"
+```
+
 ## Key Points
 
 - Three built-in types: general-purpose, Plan, Explore
-- Each has different model and tool configuration
-- Can be disabled via permissions deny rules
-- Custom agents extend these patterns
+- general-purpose and Plan inherit model; Explore uses Haiku
+- Explore supports three thoroughness levels
+- Plan prevents infinite nesting during plan mode
+- Disable via permissions deny array or `--disallowedTools` CLI flag

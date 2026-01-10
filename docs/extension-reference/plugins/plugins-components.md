@@ -41,6 +41,8 @@ Or explicit list:
 }
 ```
 
+For complete command structure, invocation patterns, and features, see `commands-overview`.
+
 ## Skills
 
 Skill directories containing SKILL.md:
@@ -51,6 +53,26 @@ Skill directories containing SKILL.md:
 }
 ```
 
+**Skill structure:**
+
+```
+skills/
+├── pdf-processor/
+│   ├── SKILL.md
+│   ├── reference.md (optional)
+│   └── scripts/ (optional)
+└── code-reviewer/
+    └── SKILL.md
+```
+
+**Integration behavior:**
+
+- Plugin Skills auto-discovered when plugin is installed
+- Claude autonomously invokes Skills based on matching task context
+- Skills can include supporting files alongside SKILL.md
+
+For SKILL.md format and authoring guidance, see `skills-overview` and `skills-frontmatter`.
+
 ## Agents
 
 Agent definition files:
@@ -60,6 +82,36 @@ Agent definition files:
   "agents": ["./agents/reviewer.md", "./agents/analyzer.md"]
 }
 ```
+
+**Agent structure:**
+
+```markdown
+---
+description: What this agent specializes in
+capabilities: ['task1', 'task2', 'task3']
+---
+
+# Agent Name
+
+Detailed description of the agent's role, expertise, and when Claude should invoke it.
+
+## Capabilities
+
+- Specific task the agent excels at
+- Another specialized capability
+- When to use this agent vs others
+
+## Context and examples
+
+Examples of when this agent should be used and what problems it solves.
+```
+
+**Integration points:**
+
+- Agents appear in the `/agents` interface
+- Claude can invoke agents automatically based on task context
+- Agents can be invoked manually by users
+- Plugin agents work alongside built-in Claude agents
 
 ## Hooks
 
@@ -84,7 +136,30 @@ Or inline:
 }
 ```
 
-**Plugin-only hook type**: Plugins support `type: "agent"` hooks.
+**Available events:**
+
+| Event | When Fired |
+|-------|------------|
+| `PreToolUse` | Before Claude uses any tool |
+| `PostToolUse` | After Claude successfully uses any tool |
+| `PostToolUseFailure` | After Claude tool execution fails |
+| `PermissionRequest` | When a permission dialog is shown |
+| `UserPromptSubmit` | When user submits a prompt |
+| `Notification` | When Claude Code sends notifications |
+| `Stop` | When Claude attempts to stop |
+| `SubagentStart` | When a subagent is started |
+| `SubagentStop` | When a subagent attempts to stop |
+| `SessionStart` | At the beginning of sessions |
+| `SessionEnd` | At the end of sessions |
+| `PreCompact` | Before conversation history is compacted |
+
+**Hook types:**
+
+| Type | Description |
+|------|-------------|
+| `command` | Execute shell commands or scripts |
+| `prompt` | Evaluate a prompt with an LLM (uses `$ARGUMENTS` placeholder) |
+| `agent` | Run an agentic verifier with tools (plugin-only) |
 
 ## MCP Servers
 
@@ -93,11 +168,35 @@ Or inline:
   "mcpServers": {
     "database": {
       "command": "${CLAUDE_PLUGIN_ROOT}/servers/db-server",
-      "args": ["--config", "${CLAUDE_PLUGIN_ROOT}/config.json"]
+      "args": ["--config", "${CLAUDE_PLUGIN_ROOT}/config.json"],
+      "env": {
+        "DB_PATH": "${CLAUDE_PLUGIN_ROOT}/data"
+      }
+    },
+    "api-client": {
+      "command": "npx",
+      "args": ["@company/mcp-server", "--plugin-mode"],
+      "cwd": "${CLAUDE_PLUGIN_ROOT}"
     }
   }
 }
 ```
+
+**Configuration fields:**
+
+| Field | Description |
+|-------|-------------|
+| `command` | Executable to run |
+| `args` | Command-line arguments |
+| `env` | Environment variables for the server process |
+| `cwd` | Working directory for the server |
+
+**Integration behavior:**
+
+- Plugin MCP servers start automatically when plugin is enabled
+- Servers appear as standard MCP tools in Claude's toolkit
+- Server capabilities integrate seamlessly with Claude's existing tools
+- Plugin servers can be configured independently of user MCP servers
 
 ## LSP Servers
 

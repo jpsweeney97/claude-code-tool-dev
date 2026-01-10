@@ -17,6 +17,7 @@ YAML frontmatter configures agent behavior, tools, and permissions.
 ```yaml
 ---
 # Required
+name: my-agent  # Unique identifier (lowercase, hyphens)
 description: What this agent does (shown in Task tool)
 
 # Agent behavior
@@ -27,7 +28,7 @@ prompt: |
   - Task 1
   - Task 2
 
-# Tool access
+# Tool access (allowlist)
 tools:
   - Read
   - Glob
@@ -36,8 +37,13 @@ tools:
   - Write
   - Edit
 
+# Tool denylist (removed from inherited/specified tools)
+disallowedTools:
+  - Write
+  - Edit
+
 # Model selection
-model: sonnet  # sonnet, opus, or haiku
+model: sonnet  # sonnet, opus, haiku, or inherit
 
 # Skills to auto-load
 skills:
@@ -49,11 +55,20 @@ permissionMode: acceptEdits  # See permission modes
 
 # Component-scoped hooks (no `once: true` support)
 hooks:
+  PreToolUse:
+    - matcher: Bash
+      hooks:
+        - type: command
+          command: ./validate-command.sh
   PostToolUse:
     - matcher: Write|Edit
       hooks:
         - type: command
           command: ./validate-output.sh
+  Stop:  # Runs when agent finishes (converted to SubagentStop)
+    - hooks:
+        - type: command
+          command: ./cleanup.sh
 ---
 
 Additional context and instructions for the agent...
@@ -63,18 +78,102 @@ Additional context and instructions for the agent...
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `name` | string | Yes | Unique identifier (lowercase, hyphens) |
 | `description` | string | Yes | Shown in Task tool |
 | `prompt` | string | No | System prompt for agent |
-| `tools` | array | No | Available tools |
-| `model` | string | No | sonnet, opus, or haiku |
-| `skills` | array | No | Skills to auto-load |
+| `tools` | array | No | Allowlist of available tools |
+| `disallowedTools` | array | No | Denylist (removed from inherited/specified) |
+| `model` | string | No | sonnet (default), opus, haiku, or inherit |
+| `skills` | array | No | Skills to inject at startup (full content, not invocation) |
 | `permissionMode` | string | No | Permission handling mode |
-| `hooks` | object | No | Component-scoped hooks |
+| `hooks` | object | No | PreToolUse, PostToolUse, Stop events |
+
+## Hook Lifecycle
+
+Hooks defined in agent frontmatter:
+- Run only while that specific agent is active
+- Are automatically cleaned up when the agent finishes
+- `Stop` hooks are converted to `SubagentStop` events internally
+
+## Hook Environment Variables
+
+Hook commands receive context via environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `$TOOL_INPUT` | JSON string of the tool's input parameters |
+
+Example validation script:
+
+```bash
+#!/bin/bash
+# Block write queries in db-reader agent
+if echo "$TOOL_INPUT" | grep -qiE '(INSERT|UPDATE|DELETE|DROP)'; then
+  echo "Write operations not allowed" >&2
+  exit 2  # Block the tool call
+fi
+exit 0
+```
+
+## Context Isolation
+
+Agents receive only:
+- Their system prompt (frontmatter `prompt` + markdown body)
+- Basic environment details (working directory, platform)
+
+Agents do **not** receive the full Claude Code system prompt. This isolation makes agents predictable and focused on their specific task.
+
+## Skills Behavior
+
+When you list skills in the `skills` field:
+- Full skill content is **injected** into the agent's context at startup
+- Skills are not just "made available for invocation" — their content becomes part of the agent's prompt
+- Agents **do not inherit** skills from the parent conversation
+
+```yaml
+skills:
+  - sql-analysis    # Full skill content injected
+  - chart-generation
+```
+
+## Project-Level Agent Hooks
+
+Beyond hooks in agent frontmatter, you can define hooks in `settings.json` that respond to agent lifecycle events:
+
+```json
+{
+  "hooks": {
+    "SubagentStart": [
+      {
+        "matcher": "db-agent",
+        "hooks": [{ "type": "command", "command": "./scripts/setup-db.sh" }]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "db-agent",
+        "hooks": [{ "type": "command", "command": "./scripts/cleanup-db.sh" }]
+      }
+    ]
+  }
+}
+```
+
+| Event | Matcher Input | When |
+|-------|---------------|------|
+| `SubagentStart` | Agent name | Agent begins execution |
+| `SubagentStop` | Agent name | Agent completes |
+
+Use `matcher` to target specific agents by name. Omit matcher to run for all agents.
 
 ## Key Points
 
-- Only `description` is required
+- `name` and `description` are required
 - `prompt` defines agent's role and behavior
-- `tools` restricts available capabilities
-- Component-scoped hooks run during agent execution
+- `tools` allowlist, `disallowedTools` denylist
+- `inherit` model uses parent conversation's model
+- Agents receive only their prompt + env details, not full Claude Code system prompt
+- Skills are injected (not just made available); agents don't inherit parent skills
+- Component-scoped hooks: PreToolUse, PostToolUse, Stop
+- Project-level hooks: SubagentStart, SubagentStop in settings.json
 - Note: `once: true` not supported in agent hooks

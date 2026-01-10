@@ -35,9 +35,28 @@ Task(
 
 | Aspect | Detail |
 |--------|--------|
-| Storage | Transcripts stored as `agent-{agentId}.jsonl` |
+| Storage | `~/.claude/projects/{project}/{sessionId}/subagents/agent-{agentId}.jsonl` |
 | Recording | Disabled during resume |
 | Sync/Async | Works with both sync and async agents |
+| Session persistence | Transcripts persist across Claude Code restarts |
+| Cleanup | Auto-deleted after `cleanupPeriodDays` (default: 30) |
+
+## Auto-Compaction
+
+When agent context approaches limit, older messages are summarized. Compaction events appear in transcripts:
+
+```json
+{
+  "type": "system",
+  "subtype": "compact_boundary",
+  "compactMetadata": {
+    "trigger": "auto",
+    "preTokens": 167189
+  }
+}
+```
+
+Main conversation compaction does not affect agent transcripts (stored separately).
 
 ## When to Resume
 
@@ -56,5 +75,6 @@ Don't resume when:
 
 - Agents return `agentId` for resume
 - Resume preserves full conversation context
-- Transcripts stored in JSONL format
-- Works with sync and background agents
+- Transcripts persist across restarts within session
+- Auto-compaction when context limit approaches
+- Cleanup after 30 days (configurable via `cleanupPeriodDays`)

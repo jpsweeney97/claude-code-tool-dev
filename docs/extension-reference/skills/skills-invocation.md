@@ -12,6 +12,10 @@ official_docs: https://code.claude.com/en/skills
 
 Skills can be invoked through three different paths.
 
+## Core Concept
+
+Skills are **model-invoked**: Claude decides which skills to use based on your request. You don't need to explicitly call a skill. Claude automatically applies relevant skills when your request matches their description.
+
 ## Invocation Methods
 
 ### 1. Manual (Slash Command)
@@ -45,10 +49,32 @@ Claude matches user's task to skill description and invokes automatically. Requi
 | `user-invocable: false` | ✗ | ✓ | ✓ |
 | `disable-model-invocation: true` | ✓ | ✗ | ✓ |
 
+## Example: Model-Only Skill
+
+Set `user-invocable: false` to hide a skill from the slash menu while allowing Claude to invoke it programmatically:
+
+```yaml
+---
+name: internal-review-standards
+description: Apply internal code review standards when reviewing pull requests
+user-invocable: false
+---
+```
+
+With this setting, users won't see the skill in the `/` menu, but Claude can still invoke it via the Skill tool or discover it automatically based on context.
+
+## Skill Lifecycle
+
+When you send a request, Claude follows these steps:
+
+1. **Discovery**: At startup, loads only name + description of each skill (keeps startup fast)
+2. **Activation**: When request matches a skill's description, Claude asks to use it. You see a confirmation prompt before full SKILL.md loads into context.
+3. **Execution**: Claude follows the skill's instructions, loading referenced files or running bundled scripts as needed.
+
 ## Skill Tool Mechanics
 
 - **Lazy loading**: Only name + description loaded at startup
-- **Full load**: Complete SKILL.md loaded when skill is activated
+- **Full load**: Complete SKILL.md loaded after user confirms activation
 - **Character budget**: Default 15,000 chars for metadata (configurable via `SLASH_COMMAND_TOOL_CHAR_BUDGET`)
 
 ## Key Points

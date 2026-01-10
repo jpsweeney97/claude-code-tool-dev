@@ -12,6 +12,15 @@ official_docs: https://code.claude.com/en/hooks
 
 Complete JSON schema for hook configuration.
 
+## Settings File Locations
+
+| Scope | Path | Notes |
+|-------|------|-------|
+| User | `~/.claude/settings.json` | Global settings |
+| Project | `.claude/settings.json` | Checked into repo |
+| Local | `.claude/settings.local.json` | Not committed |
+| Managed | Policy settings | Enterprise managed |
+
 ## Full Schema
 
 ```json
@@ -42,7 +51,28 @@ Complete JSON schema for hook configuration.
 | `hooks[].command` | string | Conditional | Shell command (command type) |
 | `hooks[].prompt` | string | Conditional | LLM prompt (prompt type) |
 | `hooks[].agent` | string | Conditional | Agent name (agent type) |
-| `hooks[].timeout` | number | No | Timeout in milliseconds |
+| `hooks[].timeout` | number | No | Timeout in seconds (default: 60) |
+
+## Events Without Matchers
+
+For events like `UserPromptSubmit`, `Stop`, and `SubagentStop` that don't use matchers, omit the `matcher` field:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/prompt-validator.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 ## Component-Scoped Hooks
 
@@ -58,6 +88,21 @@ hooks:
       hooks:
         - type: command
           command: ./skill-specific-validator.sh
+---
+```
+
+**Agent example:**
+
+```yaml
+---
+name: code-reviewer
+description: Review code changes
+hooks:
+  PostToolUse:
+    - matcher: 'Edit|Write'
+      hooks:
+        - type: command
+          command: './scripts/run-linter.sh'
 ---
 ```
 
@@ -80,9 +125,19 @@ Run hook only once per session:
 }
 ```
 
+**Note**: `once` is only supported for skills and slash commands, not for agents.
+
+## Component-Scoped Hook Events
+
+When defining hooks in skills, commands, or agents via frontmatter, only these events are supported:
+- `PreToolUse`
+- `PostToolUse`
+- `Stop`
+
 ## Key Points
 
 - EventType is one of the 10 event types
 - Multiple hooks can share one matcher
-- `once: true` prevents repeated execution
-- Component-scoped hooks override global
+- `once: true` prevents repeated execution (skills/commands only)
+- Component-scoped hooks support 3 events only
+- Settings file locations have precedence order

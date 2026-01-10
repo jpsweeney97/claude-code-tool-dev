@@ -22,7 +22,8 @@ The plugin manifest `.claude-plugin/plugin.json` defines plugin metadata and com
 
   "author": {
     "name": "Your Name",
-    "email": "you@example.com"
+    "email": "you@example.com",
+    "url": "https://github.com/yourname"
   },
   "license": "MIT",
   "keywords": ["code-review", "testing"],
@@ -34,7 +35,8 @@ The plugin manifest `.claude-plugin/plugin.json` defines plugin metadata and com
   "agents": ["./agents/reviewer.md"],
   "hooks": "./hooks/hooks.json",
   "mcpServers": "./.mcp.json",
-  "lspServers": "./.lsp.json"
+  "lspServers": "./.lsp.json",
+  "outputStyles": "./styles/"
 }
 ```
 
@@ -45,7 +47,7 @@ The plugin manifest `.claude-plugin/plugin.json` defines plugin metadata and com
 | `name` | string | Yes | Unique plugin identifier |
 | `version` | string | No | Semver version string |
 | `description` | string | No | Plugin purpose |
-| `author` | object | No | Author name and email |
+| `author` | object | No | Author info: `name` (required), `email` (optional), `url` (optional) |
 | `license` | string | No | License type |
 | `keywords` | array | No | Searchable keywords |
 | `homepage` | string | No | Project homepage URL |
@@ -56,6 +58,7 @@ The plugin manifest `.claude-plugin/plugin.json` defines plugin metadata and com
 | `hooks` | string/object | No | Hook config file or inline |
 | `mcpServers` | string/object | No | MCP config file or inline |
 | `lspServers` | string/object | No | LSP config file or inline |
+| `outputStyles` | string/array | No | Output style files/directories |
 
 ## Key Points
 

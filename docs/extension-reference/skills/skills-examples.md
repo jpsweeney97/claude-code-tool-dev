@@ -11,6 +11,34 @@ official_docs: https://code.claude.com/en/skills
 
 Complete working skill examples.
 
+## Simple Skill (Single File)
+
+A minimal skill needs only `SKILL.md` with frontmatter and instructions:
+
+`.claude/skills/commit-helper/SKILL.md`:
+
+```yaml
+---
+name: generating-commit-messages
+description: Generates clear commit messages from git diffs. Use when writing commit messages or reviewing staged changes.
+---
+
+# Generating Commit Messages
+
+## Instructions
+
+1. Run `git diff --staged` to see changes
+2. I'll suggest a commit message with:
+   - Summary under 50 characters
+   - Detailed description
+   - Affected components
+
+## Best Practices
+
+- Use present tense
+- Explain what and why, not how
+```
+
 ## Database Migration Skill
 
 `.claude/skills/database-migration/SKILL.md`:
@@ -116,9 +144,85 @@ Runs in isolated context to avoid polluting main conversation.
 3. Summarize findings
 ```
 
+## Multi-File Skill with Progressive Disclosure
+
+For complex skills, use progressive disclosure to keep SKILL.md focused while providing detailed documentation in supporting files.
+
+### Directory Structure
+
+```
+pdf-processing/
+├── SKILL.md              # Overview and quick start
+├── FORMS.md              # Form field mappings and filling instructions
+├── REFERENCE.md          # API details for pypdf and pdfplumber
+└── scripts/
+    ├── fill_form.py      # Utility to populate form fields
+    └── validate.py       # Checks PDFs for required fields
+```
+
+### SKILL.md
+
+```yaml
+---
+name: pdf-processing
+description: Extract text, fill forms, merge PDFs. Use when working with PDF files, forms, or document extraction. Requires pypdf and pdfplumber packages.
+allowed-tools: Read, Bash(python:*)
+---
+
+# PDF Processing
+
+## Quick Start
+
+Extract text:
+```python
+import pdfplumber
+with pdfplumber.open("doc.pdf") as pdf:
+    text = pdf.pages[0].extract_text()
+```
+
+For form filling, see [FORMS.md](FORMS.md).
+For detailed API reference, see [REFERENCE.md](REFERENCE.md).
+
+## Requirements
+
+Packages must be installed in your environment:
+```bash
+pip install pypdf pdfplumber
+```
+```
+
+### Key Patterns
+
+| Pattern | Purpose |
+|---------|---------|
+| `allowed-tools: Read, Bash(python:*)` | Restrict to read operations + Python execution |
+| `[FORMS.md](FORMS.md)` links | Navigation for progressive disclosure |
+| Scripts in `scripts/` | Zero-context execution (only output consumed) |
+
+**Note**: The `Bash(python:*)` pattern matches any Bash command starting with `python`. This allows the skill to run Python scripts while blocking other shell commands.
+
+## External Package Requirements
+
+If your skill uses external packages, they must be installed in the environment before Claude can use them. List required packages in the description:
+
+```yaml
+---
+name: pdf-processing
+description: Extract text from PDFs. Requires pypdf and pdfplumber packages.
+---
+```
+
+Then document installation in the skill:
+```markdown
+## Requirements
+pip install pypdf pdfplumber
+```
+
 ## Key Points
 
+- Simple skills need only SKILL.md with frontmatter
 - Include all 8 content sections for complex skills
 - Use component-scoped hooks for validation
 - Fork long-running analysis skills
+- List external package requirements in description
 - Risk tier determines verification stringency
