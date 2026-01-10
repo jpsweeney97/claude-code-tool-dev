@@ -34,7 +34,7 @@ Complete JSON schema for hook configuration.
         "command": "...",          // For command type
         "prompt": "...",           // For prompt type
         "agent": "...",            // For agent type
-        "timeout": 60000           // Optional: milliseconds
+        "timeout": 60              // Optional: seconds
       }]
     }]
   }
