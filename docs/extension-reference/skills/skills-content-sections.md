@@ -117,11 +117,32 @@ Common issues and fixes:
 
 ## Risk Tiering
 
-| Risk Level | Requirements | Examples |
-|------------|--------------|----------|
-| **Low** | Basic verification | Code formatting, documentation |
-| **Medium** | Multiple checks, rollback plan | Refactoring, migrations |
-| **High** | Mandatory confirmation, dry-run | Deployments, data changes |
+Risk level determines minimum verification requirements.
+
+| Tier | When to Apply | Minimum Requirements |
+|------|---------------|---------------------|
+| **Low** | Info/docs; trivial/reversible changes | All 8 sections; 1 quick check; 1 troubleshooting entry; 1 STOP/ask for missing inputs |
+| **Medium** | Code/config changes; bounded/reversible | Low requirements + STOP/ask for ambiguity; explicit non-goals; SHOULD have 2nd verification mode |
+| **High** | Security/ops/data/deps/public contracts; costly to reverse | Medium requirements + ask-first gate; ≥2 STOP/ask gates; ≥2 verification modes; rollback/escape guidance |
+
+**Default**: If a skill has any mutating step (writes, deletes, deploys), treat as High until the procedure explicitly gates those steps.
+
+### Examples by Tier
+
+**Low risk** — `explaining-code` skill:
+- Reads files, produces explanations
+- No mutations, easily reversible (just re-run)
+- Needs: basic verification that explanation was generated
+
+**Medium risk** — `code-reviewer` skill:
+- Reads code, may suggest changes
+- Bounded impact (suggestions, not direct edits)
+- Needs: explicit non-goals (e.g., "not for security audits"), verification of report structure
+
+**High risk** — `database-migration` skill:
+- Modifies schema, could cause data loss
+- Costly to reverse, affects production
+- Needs: ask-first before destructive operations, rollback instructions, multiple verification checks (schema diff + smoke tests)
 
 ## Key Points
 
