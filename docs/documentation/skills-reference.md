@@ -2,8 +2,6 @@
 
 > Create, manage, and share Skills to extend Claude's capabilities in Claude Code.
 
-This guide shows you how to create, use, and manage Agent Skills in Claude Code. For background on how Skills work across Claude products, see [What are Skills?](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview).
-
 A Skill is a markdown file that teaches Claude how to do something specific: reviewing PRs using your team's standards, generating commit messages in your preferred format, or querying your company's database schema. When you ask Claude something that matches a Skill's purpose, Claude automatically applies it.
 
 ## Create your first Skill
@@ -546,5 +544,3 @@ my-plugin/
 ```
 
 ---
-
-> To find navigation and other pages in this documentation, fetch the llms.txt file at: https://code.claude.com/docs/llms.txt

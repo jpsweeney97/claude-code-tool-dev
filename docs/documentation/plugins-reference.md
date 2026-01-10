@@ -2,10 +2,6 @@
 
 > Complete technical reference for Claude Code plugin system, including schemas, CLI commands, and component specifications.
 
-<Tip>
-  Looking to install plugins? See [Discover and install plugins](/en/discover-plugins). For creating plugins, see [Plugins](/en/plugins). For distributing plugins, see [Plugin marketplaces](/en/plugin-marketplaces).
-</Tip>
-
 This reference provides complete technical specifications for the Claude Code plugin system, including component schemas, CLI commands, and development tools.
 
 ## Plugin components reference
@@ -747,18 +743,3 @@ Follow semantic versioning for plugin releases:
 - Use pre-release versions like `2.0.0-beta.1` for testing
 
 ---
-
-## See also
-
-- [Plugins](/en/plugins) - Tutorials and practical usage
-- [Plugin marketplaces](/en/plugin-marketplaces) - Creating and managing marketplaces
-- [Slash commands](/en/slash-commands) - Command development details
-- [Subagents](/en/sub-agents) - Agent configuration and capabilities
-- [Agent Skills](/en/skills) - Extend Claude's capabilities
-- [Hooks](/en/hooks) - Event handling and automation
-- [MCP](/en/mcp) - External tool integration
-- [Settings](/en/settings) - Configuration options for plugins
-
----
-
-> To find navigation and other pages in this documentation, fetch the llms.txt file at: https://code.claude.com/docs/llms.txt

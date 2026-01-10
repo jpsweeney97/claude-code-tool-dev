@@ -2,10 +2,6 @@
 
 > This page provides reference documentation for implementing hooks in Claude Code.
 
-<Tip>
-  For a quickstart guide with examples, see [Get started with Claude Code hooks](/en/hooks-guide).
-</Tip>
-
 ## Configuration
 
 Claude Code hooks are configured in your [settings files](/en/settings):
@@ -14,10 +10,6 @@ Claude Code hooks are configured in your [settings files](/en/settings):
 - `.claude/settings.json` - Project settings
 - `.claude/settings.local.json` - Local project settings (not committed)
 - Managed policy settings
-
-<Note>
-  Enterprise administrators can use `allowManagedHooksOnly` to block user, project, and plugin hooks. See [Hook configuration](/en/settings#hook-configuration).
-</Note>
 
 ### Structure
 
@@ -233,21 +225,15 @@ The LLM must respond with JSON containing:
 
 ```json
 {
-  "decision": "approve" | "block",
-  "reason": "Explanation for the decision",
-  "continue": false,  // Optional: stops Claude entirely
-  "stopReason": "Message shown to user",  // Optional: custom stop message
-  "systemMessage": "Warning or context"  // Optional: shown to user
+  "ok": true | false,
+  "reason": "Explanation for the decision"
 }
 ```
 
 **Response fields:**
 
-- `decision`: `"approve"` allows the action, `"block"` prevents it
-- `reason`: Explanation shown to Claude when decision is `"block"`
-- `continue`: (Optional) If `false`, stops Claude's execution entirely
-- `stopReason`: (Optional) Message shown when `continue` is false
-- `systemMessage`: (Optional) Additional message shown to the user
+- `ok`: `true` allows the action, `false` prevents it
+- `reason`: Required when `ok` is `false`. Explanation shown to Claude
 
 ### Supported hook events
 
@@ -269,7 +255,7 @@ Prompt-based hooks work with any hook event, but are most useful for:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "You are evaluating whether Claude should stop working. Context: $ARGUMENTS\n\nAnalyze the conversation and determine if:\n1. All user-requested tasks are complete\n2. Any errors need to be addressed\n3. Follow-up work is needed\n\nRespond with JSON: {\"decision\": \"approve\" or \"block\", \"reason\": \"your explanation\"}",
+            "prompt": "You are evaluating whether Claude should stop working. Context: $ARGUMENTS\n\nAnalyze the conversation and determine if:\n1. All user-requested tasks are complete\n2. Any errors need to be addressed\n3. Follow-up work is needed\n\nRespond with JSON: {\"ok\": true} to allow stopping, or {\"ok\": false, \"reason\": \"your explanation\"} to continue working.",
             "timeout": 30
           }
         ]
@@ -289,7 +275,7 @@ Prompt-based hooks work with any hook event, but are most useful for:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Evaluate if this subagent should stop. Input: $ARGUMENTS\n\nCheck if:\n- The subagent completed its assigned task\n- Any errors occurred that need fixing\n- Additional context gathering is needed\n\nReturn: {\"decision\": \"approve\" or \"block\", \"reason\": \"explanation\"}"
+            "prompt": "Evaluate if this subagent should stop. Input: $ARGUMENTS\n\nCheck if:\n- The subagent completed its assigned task\n- Any errors occurred that need fixing\n- Additional context gathering is needed\n\nReturn: {\"ok\": true} to allow stopping, or {\"ok\": false, \"reason\": \"explanation\"} to continue."
           }
         ]
       }
@@ -886,12 +872,14 @@ VALIDATION_RULES = [
     ),
 ]
 
+
 def validate_command(command: str) -> list[str]:
     issues = []
     for pattern, message in VALIDATION_RULES:
         if re.search(pattern, command):
             issues.append(message)
     return issues
+
 
 try:
     input_data = json.load(sys.stdin)
@@ -1171,7 +1159,3 @@ Progress messages appear in verbose mode (ctrl+o) showing:
 - Command being executed
 - Success/failure status
 - Output or error messages
-
----
-
-> To find navigation and other pages in this documentation, fetch the llms.txt file at: https://code.claude.com/docs/llms.txt
