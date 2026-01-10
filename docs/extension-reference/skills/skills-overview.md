@@ -81,6 +81,18 @@ Use commands instead when:
 - **Update**: Edit `SKILL.md` directly. Changes take effect immediately.
 - **Delete**: Remove the skill directory. No restart required.
 
+## Specifications
+
+For detailed normative requirements beyond this reference:
+
+| Document | Purpose |
+|----------|---------|
+| [skills-as-prompts-strict-spec.md](../../../skill-documentation/skills-as-prompts-strict-spec.md) | Structural requirements, reviewer checklist, fail codes |
+| [skills-semantic-quality-addendum.md](../../../skill-documentation/skills-semantic-quality-addendum.md) | Semantic quality requirements, templates |
+| [skills-categories-guide.md](../../../skill-documentation/skills-categories-guide.md) | Category definitions, DoD patterns, decision point libraries |
+
+These specifications are authoritative for skill compliance validation.
+
 ## Key Points
 
 - Skills are markdown files with YAML frontmatter
