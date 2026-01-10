@@ -141,6 +141,8 @@ Command content with $ARGUMENTS placeholder.
 
 Plugin commands are namespaced: `/plugin-name:command-name`
 
+Plugin prefix is optional unless there are name collisions between plugins.
+
 ### Agents
 
 Agents are markdown files with frontmatter:
@@ -184,6 +186,8 @@ Configure in `hooks/hooks.json` or inline in `plugin.json`:
 
 **Available events**: PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, UserPromptSubmit, Notification, Stop, SubagentStart, SubagentStop, SessionStart, SessionEnd, PreCompact
 
+**Execution**: All matching hooks from all sources (user, project, plugins) run in parallel with no guaranteed order. Design hooks for independent execution.
+
 ### MCP Servers
 
 Configure in `.mcp.json` or inline in `plugin.json`:
@@ -202,7 +206,7 @@ Configure in `.mcp.json` or inline in `plugin.json`:
 }
 ```
 
-Plugin MCP servers start automatically when plugin is enabled.
+Plugin MCP servers start automatically when plugin is enabled. MCP server changes require Claude Code restart.
 
 ### LSP Servers
 
