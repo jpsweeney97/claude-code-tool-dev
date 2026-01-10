@@ -28,7 +28,7 @@ Task(
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `description` | string | Yes | Short description (3-5 words) |
+| `description` | string | Yes | Brief task description |
 | `prompt` | string | Yes | Task instructions |
 | `subagent_type` | string | Yes | Agent type name |
 | `model` | string | No | Model override (sonnet, opus, haiku) |

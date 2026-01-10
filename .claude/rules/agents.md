@@ -20,6 +20,19 @@ Agents (subagents) are autonomous workers that run in separate contexts via the 
 - **Simple single-file reads**: Use Read tool directly (lower overhead)
 - **Quick lookups**: Use Grep/Glob directly (agents add latency)
 
+## Agent Priority
+
+When multiple agents share the same name, higher priority wins:
+
+| Priority | Scope | Path |
+|----------|-------|------|
+| 1 (highest) | Session | `--agents` CLI flag (JSON) |
+| 2 | Project | `.claude/agents/<name>.md` |
+| 3 | User | `~/.claude/agents/<name>.md` |
+| 4 (lowest) | Plugin | Plugin's `agents/` directory |
+
+This allows project-level agents to shadow user-level agents for testing.
+
 ## Structure
 
 Agents are markdown files:
@@ -62,11 +75,12 @@ Return your findings as:
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
 | `name` | Yes | string | Unique identifier (lowercase + hyphens) |
-| `description` | Yes | string | Natural language description of purpose |
-| `tools` | No | string | Comma-separated list; omit to inherit all tools |
-| `model` | No | string | `sonnet`, `opus`, `haiku`, or `'inherit'` |
-| `permissionMode` | No | string | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan`, `ignore` |
-| `skills` | No | string | Comma-separated skills to auto-load (subagents don't inherit parent skills) |
+| `description` | Yes | string | Natural language description. Include "use proactively" to encourage auto-delegation |
+| `tools` | No | string | Comma-separated allowlist; omit to inherit all |
+| `disallowedTools` | No | string | Comma-separated denylist; removed from inherited/specified tools |
+| `model` | No | string | `sonnet`, `opus`, `haiku`, or `inherit` |
+| `permissionMode` | No | string | `default`, `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions` |
+| `skills` | No | string | Comma-separated skills to auto-load (injected at startup, not inherited from parent) |
 | `hooks` | No | object | `PreToolUse`, `PostToolUse`, or `Stop` handlers scoped to subagent |
 
 ### Skills Field Example
@@ -92,13 +106,63 @@ tools: Bash, Read
 hooks:
   PreToolUse:
     - matcher: Bash
-      command: ./scripts/validate-command.sh
+      hooks:
+        - type: command
+          command: ./scripts/validate-command.sh
   Stop:
-    - command: ./scripts/cleanup.sh
+    - hooks:
+        - type: command
+          command: ./scripts/cleanup.sh
 ---
 ```
 
+The nested `hooks` array with `type: command` is required. This structure supports future hook types beyond shell commands.
+
 Agent hooks are scoped to the subagent's execution lifecycle. `once: true` is NOT supported for agent hooks.
+
+### Project-Level Agent Hooks
+
+Beyond hooks in agent frontmatter, define hooks in `settings.json` that respond to agent lifecycle:
+
+```json
+{
+  "hooks": {
+    "SubagentStart": [
+      { "matcher": "db-agent", "hooks": [{ "type": "command", "command": "./setup.sh" }] }
+    ],
+    "SubagentStop": [
+      { "matcher": "db-agent", "hooks": [{ "type": "command", "command": "./cleanup.sh" }] }
+    ]
+  }
+}
+```
+
+| Event | When | Matcher |
+|-------|------|---------|
+| `SubagentStart` | Agent begins | Agent name |
+| `SubagentStop` | Agent completes | Agent name |
+
+Use `matcher` to target specific agents. Omit to run for all agents.
+
+### Hook Environment Variables
+
+Hook commands receive context via environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `$TOOL_INPUT` | JSON string of the tool's input parameters |
+
+Example validation script:
+
+```bash
+#!/bin/bash
+# Block write queries in db-reader agent
+if echo "$TOOL_INPUT" | grep -qiE '(INSERT|UPDATE|DELETE|DROP)'; then
+  echo "Write operations not allowed" >&2
+  exit 2  # Block the tool call
+fi
+exit 0
+```
 
 ## Invoking Agents
 
@@ -106,11 +170,13 @@ Agents are invoked via the Task tool:
 
 ```
 Task tool parameters:
-- subagent_type: "<name>"      # Your agent name
-- prompt: "<task details>"     # What to do
-- model: "haiku"               # Optional override
-- max_turns: 10                # Optional turn limit
-- run_in_background: true      # Optional async execution
+- description: "Short summary"   # Required (brief task description)
+- prompt: "<task details>"       # Required
+- subagent_type: "<name>"        # Required
+- model: "haiku"                 # Optional override
+- resume: "<agentId>"            # Optional: continue previous agent
+- max_turns: 10                  # Optional turn limit
+- run_in_background: true        # Optional async execution
 ```
 
 ## Design Principles
@@ -122,7 +188,7 @@ Once started, agents run to completion without user interaction. Design for auto
 Agents should process information and return distilled findings. The main thread shouldn't receive 10 files of raw content.
 
 ### Agents have separate context
-Each agent invocation starts fresh. Don't assume prior state or shared memory.
+Each agent invocation starts fresh. Agents receive only their system prompt (markdown body) and basic environment details (working directory, platform). They do **not** receive the full Claude Code system prompt or parent conversation context.
 
 ### Agents can't nest
 An agent cannot spawn other agents via Task tool. Plan accordingly.
@@ -134,6 +200,8 @@ An agent cannot spawn other agents via Task tool. Plan accordingly.
 | Doc lookup, simple queries | haiku | Fast, cheap |
 | Standard development | sonnet | Balanced |
 | Complex architecture, planning | opus | Highest capability |
+
+Built-in agents `general-purpose` and `Plan` inherit the main conversation's model. Override with the `model` parameter when invoking via Task tool if needed.
 
 ## Required Sections in Agent Definition
 
@@ -285,6 +353,44 @@ Task(
 
 Returns immediately with `output_file` path. Check progress with Read tool or `tail`.
 
+### Background Execution Limitations
+
+Background agents differ from foreground:
+
+| Aspect | Foreground | Background |
+|--------|------------|------------|
+| MCP tools | Available | Not available |
+| Permissions | Prompts pass through | Auto-deny if not pre-approved |
+| AskUserQuestion | Works | Fails (agent continues) |
+| Recovery | N/A | Resume in foreground to retry |
+
+## Resuming Agents
+
+Agents can be resumed to continue work with full context preserved.
+
+### Resume Pattern
+
+```typescript
+// Initial invocation returns agentId
+Task(description: "Review auth", prompt: "...", subagent_type: "reviewer")
+// Returns: { agentId: "abc123", ... }
+
+// Resume later with new instructions
+Task(resume: "abc123", prompt: "Now also check authorization")
+```
+
+### When to Resume
+
+- Continuing multi-phase work
+- Adding follow-up tasks
+- Correcting or refining output
+
+### Storage
+
+Transcripts persist at `~/.claude/projects/{project}/{sessionId}/subagents/agent-{agentId}.jsonl`
+
+Auto-deleted after `cleanupPeriodDays` (default: 30).
+
 ## Testing
 
 1. Create agent in `.claude/agents/`
@@ -320,11 +426,11 @@ Before promoting an agent, verify:
 
 Claude Code includes three built-in subagents:
 
-| Type | Purpose | Model | Tools |
-|------|---------|-------|-------|
-| `general-purpose` | Complex research + modification tasks | sonnet | All tools |
-| `Plan` | Codebase research in plan mode | sonnet | Read, Glob, Grep, Bash (exploration) |
-| `Explore` | Fast read-only codebase exploration | haiku | Glob, Grep, Read, Bash (read-only) |
+| Type | Model | Tools | Notes |
+|------|-------|-------|-------|
+| `general-purpose` | Inherits | All | Multi-step modification tasks |
+| `Plan` | Inherits | Read, Glob, Grep, Bash | Plan mode architecture |
+| `Explore` | Haiku | Glob, Grep, Read, Bash (read-only) | Thoroughness: quick, medium, very thorough |
 
 **Auto-triggering**: Built-in agents activate automatically based on context:
 - `general-purpose`: Multi-step operations requiring exploration + modification

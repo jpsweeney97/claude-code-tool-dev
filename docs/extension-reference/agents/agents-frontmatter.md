@@ -20,35 +20,17 @@ YAML frontmatter configures agent behavior, tools, and permissions.
 name: my-agent  # Unique identifier (lowercase, hyphens)
 description: What this agent does (shown in Task tool)
 
-# Agent behavior
-prompt: |
-  You are a specialized agent for...
-
-  Your responsibilities:
-  - Task 1
-  - Task 2
-
 # Tool access (allowlist)
-tools:
-  - Read
-  - Glob
-  - Grep
-  - Bash
-  - Write
-  - Edit
+tools: Read, Glob, Grep, Bash, Write, Edit
 
 # Tool denylist (removed from inherited/specified tools)
-disallowedTools:
-  - Write
-  - Edit
+disallowedTools: Write, Edit
 
 # Model selection
 model: sonnet  # sonnet, opus, haiku, or inherit
 
 # Skills to auto-load
-skills:
-  - sql-analysis
-  - chart-generation
+skills: sql-analysis, chart-generation
 
 # Permission behavior
 permissionMode: acceptEdits  # See permission modes
@@ -80,13 +62,20 @@ Additional context and instructions for the agent...
 |-------|------|----------|-------------|
 | `name` | string | Yes | Unique identifier (lowercase, hyphens) |
 | `description` | string | Yes | Shown in Task tool |
-| `prompt` | string | No | System prompt for agent |
-| `tools` | array | No | Allowlist of available tools |
-| `disallowedTools` | array | No | Denylist (removed from inherited/specified) |
+| `tools` | string | No | Comma-separated allowlist of tools |
+| `disallowedTools` | string | No | Comma-separated denylist (removed from inherited/specified) |
 | `model` | string | No | sonnet (default), opus, haiku, or inherit |
-| `skills` | array | No | Skills to inject at startup (full content, not invocation) |
+| `skills` | string | No | Comma-separated skills to inject at startup |
 | `permissionMode` | string | No | Permission handling mode |
 | `hooks` | object | No | PreToolUse, PostToolUse, Stop events |
+
+### Model Selection Guide
+
+| Task Type | Model | Rationale |
+|-----------|-------|-----------|
+| Doc lookup, simple queries | haiku | Fast, economical |
+| Standard development | sonnet | Balanced |
+| Complex architecture, planning | opus | Highest capability |
 
 ## Hook Lifecycle
 
@@ -118,7 +107,7 @@ exit 0
 ## Context Isolation
 
 Agents receive only:
-- Their system prompt (frontmatter `prompt` + markdown body)
+- Their system prompt (markdown body after frontmatter)
 - Basic environment details (working directory, platform)
 
 Agents do **not** receive the full Claude Code system prompt. This isolation makes agents predictable and focused on their specific task.
@@ -131,9 +120,7 @@ When you list skills in the `skills` field:
 - Agents **do not inherit** skills from the parent conversation
 
 ```yaml
-skills:
-  - sql-analysis    # Full skill content injected
-  - chart-generation
+skills: sql-analysis, chart-generation  # Full skill content injected
 ```
 
 ## Project-Level Agent Hooks
@@ -169,10 +156,10 @@ Use `matcher` to target specific agents by name. Omit matcher to run for all age
 ## Key Points
 
 - `name` and `description` are required
-- `prompt` defines agent's role and behavior
-- `tools` allowlist, `disallowedTools` denylist
+- Markdown body after frontmatter defines agent's role and behavior
+- `tools` allowlist, `disallowedTools` denylist (both comma-separated strings)
 - `inherit` model uses parent conversation's model
-- Agents receive only their prompt + env details, not full Claude Code system prompt
+- Agents receive only their system prompt + env details, not full Claude Code system prompt
 - Skills are injected (not just made available); agents don't inherit parent skills
 - Component-scoped hooks: PreToolUse, PostToolUse, Stop
 - Project-level hooks: SubagentStart, SubagentStop in settings.json

@@ -45,6 +45,13 @@ Use skills instead when:
 - Interactive workflow with user
 - Quick operation that doesn't need isolation
 
+## When NOT to Use
+
+- **Tasks requiring conversation** — Agents can't ask follow-up questions mid-execution
+- **Shared state operations** — Agents run in separate contexts; no state sharing
+- **Simple single-file reads** — Use Read tool directly (lower overhead)
+- **Quick lookups** — Use Grep/Glob directly (agents add latency)
+
 ## Key Points
 
 - Agents run in separate conversation contexts

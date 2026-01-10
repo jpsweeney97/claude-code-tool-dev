@@ -97,6 +97,25 @@ When you want reusable prompts or workflows that run in the main conversation co
 - **Limit tool access** — Grant only necessary permissions for security and focus
 - **Check into version control** — Share project agents with your team in `.claude/agents/`
 
+## Anti-patterns
+
+| Anti-pattern | Problem | Fix |
+|--------------|---------|-----|
+| Vague task instructions | Agent interprets broadly, wastes turns | Be specific |
+| No output format | Main thread gets unstructured dumps | Specify format |
+| Using opus for simple lookups | Slow and expensive | Use haiku |
+| Expecting shared state | Agents are isolated | Pass all context in prompt |
+| No constraints | Agent scope-creeps | Add explicit boundaries |
+| Returning raw file contents | Context pollution | Require summaries |
+
+## Testing Agents
+
+1. Create agent in `.claude/agents/`
+2. Test via Task tool: `subagent_type: "<name>"`
+3. Verify output format matches specification
+4. Test edge cases (empty results, large outputs)
+5. Verify tool restrictions work as expected
+
 ## Key Points
 
 - Automatic delegation based on task + description + context
