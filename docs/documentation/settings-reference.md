@@ -827,13 +827,3 @@ You can run custom commands before or after any tool executes using
 For example, you could automatically run a Python formatter after Claude
 modifies Python files, or prevent modifications to production configuration
 files by blocking Write operations to certain paths.
-
-## See also
-
-- [Identity and Access Management](/en/iam#configuring-permissions) - Learn about Claude Code's permission system
-- [IAM and access control](/en/iam#managed-settings) - Managed policy configuration
-- [Troubleshooting](/en/troubleshooting#auto-updater-issues) - Solutions for common configuration issues
-
----
-
-> To find navigation and other pages in this documentation, fetch the llms.txt file at: https://code.claude.com/docs/llms.txt
