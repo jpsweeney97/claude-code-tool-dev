@@ -75,6 +75,8 @@ When `allowManagedHooksOnly` is `true`:
 - Managed hooks and SDK hooks are loaded
 - User hooks, project hooks, and plugin hooks are blocked
 
+**Note:** Default hook timeout is 60 seconds. Configure per-hook with `timeout` field.
+
 ### MCP
 
 | Field | Type | Description |

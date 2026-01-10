@@ -15,6 +15,7 @@ Settings are loaded in precedence order (highest first):
 | Scope | Location | Use Case |
 |-------|----------|----------|
 | **Managed** | System directories (see below) | IT/enterprise deployment |
+| **Command line** | CLI flags (e.g., `--model`) | Temporary session overrides |
 | **Local project** | `.claude/settings.local.json` | Personal project settings (gitignored) |
 | **Shared project** | `.claude/settings.json` | Team settings (committed to git) |
 | **User** | `~/.claude/settings.json` | Personal global settings |
@@ -47,6 +48,7 @@ MCP servers use separate files:
 | `outputStyle` | string | Output style name (e.g., `"Explanatory"`) |
 | `cleanupPeriodDays` | number | Delete sessions older than N days (default: 30) |
 | `respectGitignore` | boolean | @ file picker respects .gitignore (default: true) |
+| `companyAnnouncements` | array | Startup messages (multiple cycle randomly) |
 
 ### Permission Settings
 
@@ -72,6 +74,8 @@ MCP servers use separate files:
 | `defaultMode` | string | Default permission mode |
 | `disableBypassPermissionsMode` | string | Set to `"disable"` to prevent bypass mode |
 
+**Note:** The `ignorePatterns` configuration is deprecated. Use `permissions.deny` rules instead for file exclusion.
+
 ### Permission Modes
 
 | Mode | Behavior |
@@ -89,9 +93,11 @@ MCP servers use separate files:
 ```json
 "Bash(npm run build)"       // Exact match
 "Bash(npm run test:*)"      // Prefix match (:* at end only)
-"Bash(npm *)"               // Wildcard anywhere
+"Bash(npm *)"               // Glob-style wildcard
 "Bash(git * main)"          // Multiple parts with wildcards
 ```
+
+**Note:** Bash rules use glob-style matching, not regex. Patterns can be bypassed with shell features (options, env vars, redirects, subshells). Use PreToolUse hooks for robust command validation.
 
 **File operations**:
 ```json
@@ -149,9 +155,15 @@ Configure hooks inline in settings.json:
       }
     ]
   },
-  "disableAllHooks": false
+  "disableAllHooks": false,
+  "allowManagedHooksOnly": true
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `disableAllHooks` | boolean | Disable all hooks |
+| `allowManagedHooksOnly` | boolean | Only run managed/SDK hooks (managed settings only) |
 
 See `hooks.md` for event types, matchers, and exit codes.
 
@@ -176,10 +188,11 @@ See `hooks.md` for event types, matchers, and exit codes.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `enabled` | boolean | Enable sandbox (macOS/Linux only) |
+| `enabled` | boolean | Enable sandbox (macOS/Linux only, default: false) |
 | `autoAllowBashIfSandboxed` | boolean | Auto-approve bash when sandboxed (default: true) |
 | `excludedCommands` | array | Commands to run outside sandbox |
 | `allowUnsandboxedCommands` | boolean | Allow dangerouslyDisableSandbox parameter |
+| `enableWeakerNestedSandbox` | boolean | Weaker sandbox for unprivileged Docker (Linux only, reduces security) |
 | `network.allowUnixSockets` | array | Unix socket paths accessible |
 | `network.allowLocalBinding` | boolean | Allow localhost binding |
 
@@ -216,7 +229,10 @@ Applied to every session. Common variables:
 | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | Max output tokens |
 | `BASH_DEFAULT_TIMEOUT_MS` | Bash timeout |
 | `BASH_MAX_OUTPUT_LENGTH` | Max bash output chars |
+| `CLAUDE_ENV_FILE` | Shell script sourced before each Bash command |
 | `DISABLE_TELEMETRY` | Opt out of telemetry |
+
+**Note:** `CLAUDE_ENV_FILE` is useful for persistent environment setup (e.g., activating virtual environments). Set it before starting Claude Code or via a SessionStart hook.
 
 ### Plugin Settings
 
@@ -226,11 +242,25 @@ Applied to every session. Common variables:
     "plugin-name@marketplace": true,
     "other-plugin@marketplace": false
   },
+  "extraKnownMarketplaces": {
+    "acme-tools": { "source": { "source": "github", "repo": "acme/plugins" } }
+  },
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": ["server1", "server2"],
   "disabledMcpjsonServers": ["blocked-server"]
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabledPlugins` | object | Map of `"plugin@marketplace": boolean` |
+| `extraKnownMarketplaces` | object | Additional marketplaces for team onboarding |
+| `strictKnownMarketplaces` | array | Marketplace allowlist (managed settings only) |
+| `enableAllProjectMcpServers` | boolean | Auto-approve project .mcp.json servers |
+| `enabledMcpjsonServers` | array | MCP servers to enable |
+| `disabledMcpjsonServers` | array | MCP servers to disable |
+| `allowedMcpServers` | array | MCP server allowlist (managed settings only) |
+| `deniedMcpServers` | array | MCP server denylist (managed settings only) |
 
 ### Custom Scripts
 
@@ -260,6 +290,23 @@ Applied to every session. Common variables:
   "apiKeyHelper": "~/.claude/get-api-key.sh"
 }
 ```
+
+### Authentication Settings
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `apiKeyHelper` | string | Script to generate auth value for API requests |
+| `otelHeadersHelper` | string | Script to generate OpenTelemetry headers |
+| `forceLoginMethod` | string | Restrict to `"claudeai"` or `"console"` accounts |
+| `forceLoginOrgUUID` | string | Auto-select organization (requires `forceLoginMethod`) |
+| `awsAuthRefresh` | string | Script to refresh AWS credentials |
+| `awsCredentialExport` | string | Script to export AWS credentials as JSON |
+
+### Deprecated Settings
+
+| Field | Replacement |
+|-------|-------------|
+| `includeCoAuthoredBy` | Use `attribution` instead |
 
 ## Complete Example
 
@@ -381,7 +428,7 @@ Before deploying settings, verify:
 
 - **skills.md** — Skill development conventions
 - **commands.md** — Command development conventions
-- **agents.md** — Agent development conventions
+- **agents.md** — Agent/subagent development and configuration (user: `~/.claude/agents/`, project: `.claude/agents/`)
 - **hooks.md** — Hook event types, exit codes, matchers
 - **plugins.md** — Plugin enable/disable configuration
 - **mcp-servers.md** — MCP server configuration in `.mcp.json`

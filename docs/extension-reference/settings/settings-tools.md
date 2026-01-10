@@ -4,7 +4,7 @@ topic: Tools Available to Claude
 category: settings
 tags: [tools, bash, permissions, capabilities]
 requires: [settings-overview, settings-permissions]
-related_to: [settings-environment-variables, hooks-overview]
+related_to: [settings-environment-variables, hooks-overview, settings-sandbox]
 official_docs: https://code.claude.com/en/settings#tools-available-to-claude
 ---
 

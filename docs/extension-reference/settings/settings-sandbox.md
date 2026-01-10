@@ -45,7 +45,7 @@ Use:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `enabled` | boolean | Enable sandboxing (macOS/Linux only) |
+| `enabled` | boolean | Enable sandboxing (macOS/Linux only). Default: false |
 | `autoAllowBashIfSandboxed` | boolean | Auto-allow Bash when sandboxed |
 | `excludedCommands` | array | Commands to run outside sandbox |
 | `allowUnsandboxedCommands` | boolean | Allow `dangerouslyDisableSandbox` escape hatch. When `false`, all commands must run sandboxed or be in `excludedCommands`. Useful for enterprise policies. |
