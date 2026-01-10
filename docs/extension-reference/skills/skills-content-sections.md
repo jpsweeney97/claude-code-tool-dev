@@ -125,12 +125,56 @@ Step-by-step instructions:
 
 ### 6. Decision Points
 
-Branching logic:
+Branching logic that determines skill behavior. Every skill needs ≥2 explicit decision points.
+
 ```markdown
 ## Decision Points
 If migration fails:
 1. Rollback transaction
 2. Report specific error
+3. Do NOT retry automatically
+```
+
+Decision points use observable signals—things you can check programmatically:
+- File/path exists or doesn't
+- Command output matches pattern
+- Test passes/fails
+- Config contains/missing key
+
+#### STOP Patterns
+
+Use STOP when the skill cannot safely proceed:
+
+**Missing required input:**
+```
+STOP. Ask the user for: <missing input>. Do not proceed until provided.
+```
+
+**Ambiguous request:**
+```
+STOP. The request is ambiguous. Ask: <clarifying question>. Proceed only after user confirms.
+```
+
+Example:
+```markdown
+- If no migration files found in expected paths, STOP and ask user for location
+- If multiple databases match the connection pattern, STOP and ask which to target
+```
+
+#### Ask-First Patterns
+
+Use ask-first before risky or destructive operations:
+
+```
+Ask first: This step may be breaking/destructive (<risk>). Do not proceed without explicit user approval.
+```
+
+If the user doesn't approve, skip and provide a safe alternative.
+
+Example:
+```markdown
+- Before DROP or TRUNCATE operations, ask first: "This will permanently delete data. Confirm?"
+- If rollback would lose uncommitted changes, ask first before proceeding
 ```
 
 ### 7. Verification
