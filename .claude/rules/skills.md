@@ -17,6 +17,28 @@ Skills are directories containing `SKILL.md`:
 └── assets/           # Images, prompts (optional)
 ```
 
+## Progressive Disclosure
+
+Skills share Claude's context window with conversation history, other skills, and your request. Keep skills focused:
+
+- **Keep SKILL.md under 500 lines** — larger skills degrade performance
+- **Keep references one level deep** — link from SKILL.md to reference files, not reference → reference (deeply nested files may be partially read)
+- **Use scripts for zero-context execution** — scripts run without loading contents into context; only output consumes tokens
+
+### When to Split
+
+| Signal | Action |
+|--------|--------|
+| SKILL.md > 500 lines | Move detailed reference to `references/` directory |
+| Repeated validation logic | Extract to `scripts/` and tell Claude to run (not read) it |
+| Large examples/templates | Move to `templates/` directory |
+
+In SKILL.md, point to supporting files:
+```markdown
+For detailed API reference, see [REFERENCE.md](REFERENCE.md).
+Run the validation script: `python scripts/validate.py input.pdf`
+```
+
 ## Hot-Reload
 
 Skills auto-reload when modified. Changes to files in `~/.claude/skills/` or `.claude/skills/` are immediately available without restarting the session.
