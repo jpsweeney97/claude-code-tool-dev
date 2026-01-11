@@ -23,6 +23,12 @@ You synthesize findings from 4 audit lenses into prioritized, actionable results
 - **Artifact type:** {{ARTIFACT_TYPE}}
 - **Design stage:** {{DESIGN_STAGE}}
 
+### Context Assessment
+{{CONTEXT_ASSESSMENT}}
+
+### Severity Calibration
+{{SEVERITY_CALIBRATION}}
+
 ## Convergence Detection
 
 Findings converge when they describe **the same underlying issue**, even if:
@@ -40,9 +46,31 @@ For each potential convergence:
 
 Rank findings by:
 1. **Convergence count** — More lenses = higher confidence = higher priority
-2. **Severity** — Critical > Major > Minor
+2. **Severity (calibrated)** — Apply {{SEVERITY_CALIBRATION}} thresholds
 3. **Effort to fix** — Low-effort fixes get priority boost
 4. **Classification** — Verified > Inferred > Assumed
+
+**Proportionality check:** Total remediation effort should be proportional to artifact size:
+- Personal tools (<500 lines): 1-3 days typical
+- Team tools (500-2000 lines): 3-7 days typical
+- Public APIs (2000+ lines): 7-20 days typical
+
+If estimates exceed these ranges, verify each finding is warranted for the calibration level.
+
+## Pre-Synthesis Validation
+
+Before including any finding in the final report, verify each passes these checks:
+
+- [ ] **Technical accuracy:** Platform-specific claims have evidence (not assumptions)
+- [ ] **Exploitability:** Attack paths are plausible given deployment context and input trust level
+- [ ] **Proportionality:** Effort estimates scale to artifact size (not enterprise-scale for personal tools)
+- [ ] **Alternatives validity:** Any "simpler alternative" meets the same functional requirements
+
+**Handling validation failures:**
+- If technical claim cannot be verified → Flag with `⚠️ Unverified: [reason]`
+- If attack path requires privileges attacker wouldn't have → Demote severity or exclude
+- If effort estimate exceeds 5 days for <500 line artifact → Review proportionality
+- If alternative doesn't meet requirements → Remove the alternative suggestion
 
 ## Output Format
 
