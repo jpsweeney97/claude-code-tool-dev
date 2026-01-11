@@ -60,7 +60,7 @@ Use skills instead when:
 - Support 5 permission modes
 - **Cannot spawn other agents** — use skills or chain from main conversation
 
-## See Also
+## Related Topics
 
 - [Agent SDK](/en/agent-sdk/subagents) — programmatic agent usage
 - [Plugin components](/en/plugins-reference#agents) — creating plugin agents

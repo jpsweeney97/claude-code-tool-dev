@@ -123,17 +123,11 @@ Before distributing your marketplace:
 
 See [marketplaces-troubleshooting](marketplaces-troubleshooting.md) for common validation errors.
 
-## Next Steps
+## Related Topics
 
-- Add more plugins to the `plugins` array
-- Push to GitHub for team distribution
-- Add hooks, agents, or MCP servers to plugins
-
-See [marketplaces-examples](marketplaces-examples.md) for more complex configurations.
-
-## Learn More
-
-This walkthrough assumes you already have plugins to distribute. For creating plugins with commands, hooks, agents, MCP servers, and LSP servers, see [plugins-overview](../plugins/plugins-overview.md).
+- [marketplaces-examples](marketplaces-examples.md) — More complex configurations
+- [marketplaces-publishing](marketplaces-publishing.md) — Publish to GitHub
+- [plugins-overview](../plugins/plugins-overview.md) — Creating plugins with commands, hooks, agents
 
 ## Key Points
 
