@@ -17,6 +17,22 @@ Templates for audit output artifacts. Referenced from main SKILL.md.
 
 ---
 
+## Context Assessment
+
+| Factor | Value | Rationale |
+|--------|-------|-----------|
+| Deployment scope | [Personal/Team/Public] | [who uses this] |
+| Input trust level | [Trusted/Partial/Untrusted] | [who controls inputs] |
+| Failure impact | [Low/Medium/High] | [what breaks if it fails] |
+| **Calibration** | **[Light/Standard/Deep]** | Score: X |
+
+**Severity thresholds for this audit:**
+- **Critical:** [context-specific definition]
+- **Major:** [context-specific definition]
+- **Minor:** [context-specific definition]
+
+---
+
 ## Executive Summary
 
 [2-3 sentences: Overall assessment, biggest risks, verdict]
@@ -72,6 +88,23 @@ Unique findings from individual lenses (not convergent but valuable).
 
 ---
 
+## Proportionality Check
+
+| Metric | Value |
+|--------|-------|
+| Target artifact size | [X lines / Y tokens] |
+| Total estimated remediation | [Z days] |
+| Ratio | [days per 100 lines] |
+
+*Reference ratios by calibration:*
+- Light (personal tools): 0.5-2 days per 100 lines
+- Standard (team tools): 2-5 days per 100 lines
+- Deep (public APIs): 5-15 days per 100 lines
+
+[Note if ratio exceeds reference range and why]
+
+---
+
 ## Verdict
 
 **Ship readiness:** [ready / needs_work / major_revision]
@@ -112,7 +145,14 @@ Unique findings from individual lenses (not convergent but valuable).
     "stage": "early|working|final",
     "mode": "full|quick",
     "date": "YYYY-MM-DD",
-    "warnings": []
+    "warnings": [],
+    "context": {
+      "deployment_scope": "personal|team|public",
+      "input_trust": "trusted|partial|untrusted",
+      "failure_impact": "low|medium|high",
+      "calibration": "light|standard|deep",
+      "calibration_score": "3-9"
+    }
   },
   "scope": {
     "assessed": [],
