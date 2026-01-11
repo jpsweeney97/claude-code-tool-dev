@@ -164,10 +164,13 @@ All outputs are written to `docs/audits/` (relative to project root). Create the
 
 ## Procedure
 
-### Step 1: Read target document
-Load the design document specified by the user.
-- **Success:** Document content loaded
-- **Failure:** File not found or unreadable → STOP with error
+### Step 1: Validate target document
+Validate the target file exists and capture metadata for verification.
+- Read the file to confirm it exists and is readable
+- Capture file metadata: line count, first H1/H2 heading
+- Store `{{TARGET_PATH}}` (not content) for lens prompts
+- **Success:** File validated, `{{TARGET_PATH}}` and `{{EXPECTED_FIRST_HEADING}}` captured
+- **Failure:** File not found or unreadable → STOP with error (do not launch lenses)
 
 ### Step 2: Detect artifact type
 Scan for signals (SKILL.md, plugin.json, hook events, etc.).
