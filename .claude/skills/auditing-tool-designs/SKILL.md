@@ -101,6 +101,17 @@ Extract target path by removing the flag from arguments.
 - `/auditing-tool-designs docs/plans/my-design.md --quick` → Quick mode
 - `/auditing-tool-designs --quick docs/plans/my-design.md` → Quick mode
 
+### Context Assessment
+
+Context is gathered interactively via AskUserQuestion before lens execution. See [references/context-assessment.md](references/context-assessment.md) for the full framework.
+
+**Questions asked:**
+1. Deployment scope (Personal/Team/Public)
+2. Input trust level (Trusted/Partial/Untrusted)
+3. Failure impact (Low/Medium/High)
+
+**Output:** Calibration level (Light/Standard/Deep) that adjusts severity thresholds across all lenses.
+
 ---
 
 ## Outputs
@@ -145,6 +156,32 @@ Scan for signals (SKILL.md, plugin.json, hook events, etc.).
 - **Success:** Clear artifact type detected
 - **Failure:** Unclear → Propose options and **STOP. Ask user to confirm artifact type.**
 
+### Step 2.5: Assess context
+
+Gather context to calibrate severity across all lenses.
+
+Use AskUserQuestion tool with 3 questions:
+
+**Q1:** "Who will use this {{ARTIFACT_TYPE}}?"
+- Personal (just me)
+- Team (internal users)
+- Public (external consumers)
+
+**Q2:** "Who controls the inputs this tool will process?"
+- Developer-controlled (config files, env vars, version-controlled data)
+- Internal users (team members, authenticated users)
+- External/untrusted (user uploads, public API, external data)
+
+**Q3:** "What happens if this tool has a bug or security issue?"
+- Learning/experiment (no real impact)
+- Internal tool (team inconvenience)
+- Production system (data loss, security breach, outage)
+
+Calculate calibration level per `references/context-assessment.md`.
+
+- **Success:** `{{CONTEXT_ASSESSMENT}}` and `{{SEVERITY_CALIBRATION}}` populated
+- **Failure:** User cannot answer → Use "Standard" calibration with warning
+
 ### Step 3: Confirm design stage
 Check if user specified early/working/final.
 - **Success:** Stage confirmed
@@ -174,7 +211,7 @@ Focus on specifications from official Anthropic documentation, not community con
 
 ### Step 6: Build lens prompts
 Inject specs into 4 lens prompt templates from `lenses/` directory.
-- **Success:** All prompts populated with {{ARTIFACT_TYPE}}, {{ARTIFACT_SPECS}}, {{TARGET_CONTENT}}
+- **Success:** All prompts populated with {{ARTIFACT_TYPE}}, {{ARTIFACT_SPECS}}, {{TARGET_CONTENT}}, {{CONTEXT_ASSESSMENT}}, {{SEVERITY_CALIBRATION}}
 - **Failure:** Template not found → STOP with error
 
 ### Step 7: Execute lenses in parallel
@@ -221,6 +258,13 @@ Show executive summary and verdict to user.
 **Observable trigger:** User's explicit specification or lack thereof
 - If specified: apply stage-appropriate rigor
 - If not: **STOP** and ask: "What stage is this design? Early draft, Working draft, or Final design?"
+
+### DP2.5: Context Calibration
+**Observable trigger:** User answers to 3 context questions
+- If score 3-5: Light calibration (relaxed severity)
+- If score 6-7: Standard calibration (normal thresholds)
+- If score 8-9: Deep calibration (strict thresholds)
+- If user cannot answer: Standard calibration with warning
 
 ### DP3: Document Size
 **Observable trigger:** Token count > 50K
