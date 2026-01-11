@@ -272,6 +272,36 @@ Event-specific additional fields:
 | `CLAUDE_PLUGIN_ROOT` | Plugin directory (absolute path) | Plugin hooks only |
 | `CLAUDE_ENV_FILE` | Path for env persistence | SessionStart only |
 
+#### CLAUDE_ENV_FILE Usage (SessionStart only)
+
+Persist environment variables for subsequent bash commands in the session:
+
+```bash
+#!/bin/bash
+if [ -n "$CLAUDE_ENV_FILE" ]; then
+  echo 'export NODE_ENV=production' >> "$CLAUDE_ENV_FILE"
+  echo 'export API_KEY=your-api-key' >> "$CLAUDE_ENV_FILE"
+fi
+exit 0
+```
+
+Capture environment changes from setup commands (e.g., `nvm use`):
+
+```bash
+#!/bin/bash
+ENV_BEFORE=$(export -p | sort)
+
+# Run setup that modifies environment
+source ~/.nvm/nvm.sh
+nvm use 20
+
+if [ -n "$CLAUDE_ENV_FILE" ]; then
+  ENV_AFTER=$(export -p | sort)
+  comm -13 <(echo "$ENV_BEFORE") <(echo "$ENV_AFTER") >> "$CLAUDE_ENV_FILE"
+fi
+exit 0
+```
+
 ## Frontmatter Fields (Project Convention)
 
 **Note**: The PEP 723-style frontmatter is this project's convention for `sync-settings`. Native Claude Code configures hooks via `settings.json` directly.
@@ -320,13 +350,31 @@ def check_command(cmd):
 
 ### Inject session context
 
+**Plain text (simpler):**
 ```python
-# UserPromptSubmit hook
+# UserPromptSubmit or SessionStart hook
 def add_context(event):
     context = gather_project_context()
-    print(json.dumps({"context": context}))  # stdout for context injection
+    print(context)  # Plain text added to context
     sys.exit(0)
 ```
+
+**JSON with additionalContext (structured):**
+```python
+# UserPromptSubmit or SessionStart hook
+def add_context(event):
+    context = gather_project_context()
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": event["hook_event_name"],
+            "additionalContext": context
+        }
+    }
+    print(json.dumps(output))
+    sys.exit(0)
+```
+
+See [Advanced: JSON Output Control](#advanced-json-output-control) for full details.
 
 ### Log tool usage
 
@@ -354,6 +402,163 @@ def log_usage(event):
 | Modifying files during PreToolUse | Race conditions | Log only; modify in PostToolUse |
 | Assuming hook order | Hooks run in parallel | Design for independent execution |
 | Not checking `stop_hook_active` | Infinite loop if blocking Stop | Check flag to prevent recursion |
+
+## Advanced: JSON Output Control
+
+Hooks can return structured JSON in stdout for sophisticated control beyond simple exit codes. **JSON output is only processed when the hook exits with code 0.**
+
+### Common JSON Fields (All Hook Types)
+
+```json
+{
+  "continue": true,
+  "stopReason": "string",
+  "suppressOutput": true,
+  "systemMessage": "string"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `continue` | boolean | If `false`, Claude stops after hook execution (default: `true`) |
+| `stopReason` | string | Message shown to user when `continue` is `false` (not shown to Claude) |
+| `suppressOutput` | boolean | Hide stdout from verbose mode (default: `false`) |
+| `systemMessage` | string | Warning message shown to user |
+
+### Context Injection (SessionStart, UserPromptSubmit)
+
+Two methods to inject context:
+
+**Plain text (simpler):**
+```python
+print("Current time: " + datetime.now().isoformat())
+sys.exit(0)
+```
+
+**JSON with additionalContext (structured):**
+```python
+output = {
+    "hookSpecificOutput": {
+        "hookEventName": "SessionStart",  # or "UserPromptSubmit"
+        "additionalContext": "My context here"
+    }
+}
+print(json.dumps(output))
+sys.exit(0)
+```
+
+Both work with exit 0. Plain text appears as hook output in transcript; `additionalContext` is added more discretely.
+
+### SessionStart Output
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Context injected at session start"
+  }
+}
+```
+
+Multiple hooks' `additionalContext` values are concatenated.
+
+### UserPromptSubmit Output
+
+```json
+{
+  "decision": "block",
+  "reason": "Security policy violation",
+  "hookSpecificOutput": {
+    "hookEventName": "UserPromptSubmit",
+    "additionalContext": "Additional context for Claude"
+  }
+}
+```
+
+| Field | Value | Effect |
+|-------|-------|--------|
+| `decision` | `"block"` | Prevents prompt processing; erases prompt; shows `reason` to user |
+| `decision` | `undefined` | Allows prompt to proceed normally |
+
+### PreToolUse Output
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "allow",
+    "permissionDecisionReason": "Auto-approved by policy",
+    "updatedInput": {
+      "field_to_modify": "new value"
+    }
+  }
+}
+```
+
+| Field | Values | Effect |
+|-------|--------|--------|
+| `permissionDecision` | `"allow"` | Bypasses permission system; reason shown to user only |
+| `permissionDecision` | `"deny"` | Blocks tool call; reason shown to Claude |
+| `permissionDecision` | `"ask"` | Shows permission dialog; reason shown to user |
+| `updatedInput` | object | Modifies tool input before execution |
+
+**Deprecation notice:** The legacy fields `decision` (`"approve"`/`"block"`) and `reason` are deprecated. Use `hookSpecificOutput.permissionDecision` and `hookSpecificOutput.permissionDecisionReason` instead.
+
+### PermissionRequest Output
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PermissionRequest",
+    "decision": {
+      "behavior": "allow",
+      "updatedInput": {
+        "command": "npm run lint"
+      }
+    }
+  }
+}
+```
+
+| Behavior | Additional Fields | Effect |
+|----------|-------------------|--------|
+| `"allow"` | `updatedInput` (optional) | Approves with optional input modification |
+| `"deny"` | `message`, `interrupt` (optional) | Denies with message to Claude; `interrupt: true` stops Claude |
+
+### PostToolUse Output
+
+```json
+{
+  "decision": "block",
+  "reason": "Linting failed",
+  "hookSpecificOutput": {
+    "hookEventName": "PostToolUse",
+    "additionalContext": "Additional information for Claude"
+  }
+}
+```
+
+| Field | Value | Effect |
+|-------|-------|--------|
+| `decision` | `"block"` | Prompts Claude with `reason` (tool already ran) |
+| `decision` | `undefined` | No action; `reason` ignored |
+| `additionalContext` | string | Added as context for Claude |
+
+### Stop / SubagentStop Output
+
+```json
+{
+  "decision": "block",
+  "reason": "Tests have not been run yet"
+}
+```
+
+| Field | Value | Effect |
+|-------|-------|--------|
+| `decision` | `"block"` | Prevents stopping; Claude continues with `reason` |
+| `decision` | `undefined` | Allows stopping; `reason` ignored |
+
+**Important:** Check `stop_hook_active` in input to prevent infinite loops.
 
 ## Testing
 
@@ -421,5 +626,6 @@ Before promoting a hook, verify:
 
 ## References
 
-Authoritative specification (imported for full context):
+Authoritative specification:
+- @docs/documentation/hooks-reference.md — Complete hook reference with all JSON schemas and examples
 - @.claude/skills/auditing-tool-designs/references/fallback-specs.md — Hook event types, exit codes, anti-patterns
