@@ -323,7 +323,9 @@ async function loadMarkdownFiles(docsPath: string): Promise<MarkdownFile[]> {
   for (const filePath of filePaths) {
     try {
       const content = await readFile(filePath, 'utf-8')
-      files.push({ path: path.relative(docsPath, filePath), content })
+      // B6: Normalize path separators for cross-platform
+      const relativePath = path.relative(docsPath, filePath).replace(/\\/g, '/')
+      files.push({ path: relativePath, content })
     } catch (err) {
       if (err instanceof Error) {
         // Log and skip — don't fail entire load for one bad file
@@ -976,6 +978,16 @@ claude mcp add --transport stdio --scope user \
 **CRLF handling (F8):**
 - File with `---\r\nkey: value\r\n---\r\nBody` parses frontmatter correctly
 - Body content has normalized LF line endings
+
+**Path normalization (B6):**
+```typescript
+describe('path normalization', () => {
+  it('normalizes Windows backslashes', () => {
+    const windowsPath = 'hooks\\input-schema.md'
+    expect(windowsPath.replace(/\\/g, '/')).toBe('hooks/input-schema.md')
+  })
+})
+```
 
 ### Integration Tests
 
