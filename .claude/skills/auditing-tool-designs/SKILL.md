@@ -394,6 +394,24 @@ Show executive summary and verdict to user.
 **Symptoms:** Target is `.py`, `.ts`, or similar code file.
 **Fix:** Redirect to code review skills; this skill audits designs, not implementations.
 
+### Lens verification failures
+**Symptoms:** Lenses fail read verification; "First heading" mismatch detected.
+**Likely causes:** Lens didn't read file; lens hallucinated content; file changed during audit.
+**Fix:**
+1. Check lens output for "LENS FAILURE" marker — indicates read error
+2. Check "Read Verification" section — if missing, lens ignored instructions
+3. If heading mismatch — lens may have read wrong file or hallucinated
+4. Re-run failed lenses with explicit file path verification
+
+### All lenses fail verification
+**Symptoms:** 0 of 4 lenses pass verification; audit aborts.
+**Likely causes:** File path invalid; permission issues; file deleted during audit.
+**Fix:**
+1. Verify file exists: `ls -la {{TARGET_PATH}}`
+2. Check file is readable: `head -1 {{TARGET_PATH}}`
+3. If file exists but lenses can't read — check for tool permission issues
+4. Re-run audit after confirming file accessibility
+
 ---
 
 ## Lens Specifications
