@@ -4,7 +4,7 @@ topic: Skill Anti-Patterns
 category: skills
 tags: [anti-patterns, mistakes, quality, validation]
 requires: [skills-overview, skills-content-sections]
-related_to: [skills-validation, skills-examples]
+related_to: [skills-validation, skills-examples, skills-quality-dimensions]
 official_docs: https://code.claude.com/en/skills
 ---
 

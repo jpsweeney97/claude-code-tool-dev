@@ -4,7 +4,7 @@ topic: Skill Validation and Quality
 category: skills
 tags: [validation, quality, checklist, compliance]
 requires: [skills-overview, skills-content-sections]
-related_to: [skills-examples]
+related_to: [skills-examples, skills-templates, skills-quality-dimensions]
 official_docs: https://code.claude.com/en/skills
 ---
 

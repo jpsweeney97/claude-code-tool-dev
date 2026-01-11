@@ -4,7 +4,7 @@ topic: Skill Content Structure
 category: skills
 tags: [structure, sections, procedure, verification, progressive-disclosure]
 requires: [skills-overview]
-related_to: [skills-examples, skills-validation]
+related_to: [skills-examples, skills-validation, skills-templates]
 official_docs: https://code.claude.com/en/skills
 ---
 
