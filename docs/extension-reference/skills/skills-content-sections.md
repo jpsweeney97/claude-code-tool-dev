@@ -188,6 +188,18 @@ Objective success criteria:
 - [ ] Schema matches expected state
 ```
 
+#### Verification Ladder
+
+For higher-risk skills, use escalating verification:
+
+1. **Quick check** (primary signal) — seconds, confirms basic success
+2. **Narrow check** (neighbors) — minutes, tests related functionality
+3. **Broad check** (system confidence) — longer, full test suite or integration
+
+If any rung fails, stop and troubleshoot before continuing.
+
+See [skills-templates](skills-templates.md#t5-verification-ladder) for a copy-paste template.
+
 ### 8. Troubleshooting
 
 Common issues and fixes:
