@@ -53,7 +53,7 @@ Clear triggering conditions:
 
 ### 2. When NOT to Use
 
-Explicit exclusions:
+Explicit exclusions (≥3 non-goals required):
 ```markdown
 ## When NOT to Use
 - Production databases (require manual approval)

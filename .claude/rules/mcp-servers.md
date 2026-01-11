@@ -136,6 +136,57 @@ MCP servers can provide:
 | **Resources** | Data Claude can read | File contents, API responses |
 | **Prompts** | Reusable prompt templates | Code review checklist |
 
+### MCP Resources
+
+Resources are accessed via @ mentions:
+
+```
+@github:issue://123
+@postgres:schema://users
+@docs:file://api/authentication
+```
+
+Format: `@<server>:<resource-type>://<identifier>`
+
+| Feature | Behavior |
+|---------|----------|
+| **Autocomplete** | Type `@` to see available resources |
+| **Fuzzy search** | Resource paths are fuzzy-searchable |
+| **Auto-fetch** | Resources automatically fetched when referenced |
+| **Content types** | Text, JSON, structured data (varies by server) |
+
+### MCP Prompts as Commands
+
+Prompts are exposed as slash commands:
+
+```
+/mcp__github__list_prs
+/mcp__github__pr_review 456
+/mcp__jira__create_issue "Bug in login" high
+```
+
+Format: `/mcp__<server>__<prompt-name> [args]`
+
+| Feature | Behavior |
+|---------|----------|
+| **Dynamic discovery** | Prompts discovered from connected servers |
+| **Argument parsing** | Based on prompt's defined parameters |
+| **Name normalization** | Spaces become underscores |
+| **Direct injection** | Results injected into conversation |
+
+### Output Limits
+
+| Threshold | Behavior |
+|-----------|----------|
+| 10,000 tokens | Warning displayed |
+| 25,000 tokens | Default maximum |
+
+Configure via `MAX_MCP_OUTPUT_TOKENS` environment variable. Higher limits useful for servers querying large datasets or generating detailed reports.
+
+### Dynamic Tool Updates
+
+MCP servers can send `list_changed` notifications to dynamically update available tools, prompts, and resources without reconnecting.
+
 ## Tool Definition
 
 Tools are the primary interface. Define them with clear schemas:
@@ -256,6 +307,38 @@ if (!args.sql.trim().toLowerCase().startsWith("select")) {
 | **http** | Remote/cloud services (recommended) | `claude mcp add --transport http <name> <url>` |
 | **sse** | Server-sent events (deprecated) | `claude mcp add --transport sse <name> <url>` |
 
+### Option Ordering
+
+All options must come **before** the server name:
+
+```bash
+claude mcp add [options] <name> -- <command> [args...]
+```
+
+| Position | Content |
+|----------|---------|
+| Options | `--transport`, `--env`, `--scope`, `--header` |
+| Server name | Unique identifier |
+| `--` | Separator (for stdio) |
+| Command + args | Passed to MCP server |
+
+Example:
+```bash
+claude mcp add --transport stdio --env KEY=value myserver -- python server.py --port 8080
+```
+
+### Windows Users
+
+On native Windows (not WSL), `npx` requires the `cmd /c` wrapper:
+
+```bash
+# Correct — Windows can execute cmd
+claude mcp add --transport stdio my-server -- cmd /c npx -y @some/package
+
+# Wrong — "Connection closed" error
+claude mcp add --transport stdio my-server -- npx -y @some/package
+```
+
 ## Anti-patterns
 
 | Anti-pattern | Problem | Fix |
@@ -325,6 +408,32 @@ MCP servers are configured in:
 | **Project** | `.mcp.json` in project root | Checked into git, shared with team |
 | **User** | `~/.claude.json` cross-project | Personal servers across all projects |
 
+### Scope Precedence
+
+When servers with the same name exist at multiple scopes:
+
+```
+local > project > user
+```
+
+Local-scoped servers override project-scoped, which override user-scoped.
+
+### Choosing the Right Scope
+
+| Scope | Best For |
+|-------|----------|
+| **local** | Personal servers, experimental configs, sensitive credentials |
+| **project** | Team-shared servers, project-specific tools, collaboration |
+| **user** | Personal utilities across projects, frequently used services |
+
+### Project Scope Security
+
+Claude Code prompts for approval before using project-scoped servers from `.mcp.json`. To reset approval choices:
+
+```bash
+claude mcp reset-project-choices
+```
+
 ### .mcp.json format
 
 ```json
@@ -340,7 +449,16 @@ MCP servers are configured in:
 }
 ```
 
-**Environment variable expansion**: Use `${VAR}` or `${VAR:-default}` in command, args, env, url, headers.
+### Environment Variable Expansion
+
+| Pattern | Behavior |
+|---------|----------|
+| `${VAR}` | Value of VAR (fails if unset) |
+| `${VAR:-default}` | Value of VAR or default |
+
+Variables expand in: `command`, `args`, `env`, `url`, `headers`
+
+**Important:** If a required variable is not set and has no default, Claude Code fails to parse the config.
 
 ## Registration Commands
 
@@ -398,6 +516,131 @@ Before deploying an MCP server, verify:
 - [ ] Logging goes to stderr for debugging
 - [ ] Unit tests cover core functionality
 - [ ] Integration tested with Claude Code
+
+## Authentication
+
+### Header Authentication
+
+Pass static tokens during registration:
+
+```bash
+claude mcp add --transport http secure-api https://api.example.com/mcp \
+  --header "Authorization: Bearer $TOKEN"
+```
+
+### OAuth Authentication
+
+For servers requiring OAuth:
+
+```bash
+# 1. Add server
+claude mcp add --transport http sentry https://mcp.sentry.dev/mcp
+
+# 2. Authenticate via /mcp command (opens browser)
+/mcp
+# Select "Authenticate" for the server
+```
+
+| Feature | Behavior |
+|---------|----------|
+| **Token storage** | Stored securely |
+| **Auto-refresh** | Tokens refreshed automatically |
+| **Clear auth** | Use "Clear authentication" in `/mcp` menu |
+| **Browser fallback** | Copy URL manually if browser doesn't open |
+
+### Environment Variables in Config
+
+Store tokens in environment, reference in config:
+
+```json
+{
+  "mcpServers": {
+    "api": {
+      "type": "http",
+      "url": "https://api.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${API_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+## Managed MCP Configuration
+
+Enterprise deployments control MCP server access via two options:
+
+### Option 1: Exclusive Control with managed-mcp.json
+
+Deploy to system-wide directory (requires admin):
+
+| Platform | Path |
+|----------|------|
+| macOS | `/Library/Application Support/ClaudeCode/managed-mcp.json` |
+| Linux/WSL | `/etc/claude-code/managed-mcp.json` |
+| Windows | `C:\Program Files\ClaudeCode\managed-mcp.json` |
+
+```json
+{
+  "mcpServers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    },
+    "company-internal": {
+      "type": "stdio",
+      "command": "/usr/local/bin/company-mcp-server",
+      "args": ["--config", "/etc/company/mcp-config.json"]
+    }
+  }
+}
+```
+
+When deployed, users cannot add, modify, or use any other MCP servers.
+
+### Option 2: Policy-Based Control
+
+Use `allowedMcpServers` and `deniedMcpServers` in managed settings file.
+
+**Restriction types** (each entry must have exactly one):
+
+| Type | Matches | Example |
+|------|---------|---------|
+| `serverName` | Configured server name | `{"serverName": "github"}` |
+| `serverCommand` | Exact command array | `{"serverCommand": ["npx", "-y", "pkg"]}` |
+| `serverUrl` | URL pattern (wildcards) | `{"serverUrl": "https://*.company.com/*"}` |
+
+**Example configuration:**
+
+```json
+{
+  "allowedMcpServers": [
+    {"serverName": "github"},
+    {"serverCommand": ["npx", "-y", "@modelcontextprotocol/server-filesystem"]},
+    {"serverUrl": "https://mcp.company.com/*"}
+  ],
+  "deniedMcpServers": [
+    {"serverName": "dangerous-server"},
+    {"serverUrl": "https://*.untrusted.com/*"}
+  ]
+}
+```
+
+**Allowlist behavior:**
+
+| Value | Result |
+|-------|--------|
+| `undefined` | No restrictions (default) |
+| `[]` | Complete lockdown — no servers allowed |
+| List of entries | Only matching servers allowed |
+
+**Denylist always takes precedence** — blocked even if on allowlist.
+
+**Matching rules:**
+- Command arrays must match exactly (order matters)
+- URL patterns support wildcards: `*` for paths, `*.domain.com` for subdomains
+- Stdio servers match against command entries; HTTP servers match against URL entries
+- A server passes if it matches name OR command OR URL (unless denied)
 
 ## Security Considerations
 

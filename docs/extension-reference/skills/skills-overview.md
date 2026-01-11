@@ -81,6 +81,10 @@ Use commands instead when:
 - **Update**: Edit `SKILL.md` directly. Changes take effect immediately.
 - **Delete**: Remove the skill directory. No restart required.
 
+## Hot-Reload
+
+Skills auto-reload when modified. Changes to files in `~/.claude/skills/` or `.claude/skills/` take effect immediately without restarting the session.
+
 ## Specifications
 
 For detailed normative requirements beyond this reference:

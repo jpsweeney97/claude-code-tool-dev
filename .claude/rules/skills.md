@@ -63,7 +63,8 @@ license: MIT                        # Optional: license type
 metadata:                           # Optional: version and quality info
   version: "1.0.0"
   timelessness_score: 8
-allowed-tools: Tool1, Tool2         # Optional: comma or YAML list
+  model: claude-opus-4-5-20251101   # Recommended model (informational only)
+allowed-tools: Tool1, Tool2         # Optional: comma or YAML list; patterns like Bash(python:*)
 model: claude-sonnet-4-20250514     # Optional: specific model
 context: fork                       # Optional: run in isolated subagent
 agent: general-purpose              # Optional: agent type when context: fork
@@ -98,6 +99,14 @@ skills: pr-review, security-check
 ```
 
 If `skills` is omitted, no skills are preloaded into the subagent context.
+
+### Agent Types
+
+| Agent | Model | Best For |
+|-------|-------|----------|
+| `Explore` | haiku | Read-only codebase exploration |
+| `Plan` | sonnet | Architecture and planning |
+| `general-purpose` | sonnet | Multi-step modifications |
 
 ### Body (Required Content Areas)
 
@@ -286,6 +295,16 @@ description: Extract text from PDFs. Requires pypdf and pdfplumber packages.
 
 - Scripts need execute permissions: `chmod +x scripts/*.py`
 - Use forward slashes in all paths: `scripts/helper.py` (not `scripts\helper.py`)
+
+### Tool Patterns
+
+The `allowed-tools` field supports pattern matching:
+
+```yaml
+allowed-tools: Read, Bash(python:*)   # Matches Bash commands starting with "python"
+```
+
+Pattern syntax: `ToolName(prefix:*)` matches commands where the input starts with `prefix`.
 
 ### Environment Variables
 

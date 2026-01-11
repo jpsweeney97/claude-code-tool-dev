@@ -95,6 +95,16 @@ When specified, useful for:
 - **Limited scope**: e.g., data analysis without file writing
 - **Security-sensitive workflows**: Restrict capabilities explicitly
 
+### Pattern Matching
+
+`allowed-tools` supports pattern matching for fine-grained control:
+
+```yaml
+allowed-tools: Read, Bash(python:*)
+```
+
+Pattern syntax: `ToolName(prefix:*)` matches tool invocations where the input starts with `prefix`. Example: `Bash(python:*)` allows `python script.py` but blocks `rm -rf`.
+
 ## Key Points
 
 - `name` and `description` are required
