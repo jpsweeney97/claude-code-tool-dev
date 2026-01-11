@@ -141,6 +141,8 @@ Decision points use observable signals—things you can check programmatically:
 - Test passes/fails
 - Config contains/missing key
 
+**Requirement:** Each decision point MUST reference at least one observable signal. Decision points MUST NOT rely solely on subjective judgment (e.g., "if it seems risky", "if appropriate").
+
 #### STOP Patterns
 
 Use STOP when the skill cannot safely proceed:
