@@ -105,24 +105,28 @@ Extract target path by removing the flag from arguments.
 
 ## Outputs
 
+### Output Location
+
+All outputs are written to `docs/audits/` (relative to project root). Create the directory if it doesn't exist.
+
 ### Artifacts
 
 | Artifact | Format | Purpose |
 |----------|--------|---------|
-| `audit-report.md` | Markdown | Human-readable report with convergent findings, recommendations, verdict |
-| `audit-impl-spec.json` | JSON | Machine-parseable spec for Claude to use during implementation |
+| `docs/audits/audit-report.md` | Markdown | Human-readable report with convergent findings, recommendations, verdict |
+| `docs/audits/audit-impl-spec.json` | JSON | Machine-parseable spec for Claude to use during implementation |
 
 ### Definition of Done
 
 **Full Mode:**
-1. Both output files exist (`audit-report.md`, `audit-impl-spec.json`)
+1. Both output files exist (`docs/audits/audit-report.md`, `docs/audits/audit-impl-spec.json`)
 2. All 4 lens outputs contain structured findings with Element/Issue/Evidence/Severity/Classification fields
 3. Arbiter synthesis identifies convergent findings (or explicitly states none found)
 4. Prioritized recommendations ranked P1/P2/P3 with effort estimates
 5. Verdict includes ship_readiness: ready | needs_work | major_revision
 
 **Quick Mode:**
-1. Single output file exists (`quick-audit.md`)
+1. Single output file exists (`docs/audits/quick-audit.md`)
 2. Both lens outputs (Spec Auditor, Behavioral Realist) contain structured findings
 3. Main thread merge produces combined findings list
 4. Verdict includes likely_to_work: yes | needs_attention | major_issues
@@ -193,9 +197,9 @@ Launch synthesis subagent with all lens outputs using `arbiter/synthesis-prompt.
 - **Failure:** Arbiter error → Main thread performs simple merge as fallback
 
 ### Step 10: Generate outputs
-Write output files:
-- **Full mode:** `audit-report.md` and `audit-impl-spec.json`
-- **Quick mode:** `quick-audit.md` only
+Create `docs/audits/` directory if it doesn't exist, then write output files:
+- **Full mode:** `docs/audits/audit-report.md` and `docs/audits/audit-impl-spec.json`
+- **Quick mode:** `docs/audits/quick-audit.md` only
 - **Success:** Files written successfully
 - **Failure:** Write error → Output to conversation instead
 
@@ -249,8 +253,8 @@ Show executive summary and verdict to user.
 
 ### Quick Check
 **Check:** Output files exist and contain required sections.
-**Full mode:** Run `grep -c "## Convergent Findings\|## Verdict" audit-report.md`. Expected: 2 matches.
-**Quick mode:** Run `grep -c "## Verdict" quick-audit.md`. Expected: 1 match.
+**Full mode:** Run `grep -c "## Convergent Findings\|## Verdict" docs/audits/audit-report.md`. Expected: 2 matches.
+**Quick mode:** Run `grep -c "## Verdict" docs/audits/quick-audit.md`. Expected: 1 match.
 **If check fails:** Do not mark complete; review lens outputs for malformed structure.
 
 ### Deep Check
