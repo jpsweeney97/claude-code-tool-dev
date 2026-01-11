@@ -619,7 +619,11 @@ let loadingPromise: Promise<BM25Index | null> | null = null  // F3: Mutex for co
 
 // === Configuration ===
 // F1: No DEFAULT_DOCS_PATH — require explicit configuration
-const RETRY_INTERVAL_MS = 60_000  // U3: 60 seconds between retry attempts
+const RETRY_INTERVAL_MS = parseInt(process.env.RETRY_INTERVAL_MS ?? '60000', 10)
+const EFFECTIVE_RETRY_INTERVAL =
+  (RETRY_INTERVAL_MS >= 1000 && RETRY_INTERVAL_MS <= 600000)
+    ? RETRY_INTERVAL_MS
+    : 60000  // U3: Default 60 seconds, configurable 1-600s
 
 async function ensureIndex(): Promise<BM25Index | null> {
   // Fast path: already loaded successfully
@@ -630,7 +634,7 @@ async function ensureIndex(): Promise<BM25Index | null> {
 
   // U3: Retry throttling — if we failed recently, return cached error
   const now = Date.now()
-  if (loadError && (now - lastLoadAttempt) < RETRY_INTERVAL_MS) {
+  if (loadError && (now - lastLoadAttempt) < EFFECTIVE_RETRY_INTERVAL) {
     return null  // Too soon to retry
   }
 
@@ -1074,6 +1078,6 @@ Add these based on evidence of specific failure patterns, not speculation:
 | Claude asks "what categories exist?" | Add `list_categories` tool |
 | Claude re-fetches same chunk | Add `get_chunk` tool |
 | Specific file needs different chunking | Add per-file override (not config file — just code) |
-| 60-second retry feels too slow | Reduce `RETRY_INTERVAL_MS` (e.g., 30 seconds) |
+| 60-second retry feels too slow | Set `RETRY_INTERVAL_MS` env var (1000-600000ms) |
 | Retry logs are noisy for permanent failures | Add exponential backoff (1m, 2m, 4m, max 10m) |
 | Need to track loading state for debugging | Add `get_status` tool returning `{ loaded, chunkCount, loadError, lastLoadAttempt }` |
