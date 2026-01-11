@@ -831,6 +831,11 @@ cat <<'EOF'
 EOF
 ```
 
+```bash
+# Make hook executable (required!)
+chmod +x ~/.claude/hooks/extension-docs-reminder.sh
+```
+
 **Add to `~/.claude/settings.json`:**
 
 ```json
