@@ -251,10 +251,31 @@ function parseFrontmatter(content: string, filePath: string): { frontmatter: Fro
 
   try {
     const yaml = parseYaml(match[1])
+
+    // B5: Parse tags with strict type checking
+    let tags: string[] = []
+    if (Array.isArray(yaml.tags)) {
+      tags = yaml.tags.filter((t): t is string => {
+        if (typeof t === 'string') return true
+        parseWarnings.push({
+          file: filePath,
+          issue: `Non-string tag value ignored: ${typeof t}`
+        })
+        return false
+      })
+    } else if (typeof yaml.tags === 'string') {
+      tags = [yaml.tags]
+    } else if (yaml.tags !== undefined) {
+      parseWarnings.push({
+        file: filePath,
+        issue: `Invalid tags type: expected string or array, got ${typeof yaml.tags}`
+      })
+    }
+
     return {
       frontmatter: {
         category: yaml.category,
-        tags: Array.isArray(yaml.tags) ? yaml.tags : [],
+        tags,
         topic: yaml.topic
       },
       body: match[2]
