@@ -56,6 +56,16 @@ Beyond structure, skills need semantic precision.
 - Label claims as: Verified (evidence) / Inferred (derived) / Assumed (not verified)
 - Report skipped checks as: `Not run (reason): ... Run: <command> to verify`
 
+### Observable Decision Points
+
+- Decision points MUST reference observable signals (file exists, command output, test result)
+- Decision points MUST NOT rely solely on subjective judgment ("if it seems risky")
+
+### Verification Validity
+
+- Quick check MUST measure the primary success property, not just a proxy (compile/lint)
+- If primary property cannot be checked, state why and specify next-best check
+
 ## Command Mention Rule
 
 Any command in a skill MUST specify:
