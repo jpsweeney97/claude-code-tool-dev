@@ -306,3 +306,41 @@ Default hook timeout is 60 seconds. Configure per-hook with `timeout` field (mil
 | Read | Max 2000 lines default; truncates long lines at 2000 chars |
 | Bash | 60-second timeout default; env vars don't persist |
 | WebFetch | 25K token cap; 10K warning threshold |
+
+---
+
+## Context-Appropriate Severity
+
+Security findings require **exploitability assessment** based on input trust level.
+
+### Exploitability by Input Source
+
+| Input Source | Exploitability Standard |
+|--------------|------------------------|
+| Developer-controlled (env vars, config files) | Admin already has access; not externally exploitable |
+| Version-controlled files | Attacker needs commit access; not externally exploitable |
+| User input (forms, API parameters) | Externally exploitable; full security review required |
+| External data (APIs, uploads) | High risk; assume hostile input |
+
+### Common False Positives
+
+These patterns are often flagged incorrectly for trusted-input tools:
+
+| Finding | Why It's Often Invalid |
+|---------|----------------------|
+| "Path traversal in DOCS_PATH env var" | Admin-configured; attacker can't control |
+| "YAML bomb vulnerability" | Version-controlled docs; attacker can't inject |
+| "SQL injection in config" | Developer-written config; not user input |
+| "Command injection in build script" | Developer runs it; not exposed to users |
+
+### Severity Assignment Rules
+
+1. **Critical requires external exploitability** — If an attacker needs admin/commit access, it's not Critical
+2. **Major requires realistic scenario** — "Attacker modifies your config file" isn't realistic for most threat models
+3. **Minor for defense-in-depth** — Valid hardening suggestions that don't address real threats
+
+### Anti-Pattern
+
+**DON'T:** Flag every theoretical vulnerability as Critical regardless of who controls the input.
+
+**DO:** Ask "Who can trigger this?" before assigning severity. If the answer is "only the developer/admin," it's not externally exploitable.
