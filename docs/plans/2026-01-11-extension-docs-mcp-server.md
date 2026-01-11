@@ -440,6 +440,10 @@ function mergeSmallChunks(chunks: Chunk[], maxLines = 150): Chunk[] {
 
 // F5: Recompute tokens and termFreqs for merged content
 function combineChunks(chunks: Chunk[]): Chunk {
+  // G7: Guard against empty input
+  if (chunks.length === 0) {
+    throw new Error('combineChunks called with empty array')
+  }
   const combinedContent = chunks.map(c => c.content).join('\n\n')
   const tokens = tokenize(combinedContent)
   return {
