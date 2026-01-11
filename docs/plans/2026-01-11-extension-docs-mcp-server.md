@@ -1061,16 +1061,14 @@ describe('path normalization', () => {
 
 ## Implementation Tasks
 
-| # | Task | Files | Est. Time |
-|---|------|-------|-----------|
-| 1 | Project setup | package.json, tsconfig.json, .gitignore | 15 min |
-| 2 | Core implementation | src/index.ts (~400 lines) | 2.5 hrs |
-| 3 | SessionStart hook | ~/.claude/hooks/extension-docs-reminder.sh | 10 min |
-| 4 | Settings.json update | ~/.claude/settings.json | 10 min |
-| 5 | Unit tests | tests/index.test.ts | 45 min |
-| 6 | Build and register | npm install, npm run build, claude mcp add | 15 min |
-| 7 | Golden query verification | Manual testing | 15 min |
-| — | **Total** | | **4-5 hrs** |
+| # | Task | Files |
+|---|------|-------|
+| 1 | Project setup | package.json, tsconfig.json, .gitignore |
+| 2 | Core implementation | src/index.ts |
+| 3 | Settings.json hook update | ~/.claude/settings.json |
+| 4 | Unit tests | tests/index.test.ts |
+| 5 | Build and register | Build, register, verify |
+| 6 | Golden query verification | Manual testing |
 
 ---
 
