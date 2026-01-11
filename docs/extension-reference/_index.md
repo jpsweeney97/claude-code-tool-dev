@@ -25,6 +25,7 @@ Machine-optimized reference for Claude Code extensions. Each file covers one con
 | [marketplaces/](./marketplaces/) | 7 | Plugin distribution |
 | [settings/](./settings/) | 14 | Configuration |
 | [security/](./security/) | 4 | Managed deployment |
+| [memory/](./memory/) | 9 | CLAUDE.md, rules, imports |
 
 ## Frontmatter Schema
 
