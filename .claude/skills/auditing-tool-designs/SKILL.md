@@ -276,7 +276,12 @@ Wait for all lenses to complete, then verify each actually read the file.
 - **Failure:** Fewer than 2 verified → STOP with error, list failed lenses
 
 ### Step 9: Execute Arbiter (Full mode only)
-Launch synthesis subagent with all lens outputs using `arbiter/synthesis-prompt.md`.
+Launch synthesis subagent with verified lens outputs using `arbiter/synthesis-prompt.md`.
+
+**Additional inputs for Arbiter:**
+- `{{LENS_VERIFICATION_STATUS}}` — Which lenses passed/failed verification
+- Only pass outputs from VERIFIED lenses
+
 - **Success:** Arbiter returns convergent findings and verdict
 - **Failure:** Arbiter error → Main thread performs simple merge as fallback
 
