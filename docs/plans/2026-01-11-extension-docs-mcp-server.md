@@ -205,7 +205,7 @@ interface SearchResult {
   content: string     // The markdown content
   category: string    // "hooks"
   source_file: string // "hooks/hooks-input-schema.md"
-  score: number       // BM25 score (for debugging)
+  // G8: Score removed - confuses Claude
 }
 
 interface ParseWarning {
@@ -575,8 +575,7 @@ function search(index: BM25Index, query: string, limit = 5): SearchResult[] {
       chunk_id: r.chunk.id,
       content: r.chunk.content,
       category: r.chunk.category,
-      source_file: r.chunk.source_file,
-      score: r.score
+      source_file: r.chunk.source_file
     }))
 }
 ```
