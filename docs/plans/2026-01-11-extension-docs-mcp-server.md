@@ -969,6 +969,19 @@ claude mcp add --transport stdio --scope user \
 - BM25 returns relevant results for exact matches
 - Metadata header terms boost relevance (category/tag in query matches header)
 
+**Tokenizer edge cases (G5):**
+```typescript
+describe('tokenize', () => {
+  it('handles empty string', () => expect(tokenize('')).toEqual([]))
+  it('handles whitespace-only', () => expect(tokenize('   ')).toEqual([]))
+  it('handles punctuation-only', () => expect(tokenize('!@#$%')).toEqual([]))
+  it('splits CamelCase', () => expect(tokenize('PreToolUse')).toEqual(['pre', 'tool', 'use']))
+  it('handles MCPServer', () => expect(tokenize('MCPServer')).toEqual(['mcp', 'server']))
+  it('handles JSONSchema', () => expect(tokenize('JSONSchema')).toEqual(['json', 'schema']))
+  it('drops single chars', () => expect(tokenize('a b c')).toEqual([]))
+})
+```
+
 **Term frequency precomputation (F2):**
 - `computeTermFreqs(['a', 'b', 'a'])` returns `Map { 'a' => 2, 'b' => 1 }`
 - Chunks created via `wholeFileChunk` have populated `termFreqs` map
