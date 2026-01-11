@@ -743,13 +743,27 @@ async function main() {
   await server.connect(transport)
 
   // Graceful shutdown: close server before exit to flush pending responses
-  const shutdown = async () => {
-    await server.close()
+  const shutdown = async (signal: string) => {
+    console.error(`Received ${signal}, shutting down...`)
+
+    try {
+      // B4: Race between graceful close and timeout
+      await Promise.race([
+        server.close(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Shutdown timeout')), 5000)
+        )
+      ])
+      console.error('Graceful shutdown complete')
+    } catch (err) {
+      console.error('Shutdown error:', err instanceof Error ? err.message : 'unknown')
+    }
+
     process.exit(0)
   }
 
-  process.on('SIGTERM', shutdown)
-  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  process.on('SIGINT', () => shutdown('SIGINT'))
 }
 
 main().catch((err) => {
