@@ -63,5 +63,30 @@ If the design fully complies with specifications, output:
 - Assessment: Design complies with all checked specifications.
 ```
 
-## Design to Audit
-{{TARGET_CONTENT}}
+## Target Document
+
+**File:** {{TARGET_PATH}}
+
+⚠️ **MANDATORY FIRST STEP:** Read this file using the Read tool before any analysis.
+Do not proceed without reading the entire file.
+
+If you cannot read the file, output only:
+"LENS FAILURE: Cannot read {{TARGET_PATH}}: [error reason]"
+
+## Required Output Sections
+
+Your output MUST include these sections in order:
+
+### Read Verification
+- **File read:** [exact path you read]
+- **File size:** [X lines / Y characters]
+- **First heading:** [first H1 or H2 found in document]
+
+### Scope Statement
+[as specified above]
+
+### Findings
+[as specified above]
+
+### Summary
+[as specified above]
