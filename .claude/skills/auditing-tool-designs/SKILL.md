@@ -254,10 +254,26 @@ Use `subagent_type: "general-purpose"` for each lens.
 - **Success:** All lens tasks launched
 - **Failure:** Task tool error → Retry once, then STOP
 
-### Step 8: Collect lens outputs
-Wait for all lenses to complete.
-- **Success:** All outputs received with valid structure
-- **Failure:** Lens output malformed → Note in report, continue with valid outputs
+### Step 8: Collect and verify lens outputs
+Wait for all lenses to complete, then verify each actually read the file.
+
+**Verification process:**
+1. Check each lens output for "Read Verification" section
+2. Extract "First heading" value from each lens
+3. Compare against `{{EXPECTED_FIRST_HEADING}}` captured in Step 1
+4. Mark lenses as VERIFIED or FAILED based on match
+
+**Failure handling:**
+| Lenses Verified | Action |
+|-----------------|--------|
+| 4 of 4 | Proceed with full synthesis |
+| 3 of 4 | Proceed, note excluded lens in report |
+| 2 of 4 | Proceed with warning, note excluded lenses |
+| 1 of 4 | STOP — insufficient lens coverage |
+| 0 of 4 | STOP — systematic failure, likely file access issue |
+
+- **Success:** At least `MIN_VERIFIED_LENSES` (2) pass verification
+- **Failure:** Fewer than 2 verified → STOP with error, list failed lenses
 
 ### Step 9: Execute Arbiter (Full mode only)
 Launch synthesis subagent with all lens outputs using `arbiter/synthesis-prompt.md`.
