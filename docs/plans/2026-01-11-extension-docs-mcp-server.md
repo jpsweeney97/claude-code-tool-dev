@@ -941,6 +941,23 @@ claude mcp add --transport stdio --scope user \
 
 ---
 
+## Rollback Procedure
+
+If the MCP server causes issues:
+
+```bash
+# Remove MCP server registration
+claude mcp remove extension-docs
+
+# Verify removal
+claude mcp list | grep extension-docs  # Should show nothing
+
+# Remove hook from settings.json if added
+# Delete the SessionStart hook entry for extension-docs-reminder
+```
+
+---
+
 ## Testing Strategy
 
 ### Golden Query Tests
