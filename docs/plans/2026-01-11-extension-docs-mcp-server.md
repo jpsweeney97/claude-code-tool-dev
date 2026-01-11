@@ -580,12 +580,17 @@ function search(index: BM25Index, query: string, limit = 5): SearchResult[] {
 ### Input Validation
 
 ```typescript
-interface ValidationResult {
-  isError?: true
-  content?: Array<{ type: "text"; text: string }>
-  query?: string
-  limit?: number
+interface ValidationSuccess {
+  query: string
+  limit: number
 }
+
+interface ValidationError {
+  isError: true
+  content: Array<{ type: "text"; text: string }>
+}
+
+type ValidationResult = ValidationSuccess | ValidationError
 
 function validateSearchInput(args: unknown): ValidationResult {
   if (!args || typeof args !== 'object') {
@@ -736,7 +741,7 @@ async function main() {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (request.params.name === 'search_extension_docs') {
       const validation = validateSearchInput(request.params.arguments)
-      if (validation.isError) {
+      if ('isError' in validation) {
         return validation
       }
 
@@ -750,7 +755,7 @@ async function main() {
       }
 
       try {
-        const results = search(idx, validation.query!, validation.limit)
+        const results = search(idx, validation.query, validation.limit)
         return {
           content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
         }
