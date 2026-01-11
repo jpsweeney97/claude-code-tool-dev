@@ -1,8 +1,8 @@
 ---
-id: plugins-antipatterns
+id: plugins-anti-patterns
 topic: Plugin Anti-patterns
 category: plugins
-tags: [antipatterns, mistakes, best-practices, prevention]
+tags: [anti-patterns, mistakes, best-practices, prevention]
 requires: [plugins-overview]
 related_to: [plugins-troubleshooting, plugins-paths, plugins-distribution]
 official_docs: https://code.claude.com/en/plugins

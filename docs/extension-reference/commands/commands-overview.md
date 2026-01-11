@@ -110,6 +110,6 @@ The skill provides richer context, validation scripts, and organized reference m
 ## Key Points
 
 - Markdown file = slash command
-- User scope overrides project scope
+- Project scope overrides user scope
 - No logic, just prompt templates
 - Arguments via `$ARGUMENTS` or `$1`, `$2`

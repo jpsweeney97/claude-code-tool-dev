@@ -10,7 +10,7 @@ official_docs: https://code.claude.com/en/hooks
 
 # Hook Event Types
 
-Claude Code supports 10 hook event types.
+Claude Code supports 11 hook event types.
 
 ## Event Reference
 
@@ -21,6 +21,7 @@ Claude Code supports 10 hook event types.
 | `UserPromptSubmit` | User sends message | Yes | Inject context, validate requests |
 | `Stop` | Claude stops responding (not on user interrupt) | Yes | Final checks, cleanup |
 | `SubagentStop` | Subagent completes | Yes | Validate agent output |
+| `SubagentStart` | Subagent begins | Yes | Initialize agent environment |
 | `SessionStart` | Session begins | No | Initialize state, set env vars |
 | `SessionEnd` | Session ends | No | Persist state, cleanup |
 | `PreCompact` | Before context compression | No | Preserve critical info |
@@ -81,20 +82,21 @@ Only these events can block operations:
 - `UserPromptSubmit` - Block user message
 - `Stop` - Prevent stop
 - `SubagentStop` - Block subagent completion
+- `SubagentStart` - Block subagent initialization
 - `PermissionRequest` - Auto-deny permission
 
 ## Non-Blocking Events
 
-These events cannot block (exit code 2 is ignored):
-- `PostToolUse`
-- `SessionStart`
-- `SessionEnd`
-- `PreCompact`
-- `Notification`
+These events cannot block operations. Exit code 2 behavior:
+- `PostToolUse` - Exit code ignored
+- `SessionStart` - Exit code ignored, stderr shown to user
+- `SessionEnd` - Exit code ignored, stderr shown to user
+- `PreCompact` - Exit code ignored, stderr shown to user
+- `Notification` - Exit code ignored, stderr shown to user
 
 ## Key Points
 
-- 10 events, 5 can block operations
+- 11 events, 6 can block operations
 - Blocking requires exit code 2
 - Non-blocking events ignore exit codes
 - PreToolUse is most commonly used
