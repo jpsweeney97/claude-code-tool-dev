@@ -884,7 +884,9 @@ packages/mcp-servers/extension-docs/
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start": "node dist/index.js",
+    "start:dev": "DOCS_PATH=../../../docs/extension-reference node dist/index.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.0",
