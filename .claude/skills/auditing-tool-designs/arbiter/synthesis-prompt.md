@@ -123,3 +123,35 @@ If a lens output lacks required structure:
 - Note which lens is malformed in Verdict warnings
 - Synthesize from remaining valid outputs
 - Recommend re-running malformed lens
+
+### Lens Verification Failures
+If `{{LENS_VERIFICATION_STATUS}}` indicates some lenses failed verification:
+
+**Include in output:**
+```markdown
+### Lens Coverage
+- **Verified:** [list of lenses that passed read verification]
+- **Failed:** [list of lenses that failed, with reason]
+- **Coverage:** X of 4 lenses contributed to this synthesis
+```
+
+**Adjust verdict:**
+- If only 2-3 lenses verified: Add warning "Partial coverage — some perspectives missing"
+- Confidence ratings should reflect reduced coverage
+- Do not include findings from failed lenses
+
+### Systematic Verification Failure
+If all lenses failed verification (0 of 4), you should not be called.
+If called anyway, output:
+```markdown
+## Synthesis Aborted
+
+All lenses failed read verification. Cannot synthesize findings from unverified outputs.
+
+Possible causes:
+- Target file path incorrect
+- Lenses unable to access file
+- File changed during audit
+
+Recommendation: Re-run audit after verifying file path.
+```
