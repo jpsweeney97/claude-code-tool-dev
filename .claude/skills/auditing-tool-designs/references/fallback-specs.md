@@ -1,6 +1,6 @@
 # Claude Code Artifact Specifications (Fallback)
 
-> **Last verified:** 2026-01-09
+> **Last verified:** 2026-01-11
 > **Version:** Based on Claude Code documentation as of 2026-01-09
 > **Update trigger:** Re-verify monthly or when claude-code-guide returns significantly different specs
 > **Owner:** Manual update by skill maintainer
@@ -23,6 +23,8 @@
 |-------|----------|------|-------------|
 | name | Yes | string | Max 64 chars. Lowercase, numbers, hyphens only. |
 | description | Yes | string | Max 1024 chars. Describes what it does + when to use. |
+| license | No | string | License type (e.g., MIT) |
+| metadata | No | object | Contains version, model, timelessness_score |
 | allowed-tools | No | string/array | Comma-separated or YAML list |
 | model | No | string | Specific Claude model (e.g., `claude-sonnet-4-20250514`) |
 | context | No | string | Set to `fork` for isolated subagent execution |
@@ -30,6 +32,10 @@
 | hooks | No | object | Component-scoped hooks (PreToolUse, PostToolUse, Stop) |
 | user-invocable | No | boolean | Controls visibility in slash menu (default: true) |
 | disable-model-invocation | No | boolean | Blocks Skill tool from invoking this skill |
+
+### Pattern Matching
+`allowed-tools` supports pattern matching: `ToolName(prefix:*)` matches commands starting with prefix.
+Example: `Bash(python:*)` allows `python script.py` but blocks `rm -rf`.
 
 ### Anti-patterns
 - Reserved words in name ("anthropic", "claude")
@@ -79,8 +85,10 @@ Skills MUST contain these 8 content areas (equivalent headings allowed):
 |-------|-----------|-----------|
 | PreToolUse | Before tool call | Yes |
 | PostToolUse | Tool completes | No |
+| PostToolUseFailure | After tool execution fails | No |
 | UserPromptSubmit | User submits prompt | Yes |
 | Stop | Main agent finishes | Yes |
+| SubagentStart | Subagent begins | Yes |
 | SubagentStop | Subagent finishes | Yes |
 | SessionStart | Session begins | No |
 | SessionEnd | Session terminates | No |
@@ -99,6 +107,23 @@ Skills MUST contain these 8 content areas (equivalent headings allowed):
 Skills, commands, and agents can define hooks in frontmatter:
 - **Skills/Commands:** Full support including `once: true` option
 - **Agents:** Can use hooks, but `once: true` is NOT supported
+
+| Component | `once: true` Support |
+|-----------|---------------------|
+| Skills | Yes |
+| Commands | Yes |
+| Agents | No |
+
+### Component-Scoped Hook Events
+Component-scoped hooks (in skills, commands, agents) support only 3 events:
+- `PreToolUse`
+- `PostToolUse`
+- `Stop`
+
+Other events require settings.json configuration.
+
+### Hook Timeout
+Default hook timeout is 60 seconds. Configure per-hook with `timeout` field (milliseconds).
 
 ### Anti-patterns
 - Exit code 1 for blocking (use 2)
@@ -125,7 +150,7 @@ Skills, commands, and agents can define hooks in frontmatter:
 | allowed-tools | No | string | Comma-separated list of tools |
 | model | No | string | Specific Claude model |
 | disable-model-invocation | No | boolean | Blocks Skill tool invocation |
-| hooks | No | object | PreToolUse, PostToolUse, or Stop handlers |
+| hooks | No | object | PreToolUse, PostToolUse, or Stop handlers (supports `once: true`) |
 
 ### Argument Substitution
 | Placeholder | Substitution |
@@ -149,10 +174,15 @@ Skills, commands, and agents can define hooks in frontmatter:
 | name | Yes | string | Lowercase + hyphens only |
 | description | Yes | string | Purpose description |
 | tools | No | string | Comma-separated tool list |
+| disallowedTools | No | string | Comma-separated denylist (removed from inherited/specified tools) |
 | model | No | string | sonnet, opus, haiku, or 'inherit' |
-| permissionMode | No | string | default, acceptEdits, dontAsk, bypassPermissions, plan, ignore |
+| permissionMode | No | string | default, acceptEdits, dontAsk, bypassPermissions, plan |
 | skills | No | string | Comma-separated skills to auto-load |
 | hooks | No | object | PreToolUse, PostToolUse, or Stop handlers |
+
+**Note:** When `model` is omitted, agents default to `sonnet`.
+
+**Note:** `Stop` hooks defined in agent frontmatter are internally converted to `SubagentStop` events.
 
 ### Configuration via Task Tool
 | Field | Type | Notes |
@@ -165,9 +195,9 @@ Skills, commands, and agents can define hooks in frontmatter:
 ### Built-in Types
 | Type | Purpose | Model |
 |------|---------|-------|
-| general-purpose | Multi-step tasks | sonnet |
+| general-purpose | Multi-step tasks | inherit |
 | Explore | Fast codebase exploration | haiku |
-| Plan | Codebase research in plan mode | sonnet |
+| Plan | Codebase research in plan mode | inherit |
 
 ---
 
@@ -186,12 +216,16 @@ Skills, commands, and agents can define hooks in frontmatter:
 | version | No | semver string |
 | description | No | string |
 | author | No | object with name |
+| license | No | string |
+| keywords | No | array (searchable keywords) |
+| homepage | No | string (project URL) |
+| repository | No | string (source URL) |
 | skills | No | path or array |
 | commands | No | path or array |
 | agents | No | array of file paths |
 | hooks | No | path or inline config |
 | mcpServers | No | path to .mcp.json |
-| outputStyles | No | path or array |
+| outputStyles | No | path/array (custom output style markdown files) |
 | lspServers | No | path to .lsp.json |
 
 ### Path Conventions
@@ -206,11 +240,17 @@ Skills, commands, and agents can define hooks in frontmatter:
 | Element | Requirement |
 |---------|-------------|
 | Config | `.mcp.json` or `~/.claude.json` |
-| Transport | stdio (local) or http (remote) |
+| Transport | stdio (local), http (remote), sse (deprecated) |
 
 ### Tool Output Limits
 - Warning at 10K tokens
 - Max 25K tokens per tool response
+
+### Environment Variables
+| Variable | Purpose |
+|----------|---------|
+| `MCP_TIMEOUT` | Server startup timeout in ms |
+| `MAX_MCP_OUTPUT_TOKENS` | Maximum output tokens (default: 25000) |
 
 ---
 
@@ -232,11 +272,19 @@ Skills, commands, and agents can define hooks in frontmatter:
 | plan | Analyze only, no modifications |
 | dontAsk | Auto-denies unless pre-approved |
 | bypassPermissions | Skips all prompts |
-| ignore | No permissions enforced |
+
+### Managed Settings
+| Field | Purpose |
+|-------|---------|
+| `disableBypassPermissionsMode` | Prevent `bypassPermissions` mode activation |
+| `additionalDirectories` | Directories outside project Claude can access |
 
 ---
 
 ## Common Behavioral Patterns
+
+> **Note:** These patterns are observed behaviors and general Claude capabilities,
+> not formally specified in extension-reference documentation.
 
 ### Claude Limitations
 - No cross-session memory without explicit persistence (CLAUDE.md files)
