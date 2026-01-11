@@ -7,7 +7,7 @@ description: >
   understand what exists, how it works, where it falls short, and what to do next.
 license: MIT
 metadata:
-  version: 1.3.0
+  version: 1.4.0
   model: claude-opus-4-5-20251101
   timelessness_score: 8
 ---
@@ -34,6 +34,17 @@ Use deep-exploration when:
 - Time pressure prohibits rigor (acknowledge the tradeoff)
 - Single-file or single-function investigation
 - User just wants a summary, not comprehensive coverage
+
+## Non-Goals
+
+This skill will NOT:
+- Modify any files (read-only exploration)
+- Execute code, run tests, or change state
+- Make recommendations without cited evidence
+- Expand scope beyond defined boundaries
+- Suggest fixes or improvements during exploration (save for Opportunities list in synthesis)
+
+If you feel compelled to modify something during exploration, add it to the Opportunities list instead.
 
 ## Quick Start
 
@@ -78,10 +89,12 @@ Use deep-exploration when:
 - **Quality criteria**: Standards to assess against (from CLAUDE.md or explicit)
 
 **Constraints/Assumptions:**
+- **Read-only:** This skill does not modify files, run code, or change state. All findings go in the report.
 - Model: `opus` required for depth (agents use Explore type)
+  - **If not using opus:** STOP and warn: "Deep-exploration requires opus for reliable multi-agent exploration. Current model may produce lower-quality results. Options: (1) Switch to opus and restart, (2) Proceed with reduced confidence and document limitation in report."
 - Time: Medium calibration ~10-20 agent turns; Deep ~30+
 - Network: Not required (local exploration only)
-- Tools: Read, Glob, Grep, Task (for subagents)
+- Tools: Read, Glob, Grep, Task (for subagents) — no Write, Edit, or Bash
 
 **STOP Conditions:**
 - If target scope is unclear or too broad, **STOP** and ask: "What specific area should I explore? The entire repo, a module, or specific directories?"
@@ -232,6 +245,7 @@ Every finding must include:
 Explicit branching logic for common situations:
 
 1. **If scope is ambiguous or unbounded**, then **STOP** and ask for clarification. Otherwise, proceed with defined scope.
+   - *Observable triggers for "ambiguous":* User cannot name a specific deliverable, OR scope crosses >3 top-level directories without stated reason, OR exploration goal is vague (e.g., "understand everything").
 
 2. **If agent findings conflict** (e.g., Inventory says 9 categories, Documentation says 10), then investigate with targeted queries before synthesizing. Do not average or ignore.
 
@@ -240,12 +254,13 @@ Explicit branching logic for common situations:
 4. **If pre-flight reveals existing analysis** (from project docs, git history, or user-provided context), then incorporate findings and avoid re-exploring covered ground. Otherwise, start fresh.
 
 5. **If calibration level is unclear**, then default to Medium. Ask user only if stakes suggest Deep is needed.
+   - *Observable triggers for "stakes suggest Deep":* Security audit, architecture decision, user explicitly mentions "critical" or "thorough", or decision has irreversible consequences.
 
 ---
 
 ## Verification
 
-### Quick Check
+### Quick Check (Process)
 
 ```bash
 # After generating coverage matrix, verify no unexplored cells:
@@ -255,11 +270,41 @@ grep -c '\[\?\]' deliverable.md  # Expected: 0
 
 If either returns non-zero, exploration is incomplete. Return to Phase 1 or 2.
 
+### Outcome Check (Required)
+
+Before marking exploration complete:
+1. Sample 3 findings from the report
+2. For each, verify: Does evidence exist at the cited location (file:line)?
+3. If any sample fails: Return to agents and correct
+
+**Success criteria:**
+- Process check: `grep` commands return 0
+- Outcome check: 3/3 sampled findings have valid evidence
+
 ### Deep Check (Optional)
 
-- Sample 3-5 findings and verify evidence exists at cited locations
+- Sample 5+ findings across all sections
 - Check that negative findings section has ≥3 entries
 - Verify opportunities are ranked (not just listed)
+
+### Skipped Verification Reporting
+
+If any verification step cannot be run, report explicitly:
+
+```text
+Not run (reason): <why verification was skipped>
+Run manually: `<command>`
+Expected: <pattern>
+```
+
+Example:
+```text
+Not run (reason): deliverable.md not yet created
+Run manually: grep -c '\[ \]' path/to/deliverable.md
+Expected: 0 (no unexplored cells)
+```
+
+Do not silently skip verification. Every skipped check must be reported with manual instructions.
 
 ---
 
@@ -493,6 +538,16 @@ Agent focus:
 ---
 
 ## Changelog
+
+### v1.4.0
+
+- Added Non-Goals section with explicit scope constraints during execution
+- Added read-only constraint to Constraints section with explicit tool exclusions
+- Added model fallback behavior: STOP and warn if not using opus
+- Promoted outcome verification from optional Deep Check to required Outcome Check
+- Added observable triggers for subjective decision points ("ambiguous", "unclear")
+- Added Skipped Verification Reporting section with "Not run (reason)" template
+- Audit compliance: Addressed all 6 SHOULD-level gaps from 2026-01-11 audit
 
 ### v1.3.0
 
