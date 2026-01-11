@@ -124,6 +124,48 @@ Every cell must be explicitly `[x]`, `[~]` with notes, or `[-]` with rationale.
 
 ---
 
+## Documentation Set Exploration Matrix
+
+For structured documentation directories (API references, extension guides, product docs).
+
+### Documents × Completeness
+
+|  | Overview | Usage | Examples | Troubleshooting | Cross-refs |
+|--|----------|-------|----------|-----------------|------------|
+| **Doc A** | | | | | |
+| **Doc B** | | | | | |
+| **Doc C** | | | | | |
+| **Doc D** | | | | | |
+
+### Topics × Coverage
+
+|  | Documented | Accurate | Up-to-date | Has Examples |
+|--|------------|----------|------------|--------------|
+| **Topic 1** | | | | |
+| **Topic 2** | | | | |
+| **Topic 3** | | | | |
+| **Topic 4** | | | | |
+
+### Cross-Reference Validity
+
+| Source Doc | Target Doc | Link Type | Valid? | Notes |
+|------------|------------|-----------|--------|-------|
+| | | internal | | |
+| | | external | | |
+| | | anchor | | |
+
+### Documentation Quality
+
+| Aspect | Status | Notes |
+|--------|--------|-------|
+| Terminology consistency | | |
+| Structure consistency | | |
+| Navigation clarity | | |
+| Frontmatter completeness | | |
+| Orphaned pages | | |
+
+---
+
 ## Architecture Exploration Matrix
 
 ### Components × Understanding

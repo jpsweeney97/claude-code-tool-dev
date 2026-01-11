@@ -7,7 +7,7 @@ description: >
   understand what exists, how it works, where it falls short, and what to do next.
 license: MIT
 metadata:
-  version: 1.2.0
+  version: 1.3.0
   model: claude-opus-4-5-20251101
   timelessness_score: 8
 ---
@@ -25,12 +25,15 @@ Use deep-exploration when:
 - The system is complex enough that you might miss things
 - Findings must be evidence-based and verifiable
 - Others need to trust or reproduce your exploration
+- Understanding a structured documentation set (like API docs, extension references)
 
-Do not use when:
+## When NOT to Use
 
 - Quick answer suffices (use Explore agent directly)
 - Scope is narrow and well-defined (use targeted search)
 - Time pressure prohibits rigor (acknowledge the tradeoff)
+- Single-file or single-function investigation
+- User just wants a summary, not comprehensive coverage
 
 ## Quick Start
 
@@ -57,7 +60,49 @@ Do not use when:
 - "Comprehensive exploration of..."
 - "Deep dive on this codebase"
 - "Map out this system"
+- "Help me understand this documentation"
+- "What does this reference cover?"
 - `/deep-exploration`
+
+---
+
+## Inputs
+
+**Required:**
+- **Target scope**: What to explore (path, module, documentation set)
+- **Exploration goal**: What you need to understand or decide
+
+**Optional:**
+- **Calibration level**: Light/Medium/Deep (default: Medium)
+- **Existing knowledge**: Prior analyses, recent changes, known context
+- **Quality criteria**: Standards to assess against (from CLAUDE.md or explicit)
+
+**Constraints/Assumptions:**
+- Model: `opus` required for depth (agents use Explore type)
+- Time: Medium calibration ~10-20 agent turns; Deep ~30+
+- Network: Not required (local exploration only)
+- Tools: Read, Glob, Grep, Task (for subagents)
+
+**STOP Conditions:**
+- If target scope is unclear or too broad, **STOP** and ask: "What specific area should I explore? The entire repo, a module, or specific directories?"
+- If exploration goal is missing, **STOP** and ask: "What decision or understanding are you trying to reach?"
+
+---
+
+## Outputs
+
+**Artifacts:**
+1. **Exploration report** — Findings organized by perspective (Inventory, Patterns, Documentation, Gaps)
+2. **Coverage matrix** — Filled matrix proving comprehensive coverage
+3. **Opportunities list** — Prioritized improvements with impact/effort ratings
+4. **Conflict resolution log** — How agent disagreements were resolved
+
+**Definition of Done (objective checks):**
+- [ ] Coverage matrix contains no `[ ]` or `[?]` cells
+- [ ] Every finding cites evidence (file:line or specific location)
+- [ ] Negative findings documented (what was searched but not found)
+- [ ] Conflict log exists if agents disagreed on any metric
+- [ ] Opportunities ranked by impact (High/Medium/Low)
 
 ## Calibration
 
@@ -183,6 +228,42 @@ Every finding must include:
 
 ---
 
+## Decision Points
+
+Explicit branching logic for common situations:
+
+1. **If scope is ambiguous or unbounded**, then **STOP** and ask for clarification. Otherwise, proceed with defined scope.
+
+2. **If agent findings conflict** (e.g., Inventory says 9 categories, Documentation says 10), then investigate with targeted queries before synthesizing. Do not average or ignore.
+
+3. **If coverage matrix has `[ ]` cells after agents complete**, then deploy targeted follow-up queries to fill gaps. Do not mark exploration complete.
+
+4. **If pre-flight reveals existing analysis** (from episodic memory or deep-analysis), then incorporate findings and avoid re-exploring covered ground. Otherwise, start fresh.
+
+5. **If calibration level is unclear**, then default to Medium. Ask user only if stakes suggest Deep is needed.
+
+---
+
+## Verification
+
+### Quick Check
+
+```bash
+# After generating coverage matrix, verify no unexplored cells:
+grep -c '\[ \]' deliverable.md  # Expected: 0
+grep -c '\[\?\]' deliverable.md  # Expected: 0
+```
+
+If either returns non-zero, exploration is incomplete. Return to Phase 1 or 2.
+
+### Deep Check (Optional)
+
+- Sample 3-5 findings and verify evidence exists at cited locations
+- Check that negative findings section has ≥3 entries
+- Verify opportunities are ranked (not just listed)
+
+---
+
 ## Completion Criteria
 
 Before claiming exploration complete:
@@ -285,13 +366,96 @@ Agent focus:
 - Documentation: Architecture docs match reality
 - Gaps: Undocumented services, hidden dependencies
 
+### Documentation Set Exploration
+
+For structured documentation directories (API references, extension guides, product docs).
+
+Coverage dimensions:
+
+- Documents × Topics covered
+- Documents × Completeness (intro, examples, troubleshooting)
+- Cross-references × Validity
+
+Agent focus:
+
+- Inventory: All documents, their topics, hierarchy, frontmatter
+- Patterns: Consistent structure, terminology, navigation patterns
+- Documentation: Cross-references valid, examples runnable, claims accurate
+- Gaps: Missing topics, broken links, orphaned pages, inconsistent terminology
+
+**Example scope:** A directory like `docs/extension-reference/` with multiple subdirectories covering different extension types.
+
+**Key questions:**
+- What topics are covered? What's missing?
+- Are cross-references valid and bidirectional?
+- Is terminology consistent across documents?
+- Do examples match current implementation?
+
+---
+
+## Troubleshooting
+
+### Agents return conflicting counts
+
+**Symptoms:** Inventory says 9 components, Documentation agent says 10, or similar discrepancies.
+
+**Causes:**
+- Agents searched different scopes
+- One agent found items the other missed
+- Documentation is outdated vs actual state
+
+**Next steps:**
+1. Check the Key Metrics table from each agent
+2. Run targeted grep/glob to determine correct count
+3. Document resolution in Conflict Log
+4. Update the agent that was wrong
+
+### Coverage matrix has persistent gaps
+
+**Symptoms:** After agents complete, `[ ]` or `[?]` cells remain.
+
+**Causes:**
+- Scope was broader than agents covered
+- Some dimensions weren't assigned to any agent
+- Agent prompts didn't include all dimensions
+
+**Next steps:**
+1. Identify which dimension/component has gaps
+2. Deploy targeted follow-up agent with specific scope
+3. Mark `[-]` only if genuinely not applicable (document why)
+
+### Exploration never converges
+
+**Symptoms:** Keep finding new things, calibration level feels insufficient.
+
+**Causes:**
+- Scope too broad for chosen calibration
+- No clear completion criteria defined upfront
+- Scope creep during exploration
+
+**Next steps:**
+1. Re-read original goal and scope from pre-flight
+2. Increase calibration level if stakes warrant it
+3. Or narrow scope and document what's deferred
+
+### Pre-flight seems like overhead
+
+**Symptoms:** Temptation to skip pre-flight because task "seems simple."
+
+**Causes:** Underestimating complexity; not recognizing existing knowledge.
+
+**Next steps:**
+1. Always do pre-flight—it takes 2 minutes
+2. Check episodic memory for prior conversations
+3. If truly nothing relevant, document "No prior context found"
+
 ---
 
 ## Anti-Patterns
 
 | Avoid                       | Why                     | Instead                |
 | --------------------------- | ----------------------- | ---------------------- |
-| Single pass                 | Misses emergent scope   | Five-pass structure    |
+| Single pass                 | Misses emergent scope   | Four-phase structure   |
 | No coverage tracking        | Unknown unknowns remain | Coverage matrix        |
 | Single perspective          | Confirmation bias       | Four perspectives      |
 | Assertions without evidence | Unreliable              | Evidence requirements  |
@@ -331,6 +495,15 @@ Agent focus:
 ---
 
 ## Changelog
+
+### v1.3.0
+
+- Added spec compliance: Inputs, Outputs (with objective DoD), Decision Points, Verification, Troubleshooting sections
+- Added STOP/ask patterns for missing scope and ambiguous goals
+- Added Documentation Set Exploration domain adaptation
+- Added quick check verification (grep for unexplored cells)
+- Converted Anti-Patterns to proper Troubleshooting format with symptoms/causes/fixes
+- Updated triggers to include documentation exploration phrases
 
 ### v1.2.0
 

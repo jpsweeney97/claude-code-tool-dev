@@ -97,6 +97,11 @@ For uncertain items, note: [Probable] or [Possible] with rationale
 - Inventory: documents, sections, links, assets
 - Structure: document hierarchy
 
+**Documentation Set (structured reference docs):**
+- Inventory: all .md files, frontmatter fields, topics per document
+- Structure: directory hierarchy, category organization
+- Key counts: documents per category, topics covered, cross-references
+
 **Architecture:**
 - Inventory: services, databases, queues, external systems
 - Structure: component diagram elements
@@ -182,6 +187,13 @@ Document: "Looked for [X pattern] but did not find consistent evidence"
 - Completeness (all topics covered)
 - Consistency (terminology, style)
 - Navigability (links work, structure clear)
+
+**For Documentation Sets:**
+- Structure consistency (same sections across similar docs)
+- Terminology consistency (same terms for same concepts)
+- Cross-reference validity (all links resolve, bidirectional where expected)
+- Frontmatter completeness (required fields present)
+- Topic coverage (no gaps in expected topics)
 
 ---
 
