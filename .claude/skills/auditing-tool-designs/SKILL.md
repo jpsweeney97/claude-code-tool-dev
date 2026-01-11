@@ -88,6 +88,24 @@ Do NOT use this skill when:
 | Target document < 50K tokens | Hierarchical audit (structure pass → deep dive) |
 | Network available | Fallback specs are local; no network required |
 
+### Constants
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `MIN_VERIFIED_LENSES` | 2 | Minimum lenses that must pass verification to proceed |
+| `READ_INSTRUCTION_BLOCK` | See below | Standardized instruction for lenses to read target file |
+
+**READ_INSTRUCTION_BLOCK:**
+```
+**File:** {{TARGET_PATH}}
+
+⚠️ **MANDATORY FIRST STEP:** Read this file using the Read tool before any analysis.
+Do not proceed without reading the entire file.
+
+If you cannot read the file, output only:
+"LENS FAILURE: Cannot read {{TARGET_PATH}}: [error reason]"
+```
+
 ### Mode Detection
 
 Parse `$ARGUMENTS` to detect mode:
