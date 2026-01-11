@@ -524,6 +524,9 @@ function bm25Score(queryTerms: string[], chunk: Chunk, index: BM25Index): number
   const avgdl = index.avgDocLength
   const dl = chunk.tokens.length
 
+  // B3: Guard against empty index
+  if (N === 0 || avgdl === 0) return 0
+
   return queryTerms.reduce((score, term) => {
     const df = index.docFrequency.get(term) ?? 0
     const tf = chunk.termFreqs.get(term) ?? 0  // F2: O(1) lookup instead of O(n) filter
