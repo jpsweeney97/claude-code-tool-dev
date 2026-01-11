@@ -47,7 +47,7 @@ Use deep-exploration when:
 **Minimum viable exploration:**
 
 ```markdown
-[ ] Pre-flight: Searched episodic memory, defined scope
+[ ] Pre-flight: Reviewed prior context, defined scope
 [ ] Agents: Deployed 4 perspectives (Inventory, Patterns, Docs, Gaps)
 [ ] Cross-validation: Compared findings, resolved conflicts
 [ ] Deliverable: Coverage matrix filled, findings evidenced
@@ -138,9 +138,8 @@ Default: **Medium**
 
 **Tools:**
 
-- `mcp__plugin_episodic-memory_episodic-memory__search` — Prior conversations
-- `mcp__plugin_deep-analysis_deep-analysis__list_analyses` — Existing analyses
 - `git log --oneline -20` — Recent changes
+- Project documentation (CLAUDE.md, README, changelogs)
 
 ### Phase 1: Parallel Agent Deployment
 
@@ -238,7 +237,7 @@ Explicit branching logic for common situations:
 
 3. **If coverage matrix has `[ ]` cells after agents complete**, then deploy targeted follow-up queries to fill gaps. Do not mark exploration complete.
 
-4. **If pre-flight reveals existing analysis** (from episodic memory or deep-analysis), then incorporate findings and avoid re-exploring covered ground. Otherwise, start fresh.
+4. **If pre-flight reveals existing analysis** (from project docs, git history, or user-provided context), then incorporate findings and avoid re-exploring covered ground. Otherwise, start fresh.
 
 5. **If calibration level is unclear**, then default to Medium. Ask user only if stakes suggest Deep is needed.
 
@@ -446,7 +445,7 @@ Agent focus:
 
 **Next steps:**
 1. Always do pre-flight—it takes 2 minutes
-2. Check episodic memory for prior conversations
+2. Check git log, CLAUDE.md, and ask user for prior context
 3. If truly nothing relevant, document "No prior context found"
 
 ---
@@ -477,7 +476,6 @@ Agent focus:
 
 **During deep-exploration:**
 
-- `episodic-memory:search` — Recall prior conversations
 - `Explore` agents — The actual exploration work
 
 ---

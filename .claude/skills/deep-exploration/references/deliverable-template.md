@@ -63,7 +63,7 @@ Standard structure for deep exploration outputs. Adapt sections to your domain.
 [Which agents were deployed; their perspectives]
 
 ### Tools Used
-[Grep, Glob, Read, episodic memory, etc.]
+[Grep, Glob, Read, Task, etc.]
 
 ### Limitations
 [What wasn't covered; known gaps in methodology]

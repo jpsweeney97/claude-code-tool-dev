@@ -63,8 +63,7 @@
       <phase number="0" name="Pre-Flight">
         <purpose>Gather existing knowledge before starting exploration</purpose>
         <actions>
-          - Search episodic memory for prior work
-          - List existing analyses
+          - Review prior context (project docs, git history, user-provided info)
           - Review recent changes (git log, changelogs)
           - Define scope with rationale
           - Set calibration level (light/medium/deep)
@@ -229,7 +228,7 @@
     <pattern name="Ignoring Prior Knowledge">
       <description>Starting fresh without checking existing work</description>
       <why_bad>Rediscovers known information, misses decisions</why_bad>
-      <alternative>Pre-flight phase with episodic memory and prior analyses</alternative>
+      <alternative>Pre-flight phase with project docs, git history, and user context</alternative>
     </pattern>
   </anti_patterns>
 
