@@ -231,8 +231,18 @@ Focus on specifications from official Anthropic documentation, not community con
 - **Failure:** Timeout/error → Load `references/fallback-specs.md` as `{{ARTIFACT_SPECS}}` and add warning
 
 ### Step 6: Build lens prompts
-Inject specs into 4 lens prompt templates from `lenses/` directory.
-- **Success:** All prompts populated with {{ARTIFACT_TYPE}}, {{ARTIFACT_SPECS}}, {{TARGET_CONTENT}}, {{CONTEXT_ASSESSMENT}}, {{SEVERITY_CALIBRATION}}
+Inject variables into 4 lens prompt templates from `lenses/` directory.
+
+**Variables injected:**
+- `{{ARTIFACT_TYPE}}` — Detected artifact type
+- `{{ARTIFACT_SPECS}}` — Specifications from claude-code-guide or fallback
+- `{{TARGET_PATH}}` — File path (NOT content)
+- `{{CONTEXT_ASSESSMENT}}` — Context answers
+- `{{SEVERITY_CALIBRATION}}` — Calibration thresholds
+
+**Note:** `{{TARGET_CONTENT}}` is no longer used. Lenses read the file themselves.
+
+- **Success:** All prompts populated with variables above
 - **Failure:** Template not found → STOP with error
 
 ### Step 7: Execute lenses in parallel
