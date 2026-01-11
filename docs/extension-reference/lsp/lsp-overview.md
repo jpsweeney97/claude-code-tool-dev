@@ -39,6 +39,73 @@ LSP servers can only be provided through plugins. They cannot be registered inde
 | `typescript-lsp` | TypeScript, JavaScript |
 | `rust-lsp` | Rust |
 
+## Configuration Schema
+
+LSP configuration in `manifest.json`:
+
+```json
+{
+  "lsp": {
+    "servers": [
+      {
+        "id": "typescript",
+        "command": "typescript-language-server",
+        "args": ["--stdio"],
+        "languages": ["typescript", "javascript"],
+        "filePatterns": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
+      }
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique server identifier |
+| `command` | string | Command to start server |
+| `args` | string[] | Command arguments |
+| `env` | object | Environment variables |
+| `initializationOptions` | object | LSP init options |
+| `languages` | string[] | Language IDs to activate |
+| `filePatterns` | string[] | Glob patterns for activation |
+
+## Transport Options
+
+| Transport | Use Case |
+|-----------|----------|
+| stdio | Default, most common |
+| tcp | Network-based servers |
+| pipe | Named pipe communication |
+
+Most LSP servers use stdio transport. Specify with `--stdio` argument.
+
+## How LSP Works
+
+1. Plugin registers LSP server with Claude Code
+2. When file matches patterns, server starts
+3. Server receives file content on open/change
+4. Server returns diagnostics, completions, etc.
+5. Claude Code displays results
+
+## Debug Logging
+
+Enable LSP debug output for troubleshooting:
+
+```json
+{
+  "lsp": {
+    "debug": true,
+    "logFile": "/tmp/lsp-debug.log"
+  }
+}
+```
+
+| Setting | Purpose |
+|---------|---------|
+| `debug` | Enable verbose logging |
+| `logFile` | Write logs to file |
+| `traceServer` | Log server communication |
+
 ## Key Points
 
 - LSP servers are plugin-only
