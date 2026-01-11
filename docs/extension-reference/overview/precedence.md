@@ -36,6 +36,73 @@ How configurations override each other across scopes.
 - Same-scope conflicts: More specific wins
 - User extensions override project with same name
 
+## Scope Interactions
+
+When settings exist at multiple scopes, they interact based on type:
+
+| Setting Type | Behavior |
+|--------------|----------|
+| Scalar (string, number, boolean) | Higher scope wins |
+| Array | Merged (higher scope items first) |
+| Object | Deep merged (higher scope wins conflicts) |
+
+### Scalar Example
+
+```
+Managed: { "theme": "dark" }
+User:    { "theme": "light" }
+Result:  { "theme": "dark" }  # Managed wins
+```
+
+### Array Merge Example
+
+```
+Managed: { "blockedTools": ["dangerous"] }
+User:    { "blockedTools": ["risky"] }
+Result:  { "blockedTools": ["dangerous", "risky"] }  # Merged
+```
+
+### Object Merge Example
+
+```
+User:    { "hooks": { "PreToolUse": [...] } }
+Project: { "hooks": { "SessionStart": [...] } }
+Result:  { "hooks": { "PreToolUse": [...], "SessionStart": [...] } }
+```
+
+## Common Scenarios
+
+### Organization Lockdown
+
+Managed settings enforce security; project customizes workflow:
+
+```
+Managed: { "disableWebSearch": true }
+Project: { "defaultModel": "sonnet" }
+User:    { "theme": "dark" }
+Result:  All three apply (no conflicts)
+```
+
+### Setting Override Attempts
+
+User cannot override managed settings:
+
+```
+Managed: { "maxTokens": 1000 }
+User:    { "maxTokens": 5000 }
+Result:  { "maxTokens": 1000 }  # Managed wins
+```
+
+### Local Development
+
+Local settings override project for personal testing:
+
+```
+Project: { "apiEndpoint": "https://prod.api.com" }
+Local:   { "apiEndpoint": "http://localhost:3000" }
+Result:  { "apiEndpoint": "http://localhost:3000" }  # Local wins
+```
+
 ## Key Points
 
 - Managed settings enforce organizational policy
