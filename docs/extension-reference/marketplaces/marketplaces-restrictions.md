@@ -4,7 +4,7 @@ topic: Managed Marketplace Restrictions
 category: marketplaces
 tags: [security, restrictions, managed-settings, strictKnownMarketplaces]
 requires: [marketplaces-overview]
-related_to: [marketplaces-sources, settings-managed, security-managed]
+related_to: [marketplaces-sources, security-managed]
 official_docs: https://code.claude.com/en/plugin-marketplaces
 ---
 
