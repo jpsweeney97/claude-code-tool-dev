@@ -702,7 +702,7 @@ async function doLoadIndex(): Promise<BM25Index | null> {
 
 const searchToolDefinition = {
   name: "search_extension_docs",
-  description: "Search extension documentation for hooks, skills, commands, agents, plugins, and MCP servers. Returns relevant chunks ranked by relevance. Use specific queries like 'PreToolUse input schema' rather than broad terms like 'hooks'.",
+  description: "Search Claude Code extension documentation (hooks, skills, commands, agents, plugins, MCP). Use specific queries.",
   inputSchema: {
     type: "object",
     properties: {
