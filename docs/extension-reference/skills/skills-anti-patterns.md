@@ -60,6 +60,8 @@ Common mistakes when writing skills and how to prevent them.
 |--------------|---------|------------|
 | Verification theater | Checks are non-executable, non-specific, or disconnected from outcome | At least one concrete quick check with expected result shape tied to DoD |
 | Decision-point omission | Says "use judgment" instead of encoding branches | At least 2 explicit "If ... then ... otherwise" decision points |
+| Proxy-only verification | Checks compile/lint when behavior correctness is the goal | Quick check must measure primary success property |
+| Silent skipping | Verification skipped without reporting reason | Always report skipped checks: "Not run (reason): ... Run: `<cmd>`" |
 
 ```markdown
 # Bad: vague verification
@@ -79,6 +81,7 @@ If quick check fails, do not continue—go to Troubleshooting.
 |--------------|---------|------------|
 | Unrecoverable procedure | No path forward when steps fail | At least one troubleshooting entry with symptoms/causes/next steps |
 | Non-portable instructions | Depends on host-specific behavior without alternatives | Declare assumptions; provide offline/restricted fallbacks |
+| Evidence-free outputs | Reports/recommendations omit rationale, making review impossible | Each finding must include evidence trail (path, query, observation) |
 
 ```markdown
 # Bad: no recovery path
@@ -103,3 +106,6 @@ If quick check fails, do not continue—go to Troubleshooting.
 - Unsafe default → ask-first gate for destructive actions
 - Unrecoverable procedure → troubleshooting with symptoms/causes/next
 - Non-portable instructions → assumptions + offline fallbacks
+- Proxy-only verification → quick check measures primary property
+- Silent skipping → report "Not run (reason)" with manual command
+- Evidence-free outputs → include evidence trail per finding
