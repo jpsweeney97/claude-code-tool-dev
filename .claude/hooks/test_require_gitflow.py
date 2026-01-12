@@ -540,6 +540,39 @@ class TestResolveGitDir:
         assert any("Could not resolve git dir" in msg for _, msg in logged_messages)
 
 
+class TestMainExceptionHandling:
+    """Tests for main() exception handling."""
+
+    def test_main_exception_includes_context(self, monkeypatch, capsys):
+        """main() should include exception type and tool context in error messages."""
+        import io
+
+        test_input = json.dumps({
+            "tool_name": "Edit",
+            "tool_input": {"file_path": "test.py"}
+        })
+
+        # Mock stdin to provide input
+        monkeypatch.setattr("sys.stdin", io.StringIO(test_input))
+
+        # Mock check_bypass to return False (don't bypass)
+        monkeypatch.setattr(require_gitflow, "check_bypass", lambda: False)
+
+        # Mock get_git_context to raise an exception (simulating unexpected error)
+        def mock_get_git_context():
+            raise RuntimeError("Simulated error")
+
+        monkeypatch.setattr(require_gitflow, "get_git_context", mock_get_git_context)
+
+        with pytest.raises(SystemExit) as exc_info:
+            require_gitflow.main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "RuntimeError" in captured.err
+        assert "tool=Edit" in captured.err or "Edit" in captured.err
+
+
 class TestGitContextInvariants:
     """Tests for GitContext invariant validation."""
 

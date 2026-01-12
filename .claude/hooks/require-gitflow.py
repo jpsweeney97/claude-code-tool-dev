@@ -558,8 +558,18 @@ def main():
     except json.JSONDecodeError as e:
         print(f"Hook error: Invalid JSON input: {e}", file=sys.stderr)
         sys.exit(1)
+    except (KeyboardInterrupt, SystemExit):
+        raise  # Let these propagate with their exit codes
     except Exception as e:
-        print(f"Hook error: {e}", file=sys.stderr)
+        import traceback
+
+        tool_info = (
+            f"tool={data.get('tool_name', 'unknown')}" if "data" in dir() else "before parsing"
+        )
+        log("ERROR", f"Unexpected error ({tool_info}): {type(e).__name__}: {e}")
+        if DEBUG:
+            traceback.print_exc(file=sys.stderr)
+        print(f"Hook error ({tool_info}): {type(e).__name__}: {e}", file=sys.stderr)
         sys.exit(1)
 
 
