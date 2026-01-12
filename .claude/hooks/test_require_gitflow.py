@@ -200,3 +200,49 @@ class TestGitContext:
         get_git_context = require_gitflow.get_git_context
         ctx = get_git_context()
         assert ctx.is_repo is False
+
+
+class TestIntegrationFull:
+    """Integration tests to lock behavior before refactoring."""
+
+    def test_main_branch_blocks(self, temp_git_repo, monkeypatch):
+        """Edit on main should be blocked."""
+        monkeypatch.chdir(temp_git_repo)
+        result = run_hook(temp_git_repo)
+        assert result.returncode == 2
+        assert "Cannot edit" in result.stderr
+
+    def test_feature_branch_allows(self, temp_git_repo, monkeypatch):
+        """Edit on feature branch should be allowed."""
+        monkeypatch.chdir(temp_git_repo)
+        subprocess.run(["git", "checkout", "-b", "feature/test"], cwd=temp_git_repo, capture_output=True)
+        result = run_hook(temp_git_repo)
+        assert result.returncode == 0
+
+    def test_non_edit_tools_ignored(self, temp_git_repo, monkeypatch):
+        """Non-Edit/Write tools should be allowed regardless of branch."""
+        monkeypatch.chdir(temp_git_repo)
+        result = run_hook(temp_git_repo, tool_name="Bash", tool_input={"command": "ls"})
+        assert result.returncode == 0
+
+    def test_case_insensitive_branch_matching(self, temp_git_repo, monkeypatch):
+        """Feature/MixedCase should be valid."""
+        monkeypatch.chdir(temp_git_repo)
+        subprocess.run(["git", "checkout", "-b", "Feature/MixedCase"], cwd=temp_git_repo, capture_output=True)
+        result = run_hook(temp_git_repo)
+        assert result.returncode == 0
+
+    def test_detached_head_warns_but_allows(self, temp_git_repo, monkeypatch):
+        """Detached HEAD should warn but allow."""
+        monkeypatch.chdir(temp_git_repo)
+        subprocess.run(["git", "checkout", "HEAD~0"], cwd=temp_git_repo, capture_output=True)
+        result = run_hook(temp_git_repo)
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert "detached" in output.get("systemMessage", "").lower()
+
+    def test_not_a_git_repo_allows(self, tmp_path, monkeypatch):
+        """Non-git directory should allow edits."""
+        monkeypatch.chdir(tmp_path)
+        result = run_hook(tmp_path)
+        assert result.returncode == 0

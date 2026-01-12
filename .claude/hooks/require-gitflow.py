@@ -308,38 +308,16 @@ def get_git_context() -> GitContext:
     return ctx
 
 
-def is_git_repo() -> bool:
-    """Check if current directory is inside a git repository."""
-    success, _ = run_git("rev-parse", "--git-dir")
-    return success
-
-
-def has_commits() -> bool:
-    """Check if repository has at least one commit."""
-    success, _ = run_git("rev-parse", "HEAD")
-    return success
-
-
-def is_detached_head() -> bool:
-    """Check if HEAD is detached (not on any branch)."""
-    success, _ = run_git("symbolic-ref", "-q", "HEAD")
-    return not success
-
-
-def get_git_dir() -> str | None:
-    """Get the .git directory path."""
-    success, git_dir = run_git("rev-parse", "--git-dir")
-    return git_dir if success else None
-
-
-def get_git_operation_state() -> str | None:
+def get_git_operation_state(git_dir: str | None) -> str | None:
     """
     Detect if a git operation is in progress.
+
+    Args:
+        git_dir: Path to .git directory (from GitContext)
 
     Returns:
         'rebase' | 'merge' | 'cherry-pick' | 'bisect' | None
     """
-    git_dir = get_git_dir()
     if not git_dir:
         return None
 
@@ -367,76 +345,76 @@ def get_git_operation_state() -> str | None:
     return None
 
 
-def get_current_branch() -> str | None:
-    """Get the current branch name, or None if error."""
-    success, branch = run_git("branch", "--show-current")
-    return branch if success and branch else None
-
-
 def main():
     try:
         data = json.load(sys.stdin)
         tool_name = data.get("tool_name", "")
-        log("DEBUG", f"Hook invoked: tool={tool_name}")
+        tool_input = data.get("tool_input", {})
 
         # Only check Edit and Write tools
         if tool_name not in ("Edit", "Write"):
             sys.exit(0)
 
+        log("DEBUG", f"Hook invoked: tool={tool_name}")
+
         # Check bypass FIRST (before any git operations)
         if check_bypass():
             sys.exit(0)
 
+        # Gather git context (2-3 subprocess calls instead of 5)
+        ctx = get_git_context()
+
         # Not a git repo - allow (untracked project)
-        if not is_git_repo():
+        if not ctx.is_repo:
+            log("DEBUG", "Not a git repo, allowing")
             sys.exit(0)
 
         # New repo with no commits - allow (bootstrapping)
-        if not has_commits():
+        if not ctx.has_commits:
+            log("DEBUG", "No commits yet, allowing")
             sys.exit(0)
 
+        # Get file context for error messages
+        file_context = get_file_context(tool_input)
+        log("DEBUG", f"Checking edit to: {tool_input.get('file_path', 'unknown')}")
+
         # Check for in-progress git operations FIRST
-        # These take precedence over branch checks
-        operation = get_git_operation_state()
+        operation = get_git_operation_state(ctx.git_dir)
 
         if operation == "rebase":
+            log("INFO", "BLOCKED: Edit during rebase")
             print(BLOCK_MESSAGE_REBASE, file=sys.stderr)
             sys.exit(2)
 
         if operation == "bisect":
+            log("INFO", "BLOCKED: Edit during bisect")
             print(BLOCK_MESSAGE_BISECT, file=sys.stderr)
             sys.exit(2)
 
         if operation == "merge":
-            # Allow edits during merge (conflict resolution), but inform Claude
             output = {"systemMessage": WARN_MESSAGE_MERGE}
             print(json.dumps(output))
             sys.exit(0)
 
         if operation == "cherry-pick":
-            # Allow edits during cherry-pick (may need conflict resolution)
             output = {"systemMessage": WARN_MESSAGE_CHERRY_PICK}
             print(json.dumps(output))
             sys.exit(0)
 
-        # Check for detached HEAD (no operation in progress)
-        if is_detached_head():
-            # Warn but allow - user explicitly checked out a commit
+        # Check for detached HEAD
+        if ctx.is_detached:
+            log("DEBUG", "Detached HEAD, warning but allowing")
             output = {"systemMessage": WARN_MESSAGE_DETACHED}
             print(json.dumps(output))
             sys.exit(0)
 
-        # Get current branch
-        branch = get_current_branch()
+        # Get current branch from context
+        branch = ctx.branch
 
         # Couldn't determine branch - allow (unexpected state, fail open)
         if branch is None:
+            log("DEBUG", "Could not determine branch, allowing")
             sys.exit(0)
-
-        # Get file context for error messages
-        tool_input = data.get("tool_input", {})
-        file_context = get_file_context(tool_input)
-        log("DEBUG", f"Checking edit to: {tool_input.get('file_path', 'unknown')}")
 
         # Check if on protected branch (case-insensitive)
         protected = get_protected_branches()
