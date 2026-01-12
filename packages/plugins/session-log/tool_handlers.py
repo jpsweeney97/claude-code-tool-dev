@@ -5,6 +5,8 @@ making it testable with standard pytest without requiring the MCP package.
 """
 
 import json
+import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,13 +17,15 @@ from session_log.pending import process_pending_sessions
 from security import validate_summary_path
 
 
+_pending_lock = threading.Lock()
 _pending_processed = False
 
 
 def _reset_pending_flag():
     """Reset pending processed flag (for testing only)."""
     global _pending_processed
-    _pending_processed = False
+    with _pending_lock:
+        _pending_processed = False
 
 
 @dataclass
@@ -189,24 +193,24 @@ def handle_tool(name: str, arguments: dict) -> list[ToolResult]:
     """Route tool call to appropriate handler."""
     global _pending_processed
 
-    # Process any pending sessions on first tool call
-    if not _pending_processed:
-        try:
-            stats = process_pending_sessions()
-            if stats.get("processed", 0) > 0:
-                import sys
-
+    # Process any pending sessions on first tool call (thread-safe)
+    with _pending_lock:
+        if not _pending_processed:
+            try:
+                stats = process_pending_sessions()
+                if stats.get("processed", 0) > 0:
+                    print(
+                        f"Processed {stats['processed']} pending sessions "
+                        f"(indexed: {stats.get('indexed', 0)}, "
+                        f"embedded: {stats.get('embedded', 0)})",
+                        file=sys.stderr,
+                    )
+            except Exception as e:
                 print(
-                    f"Processed {stats['processed']} pending sessions "
-                    f"(indexed: {stats.get('indexed', 0)}, "
-                    f"embedded: {stats.get('embedded', 0)})",
+                    f"ERROR: Failed to process pending sessions: {e}",
                     file=sys.stderr,
                 )
-        except Exception as e:
-            import sys
-
-            print(f"Warning: Failed to process pending sessions: {e}", file=sys.stderr)
-        _pending_processed = True
+            _pending_processed = True
 
     if name == "list_sessions":
         return handle_list_sessions(arguments)
