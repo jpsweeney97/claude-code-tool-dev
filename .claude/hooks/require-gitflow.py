@@ -77,8 +77,8 @@ def is_strict_mode() -> bool:
 
 
 def matches_valid_pattern(branch: str) -> bool:
-    """Check if branch name matches any valid GitFlow pattern."""
-    return any(re.match(pattern, branch) for pattern in VALID_PATTERNS)
+    """Check if branch name matches any valid GitFlow pattern (case-insensitive)."""
+    return any(re.match(pattern, branch.lower()) for pattern in VALID_PATTERNS)
 
 
 BLOCK_MESSAGE_MAIN = """Cannot edit files on '{branch}' — this is the production branch.

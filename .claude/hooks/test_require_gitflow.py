@@ -26,6 +26,44 @@ get_protected_branches = require_gitflow.get_protected_branches
 is_strict_mode = require_gitflow.is_strict_mode
 
 
+class TestMatchesValidPattern:
+    @pytest.mark.parametrize("branch", [
+        "feature/new-login",
+        "feat/add-button",
+        "release/1.0.0",
+        "hotfix/critical-bug",
+        "fix/null-pointer",
+        "docs/readme-update",
+        "refactor/cleanup",
+        "dependabot/npm_and_yarn/lodash-4.17.21",
+        "spike/new-architecture",
+    ])
+    def test_valid_patterns_lowercase(self, branch):
+        assert matches_valid_pattern(branch)
+
+    @pytest.mark.parametrize("branch", [
+        "Feature/MixedCase",
+        "FEATURE/UPPERCASE",
+        "FIX/Bug-123",
+        "Hotfix/Critical",
+        "Release/1.0.0",
+    ])
+    def test_valid_patterns_case_insensitive(self, branch):
+        """Branch patterns should match regardless of case."""
+        assert matches_valid_pattern(branch)
+
+    @pytest.mark.parametrize("branch", [
+        "main",
+        "master",
+        "develop",
+        "random-branch",
+        "my-feature",
+        "feature",  # Missing description
+    ])
+    def test_invalid_patterns(self, branch):
+        assert not matches_valid_pattern(branch)
+
+
 @pytest.fixture
 def temp_git_repo(tmp_path):
     """Create a temporary git repository on 'main' branch."""
