@@ -75,10 +75,24 @@ function splitAtH2(file: MarkdownFile, content: string, frontmatter: Frontmatter
 
   for (const part of parts) {
     const headingKey = part.heading ?? '';
+
+    // Safety check: if part exceeds limits, apply hard split
+    if (!withinLimits(part.content)) {
+      const hardParts = hardSplitWithOverlap(part.content);
+      for (let i = 0; i < hardParts.length; i++) {
+        const currentCount = headingSplitCounts.get(headingKey) ?? 0;
+        const splitIndex = currentCount + 1;
+        headingSplitCounts.set(headingKey, splitIndex);
+        chunks.push(
+          createSplitChunk(file, hardParts[i], part.heading, frontmatter, splitIndex)
+        );
+      }
+      continue;
+    }
+
     const currentCount = headingSplitCounts.get(headingKey) ?? 0;
     const splitIndex = currentCount + 1;
     headingSplitCounts.set(headingKey, splitIndex);
-
     chunks.push(
       createSplitChunk(file, part.content, part.heading, frontmatter, splitIndex)
     );
@@ -123,10 +137,18 @@ function mergeSmallChunks(chunks: Chunk[], frontmatter: Frontmatter): Chunk[] {
     const lines = chunk.content.split('\n').length;
     const chars = chunk.content.length;
 
-    if (bufferLines + lines <= MAX_CHUNK_LINES && bufferChars + chars <= MAX_CHUNK_CHARS) {
+    // Account for \n\n separator added when combining chunks
+    // Each additional chunk adds 2 chars (\n\n) and 1 line (blank line between)
+    const separatorLines = buffer.length > 0 ? 1 : 0;
+    const separatorChars = buffer.length > 0 ? 2 : 0;
+
+    if (
+      bufferLines + lines + separatorLines <= MAX_CHUNK_LINES &&
+      bufferChars + chars + separatorChars <= MAX_CHUNK_CHARS
+    ) {
       buffer.push(chunk);
-      bufferLines += lines;
-      bufferChars += chars;
+      bufferLines += lines + separatorLines;
+      bufferChars += chars + separatorChars;
     } else {
       if (buffer.length) result.push(combineChunks(buffer, frontmatter));
       buffer = [chunk];
