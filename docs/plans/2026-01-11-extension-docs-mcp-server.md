@@ -893,8 +893,9 @@ packages/mcp-servers/extension-docs/
 
 **package.json:**
 
-<!-- NOTE: Pin versions based on your repo’s compatibility matrix.
-     This document originally referenced exact "latest stable" versions as of 2026-01-11; avoid hardcoding “latest” in long-lived docs. -->
+<!-- NOTE: Dependencies verified 2026-01-11 against @modelcontextprotocol/sdk@1.25.2 on npm.
+     SDK requires Node.js >=18 and zod as peer dependency.
+     Import paths (@modelcontextprotocol/sdk/server/mcp.js, .../stdio.js) confirmed via SDK exports. -->
 
 ```json
 {
@@ -902,6 +903,9 @@ packages/mcp-servers/extension-docs/
   "version": "1.0.0",
   "type": "module",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
