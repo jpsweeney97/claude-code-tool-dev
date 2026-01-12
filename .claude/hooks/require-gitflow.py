@@ -20,9 +20,13 @@ Git operation handling:
   - bisect:      BLOCK — edits lost on next bisect step
   - detached:    WARN  — user explicitly checked out a commit
 
-Configuration:
-  PROTECTED_BRANCHES: comma-separated (default: main,master,develop)
-  GITFLOW_STRICT: set to "1" to block non-standard branches (default: permissive)
+Configuration (environment variables):
+  PROTECTED_BRANCHES    Comma-separated protected branches (default: main,master,develop)
+  GITFLOW_STRICT        Set to "1" to block non-standard branch names (default: permissive)
+  GITFLOW_BYPASS        Set to "1" to bypass all checks (emergency use only)
+  GITFLOW_DEBUG         Set to "1" for debug output to stderr and log file
+
+Log file: ~/.claude/logs/gitflow-hook.log
 
 Exit codes:
   0 - Allow (valid branch or permissive warning)
