@@ -339,17 +339,19 @@ def get_git_context() -> GitContext:
     ctx.git_dir = resolve_git_dir(git_dir.strip())
 
     # Call 2: Check for commits and get branch name
-    # symbolic-ref fails on detached HEAD or no commits
+    # First check if commits exist (needed to distinguish new repo from detached HEAD)
+    commits_exist, _ = run_git("rev-parse", "--verify", "HEAD")
+    ctx.has_commits = commits_exist
+
+    # Then check for branch name via symbolic-ref
+    # symbolic-ref fails on detached HEAD, but may succeed on new repos with no commits
     success, branch = run_git("symbolic-ref", "--short", "HEAD")
     if success and branch:
         ctx.branch = branch.strip()
         ctx.is_detached = False
-        ctx.has_commits = True
     else:
-        # Could be detached HEAD or no commits - check HEAD exists
-        head_exists, _ = run_git("rev-parse", "--verify", "HEAD")
-        ctx.has_commits = head_exists
-        ctx.is_detached = head_exists  # If HEAD exists but no symbolic-ref, it's detached
+        # Detached HEAD
+        ctx.is_detached = commits_exist
 
     return ctx
 
@@ -417,7 +419,11 @@ def main():
 
         # New repo with no commits - allow (bootstrapping)
         if not ctx.has_commits:
-            log("DEBUG", "No commits yet, allowing")
+            log("INFO", "Repository has no commits yet - allowing edits for bootstrapping")
+            output = {
+                "systemMessage": "Note: This repository has no commits yet. GitFlow checks are bypassed during initial setup."
+            }
+            print(json.dumps(output))
             sys.exit(0)
 
         # Get file context for error messages

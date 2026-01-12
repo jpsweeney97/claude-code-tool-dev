@@ -410,6 +410,37 @@ class TestIntegrationFull:
         assert result.returncode == 0
 
 
+class TestNoCommitsYet:
+    """Tests for repos with no commits (bootstrapping phase)."""
+
+    def test_no_commits_allows_with_log(self, tmp_path, monkeypatch):
+        """Repo with no commits should allow edits and log explicitly."""
+        repo = tmp_path / "empty_repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITFLOW_DEBUG", "1")
+
+        result = run_hook(repo)
+        assert result.returncode == 0
+        assert "no commits" in result.stderr.lower()
+
+    def test_no_commits_returns_system_message(self, tmp_path, monkeypatch):
+        """No-commits state should return a systemMessage."""
+        repo = tmp_path / "empty_repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+
+        monkeypatch.chdir(repo)
+
+        result = run_hook(repo)
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert "systemMessage" in output
+        assert "no commits" in output["systemMessage"].lower()
+
+
 class TestProtectedBranchUnification:
     """Tests to verify unified protected branch logic."""
 
