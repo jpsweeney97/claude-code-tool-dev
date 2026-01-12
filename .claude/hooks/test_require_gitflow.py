@@ -202,6 +202,68 @@ class TestGitContext:
         assert ctx.is_repo is False
 
 
+class TestSuggestBranchName:
+    def test_simple_name(self):
+        assert suggest_branch_name("my-feature") == "feature/my-feature"
+
+    def test_spaces_converted(self):
+        assert suggest_branch_name("My Feature Name") == "feature/my-feature-name"
+
+    def test_uppercase_lowercased(self):
+        assert suggest_branch_name("UPPERCASE") == "feature/uppercase"
+
+    def test_empty_string(self):
+        assert suggest_branch_name("") == "feature/my-feature"
+
+    def test_only_dashes(self):
+        assert suggest_branch_name("---") == "feature/my-feature"
+
+
+class TestGetProtectedBranches:
+    def test_default_branches(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PROTECTED_BRANCHES", None)
+            result = get_protected_branches()
+            assert result == {"main", "master", "develop"}
+
+    def test_custom_branches(self):
+        with patch.dict(os.environ, {"PROTECTED_BRANCHES": "main,staging"}):
+            result = get_protected_branches()
+            assert result == {"main", "staging"}
+
+
+class TestIsStrictMode:
+    def test_strict_enabled(self):
+        with patch.dict(os.environ, {"GITFLOW_STRICT": "1"}):
+            assert is_strict_mode() is True
+
+    def test_strict_disabled(self):
+        with patch.dict(os.environ, {"GITFLOW_STRICT": "0"}):
+            assert is_strict_mode() is False
+
+    def test_strict_default(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GITFLOW_STRICT", None)
+            assert is_strict_mode() is False
+
+
+class TestGetFileContext:
+    def test_normal_path(self):
+        get_file_context = require_gitflow.get_file_context
+        assert get_file_context({"file_path": "src/main.py"}) == "'src/main.py'"
+
+    def test_long_path_truncated(self):
+        get_file_context = require_gitflow.get_file_context
+        long_path = "a" * 100 + "/file.py"
+        result = get_file_context({"file_path": long_path})
+        assert result.startswith("'...")
+        assert len(result) <= 53  # 50 chars + quotes + ellipsis
+
+    def test_no_path(self):
+        get_file_context = require_gitflow.get_file_context
+        assert get_file_context({}) == "files"
+
+
 class TestIntegrationFull:
     """Integration tests to lock behavior before refactoring."""
 
