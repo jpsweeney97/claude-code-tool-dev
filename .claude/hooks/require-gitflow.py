@@ -306,15 +306,38 @@ def resolve_git_dir(git_dir: str) -> str:
     return git_dir
 
 
-@dataclass
+@dataclass(frozen=True)
 class GitContext:
-    """Cached git repository context."""
+    """
+    Cached git repository context.
+
+    Invariants:
+    - is_repo=False implies all other fields are at defaults
+    - is_repo=True implies git_dir is not None
+    - branch and is_detached are mutually exclusive
+    - is_detached requires has_commits=True
+    """
 
     is_repo: bool = False
     has_commits: bool = False
     git_dir: Optional[str] = None
     branch: Optional[str] = None
     is_detached: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.is_repo:
+            if self.has_commits or self.git_dir or self.branch or self.is_detached:
+                raise ValueError(
+                    f"GitContext invariant violated: is_repo=False but other fields set: "
+                    f"has_commits={self.has_commits}, git_dir={self.git_dir!r}, "
+                    f"branch={self.branch!r}, is_detached={self.is_detached}"
+                )
+        elif self.git_dir is None:
+            raise ValueError("GitContext invariant violated: is_repo=True but git_dir is None")
+        if self.is_detached and not self.has_commits:
+            raise ValueError("GitContext invariant violated: is_detached=True requires has_commits=True")
+        if self.branch is not None and self.is_detached:
+            raise ValueError("GitContext invariant violated: branch and is_detached are mutually exclusive")
 
 
 def get_git_context() -> GitContext:
@@ -323,15 +346,13 @@ def get_git_context() -> GitContext:
 
     Reduces 5 subprocess calls to 2-3 by combining checks.
     """
-    ctx = GitContext()
-
     # Call 1: Is this a git repo?
     # Try --absolute-git-dir (Git 2.13+), fallback to manual resolution
     success, git_dir = run_git("rev-parse", "--absolute-git-dir")
     if not success:
         success, git_dir = run_git("rev-parse", "--git-dir")
         if not success:
-            return ctx  # Not a git repo
+            return GitContext()  # Not a git repo (defaults: is_repo=False)
 
         if not os.path.isabs(git_dir):
             # Resolve relative path to absolute
@@ -343,26 +364,35 @@ def get_git_context() -> GitContext:
                 # Fallback: use current working directory
                 git_dir = os.path.abspath(git_dir.strip())
 
-    ctx.is_repo = True
     # Follow gitdir file indirection for worktrees/submodules
-    ctx.git_dir = resolve_git_dir(git_dir.strip())
+    resolved_git_dir = resolve_git_dir(git_dir.strip())
 
     # Call 2: Check for commits and get branch name
     # First check if commits exist (needed to distinguish new repo from detached HEAD)
     commits_exist, _ = run_git("rev-parse", "--verify", "HEAD")
-    ctx.has_commits = commits_exist
 
     # Then check for branch name via symbolic-ref
     # symbolic-ref fails on detached HEAD, but may succeed on new repos with no commits
-    success, branch = run_git("symbolic-ref", "--short", "HEAD")
-    if success and branch:
-        ctx.branch = branch.strip()
-        ctx.is_detached = False
-    else:
-        # Detached HEAD
-        ctx.is_detached = commits_exist
+    success, branch_output = run_git("symbolic-ref", "--short", "HEAD")
 
-    return ctx
+    if success and branch_output:
+        # On a branch
+        return GitContext(
+            is_repo=True,
+            git_dir=resolved_git_dir,
+            has_commits=commits_exist,
+            branch=branch_output.strip(),
+            is_detached=False,
+        )
+    else:
+        # Detached HEAD (only if commits exist; otherwise it's just a new repo)
+        return GitContext(
+            is_repo=True,
+            git_dir=resolved_git_dir,
+            has_commits=commits_exist,
+            branch=None,
+            is_detached=commits_exist,
+        )
 
 
 def get_git_operation_state(git_dir: str | None) -> str | None:

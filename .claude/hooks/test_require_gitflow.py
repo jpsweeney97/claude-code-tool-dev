@@ -538,3 +538,55 @@ class TestResolveGitDir:
         assert result == str(git_file)
         # Should have logged
         assert any("Could not resolve git dir" in msg for _, msg in logged_messages)
+
+
+class TestGitContextInvariants:
+    """Tests for GitContext invariant validation."""
+
+    def test_gitcontext_rejects_invalid_states(self):
+        """GitContext should reject logically invalid states at construction."""
+        GitContext = require_gitflow.GitContext
+
+        # is_repo=False but other fields set
+        with pytest.raises(ValueError, match="is_repo=False"):
+            GitContext(is_repo=False, branch="main")
+
+        with pytest.raises(ValueError, match="is_repo=False"):
+            GitContext(is_repo=False, has_commits=True)
+
+        # is_repo=True but no git_dir
+        with pytest.raises(ValueError, match="git_dir is None"):
+            GitContext(is_repo=True, git_dir=None)
+
+        # is_detached without has_commits
+        with pytest.raises(ValueError, match="is_detached=True requires has_commits"):
+            GitContext(is_repo=True, git_dir="/path", is_detached=True, has_commits=False)
+
+        # branch and is_detached both set
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            GitContext(is_repo=True, git_dir="/path", branch="main", is_detached=True, has_commits=True)
+
+    def test_gitcontext_accepts_valid_states(self):
+        """GitContext should accept valid states."""
+        GitContext = require_gitflow.GitContext
+
+        # Not a repo
+        ctx = GitContext(is_repo=False)
+        assert ctx.is_repo is False
+
+        # Repo with branch
+        ctx = GitContext(is_repo=True, git_dir="/path", branch="main", has_commits=True)
+        assert ctx.branch == "main"
+
+        # Repo with detached HEAD
+        ctx = GitContext(is_repo=True, git_dir="/path", is_detached=True, has_commits=True)
+        assert ctx.is_detached is True
+
+    def test_gitcontext_is_frozen(self):
+        """GitContext should be immutable after construction."""
+        GitContext = require_gitflow.GitContext
+
+        ctx = GitContext(is_repo=True, git_dir="/path", branch="main", has_commits=True)
+
+        with pytest.raises(AttributeError):
+            ctx.branch = "other"
