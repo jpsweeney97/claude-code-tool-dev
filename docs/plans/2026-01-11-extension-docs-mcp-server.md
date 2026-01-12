@@ -1,7 +1,7 @@
 # Extension Docs MCP Server — Design & Implementation
 
 **Date:** 2026-01-11
-**Status:** Ready for implementation (audit corrections + implementation fixes incorporated)
+**Status:** Ready for implementation (audit corrections + implementation fixes + McpServer migration incorporated)
 **Location:** `packages/mcp-servers/extension-docs/`
 
 ---
@@ -72,6 +72,19 @@ This design incorporates corrections from the 2026-01-11 audit:
 | F7 | Division by zero in `avgDocLength` if no chunks | Medium | Guard with `chunks.length > 0` check |
 | F8 | Windows CRLF line endings break frontmatter parsing | Low | Normalize to LF before regex matching |
 | F9 | `glob()` errors not caught | Low | Wrap in try/catch, return empty array on failure |
+| F10 | Tool returns only text content, no typed output | Medium | Add `structuredContent` alongside text for typed client access |
+| F11 | Low-level Server API requires manual validation and tool routing | Medium | Migrate to `McpServer.registerTool` with zod schemas for automatic validation |
+
+## Secondary Audit Fixes (2026-01-12)
+
+| ID | Finding | Severity | Resolution |
+|----|---------|----------|------------|
+| A1 | Zod schemas are plain objects, not `z.object()` | ~~High~~ | **INVALID** — SDK accepts shape objects per [docs](https://github.com/modelcontextprotocol/typescript-sdk) |
+| A2 | Parse warnings emitted before parsing occurs | High | Move warning emission after `chunkFile()` call |
+| A3 | Whitespace-only queries bypass validation | Medium | Use `.pipe()` to validate after `.transform(trim)` |
+| A4 | Metadata headers only in first split chunk | Medium | Include category/tags in all chunks' tokens |
+| A5 | Fence regex not fully CommonMark-compliant | Low | Allow 0-3 leading spaces in fence pattern |
+| A6 | Path comment typo (`hooks/hooks-input-schema.md`) | Low | Fix to `hooks/input-schema.md` |
 
 ---
 
@@ -105,13 +118,13 @@ This design incorporates corrections from the 2026-01-11 audit:
 
 **Decision:** Server stays running even if docs can't be loaded. Return structured errors on search attempts.
 
-**Audit note (C1):** The original design used `process.exit(1)` on missing DOCS_PATH. This was wrong because Claude cannot restart MCP servers mid-session. The server must remain responsive and return actionable error messages.
+**Audit note (C1):** The original design used `process.exit(1)` on missing DOCS_PATH. This was wrong because Claude cannot restart MCP servers mid-session (per /Users/jp/Projects/active/claude-code-tool-dev/docs/documentation/mcp-reference.md:170: "you must restart Claude Code to apply MCP server changes"). The server must remain responsive and return actionable error messages.
 
 ### Discovery: SessionStart Hook
 
 **Decision:** Use a SessionStart hook to inject search guidance into every session.
 
-**Audit note (U1):** CLAUDE.md text guidance ("you MUST search") doesn't persist across sessions and competes with 70+ other tools for attention. A SessionStart hook with `additionalContext` reliably injects the reminder every time.
+**Audit note (U1):** CLAUDE.md text guidance ("you MUST search") doesn't persist across sessions and competes with 70+ other tools for attention. A SessionStart hook with `additionalContext` reliably injects the reminder every time (/Users/jp/Projects/active/claude-code-tool-dev/docs/documentation/hooks-reference.md:406-417 confirms SessionStart fires on startup, resume, clear, and compact).
 
 ### YAML Parsing: Visible Warnings
 
@@ -123,7 +136,7 @@ This design incorporates corrections from the 2026-01-11 audit:
 
 **Decision:** If documentation loading fails, retry after 60 seconds on subsequent search requests.
 
-**Audit note (U3):** The original design set `loadError` once and never cleared it. This meant transient failures (network mount disconnect, permissions change, environment variable typo) permanently broke the server until Claude Code restarted. Since Claude cannot restart MCP servers mid-session, users would lose search functionality for the entire session.
+**Audit note (U3):** The original design set `loadError` once and never cleared it. This meant transient failures (network mount disconnect, permissions change, environment variable typo) permanently broke the server until Claude Code restarted. Since Claude cannot restart MCP servers mid-session (/Users/jp/Projects/active/claude-code-tool-dev/docs/documentation/mcp-reference.md:170), users would lose search functionality for the entire session.
 
 **Mechanism:**
 - Track `lastLoadAttempt` timestamp alongside `loadError`
@@ -138,7 +151,8 @@ This design incorporates corrections from the 2026-01-11 audit:
 **Decision:** Call `server.close()` in SIGTERM/SIGINT handlers before `process.exit()`.
 
 **Rationale:**
-- The MCP SDK `Server` class has a `close()` method that properly shuts down the transport
+- The MCP SDK `McpServer` class has a `close()` method that properly shuts down the transport
+  <!-- Note: This is based on current SDK examples/documentation. Prefer verifying against the repo at implementation time. -->
 - For HTTP transports, examples show `transport.close()` on connection end
 - For stdio transports, the streams close automatically on process exit, but `server.close()` ensures:
   - Pending responses are flushed
@@ -153,18 +167,18 @@ This design incorporates corrections from the 2026-01-11 audit:
 
 ### Imports
 
+<!-- NOTE: Import paths depend on the installed @modelcontextprotocol/sdk version.
+     Verify against the SDK docs/typings in your workspace during implementation. -->
+
 ```typescript
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema
-} from '@modelcontextprotocol/sdk/types.js'
 import { glob } from 'glob'
 import { parse as parseYaml } from 'yaml'
 import * as fs from 'fs'
 import { readFile } from 'fs/promises'
 import * as path from 'path'
+import * as z from 'zod'
 ```
 
 ### Types
@@ -189,7 +203,7 @@ interface Chunk {
   termFreqs: Map<string, number>  // F2: Precomputed term frequencies for O(1) lookup
   category: string        // From frontmatter or derived from path
   tags: string[]          // From frontmatter (for debugging/filtering)
-  source_file: string     // "hooks/hooks-input-schema.md"
+  source_file: string     // "hooks/input-schema.md"
   heading?: string        // H2 heading if split chunk
   merged_headings?: string[]  // All headings if chunks were merged
 }
@@ -204,7 +218,7 @@ interface SearchResult {
   chunk_id: string    // "hooks-input-schema#pretooluse-input"
   content: string     // The markdown content
   category: string    // "hooks"
-  source_file: string // "hooks/hooks-input-schema.md"
+  source_file: string // "hooks/input-schema.md"
   // G8: Score removed - confuses Claude
 }
 
@@ -374,16 +388,15 @@ function splitAtH2(file: MarkdownFile, content: string, frontmatter: Frontmatter
 
   for (const line of lines) {
     // B1: CommonMark-compliant fence matching
-    // Opening: captures full fence (```, ````, ~~~~, etc.)
-    const fence = line.match(/^(`{3,}|~{3,})/)
+    // Opening: allows 0-3 leading spaces, captures fence (```, ````, ~~~~, etc.)
+    const fence = line.match(/^( {0,3})(`{3,}|~{3,})/)
     if (fence) {
       if (!inFence) {
         inFence = true
-        fencePattern = fence[1]  // Store full pattern
+        fencePattern = fence[2]  // Store fence pattern (group 2, after leading spaces)
       } else if (
-        // Closing: same char, >= length, only trailing whitespace
-        line[0] === fencePattern[0] &&
-        line.match(new RegExp(`^${fencePattern[0]}{${fencePattern.length},}\\s*$`))
+        // Closing: 0-3 leading spaces, same char, >= length, only trailing whitespace
+        line.match(new RegExp(`^ {0,3}${fencePattern[0]}{${fencePattern.length},}\\s*$`))
       ) {
         inFence = false
         fencePattern = ''
@@ -445,7 +458,10 @@ function combineChunks(chunks: Chunk[]): Chunk {
     throw new Error('combineChunks called with empty array')
   }
   const combinedContent = chunks.map(c => c.content).join('\n\n')
-  const tokens = tokenize(combinedContent)
+  // Include metadata terms (inherited from first chunk) in recomputed tokens
+  const { category, tags } = chunks[0]
+  const metadataTerms = [category, ...tags].flatMap(tokenize)
+  const tokens = [...tokenize(combinedContent), ...metadataTerms]
   return {
     ...chunks[0],
     content: combinedContent,
@@ -499,14 +515,21 @@ function wholeFileChunk(file: MarkdownFile, content: string, fm: Frontmatter): C
 
 // F4: Accept frontmatter parameter instead of re-parsing chunk content
 function createChunk(file: MarkdownFile, content: string, heading: string | undefined, frontmatter: Frontmatter): Chunk {
-  const tokens = tokenize(content)
+  const category = frontmatter.category ?? deriveCategory(file.path)
+  const tags = frontmatter.tags ?? []
+
+  // Include metadata terms in tokens so all chunks are searchable by category/tags
+  // (not just first chunk which has the metadata header in content)
+  const metadataTerms = [category, ...tags].flatMap(tokenize)
+  const tokens = [...tokenize(content), ...metadataTerms]
+
   return {
     id: generateChunkId(file, heading),
     content,
     tokens,
     termFreqs: computeTermFreqs(tokens),  // F2: Precompute for O(1) search
-    category: frontmatter.category ?? deriveCategory(file.path),
-    tags: frontmatter.tags ?? [],
+    category,
+    tags,
     source_file: file.path,
     heading
   }
@@ -580,43 +603,7 @@ function search(index: BM25Index, query: string, limit = 5): SearchResult[] {
 }
 ```
 
-### Input Validation
-
-```typescript
-interface ValidationSuccess {
-  query: string
-  limit: number
-}
-
-interface ValidationError {
-  isError: true
-  content: Array<{ type: "text"; text: string }>
-}
-
-type ValidationResult = ValidationSuccess | ValidationError
-
-function validateSearchInput(args: unknown): ValidationResult {
-  if (!args || typeof args !== 'object') {
-    return { isError: true, content: [{ type: "text", text: "Invalid arguments: expected object with query field" }] }
-  }
-
-  const { query, limit } = args as Record<string, unknown>
-
-  if (typeof query !== 'string' || query.trim().length === 0) {
-    return { isError: true, content: [{ type: "text", text: "Invalid query: expected non-empty string" }] }
-  }
-
-  if (query.length > 500) {
-    return { isError: true, content: [{ type: "text", text: "Query too long: maximum 500 characters" }] }
-  }
-
-  const validLimit = Math.min(Math.max(Number(limit) || 5, 1), 20)
-
-  return { query: query.trim(), limit: validLimit }
-}
-```
-
-### MCP Server with Lazy Init, Retry, and Loading Mutex (C1 + U3 + F1 + F3)
+### MCP Server with Lazy Init, Retry, and Loading Mutex (C1 + U3 + F1 + F3 + F11)
 
 ```typescript
 // === State Management ===
@@ -691,7 +678,9 @@ async function doLoadIndex(): Promise<BM25Index | null> {
       return null
     }
 
-    // U2: Emit warning summary after loading
+    const chunks = files.flatMap(f => chunkFile(f))
+
+    // U2: Emit warning summary AFTER parsing (chunkFile calls parseFrontmatter)
     if (parseWarnings.length > 0) {
       console.error(`\nWARNING: ${parseWarnings.length} file(s) with parse issues:`)
       for (const w of parseWarnings) {
@@ -700,7 +689,6 @@ async function doLoadIndex(): Promise<BM25Index | null> {
       console.error('')
     }
 
-    const chunks = files.flatMap(f => chunkFile(f))
     index = buildBM25Index(chunks)
     console.error(`Loaded ${chunks.length} chunks from ${files.length} files`)
     return index
@@ -712,68 +700,82 @@ async function doLoadIndex(): Promise<BM25Index | null> {
   }
 }
 
-const searchToolDefinition = {
-  name: "search_extension_docs",
-  description: "Search Claude Code extension documentation (hooks, skills, commands, agents, plugins, MCP). Use specific queries.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      query: {
-        type: "string",
-        description: "Search query — be specific (e.g., 'PreToolUse JSON output', 'skill frontmatter properties', 'MCP server registration')"
-      },
-      limit: {
-        type: "number",
-        description: "Maximum results to return (default: 5, max: 20)"
-      }
-    },
-    required: ["query"]
-  }
+// === Zod Schemas for Input/Output (F11: McpServer with automatic validation) ===
+// NOTE: McpServer.registerTool accepts Zod “shape objects” for inputSchema/outputSchema in current SDK examples.
+// SDK auto-validates inputs and formats outputs per CLAUDE.md: "Automatically handles request
+// validation, response formatting, and error handling"
+// Ref: https://github.com/modelcontextprotocol/typescript-sdk — CLAUDE.md, docs/server.md
+const SearchInputSchema = {
+  // Validate after trim: .pipe() runs min(1) on the trimmed result
+  query: z.string()
+    .max(500, 'Query too long: maximum 500 characters')
+    .transform(s => s.trim())
+    .pipe(z.string().min(1, 'Query cannot be empty'))
+    .describe('Search query — be specific (e.g., "PreToolUse JSON output", "skill frontmatter properties")'),
+  limit: z.number()
+    .int()
+    .min(1)
+    .max(20)
+    .optional()  // Handler uses `limit = 5` default
+    .describe('Maximum results to return (default: 5, max: 20)')
+}
+
+const SearchOutputSchema = {
+  results: z.array(z.object({
+    chunk_id: z.string(),
+    content: z.string(),
+    category: z.string(),
+    source_file: z.string()
+  }))
 }
 
 async function main() {
-  const server = new Server(
-    { name: 'extension-docs', version: '1.0.0' },
-    { capabilities: { tools: {} } }
-  )
+  const server = new McpServer({
+    name: 'extension-docs',
+    version: '1.0.0'
+  })
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [searchToolDefinition]
-  }))
-
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    if (request.params.name === 'search_extension_docs') {
-      const validation = validateSearchInput(request.params.arguments)
-      if ('isError' in validation) {
-        return validation
-      }
-
+  // F11: McpServer.registerTool handles validation, tool listing, and routing automatically
+  // NOTE: If you rely on spec constraints (name length, description limits, etc.), verify against the current spec version used by Claude Code.
+  server.registerTool(
+    'search_extension_docs',
+    {
+      title: 'Search Extension Docs',
+      description: 'Search Claude Code extension documentation (hooks, skills, commands, agents, plugins, MCP). Use specific queries.',
+      inputSchema: SearchInputSchema,
+      outputSchema: SearchOutputSchema
+    },
+    async ({ query, limit = 5 }) => {
       // C1: Lazy load on first search, return structured error if failed
+      // Response format verified against MCP spec (schema.mdx):
+      // - isError?: boolean — "Errors from the tool itself should be reported within the result object using isError"
+      // - structuredContent?: { [key: string]: unknown } — typed output for client access
+      // NOTE: If you rely on exact tool result fields (isError, structuredContent, etc.), verify against the spec version used by Claude Code.
       const idx = await ensureIndex()
       if (!idx) {
         return {
           isError: true,
-          content: [{ type: "text", text: `Search unavailable: ${loadError}` }]
+          content: [{ type: 'text', text: `Search unavailable: ${loadError}` }]
         }
       }
 
       try {
-        const results = search(idx, validation.query, validation.limit)
+        const results = search(idx, query, limit)
         return {
-          content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
+          structuredContent: { results }  // F10: Typed output for client access
         }
       } catch (err) {
         console.error('Search error:', err)
         return {
           isError: true,
-          content: [{ type: "text", text: "Search failed. Please try a different query." }]
+          content: [{ type: 'text', text: 'Search failed. Please try a different query.' }]
         }
       }
     }
+  )
 
-    throw new Error(`Unknown tool: ${request.params.name}`)
-  })
-
+  // NOTE: Connection pattern based on current SDK examples; verify against the installed SDK version.
   const transport = new StdioServerTransport()
   await server.connect(transport)
 
@@ -823,7 +825,13 @@ main().catch((err) => {
 #!/bin/bash
 # Note: Tool name format is mcp__<server-name>__<tool-name>
 # Server registered as "extension-docs" → tool is "mcp__extension-docs__search_extension_docs"
+# Verified: /Users/jp/Projects/active/claude-code-tool-dev/docs/documentation/hooks-reference.md:1010-1016 documents this pattern with examples
 # Verify actual name with `claude mcp list` after registration
+#
+# JSON output format verified against /Users/jp/Projects/active/claude-code-tool-dev/docs/documentation/hooks-reference.md:835-849
+# - hookSpecificOutput.hookEventName must be "SessionStart"
+# - hookSpecificOutput.additionalContext adds string to Claude's context
+# - Multiple hooks' additionalContext values are concatenated
 cat <<'EOF'
 {
   "hookSpecificOutput": {
@@ -835,11 +843,21 @@ EOF
 ```
 
 ```bash
-# Make hook executable (required!)
+# Make hook executable (required per /Users/jp/Projects/active/claude-code-tool-dev/docs/documentation/hooks-reference.md:1120 debugging checklist)
 chmod +x ~/.claude/hooks/extension-docs-reminder.sh
 ```
 
 **Add to `~/.claude/settings.json`:**
+
+<!-- Verified 2026-01-11: Hook configuration structure per /Users/jp/Projects/active/claude-code-tool-dev/docs/documentation/hooks-reference.md:16-33
+     - Settings location: ~/.claude/settings.json (line 9)
+     - Hook structure: { hooks: { EventName: [{ matcher, hooks: [{ type, command }] }] } }
+     - type: "command" executes bash command (line 43)
+
+     SessionStart matchers per /Users/jp/Projects/active/claude-code-tool-dev/docs/documentation/hooks-reference.md:406-417
+     Valid matchers: startup, resume, clear, compact (matches the "source" field in hook input)
+     Note: Line 36 saying matchers are "only applicable for PreToolUse, PermissionRequest, PostToolUse" is outdated;
+     Notification (line 342), PreCompact (line 401), and SessionStart (line 412) all explicitly document matcher support -->
 
 ```json
 {
@@ -867,13 +885,16 @@ packages/mcp-servers/extension-docs/
 ├── tsconfig.json
 ├── .gitignore
 ├── src/
-│   └── index.ts          # All implementation (~400 lines)
+│   └── index.ts          # All implementation (~350 lines)
 ├── dist/                 # Build output (gitignored)
 └── tests/
     └── index.test.ts     # Unit + golden query tests
 ```
 
 **package.json:**
+
+<!-- NOTE: Pin versions based on your repo’s compatibility matrix.
+     This document originally referenced exact "latest stable" versions as of 2026-01-11; avoid hardcoding “latest” in long-lived docs. -->
 
 ```json
 {
@@ -926,6 +947,8 @@ node_modules/
 
 ## Build and Register
 
+<!-- NOTE: Confirm `claude mcp add` syntax against your local `mcp-reference.md` and the installed `claude` CLI version. -->
+
 ```bash
 # Build
 cd /Users/jp/Projects/active/claude-code-tool-dev/packages/mcp-servers/extension-docs
@@ -942,6 +965,8 @@ claude mcp add --transport stdio --scope user \
 ---
 
 ## Rollback Procedure
+
+<!-- NOTE: Confirm `claude mcp remove/list` behavior against your installed CLI version. -->
 
 If the MCP server causes issues:
 
@@ -1038,6 +1063,52 @@ describe('path normalization', () => {
 })
 ```
 
+**Zod input validation (F11):**
+```typescript
+describe('SearchInputSchema validation', () => {
+  it('rejects empty query', async () => {
+    // Call tool with empty query
+    const result = await client.callTool({ name: 'search_extension_docs', arguments: { query: '' } })
+    expect(result.isError).toBe(true)
+  })
+
+  it('rejects query over 500 characters', async () => {
+    const longQuery = 'a'.repeat(501)
+    const result = await client.callTool({ name: 'search_extension_docs', arguments: { query: longQuery } })
+    expect(result.isError).toBe(true)
+  })
+
+  it('trims whitespace from query', async () => {
+    // This tests the .transform(s => s.trim()) behavior
+    const result = await client.callTool({ name: 'search_extension_docs', arguments: { query: '  hooks  ' } })
+    expect(result.isError).toBe(false)
+    // Internally, query should be trimmed to 'hooks'
+  })
+
+  it('rejects non-integer limit', async () => {
+    const result = await client.callTool({ name: 'search_extension_docs', arguments: { query: 'test', limit: 5.5 } })
+    expect(result.isError).toBe(true)
+  })
+
+  it('rejects limit below 1', async () => {
+    const result = await client.callTool({ name: 'search_extension_docs', arguments: { query: 'test', limit: 0 } })
+    expect(result.isError).toBe(true)
+  })
+
+  it('rejects limit above 20', async () => {
+    const result = await client.callTool({ name: 'search_extension_docs', arguments: { query: 'test', limit: 21 } })
+    expect(result.isError).toBe(true)
+  })
+
+  it('uses default limit of 5 when not provided', async () => {
+    const result = await client.callTool({ name: 'search_extension_docs', arguments: { query: 'hooks' } })
+    // Verify up to 5 results returned (default)
+    const parsed = JSON.parse(result.content[0].text)
+    expect(parsed.length).toBeLessThanOrEqual(5)
+  })
+})
+```
+
 ### Integration Tests
 
 **Graceful degradation (C1):**
@@ -1074,6 +1145,43 @@ describe('path normalization', () => {
 2. Verify `<extension-docs-reminder>` appears in context
 3. Confirm guidance mentions the `search_extension_docs` tool
 
+**Whitespace query rejection (A3):**
+```typescript
+it('rejects whitespace-only query after trim', async () => {
+  const result = await client.callTool({ name: 'search_extension_docs', arguments: { query: '   ' } })
+  expect(result.isError).toBe(true)
+  expect(result.content[0].text).toContain('Query cannot be empty')
+})
+```
+
+**Metadata in all split chunks (A4):**
+```typescript
+describe('metadata in tokens', () => {
+  it('includes category/tags in split chunk tokens', () => {
+    const file = { path: 'hooks/test.md', content: '---\ncategory: hooks\ntags: [api]\n---\n# Title\nIntro\n## Section 1\nContent 1\n## Section 2\nContent 2' }
+    const chunks = chunkFile(file)
+    // All chunks should have 'hooks' and 'api' in tokens
+    for (const chunk of chunks) {
+      expect(chunk.tokens).toContain('hooks')
+      expect(chunk.tokens).toContain('api')
+    }
+  })
+})
+```
+
+**Indented fence detection (A5):**
+```typescript
+describe('fence matching', () => {
+  it('detects indented opening fence', () => {
+    const content = 'Intro\n   ```python\n## Not a heading\n   ```\n## Real heading\nContent'
+    const file = { path: 'test.md', content }
+    const chunks = chunkFile(file)
+    // Should NOT split at "## Not a heading" inside fence
+    expect(chunks.length).toBe(2)  // Intro+fence chunk, Real heading chunk
+  })
+})
+```
+
 ---
 
 ## Implementation Tasks
@@ -1105,8 +1213,14 @@ describe('path normalization', () => {
 12. **F7 verified:** Empty chunks array produces `avgDocLength: 0` (no division by zero)
 13. **F8 verified:** Files with CRLF line endings parse frontmatter correctly
 14. **F9 verified:** `glob()` permission errors don't crash, return empty array
-15. **Functional:** All 5 golden queries return expected top results
-16. **Tests pass:** `npm test` runs successfully with vitest
+15. **F10 verified:** Tool response includes `structuredContent` with typed results object
+16. **F11 verified:** Server uses `McpServer.registerTool` with zod schemas (no manual validation code)
+17. **A2 verified:** Parse warnings emitted AFTER `chunkFile()` runs (not before)
+18. **A3 verified:** Whitespace-only query `'   '` returns validation error, not empty results
+19. **A4 verified:** All split chunks include category/tags in tokens (not just first chunk)
+20. **A5 verified:** Fence regex matches indented fences with 0-3 leading spaces
+21. **Functional:** All 5 golden queries return expected top results
+22. **Tests pass:** `npm test` runs successfully with vitest
 
 ---
 
