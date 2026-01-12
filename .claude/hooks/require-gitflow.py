@@ -123,6 +123,9 @@ VALID_PATTERNS = [
     r"^poc/.+",
 ]
 
+# Precompile patterns for performance (case-insensitive)
+VALID_REGEXES = [re.compile(pattern, re.IGNORECASE) for pattern in VALID_PATTERNS]
+
 
 def get_protected_branches() -> set[str]:
     """Get protected branch names from environment or defaults."""
@@ -137,7 +140,7 @@ def is_strict_mode() -> bool:
 
 def matches_valid_pattern(branch: str) -> bool:
     """Check if branch name matches any valid GitFlow pattern (case-insensitive)."""
-    return any(re.match(pattern, branch.lower()) for pattern in VALID_PATTERNS)
+    return any(regex.match(branch) for regex in VALID_REGEXES)
 
 
 BLOCK_MESSAGE_MAIN = """Cannot edit {file} on '{branch}' — this is the production branch.

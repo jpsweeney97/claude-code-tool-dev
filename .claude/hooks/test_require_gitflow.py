@@ -247,6 +247,17 @@ class TestIsStrictMode:
             assert is_strict_mode() is False
 
 
+class TestRegexCompilation:
+    def test_patterns_are_precompiled(self):
+        """VALID_REGEXES should be compiled Pattern objects."""
+        import re
+        assert hasattr(require_gitflow, "VALID_REGEXES")
+        regexes = require_gitflow.VALID_REGEXES
+        assert isinstance(regexes, list)
+        assert len(regexes) > 0
+        assert all(isinstance(r, re.Pattern) for r in regexes)
+
+
 class TestGetFileContext:
     def test_normal_path(self):
         get_file_context = require_gitflow.get_file_context
