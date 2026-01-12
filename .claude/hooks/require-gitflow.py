@@ -49,9 +49,12 @@ BYPASS_ENV = "GITFLOW_BYPASS"
 DEBUG = os.environ.get("GITFLOW_DEBUG", "") == "1"
 LOG_FILE = Path.home() / ".claude/logs/gitflow-hook.log"
 
+_log_warning_shown = False
+
 
 def log(level: str, message: str) -> None:
     """Log message to stderr (if debug) and log file."""
+    global _log_warning_shown
     if not DEBUG and level == "DEBUG":
         return
 
@@ -65,8 +68,12 @@ def log(level: str, message: str) -> None:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(LOG_FILE, "a") as f:
             f.write(line + "\n")
-    except Exception:
-        pass  # Fail silently
+    except PermissionError:
+        pass  # Expected in sandboxed environments
+    except OSError as e:
+        if DEBUG and not _log_warning_shown:
+            print(f"[GITFLOW] Warning: Could not write to log file: {e}", file=sys.stderr)
+            _log_warning_shown = True
 
 
 def check_bypass() -> bool:

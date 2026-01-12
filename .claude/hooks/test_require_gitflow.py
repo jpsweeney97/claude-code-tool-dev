@@ -441,6 +441,36 @@ class TestNoCommitsYet:
         assert "no commits" in output["systemMessage"].lower()
 
 
+class TestLogWarning:
+    """Tests for log() function error handling."""
+
+    def test_log_warns_on_write_failure(self, tmp_path, monkeypatch, capsys):
+        """log() should warn once (not spam) when file write fails."""
+        require_gitflow._log_warning_shown = False
+        original_debug = require_gitflow.DEBUG
+        require_gitflow.DEBUG = True
+
+        # Use a log file in tmp_path so mkdir succeeds
+        test_log = tmp_path / "logs" / "test.log"
+        monkeypatch.setattr(require_gitflow, "LOG_FILE", test_log)
+
+        def mock_open(*args, **kwargs):
+            raise OSError("Disk full")
+
+        monkeypatch.setattr("builtins.open", mock_open)
+
+        try:
+            require_gitflow.log("INFO", "test message 1")
+            require_gitflow.log("INFO", "test message 2")
+
+            captured = capsys.readouterr()
+            # Should warn once, not twice
+            assert captured.err.count("Warning: Could not write to log file") == 1
+            assert "Disk full" in captured.err
+        finally:
+            require_gitflow.DEBUG = original_debug
+
+
 class TestProtectedBranchUnification:
     """Tests to verify unified protected branch logic."""
 
