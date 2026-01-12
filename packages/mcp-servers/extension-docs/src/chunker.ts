@@ -15,16 +15,29 @@ const MAX_CHUNK_LINES = 150;
 const OVERLAP_LINES_FOR_FORCED_SPLITS = 5;
 
 export function chunkFile(file: MarkdownFile): Chunk[] {
-  const { frontmatter, body } = parseFrontmatter(file.content, file.path);
-  const metadataHeader = formatMetadataHeader(frontmatter);
-  const preparedContent = metadataHeader + body;
-
-  if (isSmallEnoughForWholeFile(preparedContent)) {
-    return [createWholeFileChunk(file, preparedContent, frontmatter)];
+  // Input validation
+  if (!file.path) {
+    throw new Error('chunkFile: file.path is required');
+  }
+  if (file.content === undefined || file.content === null) {
+    throw new Error(`chunkFile: file.content is required for ${file.path}`);
   }
 
-  const rawChunks = splitAtH2(file, preparedContent, frontmatter);
-  return mergeSmallChunks(rawChunks, frontmatter);
+  try {
+    const { frontmatter, body } = parseFrontmatter(file.content, file.path);
+    const metadataHeader = formatMetadataHeader(frontmatter);
+    const preparedContent = metadataHeader + body;
+
+    if (isSmallEnoughForWholeFile(preparedContent)) {
+      return [createWholeFileChunk(file, preparedContent, frontmatter)];
+    }
+
+    const rawChunks = splitAtH2(file, preparedContent, frontmatter);
+    return mergeSmallChunks(rawChunks, frontmatter);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to chunk file ${file.path}: ${message}`);
+  }
 }
 
 function countLines(content: string): number {

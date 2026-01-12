@@ -550,4 +550,25 @@ describe('chunkFile', () => {
       expect(contentStr).not.toMatch(/First paragraph after table\.Second/);
     });
   });
+
+  describe('chunkFile error handling', () => {
+    it('throws with file context on parse error', () => {
+      // Malformed content that will cause an error
+      const file: MarkdownFile = {
+        path: 'test/malformed.md',
+        content: null as unknown as string, // Force invalid input
+      };
+
+      expect(() => chunkFile(file)).toThrow('test/malformed.md');
+    });
+
+    it('throws on missing path', () => {
+      const file: MarkdownFile = {
+        path: '',
+        content: '# Test',
+      };
+
+      expect(() => chunkFile(file)).toThrow('file.path is required');
+    });
+  });
 });
