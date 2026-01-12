@@ -8,6 +8,15 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DOCS_PATH =
   process.env.DOCS_PATH ?? resolve(__dirname, '../../../../docs/extension-reference');
+const docsExist = existsSync(DOCS_PATH);
+
+// Log skip reason at module level
+if (!docsExist) {
+  console.warn(
+    `SKIPPING corpus validation: DOCS_PATH not found at ${DOCS_PATH}\n` +
+      `Set DOCS_PATH environment variable to run this test.`
+  );
+}
 
 const MAX_CHUNK_LINES = 150;
 
@@ -23,7 +32,7 @@ function* walkMarkdownFiles(dir: string): Generator<string> {
   }
 }
 
-describe('corpus validation', () => {
+describe.skipIf(!docsExist)('corpus validation', () => {
   it('all chunks within size bounds', () => {
     const stats = {
       totalFiles: 0,
