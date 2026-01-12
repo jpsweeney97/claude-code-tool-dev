@@ -24,11 +24,10 @@ export function chunkFile(file: MarkdownFile): Chunk[] {
   }
 
   try {
-    const { frontmatter, body, warnings } = parseFrontmatter(file.content, file.path);
-
-    if (warnings.length > 0) {
-      console.warn(`[chunker] Warnings for ${file.path}:`, warnings);
-    }
+    const { frontmatter, body } = parseFrontmatter(file.content, file.path);
+    // Warnings are pushed to the deprecated global by parseFrontmatter() for
+    // backward compatibility. The caller (index.ts) handles warning display
+    // via getParseWarnings()/clearParseWarnings().
 
     const metadataHeader = formatMetadataHeader(frontmatter);
     const preparedContent = metadataHeader + body;
