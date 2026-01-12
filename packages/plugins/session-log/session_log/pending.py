@@ -97,9 +97,10 @@ def process_pending_sessions(
         version = data.get("version", 1)
         if version != 1:
             print(
-                f"Warning: Unknown pending file version {version}, skipping",
+                f"Warning: Unknown pending file version {version}, skipping {pending_file.name}",
                 file=sys.stderr,
             )
+            pending_file.unlink(missing_ok=True)
             stats["failed"] += 1
             continue
 
