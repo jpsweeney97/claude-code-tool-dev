@@ -36,6 +36,22 @@ import subprocess
 import sys
 
 MAX_PATH_DISPLAY_LEN = 50
+BYPASS_ENV = "GITFLOW_BYPASS"
+
+
+def check_bypass() -> bool:
+    """Check if bypass is enabled. Returns True if should skip all checks."""
+    bypass = os.environ.get(BYPASS_ENV, "").strip()
+    if bypass == "1":
+        output = {
+            "systemMessage": (
+                f"Warning: GitFlow enforcement bypassed via {BYPASS_ENV}=1\n"
+                "All branch protection checks are disabled for this session."
+            )
+        }
+        print(json.dumps(output))
+        return True
+    return False
 
 
 def get_file_context(tool_input: dict) -> str:
@@ -295,6 +311,10 @@ def main():
 
         # Only check Edit and Write tools
         if tool_name not in ("Edit", "Write"):
+            sys.exit(0)
+
+        # Check bypass FIRST (before any git operations)
+        if check_bypass():
             sys.exit(0)
 
         # Not a git repo - allow (untracked project)

@@ -123,3 +123,29 @@ class TestFrontmatter:
         timeout = int(match.group(1))
         assert timeout <= 60, f"timeout {timeout}s is too long (max 60s reasonable)"
         assert timeout >= 1, f"timeout {timeout}s is too short"
+
+
+class TestBypass:
+    def test_bypass_allows_edit_on_main(self, temp_git_repo, monkeypatch):
+        """GITFLOW_BYPASS=1 should allow edits on protected branches."""
+        monkeypatch.chdir(temp_git_repo)
+        monkeypatch.setenv("GITFLOW_BYPASS", "1")
+        result = run_hook(temp_git_repo)
+        assert result.returncode == 0
+
+    def test_bypass_shows_warning(self, temp_git_repo, monkeypatch):
+        """Bypass should output a warning via systemMessage."""
+        monkeypatch.chdir(temp_git_repo)
+        monkeypatch.setenv("GITFLOW_BYPASS", "1")
+        result = run_hook(temp_git_repo)
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert "Warning" in output.get("systemMessage", "")
+        assert "bypassed" in output.get("systemMessage", "").lower()
+
+    def test_bypass_disabled_by_default(self, temp_git_repo, monkeypatch):
+        """Without GITFLOW_BYPASS, main branch should be blocked."""
+        monkeypatch.chdir(temp_git_repo)
+        monkeypatch.delenv("GITFLOW_BYPASS", raising=False)
+        result = run_hook(temp_git_repo)
+        assert result.returncode == 2
