@@ -24,7 +24,12 @@ export function chunkFile(file: MarkdownFile): Chunk[] {
   }
 
   try {
-    const { frontmatter, body } = parseFrontmatter(file.content, file.path);
+    const { frontmatter, body, warnings } = parseFrontmatter(file.content, file.path);
+
+    if (warnings.length > 0) {
+      console.warn(`[chunker] Warnings for ${file.path}:`, warnings);
+    }
+
     const metadataHeader = formatMetadataHeader(frontmatter);
     const preparedContent = metadataHeader + body;
 

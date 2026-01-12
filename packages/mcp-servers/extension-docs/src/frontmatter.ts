@@ -14,12 +14,21 @@ export interface ParseWarning {
   issue: string;
 }
 
+export interface ParseResult {
+  frontmatter: Frontmatter;
+  body: string;
+  warnings: ParseWarning[];
+}
+
+// Deprecated global state - kept for backward compatibility
 const parseWarnings: ParseWarning[] = [];
 
+/** @deprecated Use warnings returned from parseFrontmatter() */
 export function getParseWarnings(): ParseWarning[] {
   return [...parseWarnings];
 }
 
+/** @deprecated Use warnings returned from parseFrontmatter() */
 export function clearParseWarnings(): void {
   parseWarnings.length = 0;
 }
@@ -32,6 +41,7 @@ function parseStringArrayField(
   value: unknown,
   fieldName: string,
   filePath: string,
+  warnings: ParseWarning[],
 ): string[] | undefined {
   if (value === undefined) {
     return undefined;
@@ -47,7 +57,7 @@ function parseStringArrayField(
       if (typeof item === 'string') {
         result.push(item);
       } else {
-        parseWarnings.push({
+        warnings.push({
           file: filePath,
           issue: `Invalid ${fieldName} item type: expected string, got ${typeof item}`,
         });
@@ -56,7 +66,7 @@ function parseStringArrayField(
     return result.length > 0 ? result : undefined;
   }
 
-  parseWarnings.push({
+  warnings.push({
     file: filePath,
     issue: `Invalid ${fieldName} type: expected string or array, got ${typeof value}`,
   });
@@ -66,11 +76,14 @@ function parseStringArrayField(
 export function parseFrontmatter(
   content: string,
   filePath: string,
-): { frontmatter: Frontmatter; body: string } {
+): ParseResult {
+  // Local warnings array - no global state mutation
+  const warnings: ParseWarning[] = [];
+
   // Normalize line endings to LF for consistent parsing
   const normalized = content.replace(/\r\n/g, '\n');
   const match = normalized.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!match) return { frontmatter: {}, body: normalized };
+  if (!match) return { frontmatter: {}, body: normalized, warnings };
 
   try {
     const yaml = parseYaml(match[1]);
@@ -80,7 +93,7 @@ export function parseFrontmatter(
     if (Array.isArray(yaml.tags)) {
       tags = yaml.tags.filter((t: unknown): t is string => {
         if (typeof t === 'string') return true;
-        parseWarnings.push({
+        warnings.push({
           file: filePath,
           issue: `Non-string tag value ignored: ${typeof t}`,
         });
@@ -89,7 +102,7 @@ export function parseFrontmatter(
     } else if (typeof yaml.tags === 'string') {
       tags = [yaml.tags];
     } else if (yaml.tags !== undefined) {
-      parseWarnings.push({
+      warnings.push({
         file: filePath,
         issue: `Invalid tags type: expected string or array, got ${typeof yaml.tags}`,
       });
@@ -100,7 +113,7 @@ export function parseFrontmatter(
     if (typeof yaml.category === 'string') {
       category = yaml.category;
     } else if (yaml.category !== undefined) {
-      parseWarnings.push({
+      warnings.push({
         file: filePath,
         issue: `Invalid category type: expected string, got ${typeof yaml.category}`,
       });
@@ -111,7 +124,7 @@ export function parseFrontmatter(
     if (typeof yaml.topic === 'string') {
       topic = yaml.topic;
     } else if (yaml.topic !== undefined) {
-      parseWarnings.push({
+      warnings.push({
         file: filePath,
         issue: `Invalid topic type: expected string, got ${typeof yaml.topic}`,
       });
@@ -122,17 +135,20 @@ export function parseFrontmatter(
     if (typeof yaml.id === 'string') {
       id = yaml.id;
     } else if (yaml.id !== undefined) {
-      parseWarnings.push({
+      warnings.push({
         file: filePath,
         issue: `Invalid id type: expected string, got ${typeof yaml.id}`,
       });
     }
 
     // Parse requires (string or array of strings)
-    const requires = parseStringArrayField(yaml.requires, 'requires', filePath);
+    const requires = parseStringArrayField(yaml.requires, 'requires', filePath, warnings);
 
     // Parse related_to (string or array of strings)
-    const related_to = parseStringArrayField(yaml.related_to, 'related_to', filePath);
+    const related_to = parseStringArrayField(yaml.related_to, 'related_to', filePath, warnings);
+
+    // Also push to deprecated global for backward compatibility
+    parseWarnings.push(...warnings);
 
     return {
       frontmatter: {
@@ -144,13 +160,16 @@ export function parseFrontmatter(
         related_to,
       },
       body: match[2],
+      warnings,
     };
   } catch (err) {
-    parseWarnings.push({
+    warnings.push({
       file: filePath,
       issue: `Invalid YAML frontmatter: ${err instanceof Error ? err.message : 'unknown error'}`,
     });
-    return { frontmatter: {}, body: content };
+    // Also push to deprecated global for backward compatibility
+    parseWarnings.push(...warnings);
+    return { frontmatter: {}, body: content, warnings };
   }
 }
 

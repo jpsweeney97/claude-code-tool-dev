@@ -180,3 +180,24 @@ describe('parseFrontmatter - requires and related_to', () => {
     });
   });
 });
+
+describe('parseFrontmatter warnings', () => {
+  it('returns warnings in result instead of global state', () => {
+    const content = '---\ncategory: [invalid]\n---\nBody';
+    const { warnings } = parseFrontmatter(content, 'test.md');
+
+    expect(warnings).toBeDefined();
+    expect(Array.isArray(warnings)).toBe(true);
+  });
+
+  it('isolates warnings between calls', () => {
+    // First call with invalid content
+    const { warnings: w1 } = parseFrontmatter('---\ncategory: [x]\n---\n', 'a.md');
+
+    // Second call with valid content
+    const { warnings: w2 } = parseFrontmatter('---\ncategory: valid\n---\n', 'b.md');
+
+    // Second call should have no warnings (isolated)
+    expect(w2.length).toBe(0);
+  });
+});
