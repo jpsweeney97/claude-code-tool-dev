@@ -269,6 +269,31 @@ def run_git(*args: str) -> tuple[bool, str]:
         return False, ""
 
 
+def resolve_git_dir(git_dir: str) -> str:
+    """
+    Resolve git directory, following gitdir file indirection.
+
+    In linked worktrees and some submodules, .git is a file containing:
+        gitdir: /path/to/actual/.git/worktrees/name
+
+    This function follows that indirection.
+    """
+    git_path = Path(git_dir)
+
+    if git_path.is_file():
+        try:
+            content = git_path.read_text().strip()
+            if content.startswith("gitdir:"):
+                pointed_path = content[7:].strip()
+                if not os.path.isabs(pointed_path):
+                    pointed_path = str(git_path.parent / pointed_path)
+                return os.path.normpath(pointed_path)
+        except Exception:
+            pass
+
+    return git_dir
+
+
 @dataclass
 class GitContext:
     """Cached git repository context."""
@@ -307,7 +332,8 @@ def get_git_context() -> GitContext:
                 git_dir = os.path.abspath(git_dir.strip())
 
     ctx.is_repo = True
-    ctx.git_dir = git_dir.strip()
+    # Follow gitdir file indirection for worktrees/submodules
+    ctx.git_dir = resolve_git_dir(git_dir.strip())
 
     # Call 2: Check for commits and get branch name
     # symbolic-ref fails on detached HEAD or no commits

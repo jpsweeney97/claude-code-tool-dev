@@ -304,6 +304,55 @@ class TestSubdirectoryDetection:
         assert os.path.isdir(ctx.git_dir), f"git_dir should exist: {ctx.git_dir}"
 
 
+class TestWorktreeSupport:
+    def test_gitdir_file_indirection(self, temp_git_repo, tmp_path, monkeypatch):
+        """Operation detection should work in linked worktrees where .git is a file."""
+        # Create a feature branch on the main repo to use in worktree
+        subprocess.run(["git", "checkout", "-b", "feature/test"], cwd=temp_git_repo, capture_output=True, check=True)
+        (temp_git_repo / "file.txt").write_text("feat")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "feat"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        # Create conflicting change on main
+        subprocess.run(["git", "checkout", "main"], cwd=temp_git_repo, capture_output=True, check=True)
+        (temp_git_repo / "file.txt").write_text("main-change")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "main-change"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        # Now create worktree from feature/test branch
+        worktree_path = tmp_path / "worktree"
+        subprocess.run(
+            ["git", "worktree", "add", str(worktree_path), "feature/test"],
+            cwd=temp_git_repo,
+            capture_output=True,
+            check=True
+        )
+
+        # Start rebase that will conflict (but don't resolve it)
+        subprocess.run(["git", "rebase", "main"], cwd=worktree_path, capture_output=True)
+
+        monkeypatch.chdir(worktree_path)
+
+        result = run_hook(worktree_path)
+        assert result.returncode == 2
+        assert "rebase" in result.stderr.lower()
+
+    def test_resolve_gitdir_file(self):
+        """resolve_git_dir should follow gitdir: file indirection."""
+        resolve_git_dir = require_gitflow.resolve_git_dir
+
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            git_file = Path(tmpdir) / ".git"
+            actual_git = Path(tmpdir) / "actual_git_dir"
+            actual_git.mkdir()
+
+            git_file.write_text(f"gitdir: {actual_git}\n")
+
+            resolved = resolve_git_dir(str(git_file))
+            assert resolved == str(actual_git)
+
+
 class TestIntegrationFull:
     """Integration tests to lock behavior before refactoring."""
 
