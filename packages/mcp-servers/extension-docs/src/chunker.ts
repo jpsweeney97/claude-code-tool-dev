@@ -305,6 +305,10 @@ function splitByParagraphOutsideFences(content: string): string[] {
         inTable = false;
 
         // Handle the current non-table line
+        // Blank lines after tables act as paragraph separators. When currentLines is empty
+        // (just exited a table), we intentionally drop the blank line since the table was
+        // already pushed as a separate paragraph - the boundary is preserved by the \n\n
+        // join in accumulateParagraphsWithOverlap().
         if (line.trim() === '' && currentLines.length > 0) {
           paragraphs.push(currentLines.join('\n'));
           currentLines = [];

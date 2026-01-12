@@ -519,5 +519,35 @@ describe('chunkFile', () => {
         expect(chunk.content.length).toBeLessThanOrEqual(MAX_CHUNK_CHARS);
       }
     });
+
+    it('preserves paragraph boundaries after tables', () => {
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title',
+        '## Section',
+        '| A | B |',
+        '|---|---|',
+        '| 1 | 2 |',
+        '', // This blank line should preserve paragraph boundary
+        'First paragraph after table.',
+        '',
+        'Second paragraph.',
+        ...Array(150).fill('padding'),
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/table-para.md', content };
+      const chunks = chunkFile(file);
+
+      // Paragraphs after table should not be merged incorrectly
+      const contentStr = chunks.map((c) => c.content).join('');
+      expect(contentStr).toContain('First paragraph after table.');
+      expect(contentStr).toContain('Second paragraph.');
+
+      // Verify the two paragraphs are NOT on the same line (i.e., separated by blank line or newlines)
+      // If merged incorrectly, they'd appear as "First paragraph after table.Second paragraph."
+      expect(contentStr).not.toMatch(/First paragraph after table\.Second/);
+    });
   });
 });
