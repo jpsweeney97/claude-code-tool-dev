@@ -513,3 +513,28 @@ class TestProtectedBranchUnification:
 
         assert result.returncode == 2
         assert "integration branch" in result.stderr
+
+
+class TestResolveGitDir:
+    """Tests for resolve_git_dir() function."""
+
+    def test_resolve_git_dir_logs_on_read_error(self, monkeypatch, tmp_path):
+        """resolve_git_dir() should log when gitdir file is unreadable."""
+        require_gitflow.DEBUG = True
+        logged_messages = []
+
+        def mock_log(level, message):
+            logged_messages.append((level, message))
+
+        monkeypatch.setattr(require_gitflow, "log", mock_log)
+
+        # Create a gitdir file that will fail to read
+        git_file = tmp_path / ".git"
+        git_file.write_bytes(b"\xff\xfe")  # Invalid UTF-8
+
+        result = require_gitflow.resolve_git_dir(str(git_file))
+
+        # Should return original path on error
+        assert result == str(git_file)
+        # Should have logged
+        assert any("Could not resolve git dir" in msg for _, msg in logged_messages)

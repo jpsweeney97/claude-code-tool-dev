@@ -286,20 +286,22 @@ def resolve_git_dir(git_dir: str) -> str:
     In linked worktrees and some submodules, .git is a file containing:
         gitdir: /path/to/actual/.git/worktrees/name
 
-    This function follows that indirection.
+    This function follows that indirection. On error, returns original path.
     """
     git_path = Path(git_dir)
 
     if git_path.is_file():
         try:
-            content = git_path.read_text().strip()
+            content = git_path.read_text(encoding="utf-8").strip()
             if content.startswith("gitdir:"):
                 pointed_path = content[7:].strip()
                 if not os.path.isabs(pointed_path):
                     pointed_path = str(git_path.parent / pointed_path)
-                return os.path.normpath(pointed_path)
-        except Exception:
-            pass
+                resolved = os.path.normpath(pointed_path)
+                log("DEBUG", f"Resolved gitdir indirection: {git_dir} -> {resolved}")
+                return resolved
+        except (OSError, UnicodeDecodeError) as e:
+            log("DEBUG", f"Could not resolve git dir {git_dir!r}: {e}")
 
     return git_dir
 
