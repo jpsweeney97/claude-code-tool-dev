@@ -11,7 +11,17 @@ from pathlib import Path
 from session_log.queries import list_sessions as db_list_sessions
 from session_log.queries import get_session as db_get_session
 from session_log.search import search_sessions as db_search_sessions
+from session_log.pending import process_pending_sessions
 from security import validate_summary_path
+
+
+_pending_processed = False
+
+
+def _reset_pending_flag():
+    """Reset pending processed flag (for testing only)."""
+    global _pending_processed
+    _pending_processed = False
 
 
 @dataclass
@@ -126,22 +136,32 @@ def handle_get_session(arguments: dict) -> list[ToolResult]:
     # Read the actual markdown content with path validation
     summary_path = session.get("summary_path")
     if not summary_path:
-        return [ToolResult(type="text", text=f"Error: Session {filename} has no summary_path")]
+        return [
+            ToolResult(
+                type="text", text=f"Error: Session {filename} has no summary_path"
+            )
+        ]
 
     validated_path = validate_summary_path(summary_path)
     if not validated_path:
-        return [ToolResult(
-            type="text",
-            text=f"Error: Summary path validation failed for {filename} (path outside allowed directory or does not exist)",
-        )]
+        return [
+            ToolResult(
+                type="text",
+                text=f"Error: Summary path validation failed for {filename} (path outside allowed directory or does not exist)",
+            )
+        ]
 
     try:
         content = Path(validated_path).read_text()
         return [ToolResult(type="text", text=content)]
     except PermissionError:
-        return [ToolResult(type="text", text=f"Error: Permission denied reading {filename}")]
+        return [
+            ToolResult(type="text", text=f"Error: Permission denied reading {filename}")
+        ]
     except UnicodeDecodeError:
-        return [ToolResult(type="text", text=f"Error: File encoding issue for {filename}")]
+        return [
+            ToolResult(type="text", text=f"Error: File encoding issue for {filename}")
+        ]
     except OSError as e:
         return [ToolResult(type="text", text=f"Error reading session file: {e}")]
 
@@ -167,6 +187,27 @@ def handle_search_sessions(
 
 def handle_tool(name: str, arguments: dict) -> list[ToolResult]:
     """Route tool call to appropriate handler."""
+    global _pending_processed
+
+    # Process any pending sessions on first tool call
+    if not _pending_processed:
+        try:
+            stats = process_pending_sessions()
+            if stats.get("processed", 0) > 0:
+                import sys
+
+                print(
+                    f"Processed {stats['processed']} pending sessions "
+                    f"(indexed: {stats.get('indexed', 0)}, "
+                    f"embedded: {stats.get('embedded', 0)})",
+                    file=sys.stderr,
+                )
+        except Exception as e:
+            import sys
+
+            print(f"Warning: Failed to process pending sessions: {e}", file=sys.stderr)
+        _pending_processed = True
+
     if name == "list_sessions":
         return handle_list_sessions(arguments)
     elif name == "get_session":
