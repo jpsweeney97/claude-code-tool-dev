@@ -34,8 +34,10 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 MAX_PATH_DISPLAY_LEN = 50
 BYPASS_ENV = "GITFLOW_BYPASS"
@@ -261,6 +263,49 @@ def run_git(*args: str) -> tuple[bool, str]:
         return result.returncode == 0, result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False, ""
+
+
+@dataclass
+class GitContext:
+    """Cached git repository context."""
+
+    is_repo: bool = False
+    has_commits: bool = False
+    git_dir: Optional[str] = None
+    branch: Optional[str] = None
+    is_detached: bool = False
+
+
+def get_git_context() -> GitContext:
+    """
+    Gather all git context in minimal subprocess calls.
+
+    Reduces 5 subprocess calls to 2-3 by combining checks.
+    """
+    ctx = GitContext()
+
+    # Call 1: Is this a git repo?
+    success, git_dir = run_git("rev-parse", "--git-dir")
+    if not success:
+        return ctx  # Not a git repo
+
+    ctx.is_repo = True
+    ctx.git_dir = git_dir.strip()
+
+    # Call 2: Check for commits and get branch name
+    # symbolic-ref fails on detached HEAD or no commits
+    success, branch = run_git("symbolic-ref", "--short", "HEAD")
+    if success and branch:
+        ctx.branch = branch.strip()
+        ctx.is_detached = False
+        ctx.has_commits = True
+    else:
+        # Could be detached HEAD or no commits - check HEAD exists
+        head_exists, _ = run_git("rev-parse", "--verify", "HEAD")
+        ctx.has_commits = head_exists
+        ctx.is_detached = head_exists  # If HEAD exists but no symbolic-ref, it's detached
+
+    return ctx
 
 
 def is_git_repo() -> bool:

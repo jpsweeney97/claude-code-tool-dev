@@ -169,3 +169,34 @@ class TestDebugLogging:
         result = run_hook(temp_git_repo)
         assert result.returncode == 0
         assert "[GITFLOW]" not in result.stderr
+
+
+class TestGitContext:
+    def test_git_context_dataclass_exists(self):
+        """GitContext dataclass should be defined."""
+        assert hasattr(require_gitflow, "GitContext")
+
+    def test_get_git_context_returns_context(self, temp_git_repo, monkeypatch):
+        """get_git_context should return populated GitContext."""
+        monkeypatch.chdir(temp_git_repo)
+        get_git_context = require_gitflow.get_git_context
+        ctx = get_git_context()
+        assert ctx.is_repo is True
+        assert ctx.has_commits is True
+        assert ctx.branch == "main"
+        assert ctx.is_detached is False
+
+    def test_git_context_on_feature_branch(self, temp_git_repo, monkeypatch):
+        """GitContext should report correct branch name."""
+        monkeypatch.chdir(temp_git_repo)
+        subprocess.run(["git", "checkout", "-b", "feature/test"], cwd=temp_git_repo, capture_output=True)
+        get_git_context = require_gitflow.get_git_context
+        ctx = get_git_context()
+        assert ctx.branch == "feature/test"
+
+    def test_git_context_not_a_repo(self, tmp_path, monkeypatch):
+        """GitContext should report is_repo=False outside git repo."""
+        monkeypatch.chdir(tmp_path)
+        get_git_context = require_gitflow.get_git_context
+        ctx = get_git_context()
+        assert ctx.is_repo is False
