@@ -2,15 +2,15 @@
 name: handoff
 description: Use when user says "wrap this up", "new session", or "handoff"; when stopping work with context to preserve; or when resuming from a previous session.
 metadata:
-  version: 3.0.0
+  version: 4.0.0
   model: claude-opus-4-5-20251101
 ---
 
 # Handoff Skill
 
-Capture session context at stopping points. Resume seamlessly next session.
+Capture session context at stopping points. Resume explicitly with `/resume`.
 
-**Core Promise:** One action to save, zero actions to resume (when recent).
+**Core Promise:** One action to save (`/handoff`), one action to resume (`/resume`).
 
 ## When to Use
 
@@ -209,16 +209,14 @@ Implement JWT-based authentication middleware for the API.
 
 ## Resuming from Handoff
 
-### Automatic (SessionStart Hook)
+Handoffs require **explicit resume** — they are not auto-injected or suggested at session start. This prevents stale handoffs from cluttering unrelated sessions.
 
-The `read.py` script runs automatically at session start:
+### Background Cleanup (SessionStart Hook)
 
-1. Finds latest handoff for current project in `~/.claude/handoffs/<project>/`
-2. Prunes handoffs older than 30 days
-3. Outputs based on recency:
-   - **<24h:** Auto-inject content with `[Resuming: <title>]`
-   - **>24h:** Prompt `[Found handoff from <date>: <title>. Resume from this?]`
-   - **None:** Silent (no output)
+The `read.py` script runs silently at session start:
+
+1. Prunes handoffs older than 30 days
+2. Produces no output (no auto-inject, no prompts)
 
 ### Manual (`/resume`)
 
@@ -226,8 +224,9 @@ When user runs `/resume [path]`:
 
 1. If path provided: read that specific handoff
 2. If no path: use Glob to find latest in `~/.claude/handoffs/<project>/`
-3. Read the handoff content
+3. Read and display the handoff content
 4. Summarize key points and offer: "Continue with [next step]?"
+5. **Delete the handoff file** after displaying (handoffs are single-use)
 
 ### Listing (`/list-handoffs`)
 

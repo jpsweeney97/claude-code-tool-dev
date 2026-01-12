@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
-"""Tests for read.py - handoff skill read script."""
+"""Tests for read.py - handoff skill SessionStart hook script.
 
+The script now only prunes old handoffs silently. It does NOT auto-inject
+or prompt for handoffs. Users must explicitly run /resume.
+"""
+
+import os
 import subprocess
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,7 +17,6 @@ class TestGetProjectName:
 
     def test_git_repo_uses_repo_name(self, tmp_path: Path, monkeypatch):
         """In a git repo, project name is the repo directory name."""
-        # Create a git repo
         repo = tmp_path / "my-cool-project"
         repo.mkdir()
         subprocess.run(["git", "init"], cwd=repo, capture_output=True)
@@ -24,30 +29,28 @@ class TestGetProjectName:
 
     def test_non_git_uses_cwd_name(self, tmp_path: Path, monkeypatch):
         """Without git, project name is the current directory name."""
+        import importlib
+
         non_git = tmp_path / "some-directory"
         non_git.mkdir()
 
         monkeypatch.chdir(non_git)
 
-        # Need fresh import after changing directory
-        import importlib
-
         import read
 
         importlib.reload(read)
 
-        # Mock git failing to simulate non-git directory
         with patch("read.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 1
             assert read.get_project_name() == "some-directory"
 
     def test_git_timeout_falls_back_to_cwd(self, tmp_path: Path, monkeypatch):
         """If git times out, fall back to current directory name."""
+        import importlib
+
         non_git = tmp_path / "timeout-test"
         non_git.mkdir()
         monkeypatch.chdir(non_git)
-
-        import importlib
 
         import read
 
@@ -59,11 +62,11 @@ class TestGetProjectName:
 
     def test_git_not_found_falls_back_to_cwd(self, tmp_path: Path, monkeypatch):
         """If git is not installed, fall back to current directory name."""
+        import importlib
+
         non_git = tmp_path / "no-git-test"
         non_git.mkdir()
         monkeypatch.chdir(non_git)
-
-        import importlib
 
         import read
 
@@ -86,53 +89,11 @@ class TestGetHandoffsDir:
             assert get_handoffs_dir() == expected
 
 
-class TestFindLatestHandoff:
-    """Test finding most recent handoff file."""
-
-    def test_returns_most_recent_by_mtime(self, tmp_path: Path):
-        """Finds handoff with newest modification time."""
-        handoffs_dir = tmp_path / "handoffs"
-        handoffs_dir.mkdir(parents=True)
-
-        # Create older file
-        old = handoffs_dir / "2026-01-01_10-00_old.md"
-        old.write_text("old content")
-
-        # Create newer file (touch to ensure newer mtime)
-        import time
-
-        time.sleep(0.01)
-        new = handoffs_dir / "2026-01-08_14-30_new.md"
-        new.write_text("new content")
-
-        from read import find_latest_handoff
-
-        assert find_latest_handoff(handoffs_dir) == new
-
-    def test_returns_none_when_no_handoffs(self, tmp_path: Path):
-        """Returns None when directory is empty."""
-        handoffs_dir = tmp_path / "handoffs"
-        handoffs_dir.mkdir(parents=True)
-
-        from read import find_latest_handoff
-
-        assert find_latest_handoff(handoffs_dir) is None
-
-    def test_returns_none_when_dir_missing(self, tmp_path: Path):
-        """Returns None when directory doesn't exist."""
-        from read import find_latest_handoff
-
-        assert find_latest_handoff(tmp_path / "nonexistent") is None
-
-
 class TestPruneOldHandoffs:
     """Test 30-day retention pruning."""
 
     def test_deletes_files_older_than_30_days(self, tmp_path: Path):
         """Files older than 30 days are deleted."""
-        import os
-        import time
-
         handoffs_dir = tmp_path / "handoffs"
         handoffs_dir.mkdir(parents=True)
 
@@ -176,216 +137,41 @@ class TestPruneOldHandoffs:
         deleted = prune_old_handoffs(tmp_path / "nonexistent", max_age_days=30)
         assert deleted == []
 
-
-class TestCheckRecency:
-    """Test 24-hour recency threshold."""
-
-    def test_recent_under_24h(self, tmp_path: Path):
-        """File under 24h old is 'recent'."""
-        handoff = tmp_path / "handoff.md"
-        handoff.write_text("content")
-        # File is just created, so definitely under 24h
-
-        from read import is_recent
-
-        assert is_recent(handoff, hours=24) is True
-
-    def test_old_over_24h(self, tmp_path: Path):
-        """File over 24h old is not 'recent'."""
-        import os
-        import time
-
-        handoff = tmp_path / "handoff.md"
-        handoff.write_text("content")
-
-        # Set mtime to 25 hours ago
-        old_time = time.time() - (25 * 60 * 60)
-        os.utime(handoff, (old_time, old_time))
-
-        from read import is_recent
-
-        assert is_recent(handoff, hours=24) is False
-
-
-class TestExtractTitle:
-    """Test extracting title from handoff frontmatter and content."""
-
-    def test_extracts_from_frontmatter(self):
-        """Extracts title from YAML frontmatter."""
-        content = """---
-date: 2026-01-08
-title: Auth middleware implementation
----
-
-# Handoff: Auth middleware implementation
-"""
-        from read import extract_title
-
-        assert extract_title(content) == "Auth middleware implementation"
-
-    def test_falls_back_to_heading(self):
-        """Falls back to H1 heading if no frontmatter title."""
-        content = """---
-date: 2026-01-08
----
-
-# Handoff: JWT token refresh
-"""
-        from read import extract_title
-
-        assert extract_title(content) == "JWT token refresh"
-
-    def test_returns_untitled_when_missing(self):
-        """Returns 'Untitled' when no title found."""
-        content = "Just some content"
-        from read import extract_title
-
-        assert extract_title(content) == "Untitled"
-
-    def test_extracts_title_with_colon(self):
-        """Handles title containing colons."""
-        content = """---
-date: 2026-01-08
-title: Auth: JWT Implementation: Phase 1
----
-
-# Handoff: Auth: JWT Implementation: Phase 1
-"""
-        from read import extract_title
-
-        # Should get everything after first "title:"
-        assert extract_title(content) == "Auth: JWT Implementation: Phase 1"
-
-    def test_extracts_quoted_title(self):
-        """Handles quoted title in frontmatter."""
-        content = '''---
-date: 2026-01-08
-title: "Feature: Add logging"
----
-
-# Handoff
-'''
-        from read import extract_title
-
-        assert extract_title(content) == "Feature: Add logging"
-
-    def test_handles_malformed_frontmatter(self):
-        """Handles frontmatter without closing ---."""
-        content = """---
-date: 2026-01-08
-title: Incomplete frontmatter
-
-# Handoff: Fallback Title
-"""
-        from read import extract_title
-
-        # Falls back to heading since frontmatter is malformed
-        assert extract_title(content) == "Fallback Title"
-
-
-class TestFormatOutput:
-    """Test the three output modes based on recency."""
-
-    def test_recent_auto_injects_content(self, tmp_path: Path):
-        """<24h: outputs [Resuming: title] with content."""
-        handoff = tmp_path / "handoff.md"
-        handoff.write_text("""---
-title: Auth middleware
----
-
-# Handoff: Auth middleware
-
-## Goal
-Implement JWT authentication.
-
-## Next Steps
-1. Add refresh endpoint
-""")
-
-        from read import format_output
-
-        output = format_output(handoff, is_recent=True)
-
-        assert output.startswith("[Resuming: Auth middleware]")
-        assert "Implement JWT authentication" in output
-
-    def test_old_prompts_for_resume(self, tmp_path: Path):
-        """>24h: outputs prompt asking whether to resume."""
-        handoff = tmp_path / "2026-01-05_10-00_old-work.md"
-        handoff.write_text("""---
-title: Database migration
-date: 2026-01-05
----
-
-# Handoff: Database migration
-""")
-
-        from read import format_output
-
-        output = format_output(handoff, is_recent=False)
-
-        assert "[Found handoff from" in output
-        assert "Database migration" in output
-        assert "Resume from this?]" in output
-
-
-class TestMain:
-    """Test CLI entry point."""
-
-    def test_outputs_recent_handoff(self, tmp_path: Path, monkeypatch):
-        """Outputs auto-injected content for recent handoff."""
-        import sys
-        from io import StringIO
-
-        # Create handoffs directory structure
-        handoffs_dir = tmp_path / ".claude" / "handoffs" / "test-project"
+    def test_boundary_file_just_under_30_days(self, tmp_path: Path):
+        """File just under 30 days should NOT be deleted."""
+        handoffs_dir = tmp_path / "handoffs"
         handoffs_dir.mkdir(parents=True)
 
-        handoff = handoffs_dir / "2026-01-08_14-30_test.md"
-        handoff.write_text("""---
-title: Test handoff
----
+        boundary = handoffs_dir / "2025-12-09_10-00_boundary.md"
+        boundary.write_text("just under 30 days old")
+        # 30 days minus 1 minute = safely under the boundary
+        boundary_time = time.time() - (30 * 24 * 60 * 60) + 60
+        os.utime(boundary, (boundary_time, boundary_time))
 
-# Handoff: Test handoff
+        from read import prune_old_handoffs
 
-## Goal
-Test goal content.
-""")
+        deleted = prune_old_handoffs(handoffs_dir, max_age_days=30)
 
-        # Mock get_handoffs_dir to return our test directory
-        monkeypatch.setattr("read.get_handoffs_dir", lambda: handoffs_dir)
+        assert deleted == []
+        assert boundary.exists()
 
-        # Capture stdout
-        captured = StringIO()
-        monkeypatch.setattr(sys, "stdout", captured)
+    def test_boundary_file_just_over_30_days(self, tmp_path: Path):
+        """File just over 30 days should be deleted."""
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir(parents=True)
 
-        from read import main
+        boundary = handoffs_dir / "2025-12-09_10-00_boundary.md"
+        boundary.write_text("just over 30 days old")
+        # 30 days plus 1 minute = safely over the boundary
+        boundary_time = time.time() - (30 * 24 * 60 * 60) - 60
+        os.utime(boundary, (boundary_time, boundary_time))
 
-        exit_code = main()
+        from read import prune_old_handoffs
 
-        output = captured.getvalue()
-        assert "[Resuming: Test handoff]" in output
-        assert exit_code == 0
+        deleted = prune_old_handoffs(handoffs_dir, max_age_days=30)
 
-    def test_silent_exit_when_no_handoff(self, tmp_path: Path, monkeypatch):
-        """Exits silently with exit code 0 when no handoff found."""
-        import sys
-        from io import StringIO
-
-        empty_dir = tmp_path / "empty"
-        empty_dir.mkdir(parents=True)
-
-        monkeypatch.setattr("read.get_handoffs_dir", lambda: empty_dir)
-
-        captured = StringIO()
-        monkeypatch.setattr(sys, "stdout", captured)
-
-        from read import main
-
-        exit_code = main()
-
-        assert captured.getvalue() == ""
-        assert exit_code == 0  # No handoff is a valid state, not an error
+        assert len(deleted) == 1
+        assert not boundary.exists()
 
 
 class TestPruneOldHandoffsRobustness:
@@ -393,13 +179,9 @@ class TestPruneOldHandoffsRobustness:
 
     def test_handles_file_deleted_between_stat_and_unlink(self, tmp_path: Path):
         """Race condition: file deleted after stat, before unlink."""
-        import os
-        import time
-
         handoffs_dir = tmp_path / "handoffs"
         handoffs_dir.mkdir(parents=True)
 
-        # Create old file
         old = handoffs_dir / "2025-12-01_10-00_race.md"
         old.write_text("content")
         old_time = time.time() - (31 * 24 * 60 * 60)
@@ -407,19 +189,12 @@ class TestPruneOldHandoffsRobustness:
 
         from read import prune_old_handoffs
 
-        # File should be pruned without error even if missing_ok handles deletion
         prune_old_handoffs(handoffs_dir, max_age_days=30)
 
-        # Should complete without raising, file should be gone
         assert not old.exists()
 
-    def test_handles_permission_error_on_unlink(self, tmp_path: Path, monkeypatch):
-        """Permission error logs warning, continues."""
-        import os
-        import sys
-        import time
-        from io import StringIO
-
+    def test_handles_permission_error_silently(self, tmp_path: Path, monkeypatch):
+        """Permission error is silently ignored, continues with other files."""
         handoffs_dir = tmp_path / "handoffs"
         handoffs_dir.mkdir(parents=True)
 
@@ -443,240 +218,93 @@ class TestPruneOldHandoffsRobustness:
 
         monkeypatch.setattr(Path, "unlink", mock_unlink)
 
-        # Capture stderr for warning
-        stderr_capture = StringIO()
-        monkeypatch.setattr(sys, "stderr", stderr_capture)
-
         from read import prune_old_handoffs
 
         # Should complete without raising
         prune_old_handoffs(handoffs_dir, max_age_days=30)
 
-        # Second file should be deleted, first should still exist
-        assert old1.exists()  # Permission error prevented deletion
-        assert not old2.exists()  # Successfully deleted
-        assert "Warning" in stderr_capture.getvalue()
-        assert "first.md" in stderr_capture.getvalue()
+        # First file should still exist (permission error), second should be deleted
+        assert old1.exists()
+        assert not old2.exists()
 
 
-class TestFindLatestHandoffRobustness:
-    """Test permission error handling in find_latest_handoff."""
+class TestMain:
+    """Test CLI entry point."""
 
-    def test_handles_stat_permission_error(self, tmp_path: Path, monkeypatch):
-        """Permission error on stat skips file, doesn't crash."""
-        import time
-
-        handoffs_dir = tmp_path / "handoffs"
-        handoffs_dir.mkdir(parents=True)
-
-        # Create two files
-        unreadable = handoffs_dir / "2026-01-01_10-00_unreadable.md"
-        unreadable.write_text("unreadable content")
-
-        time.sleep(0.01)
-        readable = handoffs_dir / "2026-01-02_10-00_readable.md"
-        readable.write_text("readable content")
-
-        # Mock stat to raise on first file (must accept follow_symlinks kwarg)
-        original_stat = Path.stat
-
-        def mock_stat(self, *, follow_symlinks=True):
-            if self.name == "2026-01-01_10-00_unreadable.md":
-                raise PermissionError("Access denied")
-            return original_stat(self, follow_symlinks=follow_symlinks)
-
-        monkeypatch.setattr(Path, "stat", mock_stat)
-
-        from read import find_latest_handoff
-
-        # Should return the readable file, not crash
-        result = find_latest_handoff(handoffs_dir)
-        assert result == readable
-
-
-class TestFormatOutputRobustness:
-    """Test file read error handling in format_output."""
-
-    def test_handles_unreadable_file(self, tmp_path: Path, monkeypatch):
-        """Returns error message, doesn't crash."""
-        handoff = tmp_path / "unreadable.md"
-        handoff.write_text("content")
-
-        # Mock read_text to raise
-        original_read_text = Path.read_text
-
-        def mock_read_text(self, *args, **kwargs):
-            if self.name == "unreadable.md":
-                raise PermissionError("Access denied")
-            return original_read_text(self, *args, **kwargs)
-
-        monkeypatch.setattr(Path, "read_text", mock_read_text)
-
-        from read import format_output
-
-        result = format_output(handoff, is_recent=True)
-        assert "[Error reading handoff:" in result
-        assert "Access denied" in result
-
-
-class TestExtractDateRobustness:
-    """Test mtime fallback when filename is unparseable."""
-
-    def test_fallback_to_mtime_when_filename_unparseable(self, tmp_path: Path):
-        """Uses mtime when no date in filename."""
-        from datetime import datetime
-
-        handoff = tmp_path / "random-name-no-date.md"
-        handoff.write_text("content")
-
-        from read import extract_date
-
-        result = extract_date(handoff)
-
-        # Should return today's date (file was just created)
-        expected = datetime.now().strftime("%Y-%m-%d")
-        assert result == expected
-
-
-class TestGetProjectNameRobustness:
-    """Test timeout warning in get_project_name."""
-
-    def test_git_timeout_logs_warning(self, tmp_path: Path, monkeypatch):
-        """Logs to stderr on timeout."""
+    def test_silent_exit_with_handoffs(self, tmp_path: Path, monkeypatch):
+        """Exits silently even when handoffs exist (no output, no prompts)."""
         import sys
         from io import StringIO
 
-        non_git = tmp_path / "timeout-warning-test"
-        non_git.mkdir()
-        monkeypatch.chdir(non_git)
-
-        import importlib
-
-        import read
-
-        importlib.reload(read)
-
-        # Capture stderr
-        stderr_capture = StringIO()
-        monkeypatch.setattr(sys, "stderr", stderr_capture)
-
-        with patch("read.subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=5)
-            result = read.get_project_name()
-
-        assert result == "timeout-warning-test"
-        assert "Warning" in stderr_capture.getvalue()
-        assert "timed out" in stderr_capture.getvalue()
-
-
-class TestPruneOldHandoffsBoundary:
-    """Test 30-day boundary precision."""
-
-    def test_boundary_file_just_under_30_days(self, tmp_path: Path):
-        """File just under 30 days should NOT be deleted."""
-        import os
-        import time
-
-        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir = tmp_path / ".claude" / "handoffs" / "test-project"
         handoffs_dir.mkdir(parents=True)
 
-        # Create file at 29 days, 23 hours, 59 minutes old (just under 30 days)
-        boundary = handoffs_dir / "2025-12-09_10-00_boundary.md"
-        boundary.write_text("just under 30 days old")
-        # 30 days minus 1 minute = safely under the boundary
-        boundary_time = time.time() - (30 * 24 * 60 * 60) + 60
-        os.utime(boundary, (boundary_time, boundary_time))
+        handoff = handoffs_dir / "2026-01-08_14-30_test.md"
+        handoff.write_text("""---
+title: Test handoff
+---
 
-        from read import prune_old_handoffs
+# Handoff: Test handoff
+""")
 
-        deleted = prune_old_handoffs(handoffs_dir, max_age_days=30)
+        monkeypatch.setattr("read.get_handoffs_dir", lambda: handoffs_dir)
 
-        # File just under 30 days should be KEPT
-        assert deleted == []
-        assert boundary.exists()
+        captured = StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
 
-    def test_boundary_file_just_over_30_days(self, tmp_path: Path):
-        """File just over 30 days should be deleted."""
-        import os
-        import time
+        from read import main
 
-        handoffs_dir = tmp_path / "handoffs"
+        exit_code = main()
+
+        # Should produce NO output - explicit resume only
+        assert captured.getvalue() == ""
+        assert exit_code == 0
+
+    def test_silent_exit_when_no_handoff(self, tmp_path: Path, monkeypatch):
+        """Exits silently with exit code 0 when no handoff found."""
+        import sys
+        from io import StringIO
+
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir(parents=True)
+
+        monkeypatch.setattr("read.get_handoffs_dir", lambda: empty_dir)
+
+        captured = StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
+
+        from read import main
+
+        exit_code = main()
+
+        assert captured.getvalue() == ""
+        assert exit_code == 0
+
+    def test_prunes_old_handoffs_silently(self, tmp_path: Path, monkeypatch):
+        """Prunes old handoffs without any output."""
+        import sys
+        from io import StringIO
+
+        handoffs_dir = tmp_path / ".claude" / "handoffs" / "test-project"
         handoffs_dir.mkdir(parents=True)
 
-        # Create file at 30 days + 1 minute old (just over 30 days)
-        boundary = handoffs_dir / "2025-12-09_10-00_boundary.md"
-        boundary.write_text("just over 30 days old")
-        # 30 days plus 1 minute = safely over the boundary
-        boundary_time = time.time() - (30 * 24 * 60 * 60) - 60
-        os.utime(boundary, (boundary_time, boundary_time))
+        # Create old file
+        old = handoffs_dir / "2025-12-01_10-00_old.md"
+        old.write_text("old content")
+        old_time = time.time() - (31 * 24 * 60 * 60)
+        os.utime(old, (old_time, old_time))
 
-        from read import prune_old_handoffs
+        monkeypatch.setattr("read.get_handoffs_dir", lambda: handoffs_dir)
 
-        deleted = prune_old_handoffs(handoffs_dir, max_age_days=30)
+        captured = StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
 
-        # File just over 30 days should be DELETED
-        assert len(deleted) == 1
-        assert not boundary.exists()
+        from read import main
 
+        exit_code = main()
 
-class TestIsRecentErrorHandling:
-    """Test error handling in is_recent function."""
-
-    def test_is_recent_handles_stat_error(self, tmp_path: Path, monkeypatch):
-        """stat() error in is_recent should return False (conservative default)."""
-        handoff = tmp_path / "handoff.md"
-        handoff.write_text("content")
-
-        # Mock stat to raise OSError
-        original_stat = Path.stat
-
-        def mock_stat(self, *, follow_symlinks=True):
-            if self.name == "handoff.md":
-                raise OSError("Permission denied")
-            return original_stat(self, follow_symlinks=follow_symlinks)
-
-        monkeypatch.setattr(Path, "stat", mock_stat)
-
-        from read import is_recent
-
-        # Should return False (conservative default), not crash
-        result = is_recent(handoff, hours=24)
-        assert result is False
-
-
-class TestExtractDateErrorHandling:
-    """Test error handling in extract_date mtime fallback."""
-
-    def test_extract_date_handles_stat_error(self, tmp_path: Path, monkeypatch):
-        """stat() error in mtime fallback should return 'unknown'."""
-        # Create file with non-date filename (forces mtime fallback)
-        handoff = tmp_path / "random-name-no-date.md"
-        handoff.write_text("content")
-
-        # Mock stat to raise OSError
-        original_stat = Path.stat
-
-        def mock_stat(self, *, follow_symlinks=True):
-            if self.name == "random-name-no-date.md":
-                raise OSError("Permission denied")
-            return original_stat(self, follow_symlinks=follow_symlinks)
-
-        monkeypatch.setattr(Path, "stat", mock_stat)
-
-        from read import extract_date
-
-        # Should return "unknown", not crash
-        result = extract_date(handoff)
-        assert result == "unknown"
-
-    def test_extract_date_uses_filename_when_parseable(self, tmp_path: Path):
-        """Date from filename takes precedence, stat not called."""
-        # Create file with parseable date in filename
-        handoff = tmp_path / "2026-01-08_14-30_test.md"
-        handoff.write_text("content")
-
-        from read import extract_date
-
-        # Should extract from filename without needing stat
-        result = extract_date(handoff)
-        assert result == "2026-01-08"
+        # Should produce no output
+        assert captured.getvalue() == ""
+        assert exit_code == 0
+        # Old file should be pruned
+        assert not old.exists()

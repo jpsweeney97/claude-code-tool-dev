@@ -6,7 +6,11 @@ old-repos/
 
 # Local settings
 CLAUDE.local.md
-.claude/settings.local.json
+**/settings.local.json
+
+# Session data (ephemeral)
+.claude/sessions/
+**/.claude/sessions/
 
 # Ephemeral
 tmp/
