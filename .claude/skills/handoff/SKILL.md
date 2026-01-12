@@ -47,7 +47,6 @@ Capture session context at stopping points. Resume seamlessly next session.
 | Assumption | Required? | Fallback |
 |------------|-----------|----------|
 | Git repository | No | Omit `branch` and `commit` fields from frontmatter |
-| `CLAUDE_SESSION_ID` env var | No | Use `session_id: unknown` |
 | Write access to `~/.claude/handoffs/` | Yes | **STOP** and ask for alternative path |
 | Project name determinable | No | Use parent directory name; if ambiguous, ask user |
 
@@ -57,7 +56,7 @@ Capture session context at stopping points. Resume seamlessly next session.
 
 **Artifacts:**
 - Markdown file at `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
-- Frontmatter with session metadata (date, time, session_id, project, title, files)
+- Frontmatter with session metadata (date, time, created_at, project, title, files)
 - Body with relevant sections from checklist (only non-empty sections included)
 
 **Definition of Done:**
@@ -66,7 +65,7 @@ Capture session context at stopping points. Resume seamlessly next session.
 |-------|----------|
 | File exists at expected path | `ls ~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_*.md` returns file |
 | Frontmatter parses as valid YAML | No YAML syntax errors |
-| Required fields present | `date`, `time`, `session_id`, `project`, `title` all have values |
+| Required fields present | `date`, `time`, `created_at`, `project`, `title` all have values |
 | At least one body section | File contains at least one H2 section with content |
 | Content is resumable | Reading the handoff provides enough context to continue work |
 
@@ -96,9 +95,9 @@ Capture session context at stopping points. Resume seamlessly next session.
    - If `.git/` directory exists in current or parent directories, then include `branch` and `commit` in frontmatter.
    - Otherwise, omit `branch` and `commit` fields entirely (don't use placeholders).
 
-4. **Environment variable availability:**
-   - If `CLAUDE_SESSION_ID` is set, use it for `session_id`.
-   - Otherwise, use `session_id: unknown`.
+4. **Timestamp generation:**
+   - Generate `created_at` as ISO 8601 UTC timestamp (e.g., `2026-01-12T14:30:00Z`)
+   - Use the current time when the handoff is created
 
 5. **Write permission check:**
    - If `~/.claude/handoffs/<project>/` is writable (or can be created), write handoff there.
@@ -138,7 +137,7 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
 ---
 date: 2026-01-08
 time: "14:30"
-session_id: <from CLAUDE_SESSION_ID env var, or "unknown">
+created_at: "<ISO 8601 UTC timestamp, e.g., 2026-01-08T14:30:00Z>"
 project: <git root name or directory name>
 branch: <current branch if git, omit if not git>
 commit: <short commit hash if git, omit if not git>
@@ -176,7 +175,7 @@ Include only sections relevant to the session. Empty sections are omitted.
 ---
 date: 2026-01-08
 time: "14:30"
-session_id: fa613a83-7477-4b28-afcd-6759e1d564c9
+created_at: "2026-01-08T14:30:00Z"
 project: my-app
 branch: feat/auth-middleware
 commit: 8709e5d
@@ -252,7 +251,7 @@ After creating handoff, verify:
 
 - [ ] File exists at `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
 - [ ] Frontmatter parses as valid YAML
-- [ ] Required fields present: date, time, session_id, project, title
+- [ ] Required fields present: date, time, created_at, project, title
 - [ ] At least one section has content
 
 **Quick check:** Run `ls ~/.claude/handoffs/<project>/` and confirm new file appears. If not, check write permissions.

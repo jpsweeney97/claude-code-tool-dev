@@ -36,7 +36,7 @@ export function parseFrontmatter(
     // Parse tags with strict type checking
     let tags: string[] = [];
     if (Array.isArray(yaml.tags)) {
-      tags = yaml.tags.filter((t): t is string => {
+      tags = yaml.tags.filter((t: unknown): t is string => {
         if (typeof t === 'string') return true;
         parseWarnings.push({
           file: filePath,
