@@ -219,26 +219,123 @@ function splitByHeadingOutsideFences(
 }
 
 /**
- * Split content at paragraph boundaries (blank lines) while respecting code fences.
+ * Check if a line is a table row (starts with |, ignoring leading whitespace).
+ */
+function isTableLine(line: string): boolean {
+  return line.trimStart().startsWith('|');
+}
+
+/**
+ * Split an oversized table at row boundaries, preserving headers in each chunk.
+ * Returns array of table fragment strings, each starting with header+separator.
+ */
+function splitOversizedTable(tableLines: string[]): string[] {
+  if (tableLines.length < 3) {
+    // Not enough lines for header + separator + data
+    return [tableLines.join('\n')];
+  }
+
+  const headerLines = tableLines.slice(0, 2); // header + separator
+  const dataRows = tableLines.slice(2);
+  const result: string[] = [];
+
+  let currentChunk = [...headerLines];
+  for (const row of dataRows) {
+    const projected = [...currentChunk, row].join('\n');
+
+    if (projected.length > MAX_CHUNK_CHARS && currentChunk.length > 2) {
+      // Current chunk is full, save it
+      result.push(currentChunk.join('\n'));
+      currentChunk = [...headerLines, row]; // Start new chunk with header
+    } else {
+      currentChunk.push(row);
+    }
+  }
+
+  // Save remaining rows
+  if (currentChunk.length > 2) {
+    result.push(currentChunk.join('\n'));
+  }
+
+  return result;
+}
+
+/**
+ * Split content at paragraph boundaries (blank lines) while respecting code fences
+ * and keeping tables as atomic units (or splitting them with header preservation).
  */
 function splitByParagraphOutsideFences(content: string): string[] {
   const lines = content.split('\n');
   const fence = new FenceTracker();
   const paragraphs: string[] = [];
   let currentLines: string[] = [];
+  let inTable = false;
+  let tableLines: string[] = [];
 
   for (const line of lines) {
     const inFence = fence.processLine(line);
 
-    if (!inFence && line.trim() === '' && currentLines.length > 0) {
-      paragraphs.push(currentLines.join('\n'));
-      currentLines = [];
+    if (!inFence) {
+      const isTable = isTableLine(line);
+
+      if (isTable && !inTable) {
+        // Starting a new table - save any accumulated content first
+        if (currentLines.length > 0) {
+          paragraphs.push(currentLines.join('\n'));
+          currentLines = [];
+        }
+        inTable = true;
+        tableLines = [line];
+      } else if (isTable && inTable) {
+        // Continuing a table
+        tableLines.push(line);
+      } else if (!isTable && inTable) {
+        // Exiting a table
+        // Check if table is oversized and needs splitting
+        const tableContent = tableLines.join('\n');
+        if (tableContent.length > MAX_CHUNK_CHARS && tableLines.length > 2) {
+          // Split oversized table with header preservation
+          const tableParts = splitOversizedTable(tableLines);
+          paragraphs.push(...tableParts);
+        } else {
+          // Table fits, keep it atomic
+          paragraphs.push(tableContent);
+        }
+        tableLines = [];
+        inTable = false;
+
+        // Handle the current non-table line
+        if (line.trim() === '' && currentLines.length > 0) {
+          paragraphs.push(currentLines.join('\n'));
+          currentLines = [];
+        } else if (line.trim() !== '') {
+          currentLines.push(line);
+        }
+      } else {
+        // Normal paragraph handling
+        if (line.trim() === '' && currentLines.length > 0) {
+          paragraphs.push(currentLines.join('\n'));
+          currentLines = [];
+        } else {
+          currentLines.push(line);
+        }
+      }
     } else {
+      // Inside a fence - just accumulate
       currentLines.push(line);
     }
   }
 
-  // Save final paragraph
+  // Handle any remaining content
+  if (inTable && tableLines.length > 0) {
+    const tableContent = tableLines.join('\n');
+    if (tableContent.length > MAX_CHUNK_CHARS && tableLines.length > 2) {
+      const tableParts = splitOversizedTable(tableLines);
+      paragraphs.push(...tableParts);
+    } else {
+      paragraphs.push(tableContent);
+    }
+  }
   if (currentLines.length > 0) {
     paragraphs.push(currentLines.join('\n'));
   }

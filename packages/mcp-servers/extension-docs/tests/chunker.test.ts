@@ -403,4 +403,121 @@ describe('chunkFile', () => {
       }
     });
   });
+
+  describe('table-aware splitting', () => {
+    it('keeps small tables atomic', () => {
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title',
+        '## Small Table',
+        '| A | B |',
+        '|---|---|',
+        '| 1 | 2 |',
+        '| 3 | 4 |',
+        '',
+        'Paragraph after table.',
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/small-table.md', content };
+      const chunks = chunkFile(file);
+
+      // Small file should be one chunk
+      expect(chunks.length).toBe(1);
+      // Table should be intact (all rows present)
+      expect(chunks[0].content).toContain('| 1 | 2 |');
+      expect(chunks[0].content).toContain('| 3 | 4 |');
+    });
+
+    it('does not treat pipe-lines inside code fence as table', () => {
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title',
+        '## Code Example',
+        '```bash',
+        'echo "| Not | A | Table |"',
+        'cat file | grep pattern | head',
+        '```',
+        '',
+        'Paragraph after code.',
+        ...Array(150).fill('padding'),
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/fence-pipe.md', content };
+      const chunks = chunkFile(file);
+
+      // Code block should stay intact
+      const codeChunk = chunks.find((c) => c.content.includes('```bash'));
+      expect(codeChunk?.content).toContain('echo "| Not | A | Table |"');
+      expect(codeChunk?.content).toContain('cat file | grep pattern | head');
+    });
+
+    it('handles tables mixed with paragraphs', () => {
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title',
+        '## Mixed Content',
+        'Paragraph before table.',
+        '',
+        '| Col1 | Col2 |',
+        '|------|------|',
+        '| a    | b    |',
+        '',
+        'Paragraph after table.',
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/mixed.md', content };
+      const chunks = chunkFile(file);
+
+      // Content should preserve table integrity
+      const contentStr = chunks.map((c) => c.content).join('');
+      expect(contentStr).toContain('| Col1 | Col2 |');
+      expect(contentStr).toContain('| a    | b    |');
+    });
+
+    it('splits oversized tables at row boundaries with header preservation', () => {
+      // Create a table that exceeds MAX_CHUNK_CHARS (8000)
+      // Each row is ~34 chars, so 250 rows = ~8500 chars for the table alone
+      const header = '| Column A | Column B | Column C |';
+      const separator = '|----------|----------|----------|';
+      const row = '| data-a   | data-b   | data-c   |';
+      const tableRows = Array(250).fill(row).join('\n'); // ~8500+ chars
+
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title',
+        '## Table Section',
+        header,
+        separator,
+        tableRows,
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/big-table.md', content };
+      const chunks = chunkFile(file);
+
+      // Should produce multiple chunks due to oversized table
+      expect(chunks.length).toBeGreaterThan(1);
+
+      // Each chunk with table data should have the header
+      for (const chunk of chunks) {
+        if (chunk.content.includes('data-a')) {
+          // Table chunks should have header
+          expect(chunk.content).toContain(header);
+          expect(chunk.content).toContain(separator);
+        }
+      }
+
+      // Each chunk within size limit
+      for (const chunk of chunks) {
+        expect(chunk.content.length).toBeLessThanOrEqual(MAX_CHUNK_CHARS);
+      }
+    });
+  });
 });
