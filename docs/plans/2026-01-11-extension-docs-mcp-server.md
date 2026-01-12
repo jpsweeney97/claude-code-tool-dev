@@ -951,15 +951,26 @@ node_modules/
 
 ## Build and Register
 
-<!-- NOTE: Confirm `claude mcp add` syntax against your local `mcp-reference.md` and the installed `claude` CLI version. -->
+<!-- NOTE: This repo uses npm workspaces. Dependencies install at repo root, not in individual packages.
+     Confirm `claude mcp add` syntax against your local `mcp-reference.md` and the installed `claude` CLI version. -->
 
 ```bash
-# Build
-cd /Users/jp/Projects/active/claude-code-tool-dev/packages/mcp-servers/extension-docs
-npm install
-npm run build
+# 1. Create package structure (from repo root)
+mkdir -p packages/mcp-servers/extension-docs/src
+# Copy package.json, tsconfig.json from this plan into that directory
+# Copy src/index.ts implementation from this plan
 
-# Register MCP server (F1: DOCS_PATH is required — no default)
+# 2. Install dependencies (from repo root — workspaces hoist to root node_modules/)
+npm install -w @claude-tools/extension-docs
+
+# 3. Build (either approach works)
+npm run build -w @claude-tools/extension-docs
+# or: cd packages/mcp-servers/extension-docs && npm run build
+
+# 4. Verify build output exists
+ls packages/mcp-servers/extension-docs/dist/index.js
+
+# 5. Register MCP server (F1: DOCS_PATH is required — no default)
 claude mcp add --transport stdio --scope user \
   --env DOCS_PATH=/Users/jp/Projects/active/claude-code-tool-dev/docs/extension-reference \
   extension-docs \
