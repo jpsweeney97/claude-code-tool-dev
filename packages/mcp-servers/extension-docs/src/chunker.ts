@@ -8,9 +8,11 @@ import {
   type Frontmatter,
 } from './frontmatter.js';
 import { generateChunkId, computeTermFreqs } from './chunk-helpers.js';
+import { FenceTracker } from './fence-tracker.js';
 
 export const MAX_CHUNK_CHARS = 8000;
 const MAX_CHUNK_LINES = 150;
+const OVERLAP_LINES_FOR_FORCED_SPLITS = 5;
 
 export function chunkFile(file: MarkdownFile): Chunk[] {
   const { frontmatter, body } = parseFrontmatter(file.content, file.path);
@@ -65,46 +67,21 @@ function createWholeFileChunk(file: MarkdownFile, content: string, fm: Frontmatt
 }
 
 function splitAtH2(file: MarkdownFile, content: string, frontmatter: Frontmatter): Chunk[] {
-  const lines = content.split('\n');
+  const { parts } = splitBounded(content, []);
   const chunks: Chunk[] = [];
-  let intro: string[] = [];
-  let current: string[] = [];
-  let currentHeading: string | undefined;
-  let inFence = false;
-  let fencePattern = '';
-  let isFirstH2 = true;
 
-  for (const line of lines) {
-    // CommonMark-compliant fence matching: 0-3 leading spaces
-    const fence = line.match(/^( {0,3})(`{3,}|~{3,})/);
-    if (fence) {
-      if (!inFence) {
-        inFence = true;
-        fencePattern = fence[2];
-      } else if (line.match(new RegExp(`^ {0,3}${fencePattern[0]}{${fencePattern.length},}\\s*$`))) {
-        inFence = false;
-        fencePattern = '';
-      }
-    }
+  // Track split indices per heading for ID generation
+  const headingSplitCounts = new Map<string, number>();
 
-    // Split at H2 only outside code fences
-    if (!inFence && /^##\s/.test(line)) {
-      if (current.length > 0 && currentHeading) {
-        chunks.push(createSplitChunk(file, current.join('\n'), currentHeading, frontmatter));
-      } else if (current.length > 0) {
-        intro = current;
-      }
+  for (const part of parts) {
+    const headingKey = part.heading ?? '';
+    const currentCount = headingSplitCounts.get(headingKey) ?? 0;
+    const splitIndex = currentCount + 1;
+    headingSplitCounts.set(headingKey, splitIndex);
 
-      current = isFirstH2 ? [...intro, '', line] : [line];
-      currentHeading = line;
-      isFirstH2 = false;
-    } else {
-      current.push(line);
-    }
-  }
-
-  if (current.length > 0) {
-    chunks.push(createSplitChunk(file, current.join('\n'), currentHeading, frontmatter));
+    chunks.push(
+      createSplitChunk(file, part.content, part.heading, frontmatter, splitIndex)
+    );
   }
 
   return chunks;
@@ -115,6 +92,7 @@ function createSplitChunk(
   content: string,
   heading: string | undefined,
   frontmatter: Frontmatter,
+  splitIndex?: number,
 ): Chunk {
   const category = frontmatter.category ?? deriveCategory(file.path);
   const tags = frontmatter.tags ?? [];
@@ -124,7 +102,7 @@ function createSplitChunk(
   const tokens = [...tokenize(content), ...metadataTerms];
 
   return {
-    id: generateChunkId(file, heading),
+    id: generateChunkId(file, heading, splitIndex),
     content,
     tokens,
     termFreqs: computeTermFreqs(tokens),
@@ -183,4 +161,287 @@ function combineChunks(chunks: Chunk[], frontmatter: Frontmatter): Chunk {
     heading: chunks[0].heading,
     merged_headings: chunks.map((c) => c.heading).filter(Boolean) as string[],
   };
+}
+
+// ============================================================================
+// Bounded Splitting Helpers
+// ============================================================================
+
+/** Check if text is within both character and line limits */
+function withinLimits(text: string): boolean {
+  return text.length <= MAX_CHUNK_CHARS && countLines(text) <= MAX_CHUNK_LINES;
+}
+
+/** Represents a part from bounded splitting */
+interface BoundedPart {
+  content: string;
+  heading?: string;
+  needsOverlap: boolean; // True for forced splits (paragraph/hard), false for natural splits (H2/H3)
+}
+
+/**
+ * Split content at heading boundaries (H2 or H3) while respecting code fences.
+ * Returns array of parts, each containing the heading line and its content.
+ */
+function splitByHeadingOutsideFences(
+  content: string,
+  level: 2 | 3
+): { heading: string | undefined; content: string }[] {
+  const lines = content.split('\n');
+  const fence = new FenceTracker();
+  const parts: { heading: string | undefined; content: string }[] = [];
+
+  let currentLines: string[] = [];
+  let currentHeading: string | undefined;
+  const pattern = level === 2 ? /^##\s/ : /^###\s/;
+
+  for (const line of lines) {
+    const inFence = fence.processLine(line);
+
+    if (!inFence && pattern.test(line)) {
+      // Save previous part if it has content
+      if (currentLines.length > 0) {
+        parts.push({ heading: currentHeading, content: currentLines.join('\n') });
+      }
+      currentLines = [line];
+      currentHeading = line;
+    } else {
+      currentLines.push(line);
+    }
+  }
+
+  // Save final part
+  if (currentLines.length > 0) {
+    parts.push({ heading: currentHeading, content: currentLines.join('\n') });
+  }
+
+  return parts;
+}
+
+/**
+ * Split content at paragraph boundaries (blank lines) while respecting code fences.
+ */
+function splitByParagraphOutsideFences(content: string): string[] {
+  const lines = content.split('\n');
+  const fence = new FenceTracker();
+  const paragraphs: string[] = [];
+  let currentLines: string[] = [];
+
+  for (const line of lines) {
+    const inFence = fence.processLine(line);
+
+    if (!inFence && line.trim() === '' && currentLines.length > 0) {
+      paragraphs.push(currentLines.join('\n'));
+      currentLines = [];
+    } else {
+      currentLines.push(line);
+    }
+  }
+
+  // Save final paragraph
+  if (currentLines.length > 0) {
+    paragraphs.push(currentLines.join('\n'));
+  }
+
+  return paragraphs;
+}
+
+/**
+ * Hard split text into chunks of MAX_CHUNK_LINES with OVERLAP_LINES overlap.
+ * Used as last resort when content can't be split at semantic boundaries.
+ */
+function hardSplitWithOverlap(text: string): string[] {
+  const lines = text.split('\n');
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < lines.length) {
+    const end = Math.min(start + MAX_CHUNK_LINES, lines.length);
+    chunks.push(lines.slice(start, end).join('\n'));
+
+    // If not the last chunk, apply overlap
+    if (end < lines.length) {
+      start = end - OVERLAP_LINES_FOR_FORCED_SPLITS;
+    } else {
+      break;
+    }
+  }
+
+  return chunks;
+}
+
+/**
+ * Accumulate paragraphs into chunks that fit within limits.
+ * When a chunk is full, create a new one with overlap from the previous.
+ */
+function accumulateParagraphsWithOverlap(
+  paragraphs: string[],
+  heading: string | undefined
+): BoundedPart[] {
+  const parts: BoundedPart[] = [];
+  let currentContent: string[] = [];
+  let isFirst = true;
+
+  for (const para of paragraphs) {
+    const tentative = [...currentContent, para].join('\n\n');
+
+    if (withinLimits(tentative)) {
+      currentContent.push(para);
+    } else {
+      // Current content is full, save it
+      if (currentContent.length > 0) {
+        parts.push({
+          content: currentContent.join('\n\n'),
+          heading,
+          needsOverlap: !isFirst,
+        });
+        isFirst = false;
+
+        // Start new content with overlap from previous
+        const prevContent = currentContent.join('\n\n');
+        const prevLines = prevContent.split('\n');
+        const overlapLines = prevLines.slice(-OVERLAP_LINES_FOR_FORCED_SPLITS);
+        currentContent = [overlapLines.join('\n'), para];
+      } else {
+        // Single paragraph exceeds limits, will need hard split later
+        currentContent = [para];
+      }
+    }
+  }
+
+  // Save remaining content
+  if (currentContent.length > 0) {
+    parts.push({
+      content: currentContent.join('\n\n'),
+      heading,
+      needsOverlap: !isFirst,
+    });
+  }
+
+  return parts;
+}
+
+/**
+ * Split an H3 section that exceeds limits using paragraph boundaries.
+ */
+function splitH3Section(
+  content: string,
+  heading: string | undefined
+): BoundedPart[] {
+  // Try paragraph split first
+  const paragraphs = splitByParagraphOutsideFences(content);
+
+  if (paragraphs.length > 1) {
+    const parts = accumulateParagraphsWithOverlap(paragraphs, heading);
+    // Check if any part still exceeds limits
+    const result: BoundedPart[] = [];
+    for (const part of parts) {
+      if (withinLimits(part.content)) {
+        result.push(part);
+      } else {
+        // Hard split the oversized paragraph
+        const hardParts = hardSplitWithOverlap(part.content);
+        for (let i = 0; i < hardParts.length; i++) {
+          result.push({
+            content: hardParts[i],
+            heading,
+            needsOverlap: i > 0 || part.needsOverlap,
+          });
+        }
+      }
+    }
+    return result;
+  }
+
+  // No paragraph boundaries, hard split
+  const hardParts = hardSplitWithOverlap(content);
+  return hardParts.map((text, i) => ({
+    content: text,
+    heading,
+    needsOverlap: i > 0,
+  }));
+}
+
+/**
+ * Split an H2 section that exceeds limits using H3 boundaries first,
+ * then falling back to paragraph/hard splits.
+ */
+function splitH2Section(
+  content: string,
+  heading: string | undefined
+): BoundedPart[] {
+  // Try H3 split first
+  const h3Parts = splitByHeadingOutsideFences(content, 3);
+
+  if (h3Parts.length > 1) {
+    // We have H3 structure, process each H3 section
+    const result: BoundedPart[] = [];
+
+    for (const h3Part of h3Parts) {
+      if (withinLimits(h3Part.content)) {
+        result.push({
+          content: h3Part.content,
+          heading: h3Part.heading ?? heading,
+          needsOverlap: false, // H3 is a natural boundary
+        });
+      } else {
+        // H3 section too big, split further
+        const subParts = splitH3Section(h3Part.content, h3Part.heading ?? heading);
+        result.push(...subParts);
+      }
+    }
+
+    return result;
+  }
+
+  // No H3 structure, fall back to paragraph/hard split
+  return splitH3Section(content, heading);
+}
+
+/**
+ * Main bounded splitting function implementing the hierarchy:
+ * H2 -> H3 -> paragraph -> hard split
+ */
+function splitBounded(
+  content: string,
+  introContent: string[]
+): { parts: BoundedPart[]; intro: string[] } {
+  const h2Parts = splitByHeadingOutsideFences(content, 2);
+  const result: BoundedPart[] = [];
+
+  // Separate intro (content before first H2) from H2 sections
+  let intro: string[] = [];
+  let isFirstH2 = true;
+
+  for (const h2Part of h2Parts) {
+    // Content without a heading is intro content
+    if (!h2Part.heading) {
+      intro = h2Part.content.split('\n').filter((line) => line.trim() !== '');
+      continue;
+    }
+
+    // For first H2, prepend intro content
+    let contentToProcess = h2Part.content;
+    if (isFirstH2 && intro.length > 0) {
+      contentToProcess = [...intro, '', h2Part.content].join('\n');
+      isFirstH2 = false;
+    } else if (isFirstH2 && introContent.length > 0) {
+      contentToProcess = [...introContent, '', h2Part.content].join('\n');
+      isFirstH2 = false;
+    }
+
+    if (withinLimits(contentToProcess)) {
+      result.push({
+        content: contentToProcess,
+        heading: h2Part.heading,
+        needsOverlap: false, // H2 is a natural boundary
+      });
+    } else {
+      // H2 section too big, split further
+      const subParts = splitH2Section(contentToProcess, h2Part.heading);
+      result.push(...subParts);
+    }
+  }
+
+  return { parts: result, intro };
 }

@@ -233,6 +233,112 @@ describe('chunkFile', () => {
     });
   });
 
+  describe('hierarchical splitting', () => {
+    it('splits oversized H2 at H3 boundaries when available', () => {
+      // Simulate a large H2 section with multiple H3 subsections
+      const h3Sections = Array.from({ length: 9 }, (_, i) =>
+        `### Subsection ${i + 1}\n${Array(15).fill(`Content line ${i}`).join('\n')}`
+      ).join('\n\n');
+
+      const content = [
+        '---',
+        'category: hooks',
+        '---',
+        '# Title',
+        '## Oversized Section',
+        h3Sections,
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'hooks/oversized.md', content };
+      const chunks = chunkFile(file);
+
+      // Should produce multiple chunks
+      expect(chunks.length).toBeGreaterThan(1);
+
+      // All chunks within bounds
+      for (const chunk of chunks) {
+        expect(chunk.content.length).toBeLessThanOrEqual(MAX_CHUNK_CHARS);
+        expect(chunk.content.split('\n').length).toBeLessThanOrEqual(150);
+      }
+    });
+
+    it('falls back to paragraph splitting when H3 unavailable', () => {
+      // Large H2 section with no H3 structure, just paragraphs
+      // Each paragraph is ~250 chars, 40 paragraphs = ~10000 chars (exceeds 8000 limit)
+      const paragraphs = Array.from({ length: 40 }, (_, i) =>
+        Array(10).fill(`Paragraph ${i} content word with more text to make it longer`).join(' ')
+      ).join('\n\n');
+
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title',
+        '## Large Section Without H3',
+        paragraphs,
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/no-h3.md', content };
+      const chunks = chunkFile(file);
+
+      // Should produce multiple chunks via paragraph splitting
+      expect(chunks.length).toBeGreaterThan(1);
+
+      // All share the same H2 heading reference
+      for (const chunk of chunks) {
+        expect(chunk.heading).toContain('## Large Section');
+      }
+    });
+  });
+
+  describe('forced split overlap', () => {
+    it('forced splits include overlap from previous chunk', () => {
+      // Create content that requires hard splitting
+      const hugeSection = Array(200).fill('unique-line-content-here').join('\n');
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title',
+        '## Huge Section',
+        hugeSection,
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/overlap.md', content };
+      const chunks = chunkFile(file);
+
+      // Should produce multiple chunks due to size
+      expect(chunks.length).toBeGreaterThan(1);
+
+      // Chunks after the first should start with overlap from previous
+      if (chunks.length > 1) {
+        const firstChunkLines = chunks[0].content.split('\n');
+        const overlapLines = firstChunkLines.slice(-5).join('\n');
+        expect(chunks[1].content).toContain(overlapLines);
+      }
+    });
+
+    it('H2 boundary splits do NOT include overlap', () => {
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title',
+        '## Section 1',
+        ...Array(100).fill('content-a'),
+        '## Section 2',
+        ...Array(100).fill('content-b'),
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/no-overlap.md', content };
+      const chunks = chunkFile(file);
+
+      // Section 2 chunk should NOT start with Section 1 content
+      const section2Chunk = chunks.find((c) => c.content.includes('## Section 2'));
+      expect(section2Chunk?.content).not.toContain('content-a');
+    });
+  });
+
   describe('size guards', () => {
     it('splits file exceeding char limit even if under line limit', () => {
       // 60 lines but >8000 chars
