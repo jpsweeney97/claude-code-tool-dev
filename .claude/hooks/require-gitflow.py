@@ -466,20 +466,19 @@ def main():
         protected = get_protected_branches()
         branch_lower = branch.lower()
 
-        if branch_lower in {"main", "master"}:
-            log("INFO", f"BLOCKED: Edit on protected branch {branch}")
-            print(BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context), file=sys.stderr)
-            sys.exit(2)
-
-        if branch_lower == "develop":
-            log("INFO", f"BLOCKED: Edit on protected branch {branch}")
-            print(BLOCK_MESSAGE_DEVELOP.format(branch=branch, file=file_context), file=sys.stderr)
-            sys.exit(2)
-
         if branch_lower in protected:
             log("INFO", f"BLOCKED: Edit on protected branch {branch}")
-            # Custom protected branch - use generic main message
-            print(BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context), file=sys.stderr)
+
+            # Select message based on branch type
+            if branch_lower in {"main", "master"}:
+                message = BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context)
+            elif branch_lower == "develop":
+                message = BLOCK_MESSAGE_DEVELOP.format(branch=branch, file=file_context)
+            else:
+                # Custom protected branch - use main template
+                message = BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context)
+
+            print(message, file=sys.stderr)
             sys.exit(2)
 
         # Check if matches valid GitFlow pattern (case-insensitive)

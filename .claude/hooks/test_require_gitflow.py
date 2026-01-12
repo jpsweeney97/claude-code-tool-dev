@@ -408,3 +408,47 @@ class TestIntegrationFull:
         monkeypatch.chdir(tmp_path)
         result = run_hook(tmp_path)
         assert result.returncode == 0
+
+
+class TestProtectedBranchUnification:
+    """Tests to verify unified protected branch logic."""
+
+    def test_custom_protected_includes_develop_behavior(self, temp_git_repo, monkeypatch):
+        """Custom protected branch should use appropriate message."""
+        monkeypatch.chdir(temp_git_repo)
+        monkeypatch.setenv("PROTECTED_BRANCHES", "main,staging,production")
+
+        subprocess.run(["git", "checkout", "-b", "staging"], cwd=temp_git_repo, capture_output=True, check=True)
+        result = run_hook(temp_git_repo)
+
+        assert result.returncode == 2
+        assert "Cannot edit" in result.stderr
+
+    def test_develop_in_custom_protected_not_duplicate_check(self, temp_git_repo, monkeypatch):
+        """Adding develop to PROTECTED_BRANCHES shouldn't cause double-blocking."""
+        monkeypatch.chdir(temp_git_repo)
+        monkeypatch.setenv("PROTECTED_BRANCHES", "main,develop")
+
+        subprocess.run(["git", "checkout", "-b", "develop"], cwd=temp_git_repo, capture_output=True, check=True)
+        result = run_hook(temp_git_repo)
+
+        assert result.returncode == 2
+        # Should only hit the check once (develop-specific message)
+        assert "integration branch" in result.stderr
+
+    def test_main_protected_message_shows(self, temp_git_repo, monkeypatch):
+        """Main branch should show main-specific message."""
+        monkeypatch.chdir(temp_git_repo)
+        result = run_hook(temp_git_repo)
+
+        assert result.returncode == 2
+        assert "production branch" in result.stderr
+
+    def test_develop_protected_message_shows(self, temp_git_repo, monkeypatch):
+        """Develop branch should show develop-specific message."""
+        monkeypatch.chdir(temp_git_repo)
+        subprocess.run(["git", "checkout", "-b", "develop"], cwd=temp_git_repo, capture_output=True, check=True)
+        result = run_hook(temp_git_repo)
+
+        assert result.returncode == 2
+        assert "integration branch" in result.stderr
