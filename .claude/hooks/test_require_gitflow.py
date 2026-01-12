@@ -264,6 +264,46 @@ class TestGetFileContext:
         assert get_file_context({}) == "files"
 
 
+class TestSubdirectoryDetection:
+    def test_operation_detection_from_subdirectory(self, temp_git_repo, monkeypatch):
+        """Operation detection should work when invoked from subdirectory."""
+        subdir = temp_git_repo / "src" / "deep"
+        subdir.mkdir(parents=True)
+
+        subprocess.run(["git", "checkout", "-b", "feature/a"], cwd=temp_git_repo, capture_output=True, check=True)
+        (temp_git_repo / "conflict.txt").write_text("feature a content")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "feature a"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        subprocess.run(["git", "checkout", "main"], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "checkout", "-b", "feature/b"], cwd=temp_git_repo, capture_output=True, check=True)
+        (temp_git_repo / "conflict.txt").write_text("feature b content")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "feature b"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        subprocess.run(["git", "merge", "feature/a"], cwd=temp_git_repo, capture_output=True)
+        monkeypatch.chdir(subdir)
+
+        result = run_hook(subdir)
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert "merge" in output.get("systemMessage", "").lower()
+
+    def test_git_context_from_subdirectory(self, temp_git_repo, monkeypatch):
+        """GitContext.git_dir should be absolute path even from subdirectory."""
+        subdir = temp_git_repo / "src" / "nested"
+        subdir.mkdir(parents=True)
+        monkeypatch.chdir(subdir)
+
+        get_git_context = require_gitflow.get_git_context
+        ctx = get_git_context()
+
+        assert ctx.is_repo is True
+        assert ctx.git_dir is not None
+        assert os.path.isabs(ctx.git_dir), f"git_dir should be absolute, got: {ctx.git_dir}"
+        assert os.path.isdir(ctx.git_dir), f"git_dir should exist: {ctx.git_dir}"
+
+
 class TestIntegrationFull:
     """Integration tests to lock behavior before refactoring."""
 

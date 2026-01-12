@@ -289,9 +289,22 @@ def get_git_context() -> GitContext:
     ctx = GitContext()
 
     # Call 1: Is this a git repo?
-    success, git_dir = run_git("rev-parse", "--git-dir")
+    # Try --absolute-git-dir (Git 2.13+), fallback to manual resolution
+    success, git_dir = run_git("rev-parse", "--absolute-git-dir")
     if not success:
-        return ctx  # Not a git repo
+        success, git_dir = run_git("rev-parse", "--git-dir")
+        if not success:
+            return ctx  # Not a git repo
+
+        if not os.path.isabs(git_dir):
+            # Resolve relative path to absolute
+            # First try --show-toplevel to get repository root
+            toplevel_ok, toplevel = run_git("rev-parse", "--show-toplevel")
+            if toplevel_ok and toplevel:
+                git_dir = os.path.join(toplevel.strip(), git_dir.strip())
+            else:
+                # Fallback: use current working directory
+                git_dir = os.path.abspath(git_dir.strip())
 
     ctx.is_repo = True
     ctx.git_dir = git_dir.strip()
