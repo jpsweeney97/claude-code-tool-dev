@@ -551,6 +551,71 @@ describe('chunkFile', () => {
     });
   });
 
+  describe('table handling edge cases', () => {
+    it('handles malformed table without separator', () => {
+      const content = [
+        '# Title',
+        '## Section',
+        '| A | B |',
+        '| 1 | 2 |', // This is data, not separator
+        '| 3 | 4 |',
+        '',
+        'After table.',
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/bad-table.md', content };
+      const chunks = chunkFile(file);
+
+      // Should not crash, should preserve content
+      expect(chunks.length).toBeGreaterThan(0);
+      const allContent = chunks.map((c) => c.content).join('');
+      expect(allContent).toContain('| A | B |');
+    });
+
+    it('handles empty table (header + separator only)', () => {
+      const content = [
+        '# Title',
+        '## Section',
+        '| A | B |',
+        '|---|---|',
+        '',
+        'After table.',
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/empty-table.md', content };
+      const chunks = chunkFile(file);
+
+      expect(chunks.length).toBeGreaterThan(0);
+      const allContent = chunks.map((c) => c.content).join('');
+      expect(allContent).toContain('| A | B |');
+    });
+
+    it('handles oversized malformed table without separator', () => {
+      // Create a large table-like structure without a proper separator
+      // This should trigger splitOversizedTable but with invalid table structure
+      const rows = Array(300).fill('| data-a | data-b |').join('\n');
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title',
+        '## Section',
+        '| Header A | Header B |',
+        '| not-a-separator | still-data |', // Missing --- separator
+        rows,
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/oversized-bad-table.md', content };
+      const chunks = chunkFile(file);
+
+      // Should not crash, should preserve content
+      expect(chunks.length).toBeGreaterThan(0);
+      const allContent = chunks.map((c) => c.content).join('');
+      expect(allContent).toContain('| Header A | Header B |');
+      expect(allContent).toContain('| data-a | data-b |');
+    });
+  });
+
   describe('chunkFile error handling', () => {
     it('throws with file context on parse error', () => {
       // Malformed content that will cause an error

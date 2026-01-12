@@ -274,6 +274,14 @@ function splitOversizedTable(tableLines: string[]): string[] {
     return [tableLines.join('\n')];
   }
 
+  // Validate table structure: second line should be a markdown table separator
+  // Valid separators contain only |, -, :, and whitespace (e.g., |---|:---:|)
+  const separator = tableLines[1];
+  if (!/^\s*\|[\s\-:|]+\|\s*$/.test(separator)) {
+    // Not a valid markdown table - return as-is without header duplication
+    return [tableLines.join('\n')];
+  }
+
   const headerLines = tableLines.slice(0, 2); // header + separator
   const dataRows = tableLines.slice(2);
   const result: string[] = [];
