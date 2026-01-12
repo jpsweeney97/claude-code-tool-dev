@@ -8,12 +8,20 @@ export function slugify(text: string): string {
     .replace(/^-|-$/g, '');
 }
 
-export function generateChunkId(file: MarkdownFile, heading?: string): string {
+export function generateChunkId(
+  file: MarkdownFile,
+  heading?: string,
+  splitIndex?: number,
+): string {
   const fileSlug = slugify(file.path);
   if (!heading) return fileSlug;
 
   const headingSlug = slugify(heading);
-  return `${fileSlug}#${headingSlug}`;
+  // Append suffix for forced splits using 1-based indexing:
+  // - undefined or 1 → no suffix (e.g., file#section)
+  // - 2+ → suffix (e.g., file#section-2, file#section-3)
+  const suffix = splitIndex != null && splitIndex > 1 ? `-${splitIndex}` : '';
+  return `${fileSlug}#${headingSlug}${suffix}`;
 }
 
 export function computeTermFreqs(tokens: string[]): Map<string, number> {

@@ -36,6 +36,32 @@ describe('generateChunkId', () => {
   });
 });
 
+describe('generateChunkId with splitIndex', () => {
+  it('adds no suffix for splitIndex undefined', () => {
+    const file: MarkdownFile = { path: 'hooks/test.md', content: '' };
+    const id = generateChunkId(file, '## Section');
+    expect(id).toBe('hooks-test#section');
+  });
+
+  it('adds no suffix for splitIndex 1 (first chunk)', () => {
+    const file: MarkdownFile = { path: 'hooks/test.md', content: '' };
+    const id = generateChunkId(file, '## Section', 1);
+    expect(id).toBe('hooks-test#section');
+  });
+
+  it('adds suffix for splitIndex 2+', () => {
+    const file: MarkdownFile = { path: 'hooks/test.md', content: '' };
+    expect(generateChunkId(file, '## Section', 2)).toBe('hooks-test#section-2');
+    expect(generateChunkId(file, '## Section', 3)).toBe('hooks-test#section-3');
+  });
+
+  it('handles file-only id with splitIndex', () => {
+    const file: MarkdownFile = { path: 'hooks/test.md', content: '' };
+    // No heading, but has splitIndex (shouldn't happen in practice, but handle gracefully)
+    expect(generateChunkId(file, undefined, 2)).toBe('hooks-test');
+  });
+});
+
 describe('computeTermFreqs', () => {
   it('returns empty map for empty array', () => {
     expect(computeTermFreqs([])).toEqual(new Map());
