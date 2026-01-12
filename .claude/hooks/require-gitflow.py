@@ -496,6 +496,10 @@ def main():
         suggested = suggest_branch_name(branch)
 
         if is_strict_mode():
+            log("INFO", f"BLOCKED: Non-standard branch {branch} (strict mode)")
+            # Note: JSON systemMessage cannot be used here because exit 2 ignores stdout.
+            # The hook contract only processes stdout JSON on exit 0.
+            # See: @.claude/rules/hooks.md#exit-codes
             print(
                 BLOCK_MESSAGE_NONSTANDARD.format(branch=branch, suggested=suggested),
                 file=sys.stderr,
