@@ -247,7 +247,7 @@ function splitByParagraphOutsideFences(content: string): string[] {
 }
 
 /**
- * Hard split text into chunks of MAX_CHUNK_LINES with OVERLAP_LINES overlap.
+ * Hard split text into chunks respecting BOTH MAX_CHUNK_LINES AND MAX_CHUNK_CHARS.
  * Used as last resort when content can't be split at semantic boundaries.
  */
 function hardSplitWithOverlap(text: string): string[] {
@@ -256,12 +256,36 @@ function hardSplitWithOverlap(text: string): string[] {
   let start = 0;
 
   while (start < lines.length) {
-    const end = Math.min(start + MAX_CHUNK_LINES, lines.length);
+    // Find the end point that respects both line and character limits
+    let end = start;
+    let charCount = 0;
+
+    while (end < lines.length) {
+      const lineWithNewline = lines[end] + (end < lines.length - 1 ? '\n' : '');
+      const newCharCount = charCount + lineWithNewline.length;
+      const lineCount = end - start + 1;
+
+      // Stop if adding this line would exceed either limit
+      if (lineCount > MAX_CHUNK_LINES || newCharCount > MAX_CHUNK_CHARS) {
+        break;
+      }
+
+      charCount = newCharCount;
+      end++;
+    }
+
+    // Ensure at least one line per chunk (handles single lines exceeding char limit)
+    if (end === start) {
+      end = start + 1;
+    }
+
     chunks.push(lines.slice(start, end).join('\n'));
 
     // If not the last chunk, apply overlap
     if (end < lines.length) {
       start = end - OVERLAP_LINES_FOR_FORCED_SPLITS;
+      // Ensure start doesn't go negative
+      if (start < 0) start = 0;
     } else {
       break;
     }
@@ -309,13 +333,26 @@ function accumulateParagraphsWithOverlap(
     }
   }
 
-  // Save remaining content
+  // Save remaining content with bounds check
   if (currentContent.length > 0) {
-    parts.push({
-      content: currentContent.join('\n\n'),
-      heading,
-      needsOverlap: !isFirst,
-    });
+    const finalContent = currentContent.join('\n\n');
+    if (withinLimits(finalContent)) {
+      parts.push({
+        content: finalContent,
+        heading,
+        needsOverlap: !isFirst,
+      });
+    } else {
+      // Final part exceeds limits (overlap + paragraph too large), needs hard split
+      const hardParts = hardSplitWithOverlap(finalContent);
+      for (let i = 0; i < hardParts.length; i++) {
+        parts.push({
+          content: hardParts[i],
+          heading,
+          needsOverlap: i > 0 || !isFirst,
+        });
+      }
+    }
   }
 
   return parts;

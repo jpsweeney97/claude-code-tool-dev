@@ -377,5 +377,30 @@ describe('chunkFile', () => {
         expect(chunk.content.length).toBeLessThanOrEqual(MAX_CHUNK_CHARS + 1000); // Allow some overhead
       }
     });
+
+    it('hard split respects character limit on very long lines', () => {
+      // 100 lines at 300 chars each = 30,000 chars total
+      // This exceeds MAX_CHUNK_CHARS (8000) even though line count (100) is under MAX_CHUNK_LINES (150)
+      const longLine = 'x'.repeat(300);
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title',
+        '## Section',
+        ...Array(100).fill(longLine),
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/longlines.md', content };
+      const chunks = chunkFile(file);
+
+      // Should produce multiple chunks since total chars exceed limit
+      expect(chunks.length).toBeGreaterThan(1);
+
+      // All chunks must respect the character limit
+      for (const chunk of chunks) {
+        expect(chunk.content.length).toBeLessThanOrEqual(MAX_CHUNK_CHARS);
+      }
+    });
   });
 });
