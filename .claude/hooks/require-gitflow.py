@@ -35,6 +35,19 @@ import re
 import subprocess
 import sys
 
+MAX_PATH_DISPLAY_LEN = 50
+
+
+def get_file_context(tool_input: dict) -> str:
+    """Extract file path from tool input for context in messages."""
+    file_path = tool_input.get("file_path", "")
+    if file_path:
+        if len(file_path) > MAX_PATH_DISPLAY_LEN:
+            file_path = "..." + file_path[-(MAX_PATH_DISPLAY_LEN - 3) :]
+        return f"'{file_path}'"
+    return "files"
+
+
 # Valid GitFlow working branch patterns (regex)
 VALID_PATTERNS = [
     # GitFlow core
@@ -81,7 +94,7 @@ def matches_valid_pattern(branch: str) -> bool:
     return any(re.match(pattern, branch.lower()) for pattern in VALID_PATTERNS)
 
 
-BLOCK_MESSAGE_MAIN = """Cannot edit files on '{branch}' — this is the production branch.
+BLOCK_MESSAGE_MAIN = """Cannot edit {file} on '{branch}' — this is the production branch.
 
 GitFlow requires working branches:
 
@@ -92,7 +105,7 @@ GitFlow requires working branches:
   For emergency fixes (branch from main):
     git checkout -b hotfix/<name>"""
 
-BLOCK_MESSAGE_DEVELOP = """Cannot edit files on '{branch}' — this is the integration branch.
+BLOCK_MESSAGE_DEVELOP = """Cannot edit {file} on '{branch}' — this is the integration branch.
 
 GitFlow requires working branches:
 
@@ -330,21 +343,25 @@ def main():
         if branch is None:
             sys.exit(0)
 
+        # Get file context for error messages
+        tool_input = data.get("tool_input", {})
+        file_context = get_file_context(tool_input)
+
         # Check if on protected branch (case-insensitive)
         protected = get_protected_branches()
         branch_lower = branch.lower()
 
         if branch_lower in {"main", "master"}:
-            print(BLOCK_MESSAGE_MAIN.format(branch=branch), file=sys.stderr)
+            print(BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context), file=sys.stderr)
             sys.exit(2)
 
         if branch_lower == "develop":
-            print(BLOCK_MESSAGE_DEVELOP.format(branch=branch), file=sys.stderr)
+            print(BLOCK_MESSAGE_DEVELOP.format(branch=branch, file=file_context), file=sys.stderr)
             sys.exit(2)
 
         if branch_lower in protected:
             # Custom protected branch - use generic main message
-            print(BLOCK_MESSAGE_MAIN.format(branch=branch), file=sys.stderr)
+            print(BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context), file=sys.stderr)
             sys.exit(2)
 
         # Check if matches valid GitFlow pattern (case-insensitive)

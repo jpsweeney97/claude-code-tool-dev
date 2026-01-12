@@ -92,6 +92,24 @@ def run_hook(cwd, tool_name="Edit", tool_input=None):
     )
 
 
+class TestIntegration:
+    def test_block_message_includes_file_path(self, temp_git_repo, monkeypatch):
+        """Block message should mention the specific file being edited."""
+        monkeypatch.chdir(temp_git_repo)
+        result = run_hook(temp_git_repo, tool_input={"file_path": "src/auth/login.py"})
+        assert result.returncode == 2
+        assert "'src/auth/login.py'" in result.stderr
+
+    def test_long_file_path_is_truncated(self, temp_git_repo, monkeypatch):
+        """Long file paths should be truncated with ... prefix."""
+        monkeypatch.chdir(temp_git_repo)
+        long_path = "src/very/deeply/nested/directory/structure/that/goes/on/auth/login.py"
+        result = run_hook(temp_git_repo, tool_input={"file_path": long_path})
+        assert result.returncode == 2
+        assert "..." in result.stderr
+        assert "login.py" in result.stderr
+
+
 class TestFrontmatter:
     def test_timeout_is_seconds_not_milliseconds(self):
         """Timeout should be 5 seconds, not 5000 (which would be 83 minutes)."""
