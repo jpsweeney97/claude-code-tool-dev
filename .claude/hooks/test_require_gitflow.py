@@ -149,3 +149,23 @@ class TestBypass:
         monkeypatch.delenv("GITFLOW_BYPASS", raising=False)
         result = run_hook(temp_git_repo)
         assert result.returncode == 2
+
+
+class TestDebugLogging:
+    def test_debug_mode_outputs_to_stderr(self, temp_git_repo, monkeypatch):
+        """GITFLOW_DEBUG=1 should output debug info to stderr."""
+        monkeypatch.chdir(temp_git_repo)
+        monkeypatch.setenv("GITFLOW_DEBUG", "1")
+        subprocess.run(["git", "checkout", "-b", "feature/test"], cwd=temp_git_repo, capture_output=True)
+        result = run_hook(temp_git_repo)
+        assert result.returncode == 0
+        assert "[GITFLOW]" in result.stderr
+
+    def test_debug_mode_disabled_by_default(self, temp_git_repo, monkeypatch):
+        """Without GITFLOW_DEBUG, stderr should be empty on success."""
+        monkeypatch.chdir(temp_git_repo)
+        monkeypatch.delenv("GITFLOW_DEBUG", raising=False)
+        subprocess.run(["git", "checkout", "-b", "feature/test"], cwd=temp_git_repo, capture_output=True)
+        result = run_hook(temp_git_repo)
+        assert result.returncode == 0
+        assert "[GITFLOW]" not in result.stderr

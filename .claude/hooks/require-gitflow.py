@@ -34,9 +34,33 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime
+from pathlib import Path
 
 MAX_PATH_DISPLAY_LEN = 50
 BYPASS_ENV = "GITFLOW_BYPASS"
+
+DEBUG = os.environ.get("GITFLOW_DEBUG", "") == "1"
+LOG_FILE = Path.home() / ".claude/logs/gitflow-hook.log"
+
+
+def log(level: str, message: str) -> None:
+    """Log message to stderr (if debug) and log file."""
+    if not DEBUG and level == "DEBUG":
+        return
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"{timestamp} [{level}] {message}"
+
+    if DEBUG:
+        print(f"[GITFLOW] {message}", file=sys.stderr)
+
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_FILE, "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass  # Fail silently
 
 
 def check_bypass() -> bool:
@@ -308,6 +332,7 @@ def main():
     try:
         data = json.load(sys.stdin)
         tool_name = data.get("tool_name", "")
+        log("DEBUG", f"Hook invoked: tool={tool_name}")
 
         # Only check Edit and Write tools
         if tool_name not in ("Edit", "Write"):
@@ -366,26 +391,31 @@ def main():
         # Get file context for error messages
         tool_input = data.get("tool_input", {})
         file_context = get_file_context(tool_input)
+        log("DEBUG", f"Checking edit to: {tool_input.get('file_path', 'unknown')}")
 
         # Check if on protected branch (case-insensitive)
         protected = get_protected_branches()
         branch_lower = branch.lower()
 
         if branch_lower in {"main", "master"}:
+            log("INFO", f"BLOCKED: Edit on protected branch {branch}")
             print(BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context), file=sys.stderr)
             sys.exit(2)
 
         if branch_lower == "develop":
+            log("INFO", f"BLOCKED: Edit on protected branch {branch}")
             print(BLOCK_MESSAGE_DEVELOP.format(branch=branch, file=file_context), file=sys.stderr)
             sys.exit(2)
 
         if branch_lower in protected:
+            log("INFO", f"BLOCKED: Edit on protected branch {branch}")
             # Custom protected branch - use generic main message
             print(BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context), file=sys.stderr)
             sys.exit(2)
 
         # Check if matches valid GitFlow pattern (case-insensitive)
         if matches_valid_pattern(branch):
+            log("DEBUG", f"Branch {branch} matches valid pattern, allowing")
             sys.exit(0)
 
         # Non-standard branch name
