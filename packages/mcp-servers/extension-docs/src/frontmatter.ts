@@ -6,6 +6,10 @@ export interface Frontmatter {
   topic?: string;
   id?: string;
   requires?: string[];
+  /**
+   * Related document IDs.
+   * Note: Uses snake_case to match YAML frontmatter field names.
+   */
   related_to?: string[];
 }
 
