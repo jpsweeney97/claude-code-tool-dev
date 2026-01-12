@@ -26,17 +26,17 @@ from pathlib import Path
 class TranscriptData:
     """Parsed data from a session transcript."""
 
-    tool_calls: list = field(default_factory=list)
-    files_touched: set = field(default_factory=set)
+    tool_calls: list[dict] = field(default_factory=list)
+    files_touched: set[str] = field(default_factory=set)
     user_message_count: int = 0
     assistant_message_count: int = 0
     assistant_text: str = ""
-    commands_run: list = field(default_factory=list)
+    commands_run: list[str] = field(default_factory=list)
 
 
-def extract_files_from_tool(name: str, input_data: dict) -> set:
+def extract_files_from_tool(name: str, input_data: dict) -> set[str]:
     """Extract file paths from tool input."""
-    files = set()
+    files: set[str] = set()
 
     if name in ("Read", "Write", "Edit"):
         if path := input_data.get("file_path"):
@@ -51,7 +51,7 @@ def extract_files_from_tool(name: str, input_data: dict) -> set:
 def parse_transcript(path: Path) -> TranscriptData:
     """Parse a transcript JSONL file and extract session data."""
     result = TranscriptData()
-    text_parts = []
+    text_parts: list[str] = []
 
     with open(path) as f:
         for line_num, line in enumerate(f, start=1):
@@ -242,7 +242,7 @@ def write_pending_metadata(
     metadata: dict,
     embedding_data: dict,
     pending_dir: Path | None = None,
-) -> tuple:
+) -> tuple[bool, str | None]:
     """Write pending metadata for deferred indexing.
 
     Args:
@@ -335,7 +335,7 @@ def delete_state_file(session_id: str, state_dir: Path | None = None) -> None:
 # =============================================================================
 
 
-def get_git_info(cwd: str) -> tuple:
+def get_git_info(cwd: str) -> tuple[str | None, int]:
     """Get current HEAD commit and count of new commits.
 
     Args:
@@ -419,6 +419,10 @@ def handle_session_end(
     transcript_data = parse_transcript(Path(transcript_path))
 
     # Skip empty sessions
+    # NOTE: Unlike session_end.py which leaves state files for short sessions,
+    # the standalone version intentionally deletes them. This is correct behavior:
+    # short sessions won't be indexed, so the state file serves no purpose and
+    # would otherwise accumulate indefinitely.
     if transcript_data.user_message_count < 2:
         delete_state_file(session_id, state_dir)
         return {"success": True, "reason": "Session too short, skipping"}
@@ -482,9 +486,17 @@ def handle_session_end(
     )
 
     if not pending_written:
+        # If pending file write fails, the session will never be indexed.
+        # Preserve the state file to allow retry on next session end event.
+        # The summary file is already written, so indexing can be retried.
         print(f"Warning: Failed to write pending file: {pending_error}", file=sys.stderr)
+        return {
+            "success": True,
+            "summary_path": str(summary_path),
+            "pending_written": False,
+        }
 
-    # Clean up state file after successful processing
+    # Clean up state file only after ALL processing succeeds (including pending file)
     delete_state_file(session_id, state_dir)
 
     return {
