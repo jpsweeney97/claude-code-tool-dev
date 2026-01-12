@@ -14,6 +14,8 @@ spec = importlib.util.spec_from_file_location(
     "require_gitflow",
     Path(__file__).parent / "require-gitflow.py"
 )
+if spec is None or spec.loader is None:
+    raise ImportError("Could not load require-gitflow.py")
 require_gitflow = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(require_gitflow)
 
