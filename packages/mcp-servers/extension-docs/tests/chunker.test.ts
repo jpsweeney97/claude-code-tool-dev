@@ -616,6 +616,45 @@ describe('chunkFile', () => {
     });
   });
 
+  describe('edge cases', () => {
+    it('handles intro-only oversized files (no H2 headings)', () => {
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title Only',
+        ...Array(200).fill('Very long intro paragraph content line that fills the file.'),
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/no-h2.md', content };
+      const chunks = chunkFile(file);
+
+      expect(chunks.length).toBeGreaterThan(1);
+      for (const chunk of chunks) {
+        expect(chunk.content.length).toBeLessThanOrEqual(MAX_CHUNK_CHARS);
+      }
+    });
+
+    it('does not excessively duplicate content via overlap', () => {
+      const longParagraph = Array(60).fill('word').join(' ');
+      const manyParagraphs = Array(50).fill(longParagraph).join('\n\n');
+
+      const content = [
+        '# Title',
+        '## Section',
+        manyParagraphs,
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/overlap.md', content };
+      const chunks = chunkFile(file);
+
+      const allContent = chunks.map(c => c.content).join('|||');
+      const wordCount = (allContent.match(/word/g) || []).length;
+      const expectedMax = 50 * 60 * 1.3;  // Original + 30% for overlap
+      expect(wordCount).toBeLessThan(expectedMax);
+    });
+  });
+
   describe('chunkFile error handling', () => {
     it('throws with file context on parse error', () => {
       // Malformed content that will cause an error

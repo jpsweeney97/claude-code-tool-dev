@@ -628,5 +628,22 @@ function splitBounded(
     }
   }
 
+  // Handle intro-only content (no H2 headings found)
+  // This occurs when the file has content but no H2 sections to split at
+  if (result.length === 0 && intro.length > 0) {
+    const introText = intro.join('\n');
+    if (withinLimits(introText)) {
+      result.push({
+        content: introText,
+        heading: undefined,
+        needsOverlap: false,
+      });
+    } else {
+      // Intro exceeds limits, split using paragraph/hard split
+      const subParts = splitH3Section(introText, undefined);
+      result.push(...subParts);
+    }
+  }
+
   return { parts: result, intro };
 }
