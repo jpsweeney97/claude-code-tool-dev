@@ -69,3 +69,30 @@ describe('FenceTracker', () => {
     expect(tracker.isInFence).toBe(false);
   });
 });
+
+describe('FenceTracker edge cases', () => {
+  it('handles null fencePattern gracefully', () => {
+    const tracker = new FenceTracker();
+
+    // Force invalid internal state (for robustness testing)
+    // With null sentinel, this tests the guard check
+    (tracker as any).inFence = true;
+    (tracker as any).fencePattern = null;
+
+    // Should not throw and should handle gracefully
+    expect(() => tracker.processLine('```')).not.toThrow();
+    // The fence should remain open since pattern is invalid
+    expect(tracker.isInFence).toBe(true);
+  });
+
+  it('handles nested fence documentation pattern', () => {
+    const tracker = new FenceTracker();
+
+    expect(tracker.processLine('````markdown')).toBe(true);
+    expect(tracker.processLine('Here is an example:')).toBe(true);
+    expect(tracker.processLine('```python')).toBe(true); // Inside, NOT a new fence
+    expect(tracker.processLine('print("hello")')).toBe(true);
+    expect(tracker.processLine('```')).toBe(true); // Still inside outer
+    expect(tracker.processLine('````')).toBe(false); // Now closed
+  });
+});

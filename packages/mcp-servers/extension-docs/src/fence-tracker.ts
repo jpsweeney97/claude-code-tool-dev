@@ -11,7 +11,7 @@
  */
 export class FenceTracker {
   private inFence = false;
-  private fencePattern = '';
+  private fencePattern: string | null = null;
 
   /**
    * Process a line and update fence state.
@@ -23,13 +23,14 @@ export class FenceTracker {
       if (!this.inFence) {
         this.inFence = true;
         this.fencePattern = fence[2];
-      } else if (
-        line.match(
-          new RegExp(`^ {0,3}${this.fencePattern[0]}{${this.fencePattern.length},}\\s*$`)
-        )
-      ) {
-        this.inFence = false;
-        this.fencePattern = '';
+      } else if (this.fencePattern && this.fencePattern.length > 0) {
+        const closeRegex = new RegExp(
+          `^ {0,3}${this.fencePattern[0]}{${this.fencePattern.length},}\\s*$`
+        );
+        if (closeRegex.test(line)) {
+          this.inFence = false;
+          this.fencePattern = null;
+        }
       }
     }
     return this.inFence;
@@ -43,6 +44,6 @@ export class FenceTracker {
   /** Reset to initial state */
   reset(): void {
     this.inFence = false;
-    this.fencePattern = '';
+    this.fencePattern = null;
   }
 }
