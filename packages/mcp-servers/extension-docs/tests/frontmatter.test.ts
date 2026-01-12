@@ -94,13 +94,14 @@ describe('formatMetadataHeader', () => {
     expect(formatMetadataHeader({ tags: ['api', 'schema'] })).toBe('Tags: api, schema\n\n');
   });
 
-  it('formats all fields', () => {
+  it('formats all fields in v2 order (Topic, ID, Category, Tags)', () => {
     const header = formatMetadataHeader({
       category: 'hooks',
       tags: ['api'],
       topic: 'input',
+      id: 'hooks-input',
     });
-    expect(header).toBe('Category: hooks\nTags: api\nTopic: input\n\n');
+    expect(header).toBe('Topic: input\nID: hooks-input\nCategory: hooks\nTags: api\n\n');
   });
 });
 
@@ -111,5 +112,71 @@ describe('deriveCategory', () => {
 
   it('returns general for root files', () => {
     expect(deriveCategory('readme.md')).toBe('general');
+  });
+});
+
+describe('parseFrontmatter - requires and related_to', () => {
+  beforeEach(() => {
+    clearParseWarnings();
+  });
+
+  it('parses requires as array of strings', () => {
+    const content = '---\nrequires: [hooks-overview, hooks-events]\n---\nBody';
+    const { frontmatter } = parseFrontmatter(content, 'test.md');
+    expect(frontmatter.requires).toEqual(['hooks-overview', 'hooks-events']);
+  });
+
+  it('parses requires as single string', () => {
+    const content = '---\nrequires: hooks-overview\n---\nBody';
+    const { frontmatter } = parseFrontmatter(content, 'test.md');
+    expect(frontmatter.requires).toEqual(['hooks-overview']);
+  });
+
+  it('parses related_to as array of strings', () => {
+    const content = '---\nrelated_to: [skills-overview, commands-overview]\n---\nBody';
+    const { frontmatter } = parseFrontmatter(content, 'test.md');
+    expect(frontmatter.related_to).toEqual(['skills-overview', 'commands-overview']);
+  });
+
+  it('parses related_to as single string', () => {
+    const content = '---\nrelated_to: skills-overview\n---\nBody';
+    const { frontmatter } = parseFrontmatter(content, 'test.md');
+    expect(frontmatter.related_to).toEqual(['skills-overview']);
+  });
+
+  it('warns on non-string requires items', () => {
+    const content = '---\nrequires: [123, "valid"]\n---\nBody';
+    parseFrontmatter(content, 'test.md');
+    const warnings = getParseWarnings();
+    expect(warnings).toContainEqual({
+      file: 'test.md',
+      issue: 'Invalid requires item type: expected string, got number',
+    });
+  });
+
+  it('warns on invalid requires type', () => {
+    const content = '---\nrequires: 123\n---\nBody';
+    parseFrontmatter(content, 'test.md');
+    const warnings = getParseWarnings();
+    expect(warnings).toContainEqual({
+      file: 'test.md',
+      issue: 'Invalid requires type: expected string or array, got number',
+    });
+  });
+
+  it('parses id field', () => {
+    const content = '---\nid: hooks-exit-codes\n---\nBody';
+    const { frontmatter } = parseFrontmatter(content, 'test.md');
+    expect(frontmatter.id).toBe('hooks-exit-codes');
+  });
+
+  it('warns on non-string id', () => {
+    const content = '---\nid: 123\n---\nBody';
+    parseFrontmatter(content, 'test.md');
+    const warnings = getParseWarnings();
+    expect(warnings).toContainEqual({
+      file: 'test.md',
+      issue: 'Invalid id type: expected string, got number',
+    });
   });
 });

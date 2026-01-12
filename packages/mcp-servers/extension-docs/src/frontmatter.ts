@@ -4,6 +4,9 @@ export interface Frontmatter {
   category?: string;
   tags?: string[];
   topic?: string;
+  id?: string;
+  requires?: string[];
+  related_to?: string[];
 }
 
 export interface ParseWarning {
@@ -19,6 +22,45 @@ export function getParseWarnings(): ParseWarning[] {
 
 export function clearParseWarnings(): void {
   parseWarnings.length = 0;
+}
+
+/**
+ * Parse a field that can be either a single string or an array of strings.
+ * Returns undefined if the field is not present or has invalid type.
+ */
+function parseStringArrayField(
+  value: unknown,
+  fieldName: string,
+  filePath: string,
+): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === 'string') {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    const result: string[] = [];
+    for (const item of value) {
+      if (typeof item === 'string') {
+        result.push(item);
+      } else {
+        parseWarnings.push({
+          file: filePath,
+          issue: `Invalid ${fieldName} item type: expected string, got ${typeof item}`,
+        });
+      }
+    }
+    return result.length > 0 ? result : undefined;
+  }
+
+  parseWarnings.push({
+    file: filePath,
+    issue: `Invalid ${fieldName} type: expected string or array, got ${typeof value}`,
+  });
+  return undefined;
 }
 
 export function parseFrontmatter(
@@ -75,8 +117,32 @@ export function parseFrontmatter(
       });
     }
 
+    // Validate id is string
+    let id: string | undefined;
+    if (typeof yaml.id === 'string') {
+      id = yaml.id;
+    } else if (yaml.id !== undefined) {
+      parseWarnings.push({
+        file: filePath,
+        issue: `Invalid id type: expected string, got ${typeof yaml.id}`,
+      });
+    }
+
+    // Parse requires (string or array of strings)
+    const requires = parseStringArrayField(yaml.requires, 'requires', filePath);
+
+    // Parse related_to (string or array of strings)
+    const related_to = parseStringArrayField(yaml.related_to, 'related_to', filePath);
+
     return {
-      frontmatter: { category, tags: tags.length > 0 ? tags : undefined, topic },
+      frontmatter: {
+        category,
+        tags: tags.length > 0 ? tags : undefined,
+        topic,
+        id,
+        requires,
+        related_to,
+      },
       body: match[2],
     };
   } catch (err) {
@@ -90,9 +156,11 @@ export function parseFrontmatter(
 
 export function formatMetadataHeader(fm: Frontmatter): string {
   const lines: string[] = [];
+  // v2 order: Topic first, then ID, then Category, Tags
+  if (fm.topic) lines.push(`Topic: ${fm.topic}`);
+  if (fm.id) lines.push(`ID: ${fm.id}`);
   if (fm.category) lines.push(`Category: ${fm.category}`);
   if (fm.tags?.length) lines.push(`Tags: ${fm.tags.join(', ')}`);
-  if (fm.topic) lines.push(`Topic: ${fm.topic}`);
   return lines.length ? lines.join('\n') + '\n\n' : '';
 }
 
