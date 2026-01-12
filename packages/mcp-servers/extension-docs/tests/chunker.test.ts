@@ -166,6 +166,73 @@ describe('chunkFile', () => {
     });
   });
 
+  describe('metadata token inclusion', () => {
+    it('includes requires/related_to in tokens even when not in body', () => {
+      const content = [
+        '---',
+        'category: hooks',
+        'requires: [hooks-overview]',
+        'related_to: [hooks-events]',
+        '---',
+        '# Title',
+        '## Section',
+        'Body does not mention prerequisites or related pages.',
+        ...Array(150).fill('pad'),
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'hooks/x.md', content };
+      const chunks = chunkFile(file);
+      const tokens = chunks[0].tokens;
+
+      // Verify relationship metadata appears in tokens
+      expect(tokens).toContain('hooks');
+      expect(tokens).toContain('overview');
+      expect(tokens).toContain('events');
+    });
+
+    it('includes id and topic in tokens', () => {
+      const content = [
+        '---',
+        'id: special-doc-id',
+        'topic: Special Topic Name',
+        'category: test',
+        '---',
+        '# Title',
+        'Body content without id or topic words.',
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/meta.md', content };
+      const chunks = chunkFile(file);
+      const tokens = chunks[0].tokens;
+
+      // id tokens
+      expect(tokens).toContain('special');
+      expect(tokens).toContain('doc');
+      // topic tokens
+      expect(tokens).toContain('topic');
+      expect(tokens).toContain('name');
+    });
+
+    it('handles requires/related_to as single strings', () => {
+      const content = [
+        '---',
+        'requires: single-prereq',
+        'related_to: single-related',
+        '---',
+        '# Title',
+        'Body content.',
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/single.md', content };
+      const chunks = chunkFile(file);
+      const tokens = chunks[0].tokens;
+
+      expect(tokens).toContain('single');
+      expect(tokens).toContain('prereq');
+      expect(tokens).toContain('related');
+    });
+  });
+
   describe('size guards', () => {
     it('splits file exceeding char limit even if under line limit', () => {
       // 60 lines but >8000 chars

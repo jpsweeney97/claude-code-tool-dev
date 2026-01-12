@@ -22,7 +22,7 @@ export function chunkFile(file: MarkdownFile): Chunk[] {
   }
 
   const rawChunks = splitAtH2(file, preparedContent, frontmatter);
-  return mergeSmallChunks(rawChunks);
+  return mergeSmallChunks(rawChunks, frontmatter);
 }
 
 function countLines(content: string): number {
@@ -33,14 +33,32 @@ function isSmallEnoughForWholeFile(content: string): boolean {
   return countLines(content) <= MAX_CHUNK_LINES && content.length <= MAX_CHUNK_CHARS;
 }
 
+/**
+ * Collect all metadata fields that should contribute to searchable tokens.
+ * Tokenizes each field so hyphenated values like "hooks-overview" become ["hooks", "overview"].
+ */
+function getMetadataTerms(fm: Frontmatter, derivedCategory: string): string[] {
+  const sources: (string | undefined)[] = [
+    derivedCategory,
+    fm.id,
+    fm.topic,
+    ...(fm.tags ?? []),
+    ...(fm.requires ?? []),
+    ...(fm.related_to ?? []),
+  ];
+  return sources.filter((s): s is string => s !== undefined).flatMap(tokenize);
+}
+
 function createWholeFileChunk(file: MarkdownFile, content: string, fm: Frontmatter): Chunk {
-  const tokens = tokenize(content);
+  const category = fm.category ?? deriveCategory(file.path);
+  const metadataTerms = getMetadataTerms(fm, category);
+  const tokens = [...tokenize(content), ...metadataTerms];
   return {
     id: generateChunkId(file),
     content,
     tokens,
     termFreqs: computeTermFreqs(tokens),
-    category: fm.category ?? deriveCategory(file.path),
+    category,
     tags: fm.tags ?? [],
     source_file: file.path,
   };
@@ -101,8 +119,8 @@ function createSplitChunk(
   const category = frontmatter.category ?? deriveCategory(file.path);
   const tags = frontmatter.tags ?? [];
 
-  // Include metadata terms in tokens so all chunks are searchable by category/tags
-  const metadataTerms = [category, ...tags].flatMap(tokenize);
+  // Include all metadata terms in tokens so chunks are searchable by category/tags/relationships
+  const metadataTerms = getMetadataTerms(frontmatter, category);
   const tokens = [...tokenize(content), ...metadataTerms];
 
   return {
@@ -117,7 +135,7 @@ function createSplitChunk(
   };
 }
 
-function mergeSmallChunks(chunks: Chunk[]): Chunk[] {
+function mergeSmallChunks(chunks: Chunk[], frontmatter: Frontmatter): Chunk[] {
   const result: Chunk[] = [];
   let buffer: Chunk[] = [];
   let bufferLines = 0;
@@ -132,18 +150,18 @@ function mergeSmallChunks(chunks: Chunk[]): Chunk[] {
       bufferLines += lines;
       bufferChars += chars;
     } else {
-      if (buffer.length) result.push(combineChunks(buffer));
+      if (buffer.length) result.push(combineChunks(buffer, frontmatter));
       buffer = [chunk];
       bufferLines = lines;
       bufferChars = chars;
     }
   }
 
-  if (buffer.length) result.push(combineChunks(buffer));
+  if (buffer.length) result.push(combineChunks(buffer, frontmatter));
   return result;
 }
 
-function combineChunks(chunks: Chunk[]): Chunk {
+function combineChunks(chunks: Chunk[], frontmatter: Frontmatter): Chunk {
   if (chunks.length === 0) {
     throw new Error('combineChunks called with empty array');
   }
@@ -154,7 +172,7 @@ function combineChunks(chunks: Chunk[]): Chunk {
 
   const combinedContent = chunks.map((c) => c.content).join('\n\n');
   const { category, tags } = chunks[0];
-  const metadataTerms = [category, ...tags].flatMap(tokenize);
+  const metadataTerms = getMetadataTerms(frontmatter, category);
   const tokens = [...tokenize(combinedContent), ...metadataTerms];
 
   return {
