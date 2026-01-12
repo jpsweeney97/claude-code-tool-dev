@@ -275,7 +275,11 @@ def run_git(*args: str) -> tuple[bool, str]:
             timeout=5,
         )
         return result.returncode == 0, result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired:
+        log("DEBUG", f"Git command timed out: git {' '.join(args)}")
+        return False, ""
+    except FileNotFoundError:
+        log("DEBUG", "Git not found in PATH")
         return False, ""
 
 
