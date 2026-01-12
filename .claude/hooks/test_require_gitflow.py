@@ -52,3 +52,18 @@ def run_hook(cwd, tool_name="Edit", tool_input=None):
         text=True,
         cwd=cwd,
     )
+
+
+class TestFrontmatter:
+    def test_timeout_is_seconds_not_milliseconds(self):
+        """Timeout should be 5 seconds, not 5000 (which would be 83 minutes)."""
+        import re
+
+        hook_path = Path(__file__).parent / "require-gitflow.py"
+        content = hook_path.read_text()
+        # Extract timeout from frontmatter
+        match = re.search(r"# timeout: (\d+)", content)
+        assert match, "timeout not found in frontmatter"
+        timeout = int(match.group(1))
+        assert timeout <= 60, f"timeout {timeout}s is too long (max 60s reasonable)"
+        assert timeout >= 1, f"timeout {timeout}s is too short"

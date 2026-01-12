@@ -2,7 +2,7 @@
 # /// hook
 # event: PreToolUse
 # matcher: Edit|Write
-# timeout: 5000
+# timeout: 5
 # ///
 """
 Enforce GitFlow branching workflow before editing files.
