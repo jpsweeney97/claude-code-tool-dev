@@ -9,28 +9,31 @@ Enforce GitFlow branching workflow before editing files.
 
 Behavior:
   - BLOCK on protected branches (main, master, develop)
-  - BLOCK/WARN based on git operation state (rebase, merge, cherry-pick, bisect)
+  - BLOCK/WARN based on git operation state (rebase, merge, cherry-pick, bisect, stash-apply)
   - ALLOW on valid GitFlow working branches (feature/*, release/*, etc.)
   - WARN but ALLOW on non-standard branch names (permissive mode)
+  - ALLOW bare repositories (no working tree)
 
 Git operation handling:
   - rebase:      BLOCK — edits during rebase are risky
   - merge:       WARN  — conflict resolution requires edits
   - cherry-pick: WARN  — may need edits for conflicts
   - bisect:      BLOCK — edits lost on next bisect step
-  - stash-apply: WARN  — conflict resolution requires edits
+  - stash-apply: WARN  — may need edits for conflict resolution
   - detached:    WARN  — user explicitly checked out a commit
 
 Configuration (environment variables):
   PROTECTED_BRANCHES    Comma-separated protected branches (default: main,master,develop)
-  GITFLOW_ALLOW_FILES   Comma-separated glob patterns for files that bypass checks (e.g., *.lock)
   GITFLOW_STRICT        Set to "1" to block non-standard branch names (default: permissive)
   GITFLOW_BYPASS        Set to "1" to bypass all checks (emergency use only)
   GITFLOW_DEBUG         Set to "1" for debug output to stderr and log file
-  GITFLOW_LOG_FILE      Custom log file path (default: ~/.claude/logs/gitflow-hook.log)
+  GITFLOW_LOG_FILE      Custom path for log file (default: ~/.claude/logs/gitflow-hook.log)
+  GITFLOW_ALLOW_FILES   Comma-separated glob patterns for files to allow on protected branches
+
+Log file: ~/.claude/logs/gitflow-hook.log (or GITFLOW_LOG_FILE)
 
 Exit codes:
-  0 - Allow (valid branch or permissive warning)
+  0 - Allow (valid branch, allowlisted file, or permissive warning)
   1 - Error (non-blocking)
   2 - Block (protected branch, rebase, or bisect)
 """
@@ -409,7 +412,7 @@ def evaluate_gitflow_rules(
     """
     Evaluate gitflow rules and return decision.
 
-    Pure function - no side effects, no I/O.
+    Deterministic function - reads from environment only, no subprocess/file I/O.
     """
     # Not a repo
     if not ctx.is_repo:
