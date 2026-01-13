@@ -741,6 +741,78 @@ class TestStashConflictDetection:
         assert "stash" in output.get("systemMessage", "").lower()
 
 
+class TestGitOperationStates:
+    """Integration tests for git operation state detection and handling."""
+
+    def test_rebase_in_progress_blocks(self, temp_git_repo, monkeypatch):
+        """Rebase in progress should block edits with exit 2."""
+        # Create divergent history
+        subprocess.run(["git", "checkout", "-b", "feature/rebase-test"], cwd=temp_git_repo, capture_output=True, check=True)
+        (temp_git_repo / "file.txt").write_text("feature content")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "feature commit"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        subprocess.run(["git", "checkout", "main"], cwd=temp_git_repo, capture_output=True, check=True)
+        (temp_git_repo / "file.txt").write_text("main content")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "main commit"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        # Start rebase (will conflict)
+        subprocess.run(["git", "checkout", "feature/rebase-test"], cwd=temp_git_repo, capture_output=True)
+        subprocess.run(["git", "rebase", "main"], cwd=temp_git_repo, capture_output=True)
+
+        monkeypatch.chdir(temp_git_repo)
+        result = run_hook(temp_git_repo)
+
+        assert result.returncode == 2
+        assert "rebase" in result.stderr.lower()
+
+    def test_bisect_in_progress_blocks(self, temp_git_repo, monkeypatch):
+        """Bisect in progress should block edits with exit 2."""
+        # Create multiple commits for bisect
+        for i in range(5):
+            (temp_git_repo / "file.txt").write_text(f"commit {i}")
+            subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+            subprocess.run(["git", "commit", "-m", f"commit {i}"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        # Start bisect
+        subprocess.run(["git", "bisect", "start"], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "bisect", "bad", "HEAD"], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "bisect", "good", "HEAD~4"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        monkeypatch.chdir(temp_git_repo)
+        result = run_hook(temp_git_repo)
+
+        assert result.returncode == 2
+        assert "bisect" in result.stderr.lower()
+
+    def test_cherry_pick_conflict_warns(self, temp_git_repo, monkeypatch):
+        """Cherry-pick with conflict should warn but allow edits (exit 0)."""
+        # Create commit on feature branch
+        subprocess.run(["git", "checkout", "-b", "feature/cp-source"], cwd=temp_git_repo, capture_output=True, check=True)
+        (temp_git_repo / "new.txt").write_text("source content")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "add new file"], cwd=temp_git_repo, capture_output=True, check=True)
+        commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=temp_git_repo, capture_output=True, text=True).stdout.strip()
+
+        # Create conflicting commit on another branch
+        subprocess.run(["git", "checkout", "main"], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "checkout", "-b", "feature/cp-target"], cwd=temp_git_repo, capture_output=True, check=True)
+        (temp_git_repo / "new.txt").write_text("target content")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "different content"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        # Cherry-pick (will conflict)
+        subprocess.run(["git", "cherry-pick", commit], cwd=temp_git_repo, capture_output=True)
+
+        monkeypatch.chdir(temp_git_repo)
+        result = run_hook(temp_git_repo)
+
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert "cherry-pick" in output.get("systemMessage", "").lower()
+
+
 class TestFileAllowlist:
     def test_get_allowed_file_patterns_empty_by_default(self):
         """No patterns when GITFLOW_ALLOW_FILES is not set."""
