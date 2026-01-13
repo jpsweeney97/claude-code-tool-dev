@@ -1,6 +1,8 @@
 ---
 name: design-reviewer
 description: Reviews design documents produced by brainstorming skill for quality, completeness, and implementation readiness. Use after brainstorming completes, before writing-plans.
+allowed-tools: Read, Glob, Grep, Write
+user-invocable: true
 ---
 
 # Design Reviewer
@@ -41,6 +43,8 @@ description: Reviews design documents produced by brainstorming skill for qualit
 **Constraints:**
 
 - Design document must exist at the specified path
+- `docs/plans/` directory must exist (created if missing)
+- Write permission required for output directory
 - Assumes design follows brainstorming skill output format (if not, reviewer adapts but may miss structure-specific checks)
 
 ## Outputs
@@ -119,6 +123,8 @@ description: Reviews design documents produced by brainstorming skill for qualit
    - **NEEDS REVISION** — Any critical findings present
 
 8. **Write review report** to `docs/plans/YYYY-MM-DD-<topic>-design-review.md`
+   - If write fails, check that `docs/plans/` exists. Create with `mkdir -p docs/plans` if needed and retry.
+   - If still failing, STOP and report the permission error to user.
 
 9. **Present summary to user** with verdict and critical/important findings
 
@@ -145,11 +151,15 @@ description: Reviews design documents produced by brainstorming skill for qualit
 
 **Quick check:**
 
+Use the actual report path from step 8 (e.g., `docs/plans/2024-01-13-auth-design-review.md`):
+
 ```bash
-test -f docs/plans/*-design-review.md && grep -q "^## Summary" docs/plans/*-design-review.md
+test -f "$REPORT_PATH" && grep -q "^## Summary" "$REPORT_PATH"
 ```
 
 Expected: Exit 0 (file exists and contains Summary section)
+
+Note: Replace `$REPORT_PATH` with the literal path written in step 8. Do not use glob patterns.
 
 **Deep check:**
 
@@ -160,9 +170,10 @@ Expected: Exit 0 (file exists and contains Summary section)
    - `grep -q "## Findings" <report>` — has findings
    - `grep -q "## Recommendations" <report>` — has recommendations
 3. Verdict is one of: PASS, PASS WITH CONCERNS, NEEDS REVISION
-4. Critical findings have rationale (verified by inspection):
-   - Each bullet under "### Critical" should explain *why* it's a concern, not just *what*
-   - If any critical finding lacks rationale, revise before finalizing report
+4. Critical findings have rationale:
+   - Each bullet under "### Critical" must explain *why* it's a concern, not just *what*
+   - Verify: `awk '/### Critical/,/### Important/' "$REPORT_PATH" | grep -c "^-"` should match count of findings
+   - If any critical finding lacks rationale (just states the issue without explaining impact), revise before finalizing report
 
 **If quick check fails:**
 
