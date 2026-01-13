@@ -96,3 +96,141 @@ allowed-tools:
 4. **Cross-section consistency:** Final check found no reference errors
 5. **Frontmatter valid:** Name is kebab-case <=64 chars, description <=1024 chars
 6. **Wizard metadata removed:** No `metadata.wizard` block in final file
+
+## Procedure
+
+### Phase 1: Discovery
+
+1. **Announce:** "Starting skill wizard. I'll guide you through creating a spec-compliant skill."
+
+2. **Gather purpose (conversational):**
+   - "What does this skill do?" (1-2 sentences)
+   - "What artifact does it produce?"
+   - "Who uses it and when?"
+
+3. **Gather structured inputs (AskUserQuestion):**
+   - Category selection (13 options from category-integration.md)
+   - Mutating actions? (No / Writes files / External effects)
+   - Network required? (No / Optional / Required)
+
+4. **Confirm output path:**
+   - If path provided: Validate it's writable
+   - If not provided: Ask user for path
+   - **STOP** if path not provided after asking.
+
+5. **Create initial SKILL.md:**
+   - Write frontmatter with name, description placeholder
+   - Add `metadata.wizard` block with status: draft, risk tier, category, discovery answers
+   - Write `<!-- wizard:next=when-to-use -->` marker
+
+### Phase 2: Risk Assessment
+
+6. **Determine tier from discovery:**
+   - Load `references/risk-tier-guide.md`
+   - Apply tier selection rules based on mutating actions and category
+   - Auto-escalate to High if mutating actions detected
+
+7. **Flag likely exceptions:**
+   - Based on category, identify common exceptions (e.g., "Documentation skills often have <2 decision points")
+   - Present to user for acknowledgment
+
+8. **User confirms tier:**
+   - Present determined tier with rationale
+   - Allow adjustment (with gating validation if downgrading)
+   - Update `metadata.wizard.risk_tier` in SKILL.md
+
+### Phase 3: Section-by-Section Drafting
+
+9. **For each section in order (When to use -> Troubleshooting):**
+
+   a. **Show progress:**
+      ```
+      Y When to use
+      -> When NOT to use  <- current
+      O Inputs
+      O Outputs
+      O Procedure
+      O Decision points
+      O Verification
+      O Troubleshooting
+      ```
+
+   b. **Generate draft:**
+      - Use discovery answers and prior approved sections
+      - Load relevant checklist from `references/checklist-<section>.md`
+      - Offer templates from `templates/` if applicable
+
+   c. **Present draft with spec requirements:**
+      - Show draft content
+      - Show checklist items alongside
+
+   d. **Run inline validation:**
+      - Check structural requirements ([MUST])
+      - Check semantic requirements ([SEMANTIC])
+      - Check anti-patterns
+
+   e. **Handle validation results:**
+      - **MUST fail:** Block approval, show specific violation, require fix
+      - **SHOULD gap:** Warn, allow [Acknowledge and continue]
+      - **Borderline:** Flag explicitly, offer [Accept as-is] [Apply suggested fix] [Edit manually]
+
+   f. **User action:** [Approve] [Edit] [Regenerate]
+      - If edit: User describes change, regenerate with edit applied
+      - Loop until approved
+
+   g. **Write approved section:**
+      - Append section to SKILL.md
+      - Update `<!-- wizard:next=X -->` marker to next section
+
+### Phase 4: Cross-Section Validation
+
+10. **Run 16 cross-section checks** (from design document):
+    - Reference integrity (4 checks)
+    - Core invariants (6 checks)
+    - Category-specific coherence (3 checks)
+    - Semantic coherence (3 checks)
+
+11. **If issues found:**
+    - Identify which sections need revision
+    - Navigate user to those sections
+    - Re-run section validation after edits
+    - Loop until all checks pass
+
+### Phase 5: Final Review and Cleanup
+
+12. **Present compliance summary:**
+    ```
+    ====================================================
+    COMPLIANCE SUMMARY: <skill-name>
+    ====================================================
+    Risk tier: <tier> | Category: <category>
+
+    Structural compliance:   8/8 passed Y
+    Semantic quality:        X/X passed Y
+    Anti-pattern scan:       0 found Y
+    Cross-section check:     Passed Y
+    SHOULD requirements:     X/X passed, Y warnings
+
+    SHOULD warnings (Y):
+      - <warning 1>
+      - <warning 2>
+
+    Borderline acceptances (Z):
+      - <acceptance 1>
+
+    Justified exceptions (N):
+      - <exception with rationale>
+
+    Verdict: PASS
+    ====================================================
+    ```
+
+13. **User approves final skill**
+
+14. **Remove wizard metadata:**
+    - Delete `metadata.wizard` block from frontmatter
+    - Delete `<!-- wizard:next=X -->` marker
+
+15. **Confirm completion:**
+    - "Skill created successfully at: <path>/SKILL.md"
+    - Suggest: "Test with `/<skill-name>` in this project"
