@@ -234,3 +234,128 @@ allowed-tools:
 15. **Confirm completion:**
     - "Skill created successfully at: <path>/SKILL.md"
     - Suggest: "Test with `/<skill-name>` in this project"
+
+## Decision Points
+
+- **If output path has SKILL.md with `metadata.wizard.status: draft`:**
+  Offer to resume from where wizard left off. Present section progress.
+  User can [Resume] or [Start fresh].
+
+- **If output path has complete SKILL.md (no wizard metadata):**
+  Ask user to confirm overwrite or choose new path.
+  Do not overwrite without confirmation.
+
+- **If discovery answers suggest multiple categories:**
+  Present top 2-3 matches with trade-offs, ask user to choose.
+  Do not guess.
+
+- **If mutating actions detected but user selected Low risk:**
+  Override to High, explain why.
+  User can acknowledge but cannot downgrade without gating validation.
+
+- **If user wants to skip a section:**
+  STOP. All 8 sections required by spec.
+  Explain which content areas must exist.
+  Offer to generate minimal compliant content if user is stuck.
+
+- **If user navigates back and edits earlier section:**
+  Re-validate that section.
+  If dependent sections are now inconsistent, flag them for review.
+
+- **If cross-section check fails:**
+  Identify the specific inconsistency.
+  Navigate user to the section(s) that need revision.
+  Do not remove wizard metadata until resolved.
+
+## Verification
+
+**Quick check:**
+
+```bash
+test -f <path>/SKILL.md && grep -c "^## " <path>/SKILL.md
+```
+
+Expected: File exists AND grep returns >=8.
+
+**Deep check:**
+
+1. Parse frontmatter, validate:
+   - `name` is kebab-case, <=64 chars
+   - `description` exists, <=1024 chars
+   - No `metadata.wizard` block (indicates incomplete)
+
+2. Re-run all 8 section checklists on written file
+
+3. Confirm compliance summary matches:
+   - Zero MUST violations
+   - All SHOULD warnings acknowledged
+   - All borderline acceptances documented
+
+**If quick check fails:**
+- If file missing: Write failed. Check path permissions. Ask user to verify path and retry.
+- If <8 sections: Wizard interrupted. Offer to resume.
+
+**Calibration:**
+If any verification step was not run, report:
+`Not run (reason): <reason>. Run: <command>. Expected: <pattern>.`
+
+## Troubleshooting
+
+**Symptom:** User stuck on a section, keeps failing validation
+**Cause:** Skill concept doesn't map well to spec structure
+**Next steps:**
+- Ask what user is trying to achieve with this section
+- Suggest restructuring the skill concept
+- Check if this should be a command instead of a skill (commands don't need 8 sections)
+
+**Symptom:** Cross-section check fails repeatedly
+**Cause:** User navigated back and edited earlier sections, creating inconsistencies
+**Next steps:**
+- Show the specific inconsistency (e.g., "Procedure references 'file path' input but Inputs section no longer lists it")
+- Navigate to source section
+- Re-validate dependent sections after fix
+
+**Symptom:** Too many borderline acceptances (>3)
+**Cause:** User clicking "accept" without understanding implications
+**Next steps:**
+- At final review, flag high count of borderline items
+- Ask user if they want to revisit any before finalizing
+- Warn: "Skills with many borderline acceptances often fail in practice"
+
+**Anti-pattern to avoid:** "Just accept everything to finish faster"
+This produces structurally compliant but semantically weak skills.
+If user seems to be rushing, note: "You have X borderline acceptances. Consider revising?"
+
+**Symptom:** Write permission denied
+**Cause:** Target directory not writable or doesn't exist
+**Next steps:**
+- Check if parent directory exists: `ls -la <parent>`
+- Check permissions: `ls -la <target>`
+- Offer alternative: present skill in conversation for manual copy
+
+## Session Recovery
+
+The wizard writes approved sections incrementally to SKILL.md. **The artifact is the checkpoint.**
+
+**Recovery procedure:**
+
+When user says "continue wizard" or "resume skill-wizard", or when wizard detects partial SKILL.md:
+
+1. **Read** existing SKILL.md at target path
+2. **Parse** wizard metadata from frontmatter (risk tier, category, exceptions)
+3. **Validate** each existing section against checklists
+4. **Present summary:**
+   - "Found X/8 sections for '<skill-name>'. All valid. Next: <section>."
+   - If any section fails: "Found X/8 sections. '<section>' has MUST violation. Fix first?"
+5. **Resume** from first missing or invalid section
+
+**User edits between sessions:**
+- Wizard re-reads and re-validates on resume
+- External edits are handled as normal edit cycles
+- If edits improved content -> passes validation, wizard continues
+- If edits broke something -> validation catches it, wizard flags for revision
+
+**Abandoning a draft:**
+- Partial SKILL.md remains with `status: draft` marker
+- User can delete it, or resume later
+- The draft marker prevents confusion about completeness
