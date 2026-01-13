@@ -573,6 +573,36 @@ class TestMainExceptionHandling:
         assert "tool=Edit" in captured.err or "Edit" in captured.err
 
 
+class TestConfigurableLogPath:
+    """Tests for configurable log file path via GITFLOW_LOG_FILE."""
+
+    def test_default_log_path(self):
+        """Default log path should be ~/.claude/logs/gitflow-hook.log."""
+        # Reimport to get fresh module state
+        spec = importlib.util.spec_from_file_location(
+            "require_gitflow_fresh",
+            Path(__file__).parent / "require-gitflow.py"
+        )
+        fresh_module = importlib.util.module_from_spec(spec)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GITFLOW_LOG_FILE", None)
+            spec.loader.exec_module(fresh_module)
+            assert fresh_module.LOG_FILE == Path.home() / ".claude/logs/gitflow-hook.log"
+
+    def test_custom_log_path(self, tmp_path):
+        """GITFLOW_LOG_FILE should override default path."""
+        custom_path = tmp_path / "custom.log"
+        with patch.dict(os.environ, {"GITFLOW_LOG_FILE": str(custom_path)}):
+            result = require_gitflow.get_log_file()
+            assert result == custom_path
+
+    def test_empty_env_uses_default(self):
+        """Empty GITFLOW_LOG_FILE should use default."""
+        with patch.dict(os.environ, {"GITFLOW_LOG_FILE": ""}):
+            result = require_gitflow.get_log_file()
+            assert result == Path.home() / ".claude/logs/gitflow-hook.log"
+
+
 class TestGitContextInvariants:
     """Tests for GitContext invariant validation."""
 

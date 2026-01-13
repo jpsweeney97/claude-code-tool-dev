@@ -25,8 +25,7 @@ Configuration (environment variables):
   GITFLOW_STRICT        Set to "1" to block non-standard branch names (default: permissive)
   GITFLOW_BYPASS        Set to "1" to bypass all checks (emergency use only)
   GITFLOW_DEBUG         Set to "1" for debug output to stderr and log file
-
-Log file: ~/.claude/logs/gitflow-hook.log
+  GITFLOW_LOG_FILE      Custom log file path (default: ~/.claude/logs/gitflow-hook.log)
 
 Exit codes:
   0 - Allow (valid branch or permissive warning)
@@ -47,7 +46,17 @@ MAX_PATH_DISPLAY_LEN = 50
 BYPASS_ENV = "GITFLOW_BYPASS"
 
 DEBUG = os.environ.get("GITFLOW_DEBUG", "") == "1"
-LOG_FILE = Path.home() / ".claude/logs/gitflow-hook.log"
+
+
+def get_log_file() -> Path:
+    """Get log file path from environment or default."""
+    env_path = os.environ.get("GITFLOW_LOG_FILE", "").strip()
+    if env_path:
+        return Path(env_path)
+    return Path.home() / ".claude/logs/gitflow-hook.log"
+
+
+LOG_FILE = get_log_file()
 
 _log_warning_shown = False
 
