@@ -813,6 +813,144 @@ class TestGitOperationStates:
         assert "cherry-pick" in output.get("systemMessage", "").lower()
 
 
+class TestEvaluateGitflowRules:
+    """Unit tests for the extracted decision logic."""
+
+    def test_not_a_repo_allows(self):
+        """Not a git repo should allow."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=False)
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        assert decision.decision == require_gitflow.Decision.ALLOW
+        assert decision.exit_code == 0
+
+    def test_bare_repo_allows(self):
+        """Bare repo should allow."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, is_bare=True, git_dir="/path")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        assert decision.decision == require_gitflow.Decision.ALLOW
+
+    def test_rebase_blocks(self):
+        """Rebase in progress should block."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="feature/x")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", "rebase")
+        assert decision.decision == require_gitflow.Decision.BLOCK
+        assert decision.exit_code == 2
+        assert "rebase" in decision.message.lower()
+
+    def test_bisect_blocks(self):
+        """Bisect in progress should block."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="feature/x")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", "bisect")
+        assert decision.decision == require_gitflow.Decision.BLOCK
+        assert decision.exit_code == 2
+
+    def test_merge_warns(self):
+        """Merge in progress should warn but allow."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="feature/x")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", "merge")
+        assert decision.decision == require_gitflow.Decision.WARN
+        assert decision.exit_code == 0
+        assert decision.output_json is not None
+
+    def test_protected_branch_blocks(self):
+        """Protected branch should block."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="main")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        assert decision.decision == require_gitflow.Decision.BLOCK
+        assert decision.exit_code == 2
+
+    def test_feature_branch_allows(self):
+        """Feature branch should allow."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="feature/test")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        assert decision.decision == require_gitflow.Decision.ALLOW
+
+    def test_allowlisted_file_on_protected_allows(self, monkeypatch):
+        """Allowlisted file on protected branch should allow."""
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "*.lock")
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="main")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "package.lock", None)
+        assert decision.decision == require_gitflow.Decision.ALLOW
+
+    def test_no_commits_allows_with_message(self):
+        """No commits yet should allow with system message."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=False, branch="main")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        assert decision.decision == require_gitflow.Decision.ALLOW
+        assert decision.output_json is not None
+        assert "no commits" in decision.output_json.get("systemMessage", "").lower()
+
+    def test_detached_head_warns(self):
+        """Detached HEAD should warn but allow."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, is_detached=True)
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        assert decision.decision == require_gitflow.Decision.WARN
+        assert decision.exit_code == 0
+        assert decision.output_json is not None
+
+    def test_cherry_pick_warns(self):
+        """Cherry-pick in progress should warn but allow."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="feature/x")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", "cherry-pick")
+        assert decision.decision == require_gitflow.Decision.WARN
+        assert decision.exit_code == 0
+
+    def test_stash_apply_warns(self):
+        """Stash-apply in progress should warn but allow."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="feature/x")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", "stash-apply")
+        decision.decision == require_gitflow.Decision.WARN
+        assert decision.exit_code == 0
+
+    def test_nonstandard_branch_warns_permissive(self, monkeypatch):
+        """Non-standard branch should warn in permissive mode."""
+        monkeypatch.delenv("GITFLOW_STRICT", raising=False)
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="random-branch")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        assert decision.decision == require_gitflow.Decision.WARN
+        assert decision.exit_code == 0
+        assert decision.output_json is not None
+
+    def test_nonstandard_branch_blocks_strict(self, monkeypatch):
+        """Non-standard branch should block in strict mode."""
+        monkeypatch.setenv("GITFLOW_STRICT", "1")
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="random-branch")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        assert decision.decision == require_gitflow.Decision.BLOCK
+        assert decision.exit_code == 2
+
+    def test_develop_branch_blocks_with_correct_message(self):
+        """Develop branch should block with integration branch message."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="develop")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        assert decision.decision == require_gitflow.Decision.BLOCK
+        assert "integration" in decision.message.lower()
+
+    def test_null_branch_allows(self):
+        """None branch (unexpected state) should allow."""
+        GitContext = require_gitflow.GitContext
+        # Detached HEAD but treating it as branch=None (edge case)
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, is_detached=True)
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        # is_detached is checked first, so this returns WARN
+        assert decision.decision == require_gitflow.Decision.WARN
+
+
 class TestFileAllowlist:
     def test_get_allowed_file_patterns_empty_by_default(self):
         """No patterns when GITFLOW_ALLOW_FILES is not set."""

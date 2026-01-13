@@ -41,6 +41,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -382,6 +383,109 @@ class GitContext:
             raise ValueError("GitContext invariant violated: branch and is_detached are mutually exclusive")
 
 
+class Decision(Enum):
+    """Decision types for gitflow evaluation."""
+
+    ALLOW = "allow"
+    BLOCK = "block"
+    WARN = "warn"
+
+
+@dataclass(frozen=True)
+class HookDecision:
+    """Result of evaluating gitflow rules."""
+
+    decision: Decision
+    message: str | None = None
+    exit_code: int = 0
+    output_json: dict | None = None
+
+
+def evaluate_gitflow_rules(
+    ctx: GitContext,
+    file_path: str,
+    operation: str | None,
+) -> HookDecision:
+    """
+    Evaluate gitflow rules and return decision.
+
+    Pure function - no side effects, no I/O.
+    """
+    # Not a repo
+    if not ctx.is_repo:
+        return HookDecision(Decision.ALLOW)
+
+    # Bare repo
+    if ctx.is_bare:
+        return HookDecision(Decision.ALLOW)
+
+    # No commits yet
+    if not ctx.has_commits:
+        return HookDecision(
+            Decision.ALLOW,
+            output_json={
+                "systemMessage": "Note: This repository has no commits yet. GitFlow checks are bypassed during initial setup."
+            },
+        )
+
+    # File allowlist check
+    if is_file_allowed(file_path):
+        return HookDecision(Decision.ALLOW)
+
+    # Operation checks
+    if operation == "rebase":
+        return HookDecision(Decision.BLOCK, BLOCK_MESSAGE_REBASE, exit_code=2)
+    if operation == "bisect":
+        return HookDecision(Decision.BLOCK, BLOCK_MESSAGE_BISECT, exit_code=2)
+    if operation == "merge":
+        return HookDecision(Decision.WARN, output_json={"systemMessage": WARN_MESSAGE_MERGE})
+    if operation == "cherry-pick":
+        return HookDecision(Decision.WARN, output_json={"systemMessage": WARN_MESSAGE_CHERRY_PICK})
+    if operation == "stash-apply":
+        return HookDecision(Decision.WARN, output_json={"systemMessage": WARN_MESSAGE_STASH})
+
+    # Detached HEAD
+    if ctx.is_detached:
+        return HookDecision(Decision.WARN, output_json={"systemMessage": WARN_MESSAGE_DETACHED})
+
+    # Branch checks
+    branch = ctx.branch
+    if branch is None:
+        return HookDecision(Decision.ALLOW)
+
+    protected = get_protected_branches()
+    branch_lower = branch.lower()
+
+    if branch_lower in protected:
+        file_context = get_file_context({"file_path": file_path})
+        if branch_lower in {"main", "master"}:
+            msg = BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context)
+        elif branch_lower == "develop":
+            msg = BLOCK_MESSAGE_DEVELOP.format(branch=branch, file=file_context)
+        else:
+            msg = BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context)
+        return HookDecision(Decision.BLOCK, msg, exit_code=2)
+
+    if matches_valid_pattern(branch):
+        return HookDecision(Decision.ALLOW)
+
+    # Non-standard branch
+    suggested = suggest_branch_name(branch)
+    if is_strict_mode():
+        return HookDecision(
+            Decision.BLOCK,
+            BLOCK_MESSAGE_NONSTANDARD.format(branch=branch, suggested=suggested),
+            exit_code=2,
+        )
+
+    return HookDecision(
+        Decision.WARN,
+        output_json={
+            "systemMessage": WARN_MESSAGE_NONSTANDARD.format(branch=branch, suggested=suggested)
+        },
+    )
+
+
 def get_git_context() -> GitContext:
     """
     Gather all git context in minimal subprocess calls.
@@ -501,129 +605,38 @@ def main():
         if check_bypass():
             sys.exit(0)
 
-        # Gather git context (2-3 subprocess calls instead of 5)
+        # Gather git context
         ctx = get_git_context()
+        file_path = tool_input.get("file_path", "")
+        operation = get_git_operation_state(ctx.git_dir) if ctx.is_repo else None
 
-        # Not a git repo - allow (untracked project)
+        log("DEBUG", f"Checking edit to: {file_path}")
+
+        # Evaluate gitflow rules
+        decision = evaluate_gitflow_rules(ctx, file_path, operation)
+
+        # Log decision with context
         if not ctx.is_repo:
             log("DEBUG", "Not a git repo, allowing")
-            sys.exit(0)
-
-        # Bare repo - allow (no working tree, edits are meaningless)
-        if ctx.is_bare:
+        elif ctx.is_bare:
             log("DEBUG", "Bare repository, skipping checks")
-            sys.exit(0)
-
-        # New repo with no commits - allow (bootstrapping)
-        if not ctx.has_commits:
+        elif not ctx.has_commits:
             log("INFO", "Repository has no commits yet - allowing edits for bootstrapping")
-            output = {
-                "systemMessage": "Note: This repository has no commits yet. GitFlow checks are bypassed during initial setup."
-            }
-            print(json.dumps(output))
-            sys.exit(0)
-
-        # Check file allowlist (before protected branch checks)
-        file_path = tool_input.get("file_path", "")
-        if is_file_allowed(file_path):
+        elif decision.decision == Decision.ALLOW and is_file_allowed(file_path):
             log("DEBUG", f"File matches allowlist, bypassing protection: {file_path}")
-            sys.exit(0)
+        elif operation:
+            log("DEBUG" if decision.decision != Decision.BLOCK else "INFO", f"Operation: {operation}")
+        log("DEBUG", f"Decision: {decision.decision.value}")
 
-        # Get file context for error messages
-        file_context = get_file_context(tool_input)
-        log("DEBUG", f"Checking edit to: {tool_input.get('file_path', 'unknown')}")
+        # Execute decision
+        if decision.output_json:
+            print(json.dumps(decision.output_json))
 
-        # Check for in-progress git operations FIRST
-        operation = get_git_operation_state(ctx.git_dir)
+        if decision.message and decision.decision == Decision.BLOCK:
+            log("INFO", f"BLOCKED: {decision.message[:50]}...")
+            print(decision.message, file=sys.stderr)
 
-        if operation == "rebase":
-            log("INFO", "BLOCKED: Edit during rebase")
-            print(BLOCK_MESSAGE_REBASE, file=sys.stderr)
-            sys.exit(2)
-
-        if operation == "bisect":
-            log("INFO", "BLOCKED: Edit during bisect")
-            print(BLOCK_MESSAGE_BISECT, file=sys.stderr)
-            sys.exit(2)
-
-        if operation == "merge":
-            output = {"systemMessage": WARN_MESSAGE_MERGE}
-            print(json.dumps(output))
-            sys.exit(0)
-
-        if operation == "cherry-pick":
-            output = {"systemMessage": WARN_MESSAGE_CHERRY_PICK}
-            print(json.dumps(output))
-            sys.exit(0)
-
-        if operation == "stash-apply":
-            log("INFO", "Stash-apply conflict detected, allowing edits")
-            output = {"systemMessage": WARN_MESSAGE_STASH}
-            print(json.dumps(output))
-            sys.exit(0)
-
-        # Check for detached HEAD
-        if ctx.is_detached:
-            log("DEBUG", "Detached HEAD, warning but allowing")
-            output = {"systemMessage": WARN_MESSAGE_DETACHED}
-            print(json.dumps(output))
-            sys.exit(0)
-
-        # Get current branch from context
-        branch = ctx.branch
-
-        # Couldn't determine branch - allow (unexpected state, fail open)
-        if branch is None:
-            log("DEBUG", "Could not determine branch, allowing")
-            sys.exit(0)
-
-        # Check if on protected branch (case-insensitive)
-        protected = get_protected_branches()
-        branch_lower = branch.lower()
-
-        if branch_lower in protected:
-            log("INFO", f"BLOCKED: Edit on protected branch {branch}")
-
-            # Select message based on branch type
-            if branch_lower in {"main", "master"}:
-                message = BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context)
-            elif branch_lower == "develop":
-                message = BLOCK_MESSAGE_DEVELOP.format(branch=branch, file=file_context)
-            else:
-                # Custom protected branch - use main template
-                message = BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context)
-
-            print(message, file=sys.stderr)
-            sys.exit(2)
-
-        # Check if matches valid GitFlow pattern (case-insensitive)
-        if matches_valid_pattern(branch):
-            log("DEBUG", f"Branch {branch} matches valid pattern, allowing")
-            sys.exit(0)
-
-        # Non-standard branch name
-        suggested = suggest_branch_name(branch)
-
-        if is_strict_mode():
-            log("INFO", f"BLOCKED: Non-standard branch {branch} (strict mode)")
-            # Note: JSON systemMessage cannot be used here because exit 2 ignores stdout.
-            # The hook contract only processes stdout JSON on exit 0.
-            # See: @.claude/rules/hooks.md#exit-codes
-            print(
-                BLOCK_MESSAGE_NONSTANDARD.format(branch=branch, suggested=suggested),
-                file=sys.stderr,
-            )
-            sys.exit(2)
-
-        # Permissive mode: warn but allow
-        # Output warning as JSON so Claude sees it as context
-        output = {
-            "systemMessage": WARN_MESSAGE_NONSTANDARD.format(
-                branch=branch, suggested=suggested
-            ),
-        }
-        print(json.dumps(output))
-        sys.exit(0)
+        sys.exit(decision.exit_code)
 
     except json.JSONDecodeError as e:
         print(f"Hook error: Invalid JSON input: {e}", file=sys.stderr)
