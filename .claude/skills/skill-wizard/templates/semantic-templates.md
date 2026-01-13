@@ -5,6 +5,18 @@ Copy/paste-ready templates from the semantic quality addendum.
 ## T1: Semantic Contract Block (When to Use)
 
 ```markdown
+**Semantic contract:**
+- **Primary goal:** [one sentence description]
+- **Non-goals:** [3-6 bullets of what this skill does NOT do]
+- **Hard constraints:** [e.g., no network, no new deps, no API changes]
+- **Invariants (must not change):** [public behavior/contracts that must be preserved]
+- **Acceptance signals:** [2-4 observable success signals]
+- **Risk posture:** [low/medium/high] and why
+```
+
+*Simplified alternative for "When to Use" section:*
+
+```markdown
 ## When to Use
 
 **Primary goal:** [1-2 sentence description of what this skill accomplishes]
@@ -28,10 +40,14 @@ Copy/paste-ready templates from the semantic quality addendum.
 
 ```markdown
 **Assumptions:**
-| Assumption | Verified | Evidence |
-|------------|----------|----------|
-| [assumption 1] | Verified/Inferred/Assumed | [file:line or "not checked"] |
-| [assumption 2] | Verified/Inferred/Assumed | [file:line or "not checked"] |
+
+| Category | Items | Evidence |
+|----------|-------|----------|
+| **Verified** | [facts confirmed via repo inspection/command output] | [file:line or command output] |
+| **Inferred** | [reasonable inferences from verified facts] | [reasoning from verified items] |
+| **Unverified** | [requires STOP or user confirmation before relying on] | "not checked" |
+
+For unverified assumptions: Do not rely on these. STOP and ask user to confirm, or gather evidence first.
 ```
 
 ## T4: Decision Point with Observable Trigger

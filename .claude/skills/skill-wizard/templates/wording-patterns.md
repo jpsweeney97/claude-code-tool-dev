@@ -30,6 +30,7 @@ Before suggesting a fix, gather evidence:
 2. Identify the exact failure signature
 3. Trace to the root cause
 Only then propose a targeted fix with evidence.
+State a **root cause hypothesis** and the **evidence** that supports it before implementing changes.
 ```
 
 ## A.4 Minimal-change Default
