@@ -23,6 +23,10 @@ When a category is selected during discovery, integrate these category-specific 
 | prompt-engineering | Medium | Overfitting to test cases |
 | research-exploration | Low | Inconclusive findings |
 | planning-architecture | Medium | Plan doesn't survive implementation |
+| performance-optimization | Medium | Wrong bottleneck targeted |
+| automation-scripting | Medium | Works locally, fails in CI |
+| ui-ux-development | Medium | Functional but poor UX |
+| incident-response | High | Mitigation introduces new issues |
 
 ## Category-Specific DoD Additions
 
@@ -107,6 +111,38 @@ When a category is selected during discovery, integrate these category-specific 
 - Dependencies identified (what must exist before implementation)
 - Scope explicitly bounded (what's included, what's deferred)
 - Verification criteria defined (how we'll know the plan worked)
+
+### performance-optimization
+- Target metric defined before optimization (latency, throughput, memory, bundle size)
+- Baseline measurement captured (quantified "before" state)
+- Bottleneck identified with evidence (profiler output, flame graph, metrics)
+- Post-optimization measurement shows improvement on target metric
+- Regression check: other metrics didn't degrade significantly
+- Trade-offs documented (e.g., "reduced latency by 40%, increased memory by 10%")
+
+### automation-scripting
+- Purpose and trigger clearly documented (when does this run, who/what invokes it)
+- Dependencies declared (tools, env vars, permissions required)
+- Idempotency verified (safe to run multiple times)
+- Error handling covers common failures (missing tools, network issues, permission denied)
+- Exit codes meaningful (0 = success, non-zero = failure with distinct codes)
+- Tested in target environment, not just local
+
+### ui-ux-development
+- Visual requirements specified (mockup, design system reference, or explicit description)
+- Responsive behavior defined (breakpoints, mobile/tablet/desktop)
+- Accessibility baseline met (keyboard navigation, screen reader labels, color contrast)
+- Component renders without console errors/warnings
+- Edge cases handled (empty states, loading states, error states, overflow text)
+- Tested in target browsers/devices (or documented which are supported)
+
+### incident-response
+- Impact assessed (who/what is affected, severity, scope)
+- Mitigation applied and verified (incident actually resolved, not just attempted)
+- Rollback plan documented (how to undo mitigation if it makes things worse)
+- Communication sent to stakeholders (if applicable)
+- Timeline captured (when detected, when mitigated, when resolved)
+- Follow-up items identified (root cause investigation, preventive measures)
 
 ## What to Pull from Category Guide
 
