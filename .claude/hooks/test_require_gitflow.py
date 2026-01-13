@@ -603,6 +603,49 @@ class TestConfigurableLogPath:
             assert result == Path.home() / ".claude/logs/gitflow-hook.log"
 
 
+class TestBareRepoDetection:
+    """Tests for bare repository detection."""
+
+    def test_git_context_has_is_bare_field(self):
+        """GitContext should have is_bare field."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", is_bare=True)
+        assert ctx.is_bare is True
+
+    def test_git_context_is_bare_default_false(self):
+        """is_bare should default to False."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="main")
+        assert ctx.is_bare is False
+
+    def test_get_git_context_detects_bare_repo(self, tmp_path, monkeypatch):
+        """get_git_context should detect bare repositories."""
+        bare_repo = tmp_path / "bare.git"
+        subprocess.run(["git", "init", "--bare", str(bare_repo)], capture_output=True, check=True)
+
+        monkeypatch.chdir(bare_repo)
+        ctx = require_gitflow.get_git_context()
+
+        assert ctx.is_repo is True
+        assert ctx.is_bare is True
+
+    def test_get_git_context_normal_repo_not_bare(self, temp_git_repo, monkeypatch):
+        """Normal repos should have is_bare=False."""
+        monkeypatch.chdir(temp_git_repo)
+        ctx = require_gitflow.get_git_context()
+        assert ctx.is_bare is False
+
+    def test_bare_repo_allows_edits(self, tmp_path, monkeypatch):
+        """Bare repos should allow edits (exit 0)."""
+        bare_repo = tmp_path / "bare.git"
+        subprocess.run(["git", "init", "--bare", str(bare_repo)], capture_output=True, check=True)
+
+        monkeypatch.chdir(bare_repo)
+        result = run_hook(bare_repo)
+
+        assert result.returncode == 0
+
+
 class TestGitContextInvariants:
     """Tests for GitContext invariant validation."""
 

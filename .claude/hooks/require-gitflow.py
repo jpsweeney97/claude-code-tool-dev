@@ -329,9 +329,11 @@ class GitContext:
     - is_repo=True implies git_dir is not None
     - branch and is_detached are mutually exclusive
     - is_detached requires has_commits=True
+    - is_bare=True implies is_repo=True
     """
 
     is_repo: bool = False
+    is_bare: bool = False
     has_commits: bool = False
     git_dir: Optional[str] = None
     branch: Optional[str] = None
@@ -339,11 +341,11 @@ class GitContext:
 
     def __post_init__(self) -> None:
         if not self.is_repo:
-            if self.has_commits or self.git_dir or self.branch or self.is_detached:
+            if self.has_commits or self.git_dir or self.branch or self.is_detached or self.is_bare:
                 raise ValueError(
                     f"GitContext invariant violated: is_repo=False but other fields set: "
                     f"has_commits={self.has_commits}, git_dir={self.git_dir!r}, "
-                    f"branch={self.branch!r}, is_detached={self.is_detached}"
+                    f"branch={self.branch!r}, is_detached={self.is_detached}, is_bare={self.is_bare}"
                 )
         elif self.git_dir is None:
             raise ValueError("GitContext invariant violated: is_repo=True but git_dir is None")
@@ -379,6 +381,13 @@ def get_git_context() -> GitContext:
 
     # Follow gitdir file indirection for worktrees/submodules
     resolved_git_dir = resolve_git_dir(git_dir.strip())
+
+    # Check if bare repo BEFORE other checks
+    success, is_bare_output = run_git("rev-parse", "--is-bare-repository")
+    is_bare = success and is_bare_output.strip().lower() == "true"
+
+    if is_bare:
+        return GitContext(is_repo=True, is_bare=True, git_dir=resolved_git_dir)
 
     # Call 2: Check for commits and get branch name
     # First check if commits exist (needed to distinguish new repo from detached HEAD)
@@ -467,6 +476,11 @@ def main():
         # Not a git repo - allow (untracked project)
         if not ctx.is_repo:
             log("DEBUG", "Not a git repo, allowing")
+            sys.exit(0)
+
+        # Bare repo - allow (no working tree, edits are meaningless)
+        if ctx.is_bare:
+            log("DEBUG", "Bare repository, skipping checks")
             sys.exit(0)
 
         # New repo with no commits - allow (bootstrapping)
