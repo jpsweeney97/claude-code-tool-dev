@@ -67,6 +67,12 @@ Quality standards to adhere to across all work lives in `.claude/rules/methodolo
 - @~/Projects/active/claude-code-tool-dev/.claude/rules/methodology/rigor.md
 - @~/Projects/active/claude-code-tool-dev/.claude/rules/methodology/tenets.md
 
+### Workflow
+
+Git branching conventions enforced by hooks:
+
+- @~/Projects/active/claude-code-tool-dev/.claude/rules/workflow/gitflow.md
+
 ### Extensions
 
 Detailed guidance for each extension type lives in `.claude/rules/extensions`. **Read the relevant rule before starting work on a new extension**:
