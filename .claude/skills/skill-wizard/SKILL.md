@@ -17,8 +17,10 @@ metadata:
 allowed-tools:
   - Read
   - Write
+  - Edit
   - Glob
   - Grep
+  - Bash
   - AskUserQuestion
 ---
 
@@ -245,8 +247,8 @@ allowed-tools:
   Ask user to confirm overwrite or choose new path.
   Do not overwrite without confirmation.
 
-- **If discovery answers suggest multiple categories:**
-  Present top 2-3 matches with trade-offs, ask user to choose.
+- **If the skill's purpose involves activities from 2+ categories** (e.g., "refactoring security code" spans refactoring-modernization and security-changes):
+  Present the matching categories with trade-offs, ask user to choose.
   Do not guess.
 
 - **If mutating actions detected but user selected Low risk:**
@@ -336,8 +338,8 @@ If user seems to be rushing, note: "You have X borderline acceptances. Consider 
 **Symptom:** Write permission denied
 **Cause:** Target directory not writable or doesn't exist
 **Next steps:**
-- Check if parent directory exists: `ls -la <parent>`
-- Check permissions: `ls -la <target>`
+- Check if parent directory exists: `ls -la <parent-of-output-path>`
+- Check permissions on target: `ls -la <output-path>`
 - Offer alternative: present skill in conversation for manual copy
 
 ## Session Recovery
