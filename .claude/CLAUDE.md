@@ -79,13 +79,13 @@ Detailed guidance for each extension type lives in `.claude/rules/extensions`. *
 
 | Working on... | Read first                                                                      |
 | ------------- | ------------------------------------------------------------------------------- |
-| Skills        | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/skills.md      |
-| Hooks         | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/hooks.md       |
-| Commands      | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/commands.md    |
-| Agents        | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/agents.md      |
-| Plugins       | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/plugins.md     |
-| MCP Servers   | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/mcp-servers.md |
-| Settings      | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/settings.md    |
+| Skills        | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/skills.md      |
+| Hooks         | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/hooks.md       |
+| Commands      | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/commands.md    |
+| Agents        | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/agents.md      |
+| Plugins       | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/plugins.md     |
+| MCP Servers   | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/mcp-servers.md |
+| Settings      | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/settings.md    |
 
 ### Scripts
 
