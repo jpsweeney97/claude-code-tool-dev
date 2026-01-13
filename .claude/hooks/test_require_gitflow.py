@@ -698,6 +698,49 @@ class TestGitContextInvariants:
             ctx.branch = "other"
 
 
+class TestStashConflictDetection:
+    def test_get_git_operation_state_detects_stash_apply(self, tmp_path):
+        """AUTO_MERGE file indicates stash-apply conflict."""
+        git_dir = tmp_path / ".git"
+        git_dir.mkdir()
+        (git_dir / "AUTO_MERGE").touch()
+
+        result = require_gitflow.get_git_operation_state(str(git_dir))
+        assert result == "stash-apply"
+
+    def test_merge_takes_precedence_over_auto_merge(self, tmp_path):
+        """MERGE_HEAD should take precedence over AUTO_MERGE."""
+        git_dir = tmp_path / ".git"
+        git_dir.mkdir()
+        (git_dir / "MERGE_HEAD").touch()
+        (git_dir / "AUTO_MERGE").touch()
+
+        result = require_gitflow.get_git_operation_state(str(git_dir))
+        assert result == "merge"
+
+    def test_stash_apply_conflict_warns(self, temp_git_repo, monkeypatch):
+        """Stash apply with conflict should warn but allow edits."""
+        # Create and stash a change
+        (temp_git_repo / "file.txt").write_text("stashed change")
+        subprocess.run(["git", "stash"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        # Create conflicting committed change
+        (temp_git_repo / "file.txt").write_text("committed change")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "conflict"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        # Switch to feature branch and pop stash (will conflict)
+        subprocess.run(["git", "checkout", "-b", "feature/stash-test"], cwd=temp_git_repo, capture_output=True)
+        subprocess.run(["git", "stash", "pop"], cwd=temp_git_repo, capture_output=True)
+
+        monkeypatch.chdir(temp_git_repo)
+        result = run_hook(temp_git_repo)
+
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert "stash" in output.get("systemMessage", "").lower()
+
+
 class TestFileAllowlist:
     def test_get_allowed_file_patterns_empty_by_default(self):
         """No patterns when GITFLOW_ALLOW_FILES is not set."""

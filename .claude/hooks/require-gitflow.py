@@ -15,9 +15,10 @@ Behavior:
 
 Git operation handling:
   - rebase:      BLOCK — edits during rebase are risky
-  - merge:       ALLOW — conflict resolution requires edits
+  - merge:       WARN  — conflict resolution requires edits
   - cherry-pick: WARN  — may need edits for conflicts
   - bisect:      BLOCK — edits lost on next bisect step
+  - stash-apply: WARN  — conflict resolution requires edits
   - detached:    WARN  — user explicitly checked out a commit
 
 Configuration (environment variables):
@@ -256,6 +257,16 @@ Options:
 
 Proceeding anyway — edits allowed but commits may be lost."""
 
+WARN_MESSAGE_STASH = """You're resolving a stash apply conflict.
+
+Edits are expected during stash conflict resolution. After resolving:
+  git add <resolved-files>
+  git stash drop               # if you used 'stash pop'
+
+To abort:
+  git checkout -- <conflicted-files>
+  git stash                    # your changes are still in the stash"""
+
 WARN_MESSAGE_NONSTANDARD = """Branch '{branch}' doesn't follow GitFlow conventions.
 
 Expected patterns:
@@ -441,7 +452,7 @@ def get_git_operation_state(git_dir: str | None) -> str | None:
         git_dir: Path to .git directory (from GitContext)
 
     Returns:
-        'rebase' | 'merge' | 'cherry-pick' | 'bisect' | None
+        'rebase' | 'merge' | 'cherry-pick' | 'bisect' | 'stash-apply' | None
     """
     if not git_dir:
         return None
@@ -466,6 +477,10 @@ def get_git_operation_state(git_dir: str | None) -> str | None:
     # Bisect
     if os.path.exists(os.path.join(git_dir, "BISECT_LOG")):
         return "bisect"
+
+    # Stash apply conflict (AUTO_MERGE exists without merge in progress)
+    if os.path.exists(os.path.join(git_dir, "AUTO_MERGE")):
+        return "stash-apply"
 
     return None
 
@@ -538,6 +553,12 @@ def main():
 
         if operation == "cherry-pick":
             output = {"systemMessage": WARN_MESSAGE_CHERRY_PICK}
+            print(json.dumps(output))
+            sys.exit(0)
+
+        if operation == "stash-apply":
+            log("INFO", "Stash-apply conflict detected, allowing edits")
+            output = {"systemMessage": WARN_MESSAGE_STASH}
             print(json.dumps(output))
             sys.exit(0)
 
