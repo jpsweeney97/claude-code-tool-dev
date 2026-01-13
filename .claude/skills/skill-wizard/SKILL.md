@@ -2,17 +2,17 @@
 name: skill-wizard
 description: >
   Guided skill creation with spec compliance validation. Use when creating
-  a new Claude Code skill from scratch, when you want interactive authoring
-  with inline validation, or when you need help meeting the skills-as-prompts
-  spec requirements. Walks through all 8 required sections, generates draft
-  content, validates against structural and semantic quality criteria, and
-  produces a compliant SKILL.md.
+  a new Claude Code skill from scratch, for interactive authoring with
+  inline validation, or when the skills-as-prompts spec requirements
+  are unclear. Walks through all 8 required sections, generates draft content,
+  validates against structural and semantic quality criteria, and produces a
+  compliant SKILL.md.
 license: MIT
 metadata:
-  version: "1.0.0"
+  version: '1.0.0'
   category: meta-skills
   risk_tier: low
-  spec_version: "skills-as-prompts-strict-v1"
+  spec_version: 'skills-as-prompts-strict-v1'
   timelessness_score: 8
 allowed-tools:
   - Read
@@ -33,7 +33,7 @@ allowed-tools:
 - User wants guided, interactive skill authoring with validation
 - User says "create a skill", "new skill", "skill wizard", "/skill-wizard"
 
-**Primary goal:** Guide authors from skill idea to spec-compliant SKILL.md through structured dialogue, draft generation, and inline validation.
+**Primary goal:** Guide authors from skill idea to spec-compliant SKILL.md through structured dialogue, draft generation, and inline validation. Help turn ideas into fully formed skills through natural collaborative dialogue.
 
 ## When NOT to Use
 
@@ -62,11 +62,20 @@ allowed-tools:
 - Does not create skill directories or file structure (only writes SKILL.md)
 - Does not install dependencies or configure the environment
 
+## Key Principles
+
+- **One question at a time** — Don't overwhelm with multiple questions. Only one question per message. If a topic needs more exploration, break it into multiple questions.
+- **Multiple choice preferred** — Easier to answer than open-ended when possible.
+- **YAGNI ruthlessly** — Remove unnecessary features from skill designs.
+- **Explore alternatives** — Propose 2-3 approaches with trade-offs before settling on one.
+- **Incremental validation** — Present drafts in sections, validate each before moving on.
+- **Be flexible** — Go back and clarify when something doesn't make sense.
+
 ## Inputs
 
 **Required:**
 
-- **Skill purpose**: What the skill does (gathered during discovery)
+- **Skill purpose**: What the skill does (from discovery)
 - **Output path**: Where to write the final SKILL.md
 
 **Optional:**
@@ -105,17 +114,29 @@ allowed-tools:
 
 1. **Announce:** "Starting skill wizard. I'll guide you through creating a spec-compliant skill."
 
-2. **Gather purpose (conversational):**
-   - "What does this skill do?" (1-2 sentences)
-   - "What artifact does it produce?"
-   - "Who uses it and when?"
+2. **Gather context one question at a time:**
 
-3. **Gather structured inputs (AskUserQuestion):**
-   - Category selection (13 options from category-integration.md)
-   - Mutating actions? (No / Writes files / External effects)
-   - Network required? (No / Optional / Required)
+   - Ask questions sequentially, one per message
+   - Prefer multiple choice when options are clear
+   - Open-ended when exploring the concept
+
+   Questions to cover (in order):
+   a. "What does this skill do?" (open-ended)
+   b. "What artifact does it produce?" (open-ended, or suggest common types)
+   c. "Who uses it and when?" (open-ended)
+   d. Category selection (multiple choice, 13 options from category-integration.md)
+   e. "Does it modify files or have external effects?" (multiple choice: No / Writes files / External effects)
+   f. "Does it require network access?" (multiple choice: No / Optional / Required)
+
+3. **Explore approaches (when design choices exist):**
+   - If the skill concept has multiple valid structures, propose 2-3 approaches with trade-offs
+   - Present options conversationally with your recommendation and reasoning
+   - Lead with your recommended approach and explain why it's the best fit
+   - Skip this step if the skill structure is obvious from the concept
 
 4. **Confirm output path:**
+
+   - Ask for path after concept is clear (not before)
    - If path provided: Validate it's writable
    - If not provided: Ask user for path
    - **STOP** if path not provided after asking.
@@ -128,11 +149,13 @@ allowed-tools:
 ### Phase 2: Risk Assessment
 
 6. **Determine tier from discovery:**
+
    - Load `references/risk-tier-guide.md`
    - Apply tier selection rules based on mutating actions and category
-   - Auto-escalate to High if mutating actions detected
+   - Auto-escalate to High if skill has mutating actions
 
 7. **Flag likely exceptions:**
+
    - Based on category, identify common exceptions (e.g., "Documentation skills often have <2 decision points")
    - Present to user for acknowledgment
 
@@ -146,47 +169,55 @@ allowed-tools:
 9. **For each section in order (When to use -> Troubleshooting):**
 
    a. **Show progress:**
-      ```
-      Y When to use
-      -> When NOT to use  <- current
-      O Inputs
-      O Outputs
-      O Procedure
-      O Decision points
-      O Verification
-      O Troubleshooting
-      ```
+
+   ```
+   Y When to use
+   -> When NOT to use  <- current
+   O Inputs
+   O Outputs
+   O Procedure
+   O Decision points
+   O Verification
+   O Troubleshooting
+   ```
 
    b. **Generate draft:**
-      - Use discovery answers and prior approved sections
-      - Load relevant checklist from `references/checklist-<section>.md`
-      - Offer templates from `templates/` if applicable
+
+   - Use discovery answers and prior approved sections
+   - Load relevant checklist from `references/checklist-<section>.md`
+   - Offer templates from `templates/` if applicable
 
    c. **Present draft with spec requirements:**
-      - Show draft content
-      - Show checklist items alongside
+
+   - Show draft content
+   - Show checklist items alongside
 
    d. **Run inline validation:**
-      - Check structural requirements ([MUST])
-      - Check semantic requirements ([SEMANTIC])
-      - Check anti-patterns
+
+   - Check structural requirements ([MUST])
+   - Check semantic requirements ([SEMANTIC])
+   - Check anti-patterns
 
    e. **Handle validation results:**
-      - **MUST fail:** Block approval, show specific violation, require fix
-      - **SHOULD gap:** Warn, allow [Acknowledge and continue]
-      - **Borderline:** Flag explicitly, offer [Accept as-is] [Apply suggested fix] [Edit manually]
+
+   - **MUST fail:** Block approval, show specific violation, require fix
+   - **SHOULD gap:** Warn, allow [Acknowledge and continue]
+   - **Borderline:** Flag explicitly, offer [Accept as-is] [Apply suggested fix] [Edit manually]
 
    f. **User action:** [Approve] [Edit] [Regenerate]
-      - If edit: User describes change, regenerate with edit applied
-      - Loop until approved
+
+   - If edit: User describes change, regenerate with edit applied
+   - Loop until approved
 
    g. **Write approved section:**
-      - Append section to SKILL.md
-      - Update `<!-- wizard:next=X -->` marker to next section
+
+   - Append section to SKILL.md
+   - Update `<!-- wizard:next=X -->` marker to next section
 
 ### Phase 4: Cross-Section Validation
 
 10. **Run 16 cross-section checks** (from design document):
+
     - Reference integrity (4 checks)
     - Core invariants (6 checks)
     - Category-specific coherence (3 checks)
@@ -201,6 +232,7 @@ allowed-tools:
 ### Phase 5: Final Review and Cleanup
 
 12. **Present compliance summary:**
+
     ```
     ====================================================
     COMPLIANCE SUMMARY: <skill-name>
@@ -230,6 +262,7 @@ allowed-tools:
 13. **User approves final skill**
 
 14. **Remove wizard metadata:**
+
     - Delete `metadata.wizard` block from frontmatter
     - Delete `<!-- wizard:next=X -->` marker
 
@@ -251,7 +284,7 @@ allowed-tools:
   Present the matching categories with trade-offs, ask user to choose.
   Do not guess.
 
-- **If mutating actions detected but user selected Low risk:**
+- **If skill has mutating actions but user selected Low risk:**
   Override to High, explain why.
   User can acknowledge but cannot downgrade without gating validation.
 
@@ -282,6 +315,7 @@ Expected: File exists AND grep returns >=8.
 **Deep check:**
 
 1. Parse frontmatter, validate:
+
    - `name` is kebab-case, <=64 chars
    - `description` exists, <=1024 chars
    - No `metadata.wizard` block (indicates incomplete)
@@ -294,10 +328,12 @@ Expected: File exists AND grep returns >=8.
    - All borderline acceptances documented
 
 **If quick check fails:**
+
 - If file missing: Write failed. Check path permissions. Ask user to verify path and retry.
 - If <8 sections: Wizard interrupted. Offer to resume.
 
 **If deep check fails:**
+
 - If `name` invalid: Fix frontmatter. Name must be kebab-case, <=64 chars.
 - If `description` missing/too long: Add or trim description (<=1024 chars).
 - If `metadata.wizard` block present: Wizard didn't complete cleanup. Remove block manually or re-run final phase.
@@ -313,6 +349,7 @@ If any verification step was not run, report:
 **Symptom:** User stuck on a section, keeps failing validation
 **Cause:** Skill concept doesn't map well to spec structure
 **Next steps:**
+
 - Ask what user is trying to achieve with this section
 - Suggest restructuring the skill concept
 - Check if this should be a command instead of a skill (commands don't need 8 sections)
@@ -320,6 +357,7 @@ If any verification step was not run, report:
 **Symptom:** Cross-section check fails repeatedly
 **Cause:** User navigated back and edited earlier sections, creating inconsistencies
 **Next steps:**
+
 - Show the specific inconsistency (e.g., "Procedure references 'file path' input but Inputs section no longer lists it")
 - Navigate to source section
 - Re-validate dependent sections after fix
@@ -327,6 +365,7 @@ If any verification step was not run, report:
 **Symptom:** Too many borderline acceptances (>3)
 **Cause:** User clicking "accept" without understanding implications
 **Next steps:**
+
 - At final review, flag high count of borderline items
 - Ask user if they want to revisit any before finalizing
 - Warn: "Skills with many borderline acceptances often fail in practice"
@@ -338,6 +377,7 @@ If user seems to be rushing, note: "You have X borderline acceptances. Consider 
 **Symptom:** Write permission denied
 **Cause:** Target directory not writable or doesn't exist
 **Next steps:**
+
 - Check if parent directory exists: `ls -la <parent-of-output-path>`
 - Check permissions on target: `ls -la <output-path>`
 - Offer alternative: present skill in conversation for manual copy
@@ -359,12 +399,14 @@ When user says "continue wizard" or "resume skill-wizard", or when wizard detect
 5. **Resume** from first missing or invalid section
 
 **User edits between sessions:**
+
 - Wizard re-reads and re-validates on resume
-- External edits are handled as normal edit cycles
+- Handle external edits as normal edit cycles
 - If edits improved content -> passes validation, wizard continues
 - If edits broke something -> validation catches it, wizard flags for revision
 
 **Abandoning a draft:**
+
 - Partial SKILL.md remains with `status: draft` marker
 - User can delete it, or resume later
 - The draft marker prevents confusion about completeness
