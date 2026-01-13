@@ -696,3 +696,62 @@ class TestGitContextInvariants:
 
         with pytest.raises(AttributeError):
             ctx.branch = "other"
+
+
+class TestFileAllowlist:
+    def test_get_allowed_file_patterns_empty_by_default(self):
+        """No patterns when GITFLOW_ALLOW_FILES is not set."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GITFLOW_ALLOW_FILES", None)
+            result = require_gitflow.get_allowed_file_patterns()
+            assert result == []
+
+    def test_get_allowed_file_patterns_single(self, monkeypatch):
+        """Single pattern parsing."""
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "package-lock.json")
+        result = require_gitflow.get_allowed_file_patterns()
+        assert result == ["package-lock.json"]
+
+    def test_get_allowed_file_patterns_multiple(self, monkeypatch):
+        """Multiple comma-separated patterns."""
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "*.lock, *.generated.*, version.txt")
+        result = require_gitflow.get_allowed_file_patterns()
+        assert result == ["*.lock", "*.generated.*", "version.txt"]
+
+    def test_is_file_allowed_no_patterns(self):
+        """No match when no patterns configured."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GITFLOW_ALLOW_FILES", None)
+            assert require_gitflow.is_file_allowed("any-file.py") is False
+
+    def test_is_file_allowed_exact_match(self, monkeypatch):
+        """Exact filename match."""
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "package-lock.json")
+        assert require_gitflow.is_file_allowed("package-lock.json") is True
+        assert require_gitflow.is_file_allowed("other.json") is False
+
+    def test_is_file_allowed_glob_pattern(self, monkeypatch):
+        """Glob pattern matching."""
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "*.lock")
+        assert require_gitflow.is_file_allowed("package.lock") is True
+        assert require_gitflow.is_file_allowed("yarn.lock") is True
+        assert require_gitflow.is_file_allowed("package.json") is False
+
+    def test_is_file_allowed_path_with_directory(self, monkeypatch):
+        """Pattern should match against full path."""
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "*.lock")
+        assert require_gitflow.is_file_allowed("src/deps/package.lock") is True
+
+    def test_allowlist_bypasses_protected_branch(self, temp_git_repo, monkeypatch):
+        """Allowed files can be edited on protected main branch."""
+        monkeypatch.chdir(temp_git_repo)
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "*.lock")
+        result = run_hook(temp_git_repo, tool_input={"file_path": "package.lock"})
+        assert result.returncode == 0
+
+    def test_non_matching_file_still_blocked(self, temp_git_repo, monkeypatch):
+        """Non-matching files still blocked on protected branch."""
+        monkeypatch.chdir(temp_git_repo)
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "*.lock")
+        result = run_hook(temp_git_repo, tool_input={"file_path": "src/main.py"})
+        assert result.returncode == 2

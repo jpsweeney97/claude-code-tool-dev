@@ -22,6 +22,7 @@ Git operation handling:
 
 Configuration (environment variables):
   PROTECTED_BRANCHES    Comma-separated protected branches (default: main,master,develop)
+  GITFLOW_ALLOW_FILES   Comma-separated glob patterns for files that bypass checks (e.g., *.lock)
   GITFLOW_STRICT        Set to "1" to block non-standard branch names (default: permissive)
   GITFLOW_BYPASS        Set to "1" to bypass all checks (emergency use only)
   GITFLOW_DEBUG         Set to "1" for debug output to stderr and log file
@@ -147,6 +148,21 @@ def get_protected_branches() -> set[str]:
     """Get protected branch names from environment or defaults."""
     env_value = os.environ.get("PROTECTED_BRANCHES", "main,master,develop")
     return {b.strip().lower() for b in env_value.split(",") if b.strip()}
+
+
+def get_allowed_file_patterns() -> list[str]:
+    """Get file patterns that bypass protected branch checks."""
+    env_value = os.environ.get("GITFLOW_ALLOW_FILES", "")
+    return [p.strip() for p in env_value.split(",") if p.strip()]
+
+
+def is_file_allowed(file_path: str) -> bool:
+    """Check if file matches any allowlist pattern."""
+    patterns = get_allowed_file_patterns()
+    if not patterns:
+        return False
+    path = Path(file_path)
+    return any(path.match(pattern) for pattern in patterns)
 
 
 def is_strict_mode() -> bool:
@@ -490,6 +506,12 @@ def main():
                 "systemMessage": "Note: This repository has no commits yet. GitFlow checks are bypassed during initial setup."
             }
             print(json.dumps(output))
+            sys.exit(0)
+
+        # Check file allowlist (before protected branch checks)
+        file_path = tool_input.get("file_path", "")
+        if is_file_allowed(file_path):
+            log("DEBUG", f"File matches allowlist, bypassing protection: {file_path}")
             sys.exit(0)
 
         # Get file context for error messages
