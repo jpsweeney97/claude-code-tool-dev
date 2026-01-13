@@ -6,13 +6,17 @@ Empty structure for assembly phase.
 ---
 name: <skill-name>
 description: <brief description>
+allowed-tools:
+  - Read
+  - Write
+  # Add tools from discovery question (g)
+user-invocable: true  # Set based on discovery question (h)
 metadata:
   version: "1.0.0"
-allowed-tools:
-  - <tool1>
-  - <tool2>
 ---
 ```
+
+**Note:** Remove placeholder comments and unused fields before finalizing.
 
 ## When to Use
 

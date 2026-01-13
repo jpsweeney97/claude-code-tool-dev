@@ -127,6 +127,8 @@ allowed-tools:
    d. Category selection (multiple choice, 13 options from category-integration.md)
    e. "Does it modify files or have external effects?" (multiple choice: No / Writes files / External effects)
    f. "Does it require network access?" (multiple choice: No / Optional / Required)
+   g. "What Claude Code tools will this skill use?" (multiple choice: Read / Write / Edit / Glob / Grep / Bash / WebFetch / WebSearch / Task / None of these)
+   h. "Should users invoke this directly via slash command?" (multiple choice: Yes — appears in slash menu / No — only invoked by other skills or agents)
 
 3. **Explore approaches (when design choices exist):**
    - If the skill concept has multiple valid structures, propose 2-3 approaches with trade-offs
@@ -143,8 +145,11 @@ allowed-tools:
 
 5. **Create initial SKILL.md:**
    - Write frontmatter with name, description placeholder
+   - Add `allowed-tools` from discovery question (g) — omit if "None of these"
+   - Add `user-invocable: true` if discovery question (h) answered "Yes"
    - Add `metadata.wizard` block with status: draft, risk tier, category, discovery answers
    - Write `<!-- wizard:next=when-to-use -->` marker
+   - **Validate frontmatter** against `references/checklist-frontmatter.md`
 
 ### Phase 2: Risk Assessment
 
@@ -194,9 +199,17 @@ allowed-tools:
 
    d. **Run inline validation:**
 
-   - Check structural requirements ([MUST])
-   - Check semantic requirements ([SEMANTIC])
-   - Check anti-patterns
+   - **For each [MUST] in the section's checklist:**
+     - Explicitly check if requirement is met in draft
+     - If not met, quote the requirement and show what's missing
+     - Block approval until fixed
+   - **For each [SEMANTIC] anti-pattern:**
+     - Scan draft text for pattern signals
+     - If found, quote the problematic text and suggest fix
+   - **Cross-reference with other sections:**
+     - If Procedure mentions tools, verify they're in `allowed-tools`
+     - If Procedure mentions writing files, verify fallback exists
+     - If Verification has commands, verify they use literal paths (not globs)
 
    e. **Handle validation results:**
 
