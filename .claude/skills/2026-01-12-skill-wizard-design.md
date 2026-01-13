@@ -42,7 +42,7 @@ A wizard that:
 | Cross-section | 16 checks across 4 categories | Comprehensive coverage of core invariants |
 | Risk escalation | Auto-escalate + gating validation for downgrade | Enforces safe defaults |
 | Category integration | Per-category DoD, decision points, failure modes | Leverages rich category-specific guidance |
-| Session recovery | Conversation-based checkpoints | Prevents progress loss without file side effects |
+| Session recovery | Incremental writing to SKILL.md | Artifact is the checkpoint; no sync issues |
 | Wording patterns | Offer Appendix A templates during drafting | Ensures spec-compliant language |
 | Calibration | Require Verified/Inferred/Assumed labeling | Prevents overconfident claims |
 
@@ -195,59 +195,107 @@ Long wizard sessions (8 sections × multiple edit cycles) are vulnerable to:
 - User closing terminal accidentally
 - Claude context limits forcing summarization
 
-### State to Preserve
+### Strategy: Incremental Writing
 
-At minimum, persist after each section approval:
-- Discovery answers (skill purpose, category, risk tier)
-- Approved section content (verbatim markdown)
-- Exception flags and justifications
-- Borderline acceptances with user decisions
-- Current phase and section index
+The wizard writes approved sections directly to SKILL.md as they're completed. **The artifact is the checkpoint.** This eliminates sync issues between separate state and content.
 
-### Persistence Strategy: Conversation-Based Checkpoints
+### Why Not Conversation Checkpoints?
 
-After each section approval, emit a checkpoint summary block:
+| Alternative | Problem |
+|-------------|---------|
+| YAML in conversation | Grows large; requires manual copy/paste; may be compacted away |
+| Separate state file | Creates sync bugs between state and content |
+| Minimal state + regeneration | Loses user edits; regenerated drafts may differ |
+| Rely on `--continue` | User may not know about it; implicit state |
+
+Incremental writing avoids all of these: single source of truth, automatic persistence, explicit inspectable progress.
+
+### Wizard Metadata Block
+
+During creation, SKILL.md frontmatter includes wizard state:
 
 ```yaml
-# skill-wizard checkpoint (paste to resume)
-checkpoint_version: 1
-skill_name: pr-security-reviewer
-discovery:
-  purpose: "Reviews PRs for security vulnerabilities"
-  category: security-changes
-  risk_tier: high
-  mutating_actions: false
-approved_sections:
-  when_to_use: |
-    - User requests security review of a PR
-    ...
-  when_not_to_use: |
-    ...
-current_phase: 3
-current_section: inputs
-exceptions: []
-borderline_acceptances: []
+---
+name: pr-security-reviewer
+description: Reviews PRs for security vulnerabilities
+metadata:
+  wizard:
+    status: draft              # Signals work-in-progress
+    risk_tier: high
+    category: security-changes
+    discovery:
+      purpose: "Reviews PRs for security vulnerabilities"
+      mutating_actions: false
+      network_required: false
+    exceptions:
+      - section: decision_points
+        reason: "linear security scan with pass/fail only"
+    borderline_acceptances: []
+---
+
+## When to Use
+[approved content]
+
+## When NOT to Use
+[approved content]
+
+## Inputs
+[approved content]
+
+<!-- wizard:next=outputs -->
 ```
 
-**Checkpoint emission format:**
+### What Gets Written When
 
-```
-<details>
-<summary>💾 Checkpoint saved (5/8 sections complete)</summary>
-
-[full state YAML]
-
-</details>
-```
+| Event | Action |
+|-------|--------|
+| Discovery complete | Create SKILL.md with frontmatter + wizard metadata |
+| Section approved | Append section content; update `<!-- wizard:next=X -->` marker |
+| Exception recorded | Add to `metadata.wizard.exceptions` |
+| Borderline accepted | Add to `metadata.wizard.borderline_acceptances` |
+| Wizard complete | Remove `metadata.wizard` block entirely |
 
 ### Recovery Procedure
 
-When resuming from checkpoint:
-1. Parse checkpoint state
-2. Validate: does the target skill directory still exist? Any conflicts?
-3. Present summary: "Resuming wizard for '<name>'. Completed: 5/8 sections. Next: Procedure."
-4. Continue from `current_section`
-5. Run cross-section validation on previously approved sections before continuing
+When user says "continue wizard" or "resume skill-wizard", or when wizard detects partial SKILL.md:
+
+1. **Read** existing SKILL.md at target path
+2. **Parse** wizard metadata from frontmatter (risk tier, category, exceptions)
+3. **Validate** each existing section against checklists
+4. **Present summary**: "Found 5/8 sections for 'pr-security-reviewer'. All valid. Next: Outputs."
+   - If any section fails validation: "Found 5/8 sections. 'Inputs' has MUST violation (missing constraints). Fix first?"
+5. **Resume** from first missing or invalid section
+6. Cross-section check runs only when all 8 sections present and valid
+
+### User Edits Between Sessions
+
+If user manually edits SKILL.md between sessions:
+- Wizard re-reads and re-validates on resume
+- If edits improved content → passes validation, wizard continues
+- If edits broke something → validation catches it, wizard flags for revision
+
+This is a **feature**: external edits are just another edit cycle. The wizard handles them the same way.
+
+### Abandoning a Draft
+
+If user abandons the wizard:
+- Partial SKILL.md remains with `status: draft` marker
+- User can delete it, or resume later
+- The draft marker prevents confusion about completeness
+
+### Completion Cleanup
+
+When all 8 sections pass validation and cross-section check succeeds:
+
+```yaml
+---
+name: pr-security-reviewer
+description: Reviews PRs for security vulnerabilities
+# metadata.wizard block removed entirely
+---
+```
+
+Clean final artifact with no wizard-specific cruft.
 
 ---
 
@@ -268,6 +316,8 @@ Gather skill purpose through mixed question types:
 - Network required? (No / Optional / Required)
 
 **Output:** Skill profile used for draft generation and risk assessment.
+
+**Write:** Create SKILL.md with frontmatter and wizard metadata block (status: draft).
 
 ### Phase 2: Risk Assessment
 
@@ -316,20 +366,22 @@ For each section in dependency order:
 │ 5. User: [Approve] [Edit] [Regenerate]              │
 │ 6. If edit: user describes change, regenerate      │
 │ 7. Loop until approved                              │
+│ 8. Write approved section to SKILL.md              │
 └─────────────────────────────────────────────────────┘
 ```
 
-**Navigation:** User can say "go to [section]" anytime to revise earlier work.
+**Navigation:** User can say "go to [section]" anytime to revise earlier work. Edits to earlier sections trigger re-validation of dependent sections.
 
-### Phase 4: Assembly and Output
+### Phase 4: Final Validation and Cleanup
 
-After all sections approved:
+After all sections written to SKILL.md:
 
-1. Assemble sections into complete SKILL.md
-2. Generate frontmatter (name, description, risk tier)
-3. Run final cross-section consistency check
-4. Present complete skill + compliance summary
-5. User approves → write to specified path
+1. Run 16 cross-section consistency checks
+2. If issues found: navigate user to sections needing revision, loop until resolved
+3. Present compliance summary (structural, semantic, anti-patterns, warnings, exceptions)
+4. User approves final skill
+5. Remove `metadata.wizard` block from frontmatter
+6. Confirm completion
 
 ---
 
@@ -418,7 +470,7 @@ Validating: Decision Points
 
 ### Cross-Section Consistency Check
 
-Run at final assembly (Phase 4). Total: 16 checks across 4 categories.
+Run after all sections written (Phase 4). Total: 16 checks across 4 categories.
 
 **Reference integrity checks (4):**
 
@@ -617,7 +669,7 @@ Written to: .claude/skills/pr-security-reviewer/SKILL.md
 - Zero MUST violations (structural + semantic)
 - Zero anti-patterns detected
 - Cross-section consistency check passed
-- User approved final assembly
+- User approved final skill (wizard metadata removed)
 
 ### Procedure
 
@@ -625,14 +677,16 @@ Written to: .claude/skills/pr-security-reviewer/SKILL.md
    - Ask skill purpose (conversational)
    - Ask category, mutating actions, network needs (structured)
    - Confirm output path
+   - **Write** initial SKILL.md with frontmatter + wizard metadata block
 
 2. **Assess risk tier**
    - Apply tier selection rules from discovery answers
    - Auto-escalate if mutating actions detected
    - Flag likely exceptions based on category
    - User confirms or adjusts
+   - **Update** wizard metadata with confirmed risk tier
 
-3. **Draft sections in order**
+3. **Draft and write sections in order**
    - For each section (smart dependency order):
      a. Show progress (✓ done, → current, ○ pending)
      b. Generate draft from discovery + prior sections
@@ -645,23 +699,26 @@ Written to: .claude/skills/pr-security-reviewer/SKILL.md
         - Anti-pattern → FAIL, require removal
      f. User approves, edits, or regenerates
      g. Loop until approved
+     h. **Write** approved section to SKILL.md; update `<!-- wizard:next=X -->` marker
    - Allow "go to [section]" navigation anytime
+   - If navigating back: re-validate edited section, flag if dependent sections affected
 
-4. **Assemble and validate**
-   - Combine all approved sections
-   - Generate frontmatter (name, description, tier)
-   - Run cross-section consistency check
-   - If issues found, identify which sections need revision
+4. **Cross-section validation**
+   - Run 16 cross-section consistency checks
+   - If issues found: identify which sections need revision, navigate user there
+   - Loop until all checks pass
 
-5. **Final review and output**
-   - Present complete SKILL.md
-   - Show compliance summary (structural, semantic, anti-patterns, warnings)
-   - User approves → write file
-   - Confirm success with path
+5. **Final review and cleanup**
+   - Present compliance summary (structural, semantic, anti-patterns, warnings)
+   - User approves final skill
+   - **Remove** `metadata.wizard` block from frontmatter
+   - Confirm completion with path
 
 ### Decision Points
 
-- **If output path already has SKILL.md:** Ask user to confirm overwrite or choose new path. Do not overwrite without confirmation.
+- **If output path has SKILL.md with `metadata.wizard.status: draft`:** Offer to resume from where wizard left off. Present section progress. User can [Resume] or [Start fresh].
+
+- **If output path has complete SKILL.md (no wizard metadata):** Ask user to confirm overwrite or choose new path. Do not overwrite without confirmation.
 
 - **If discovery answers suggest multiple categories:** Present top 2-3 matches with trade-offs, ask user to choose. Do not guess.
 
@@ -669,7 +726,9 @@ Written to: .claude/skills/pr-security-reviewer/SKILL.md
 
 - **If user wants to skip a section:** STOP. All 8 sections required by spec. Explain which content areas must exist. Offer to generate minimal compliant content if user is stuck.
 
-- **If cross-section check fails after all sections approved:** Identify the specific inconsistency, navigate user to the section(s) that need revision. Do not write file until resolved.
+- **If user navigates back and edits earlier section:** Re-validate that section. If dependent sections are now inconsistent (e.g., Procedure references input that no longer exists), flag them for review.
+
+- **If cross-section check fails:** Identify the specific inconsistency, navigate user to the section(s) that need revision. Do not remove wizard metadata until resolved.
 
 ### Verification
 
@@ -692,12 +751,12 @@ Written to: .claude/skills/pr-security-reviewer/SKILL.md
 - Next steps: Ask what user is trying to achieve, suggest restructuring the skill concept, or identify if this should be a command instead of a skill
 
 **Symptom:** Cross-section check fails repeatedly
-- Likely cause: User edited earlier sections after later ones were approved
-- Next steps: Show the specific inconsistency, navigate to source section, re-validate dependent sections after fix
+- Likely cause: User navigated back and edited earlier sections, creating inconsistencies with later sections
+- Next steps: Show the specific inconsistency (e.g., "Procedure references 'file path' input but Inputs section no longer lists it"), navigate to source section, re-validate dependent sections after fix
 
 **Symptom:** Too many borderline acceptances
 - Likely cause: User clicking "accept" without understanding implications
-- Next steps: At final review, flag high count of borderline items, ask user if they want to revisit any before writing file
+- Next steps: At final review, flag high count of borderline items, ask user if they want to revisit any before finalizing (removing wizard metadata)
 
 **Anti-pattern to avoid:** "Just accept everything to finish faster" — produces structurally compliant but semantically weak skills. If user seems to be rushing, wizard can note: "You have 4 borderline acceptances. Skills with this pattern often fail in practice. Consider revising?"
 
@@ -1212,6 +1271,13 @@ Design verified against:
 
 ## Changelog
 
+- 2026-01-13: Replaced conversation checkpoints with incremental writing
+  - Artifact is now the checkpoint (SKILL.md written incrementally)
+  - Added wizard metadata block in frontmatter during creation
+  - Added "What Gets Written When" table for clarity
+  - Recovery reads existing file, validates, resumes from first gap
+  - User edits between sessions handled as normal edit cycles
+  - Completion removes wizard metadata block cleanly
 - 2026-01-13: Design review incorporating 14 fixes:
   - Fix #1: Added calibration requirements (Verified/Inferred/Assumed labeling)
   - Fix #2: Aligned fail codes with spec (two-tier validation system)
@@ -1223,7 +1289,7 @@ Design verified against:
   - Fix #8: Added risk tier gating validation (downgrade requires gating)
   - Fix #9: Specified all 8 checklist files with exact items
   - Fix #10: Documented meta-skill exception to 500-line guideline
-  - Fix #11: Added session recovery via conversation checkpoints
+  - Fix #11: Added session recovery via incremental writing (artifact is checkpoint)
   - Fix #12: Added terminology definitions (ask-first, STOP, scope fence, etc.)
   - Fix #13: Completed anti-pattern table (unsafe default, undeclared assumptions, etc.)
   - Fix #14: Rewrote "When NOT to Use" with explicit STOP conditions
