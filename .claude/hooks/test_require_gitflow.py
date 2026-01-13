@@ -911,7 +911,7 @@ class TestEvaluateGitflowRules:
         GitContext = require_gitflow.GitContext
         ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="feature/x")
         decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", "stash-apply")
-        decision.decision == require_gitflow.Decision.WARN
+        assert decision.decision == require_gitflow.Decision.WARN
         assert decision.exit_code == 0
 
     def test_nonstandard_branch_warns_permissive(self, monkeypatch):
