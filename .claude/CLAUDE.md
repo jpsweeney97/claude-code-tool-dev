@@ -4,7 +4,7 @@ Monorepo for developing Claude Code extensions: skills, commands, agents, hooks,
 
 ## How This Repo Works
 
-Extensions are developed in `.claude/` and `packages/`, tested locally, then promoted to `~/.claude/` for production use. Component-specific guidance lives in `.claude/rules/` and loads automatically when working with matching files.
+Extensions are developed in `.claude/` and `packages/`, tested locally, then promoted to `~/.claude/` for production use. Important specific guidance lives in `.claude/rules/`.
 
 ## Directory Structure
 
@@ -14,7 +14,7 @@ Extensions are developed in `.claude/` and `packages/`, tested locally, then pro
 ├── hooks/        # Python event hooks
 ├── commands/     # Slash command definitions
 ├── agents/       # Subagent definitions
-├── rules/        # Path-scoped guidance — READ BEFORE CREATING
+├── rules/        # Methodology and design guidance — READ BEFORE CREATING
 ├── handoffs/     # Session continuity documents
 └── references/   # Framework documentation
 
@@ -34,14 +34,14 @@ CREATE in .claude/ or packages/  →  TEST locally  →  PROMOTE to ~/.claude/
 
 ### Creating Extensions
 
-| Extension | Create in | Test with |
-|-----------|-----------|-----------|
-| Skill | `.claude/skills/<name>/SKILL.md` | `/<name>` |
-| Command | `.claude/commands/<name>.md` | `/<name>` |
-| Hook | `.claude/hooks/<name>.py` | After sync-settings |
-| Agent | `.claude/agents/<name>.md` | Task tool |
-| Plugin | `packages/plugins/<name>/` | Marketplace install |
-| MCP Server | `packages/mcp-servers/<name>/` | After build |
+| Extension  | Create in                        | Test with           |
+| ---------- | -------------------------------- | ------------------- |
+| Skill      | `.claude/skills/<name>/SKILL.md` | `/<name>`           |
+| Command    | `.claude/commands/<name>.md`     | `/<name>`           |
+| Hook       | `.claude/hooks/<name>.py`        | After sync-settings |
+| Agent      | `.claude/agents/<name>.md`       | Task tool           |
+| Plugin     | `packages/plugins/<name>/`       | Marketplace install |
+| MCP Server | `packages/mcp-servers/<name>/`   | After build         |
 
 ### Promoting to Production
 
@@ -58,21 +58,28 @@ claude plugin marketplace update tool-dev
 claude plugin install <name>@tool-dev
 ```
 
-## References
+## Rules
 
-### Rules (Path-Scoped)
+### Methodology
 
-Detailed guidance for each extension type lives in `.claude/rules/`. These files load automatically when you work with matching files, but **read the relevant rule before starting work on a new extension**:
+Quality standards to adhere to across all work lives in `.claude/rules/methodology`. **Read the relevant rule before starting ANY work**:
 
-| Working on... | Read first |
-|---------------|------------|
-| Skills | @.claude/rules/skills.md |
-| Hooks | @.claude/rules/hooks.md |
-| Commands | @.claude/rules/commands.md |
-| Agents | @.claude/rules/agents.md |
-| Plugins | @.claude/rules/plugins.md |
-| MCP Servers | @.claude/rules/mcp-servers.md |
-| Settings | @.claude/rules/settings.md |
+- @~/Projects/active/claude-code-tool-dev/.claude/rules/methodology/rigor.md
+- @~/Projects/active/claude-code-tool-dev/.claude/rules/methodology/tenets.md
+
+### Extensions
+
+Detailed guidance for each extension type lives in `.claude/rules/extensions`. **Read the relevant rule before starting work on a new extension**:
+
+| Working on... | Read first                                                                      |
+| ------------- | ------------------------------------------------------------------------------- |
+| Skills        | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/skills.md      |
+| Hooks         | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/hooks.md       |
+| Commands      | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/commands.md    |
+| Agents        | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/agents.md      |
+| Plugins       | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/plugins.md     |
+| MCP Servers   | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/mcp-servers.md |
+| Settings      | @~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/settings.md    |
 
 ### Scripts
 

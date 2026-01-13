@@ -36,3 +36,7 @@ docs/audits/
 docs/designs/
 .claude/handoffs/
 packages/plugins/plugin-dev/.claude/
+
+# Local rules (not tracked)
+.claude/rules/extensions/
+.claude/rules/methodology/
