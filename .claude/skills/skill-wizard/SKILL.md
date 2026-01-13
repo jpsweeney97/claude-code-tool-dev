@@ -272,7 +272,7 @@ allowed-tools:
 **Quick check:**
 
 ```bash
-test -f <path>/SKILL.md && grep -c "^## " <path>/SKILL.md
+test -f <path>/SKILL.md && grep -c -- "^## " <path>/SKILL.md
 ```
 
 Expected: File exists AND grep returns >=8.
@@ -294,6 +294,13 @@ Expected: File exists AND grep returns >=8.
 **If quick check fails:**
 - If file missing: Write failed. Check path permissions. Ask user to verify path and retry.
 - If <8 sections: Wizard interrupted. Offer to resume.
+
+**If deep check fails:**
+- If `name` invalid: Fix frontmatter. Name must be kebab-case, <=64 chars.
+- If `description` missing/too long: Add or trim description (<=1024 chars).
+- If `metadata.wizard` block present: Wizard didn't complete cleanup. Remove block manually or re-run final phase.
+- If section checklist fails: Navigate to failing section, show specific violation, re-validate after fix.
+- If compliance summary mismatch: Re-run cross-section validation (Phase 4).
 
 **Calibration:**
 If any verification step was not run, report:
