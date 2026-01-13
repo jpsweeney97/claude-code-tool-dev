@@ -19,6 +19,10 @@ When a category is selected during discovery, integrate these category-specific 
 | data-migrations | High | Data loss or corruption |
 | infrastructure-ops | High | Irreversible state change |
 | meta-skills | Low | Produced skills don't comply |
+| review-audit | Medium | Superficial review (missed issues) |
+| prompt-engineering | Medium | Overfitting to test cases |
+| research-exploration | Low | Inconclusive findings |
+| planning-architecture | Medium | Plan doesn't survive implementation |
 
 ## Category-Specific DoD Additions
 
@@ -71,6 +75,38 @@ When a category is selected during discovery, integrate these category-specific 
 - Change is reversible or rollback plan exists
 - Impact scope explicitly bounded
 - Monitoring/alerting in place for verification
+
+### review-audit
+- Review criteria explicitly stated before review begins
+- Coverage documented (what was reviewed, what was skipped and why)
+- Findings categorized by severity (Critical / Major / Minor / Nitpick)
+- Each finding includes: location, issue, impact, recommendation
+- Confidence level stated (High / Medium / Low) for non-obvious findings
+
+### prompt-engineering
+- Goal statement explicit (what behavior the prompt should produce)
+- Test cases defined: at least happy path + 2 edge cases
+- All test cases pass with expected behavior
+- Failure modes documented (what the prompt should NOT do)
+- Regression baseline captured (example outputs for comparison)
+- Token efficiency considered (prompt not unnecessarily verbose)
+
+### research-exploration
+- Research question explicitly stated before starting
+- Scope bounded (what's in/out of investigation)
+- Sources consulted documented (files read, docs checked, searches run)
+- Findings summarized with evidence (not just conclusions)
+- Answer to original question stated clearly, or "inconclusive" with explanation
+- Next steps identified (what to do with findings)
+
+### planning-architecture
+- Problem/goal statement explicit before solution design
+- Constraints enumerated (technical, timeline, compatibility, team)
+- Alternatives considered (at least 2 approaches with trade-offs documented)
+- Decision rationale captured (why this approach over alternatives)
+- Dependencies identified (what must exist before implementation)
+- Scope explicitly bounded (what's included, what's deferred)
+- Verification criteria defined (how we'll know the plan worked)
 
 ## What to Pull from Category Guide
 
