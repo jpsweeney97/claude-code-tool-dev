@@ -52,6 +52,26 @@ When a category is selected during discovery, integrate these category-specific 
 - Failure messages are actionable
 - Coverage target met or gap justified
 
+### dependency-changes
+- Breaking change detection performed (semver analysis or test suite)
+- Downstream consumers identified and notified
+- Rollback path documented (pin to previous version)
+
+### api-changes
+- Contract compatibility verified (backward compatible or versioned)
+- All consumers identified and migration path provided
+- Documentation updated to reflect changes
+
+### data-migrations
+- Backup verified before migration
+- Rollback procedure tested
+- Data integrity checks pass post-migration
+
+### infrastructure-ops
+- Change is reversible or rollback plan exists
+- Impact scope explicitly bounded
+- Monitoring/alerting in place for verification
+
 ## What to Pull from Category Guide
 
 | Section | Category Guidance Source |
