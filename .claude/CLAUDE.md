@@ -67,11 +67,17 @@ Quality standards to adhere to across all work lives in `.claude/rules/methodolo
 - @~/Projects/active/claude-code-tool-dev/.claude/rules/methodology/rigor.md
 - @~/Projects/active/claude-code-tool-dev/.claude/rules/methodology/tenets.md
 
-### Workflow
+### Branch Protection
 
-Git branching conventions enforced by hooks:
+A hook blocks Edit/Write on `main`, `master`, `develop`. Create a working branch first.
 
-- @~/Projects/active/claude-code-tool-dev/.claude/rules/workflow/gitflow.md
+**Exceptions (edits allowed on protected branches):**
+- `docs/plans/*.md`, `docs/audits/*.md`
+- `CHANGELOG.md`, `README.md`, `settings.json`
+- `*/.claude/handoffs/*`, `*/.claude/notes/*`
+- Gitignored paths (no commit anyway)
+
+Full details: @~/Projects/active/claude-code-tool-dev/.claude/rules/workflow/gitflow.md
 
 ### Extensions
 
