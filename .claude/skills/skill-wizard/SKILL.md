@@ -24,6 +24,10 @@ allowed-tools:
   - AskUserQuestion
 ---
 
+> **DEPRECATED**: skill-wizard has been replaced by skillosophy.
+> Install: `claude plugin install skillosophy@tool-dev`
+> This skill will be removed in a future update.
+
 # Skill Wizard
 
 ## When to Use
