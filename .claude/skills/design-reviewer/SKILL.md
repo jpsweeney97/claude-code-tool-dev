@@ -206,3 +206,44 @@ Use this checklist to identify findings. Each unchecked item is a potential find
 12. **Verify write succeeded** (see Verification section)
 
 13. **Complete:** Summarize verdict and key recommendations
+
+## Decision Points
+
+- **If no design document found at path or in `docs/plans/`:**
+  STOP and ask user for path. Do not proceed without a document to review.
+
+- **If document appears to be an implementation plan:**
+  STOP and inform user this skill reviews design docs, not implementation plans. Suggest they wanted to run this before writing-plans.
+
+- **If design document lacks ≥2 structural sections:**
+  Ask user whether to proceed with partial review or run brainstorming first to complete the design.
+
+- **If user declines to write file:**
+  Output complete report to conversation. Do not write any file.
+
+- **If any Critical finding exists:**
+  Verdict is NEEDS REVISION regardless of total score.
+
+- **If user provided focus areas:**
+  Weight those checklist sections higher, but still evaluate all sections.
+
+- **If write fails (permission error or directory missing):**
+  Attempt `mkdir -p docs/plans`. If still failing, output to conversation and report the error.
+
+## Assumptions
+
+**Environment:**
+- Bash available (macOS/Linux standard)
+- Write access to project's `docs/plans/` directory
+
+**GitFlow users:**
+- If using branch protection, add `docs/plans/*.md` to `GITFLOW_ALLOW_FILES`
+- Without this exception, writes on protected branches will be blocked
+
+**Design document format:**
+- Expects design to follow brainstorming skill output structure
+- If format differs, review adapts but structural check may be less accurate
+
+**Fallbacks:**
+- If Bash unavailable → use Read tool to verify file exists, Grep for section headers
+- If write blocked → output complete report to conversation instead
