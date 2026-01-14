@@ -77,7 +77,7 @@ A hook blocks Edit/Write on `main`, `master`, `develop`. Create a working branch
 - `*/.claude/handoffs/*`, `*/.claude/notes/*`
 - Gitignored paths (no commit anyway)
 
-Full details: @~/Projects/active/claude-code-tool-dev/.claude/rules/workflow/gitflow.md
+Full details: ~/Projects/active/claude-code-tool-dev/.claude/rules/workflow/git.md
 
 ### Extensions
 

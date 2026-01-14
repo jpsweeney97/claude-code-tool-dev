@@ -226,7 +226,7 @@ When user runs `/resume [path]`:
 2. If no path: use Glob to find latest in `~/.claude/handoffs/<project>/`
 3. Read and display the handoff content
 4. Summarize key points and offer: "Continue with [next step]?"
-5. **Delete the handoff file** after displaying (handoffs are single-use)
+5. **Trash the handoff file** after displaying (handoffs are single-use)
 
 ### Listing (`/list-handoffs`)
 
@@ -321,4 +321,4 @@ After creating handoff, verify:
 | Skill | Relationship |
 |-------|--------------|
 | `note` | Complementary: note for journaling, handoff for session transfer |
-| `episodic-memory` | Complementary: memory for search, handoff for structured resume |
+
