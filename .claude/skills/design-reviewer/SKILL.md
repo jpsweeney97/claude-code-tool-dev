@@ -247,3 +247,27 @@ Use this checklist to identify findings. Each unchecked item is a potential find
 **Fallbacks:**
 - If Bash unavailable → use Read tool to verify file exists, Grep for section headers
 - If write blocked → output complete report to conversation instead
+
+## Verification
+
+**Preconditions:**
+- Bash available (standard on macOS/Linux)
+- Report path known from step 11
+
+**Quick check:**
+```bash
+test -f "<report_path>" && grep -q "^## Summary" "<report_path>"
+```
+Expected: Exit 0 (file exists with Summary section)
+
+**If Bash unavailable:** Use Read tool on report path; verify "## Summary" heading exists.
+
+**Deep check:**
+1. `grep -q "Verdict:" <report>` → Exit 0
+2. `grep -q "## Findings" <report>` → Exit 0
+3. `grep -q "Score:" <report>` → Exit 0
+4. Verdict is one of: PASS, PASS WITH CONCERNS, NEEDS REVISION
+
+**If quick check fails:**
+- File missing → Write failed. Check directory exists with `ls -la docs/plans/`
+- Summary missing → Report incomplete. Regenerate from step 11.
