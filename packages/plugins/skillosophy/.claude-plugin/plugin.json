@@ -1,0 +1,10 @@
+{
+  "name": "skillosophy",
+  "version": "1.0.0",
+  "description": "Collaborative skill creation with deep methodology and multi-agent synthesis",
+  "author": {
+    "name": "JP"
+  },
+  "license": "MIT",
+  "keywords": ["skill-creation", "meta-skill", "methodology", "synthesis-panel"]
+}
