@@ -153,3 +153,56 @@ Use this checklist to identify findings. Each unchecked item is a potential find
 - Scale: "May need optimization past 10k users"
 - Polish: "Diagram would clarify this section"
 - Preference: "Could use X pattern instead of Y"
+
+## Procedure
+
+1. **Announce:** "Using design-reviewer to audit the design document."
+
+2. **Locate design document:**
+   - If path provided, use it
+   - If not provided, use Glob to search `docs/plans/*-design.md` for most recent
+   - **STOP** if no design document found — ask user to specify path or run brainstorming first
+
+3. **Use the Read tool to read the design document**
+
+4. **Structural check:**
+   Check for presence of: purpose/goal, components/architecture, data flow, error handling
+   - If ≥2 sections missing → ask user: "This design is missing [X, Y]. Run brainstorming to flesh it out, or proceed with partial review?"
+   - If user wants to proceed → continue with warning that review may be limited
+
+5. **Check document type:**
+   - If document contains "Task N:" headers or step-by-step implementation instructions → **STOP**
+   - Inform user: "This appears to be an implementation plan, not a design doc. This skill reviews designs. Did you mean to run this before writing-plans?"
+
+6. **Incorporate user-provided context** (if any) — use constraints, history, or concerns to weight evaluation priorities
+
+7. **Evaluate against checklist:**
+   - Work through each section of the Evaluation Checklist
+   - For each unchecked item, determine if it's a finding or not applicable
+   - Categorize findings using Severity Calibration examples
+
+8. **Calculate score:**
+   - Critical findings × 10
+   - Important findings × 3
+   - Minor findings × 1
+   - Total = sum of all
+
+9. **Determine verdict:**
+   - **NEEDS REVISION** — Any Critical finding present (regardless of score)
+   - **PASS WITH CONCERNS** — No Critical, but score ≥ 10
+   - **PASS** — No Critical and score < 10
+
+10. **Present summary to user:**
+    Show verdict, score breakdown, and Critical/Important findings.
+    Ask: "Write review report to `docs/plans/YYYY-MM-DD-<topic>-design-review.md`?"
+    - If user approves → proceed to step 11
+    - If user declines → output complete report to conversation only, skip to step 13
+    - If user wants different path → use their path
+
+11. **Write review report:**
+    - If directory doesn't exist, create with `mkdir -p docs/plans`
+    - Write report to confirmed path
+
+12. **Verify write succeeded** (see Verification section)
+
+13. **Complete:** Summarize verdict and key recommendations
