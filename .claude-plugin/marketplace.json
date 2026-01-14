@@ -46,12 +46,6 @@
       "source": "./packages/plugins/session-log",
       "description": "Captures session summaries for historical record and work pattern reflection",
       "version": "0.1.0"
-    },
-    {
-      "name": "skillosophy",
-      "source": "./packages/plugins/skillosophy",
-      "description": "Collaborative skill creation with deep methodology and multi-agent synthesis",
-      "version": "1.0.0"
     }
   ]
 }
