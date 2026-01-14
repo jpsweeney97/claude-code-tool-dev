@@ -133,3 +133,23 @@ Use this checklist to identify findings. Each unchecked item is a potential find
 - [ ] Testing approach described
 - [ ] Success criteria are verifiable
 - [ ] Key behaviors are observable/measurable
+
+## Severity Calibration
+
+**Critical (10 points) — Cannot implement without fixing:**
+- Security: "Auth handled client-side only" → server must validate
+- Blocker: "Requires API that doesn't exist"
+- Incompleteness: "Error handling: TBD" in critical path
+- Contradiction: Component A assumes X, Component B assumes not-X
+
+**Important (3 points) — Could implement but shouldn't:**
+- Missing edge case: "No handling for empty input"
+- Unclear ownership: "Some service will handle this"
+- Weak justification: "Chose Redis because it's popular"
+- Partial coverage: "Happy path only, errors handled later"
+
+**Minor (1 point) — Cosmetic or future concern:**
+- Style: "Inconsistent naming (userId vs user_id)"
+- Scale: "May need optimization past 10k users"
+- Polish: "Diagram would clarify this section"
+- Preference: "Could use X pattern instead of Y"
