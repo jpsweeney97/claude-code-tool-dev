@@ -87,3 +87,49 @@ user-invocable: true
 - [ ] Report contains score breakdown
 - [ ] All Critical/Important findings include rationale
 - [ ] User confirmed before file was written
+
+## Evaluation Checklist
+
+Use this checklist to identify findings. Each unchecked item is a potential finding.
+
+### Completeness
+- [ ] Has clear purpose/goal statement
+- [ ] Lists components or modules involved
+- [ ] Describes data flow between components
+- [ ] Addresses error handling and failure modes
+- [ ] Includes testing strategy or verification approach
+
+### Clarity
+- [ ] No undefined terms or acronyms without explanation
+- [ ] No "TBD", "TODO", or placeholder sections
+- [ ] Complex concepts have examples
+- [ ] Could be implemented without asking clarifying questions
+
+### Feasibility
+- [ ] All referenced dependencies exist
+- [ ] No "assume X works" without justification
+- [ ] Performance/scale claims have basis (benchmarks, estimates, precedent)
+- [ ] Resource requirements stated (memory, storage, external services)
+
+### Architecture
+- [ ] Simpler alternative was considered (or justified why not applicable)
+- [ ] Trade-offs explicitly stated
+- [ ] Consistent with existing codebase patterns (or explains deviation)
+- [ ] No unnecessary abstraction layers
+
+### Edge Cases
+- [ ] Empty/null inputs handled
+- [ ] Boundary conditions addressed
+- [ ] Concurrent access considered (if applicable)
+- [ ] Failure/retry behavior defined
+
+### Security (if applicable)
+- [ ] Authentication mechanism specified
+- [ ] Authorization checks defined
+- [ ] Sensitive data handling addressed
+- [ ] Input validation approach stated
+
+### Testability
+- [ ] Testing approach described
+- [ ] Success criteria are verifiable
+- [ ] Key behaviors are observable/measurable
