@@ -271,3 +271,54 @@ Expected: Exit 0 (file exists with Summary section)
 **If quick check fails:**
 - File missing → Write failed. Check directory exists with `ls -la docs/plans/`
 - Summary missing → Report incomplete. Regenerate from step 11.
+
+## Troubleshooting
+
+**Symptom:** Review report has no findings (all sections empty)
+**Cause:** Design document may be too abstract or high-level
+**Next steps:** Ask user if they want architecture-only review or if design should be fleshed out with brainstorming
+
+---
+
+**Symptom:** Cannot determine if document is design vs implementation plan
+**Cause:** Document has mixed structure (design narrative + implementation steps)
+**Next steps:** Ask user which aspect to review. Offer to review as design only, ignoring implementation details.
+
+---
+
+**Symptom:** Report file not created despite procedure completing
+**Cause:** Write permission issue or directory doesn't exist
+**Next steps:**
+1. Check if directory exists: `ls -la docs/plans/`
+2. If missing, create: `mkdir -p docs/plans`
+3. Retry write. If still failing, output to conversation.
+
+---
+
+**Symptom:** Write blocked with "protected branch" message
+**Cause:** GitFlow hook active and `docs/plans/` not in allowed files
+**Next steps:** Add `docs/plans/*.md` to `GITFLOW_ALLOW_FILES` environment variable, or output to conversation only
+
+---
+
+**Symptom:** Severity ratings seem inconsistent
+**Cause:** Calibration drift from examples
+**Next steps:** Re-check each finding against Severity Calibration examples; recategorize if needed
+
+---
+
+**Symptom:** Review takes very long or runs out of context
+**Cause:** Design document too large
+**Next steps:** Ask user to split document or specify a section to focus on
+
+---
+
+**Symptom:** Score seems mathematically wrong
+**Cause:** Miscount or miscategorization
+**Next steps:** Recount findings per severity; verify each assignment against calibration examples
+
+---
+
+**Symptom:** Structural check flags missing sections that exist
+**Cause:** Non-standard heading names (e.g., "Goals" instead of "Purpose")
+**Next steps:** Ask user to confirm sections present; adapt check to document's structure
