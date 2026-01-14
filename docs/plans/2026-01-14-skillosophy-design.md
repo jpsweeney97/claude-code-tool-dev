@@ -425,6 +425,33 @@ Verdict: CHANGES_REQUIRED (optional — consider adding rationale to Step 5)
 Verdict: CHANGES_REQUIRED
 ```
 
+### Contradiction Reconciliation
+
+When multiple agents flag the same element with conflicting assessments, skillosophy presents all findings together with explicit notation:
+
+```markdown
+### Conflicting Findings
+
+**Element:** Procedure Step 5
+
+| Agent | Assessment | Reasoning |
+|-------|------------|-----------|
+| Executability Auditor | APPROVED | Step is unambiguous and executable |
+| Semantic Coherence Checker | CHANGES_REQUIRED | Step references "config" not listed in Inputs |
+
+**Resolution required:** User decides which assessment to address. Both may be valid from different perspectives.
+```
+
+**Reconciliation rules:**
+
+| Conflict Type | Resolution |
+|---------------|------------|
+| Same element, different concerns | Present both; user addresses both or explains why one doesn't apply |
+| Same element, opposite verdicts | Flag as conflict; user judgment required |
+| One agent approves, another wants enhancement | Treat as optional improvement; document if declined |
+
+**No automatic precedence:** Agents are peers. The Adversarial Reviewer doesn't override Executability Auditor, nor vice versa. Conflicts surface genuine ambiguity that benefits from human judgment.
+
 ---
 
 ## 4. Loop-Back Strategy
@@ -712,7 +739,21 @@ These are the [MUST] validation rules for the 5 new sections. [SHOULD] and [SEMA
 | **Frontmatter-decisions** | `metadata.decisions` present and parses; contains `requirements` (with ≥1 explicit), `approach.chosen`, `risk_tier` |
 | **Session State** | `phase` field present (0-4); `progress` parseable as "N/11"; removed after Phase 4 approval |
 
-**Note:** These rules define pass/fail criteria. Skills failing [MUST] rules cannot proceed to Phase 4. Full checklists with [SHOULD] (quality warnings) and [SEMANTIC] (anti-pattern detection) will be created in `references/checklists/` during implementation.
+**Note:** These rules define pass/fail criteria. Skills failing [MUST] rules cannot proceed to Phase 4.
+
+### [SHOULD] and [SEMANTIC] Rules for New Sections
+
+These quality rules warn but don't block. They will be refined during implementation based on usage patterns.
+
+| Section | [SHOULD] Rules | [SEMANTIC] Rules |
+|---------|----------------|------------------|
+| **Triggers** | Include both verb phrases ("create a") and noun phrases ("new skill"); cover common synonyms; avoid overly generic triggers that match unrelated intents | Flag triggers >30 chars (too specific); flag single-word triggers (too broad) |
+| **Anti-Patterns** | Each entry explains *why* it's problematic (consequence); entries are distinct from When NOT to use (behavior vs. misuse); ≥2 entries for Medium/High risk skills | Flag entries without consequences; flag vague patterns ("don't do bad things") |
+| **Extension Points** | Each entry is independently actionable; entries span different extension types (scope, integration, optimization); avoid "improve X" without direction | Flag entries starting with "improve", "enhance", "optimize" without specifics |
+| **Frontmatter-decisions** | `alternatives` includes ≥2 rejected approaches with rationale; `discovered` requirements non-empty for non-trivial skills; `methodology_insights` traces to sections | Flag empty `alternatives`; flag `risk_tier` without rationale |
+| **Session State** | `dialogue_context` captures user preferences; `next_steps` is specific (not "continue"); updated after each section approval | Flag `next_steps` containing only "continue" or "proceed" |
+
+Full checklists will be created in `references/checklists/` during implementation, using these as baseline.
 
 ---
 
@@ -871,6 +912,13 @@ Interrupted writes can corrupt SKILL.md. To mitigate:
 **Scope:** This applies to Phase 3 section writes and Session State updates — the high-frequency write points. Phase 4 final write (Session State removal) also uses backup.
 
 **Backup cleanup:** Backups older than 24 hours are stale and can be ignored or deleted on next skillosophy invocation.
+
+**Backup failure handling:** If backup creation fails (disk full, permissions, path issues):
+1. Warn user: "⚠️ Could not create backup: [reason]. Proceeding without safety net."
+2. Proceed with the write — the alternative (aborting) loses user's work in progress
+3. Log the failure for debugging
+
+Rationale: A failed backup is an edge case; refusing to write would be more disruptive than proceeding with risk. The user is informed and can take precautions (manual copy, fix disk space).
 
 ---
 
@@ -1181,9 +1229,24 @@ To ensure methodology is genuinely applied (not just claimed):
 **Adversarial Reviewer verification:**
 The Adversarial Reviewer includes methodology verification:
 1. Check that ≥5 lenses produced documented insights
-2. Verify insights are substantive (not "applied X, found nothing")
+2. Verify insights are substantive (see criteria below)
 3. Trace each insight to the section it influenced
 4. Flag if methodology_insights appears formulaic or shallow
+
+**Substantive insight criteria:**
+
+An insight is substantive if it meets ALL of these:
+1. **References a specific skill element** — names a section, step, input, or output (not "the skill")
+2. **Identifies a concrete finding** — a risk, gap, alternative, or constraint (not "considered this lens")
+3. **Shows causal link** — explains how the finding influenced the design (not just "noted")
+
+| Example | Substantive? | Why |
+|---------|--------------|-----|
+| "Inversion lens: skill fails if input validation skipped → added Step 2 validation" | ✅ Yes | Specific element, concrete risk, causal link |
+| "Applied Pre-Mortem lens to Procedure" | ❌ No | No finding, no influence stated |
+| "Root Cause revealed user actually wants X not Y" | ✅ Yes | Concrete finding that redirected requirements |
+| "Considered all 11 lenses" | ❌ No | No specific insight |
+| "Pareto: focused on 3 core inputs, deferred 5 optional → Inputs section simplified" | ✅ Yes | Specific decision with rationale and affected section |
 
 **Failure modes:**
 
@@ -1416,4 +1479,5 @@ Production-ready SKILL.md
 ---
 
 *Document generated from brainstorming session 2026-01-13*
-*Design review (5 findings) addressed 2026-01-14*
+*Design review round 1 (5 findings) addressed 2026-01-14*
+*Design review round 2 (4 findings) addressed 2026-01-14*
