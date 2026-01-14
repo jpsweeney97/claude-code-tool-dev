@@ -31,9 +31,6 @@ __pycache__/
 .worktrees/
 
 # Session artifacts
-docs/plans/
-docs/audits/
-docs/designs/
 .claude/handoffs/
 packages/plugins/plugin-dev/.claude/
 
