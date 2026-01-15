@@ -109,3 +109,56 @@ describe('search', () => {
     });
   });
 });
+
+describe('search with category filtering', () => {
+  function makeChunkWithCategory(
+    id: string,
+    content: string,
+    tokens: string[],
+    category: string
+  ): Chunk {
+    return {
+      id,
+      content,
+      tokens,
+      termFreqs: computeTermFreqs(tokens),
+      category,
+      tags: [],
+      source_file: `${category}/test.md`,
+    };
+  }
+
+  it('filters results by category when provided', () => {
+    const chunks = [
+      makeChunkWithCategory('hooks-1', 'PreToolUse hooks', ['pretooluse', 'hooks'], 'hooks'),
+      makeChunkWithCategory('skills-1', 'skill hooks pattern', ['skill', 'hooks', 'pattern'], 'skills'),
+    ];
+    const index = buildBM25Index(chunks);
+
+    const results = search(index, 'hooks', 5, 'hooks');
+    expect(results).toHaveLength(1);
+    expect(results[0].chunk_id).toBe('hooks-1');
+    expect(results[0].category).toBe('hooks');
+  });
+
+  it('returns all matching categories when category is undefined', () => {
+    const chunks = [
+      makeChunkWithCategory('hooks-1', 'hooks content', ['hooks', 'content'], 'hooks'),
+      makeChunkWithCategory('skills-1', 'hooks in skills', ['hooks', 'skills'], 'skills'),
+    ];
+    const index = buildBM25Index(chunks);
+
+    const results = search(index, 'hooks', 5);
+    expect(results).toHaveLength(2);
+  });
+
+  it('returns empty array when category has no matches', () => {
+    const chunks = [
+      makeChunkWithCategory('hooks-1', 'hooks content', ['hooks', 'content'], 'hooks'),
+    ];
+    const index = buildBM25Index(chunks);
+
+    const results = search(index, 'hooks', 5, 'skills');
+    expect(results).toHaveLength(0);
+  });
+});

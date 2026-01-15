@@ -51,10 +51,19 @@ function bm25Score(queryTerms: string[], chunk: Chunk, index: BM25Index): number
   }, 0);
 }
 
-export function search(index: BM25Index, query: string, limit = 5): SearchResult[] {
+export function search(
+  index: BM25Index,
+  query: string,
+  limit = 5,
+  category?: string
+): SearchResult[] {
   const queryTerms = tokenize(query);
 
-  return index.chunks
+  const chunks = category
+    ? index.chunks.filter((chunk) => chunk.category === category)
+    : index.chunks;
+
+  return chunks
     .map((chunk) => ({ chunk, score: bm25Score(queryTerms, chunk, index) }))
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score)
