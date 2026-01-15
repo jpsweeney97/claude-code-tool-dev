@@ -5,6 +5,9 @@ import {
   getDefaultCachePath,
   getCacheTtlMs,
   readCacheIfFresh,
+  getDefaultIndexCachePath,
+  readIndexCache,
+  writeIndexCache,
 } from '../src/cache.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -138,6 +141,43 @@ describe('readCacheIfFresh', () => {
     // Set TTL to 0 to make cache immediately stale
     process.env.CACHE_TTL_MS = '0';
     const result = await readCacheIfFresh(cachePath);
+    expect(result).toBeNull();
+  });
+});
+
+describe('index cache helpers', () => {
+  let tempDir: string;
+  let indexPath: string;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'index-cache-test-'));
+    indexPath = path.join(tempDir, 'test-index.json');
+  });
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('getDefaultIndexCachePath returns json file path', () => {
+    const indexCachePath = getDefaultIndexCachePath();
+    expect(indexCachePath).toMatch(/extension-docs[/\\]llms-full\.index\.json$/);
+  });
+
+  it('writeIndexCache and readIndexCache round-trip', async () => {
+    const data = { version: 1, chunks: [], test: 'value' };
+    await writeIndexCache(indexPath, data);
+    const result = await readIndexCache(indexPath);
+    expect(result).toEqual(data);
+  });
+
+  it('readIndexCache returns null for non-existent file', async () => {
+    const result = await readIndexCache(indexPath);
+    expect(result).toBeNull();
+  });
+
+  it('readIndexCache returns null for invalid JSON', async () => {
+    await fs.writeFile(indexPath, 'not valid json {{{');
+    const result = await readIndexCache(indexPath);
     expect(result).toBeNull();
   });
 });

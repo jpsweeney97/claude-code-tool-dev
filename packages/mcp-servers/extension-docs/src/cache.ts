@@ -83,7 +83,7 @@ export async function readCacheIfFresh(cachePath: string): Promise<CacheResult |
   const cached = await readCache(cachePath);
   if (!cached) return null;
   const ttl = getCacheTtlMs();
-  if (cached.age > ttl) {
+  if (cached.age >= ttl) {
     return null;
   }
   return cached;
@@ -112,5 +112,25 @@ export async function writeCache(cachePath: string, content: string): Promise<vo
     throw err;
   } finally {
     await releaseLock(lockPath, lockHandle);
+  }
+}
+
+export function getDefaultIndexCachePath(filename = 'llms-full.index.json'): string {
+  const base = getDefaultCachePath('llms-full.txt');
+  return path.join(path.dirname(base), filename);
+}
+
+export async function writeIndexCache(cachePath: string, data: unknown): Promise<void> {
+  const content = JSON.stringify(data);
+  await writeCache(cachePath, content);
+}
+
+export async function readIndexCache(cachePath: string): Promise<unknown | null> {
+  const cached = await readCache(cachePath);
+  if (!cached) return null;
+  try {
+    return JSON.parse(cached.content);
+  } catch {
+    return null;
   }
 }
