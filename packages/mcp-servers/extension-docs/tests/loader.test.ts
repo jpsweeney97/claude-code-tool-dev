@@ -116,10 +116,11 @@ Getting started content`;
     const { loadFromOfficial } = await import('../src/loader.js');
 
     const cachePath = path.join(tempDir, 'cache.txt');
-    const files = await loadFromOfficial('https://example.com/docs', cachePath);
+    const { files, contentHash } = await loadFromOfficial('https://example.com/docs', cachePath);
 
     expect(files).toHaveLength(1);
     expect(files[0].path).toContain('hooks');
+    expect(contentHash).toMatch(/^[a-f0-9]{64}$/); // SHA-256 hex
   });
 
   it('falls back to cache on fetch failure', async () => {
@@ -136,10 +137,11 @@ Skills content`;
     vi.stubGlobal('fetch', mockFetch);
 
     const { loadFromOfficial } = await import('../src/loader.js');
-    const files = await loadFromOfficial('https://example.com/docs', cachePath);
+    const { files, contentHash } = await loadFromOfficial('https://example.com/docs', cachePath);
 
     expect(files).toHaveLength(1);
     expect(files[0].path).toContain('skills');
+    expect(contentHash).toMatch(/^[a-f0-9]{64}$/); // SHA-256 hex from stale cache
   });
 
   it('injects synthetic frontmatter with topic, id, and category', async () => {
@@ -158,7 +160,7 @@ Hooks content here`;
 
     const { loadFromOfficial } = await import('../src/loader.js');
     const cachePath = path.join(tempDir, 'cache.txt');
-    const files = await loadFromOfficial('https://example.com/docs', cachePath);
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
 
     expect(files).toHaveLength(1);
 
@@ -185,7 +187,7 @@ Hooks content here`;
 
     const { loadFromOfficial } = await import('../src/loader.js');
     const cachePath = path.join(tempDir, 'cache.txt');
-    const files = await loadFromOfficial('https://example.com/docs', cachePath);
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
 
     // Parse the synthetic frontmatter
     const { frontmatter, body, warnings } = parseFrontmatter(files[0].content, files[0].path);
@@ -213,7 +215,7 @@ Content`;
 
     const { loadFromOfficial } = await import('../src/loader.js');
     const cachePath = path.join(tempDir, 'cache.txt');
-    const files = await loadFromOfficial('https://example.com/docs', cachePath);
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
 
     // Parse should succeed even with special characters
     const { frontmatter, warnings } = parseFrontmatter(files[0].content, files[0].path);
@@ -238,7 +240,7 @@ Schema details`;
 
     const { loadFromOfficial } = await import('../src/loader.js');
     const cachePath = path.join(tempDir, 'cache.txt');
-    const files = await loadFromOfficial('https://example.com/docs', cachePath);
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
 
     const { frontmatter } = parseFrontmatter(files[0].content, files[0].path);
 

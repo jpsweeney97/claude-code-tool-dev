@@ -1,4 +1,5 @@
 // src/loader.ts
+import { createHash } from 'crypto';
 import { glob } from 'glob';
 import { readFile } from 'fs/promises';
 import * as path from 'path';
@@ -9,6 +10,10 @@ import { filterToExtensions } from './filter.js';
 import { readCache, readCacheIfFresh, writeCache, getDefaultCachePath } from './cache.js';
 import { extractContentPath } from './url-helpers.js';
 import { deriveCategory } from './frontmatter.js';
+
+function hashContent(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
 
 export async function loadMarkdownFiles(docsPath: string): Promise<MarkdownFile[]> {
   const files: MarkdownFile[] = [];
@@ -43,6 +48,16 @@ function resolveCachePath(override?: string): string {
   if (override) return override;
   const envPath = process.env.CACHE_PATH?.trim();
   return envPath && envPath.length > 0 ? envPath : getDefaultCachePath();
+}
+
+export interface LoadResult {
+  files: MarkdownFile[];
+  contentHash: string;
+}
+
+interface FetchResult {
+  sections: ParsedSection[];
+  contentHash: string;
 }
 
 /**
@@ -97,44 +112,51 @@ export async function loadFromOfficial(
   url: string,
   cachePath?: string,
   forceRefresh = false,
-): Promise<MarkdownFile[]> {
+): Promise<LoadResult> {
   const resolvedCachePath = resolveCachePath(cachePath);
-  const sections = await fetchAndParse(url, resolvedCachePath, forceRefresh);
+  const { sections, contentHash } = await fetchAndParse(url, resolvedCachePath, forceRefresh);
   const filtered = filterToExtensions(sections).filter((s) => s.content.trim().length > 0);
 
-  return filtered.map((s) => {
-    const sourceKey = s.sourceUrl || s.title || '';
-    const topic = s.title?.trim() || undefined;
-    const id = deriveIdFromUrl(s.sourceUrl);
-    const category = deriveCategory(sourceKey);
+  return {
+    contentHash,
+    files: filtered.map((s) => {
+      const sourceKey = s.sourceUrl || s.title || '';
+      const topic = s.title?.trim() || undefined;
+      const id = deriveIdFromUrl(s.sourceUrl);
+      const category = deriveCategory(sourceKey);
 
-    // Build synthetic frontmatter to enrich metadata for search
-    const frontmatter = buildSyntheticFrontmatter({ topic, id, category });
+      // Build synthetic frontmatter to enrich metadata for search
+      const frontmatter = buildSyntheticFrontmatter({ topic, id, category });
 
-    return {
-      path: s.sourceUrl || s.title || 'unknown',
-      content: frontmatter + s.content,
-    };
-  });
+      return {
+        path: s.sourceUrl || s.title || 'unknown',
+        content: frontmatter + s.content,
+      };
+    }),
+  };
 }
 
 async function fetchAndParse(
   url: string,
   cachePath: string,
   forceRefresh = false,
-): Promise<ParsedSection[]> {
+): Promise<FetchResult> {
   // Skip fresh cache check if force refresh requested
   if (!forceRefresh) {
     const fresh = await readCacheIfFresh(cachePath);
     if (fresh) {
-      return parseSections(fresh.content);
+      return {
+        sections: parseSections(fresh.content),
+        contentHash: hashContent(fresh.content),
+      };
     }
   }
 
   try {
     const { content } = await fetchOfficialDocs(url);
+    const contentHash = hashContent(content);
     await writeCache(cachePath, content);
-    return parseSections(content);
+    return { sections: parseSections(content), contentHash };
   } catch (err: unknown) {
     if (err instanceof FetchTimeoutError) {
       console.error(err.message);
@@ -151,7 +173,10 @@ async function fetchAndParse(
     if (cached) {
       const ageHours = (cached.age / 3600000).toFixed(1);
       console.warn(`Using cached docs (${ageHours}h old)`);
-      return parseSections(cached.content);
+      return {
+        sections: parseSections(cached.content),
+        contentHash: hashContent(cached.content),
+      };
     }
 
     throw err;
