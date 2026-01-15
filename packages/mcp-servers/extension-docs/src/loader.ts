@@ -2,7 +2,11 @@
 import { glob } from 'glob';
 import { readFile } from 'fs/promises';
 import * as path from 'path';
-import type { MarkdownFile } from './types.js';
+import type { MarkdownFile, ParsedSection } from './types.js';
+import { fetchOfficialDocs, FetchHttpError, FetchNetworkError, FetchTimeoutError } from './fetcher.js';
+import { parseSections } from './parser.js';
+import { filterToExtensions } from './filter.js';
+import { readCache, writeCache, getDefaultCachePath } from './cache.js';
 
 export async function loadMarkdownFiles(docsPath: string): Promise<MarkdownFile[]> {
   const files: MarkdownFile[] = [];
@@ -31,4 +35,47 @@ export async function loadMarkdownFiles(docsPath: string): Promise<MarkdownFile[
   }
 
   return files;
+}
+
+function resolveCachePath(override?: string): string {
+  if (override) return override;
+  const envPath = process.env.CACHE_PATH?.trim();
+  return envPath && envPath.length > 0 ? envPath : getDefaultCachePath();
+}
+
+export async function loadFromOfficial(url: string, cachePath?: string): Promise<MarkdownFile[]> {
+  const resolvedCachePath = resolveCachePath(cachePath);
+  const sections = await fetchAndParse(url, resolvedCachePath);
+  const filtered = filterToExtensions(sections).filter((s) => s.content.trim().length > 0);
+  return filtered.map((s) => ({
+    path: s.sourceUrl || s.title || 'unknown',
+    content: s.content,
+  }));
+}
+
+async function fetchAndParse(url: string, cachePath: string): Promise<ParsedSection[]> {
+  try {
+    const { content } = await fetchOfficialDocs(url);
+    await writeCache(cachePath, content);
+    return parseSections(content);
+  } catch (err: unknown) {
+    if (err instanceof FetchTimeoutError) {
+      console.error(err.message);
+    } else if (err instanceof FetchHttpError) {
+      console.error(err.message);
+    } else if (err instanceof FetchNetworkError) {
+      console.error(err.message);
+    } else {
+      console.error(`Fetch failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    const cached = await readCache(cachePath);
+    if (cached) {
+      const ageHours = (cached.age / 3600000).toFixed(1);
+      console.warn(`Using cached docs (${ageHours}h old)`);
+      return parseSections(cached.content);
+    }
+
+    throw err;
+  }
 }
