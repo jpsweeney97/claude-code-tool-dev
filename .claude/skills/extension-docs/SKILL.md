@@ -31,7 +31,7 @@ Search the official Claude Code extension documentation to answer questions accu
 - A question about Claude Code extensions
 
 **Optional:**
-- Category filter: `hooks`, `skills`, `plugins`, `mcp`, `sub-agents`, `slash-commands`, `settings`
+- Category filter: `hooks`, `skills`, `commands`, `slash-commands`, `agents`, `subagents`, `sub-agents`, `plugins`, `plugin-marketplaces`, `mcp`, `settings`, `claude-md`, `memory`, `configuration`
 
 **Constraints:**
 - Requires extension-docs MCP server to be running
@@ -41,7 +41,7 @@ Search the official Claude Code extension documentation to answer questions accu
 
 **Artifacts:**
 - Answer synthesized from search results
-- Source citations with chunk IDs (e.g., `hooks#pretooluse-input`)
+- Source citations with chunk IDs (e.g., `hooks-input-schema#pretooluse-input`)
 
 **Definition of Done:**
 - [ ] At least one search query was executed
@@ -75,9 +75,14 @@ Search the official Claude Code extension documentation to answer questions accu
   - Prefer documentation over training knowledge
   - Note the discrepancy for user awareness
 
+- If search returns many relevant results:
+  - Narrow with category filter if topic is clear
+  - Use more specific query terms
+  - Focus on top 2-3 results for synthesis; mention others exist
+
 ## Verification
 
-Quick check: Response includes at least one citation in format `category#section` or `chunk_id`.
+Quick check: Response includes at least one citation in format `file-slug#heading-slug` (e.g., `hooks-input-schema#pretooluse-input`).
 
 If no citations present, re-run search or explicitly state "No documentation found."
 
@@ -96,3 +101,9 @@ If no citations present, re-run search or explicitly state "No documentation fou
 1. Try exact feature name (e.g., `PreToolUse` not `before tool`)
 2. Try category filter to narrow scope
 3. Run `reload_extension_docs` in case index is stale
+
+**Symptom:** Results seem outdated or don't reflect recent documentation changes
+**Cause:** Cached index is stale
+**Next steps:**
+1. Run `reload_extension_docs` to refresh the index from the remote source
+2. Re-run the search query
