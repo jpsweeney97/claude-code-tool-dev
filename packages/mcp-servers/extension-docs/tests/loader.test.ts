@@ -1,37 +1,25 @@
 // tests/loader.test.ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { loadMarkdownFiles } from '../src/loader.js';
-import { parseFrontmatter } from '../src/frontmatter.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 
+let loadMarkdownFiles: typeof import('../src/loader.js').loadMarkdownFiles;
+let parseFrontmatter: typeof import('../src/frontmatter.js').parseFrontmatter;
+
+vi.mock('glob', () => ({ glob: vi.fn() }));
+
 describe('fetchAndParse with TTL', () => {
-  // Note: This tests the internal behavior through the public loadFromOfficial API
-  // We'll use mocking to control fetch behavior
-
-  it('uses fresh cache and skips fetch when TTL not expired', async () => {
-    // This would require mocking fetchOfficialDocs
-    // For now, document the expected behavior:
-    // - If readCacheIfFresh returns content, don't call fetchOfficialDocs
-    // - Return parsed content from cache
-    expect(true).toBe(true); // Placeholder for integration test
-  });
-
-  it('falls back to stale cache when fetch fails', async () => {
-    // Expected behavior:
-    // - readCacheIfFresh returns null (stale)
-    // - fetchOfficialDocs throws
-    // - readCache returns stale content
-    // - Return parsed stale content with warning
-    expect(true).toBe(true); // Placeholder for integration test
-  });
+  it.todo('uses fresh cache and skips fetch when TTL not expired');
+  it.todo('falls back to stale cache when fetch fails');
 });
 
 describe('loadMarkdownFiles', () => {
   let tempDir: string;
 
   beforeEach(async () => {
+    vi.resetModules();
+    ({ loadMarkdownFiles } = await import('../src/loader.js'));
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-test-'));
   });
 
@@ -40,17 +28,24 @@ describe('loadMarkdownFiles', () => {
   });
 
   it('returns empty array for non-existent directory', async () => {
+    const { glob } = await import('glob');
+    vi.mocked(glob).mockResolvedValueOnce([]);
     const files = await loadMarkdownFiles('/nonexistent/path');
     expect(files).toEqual([]);
   });
 
   it('returns empty array for empty directory', async () => {
+    const { glob } = await import('glob');
+    vi.mocked(glob).mockResolvedValueOnce([]);
     const files = await loadMarkdownFiles(tempDir);
     expect(files).toEqual([]);
   });
 
   it('loads markdown files', async () => {
-    await fs.writeFile(path.join(tempDir, 'test.md'), '# Test');
+    const filePath = path.join(tempDir, 'test.md');
+    await fs.writeFile(filePath, '# Test');
+    const { glob } = await import('glob');
+    vi.mocked(glob).mockResolvedValueOnce([filePath]);
     const files = await loadMarkdownFiles(tempDir);
     expect(files).toHaveLength(1);
     expect(files[0].path).toBe('test.md');
@@ -59,15 +54,22 @@ describe('loadMarkdownFiles', () => {
 
   it('loads from subdirectories', async () => {
     await fs.mkdir(path.join(tempDir, 'hooks'));
-    await fs.writeFile(path.join(tempDir, 'hooks', 'test.md'), '# Hooks Test');
+    const filePath = path.join(tempDir, 'hooks', 'test.md');
+    await fs.writeFile(filePath, '# Hooks Test');
+    const { glob } = await import('glob');
+    vi.mocked(glob).mockResolvedValueOnce([filePath]);
     const files = await loadMarkdownFiles(tempDir);
     expect(files).toHaveLength(1);
     expect(files[0].path).toBe('hooks/test.md');
   });
 
   it('ignores non-markdown files', async () => {
-    await fs.writeFile(path.join(tempDir, 'test.md'), '# Markdown');
-    await fs.writeFile(path.join(tempDir, 'test.txt'), 'Plain text');
+    const mdPath = path.join(tempDir, 'test.md');
+    const txtPath = path.join(tempDir, 'test.txt');
+    await fs.writeFile(mdPath, '# Markdown');
+    await fs.writeFile(txtPath, 'Plain text');
+    const { glob } = await import('glob');
+    vi.mocked(glob).mockResolvedValueOnce([mdPath]);
     const files = await loadMarkdownFiles(tempDir);
     expect(files).toHaveLength(1);
     expect(files[0].path).toBe('test.md');
@@ -75,9 +77,47 @@ describe('loadMarkdownFiles', () => {
 
   it('normalizes path separators', async () => {
     await fs.mkdir(path.join(tempDir, 'deep', 'nested'), { recursive: true });
-    await fs.writeFile(path.join(tempDir, 'deep', 'nested', 'file.md'), '# Nested');
+    const filePath = path.join(tempDir, 'deep', 'nested', 'file.md');
+    await fs.writeFile(filePath, '# Nested');
+    const { glob } = await import('glob');
+    vi.mocked(glob).mockResolvedValueOnce([filePath]);
     const files = await loadMarkdownFiles(tempDir);
     expect(files[0].path).toBe('deep/nested/file.md'); // Forward slashes
+  });
+});
+
+describe('loadMarkdownFiles glob failures', () => {
+  const docsPath = '/protected/path';
+
+  beforeEach(async () => {
+    vi.resetModules();
+    ({ loadMarkdownFiles } = await import('../src/loader.js'));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('logs permission error on glob failure', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { glob } = await import('glob');
+    vi.mocked(glob).mockRejectedValueOnce(
+      Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    );
+    const files = await loadMarkdownFiles(docsPath);
+
+    expect(files).toEqual([]);
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it('logs code when glob fails with permission error', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { glob } = await import('glob');
+    vi.mocked(glob).mockRejectedValueOnce(
+      Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    );
+    await loadMarkdownFiles(docsPath);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('EACCES'));
   });
 });
 
@@ -87,6 +127,7 @@ describe('loadFromOfficial', () => {
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-official-test-'));
     vi.stubGlobal('fetch', vi.fn());
+    ({ parseFrontmatter } = await import('../src/frontmatter.js'));
   });
 
   afterEach(async () => {

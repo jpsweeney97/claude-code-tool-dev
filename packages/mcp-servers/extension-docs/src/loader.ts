@@ -23,8 +23,11 @@ export async function loadMarkdownFiles(docsPath: string): Promise<MarkdownFile[
   try {
     filePaths = await glob(pattern);
   } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
     console.error(
-      `WARN: Failed to glob ${pattern}: ${err instanceof Error ? err.message : 'unknown'}`,
+      `WARN: Failed to glob ${pattern}: ${
+        err instanceof Error ? err.message : 'unknown'
+      }${code ? ` (code: ${code})` : ''}`,
     );
     return files;
   }

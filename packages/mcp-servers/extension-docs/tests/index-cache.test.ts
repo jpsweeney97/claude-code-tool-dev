@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   serializeIndex,
   deserializeIndex,
+  parseSerializedIndex,
   INDEX_FORMAT_VERSION,
   TOKENIZER_VERSION,
   CHUNKER_VERSION,
@@ -76,5 +77,21 @@ describe('index serialization', () => {
     expect(restored.invertedIndex.get('hello')).toEqual(new Set([0, 1]));
     expect(restored.invertedIndex.get('world')).toEqual(new Set([0]));
     expect(restored.invertedIndex.get('there')).toEqual(new Set([1]));
+  });
+
+  it('parseSerializedIndex returns null for invalid data', () => {
+    const invalid = { version: INDEX_FORMAT_VERSION, contentHash: 'x' };
+    expect(parseSerializedIndex(invalid)).toBeNull();
+  });
+
+  it('parseSerializedIndex accepts serialized output', () => {
+    const chunks = [makeChunk('a', 'hello world', ['hello', 'world'])];
+    const original = buildBM25Index(chunks);
+    const serialized = serializeIndex(original, 'hash');
+    const parsed = parseSerializedIndex(serialized);
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.version).toBe(INDEX_FORMAT_VERSION);
+    expect(parsed?.contentHash).toBe('hash');
   });
 });

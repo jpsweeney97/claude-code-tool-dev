@@ -14,8 +14,10 @@ import {
   TOKENIZER_VERSION,
   CHUNKER_VERSION,
   type SerializedIndex,
+  parseSerializedIndex,
 } from './index-cache.js';
-import { readIndexCache, writeIndexCache, getDefaultIndexCachePath } from './cache.js';
+import { readIndexCache, writeIndexCache, getDefaultIndexCachePath, clearIndexCache } from './cache.js';
+import { formatSearchError } from './error-messages.js';
 
 // === State Management ===
 let index: BM25Index | null = null;
@@ -70,7 +72,7 @@ async function doLoadIndex(): Promise<BM25Index | null> {
 
     // Try to load cached index
     const indexCachePath = getDefaultIndexCachePath();
-    const cached = await readIndexCache(indexCachePath) as SerializedIndex | null;
+    const cached = parseSerializedIndex(await readIndexCache(indexCachePath));
 
     if (
       cached &&
@@ -198,15 +200,13 @@ async function main() {
           content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }],
           structuredContent: { results },
         };
-      } catch (err) {
-        console.error('Search error:', err);
-        return {
-          isError: true,
-          content: [
-            { type: 'text' as const, text: 'Search failed. Please try a different query.' },
-          ],
-        };
-      }
+    } catch (err) {
+      console.error('Search error:', err);
+      return {
+        isError: true,
+        content: [{ type: 'text' as const, text: formatSearchError(err) }],
+      };
+    }
     },
   );
 
@@ -230,6 +230,8 @@ async function main() {
       clearParseWarnings();
 
       console.error('Forcing documentation reload...');
+
+      await clearIndexCache();
 
       const idx = await ensureIndex();
       if (!idx) {

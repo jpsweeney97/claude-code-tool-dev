@@ -270,4 +270,14 @@ Second line.`;
     const snippet = extractSnippet(content, ['word'], 100);
     expect(snippet.length).toBeLessThanOrEqual(100);
   });
+
+  it('returns empty string when content is empty', () => {
+    const snippet = extractSnippet('', ['hooks']);
+    expect(snippet).toBe('');
+  });
+
+  it('returns empty string when content is whitespace and query is empty', () => {
+    const snippet = extractSnippet('   \n\n', []);
+    expect(snippet).toBe('');
+  });
 });

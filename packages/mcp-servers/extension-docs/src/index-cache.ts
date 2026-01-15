@@ -1,5 +1,6 @@
+import { z } from 'zod';
 import type { Chunk } from './types.js';
-import type { BM25Index } from './bm25.js';
+import { BM25_CONFIG, type BM25Index } from './bm25.js';
 
 export const INDEX_FORMAT_VERSION = 2; // Bumped for inverted index serialization
 export const TOKENIZER_VERSION = 1;
@@ -32,6 +33,40 @@ export interface SerializedChunk {
   merged_headings?: string[];
 }
 
+const SerializedChunkSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  tokens: z.array(z.string()),
+  termFreqs: z.array(z.tuple([z.string(), z.number()])),
+  category: z.string(),
+  tags: z.array(z.string()),
+  source_file: z.string(),
+  heading: z.string().optional(),
+  merged_headings: z.array(z.string()).optional(),
+});
+
+const SerializedIndexSchema = z.object({
+  version: z.number(),
+  contentHash: z.string(),
+  avgDocLength: z.number(),
+  docFrequency: z.array(z.tuple([z.string(), z.number()])),
+  invertedIndex: z.array(z.tuple([z.string(), z.array(z.number())])),
+  chunks: z.array(SerializedChunkSchema),
+  metadata: z
+    .object({
+      createdAt: z.number(),
+      bm25: z.object({ k1: z.number(), b: z.number() }).optional(),
+      tokenizerVersion: z.number().optional(),
+      chunkerVersion: z.number().optional(),
+    })
+    .optional(),
+});
+
+export function parseSerializedIndex(data: unknown): SerializedIndex | null {
+  const result = SerializedIndexSchema.safeParse(data);
+  return result.success ? (result.data as SerializedIndex) : null;
+}
+
 export function serializeIndex(index: BM25Index, contentHash: string): SerializedIndex {
   return {
     version: INDEX_FORMAT_VERSION,
@@ -55,7 +90,7 @@ export function serializeIndex(index: BM25Index, contentHash: string): Serialize
     })),
     metadata: {
       createdAt: Date.now(),
-      bm25: { k1: 1.2, b: 0.75 },
+      bm25: BM25_CONFIG,
       tokenizerVersion: TOKENIZER_VERSION,
       chunkerVersion: CHUNKER_VERSION,
     },

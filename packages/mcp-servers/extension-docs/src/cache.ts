@@ -58,7 +58,7 @@ async function releaseLock(lockPath: string, handle: fs.FileHandle): Promise<voi
     try {
       await fs.unlink(lockPath);
     } catch {
-      // Best-effort cleanup only.
+      console.warn(`WARN: Failed to remove cache lock ${lockPath}`);
     }
   }
 }
@@ -107,7 +107,7 @@ export async function writeCache(cachePath: string, content: string): Promise<vo
     try {
       await fs.unlink(tempPath);
     } catch {
-      // Best-effort cleanup only.
+      console.warn(`WARN: Failed to remove temp cache file ${tempPath}`);
     }
     throw err;
   } finally {
@@ -131,6 +131,18 @@ export async function readIndexCache(cachePath: string): Promise<unknown | null>
   try {
     return JSON.parse(cached.content);
   } catch {
+    console.warn(`WARN: Failed to parse index cache at ${cachePath}`);
     return null;
+  }
+}
+
+export async function clearIndexCache(cachePath?: string): Promise<void> {
+  const target = cachePath ?? getDefaultIndexCachePath();
+  try {
+    await fs.unlink(target);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.warn(`WARN: Failed to remove index cache ${target}`);
+    }
   }
 }

@@ -8,25 +8,21 @@ export interface BM25Index {
   invertedIndex: Map<string, Set<number>>;
 }
 
-const BM25_CONFIG = {
+export const BM25_CONFIG = {
   k1: 1.2,
   b: 0.75,
 };
+
+const METADATA_HEADER_RE = /^(Topic:.*\n)?(ID:.*\n)?(Category:.*\n)?(Tags:.*\n)?\n?/m;
 
 export function buildBM25Index(chunks: Chunk[]): BM25Index {
   const docFrequency = new Map<string, number>();
   const invertedIndex = new Map<string, Set<number>>();
 
-  for (const chunk of chunks) {
-    const uniqueTerms = new Set(chunk.tokens);
-    for (const term of uniqueTerms) {
-      docFrequency.set(term, (docFrequency.get(term) ?? 0) + 1);
-    }
-  }
-
   for (let i = 0; i < chunks.length; i++) {
     const uniqueTerms = new Set(chunks[i].tokens);
     for (const term of uniqueTerms) {
+      docFrequency.set(term, (docFrequency.get(term) ?? 0) + 1);
       let postings = invertedIndex.get(term);
       if (!postings) {
         postings = new Set();
@@ -72,10 +68,7 @@ export function extractSnippet(
   maxLength = 400
 ): string {
   // Strip metadata header (Topic/ID/Category/Tags lines at start)
-  const bodyOnly = content.replace(
-    /^(Topic:.*\n)?(ID:.*\n)?(Category:.*\n)?(Tags:.*\n)?\n?/m,
-    ''
-  );
+  const bodyOnly = content.replace(METADATA_HEADER_RE, '');
   const lines = bodyOnly.split('\n');
 
   // For empty query terms, return first non-empty line
