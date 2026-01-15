@@ -30,17 +30,17 @@ const RETRY_INTERVAL_MS = parseInt(process.env.RETRY_INTERVAL_MS ?? '60000', 10)
 const EFFECTIVE_RETRY_INTERVAL =
   RETRY_INTERVAL_MS >= 1000 && RETRY_INTERVAL_MS <= 600000 ? RETRY_INTERVAL_MS : 60000;
 
-async function ensureIndex(): Promise<BM25Index | null> {
-  if (index) return index;
+async function ensureIndex(forceRefresh = false): Promise<BM25Index | null> {
+  if (index && !forceRefresh) return index;
 
   if (loadingPromise) return loadingPromise;
 
   const now = Date.now();
-  if (loadError && now - lastLoadAttempt < EFFECTIVE_RETRY_INTERVAL) {
+  if (loadError && now - lastLoadAttempt < EFFECTIVE_RETRY_INTERVAL && !forceRefresh) {
     return null;
   }
 
-  loadingPromise = doLoadIndex();
+  loadingPromise = doLoadIndex(forceRefresh);
 
   try {
     return await loadingPromise;
@@ -49,7 +49,7 @@ async function ensureIndex(): Promise<BM25Index | null> {
   }
 }
 
-async function doLoadIndex(): Promise<BM25Index | null> {
+async function doLoadIndex(forceRefresh = false): Promise<BM25Index | null> {
   const isRetry = loadError !== null;
 
   lastLoadAttempt = Date.now();
@@ -63,7 +63,7 @@ async function doLoadIndex(): Promise<BM25Index | null> {
   const docsUrl = process.env.DOCS_URL ?? 'https://code.claude.com/docs/llms-full.txt';
 
   try {
-    const { files, contentHash } = await loadFromOfficial(docsUrl);
+    const { files, contentHash } = await loadFromOfficial(docsUrl, undefined, forceRefresh);
     if (files.length === 0) {
       loadError = 'No extension documentation found after filtering';
       console.error(`ERROR: ${loadError}`);
@@ -233,7 +233,7 @@ async function main() {
 
       await clearIndexCache();
 
-      const idx = await ensureIndex();
+      const idx = await ensureIndex(true);
       if (!idx) {
         return {
           isError: true,
