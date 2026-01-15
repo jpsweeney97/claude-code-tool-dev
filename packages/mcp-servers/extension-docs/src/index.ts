@@ -146,7 +146,7 @@ async function main() {
       inputSchema: SearchInputSchema,
       outputSchema: SearchOutputSchema,
     },
-    async ({ query, limit = 5 }: z.infer<typeof SearchInputSchema>) => {
+    async ({ query, limit = 5, category }: z.infer<typeof SearchInputSchema>) => {
       const idx = await ensureIndex();
       if (!idx) {
         return {
@@ -156,7 +156,7 @@ async function main() {
       }
 
       try {
-        const results = search(idx, query, limit);
+        const results = search(idx, query, limit, category);
         return {
           content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }],
           structuredContent: { results },

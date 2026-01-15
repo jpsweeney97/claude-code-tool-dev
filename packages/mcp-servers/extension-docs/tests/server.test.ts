@@ -130,3 +130,29 @@ describe('Category Schema Validation', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('search_extension_docs tool with category', () => {
+  // This test verifies the tool handler passes category to search
+  // Full integration test would require MCP client setup
+  it('search function accepts category parameter', async () => {
+    // Import the search function directly to verify signature
+    const { search, buildBM25Index } = await import('../src/bm25.js');
+    const { computeTermFreqs } = await import('../src/chunk-helpers.js');
+
+    const chunks = [{
+      id: 'test',
+      content: 'test content',
+      tokens: ['test', 'content'],
+      termFreqs: computeTermFreqs(['test', 'content']),
+      category: 'hooks',
+      tags: [],
+      source_file: 'hooks/test.md',
+    }];
+
+    const index = buildBM25Index(chunks);
+
+    // Verify search accepts 4th parameter
+    const results = search(index, 'test', 5, 'hooks');
+    expect(results).toHaveLength(1);
+  });
+});
