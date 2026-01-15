@@ -21,3 +21,9 @@ export interface SearchResult {
   category: string;
   source_file: string;
 }
+
+export interface ParsedSection {
+  sourceUrl: string; // URL where the original doc lives (from Source: lines)
+  title: string; // Heading that preceded the Source: line
+  content: string; // Section content
+}
