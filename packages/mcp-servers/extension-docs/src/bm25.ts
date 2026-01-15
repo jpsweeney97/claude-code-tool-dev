@@ -66,6 +66,62 @@ function bm25Score(queryTerms: string[], chunk: Chunk, index: BM25Index): number
   }, 0);
 }
 
+export function extractSnippet(
+  content: string,
+  queryTerms: string[],
+  maxLength = 400
+): string {
+  // Strip metadata header (Topic/ID/Category/Tags lines at start)
+  const bodyOnly = content.replace(
+    /^(Topic:.*\n)?(ID:.*\n)?(Category:.*\n)?(Tags:.*\n)?\n?/m,
+    ''
+  );
+  const lines = bodyOnly.split('\n');
+
+  // For empty query terms, return first non-empty line
+  if (queryTerms.length === 0) {
+    const firstNonEmpty = lines.find((line) => line.trim().length > 0) ?? '';
+    return firstNonEmpty.length > maxLength
+      ? firstNonEmpty.slice(0, maxLength)
+      : firstNonEmpty;
+  }
+
+  // Find line with highest term density
+  let bestLine = 0;
+  let bestScore = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineTokens = new Set(tokenize(lines[i]));
+    const score = queryTerms.reduce(
+      (acc, t) => acc + (lineTokens.has(t) ? 1 : 0),
+      0
+    );
+    if (score > bestScore) {
+      bestScore = score;
+      bestLine = i;
+    }
+  }
+
+  // Expand bidirectionally around best line until maxLength
+  let start = bestLine;
+  let end = bestLine;
+  let length = lines[bestLine]?.length ?? 0;
+
+  while (length < maxLength && (start > 0 || end < lines.length - 1)) {
+    if (start > 0) {
+      start -= 1;
+      length += lines[start].length + 1;
+    }
+    if (end < lines.length - 1 && length < maxLength) {
+      end += 1;
+      length += lines[end].length + 1;
+    }
+  }
+
+  const snippet = lines.slice(start, end + 1).join('\n');
+  return snippet.length > maxLength ? snippet.slice(0, maxLength) : snippet;
+}
+
 export function search(
   index: BM25Index,
   query: string,

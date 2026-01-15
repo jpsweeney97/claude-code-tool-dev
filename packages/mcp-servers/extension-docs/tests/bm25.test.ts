@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildBM25Index, search, type BM25Index } from '../src/bm25.js';
+import { buildBM25Index, search, extractSnippet, type BM25Index } from '../src/bm25.js';
 import type { Chunk } from '../src/types.js';
 import { computeTermFreqs } from '../src/chunk-helpers.js';
 
@@ -218,5 +218,54 @@ describe('search using inverted index', () => {
     // Query with only punctuation tokenizes to empty
     const results = search(index, '...');
     expect(results).toHaveLength(0);
+  });
+});
+
+describe('extractSnippet', () => {
+  it('returns snippet containing query terms', () => {
+    const content = `Topic: Hooks Guide
+ID: hooks-guide
+Category: hooks
+
+# Introduction
+
+Hooks are powerful. They let you intercept tool calls.
+
+## PreToolUse
+
+The PreToolUse hook runs before each tool.`;
+
+    const snippet = extractSnippet(content, ['pretooluse']);
+    expect(snippet).toContain('PreToolUse');
+    expect(snippet.length).toBeLessThanOrEqual(400);
+  });
+
+  it('strips metadata header before finding best line', () => {
+    const content = `Topic: Test
+ID: test-id
+Category: hooks
+
+The actual content starts here with hooks.`;
+
+    const snippet = extractSnippet(content, ['hooks']);
+    expect(snippet).not.toContain('Topic:');
+    expect(snippet).toContain('hooks');
+  });
+
+  it('returns first line for empty query terms', () => {
+    const content = `Topic: Test
+ID: test
+
+First real line.
+Second line.`;
+
+    const snippet = extractSnippet(content, []);
+    expect(snippet).toBe('First real line.');
+  });
+
+  it('respects maxLength parameter', () => {
+    const content = 'word '.repeat(200);
+    const snippet = extractSnippet(content, ['word'], 100);
+    expect(snippet.length).toBeLessThanOrEqual(100);
   });
 });
