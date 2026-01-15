@@ -81,6 +81,23 @@ async function doLoadIndex(): Promise<BM25Index | null> {
 }
 
 // === Zod Schemas ===
+const CATEGORY_VALUES = [
+  'hooks',
+  'skills',
+  'commands',
+  'slash-commands',
+  'agents',
+  'subagents',
+  'sub-agents',
+  'plugins',
+  'plugin-marketplaces',
+  'mcp',
+  'settings',
+  'claude-md',
+  'memory',
+  'configuration',
+] as const;
+
 const SearchInputSchema = z.object({
   query: z
     .string()
@@ -97,6 +114,10 @@ const SearchInputSchema = z.object({
     .max(20)
     .optional()
     .describe('Maximum results to return (default: 5, max: 20)'),
+  category: z
+    .enum(CATEGORY_VALUES)
+    .optional()
+    .describe('Filter to a specific category (e.g., "hooks", "plugins")'),
 });
 
 const SearchOutputSchema = z.object({
