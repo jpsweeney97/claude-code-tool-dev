@@ -7,6 +7,8 @@ import { fetchOfficialDocs, FetchHttpError, FetchNetworkError, FetchTimeoutError
 import { parseSections } from './parser.js';
 import { filterToExtensions } from './filter.js';
 import { readCache, writeCache, getDefaultCachePath } from './cache.js';
+import { extractContentPath } from './url-helpers.js';
+import { deriveCategory } from './frontmatter.js';
 
 export async function loadMarkdownFiles(docsPath: string): Promise<MarkdownFile[]> {
   const files: MarkdownFile[] = [];
@@ -43,14 +45,73 @@ function resolveCachePath(override?: string): string {
   return envPath && envPath.length > 0 ? envPath : getDefaultCachePath();
 }
 
+/**
+ * Escape a string for safe inclusion in YAML.
+ * Uses JSON.stringify which produces valid YAML double-quoted strings.
+ */
+function yamlEscape(value: string): string {
+  return JSON.stringify(value);
+}
+
+/**
+ * Build synthetic YAML frontmatter from parsed section metadata.
+ * Only includes non-empty fields.
+ */
+function buildSyntheticFrontmatter(fields: {
+  topic?: string;
+  id?: string;
+  category?: string;
+}): string {
+  const lines: string[] = ['---'];
+
+  if (fields.topic) {
+    lines.push(`topic: ${yamlEscape(fields.topic)}`);
+  }
+  if (fields.id) {
+    lines.push(`id: ${yamlEscape(fields.id)}`);
+  }
+  if (fields.category) {
+    lines.push(`category: ${yamlEscape(fields.category)}`);
+  }
+
+  // Only return frontmatter if we have at least one field
+  if (lines.length === 1) {
+    return '';
+  }
+
+  lines.push('---', '');
+  return lines.join('\n');
+}
+
+/**
+ * Derive a document ID from a URL's content path.
+ * E.g., 'https://code.claude.com/docs/en/hooks/input-schema' → 'hooks-input-schema'
+ */
+function deriveIdFromUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const segments = extractContentPath(url);
+  return segments.length > 0 ? segments.join('-') : undefined;
+}
+
 export async function loadFromOfficial(url: string, cachePath?: string): Promise<MarkdownFile[]> {
   const resolvedCachePath = resolveCachePath(cachePath);
   const sections = await fetchAndParse(url, resolvedCachePath);
   const filtered = filterToExtensions(sections).filter((s) => s.content.trim().length > 0);
-  return filtered.map((s) => ({
-    path: s.sourceUrl || s.title || 'unknown',
-    content: s.content,
-  }));
+
+  return filtered.map((s) => {
+    const sourceKey = s.sourceUrl || s.title || '';
+    const topic = s.title?.trim() || undefined;
+    const id = deriveIdFromUrl(s.sourceUrl);
+    const category = deriveCategory(sourceKey);
+
+    // Build synthetic frontmatter to enrich metadata for search
+    const frontmatter = buildSyntheticFrontmatter({ topic, id, category });
+
+    return {
+      path: s.sourceUrl || s.title || 'unknown',
+      content: frontmatter + s.content,
+    };
+  });
 }
 
 async function fetchAndParse(url: string, cachePath: string): Promise<ParsedSection[]> {

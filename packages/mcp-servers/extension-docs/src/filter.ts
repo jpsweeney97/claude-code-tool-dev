@@ -1,5 +1,27 @@
 import type { ParsedSection } from './types.js';
 
+/**
+ * Canonical list of extension category slugs.
+ * Used for category derivation from URLs and validation.
+ * Includes variant forms (e.g., 'subagents' and 'sub-agents').
+ */
+export const KNOWN_CATEGORIES = new Set([
+  'hooks',
+  'skills',
+  'commands',
+  'slash-commands',
+  'agents',
+  'subagents',
+  'sub-agents',
+  'plugins',
+  'plugin-marketplaces',
+  'mcp',
+  'settings',
+  'claude-md',
+  'memory',
+  'configuration',
+]);
+
 const EXTENSION_URL_PATTERNS: RegExp[] = [
   /\/hooks/i,
   /\/skills/i,

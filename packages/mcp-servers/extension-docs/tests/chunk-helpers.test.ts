@@ -62,6 +62,58 @@ describe('generateChunkId with splitIndex', () => {
   });
 });
 
+describe('generateChunkId with URLs', () => {
+  it('simplifies URL to content path', () => {
+    const file: MarkdownFile = {
+      path: 'https://code.claude.com/docs/en/hooks',
+      content: '',
+    };
+    expect(generateChunkId(file)).toBe('hooks');
+  });
+
+  it('handles nested URL paths', () => {
+    const file: MarkdownFile = {
+      path: 'https://code.claude.com/docs/en/hooks/input-schema',
+      content: '',
+    };
+    expect(generateChunkId(file)).toBe('hooks-input-schema');
+  });
+
+  it('handles URL with heading', () => {
+    const file: MarkdownFile = {
+      path: 'https://code.claude.com/docs/en/hooks/input-schema',
+      content: '',
+    };
+    expect(generateChunkId(file, 'PreToolUse Input')).toBe('hooks-input-schema#pretooluse-input');
+  });
+
+  it('handles URL with heading and splitIndex', () => {
+    const file: MarkdownFile = {
+      path: 'https://code.claude.com/docs/en/hooks',
+      content: '',
+    };
+    expect(generateChunkId(file, 'What are hooks', 1)).toBe('hooks#what-are-hooks');
+    expect(generateChunkId(file, 'What are hooks', 2)).toBe('hooks#what-are-hooks-2');
+    expect(generateChunkId(file, 'What are hooks', 3)).toBe('hooks#what-are-hooks-3');
+  });
+
+  it('handles URL without /docs/ prefix', () => {
+    const file: MarkdownFile = {
+      path: 'https://example.com/hooks/overview',
+      content: '',
+    };
+    expect(generateChunkId(file)).toBe('hooks-overview');
+  });
+
+  it('returns unknown for URL with no content path', () => {
+    const file: MarkdownFile = {
+      path: 'https://example.com/',
+      content: '',
+    };
+    expect(generateChunkId(file)).toBe('unknown');
+  });
+});
+
 describe('computeTermFreqs', () => {
   it('returns empty map for empty array', () => {
     expect(computeTermFreqs([])).toEqual(new Map());

@@ -106,12 +106,59 @@ describe('formatMetadataHeader', () => {
 });
 
 describe('deriveCategory', () => {
+  // File path tests (original behavior)
   it('extracts category from path', () => {
     expect(deriveCategory('hooks/input-schema.md')).toBe('hooks');
   });
 
   it('returns general for root files', () => {
     expect(deriveCategory('readme.md')).toBe('general');
+  });
+
+  // URL tests (new behavior)
+  it('extracts category from URL with language code', () => {
+    expect(deriveCategory('https://code.claude.com/docs/en/hooks')).toBe('hooks');
+    expect(deriveCategory('https://code.claude.com/docs/en/skills')).toBe('skills');
+    expect(deriveCategory('https://code.claude.com/docs/en/mcp')).toBe('mcp');
+  });
+
+  it('extracts category from URL without language code', () => {
+    expect(deriveCategory('https://code.claude.com/docs/hooks')).toBe('hooks');
+    expect(deriveCategory('https://code.claude.com/docs/plugins')).toBe('plugins');
+  });
+
+  it('handles nested URL paths', () => {
+    expect(deriveCategory('https://code.claude.com/docs/en/hooks/input-schema')).toBe('hooks');
+    expect(deriveCategory('https://code.claude.com/docs/en/mcp/servers')).toBe('mcp');
+    expect(deriveCategory('https://code.claude.com/docs/en/agents/sub-agents')).toBe('agents');
+  });
+
+  it('handles hyphenated categories in URLs', () => {
+    expect(deriveCategory('https://code.claude.com/docs/en/slash-commands')).toBe('slash-commands');
+    expect(deriveCategory('https://code.claude.com/docs/en/plugin-marketplaces')).toBe(
+      'plugin-marketplaces',
+    );
+    expect(deriveCategory('https://code.claude.com/docs/en/claude-md')).toBe('claude-md');
+    expect(deriveCategory('https://code.claude.com/docs/en/sub-agents')).toBe('sub-agents');
+  });
+
+  it('handles subagents variant (no hyphen)', () => {
+    expect(deriveCategory('https://code.claude.com/docs/en/subagents')).toBe('subagents');
+  });
+
+  it('handles regional language codes (zh-cn, pt-br)', () => {
+    expect(deriveCategory('https://code.claude.com/docs/zh-cn/hooks')).toBe('hooks');
+    expect(deriveCategory('https://code.claude.com/docs/pt-br/skills')).toBe('skills');
+  });
+
+  it('returns general for URL with no content path', () => {
+    expect(deriveCategory('https://code.claude.com/')).toBe('general');
+    expect(deriveCategory('https://code.claude.com/docs/en/')).toBe('general');
+  });
+
+  it('falls back to first segment for unknown category', () => {
+    // If first segment is not a known category, still use it
+    expect(deriveCategory('https://example.com/custom/page')).toBe('custom');
   });
 });
 

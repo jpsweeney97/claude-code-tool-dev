@@ -1,6 +1,7 @@
 // tests/loader.test.ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { loadMarkdownFiles } from '../src/loader.js';
+import { parseFrontmatter } from '../src/frontmatter.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -117,5 +118,109 @@ Skills content`;
 
     expect(files).toHaveLength(1);
     expect(files[0].path).toContain('skills');
+  });
+
+  it('injects synthetic frontmatter with topic, id, and category', async () => {
+    const mockContent = `# Hooks Guide
+Source: https://code.claude.com/docs/en/hooks
+
+Hooks content here`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(mockContent),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    const files = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    expect(files).toHaveLength(1);
+
+    // Content should start with synthetic frontmatter
+    expect(files[0].content).toMatch(/^---\n/);
+    expect(files[0].content).toContain('topic:');
+    expect(files[0].content).toContain('id:');
+    expect(files[0].content).toContain('category:');
+  });
+
+  it('synthetic frontmatter is parseable by parseFrontmatter', async () => {
+    const mockContent = `# Hooks Guide
+Source: https://code.claude.com/docs/en/hooks
+
+Hooks content here`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(mockContent),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    const files = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    // Parse the synthetic frontmatter
+    const { frontmatter, body, warnings } = parseFrontmatter(files[0].content, files[0].path);
+
+    expect(warnings).toHaveLength(0);
+    expect(frontmatter.topic).toBe('Hooks Guide');
+    expect(frontmatter.id).toBe('hooks');
+    expect(frontmatter.category).toBe('hooks');
+    expect(body).toContain('Hooks content here');
+  });
+
+  it('handles titles with special characters in synthetic frontmatter', async () => {
+    const mockContent = `# Hooks: The "Complete" Guide
+Source: https://code.claude.com/docs/en/hooks
+
+Content`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(mockContent),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    const files = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    // Parse should succeed even with special characters
+    const { frontmatter, warnings } = parseFrontmatter(files[0].content, files[0].path);
+
+    expect(warnings).toHaveLength(0);
+    expect(frontmatter.topic).toBe('Hooks: The "Complete" Guide');
+  });
+
+  it('derives correct category for nested URL paths', async () => {
+    const mockContent = `# Input Schema
+Source: https://code.claude.com/docs/en/hooks/input-schema
+
+Schema details`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(mockContent),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    const files = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    const { frontmatter } = parseFrontmatter(files[0].content, files[0].path);
+
+    expect(frontmatter.category).toBe('hooks');
+    expect(frontmatter.id).toBe('hooks-input-schema');
   });
 });

@@ -1,4 +1,5 @@
 import type { MarkdownFile } from './types.js';
+import { isHttpUrl, extractContentPath } from './url-helpers.js';
 
 export function slugify(text: string): string {
   return text
@@ -8,12 +9,32 @@ export function slugify(text: string): string {
     .replace(/^-|-$/g, '');
 }
 
+/**
+ * Generate a chunk ID for a documentation file.
+ *
+ * For URLs, extracts the content path to create readable IDs:
+ * - 'https://code.claude.com/docs/en/hooks' → 'hooks'
+ * - 'https://code.claude.com/docs/en/hooks/input-schema' → 'hooks-input-schema'
+ *
+ * For file paths, uses the path directly:
+ * - 'hooks/overview.md' → 'hooks-overview'
+ */
 export function generateChunkId(
   file: MarkdownFile,
   heading?: string,
   splitIndex?: number,
 ): string {
-  const fileSlug = slugify(file.path);
+  let fileSlug: string;
+
+  if (isHttpUrl(file.path)) {
+    // For URLs, use the content path segments for a cleaner ID
+    const segments = extractContentPath(file.path);
+    fileSlug = slugify(segments.join('-') || 'unknown');
+  } else {
+    // For file paths, use the path directly
+    fileSlug = slugify(file.path);
+  }
+
   if (!heading) return fileSlug;
 
   const headingSlug = slugify(heading);
