@@ -73,13 +73,27 @@ export function search(
   category?: string
 ): SearchResult[] {
   const queryTerms = tokenize(query);
+  if (queryTerms.length === 0) return [];
 
-  const chunks = category
-    ? index.chunks.filter((chunk) => chunk.category === category)
-    : index.chunks;
+  // Get candidate chunks from inverted index
+  const candidates = new Set<number>();
+  for (const term of queryTerms) {
+    const postings = index.invertedIndex.get(term);
+    if (postings) {
+      for (const idx of postings) candidates.add(idx);
+    }
+  }
 
-  return chunks
-    .map((chunk) => ({ chunk, score: bm25Score(queryTerms, chunk, index) }))
+  // Filter candidates by category if specified
+  const filteredCandidates = category
+    ? Array.from(candidates).filter((idx) => index.chunks[idx].category === category)
+    : Array.from(candidates);
+
+  return filteredCandidates
+    .map((idx) => ({
+      chunk: index.chunks[idx],
+      score: bm25Score(queryTerms, index.chunks[idx], index),
+    }))
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)

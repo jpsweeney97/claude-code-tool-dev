@@ -184,3 +184,39 @@ describe('search with category filtering', () => {
     expect(results).toHaveLength(0);
   });
 });
+
+describe('search using inverted index', () => {
+  it('returns same results as exhaustive search', () => {
+    const chunks = [
+      makeChunk('a', 'hooks documentation', ['hooks', 'documentation']),
+      makeChunk('b', 'skills guide', ['skills', 'guide']),
+      makeChunk('c', 'hooks and skills', ['hooks', 'skills']),
+    ];
+    const index = buildBM25Index(chunks);
+
+    const results = search(index, 'hooks');
+    expect(results).toHaveLength(2);
+    expect(results.map(r => r.chunk_id).sort()).toEqual(['a', 'c'].sort());
+  });
+
+  it('returns empty for query with no matching terms', () => {
+    const chunks = [
+      makeChunk('a', 'hello world', ['hello', 'world']),
+    ];
+    const index = buildBM25Index(chunks);
+
+    const results = search(index, 'xyz');
+    expect(results).toHaveLength(0);
+  });
+
+  it('returns empty for empty query', () => {
+    const chunks = [
+      makeChunk('a', 'hello world', ['hello', 'world']),
+    ];
+    const index = buildBM25Index(chunks);
+
+    // Query with only punctuation tokenizes to empty
+    const results = search(index, '...');
+    expect(results).toHaveLength(0);
+  });
+});
