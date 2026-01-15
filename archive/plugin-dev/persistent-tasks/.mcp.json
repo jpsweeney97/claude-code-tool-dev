@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "persistent-tasks": {
+      "command": "uv",
+      "args": ["run", "--directory", "${pluginPath}", "python", "-m", "persistent_tasks.server"],
+      "env": {}
+    }
+  }
+}

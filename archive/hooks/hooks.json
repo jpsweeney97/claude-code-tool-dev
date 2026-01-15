@@ -1,0 +1,16 @@
+{
+  "description": "Validates SKILL.md files for required frontmatter and section structure",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/validate_skill.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

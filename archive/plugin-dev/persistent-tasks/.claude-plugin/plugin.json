@@ -1,0 +1,10 @@
+{
+  "name": "persistent-tasks",
+  "version": "0.1.0",
+  "description": "Cross-session task persistence with dependency tracking and MCP tools",
+  "author": {
+    "name": "JP"
+  },
+  "skills": ["./skills/persistent-tasks"],
+  "mcpServers": "./.mcp.json"
+}

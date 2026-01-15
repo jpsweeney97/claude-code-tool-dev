@@ -37,3 +37,10 @@ packages/plugins/plugin-dev/.claude/
 # Local rules (not tracked)
 .claude/rules/extensions/
 .claude/rules/methodology/
+
+# Archives
+
+.archive/
+
+# temporary
+.tmp/

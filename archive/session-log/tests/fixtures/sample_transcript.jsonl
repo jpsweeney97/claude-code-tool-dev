@@ -1,0 +1,4 @@
+{"type":"user","message":{"content":"Help me fix the auth bug"}}
+{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"Let me look at the auth code"},{"type":"tool_use","name":"Read","input":{"file_path":"src/auth.py"}},{"type":"text","text":"I found the issue in the auth module."}]}}
+{"type":"user","message":{"content":"Great, please fix it"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/auth.py","old_string":"bug","new_string":"fix"}},{"type":"text","text":"I've fixed the authentication bug."}]}}

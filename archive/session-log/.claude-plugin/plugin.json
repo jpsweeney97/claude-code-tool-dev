@@ -1,0 +1,9 @@
+{
+  "name": "session-log",
+  "version": "0.1.0",
+  "description": "Captures session summaries for historical record and work pattern reflection",
+  "author": {
+    "name": "JP"
+  },
+  "commands": "./commands/"
+}

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "deep-analysis": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${CLAUDE_PLUGIN_ROOT}/mcp",
+        "python",
+        "-m",
+        "server"
+      ],
+      "env": {}
+    }
+  }
+}

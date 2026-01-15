@@ -1,0 +1,15 @@
+{
+  "name": "deep-analysis",
+  "version": "0.1.0",
+  "description": "Structured analysis for complex decisions with semantic search over past analyses",
+  "homepage": "https://github.com/jp/claude-plugins",
+  "author": {
+    "name": "JP"
+  },
+  "keywords": [
+    "analysis",
+    "decision-making",
+    "architecture",
+    "trade-offs"
+  ]
+}
