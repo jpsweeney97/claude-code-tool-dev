@@ -5,6 +5,7 @@ export interface BM25Index {
   chunks: Chunk[];
   avgDocLength: number;
   docFrequency: Map<string, number>;
+  invertedIndex: Map<string, Set<number>>;
 }
 
 const BM25_CONFIG = {
@@ -14,6 +15,7 @@ const BM25_CONFIG = {
 
 export function buildBM25Index(chunks: Chunk[]): BM25Index {
   const docFrequency = new Map<string, number>();
+  const invertedIndex = new Map<string, Set<number>>();
 
   for (const chunk of chunks) {
     const uniqueTerms = new Set(chunk.tokens);
@@ -22,11 +24,24 @@ export function buildBM25Index(chunks: Chunk[]): BM25Index {
     }
   }
 
+  for (let i = 0; i < chunks.length; i++) {
+    const uniqueTerms = new Set(chunks[i].tokens);
+    for (const term of uniqueTerms) {
+      let postings = invertedIndex.get(term);
+      if (!postings) {
+        postings = new Set();
+        invertedIndex.set(term, postings);
+      }
+      postings.add(i);
+    }
+  }
+
   return {
     chunks,
     avgDocLength:
       chunks.length > 0 ? chunks.reduce((sum, c) => sum + c.tokens.length, 0) / chunks.length : 0,
     docFrequency,
+    invertedIndex,
   };
 }
 
@@ -51,17 +66,97 @@ function bm25Score(queryTerms: string[], chunk: Chunk, index: BM25Index): number
   }, 0);
 }
 
-export function search(index: BM25Index, query: string, limit = 5): SearchResult[] {
-  const queryTerms = tokenize(query);
+export function extractSnippet(
+  content: string,
+  queryTerms: string[],
+  maxLength = 400
+): string {
+  // Strip metadata header (Topic/ID/Category/Tags lines at start)
+  const bodyOnly = content.replace(
+    /^(Topic:.*\n)?(ID:.*\n)?(Category:.*\n)?(Tags:.*\n)?\n?/m,
+    ''
+  );
+  const lines = bodyOnly.split('\n');
 
-  return index.chunks
-    .map((chunk) => ({ chunk, score: bm25Score(queryTerms, chunk, index) }))
+  // For empty query terms, return first non-empty line
+  if (queryTerms.length === 0) {
+    const firstNonEmpty = lines.find((line) => line.trim().length > 0) ?? '';
+    return firstNonEmpty.length > maxLength
+      ? firstNonEmpty.slice(0, maxLength)
+      : firstNonEmpty;
+  }
+
+  // Find line with highest term density
+  let bestLine = 0;
+  let bestScore = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineTokens = new Set(tokenize(lines[i]));
+    const score = queryTerms.reduce(
+      (acc, t) => acc + (lineTokens.has(t) ? 1 : 0),
+      0
+    );
+    if (score > bestScore) {
+      bestScore = score;
+      bestLine = i;
+    }
+  }
+
+  // Expand bidirectionally around best line until maxLength
+  let start = bestLine;
+  let end = bestLine;
+  let length = lines[bestLine]?.length ?? 0;
+
+  while (length < maxLength && (start > 0 || end < lines.length - 1)) {
+    if (start > 0) {
+      start -= 1;
+      length += lines[start].length + 1;
+    }
+    if (end < lines.length - 1 && length < maxLength) {
+      end += 1;
+      length += lines[end].length + 1;
+    }
+  }
+
+  const snippet = lines.slice(start, end + 1).join('\n');
+  return snippet.length > maxLength ? snippet.slice(0, maxLength) : snippet;
+}
+
+export function search(
+  index: BM25Index,
+  query: string,
+  limit = 5,
+  category?: string
+): SearchResult[] {
+  const queryTerms = tokenize(query);
+  if (queryTerms.length === 0) return [];
+
+  // Get candidate chunks from inverted index
+  const candidates = new Set<number>();
+  for (const term of queryTerms) {
+    const postings = index.invertedIndex.get(term);
+    if (postings) {
+      for (const idx of postings) candidates.add(idx);
+    }
+  }
+
+  // Filter candidates by category if specified
+  const filteredCandidates = category
+    ? Array.from(candidates).filter((idx) => index.chunks[idx].category === category)
+    : Array.from(candidates);
+
+  return filteredCandidates
+    .map((idx) => ({
+      chunk: index.chunks[idx],
+      score: bm25Score(queryTerms, index.chunks[idx], index),
+    }))
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((r) => ({
       chunk_id: r.chunk.id,
       content: r.chunk.content,
+      snippet: extractSnippet(r.chunk.content, queryTerms),
       category: r.chunk.category,
       source_file: r.chunk.source_file,
     }));

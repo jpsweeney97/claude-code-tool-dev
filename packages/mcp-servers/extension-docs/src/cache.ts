@@ -7,6 +7,17 @@ export interface CacheResult {
   age: number;
 }
 
+const DEFAULT_TTL_MS = 86400000; // 24 hours
+const MAX_TTL_MS = 1000 * 60 * 60 * 24 * 365; // 1 year
+
+export function getCacheTtlMs(): number {
+  const raw = process.env.CACHE_TTL_MS?.trim();
+  if (!raw) return DEFAULT_TTL_MS;
+  const val = Number(raw);
+  if (!Number.isFinite(val) || val < 0) return DEFAULT_TTL_MS;
+  return Math.min(val, MAX_TTL_MS);
+}
+
 export function getDefaultCachePath(filename = 'llms-full.txt'): string {
   const xdgCacheHome = process.env.XDG_CACHE_HOME?.trim();
   let baseDir: string;
@@ -68,6 +79,16 @@ export async function readCache(cachePath: string): Promise<CacheResult | null> 
   }
 }
 
+export async function readCacheIfFresh(cachePath: string): Promise<CacheResult | null> {
+  const cached = await readCache(cachePath);
+  if (!cached) return null;
+  const ttl = getCacheTtlMs();
+  if (cached.age >= ttl) {
+    return null;
+  }
+  return cached;
+}
+
 export async function writeCache(cachePath: string, content: string): Promise<void> {
   const dir = path.dirname(cachePath);
   await fs.mkdir(dir, { recursive: true });
@@ -91,5 +112,25 @@ export async function writeCache(cachePath: string, content: string): Promise<vo
     throw err;
   } finally {
     await releaseLock(lockPath, lockHandle);
+  }
+}
+
+export function getDefaultIndexCachePath(filename = 'llms-full.index.json'): string {
+  const base = getDefaultCachePath('llms-full.txt');
+  return path.join(path.dirname(base), filename);
+}
+
+export async function writeIndexCache(cachePath: string, data: unknown): Promise<void> {
+  const content = JSON.stringify(data);
+  await writeCache(cachePath, content);
+}
+
+export async function readIndexCache(cachePath: string): Promise<unknown | null> {
+  const cached = await readCache(cachePath);
+  if (!cached) return null;
+  try {
+    return JSON.parse(cached.content);
+  } catch {
+    return null;
   }
 }

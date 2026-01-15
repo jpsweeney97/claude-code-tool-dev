@@ -7,6 +7,15 @@ import { loadFromOfficial } from './loader.js';
 import { chunkFile } from './chunker.js';
 import { buildBM25Index, search, type BM25Index } from './bm25.js';
 import { getParseWarnings, clearParseWarnings } from './frontmatter.js';
+import {
+  serializeIndex,
+  deserializeIndex,
+  INDEX_FORMAT_VERSION,
+  TOKENIZER_VERSION,
+  CHUNKER_VERSION,
+  type SerializedIndex,
+} from './index-cache.js';
+import { readIndexCache, writeIndexCache, getDefaultIndexCachePath } from './cache.js';
 
 // === State Management ===
 let index: BM25Index | null = null;
@@ -52,13 +61,30 @@ async function doLoadIndex(): Promise<BM25Index | null> {
   const docsUrl = process.env.DOCS_URL ?? 'https://code.claude.com/docs/llms-full.txt';
 
   try {
-    const files = await loadFromOfficial(docsUrl);
+    const { files, contentHash } = await loadFromOfficial(docsUrl);
     if (files.length === 0) {
       loadError = 'No extension documentation found after filtering';
       console.error(`ERROR: ${loadError}`);
       return null;
     }
 
+    // Try to load cached index
+    const indexCachePath = getDefaultIndexCachePath();
+    const cached = await readIndexCache(indexCachePath) as SerializedIndex | null;
+
+    if (
+      cached &&
+      cached.version === INDEX_FORMAT_VERSION &&
+      cached.contentHash === contentHash &&
+      cached.metadata?.tokenizerVersion === TOKENIZER_VERSION &&
+      cached.metadata?.chunkerVersion === CHUNKER_VERSION
+    ) {
+      index = deserializeIndex(cached);
+      console.error(`Loaded cached index (${index.chunks.length} chunks)`);
+      return index;
+    }
+
+    // Build fresh index
     const chunks = files.flatMap((f) => chunkFile(f));
 
     const warnings = getParseWarnings();
@@ -71,7 +97,17 @@ async function doLoadIndex(): Promise<BM25Index | null> {
     }
 
     index = buildBM25Index(chunks);
-    console.error(`Loaded ${chunks.length} chunks from ${files.length} sections`);
+    console.error(`Built fresh index (${chunks.length} chunks from ${files.length} sections)`);
+
+    // Persist index
+    try {
+      const serialized = serializeIndex(index, contentHash);
+      await writeIndexCache(indexCachePath, serialized);
+      console.error('Index cached for future use');
+    } catch (err) {
+      console.error(`WARN: Failed to write index cache: ${err instanceof Error ? err.message : 'unknown'}`);
+    }
+
     return index;
   } catch (err) {
     loadError = `Failed to load docs: ${err instanceof Error ? err.message : 'unknown'}`;
@@ -81,6 +117,23 @@ async function doLoadIndex(): Promise<BM25Index | null> {
 }
 
 // === Zod Schemas ===
+const CATEGORY_VALUES = [
+  'hooks',
+  'skills',
+  'commands',
+  'slash-commands',
+  'agents',
+  'subagents',
+  'sub-agents',
+  'plugins',
+  'plugin-marketplaces',
+  'mcp',
+  'settings',
+  'claude-md',
+  'memory',
+  'configuration',
+] as const;
+
 const SearchInputSchema = z.object({
   query: z
     .string()
@@ -97,6 +150,10 @@ const SearchInputSchema = z.object({
     .max(20)
     .optional()
     .describe('Maximum results to return (default: 5, max: 20)'),
+  category: z
+    .enum(CATEGORY_VALUES)
+    .optional()
+    .describe('Filter to a specific category (e.g., "hooks", "plugins")'),
 });
 
 const SearchOutputSchema = z.object({
@@ -104,6 +161,7 @@ const SearchOutputSchema = z.object({
     z.object({
       chunk_id: z.string(),
       content: z.string(),
+      snippet: z.string(),
       category: z.string(),
       source_file: z.string(),
     }),
@@ -125,7 +183,7 @@ async function main() {
       inputSchema: SearchInputSchema,
       outputSchema: SearchOutputSchema,
     },
-    async ({ query, limit = 5 }: z.infer<typeof SearchInputSchema>) => {
+    async ({ query, limit = 5, category }: z.infer<typeof SearchInputSchema>) => {
       const idx = await ensureIndex();
       if (!idx) {
         return {
@@ -135,7 +193,7 @@ async function main() {
       }
 
       try {
-        const results = search(idx, query, limit);
+        const results = search(idx, query, limit, category);
         return {
           content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }],
           structuredContent: { results },

@@ -6,6 +6,24 @@ import { z } from 'zod';
 // Test the state management and schema validation logic
 // Full MCP integration tests require spawning the server process
 
+// Category values matching KNOWN_CATEGORIES in filter.ts
+const CATEGORY_VALUES = [
+  'hooks',
+  'skills',
+  'commands',
+  'slash-commands',
+  'agents',
+  'subagents',
+  'sub-agents',
+  'plugins',
+  'plugin-marketplaces',
+  'mcp',
+  'settings',
+  'claude-md',
+  'memory',
+  'configuration',
+] as const;
+
 // Import the schemas we'll define
 const SearchInputSchema = z.object({
   query: z
@@ -14,6 +32,7 @@ const SearchInputSchema = z.object({
     .transform((s) => s.trim())
     .pipe(z.string().min(1, 'Query cannot be empty')),
   limit: z.number().int().min(1).max(20).optional(),
+  category: z.enum(CATEGORY_VALUES).optional(),
 });
 
 describe('SearchInputSchema validation', () => {
@@ -66,5 +85,74 @@ describe('SearchInputSchema validation', () => {
     if (result.success) {
       expect(result.data.limit).toBeUndefined();
     }
+  });
+});
+
+describe('Category Schema Validation', () => {
+  const CategorySchema = z.enum(CATEGORY_VALUES).optional();
+
+  it('accepts valid categories', () => {
+    expect(CategorySchema.parse('hooks')).toBe('hooks');
+    expect(CategorySchema.parse('skills')).toBe('skills');
+    expect(CategorySchema.parse('slash-commands')).toBe('slash-commands');
+    expect(CategorySchema.parse('plugin-marketplaces')).toBe('plugin-marketplaces');
+    expect(CategorySchema.parse('claude-md')).toBe('claude-md');
+  });
+
+  it('accepts undefined category', () => {
+    expect(CategorySchema.parse(undefined)).toBeUndefined();
+  });
+
+  it('rejects invalid categories', () => {
+    expect(() => CategorySchema.parse('Hooks')).toThrow();
+    expect(() => CategorySchema.parse('unknown')).toThrow();
+    expect(() => CategorySchema.parse('hooks ')).toThrow();
+  });
+
+  it('accepts category in SearchInputSchema', () => {
+    const result = SearchInputSchema.safeParse({ query: 'test', category: 'hooks' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.category).toBe('hooks');
+    }
+  });
+
+  it('accepts undefined category in SearchInputSchema', () => {
+    const result = SearchInputSchema.safeParse({ query: 'test' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.category).toBeUndefined();
+    }
+  });
+
+  it('rejects invalid category in SearchInputSchema', () => {
+    const result = SearchInputSchema.safeParse({ query: 'test', category: 'invalid' });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('search_extension_docs tool with category', () => {
+  // This test verifies the tool handler passes category to search
+  // Full integration test would require MCP client setup
+  it('search function accepts category parameter', async () => {
+    // Import the search function directly to verify signature
+    const { search, buildBM25Index } = await import('../src/bm25.js');
+    const { computeTermFreqs } = await import('../src/chunk-helpers.js');
+
+    const chunks = [{
+      id: 'test',
+      content: 'test content',
+      tokens: ['test', 'content'],
+      termFreqs: computeTermFreqs(['test', 'content']),
+      category: 'hooks',
+      tags: [],
+      source_file: 'hooks/test.md',
+    }];
+
+    const index = buildBM25Index(chunks);
+
+    // Verify search accepts 4th parameter
+    const results = search(index, 'test', 5, 'hooks');
+    expect(results).toHaveLength(1);
   });
 });

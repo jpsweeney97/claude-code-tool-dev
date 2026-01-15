@@ -18,6 +18,7 @@ export interface Chunk {
 export interface SearchResult {
   chunk_id: string;
   content: string;
+  snippet: string;
   category: string;
   source_file: string;
 }

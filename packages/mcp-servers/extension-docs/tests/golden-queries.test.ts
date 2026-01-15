@@ -76,7 +76,7 @@ describe('golden queries (URL-based)', () => {
 
     // Import and call loadFromOfficial with mocked fetch
     const { loadFromOfficial } = await import('../src/loader.js');
-    const files = await loadFromOfficial('https://code.claude.com/docs/llms-full.txt');
+    const { files } = await loadFromOfficial('https://code.claude.com/docs/llms-full.txt');
 
     // Build the search index
     const chunks = files.flatMap((f) => chunkFile(f));
