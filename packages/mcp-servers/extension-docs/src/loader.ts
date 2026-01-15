@@ -93,9 +93,13 @@ function deriveIdFromUrl(url: string | undefined): string | undefined {
   return segments.length > 0 ? segments.join('-') : undefined;
 }
 
-export async function loadFromOfficial(url: string, cachePath?: string): Promise<MarkdownFile[]> {
+export async function loadFromOfficial(
+  url: string,
+  cachePath?: string,
+  forceRefresh = false,
+): Promise<MarkdownFile[]> {
   const resolvedCachePath = resolveCachePath(cachePath);
-  const sections = await fetchAndParse(url, resolvedCachePath);
+  const sections = await fetchAndParse(url, resolvedCachePath, forceRefresh);
   const filtered = filterToExtensions(sections).filter((s) => s.content.trim().length > 0);
 
   return filtered.map((s) => {
@@ -114,11 +118,17 @@ export async function loadFromOfficial(url: string, cachePath?: string): Promise
   });
 }
 
-async function fetchAndParse(url: string, cachePath: string): Promise<ParsedSection[]> {
-  // Check for fresh cache first - skip fetch if within TTL
-  const fresh = await readCacheIfFresh(cachePath);
-  if (fresh) {
-    return parseSections(fresh.content);
+async function fetchAndParse(
+  url: string,
+  cachePath: string,
+  forceRefresh = false,
+): Promise<ParsedSection[]> {
+  // Skip fresh cache check if force refresh requested
+  if (!forceRefresh) {
+    const fresh = await readCacheIfFresh(cachePath);
+    if (fresh) {
+      return parseSections(fresh.content);
+    }
   }
 
   try {
