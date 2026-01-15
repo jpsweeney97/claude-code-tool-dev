@@ -156,6 +156,7 @@ export function search(
     .map((r) => ({
       chunk_id: r.chunk.id,
       content: r.chunk.content,
+      snippet: extractSnippet(r.chunk.content, queryTerms),
       category: r.chunk.category,
       source_file: r.chunk.source_file,
     }));

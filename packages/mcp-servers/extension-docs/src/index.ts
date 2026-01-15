@@ -161,6 +161,7 @@ const SearchOutputSchema = z.object({
     z.object({
       chunk_id: z.string(),
       content: z.string(),
+      snippet: z.string(),
       category: z.string(),
       source_file: z.string(),
     }),

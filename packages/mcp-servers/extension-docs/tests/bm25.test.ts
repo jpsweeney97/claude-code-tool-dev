@@ -90,10 +90,10 @@ describe('search', () => {
     expect(results).toHaveLength(3);
   });
 
-  it('returns SearchResult format', () => {
+  it('returns SearchResult format with snippet', () => {
     const chunks = [
       {
-        ...makeChunk('test-chunk', 'test content', ['test', 'content']),
+        ...makeChunk('test-chunk', 'test content here', ['test', 'content', 'here']),
         category: 'hooks',
         source_file: 'hooks/test.md',
       },
@@ -101,12 +101,14 @@ describe('search', () => {
     const index = buildBM25Index(chunks);
     const results = search(index, 'test');
 
-    expect(results[0]).toEqual({
+    expect(results[0]).toMatchObject({
       chunk_id: 'test-chunk',
-      content: 'test content',
+      content: 'test content here',
       category: 'hooks',
       source_file: 'hooks/test.md',
     });
+    expect(results[0].snippet).toBeDefined();
+    expect(typeof results[0].snippet).toBe('string');
   });
 });
 
