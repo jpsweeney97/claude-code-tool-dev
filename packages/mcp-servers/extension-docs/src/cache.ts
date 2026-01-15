@@ -7,6 +7,17 @@ export interface CacheResult {
   age: number;
 }
 
+const DEFAULT_TTL_MS = 86400000; // 24 hours
+const MAX_TTL_MS = 1000 * 60 * 60 * 24 * 365; // 1 year
+
+export function getCacheTtlMs(): number {
+  const raw = process.env.CACHE_TTL_MS?.trim();
+  if (!raw) return DEFAULT_TTL_MS;
+  const val = Number(raw);
+  if (!Number.isFinite(val) || val < 0) return DEFAULT_TTL_MS;
+  return Math.min(val, MAX_TTL_MS);
+}
+
 export function getDefaultCachePath(filename = 'llms-full.txt'): string {
   const xdgCacheHome = process.env.XDG_CACHE_HOME?.trim();
   let baseDir: string;
@@ -66,6 +77,16 @@ export async function readCache(cachePath: string): Promise<CacheResult | null> 
     }
     throw err;
   }
+}
+
+export async function readCacheIfFresh(cachePath: string): Promise<CacheResult | null> {
+  const cached = await readCache(cachePath);
+  if (!cached) return null;
+  const ttl = getCacheTtlMs();
+  if (cached.age > ttl) {
+    return null;
+  }
+  return cached;
 }
 
 export async function writeCache(cachePath: string, content: string): Promise<void> {
