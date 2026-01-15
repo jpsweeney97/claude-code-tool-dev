@@ -63,4 +63,18 @@ describe('index serialization', () => {
     expect(serialized.metadata?.chunkerVersion).toBe(CHUNKER_VERSION);
     expect(serialized.metadata?.createdAt).toBeGreaterThan(0);
   });
+
+  it('serializes and deserializes inverted index', () => {
+    const chunks = [
+      makeChunk('a', 'hello world', ['hello', 'world']),
+      makeChunk('b', 'hello there', ['hello', 'there']),
+    ];
+    const original = buildBM25Index(chunks);
+    const serialized = serializeIndex(original, 'hash');
+    const restored = deserializeIndex(serialized);
+
+    expect(restored.invertedIndex.get('hello')).toEqual(new Set([0, 1]));
+    expect(restored.invertedIndex.get('world')).toEqual(new Set([0]));
+    expect(restored.invertedIndex.get('there')).toEqual(new Set([1]));
+  });
 });

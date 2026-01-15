@@ -1,7 +1,7 @@
 import type { Chunk } from './types.js';
 import type { BM25Index } from './bm25.js';
 
-export const INDEX_FORMAT_VERSION = 1;
+export const INDEX_FORMAT_VERSION = 2; // Bumped for inverted index serialization
 export const TOKENIZER_VERSION = 1;
 export const CHUNKER_VERSION = 1;
 
@@ -10,6 +10,7 @@ export interface SerializedIndex {
   contentHash: string;
   avgDocLength: number;
   docFrequency: [string, number][];
+  invertedIndex: [string, number[]][];
   chunks: SerializedChunk[];
   metadata?: {
     createdAt: number;
@@ -37,6 +38,10 @@ export function serializeIndex(index: BM25Index, contentHash: string): Serialize
     contentHash,
     avgDocLength: index.avgDocLength,
     docFrequency: Array.from(index.docFrequency.entries()),
+    invertedIndex: Array.from(index.invertedIndex.entries()).map(([term, set]) => [
+      term,
+      Array.from(set),
+    ]),
     chunks: index.chunks.map((c) => ({
       id: c.id,
       content: c.content,
@@ -58,37 +63,22 @@ export function serializeIndex(index: BM25Index, contentHash: string): Serialize
 }
 
 export function deserializeIndex(serialized: SerializedIndex): BM25Index {
-  const chunks = serialized.chunks.map((c) => ({
-    id: c.id,
-    content: c.content,
-    tokens: c.tokens,
-    termFreqs: new Map(c.termFreqs),
-    category: c.category,
-    tags: c.tags,
-    source_file: c.source_file,
-    heading: c.heading,
-    merged_headings: c.merged_headings,
-  }));
-
-  // Rebuild inverted index from chunks
-  // TODO(complete): Task 13 will add serialization for invertedIndex to avoid this rebuild
-  const invertedIndex = new Map<string, Set<number>>();
-  for (let i = 0; i < chunks.length; i++) {
-    const uniqueTerms = new Set(chunks[i].tokens);
-    for (const term of uniqueTerms) {
-      let postings = invertedIndex.get(term);
-      if (!postings) {
-        postings = new Set();
-        invertedIndex.set(term, postings);
-      }
-      postings.add(i);
-    }
-  }
-
   return {
-    chunks,
+    chunks: serialized.chunks.map((c) => ({
+      id: c.id,
+      content: c.content,
+      tokens: c.tokens,
+      termFreqs: new Map(c.termFreqs),
+      category: c.category,
+      tags: c.tags,
+      source_file: c.source_file,
+      heading: c.heading,
+      merged_headings: c.merged_headings,
+    })),
     avgDocLength: serialized.avgDocLength,
     docFrequency: new Map(serialized.docFrequency),
-    invertedIndex,
+    invertedIndex: new Map(
+      serialized.invertedIndex.map(([term, arr]) => [term, new Set(arr)])
+    ),
   };
 }
