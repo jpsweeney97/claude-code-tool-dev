@@ -6,7 +6,7 @@ import type { MarkdownFile, ParsedSection } from './types.js';
 import { fetchOfficialDocs, FetchHttpError, FetchNetworkError, FetchTimeoutError } from './fetcher.js';
 import { parseSections } from './parser.js';
 import { filterToExtensions } from './filter.js';
-import { readCache, writeCache, getDefaultCachePath } from './cache.js';
+import { readCache, readCacheIfFresh, writeCache, getDefaultCachePath } from './cache.js';
 import { extractContentPath } from './url-helpers.js';
 import { deriveCategory } from './frontmatter.js';
 
@@ -115,6 +115,12 @@ export async function loadFromOfficial(url: string, cachePath?: string): Promise
 }
 
 async function fetchAndParse(url: string, cachePath: string): Promise<ParsedSection[]> {
+  // Check for fresh cache first - skip fetch if within TTL
+  const fresh = await readCacheIfFresh(cachePath);
+  if (fresh) {
+    return parseSections(fresh.content);
+  }
+
   try {
     const { content } = await fetchOfficialDocs(url);
     await writeCache(cachePath, content);
@@ -130,6 +136,7 @@ async function fetchAndParse(url: string, cachePath: string): Promise<ParsedSect
       console.error(`Fetch failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
+    // Fall back to stale cache on fetch error
     const cached = await readCache(cachePath);
     if (cached) {
       const ageHours = (cached.age / 3600000).toFixed(1);
