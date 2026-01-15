@@ -5,6 +5,7 @@ export interface BM25Index {
   chunks: Chunk[];
   avgDocLength: number;
   docFrequency: Map<string, number>;
+  invertedIndex: Map<string, Set<number>>;
 }
 
 const BM25_CONFIG = {
@@ -14,6 +15,7 @@ const BM25_CONFIG = {
 
 export function buildBM25Index(chunks: Chunk[]): BM25Index {
   const docFrequency = new Map<string, number>();
+  const invertedIndex = new Map<string, Set<number>>();
 
   for (const chunk of chunks) {
     const uniqueTerms = new Set(chunk.tokens);
@@ -22,11 +24,24 @@ export function buildBM25Index(chunks: Chunk[]): BM25Index {
     }
   }
 
+  for (let i = 0; i < chunks.length; i++) {
+    const uniqueTerms = new Set(chunks[i].tokens);
+    for (const term of uniqueTerms) {
+      let postings = invertedIndex.get(term);
+      if (!postings) {
+        postings = new Set();
+        invertedIndex.set(term, postings);
+      }
+      postings.add(i);
+    }
+  }
+
   return {
     chunks,
     avgDocLength:
       chunks.length > 0 ? chunks.reduce((sum, c) => sum + c.tokens.length, 0) / chunks.length : 0,
     docFrequency,
+    invertedIndex,
   };
 }
 

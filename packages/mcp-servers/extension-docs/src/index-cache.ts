@@ -58,19 +58,37 @@ export function serializeIndex(index: BM25Index, contentHash: string): Serialize
 }
 
 export function deserializeIndex(serialized: SerializedIndex): BM25Index {
+  const chunks = serialized.chunks.map((c) => ({
+    id: c.id,
+    content: c.content,
+    tokens: c.tokens,
+    termFreqs: new Map(c.termFreqs),
+    category: c.category,
+    tags: c.tags,
+    source_file: c.source_file,
+    heading: c.heading,
+    merged_headings: c.merged_headings,
+  }));
+
+  // Rebuild inverted index from chunks
+  // TODO(complete): Task 13 will add serialization for invertedIndex to avoid this rebuild
+  const invertedIndex = new Map<string, Set<number>>();
+  for (let i = 0; i < chunks.length; i++) {
+    const uniqueTerms = new Set(chunks[i].tokens);
+    for (const term of uniqueTerms) {
+      let postings = invertedIndex.get(term);
+      if (!postings) {
+        postings = new Set();
+        invertedIndex.set(term, postings);
+      }
+      postings.add(i);
+    }
+  }
+
   return {
-    chunks: serialized.chunks.map((c) => ({
-      id: c.id,
-      content: c.content,
-      tokens: c.tokens,
-      termFreqs: new Map(c.termFreqs),
-      category: c.category,
-      tags: c.tags,
-      source_file: c.source_file,
-      heading: c.heading,
-      merged_headings: c.merged_headings,
-    })),
+    chunks,
     avgDocLength: serialized.avgDocLength,
     docFrequency: new Map(serialized.docFrequency),
+    invertedIndex,
   };
 }

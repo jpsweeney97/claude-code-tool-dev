@@ -110,6 +110,28 @@ describe('search', () => {
   });
 });
 
+describe('buildBM25Index with inverted index', () => {
+  it('builds inverted index mapping terms to chunk indices', () => {
+    const chunks = [
+      makeChunk('a', 'hello world', ['hello', 'world']),
+      makeChunk('b', 'hello there', ['hello', 'there']),
+      makeChunk('c', 'goodbye world', ['goodbye', 'world']),
+    ];
+    const index = buildBM25Index(chunks);
+
+    expect(index.invertedIndex).toBeDefined();
+    expect(index.invertedIndex.get('hello')).toEqual(new Set([0, 1]));
+    expect(index.invertedIndex.get('world')).toEqual(new Set([0, 2]));
+    expect(index.invertedIndex.get('there')).toEqual(new Set([1]));
+    expect(index.invertedIndex.get('goodbye')).toEqual(new Set([2]));
+  });
+
+  it('handles empty chunks array', () => {
+    const index = buildBM25Index([]);
+    expect(index.invertedIndex.size).toBe(0);
+  });
+});
+
 describe('search with category filtering', () => {
   function makeChunkWithCategory(
     id: string,
