@@ -1,10 +1,9 @@
 // src/index.ts
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import * as fs from 'fs';
 import { z } from 'zod';
 
-import { loadMarkdownFiles } from './loader.js';
+import { loadFromOfficial } from './loader.js';
 import { chunkFile } from './chunker.js';
 import { buildBM25Index, search, type BM25Index } from './bm25.js';
 import { getParseWarnings, clearParseWarnings } from './frontmatter.js';
@@ -50,23 +49,12 @@ async function doLoadIndex(): Promise<BM25Index | null> {
     console.error('Retrying documentation load...');
   }
 
-  const docsPath = process.env.DOCS_PATH;
-  if (!docsPath) {
-    loadError = 'DOCS_PATH environment variable is required';
-    console.error(`ERROR: ${loadError}`);
-    return null;
-  }
-
-  if (!fs.existsSync(docsPath)) {
-    loadError = `DOCS_PATH not found: ${docsPath}`;
-    console.error(`ERROR: ${loadError}`);
-    return null;
-  }
+  const docsUrl = process.env.DOCS_URL ?? 'https://code.claude.com/docs/llms-full.txt';
 
   try {
-    const files = await loadMarkdownFiles(docsPath);
+    const files = await loadFromOfficial(docsUrl);
     if (files.length === 0) {
-      loadError = `No markdown files found in ${docsPath}`;
+      loadError = 'No extension documentation found after filtering';
       console.error(`ERROR: ${loadError}`);
       return null;
     }
@@ -83,10 +71,10 @@ async function doLoadIndex(): Promise<BM25Index | null> {
     }
 
     index = buildBM25Index(chunks);
-    console.error(`Loaded ${chunks.length} chunks from ${files.length} files`);
+    console.error(`Loaded ${chunks.length} chunks from ${files.length} sections`);
     return index;
   } catch (err) {
-    loadError = `Unexpected error: ${err instanceof Error ? err.message : 'unknown'}`;
+    loadError = `Failed to load docs: ${err instanceof Error ? err.message : 'unknown'}`;
     console.error(`ERROR: ${loadError}`);
     return null;
   }
