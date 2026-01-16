@@ -333,10 +333,19 @@ metadata:
 
 ### Phase 1: Requirements Discovery
 
-5. **Load reference**: Read `references/phase-1-requirements.md` (includes regression questioning protocol) and `references/phase-1-lenses.md`
+5. **Load reference**: Read `references/phase-1-requirements.md` (includes regression questioning protocol with 7 categories) and `references/phase-1-lenses.md`
+
+   **Regression questioning termination:** Stop when 3 consecutive rounds yield no new insights OR all thinking models applied OR ≥3 expert perspectives considered.
 6. **Apply 14 thinking lenses**:
    - Understanding lenses (4): Inform design
    - Testing lenses (10): Seed pressure scenarios
+
+   **Minimum coverage before proceeding:**
+   - All 14 lenses scanned for relevance (High/Medium/Low)
+   - At least 3 lenses yield actionable insights
+   - All High-relevance lenses fully applied
+   - Conflicts between lenses resolved
+
 7. **Dialogue with user** (one question at a time):
    - Purpose and success criteria
    - Constraints and non-negotiables
@@ -368,6 +377,8 @@ metadata:
     | Ask-first gates | — | — | Y |
     | ≥2 STOP/ask gates | — | — | Y |
     | Rollback/escape guidance | — | — | Y |
+
+    **Auto-Escalation Rule:** If ANY mutating action detected → treat as High until gating verified.
 
 11. **Select category** from 21 defined categories
 12. **Create Session State** at end of Phase 1
@@ -489,6 +500,13 @@ metadata:
     You read the skill and chose Option [X] anyway.
     How could that skill have been written differently?
     ```
+    **Interpret response and fix accordingly:**
+    | Response | Diagnosis | Fix |
+    |----------|-----------|-----|
+    | "Skill WAS clear, I chose to ignore it" | Need foundational principle | Add "violating letter = violating spirit" |
+    | "Skill should have said X" | Missing guidance | Add suggestion verbatim |
+    | "I didn't see section Y" | Organization problem | Make key points more prominent |
+
 40. **Update metadata.verification.testing**
 41. **All scenarios must pass before proceeding**
 
