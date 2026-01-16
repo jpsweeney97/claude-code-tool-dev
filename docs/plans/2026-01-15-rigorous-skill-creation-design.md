@@ -9,7 +9,9 @@
 
 A standalone skill combining skillosophy's dialogue methodology with writing-skills' TDD-style pressure testing. Creates skills with verified behavior change, not just well-structured documentation.
 
-**Core principle:** Dialogue informs tests, tests validate skill.
+**Core principles:**
+1. **The Iron Law:** No skill generation without baseline failure first. If you haven't watched an agent fail without the skill, you don't know what the skill needs to prevent.
+2. **Dialogue informs tests, tests validate skill.**
 
 ## Key Decisions
 
@@ -19,10 +21,10 @@ A standalone skill combining skillosophy's dialogue methodology with writing-ski
 | Location | `.claude/skills/` | Iterate locally, promote when stable |
 | Name | rigorous-skill-creation | Clear purpose, discoverable |
 | Structure | Full 11 sections | Dogfooding validates structure |
-| Panel | Optional (High-risk only) | Right-sized rigor |
+| Panel | Required for Medium + High risk | Right-sized rigor; Low-risk skills skip |
 | Infrastructure | Create fresh | Tailored to Approach 2 |
 | User-invocable | Yes | Complete workflow, not helper |
-| Lenses | 4 understanding + 7 testing | Curated from skillosophy, mapped to scenarios |
+| Lenses | 14 total (4 understanding + 10 testing) | All skillosophy lenses + 3 new testing lenses |
 
 ## Directory Structure
 
@@ -30,19 +32,22 @@ A standalone skill combining skillosophy's dialogue methodology with writing-ski
 .claude/skills/rigorous-skill-creation/
 ├── SKILL.md                          # Main skill (11 sections)
 ├── references/
-│   ├── phase-1-requirements.md       # Requirements discovery methodology
-│   ├── phase-1-lenses.md             # 11 thinking lenses (4 understanding + 7 testing)
+│   ├── phase-1-requirements.md       # Requirements discovery + regression questioning (7 categories)
+│   ├── phase-1-lenses.md             # 14 thinking lenses (4 understanding + 10 testing)
 │   ├── phase-3-baseline.md           # Pressure testing methodology
 │   ├── phase-4-generation.md         # Section requirements (merged checklists)
-│   ├── phase-7-panel.md              # Panel agent prompts
+│   ├── phase-7-panel.md              # Panel agent prompts + tool permissions (adapted from metamarket)
 │   ├── risk-tiers.md                 # Risk tier criteria + panel triggers
 │   └── category-integration.md       # 21 categories with DoD additions
 ├── templates/
 │   ├── skill-skeleton.md             # Empty 11-section structure with Approach 2 metadata
 │   ├── decisions-schema.md           # metadata.decisions schema (extended with verification)
 │   └── session-state-schema.md       # Session State schema (extended with testing context)
+├── examples/
+│   └── worked-example.md             # Complete skill creation walkthrough
 └── scripts/
     ├── triage.py                     # Check for existing skills
+    ├── discover.py                   # Build skill index for triage
     └── validate.py                   # Validate skill structure
 ```
 
@@ -113,14 +118,14 @@ A standalone skill combining skillosophy's dialogue methodology with writing-ski
     └───────────────────────────────┘
                     │ Bulletproof
                     ▼
-              ┌───────────┐
-              │ High risk?│
-              └─────┬─────┘
-            Yes     │     No
-        ┌───────────┴───────────┐
-        ▼                       ▼
+              ┌─────────────┐
+              │Medium+ risk?│
+              └──────┬──────┘
+            Yes      │      No
+        ┌────────────┴────────────┐
+        ▼                         ▼
 ┌───────────────────┐   ┌───────────────────┐
-│ Phase 7: PANEL    │   │ Skip panel        │
+│ Phase 7: PANEL    │   │ Skip panel (Low)  │
 │ - 4 agents review │   │                   │
 │ - Structural check│   │                   │
 └───────────────────┘   └───────────────────┘
@@ -170,7 +175,7 @@ metadata:
 ---
 ```
 
-## 11 Thinking Lenses
+## 14 Thinking Lenses
 
 ### Understanding Lenses (4) — Inform design
 
@@ -181,17 +186,22 @@ metadata:
 | 3 | **Abstraction** | What's the right level of generality? | Scope calibration |
 | 4 | **Temporal** | How does this evolve over time? | Future-proofing insights |
 
-### Testing Lenses (7) — Produce pressure scenarios
+### Testing Lenses (10) — Produce pressure scenarios
 
 | # | Lens | Core Question | Scenario Type |
 |---|------|---------------|---------------|
 | 5 | **Inversion** | What would guarantee failure? | Failure mode test |
-| 6 | **Constraint** | What are the real limits? | Constraint violation test |
-| 7 | **Composition** | How does this combine with others? | Integration test |
-| 8 | **Adversarial** | What's the strongest argument against? | Devil's advocate test |
-| 9 | **User Goals** | What does success look like? | Goal achievement test |
-| 10 | **Edge Cases** | What unusual states might occur? | Boundary test |
-| 11 | **Discoverability** | How will agents find this skill? | Trigger/search test |
+| 6 | **Systems** | How do components interact? | Integration test |
+| 7 | **Constraint** | What are the real limits? | Constraint violation test |
+| 8 | **Failure** | What breaks first under stress? | Stress test |
+| 9 | **Composition** | How does this combine with other skills? | Composition test |
+| 10 | **Evolution** | How might requirements change? | Regression test |
+| 11 | **Adversarial** | What's the strongest argument against? | Devil's advocate test |
+| 12 | **User Goals** | What does success look like? | Goal achievement test |
+| 13 | **Edge Cases** | What unusual states might occur? | Boundary test |
+| 14 | **Discoverability** | How will agents find this skill? | Trigger/search test |
+
+*Lenses 1-11 from skillosophy; 12-14 added for testing focus.*
 
 ## Triggers
 
@@ -251,8 +261,8 @@ metadata:
 
 ### Supporting Artifacts (skill-specific)
 - **references/**: Heavy reference material that would bloat SKILL.md (>100 lines)
-- **examples/**: Usage examples Claude loads when applying the skill
-- **scripts/**: Executable tools the skill needs at runtime
+- **examples/**: Usage examples Claude loads when applying the skill (includes worked-example.md walkthrough)
+- **scripts/**: Executable tools the skill needs at runtime (triage.py, discover.py, validate.py)
 
 ### Process Artifacts (verification evidence)
 - **Baseline document**: Captured failures without skill
@@ -299,7 +309,7 @@ metadata:
 - [ ] Baseline failures documented
 - [ ] All pressure scenarios pass with skill
 - [ ] Rationalization table covers observed failure modes
-- [ ] Panel unanimous (if high-risk) OR panel skipped (if low/medium-risk)
+- [ ] Panel unanimous (if Medium/High-risk) OR panel skipped (if Low-risk)
 - [ ] Session State removed
 
 ## Procedure
@@ -322,10 +332,10 @@ metadata:
 
 ### Phase 1: Requirements Discovery
 
-5. **Load reference**: Read `references/phase-1-requirements.md` and `references/phase-1-lenses.md`
-6. **Apply 11 thinking lenses**:
+5. **Load reference**: Read `references/phase-1-requirements.md` (includes regression questioning protocol) and `references/phase-1-lenses.md`
+6. **Apply 14 thinking lenses**:
    - Understanding lenses (4): Inform design
-   - Testing lenses (7): Seed pressure scenarios
+   - Testing lenses (10): Seed pressure scenarios
 7. **Dialogue with user** (one question at a time):
    - Purpose and success criteria
    - Constraints and non-negotiables
@@ -340,7 +350,7 @@ metadata:
     | Tier | Criteria | Panel Required |
     |------|----------|----------------|
     | Low | Read-only, documentation, research | No |
-    | Medium | Code generation, refactoring, testing | No |
+    | Medium | Code generation, refactoring, testing | Yes |
     | High | Security, agentic, data operations, discipline | Yes |
 11. **Select category** from 21 defined categories
 12. **Create Session State** at end of Phase 1
@@ -376,11 +386,16 @@ metadata:
 
 ### Phase 3: Baseline Testing (RED)
 
+**The Iron Law applies here:** No skill generation (Phase 4) without baseline failure first.
+
 19. **Load reference**: Read `references/phase-3-baseline.md`
-20. **Prepare isolated context** for baseline subagent:
+20. **Determine test type by skill type**:
+    - **Discipline/Technique/Pattern**: Pressure scenarios (temptation to bypass)
+    - **Reference**: Retrieval scenarios (can agent find and use info correctly?)
+21. **Prepare isolated context** for baseline subagent:
     - Subagent receives ONLY: scenario setup + prompt
     - Subagent does NOT receive: Phase 1-2 discussion, requirements, skill drafts
-21. **Create pressure scenarios** with:
+22. **Create pressure scenarios** with:
     - **Format**: Forced A/B/C choice
     - **Framing**: "IMPORTANT: This is a real scenario. Choose and act."
     - **Pressures**: Combine 3+ (time, sunk cost, authority, exhaustion, social, pragmatic)
@@ -398,9 +413,12 @@ metadata:
 
 ### Phase 4: Generation
 
-28. **Load reference**: Read `references/phase-4-generation.md`
-29. **Write frontmatter** (validated in Phase 2) + operational fields
-30. **Generate sections in order**:
+29. **Load reference**: Read `references/phase-4-generation.md`
+30. **Write frontmatter** (validated in Phase 2) + operational fields
+
+    **⚠️ Description Trap Warning:** The description field must contain ONLY triggering conditions ("Use when..."). Never summarize the skill's workflow in the description. Empirically verified: when descriptions summarize workflow, Claude follows the description instead of reading the full skill body.
+
+31. **Generate sections in order**:
     1. Triggers
     2. When to Use
     3. When NOT to Use
@@ -477,12 +495,12 @@ metadata:
     - Meta-testing confirms skill clarity
 48. **Update Session State** with refactor iterations
 
-### Phase 7: Panel Review (High-Risk Only)
+### Phase 7: Panel Review (Medium + High Risk)
 
 49. **Check risk tier**:
-    - Low/Medium → Skip to Phase 8, set `panel.status: skipped`
-    - High → Continue with panel
-50. **Launch 4 agents in parallel** via Task tool:
+    - Low → Skip to Phase 8, set `panel.status: skipped`
+    - Medium/High → Continue with panel
+50. **Launch 4 agents in parallel** via Task tool (see `references/phase-7-panel.md` for full prompts and tool permissions):
     - **Executability Auditor**: Steps unambiguous, decisions have defaults
     - **Semantic Coherence Checker**: Sections consistent, terminology uniform
     - **Dialogue Auditor**: Requirements complete, methodology substantive
@@ -491,7 +509,7 @@ metadata:
 52. **Handle verdicts**:
     - All APPROVED → Proceed to Phase 8
     - Any CHANGES_REQUIRED → Classify severity, fix, re-test, re-submit
-53. **Apply iteration limits**: 5 (progress) / 1 (recurring) / 3 (different issues)
+53. **Apply iteration limits**: 5 (progress) / escalate immediately (recurring) / 3 (different issues)
 54. **Re-run tests after panel fixes** (structural changes may break behavior)
 55. **Update Session State** with panel status
 
@@ -540,7 +558,7 @@ metadata:
 | Tier | Criteria | Panel Required |
 |------|----------|----------------|
 | Low | Read-only, documentation, research | No |
-| Medium | Code generation, refactoring, testing | No |
+| Medium | Code generation, refactoring, testing | Yes |
 | High | Security, agentic, data operations, discipline-enforcing | Yes |
 
 ### Baseline Validation (Phase 3)
@@ -559,6 +577,22 @@ metadata:
 | Technique | Application scenarios | Applies correctly, handles edge cases |
 | Pattern | Recognition + counter-example | Knows when to apply AND when not to |
 | Reference | Retrieval + application | Finds and uses information correctly |
+
+### Degrees of Freedom (Phase 4)
+
+Match specificity to task fragility:
+
+| Skill Type | Freedom Level | Guidance Style |
+|------------|---------------|----------------|
+| Discipline-enforcing | Low | Exact steps, explicit prohibitions |
+| Technique | Medium | Steps with noted flexibility points |
+| Pattern | High | Principles, not prescriptions |
+| Reference | Low | Accurate information, clear retrieval paths |
+
+**Signals to adjust:**
+- Agent frequently deviates → increase specificity
+- Users ignore skill as "too rigid" → increase freedom
+- Edge cases cause failures → add explicit handling
 
 ### Panel Verdict Handling (Phase 7)
 
@@ -787,8 +821,11 @@ metadata:
 | Pattern | Consequence | Instead |
 |---------|-------------|---------|
 | First-person description | Inconsistent | Third-person ("Use when...") |
+| **Description summarizes workflow** | **Claude skips skill body** | **Triggers only, never workflow** |
 | No keyword coverage | Not found | Error messages, symptoms |
 | Name is noun-based | Less discoverable | Verb-first, gerunds |
+
+**Description Trap (Empirically Verified):** When skill description says "Use when X — does Y then Z", Claude may execute Y→Z from the description without reading SKILL.md body. Only include triggering conditions in description, never process summary.
 
 ### Red Flags — STOP and Reassess
 
@@ -869,19 +906,32 @@ Mark deprecated with migration path.
 
 | From skillosophy | From writing-skills | New in Approach 2 |
 |------------------|--------------------|--------------------|
-| 11-section structure | TDD pressure testing | Combined lenses (4+7) |
+| 11-section structure | TDD pressure testing | Combined 14 lenses (4+10) |
 | Dialogue phases | Rationalization tables | Requirement→scenario traceability |
-| Panel review | Meta-testing | Test quality verification |
+| Panel review (all skills) | Meta-testing | Panel for Medium+High only |
 | metadata.decisions | Red flags lists | metadata.verification |
-| Session State | Loophole closing | Phase 3 before Phase 4 |
-| 21 categories | Skill types | Category + type integration |
+| Session State | Loophole closing | Phase 3 (RED) before Phase 4 |
+| 21 categories | Skill types | Category + type + freedom integration |
+| Regression questioning | Iron Law | Degrees of freedom calibration |
+
+## Intentional Deviations
+
+Documented decisions that differ from source materials:
+
+| Source Guidance | Design Choice | Rationale |
+|-----------------|---------------|-----------|
+| writing-skills: "Only name and description in frontmatter" | Extended frontmatter (hooks, allowed-tools, metadata) | Source may be outdated; current platform supports extended fields |
+| skillosophy: Panel required for all CREATE | Panel for Medium+High only | Right-sized rigor; Low-risk skills don't need structural review |
+| writing-skills: Token efficiency targets (<150, <200, <500 words) | Not incorporated | Deferred; focus on correctness first, optimize later |
+| skillosophy: Mode confidence percentages displayed | Thresholds only (≥80%, 50-79%, <50%) | Thresholds already communicate confidence; explicit % is implementation detail |
 
 ## Next Steps
 
 1. Create working branch: `feature/rigorous-skill-creation`
 2. Implement SKILL.md with all 11 sections
-3. Create reference files
-4. Create template files
-5. Implement scripts (triage.py, validate.py)
-6. Test with real skill creation
-7. Promote to metamarket when stable
+3. Create reference files (phase-1-requirements.md, phase-1-lenses.md, phase-3-baseline.md, phase-4-generation.md, phase-7-panel.md, risk-tiers.md, category-integration.md)
+4. Create template files (skill-skeleton.md, decisions-schema.md, session-state-schema.md)
+5. Create examples (worked-example.md)
+6. Implement scripts (triage.py, discover.py, validate.py)
+7. Test with real skill creation
+8. Promote to metamarket when stable
