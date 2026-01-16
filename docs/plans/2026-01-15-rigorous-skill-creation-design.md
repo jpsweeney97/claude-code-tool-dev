@@ -38,7 +38,9 @@ A standalone skill combining skillosophy's dialogue methodology with writing-ski
 │   ├── phase-4-generation.md         # Section requirements (merged checklists)
 │   ├── phase-7-panel.md              # Panel agent prompts + tool permissions (adapted from metamarket)
 │   ├── risk-tiers.md                 # Risk tier criteria + panel triggers
-│   └── category-integration.md       # 21 categories with DoD additions
+│   ├── category-integration.md       # 21 categories with DoD additions
+│   ├── persuasion-principles.md      # 7 persuasion principles for skill design
+│   └── anthropic-best-practices.md   # Official Anthropic skill design guidance
 ├── templates/
 │   ├── skill-skeleton.md             # Empty 11-section structure with Approach 2 metadata
 │   ├── decisions-schema.md           # metadata.decisions schema (extended with verification)
@@ -147,8 +149,7 @@ A standalone skill combining skillosophy's dialogue methodology with writing-ski
 name: rigorous-skill-creation
 description: Use when creating skills that need verified behavior change,
   especially high-risk skills (security, agentic, data operations) or skills
-  that enforce discipline. Combines requirements dialogue with TDD-style
-  pressure testing.
+  that enforce discipline.
 hooks:
   PostToolUse:
     - matcher: 'Write|Edit'
@@ -352,6 +353,22 @@ metadata:
     | Low | Read-only, documentation, research | No |
     | Medium | Code generation, refactoring, testing | Yes |
     | High | Security, agentic, data operations, discipline | Yes |
+
+    **Tier-Specific Minimums:**
+
+    | Requirement | Low | Medium | High |
+    |-------------|-----|--------|------|
+    | All 11 sections | Y | Y | Y |
+    | 1 quick check | Y | Y | Y |
+    | 1 troubleshooting entry | Y | Y | Y |
+    | 1 STOP/ask (missing inputs) | Y | Y | Y |
+    | STOP/ask (ambiguity) | — | Y | Y |
+    | Explicit non-goals (≥3) | — | Y | Y |
+    | 2nd verification mode | — | SHOULD | Y |
+    | Ask-first gates | — | — | Y |
+    | ≥2 STOP/ask gates | — | — | Y |
+    | Rollback/escape guidance | — | — | Y |
+
 11. **Select category** from 21 defined categories
 12. **Create Session State** at end of Phase 1
 
@@ -398,18 +415,18 @@ metadata:
 22. **Create pressure scenarios** with:
     - **Format**: Forced A/B/C choice
     - **Framing**: "IMPORTANT: This is a real scenario. Choose and act."
-    - **Pressures**: Combine 3+ (time, sunk cost, authority, exhaustion, social, pragmatic)
+    - **Pressures**: Combine 3+ (time, sunk cost, authority, economic, exhaustion, social, pragmatic)
     - **Details**: Real file paths, specific times, concrete consequences
     - **No outs**: Agent must choose, can't defer to user
-22. **Run baseline** via Task tool for each scenario
-23. **Capture verbatim**:
+23. **Run baseline** via Task tool for each scenario
+24. **Capture verbatim**:
     - Which option agent chose
     - Exact rationalizations used (word-for-word)
-24. **Validate baseline shows failure**:
+25. **Validate baseline shows failure**:
     - If no failures: strengthen scenarios or reconsider need
-25. **Build rationalization table** from all observed excuses
-26. **Update metadata.verification.baseline**
-27. **Update Session State** with testing context
+26. **Build rationalization table** from all observed excuses
+27. **Update metadata.verification.baseline**
+28. **Update Session State** with testing context
 
 ### Phase 4: Generation
 
@@ -430,22 +447,22 @@ metadata:
     9. Troubleshooting
     10. Anti-Patterns
     11. Extension Points
-31. **For each section**:
+32. **For each section**:
     a. Draft content informed by Phase 1-2 requirements + Phase 3 failures
     b. Validate against section requirements in reference
     c. Present draft to user
     d. User approves, edits, or requests regeneration
     e. Write approved section to SKILL.md
     f. Update Session State progress
-32. **Rationalization table → Anti-Patterns**:
+33. **Rationalization table → Anti-Patterns**:
     | Rationalization (from baseline) | Counter (in skill) |
     |---------------------------------|--------------------|
     | "[exact phrase]" | "[explicit rebuttal]" |
-33. **Create supporting files if needed**
+34. **Create supporting files if needed**
 
 ### Phase 5: Verification Testing (GREEN)
 
-34. **Prepare skill-injected context** for verification subagent:
+35. **Prepare skill-injected context** for verification subagent:
     ```
     You must follow this skill for the task below.
 
@@ -456,75 +473,82 @@ metadata:
     Context: [scenario setup]
     Task: [scenario prompt]
     ```
-35. **For each pressure scenario from Phase 3**:
+36. **For each pressure scenario from Phase 3**:
     a. Launch verification subagent via Task tool
     b. Capture response
     c. Compare to baseline: Did behavior change?
-36. **Success criteria**:
+37. **Success criteria**:
     - Agent chose correct option
     - Agent cited skill sections as justification
     - Agent acknowledged temptation but followed rule
-37. **On failure**:
+38. **On failure**:
     - Capture new rationalization verbatim
     - Return to Phase 4 to update skill
-38. **Run meta-testing** if agent fails despite skill:
+39. **Run meta-testing** if agent fails despite skill:
     ```
     You read the skill and chose Option [X] anyway.
     How could that skill have been written differently?
     ```
-39. **Update metadata.verification.testing**
-40. **All scenarios must pass before proceeding**
+40. **Update metadata.verification.testing**
+41. **All scenarios must pass before proceeding**
 
 ### Phase 6: Refactor
 
-41. **Determine skill type** (discipline, technique, pattern, reference)
-42. **Check for new rationalizations** from Phase 5
-43. **For each new rationalization, add ALL 4 counters**:
+42. **Determine skill type** (discipline, technique, pattern, reference)
+43. **Check for new rationalizations** from Phase 5
+44. **For each new rationalization, add ALL 4 counters**:
     a. Explicit negation in relevant section
     b. Entry in rationalization table (Anti-Patterns)
     c. Entry in red flags list
     d. Update description with violation symptom
-44. **Address "Spirit vs Letter" arguments**:
+45. **Address "Spirit vs Letter" arguments**:
     - Add foundational principle: "Violating the letter IS violating the spirit"
-45. **Re-run verification** on updated skill
-46. **Continue loop** if new rationalizations emerge
-47. **Termination criteria**:
+46. **Re-run verification** on updated skill
+47. **Continue loop** if new rationalizations emerge
+48. **Termination criteria** (all must be true):
     - All scenarios pass under maximum pressure
     - No new rationalizations observed
     - Agent cites skill sections as justification
     - Meta-testing confirms skill clarity
-48. **Update Session State** with refactor iterations
+
+    **Bulletproof Signs** (skill is complete when all true):
+    - [ ] Agent chooses correct option under maximum pressure
+    - [ ] Agent cites skill sections as justification
+    - [ ] Agent acknowledges temptation but follows rule
+    - [ ] Meta-testing reveals "skill was clear, I should follow it"
+
+49. **Update Session State** with refactor iterations
 
 ### Phase 7: Panel Review (Medium + High Risk)
 
-49. **Check risk tier**:
+50. **Check risk tier**:
     - Low → Skip to Phase 8, set `panel.status: skipped`
     - Medium/High → Continue with panel
-50. **Launch 4 agents in parallel** via Task tool (see `references/phase-7-panel.md` for full prompts and tool permissions):
+51. **Launch 4 agents in parallel** via Task tool (see `references/phase-7-panel.md` for full prompts and tool permissions):
     - **Executability Auditor**: Steps unambiguous, decisions have defaults
     - **Semantic Coherence Checker**: Sections consistent, terminology uniform
     - **Dialogue Auditor**: Requirements complete, methodology substantive
     - **Adversarial Reviewer**: Decisions justified, failures mitigated
-51. **Handle model fallback**: Opus → Sonnet → skip with warning
-52. **Handle verdicts**:
+52. **Handle model fallback**: Opus → Sonnet → skip with warning
+53. **Handle verdicts**:
     - All APPROVED → Proceed to Phase 8
     - Any CHANGES_REQUIRED → Classify severity, fix, re-test, re-submit
-53. **Apply iteration limits**: 5 (progress) / escalate immediately (recurring) / 3 (different issues)
-54. **Re-run tests after panel fixes** (structural changes may break behavior)
-55. **Update Session State** with panel status
+54. **Apply iteration limits**: 5 (progress) / escalate immediately (recurring) / 3 (different issues)
+55. **Re-run tests after panel fixes** (structural changes may break behavior)
+56. **Update Session State** with panel status
 
 ### Phase 8: Finalization
 
-56. **Remove Session State**:
+57. **Remove Session State**:
     - Locate `## Session State` (must be last H2)
     - Truncate from that point forward
-57. **Update metadata.verification.panel**
-58. **Verify supporting files exist** (if planned)
-59. **Final validation via script**:
+58. **Update metadata.verification.panel**
+59. **Verify supporting files exist** (if planned)
+60. **Final validation via script**:
     ```bash
     python scripts/validate.py <skill-path>
     ```
-60. **Confirm completion to user**:
+61. **Confirm completion to user**:
     ```
     ✅ Skill created and verified.
 
@@ -929,7 +953,7 @@ Documented decisions that differ from source materials:
 
 1. Create working branch: `feature/rigorous-skill-creation`
 2. Implement SKILL.md with all 11 sections
-3. Create reference files (phase-1-requirements.md, phase-1-lenses.md, phase-3-baseline.md, phase-4-generation.md, phase-7-panel.md, risk-tiers.md, category-integration.md)
+3. Create reference files (phase-1-requirements.md, phase-1-lenses.md, phase-3-baseline.md, phase-4-generation.md, phase-7-panel.md, risk-tiers.md, category-integration.md, persuasion-principles.md, anthropic-best-practices.md)
 4. Create template files (skill-skeleton.md, decisions-schema.md, session-state-schema.md)
 5. Create examples (worked-example.md)
 6. Implement scripts (triage.py, discover.py, validate.py)
