@@ -40,7 +40,8 @@ A standalone skill combining skillosophy's dialogue methodology with writing-ski
 │   ├── risk-tiers.md                 # Risk tier criteria + panel triggers
 │   ├── category-integration.md       # 21 categories with DoD additions
 │   ├── persuasion-principles.md      # 7 persuasion principles for skill design
-│   └── anthropic-best-practices.md   # Official Anthropic skill design guidance
+│   ├── anthropic-best-practices.md   # Official Anthropic skill design guidance
+│   └── testing-anti-patterns.md      # Common testing anti-patterns to avoid (from TDD skill)
 ├── templates/
 │   ├── skill-skeleton.md             # Empty 11-section structure with Approach 2 metadata
 │   ├── decisions-schema.md           # metadata.decisions schema (extended with verification)
@@ -318,7 +319,9 @@ metadata:
 ### Phase 0: Triage
 
 1. **Parse user intent** — Identify if CREATE, MODIFY, or ambiguous
-2. **Run triage script** (if available):
+   - **Default**: If genuinely unclear after one clarifying question, default to CREATE
+2. **Self-modification guard** — If target path is within rigorous-skill-creation directory, **STOP with explanation**: "Cannot modify self — circular dependency. Edit plugin files directly."
+3. **Run triage script** (if available):
    ```bash
    python scripts/triage.py "<user goal>" --json
    ```
@@ -335,7 +338,7 @@ metadata:
 
 5. **Load reference**: Read `references/phase-1-requirements.md` (includes regression questioning protocol with 7 categories) and `references/phase-1-lenses.md`
 
-   **Regression questioning termination:** Stop when 3 consecutive rounds yield no new insights OR all thinking models applied OR ≥3 expert perspectives considered.
+   **Regression questioning termination:** Stop when 3 consecutive rounds yield no new insights OR all thinking models applied OR ≥3 expert perspectives considered OR evolution/timelessness explicitly evaluated with score ≥7.
 6. **Apply 14 thinking lenses**:
    - Understanding lenses (4): Inform design
    - Testing lenses (10): Seed pressure scenarios
@@ -415,6 +418,8 @@ metadata:
 ### Phase 3: Baseline Testing (RED)
 
 **The Iron Law applies here:** No skill generation (Phase 4) without baseline failure first.
+
+**Delete means delete:** If any skill content was written before baseline testing, delete it. Don't keep it as "reference." Don't "adapt" it. Don't look at it. Start fresh after baseline failures are captured.
 
 19. **Load reference**: Read `references/phase-3-baseline.md`
 20. **Determine test type by skill type**:
@@ -603,6 +608,20 @@ metadata:
 | Medium | Code generation, refactoring, testing | Yes |
 | High | Security, agentic, data operations, discipline-enforcing | Yes |
 
+### Risk Tier Override Handling (Phase 1)
+
+User may request to override assessed risk tier. Handle as follows:
+
+**Downgrade validation (High → Medium):**
+1. Check all 3 gating criteria:
+   - Ask-first gates exist for every mutating step in Procedure
+   - Scope is bounded and reversible (explicit scope fence)
+   - Category justifies Medium (typical risk is Medium or lower)
+2. If ALL pass: Allow, log "Downgraded to Medium — gating validated"
+3. If ANY fail: Block, show "Cannot downgrade: [specific missing gate]"
+
+**Cannot downgrade to Low:** User may NOT downgrade to Low if ANY mutating actions exist. This is non-negotiable — mutating actions require at minimum Medium tier with gating.
+
 ### Baseline Validation (Phase 3)
 
 | Observation | Action |
@@ -644,6 +663,14 @@ Match specificity to task fragility:
 | CHANGES_REQUIRED (Minor) | Fix, re-verify tests, re-submit panel |
 | CHANGES_REQUIRED (Major) | Return to Phase 4 for regeneration |
 | Agents contradict | Present to user, user decides |
+
+**Severity classification:**
+- Single section affected → Minor
+- Multiple sections affected → Major
+- Wording/clarity issue → Minor
+- Design/decision issue → Major
+
+**Default:** When uncertain about severity classification, escalate to Major (safer to over-correct than under-correct).
 
 ## Verification
 
@@ -718,6 +745,7 @@ Match specificity to task fragility:
 | User gives one-word answers | Questions too open | Switch to multiple choice |
 | Dialogue going in circles | Requirements unclear | Summarize known, ask what's blocking |
 | No pressure scenarios emerging | Testing lenses not applied | Re-apply Inversion, Adversarial, Constraint lenses |
+| Reference file not found | Missing or moved | Warn user; proceed with inline knowledge; note degraded mode in Session State |
 
 ### Specification Checkpoint Issues (Phase 2)
 
@@ -735,6 +763,7 @@ Match specificity to task fragility:
 | Agent asks clarifying questions | Escape routes present | Remove "ask user" option |
 | Agent fails for wrong reason | Scenario confusing | Rewrite with clearer setup |
 | Agent already does right thing | Skill may not be needed | Reconsider need or find harder cases |
+| Reference file not found | phase-3-baseline.md missing | Warn user; use inline pressure testing methodology; note in Session State |
 
 ### Generation Issues (Phase 4)
 
@@ -743,6 +772,7 @@ Match specificity to task fragility:
 | Section fails checklist | Content gaps | Review checklist, regenerate |
 | User rejects section repeatedly | Misunderstanding requirements | Return to Phase 2, clarify |
 | Skill exceeds 1000 lines | Scope creep | Split into focused skills |
+| Reference file not found | phase-4-generation.md missing | Warn user; use inline section requirements; quality may be reduced |
 
 ### Verification Issues (Phase 5)
 
@@ -971,7 +1001,7 @@ Documented decisions that differ from source materials:
 
 1. Create working branch: `feature/rigorous-skill-creation`
 2. Implement SKILL.md with all 11 sections
-3. Create reference files (phase-1-requirements.md, phase-1-lenses.md, phase-3-baseline.md, phase-4-generation.md, phase-7-panel.md, risk-tiers.md, category-integration.md, persuasion-principles.md, anthropic-best-practices.md)
+3. Create reference files (phase-1-requirements.md, phase-1-lenses.md, phase-3-baseline.md, phase-4-generation.md, phase-7-panel.md, risk-tiers.md, category-integration.md, persuasion-principles.md, anthropic-best-practices.md, testing-anti-patterns.md)
 4. Create template files (skill-skeleton.md, decisions-schema.md, session-state-schema.md)
 5. Create examples (worked-example.md)
 6. Implement scripts (triage.py, discover.py, validate.py)
