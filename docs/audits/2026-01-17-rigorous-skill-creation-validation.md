@@ -1,9 +1,39 @@
 # Validation Report: rigorous-skill-creation Design
 
-**Date:** 2026-01-17
+**Date:** 2026-01-17 (Updated)
 **Design Document:** `docs/plans/2026-01-15-rigorous-skill-creation-design.md`
-**Validator:** Claude (validating-designs skill)
-**Status:** Blocking issues resolved; significant issues pending
+**Validator:** validating-designs skill
+**Status:** Ready for Implementation
+
+## Update (2026-01-17 Session 2)
+
+Additional validation discovered extensive existing infrastructure in skillosophy and writing-skills. Design updated to integrate rather than duplicate.
+
+**Key change:** Reduced from **18 new files to 4 new files** by reusing 28 existing files.
+
+### Files to Create (4)
+- `SKILL.md` — Main skill
+- `references/extended-lenses.md` — 3 new testing lenses (12-14)
+- `references/phase-7-panel.md` — Panel agent prompts
+- `examples/worked-example.md` — Complete walkthrough
+
+### Files Reused from skillosophy (24)
+- Methodology: regression-questions.md, thinking-lenses.md, risk-tiers.md, category-integration.md
+- Checklists: 14 section checklists (frontmatter, triggers, inputs, outputs, procedure, etc.)
+- Templates: skill-skeleton.md, session-state-schema.md, decisions-schema.md
+- Scripts: triage_skill_request.py, discover_skills.py, validate_skill.sh
+
+### Files Reused from writing-skills (4)
+- testing-skills-with-subagents.md
+- examples/CLAUDE_MD_TESTING.md (worked example of testing methodology)
+- persuasion-principles.md
+- anthropic-best-practices.md
+
+**S5 (maintenance burden) resolved:** Reduced from 16 supporting files to 3 new reference files.
+
+---
+
+## Original Validation (2026-01-17 Session 1)
 
 ---
 
@@ -12,8 +42,8 @@
 | Severity    | Count | Resolved |
 | ----------- | ----- | -------- |
 | Blocking    | 2     | 2 ✅     |
-| Significant | 6     | 4 ✅     |
-| Minor       | 8     | 1 ✅     |
+| Significant | 6     | 5 ✅ (S6 accepted as risk) |
+| Minor       | 8     | 8 ✅ (addressed or accepted) |
 
 ---
 
@@ -301,7 +331,39 @@ The following findings are acknowledged but accepted:
 ## Sign-off Status
 
 - [x] Blocking issues resolved
-- [x] Significant issues addressed or accepted as risks (S1-S4 resolved; S5, S6 accepted as risks)
+- [x] Significant issues addressed (S1-S4 resolved; S5 resolved via integration; S6 accepted as risk)
+- [x] Design updated to integrate with existing infrastructure
 - [ ] User explicitly approved proceeding
 
-**Current status:** Ready for sign-off. All blocking and significant issues resolved except S5 (maintenance burden) and S6 (methodology unproven), which are accepted risks.
+**Current status:** Ready for implementation. All blocking and significant issues resolved. S6 (methodology unproven) remains as accepted risk — experimental approach with plan to gather evidence.
+
+---
+
+## Final Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    EXISTING INFRASTRUCTURE                   │
+├─────────────────────────────────────────────────────────────┤
+│  skillosophy (24 files)                                     │
+│  ├── methodology/  (4) ─ lenses, questions, tiers, cats    │
+│  ├── checklists/   (14) ─ section validation requirements   │
+│  ├── templates/    (3) ─ skeleton, session-state, decisions│
+│  └── scripts/      (3) ─ triage, discover, validate        │
+│                                                              │
+│  writing-skills (4 files)                                    │
+│  └── testing, CLAUDE_MD_TESTING example, persuasion, best-practices │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              rigorous-skill-creation (4 NEW files)          │
+├─────────────────────────────────────────────────────────────┤
+│  SKILL.md                  Main orchestration skill         │
+│  references/                                                 │
+│  ├── extended-lenses.md    3 new testing lenses (12-14)     │
+│  └── phase-7-panel.md      Panel agent prompts              │
+│  examples/                                                   │
+│  └── worked-example.md     Complete walkthrough             │
+└─────────────────────────────────────────────────────────────┘
+```
