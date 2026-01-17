@@ -44,6 +44,7 @@ description: Use when a design document exists and implementation hasn't started
 **Artifacts:**
 - Updated design document with issues resolved
 - Validation summary (issues found, resolutions, accepted risks)
+- Validation report (optional, saved to `docs/audits/`)
 
 **Definition of Done:**
 - All 11 systematic dimensions checked
@@ -211,6 +212,12 @@ Present a summary table showing all findings:
 |---|---------|-------------------|
 | M1 | [description] | [which checks failed] |
 ```
+
+**Save Report (optional):**
+
+After presenting the summary, ask: "Would you like me to save this validation report?"
+- If yes → Write to `docs/audits/YYYY-MM-DD-<design-name>-validation.md` using the template in `validation-report-template.md`
+- If no → Continue to remediation or sign-off
 
 **Remediation Loop:**
 1. Present findings to user (blocking first)
