@@ -75,7 +75,7 @@ A standalone skill combining skillosophy's dialogue methodology with writing-ski
                     ▼
     ┌───────────────────────────────┐
     │  Phase 1: REQUIREMENTS        │◄──────────────────┐
-    │  - 11 thinking lenses         │                   │
+    │  - 14 thinking lenses         │                   │
     │  - Dialogue (1 Q at a time)   │                   │
     │  - Seed pressure scenarios    │                   │
     └───────────────────────────────┘                   │
@@ -203,7 +203,7 @@ metadata:
 | 13 | **Edge Cases** | What unusual states might occur? | Boundary test |
 | 14 | **Discoverability** | How will agents find this skill? | Trigger/search test |
 
-*Lenses 1-11 from skillosophy; 12-14 added for testing focus.*
+*Lenses 1-4 and 5-11 adapted from skillosophy's 11 lenses (regrouped as 4 understanding + 7 testing); lenses 12-14 added for skill-specific testing focus.*
 
 ## Triggers
 
@@ -247,7 +247,7 @@ metadata:
 ### Optional
 - **Existing skill path**: For MODIFY mode, path to skill to improve
 - **Risk tier override**: Explicit "high", "medium", "low" to skip assessment
-- **Skip triage**: Flag to bypass existing skill check
+- **Skip triage**: Flag to bypass existing skill check. User signals by stating "skip triage" or "create new skill" (no existing skill check needed).
 - **Supporting file needs**: During Phase 1, discover if skill requires references/, examples/, scripts/
 
 ### Assumptions
@@ -255,6 +255,16 @@ metadata:
 - Python available for triage/validate scripts (graceful degradation if not)
 - Task tool available for subagent operations (baseline testing, panel)
 - Opus model preferred for panel agents (falls back to Sonnet)
+
+### Critical Dependencies
+
+**Subagent Context Isolation:** The baseline testing methodology (Phase 3) depends on Task tool subagents starting with fresh context. Per Claude Code documentation: "Each invocation creates a new instance with fresh context."
+
+If this isolation fails, baseline tests become contaminated — the subagent would "know" it's being tested and what the expected behavior is.
+
+**Verification:** Phase 3 includes a canary check to confirm isolation before running baseline scenarios.
+
+**Fallback:** If isolation cannot be confirmed, baseline testing must be performed in a separate Claude Code session with no prior conversation about the skill being created.
 
 ## Outputs
 
@@ -314,33 +324,94 @@ metadata:
 - [ ] Panel unanimous (if Medium/High-risk) OR panel skipped (if Low-risk)
 - [ ] Session State removed
 
+### Session State Schema (Transient)
+
+Session State is appended to SKILL.md during creation and removed in Phase 8. It tracks progress across phases and enables session recovery if context is exhausted.
+
+**Location:** Last H2 section in SKILL.md (must remain last for clean removal)
+
+**Lifecycle:**
+| Phase | Action |
+|-------|--------|
+| 1 | Create with initial values |
+| 2 | Set `requirements_locked: true` |
+| 3 | Populate `baseline` with failures and rationalizations |
+| 4 | Update `progress` as sections complete |
+| 5-6 | Update `verification` and `refactor` |
+| 7 | Update `panel` status |
+| 8 | Remove entirely |
+
+**Schema:**
+
+```yaml
+## Session State
+
+phase: 3                              # Current phase (0-8)
+progress: 5/11                        # Sections completed (Phase 4)
+requirements_locked: true             # Phase 2 checkpoint passed
+
+baseline:                             # Phase 3 results
+  scenarios:
+    - name: "Time pressure + sunk cost"
+      option_chosen: "B"
+      rationalization: "exact quote from agent"
+    - name: "Authority pressure"
+      option_chosen: "C"
+      rationalization: "exact quote from agent"
+  total_failures: 2
+
+verification:                         # Phase 5 results
+  scenarios_passed: 1
+  scenarios_failed: 1
+  new_rationalizations:
+    - "new excuse discovered during verification"
+
+refactor:                             # Phase 6 tracking
+  iteration: 2
+  loopholes_closed: 3
+
+panel:                                # Phase 7 tracking
+  status: "pending"                   # pending | in_progress | approved | skipped
+  agents_completed: 0
+  issues_found: []
+
+degraded_mode:                        # Notes when reference files unavailable
+  - "phase-3-baseline.md not found; using inline methodology"
+```
+
+**Recovery:** If context exhausted mid-session, export Session State and continue in new session. Read `metadata.decisions` and Session State to restore context.
+
 ## Procedure
 
 ### Phase 0: Triage
 
-1. **Parse user intent** — Identify if CREATE, MODIFY, or ambiguous
+1. **Verify write access** — Check target directory is writable before investing in requirements discovery:
+   - If path specified: verify write access to that directory
+   - If no path: verify write access to default `.claude/skills/` directory
+   - **If not writable:** STOP with explanation and ask user to specify writable path
+2. **Parse user intent** — Identify if CREATE, MODIFY, or ambiguous
    - **Default**: If genuinely unclear after one clarifying question, default to CREATE
-2. **Self-modification guard** — If target path is within rigorous-skill-creation directory, **STOP with explanation**: "Cannot modify self — circular dependency. Edit plugin files directly."
-3. **Check skip triage flag** — If set, log "Triage skipped by user request" and proceed directly to Phase 1 (CREATE mode)
-4. **Run triage script** (if available):
+3. **Self-modification guard** — If target path is within rigorous-skill-creation directory, **STOP with explanation**: "Cannot modify self — circular dependency. Edit plugin files directly."
+4. **Check skip triage flag** — If set, log "Triage skipped by user request" and proceed directly to Phase 1 (CREATE mode)
+5. **Run triage script** (if available):
    ```bash
    python scripts/triage.py "<user goal>" --json
    ```
-5. **Handle triage result**:
+6. **Handle triage result**:
    | Result | Match | Action |
    |--------|-------|--------|
    | `USE_EXISTING` | ≥80% | Recommend existing; ask to proceed or create anyway |
    | `IMPROVE_EXISTING` | 50-79% | Offer MODIFY mode |
    | `CREATE_NEW` | <50% | Proceed to Phase 1 |
    | Script unavailable | — | Warn, proceed to Phase 1 |
-6. **Initialize TodoWrite** with phase-level tasks
+7. **Initialize TodoWrite** with phase-level tasks
 
 ### Phase 1: Requirements Discovery
 
-7. **Load reference**: Read `references/phase-1-requirements.md` (includes regression questioning protocol with 7 categories) and `references/phase-1-lenses.md`
+8. **Load reference**: Read `references/phase-1-requirements.md` (includes regression questioning protocol with 7 categories) and `references/phase-1-lenses.md`
 
    **Regression questioning termination:** Stop when 3 consecutive rounds yield no new insights OR all thinking models applied OR ≥3 expert perspectives considered OR evolution/timelessness explicitly evaluated with score ≥7.
-8. **Apply 14 thinking lenses**:
+9. **Apply 14 thinking lenses**:
    - Understanding lenses (4): Inform design
    - Testing lenses (10): Seed pressure scenarios
 
@@ -350,7 +421,7 @@ metadata:
    - All High-relevance lenses fully applied
    - Conflicts between lenses resolved
 
-9. **Dialogue with user** (one question at a time):
+10. **Dialogue with user** (one question at a time):
 
    **Phase A — Broad Discovery:**
    - Purpose and success criteria
@@ -381,12 +452,12 @@ metadata:
    - At least 2 deepening categories explored (based on lens flags)
    - No blocking ambiguities remain
    - User confirms scope understanding
-10. **Categorize requirements**:
+11. **Categorize requirements**:
    - Explicit: What user asked for
    - Implicit: What user expects but didn't state
    - Discovered: What analysis reveals
-11. **Seed pressure scenarios** from each requirement (especially testing lenses)
-12. **Assess risk tier**:
+12. **Seed pressure scenarios** from each requirement (especially testing lenses)
+13. **Assess risk tier**:
     | Tier | Criteria | Panel Required |
     |------|----------|----------------|
     | Low | Read-only, documentation, research | No |
@@ -410,14 +481,14 @@ metadata:
 
     **Auto-Escalation Rule:** If ANY mutating action detected → treat as High until gating verified.
 
-13. **Select category** from 21 defined categories
-14. **Create Session State** at end of Phase 1
+14. **Select category** from 21 defined categories
+15. **Create Session State** at end of Phase 1
 
 ### Phase 2: Specification Checkpoint
 
-15. **Build metadata.decisions** with all required fields
-16. **Draft initial frontmatter** (name, description, risk_tier)
-17. **Present consolidated summary**:
+16. **Build metadata.decisions** with all required fields
+17. **Draft initial frontmatter** (name, description, risk_tier)
+18. **Present consolidated summary**:
     ```
     Based on our discussion, here's what we're building:
 
@@ -438,9 +509,9 @@ metadata:
 
     Does this capture your intent? Are the pressure scenarios right?
     ```
-18. **Iterate until user validates** — corrections loop back to Phase 1
-19. **Lock decisions** — after validation, requirements and scenarios are stable
-20. **Update Session State** with locked decisions
+19. **Iterate until user validates** — corrections loop back to Phase 1
+20. **Lock decisions** — after validation, requirements and scenarios are stable
+21. **Update Session State** with locked decisions
 
 ### Phase 3: Baseline Testing (RED)
 
@@ -448,37 +519,45 @@ metadata:
 
 **Delete means delete:** If any skill content was written before baseline testing, delete it. Don't keep it as "reference." Don't "adapt" it. Don't look at it. Start fresh after baseline failures are captured.
 
-21. **Load reference**: Read `references/phase-3-baseline.md`
-22. **Determine test type by skill type**:
+22. **Load reference**: Read `references/phase-3-baseline.md`
+23. **Determine test type by skill type**:
     - **Discipline/Technique/Pattern**: Pressure scenarios (temptation to bypass)
     - **Reference**: Retrieval scenarios (can agent find and use info correctly?)
-23. **Prepare isolated context** for baseline subagent:
+24. **Prepare isolated context** for baseline subagent:
     - Subagent receives ONLY: scenario setup + prompt
     - Subagent does NOT receive: Phase 1-2 discussion, requirements, skill drafts
-24. **Create pressure scenarios** with:
+25. **Verify subagent isolation** (canary check):
+    - Launch a test subagent via Task tool with prompt:
+      ```
+      What skill are we creating in this session?
+      If you don't know, respond with "NO_CONTEXT".
+      ```
+    - **Expected:** Subagent responds "NO_CONTEXT" or equivalent
+    - **If subagent knows the skill goal:** Isolation failed — fall back to manual baseline testing in a fresh session (see Troubleshooting)
+26. **Create pressure scenarios** with:
     - **Format**: Forced A/B/C choice
     - **Framing**: "IMPORTANT: This is a real scenario. Choose and act."
     - **Pressures**: Combine 3+ (time, sunk cost, authority, economic, exhaustion, social, pragmatic)
     - **Details**: Real file paths, specific times, concrete consequences
     - **No outs**: Agent must choose, can't defer to user
-25. **Run baseline** via Task tool for each scenario
-26. **Capture verbatim**:
+27. **Run baseline** via Task tool for each scenario
+28. **Capture verbatim**:
     - Which option agent chose
     - Exact rationalizations used (word-for-word)
-27. **Validate baseline shows failure**:
+29. **Validate baseline shows failure**:
     - If no failures: strengthen scenarios or reconsider need
-28. **Build rationalization table** from all observed excuses
-29. **Update metadata.verification.baseline**
-30. **Update Session State** with testing context
+30. **Build rationalization table** from all observed excuses
+31. **Update metadata.verification.baseline**
+32. **Update Session State** with testing context
 
 ### Phase 4: Generation
 
-31. **Load reference**: Read `references/phase-4-generation.md`
-32. **Write frontmatter** (validated in Phase 2) + operational fields
+33. **Load reference**: Read `references/phase-4-generation.md`
+34. **Write frontmatter** (validated in Phase 2) + operational fields
 
     **⚠️ Description Trap Warning:** The description field must contain ONLY triggering conditions ("Use when..."). Never summarize the skill's workflow in the description. Empirically verified: when descriptions summarize workflow, Claude follows the description instead of reading the full skill body.
 
-33. **Generate sections in order**:
+35. **Generate sections in order**:
     1. Triggers
     2. When to Use
     3. When NOT to Use
@@ -490,22 +569,22 @@ metadata:
     9. Troubleshooting
     10. Anti-Patterns
     11. Extension Points
-34. **For each section**:
+36. **For each section**:
     a. Draft content informed by Phase 1-2 requirements + Phase 3 failures
     b. Validate against section requirements in reference
     c. Present draft to user
     d. User approves, edits, or requests regeneration
     e. Write approved section to SKILL.md
     f. Update Session State progress
-35. **Rationalization table → Anti-Patterns**:
+37. **Rationalization table → Anti-Patterns**:
     | Rationalization (from baseline) | Counter (in skill) |
     |---------------------------------|--------------------|
     | "[exact phrase]" | "[explicit rebuttal]" |
-36. **Create supporting files if needed**
+38. **Create supporting files if needed**
 
 ### Phase 5: Verification Testing (GREEN)
 
-37. **Prepare skill-injected context** for verification subagent:
+39. **Prepare skill-injected context** for verification subagent:
     ```
     You must follow this skill for the task below.
 
@@ -516,18 +595,18 @@ metadata:
     Context: [scenario setup]
     Task: [scenario prompt]
     ```
-38. **For each pressure scenario from Phase 3**:
+40. **For each pressure scenario from Phase 3**:
     a. Launch verification subagent via Task tool
     b. Capture response
     c. Compare to baseline: Did behavior change?
-39. **Success criteria**:
+41. **Success criteria**:
     - Agent chose correct option
     - Agent cited skill sections as justification
     - Agent acknowledged temptation but followed rule
-40. **On failure**:
+42. **On failure**:
     - Capture new rationalization verbatim
     - Return to Phase 4 to update skill
-41. **Run meta-testing** if agent fails despite skill:
+43. **Run meta-testing** if agent fails despite skill:
     ```
     You read the skill and chose Option [X] anyway.
     How could that skill have been written differently?
@@ -539,23 +618,23 @@ metadata:
     | "Skill should have said X" | Missing guidance | Add suggestion verbatim |
     | "I didn't see section Y" | Organization problem | Make key points more prominent |
 
-42. **Update metadata.verification.testing**
-43. **All scenarios must pass before proceeding**
+44. **Update metadata.verification.testing**
+45. **All scenarios must pass before proceeding**
 
 ### Phase 6: Refactor
 
-44. **Determine skill type** (discipline, technique, pattern, reference)
-45. **Check for new rationalizations** from Phase 5
-46. **For each new rationalization, add ALL 4 counters**:
+46. **Determine skill type** (discipline, technique, pattern, reference)
+47. **Check for new rationalizations** from Phase 5
+48. **For each new rationalization, add ALL 4 counters**:
     a. Explicit negation in relevant section
     b. Entry in rationalization table (Anti-Patterns)
     c. Entry in red flags list
     d. Update description with violation symptom
-47. **Address "Spirit vs Letter" arguments**:
+49. **Address "Spirit vs Letter" arguments**:
     - Add foundational principle: "Violating the letter IS violating the spirit"
-48. **Re-run verification** on updated skill
-49. **Continue loop** if new rationalizations emerge
-50. **Termination criteria** (all must be true):
+50. **Re-run verification** on updated skill
+51. **Continue loop** if new rationalizations emerge
+52. **Termination criteria** (all must be true):
     - All scenarios pass under maximum pressure
     - No new rationalizations observed
     - Agent cites skill sections as justification
@@ -567,43 +646,48 @@ metadata:
     - [ ] Agent acknowledges temptation but follows rule
     - [ ] Meta-testing reveals "skill was clear, I should follow it"
 
-51. **Update Session State** with refactor iterations
+53. **Update Session State** with refactor iterations
 
 ### Phase 7: Panel Review (Medium + High Risk)
 
-52. **Check risk tier**:
+54. **Check risk tier**:
     - Low → Skip to Phase 8, set `panel.status: skipped`
     - Medium/High → Continue with panel
-53. **Launch 4 agents in parallel** via Task tool (see `references/phase-7-panel.md` for full prompts and tool permissions):
+55. **Launch 4 agents in parallel** via Task tool (see `references/phase-7-panel.md` for full prompts and tool permissions):
     - **Executability Auditor**: Steps unambiguous, decisions have defaults
     - **Semantic Coherence Checker**: Sections consistent, terminology uniform
     - **Dialogue Auditor**: Requirements complete, methodology substantive
     - **Adversarial Reviewer**: Decisions justified, failures mitigated
-54. **Handle model fallback**: Opus → Sonnet → skip with warning
-55. **Handle verdicts**:
+56. **Handle model fallback**: Opus → Sonnet → skip with warning
+57. **Handle verdicts**:
     - All APPROVED → Proceed to Phase 8
     - Any CHANGES_REQUIRED → Classify severity, fix, re-test, re-submit
-56. **Apply iteration limits**: 5 (progress) / escalate immediately (recurring) / 3 (different issues)
-57. **Re-run tests after panel fixes** (structural changes may break behavior)
-58. **Update Session State** with panel status
+58. **Apply iteration limits**: 5 (progress) / escalate immediately (recurring) / 3 (different issues)
+59. **Re-run tests after panel fixes** (structural changes may break behavior)
+60. **Update Session State** with panel status
 
 ### Phase 8: Finalization
 
-59. **Remove Session State**:
+61. **Remove Session State**:
     - Locate `## Session State` (must be last H2)
     - Truncate from that point forward
-60. **Update metadata.verification.panel**
-61. **Verify supporting files exist** (if planned)
-62. **Review token efficiency** (soft guideline):
+62. **Update metadata.verification.panel**
+63. **Verify supporting files exist** (if planned)
+64. **Review token efficiency** (soft guideline):
     - Aim for <500 words in SKILL.md body (excluding frontmatter)
     - Move implementation details to reference files
     - Compress examples; cross-reference other skills where appropriate
     - **Priority**: Correctness > Clarity > Conciseness (optimize only after behavior is verified)
-63. **Final validation via script**:
+65. **Final validation via script**:
     ```bash
     python scripts/validate.py <skill-path>
     ```
-64. **Confirm completion to user**:
+    **Fallback if Python unavailable:** Manually verify against Verification section checklists:
+    - All 11 sections present with correct H2 headings
+    - Frontmatter parses as valid YAML
+    - `metadata.decisions` and `metadata.verification` have required fields
+    - Session State removed from final skill
+66. **Confirm completion to user**:
     ```
     ✅ Skill created and verified.
 
@@ -792,6 +876,7 @@ Match specificity to task fragility:
 
 | Symptom | Cause | Recovery |
 |---------|-------|----------|
+| Canary check fails (subagent knows skill goal) | Context leaking to subagent | Abort automated baseline; run baseline manually in fresh Claude Code session with no prior skill discussion |
 | No failures observed | Scenarios too weak | Add 3+ combined pressures |
 | Agent asks clarifying questions | Escape routes present | Remove "ask user" option |
 | Agent fails for wrong reason | Scenario confusing | Rewrite with clearer setup |
