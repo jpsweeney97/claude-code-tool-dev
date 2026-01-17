@@ -351,13 +351,34 @@ metadata:
    - Conflicts between lenses resolved
 
 9. **Dialogue with user** (one question at a time):
+
+   **Phase A — Broad Discovery:**
    - Purpose and success criteria
    - Constraints and non-negotiables
    - Who/what will use this skill
    - Prefer multiple choice when options are clear
 
+   **Phase B — Lens-Driven Deepening:**
+   Based on High-relevance lenses from step 8, select 2-3 categories from regression questioning (see `references/phase-1-requirements.md` for full question bank):
+
+   | If lens flagged... | Probe with category... |
+   |--------------------|------------------------|
+   | Inversion, Adversarial | 3. Failure Analysis (6 failure mode probes) |
+   | Stakeholder, Ecosystem | 2. Expert Simulation (6 expert perspectives) |
+   | Evolution, Timelessness | 4. Temporal Projection (7 time horizons) |
+   | Constraint, Resource | 7. Script/Automation Analysis (8 tooling questions) |
+   | Gap Detection, Edge Case | 1. Missing Elements (5 gap-detection questions) |
+   | Any uncertainty | 6. Meta-Questioning (5 self-reflection questions) |
+
+   **Deepening protocol:**
+   - For each selected category, ask 2-3 most relevant questions (not exhaustive)
+   - Capture answers as Discovered requirements
+   - If answers reveal new High-relevance areas, add that category
+   - Stop when 2 consecutive probes yield no new insights
+
    **Dialogue complete when:**
-   - All four topic areas addressed (may be N/A if not applicable)
+   - All Phase A topics addressed
+   - At least 2 deepening categories explored (based on lens flags)
    - No blocking ambiguities remain
    - User confirms scope understanding
 10. **Categorize requirements**:
