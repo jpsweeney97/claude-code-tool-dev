@@ -44,11 +44,11 @@ Start by understanding the current project context, then ask questions one at a 
 - Use elements-of-style:writing-clearly-and-concisely skill if available
 - Commit the design document to git
 
-**Review:**
+**Validation (recommended):**
 
-- Use design-reviewer skill to audit the design for quality and completeness
-- Address any critical findings before proceeding to implementation
-- If verdict is NEEDS REVISION, work with user to resolve issues
+- Use validating-designs skill to stress-test the design before implementation
+- Catches issues that would otherwise surface during implementation
+- If blocking issues found, resolve before proceeding
 
 **Implementation (if continuing):**
 
