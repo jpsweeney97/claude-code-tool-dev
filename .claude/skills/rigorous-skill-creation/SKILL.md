@@ -476,3 +476,59 @@ If ALL pass: Allow. If ANY fail: Block.
 - Design issue → Major
 
 Default: Uncertain → Major
+
+## Verification
+
+### Quick Checks (Per Phase)
+
+| Phase | Check | Method |
+|-------|-------|--------|
+| 2 | Requirements locked | metadata.decisions.requirements has ≥1 explicit entry |
+| 2 | Scenarios designed | 3+ pressures documented per scenario |
+| 3 | Baseline captured | Failures and rationalizations documented verbatim |
+| 4 | Section complete | H2 heading present |
+| 5 | Behavior changed | Same scenario, different outcome documented |
+| 6 | Loopholes closed | All rationalizations have counters |
+| 7 | Panel passed | All agents APPROVED (or skipped) |
+| 8 | Session State removed | No `## Session State` |
+
+### Full Validation (Phase 8)
+
+**[MUST] — Structural:**
+- [ ] All 11 sections with correct H2 headings
+- [ ] Frontmatter parses as valid YAML
+- [ ] metadata.decisions has required fields
+- [ ] metadata.verification has required fields
+- [ ] Session State removed
+
+**[SHOULD] — Quality:**
+- [ ] requirements.implicit non-empty
+- [ ] requirements.discovered non-empty (non-trivial skills)
+- [ ] approach.alternatives ≥2 with rationale
+- [ ] methodology_insights ≥5 substantive
+- [ ] rationalizations_captured non-empty
+- [ ] scenarios_passed = baseline.scenarios_run
+
+### Pressure Scenario Quality
+
+| Criterion | Good | Bad |
+|-----------|------|-----|
+| Pressure count | 3+ combined | Single |
+| Format | Forced A/B/C | Open-ended |
+| Framing | "Choose and act" | "What should you do?" |
+| Details | Real paths, times | Vague |
+| Escape routes | None | "I'd ask the user" allowed |
+
+### Baseline Quality
+
+- [ ] Test shows clear failure (wrong option)
+- [ ] Failure for expected reason (temptation, not confusion)
+- [ ] Rationalizations captured verbatim
+- [ ] Multiple scenarios show consistent pattern
+
+### Verification Quality
+
+- [ ] Same scenarios as baseline
+- [ ] Same pressures (not softened)
+- [ ] Agent chose correct AND cited skill
+- [ ] Before/after comparison documented
