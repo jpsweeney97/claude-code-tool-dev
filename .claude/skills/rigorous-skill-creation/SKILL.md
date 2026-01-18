@@ -94,3 +94,61 @@ If isolation fails, baseline tests become contaminated — the subagent would "k
 **Verification:** Phase 3 includes a canary check to confirm isolation.
 
 **Fallback:** If isolation cannot be confirmed, run baseline in a fresh Claude Code session.
+
+## Outputs
+
+### Primary Artifact
+
+- **SKILL.md**: Complete skill with 11 sections + frontmatter
+
+### Supporting Artifacts (skill-specific)
+
+- **references/**: Heavy reference material (>100 lines) that would bloat SKILL.md
+- **examples/**: Usage examples including worked-example.md walkthrough
+- **scripts/**: Executable tools the skill needs at runtime
+
+### Process Artifacts (verification evidence)
+
+- **Baseline document**: Captured failures without skill
+- **Verification evidence**: Before/after comparison proving behavior change
+- **Rationalization table**: Observed excuses + counters (embedded in Anti-Patterns)
+
+### Embedded Metadata
+
+```yaml
+metadata:
+  decisions:
+    requirements:
+      explicit: [...]
+      implicit: [...]
+      discovered: [...]
+    approach:
+      chosen: "..."
+      alternatives: [...]
+    risk_tier: "Medium — rationale"
+    key_tradeoffs: [...]
+    category: "..."
+    methodology_insights:
+      - "Lens: finding → affected section"
+  verification:
+    baseline:
+      scenarios_run: 3
+      failures_observed: 3
+      rationalizations_captured: ["exact phrase 1", "exact phrase 2"]
+    testing:
+      scenarios_passed: 3
+      scenarios_failed: 0
+    panel:
+      status: "approved | skipped"
+      agents_run: 4
+```
+
+### Definition of Done
+
+- [ ] All 11 sections present and validated
+- [ ] Supporting files created if needed
+- [ ] Baseline failures documented
+- [ ] All pressure scenarios pass with skill
+- [ ] Rationalization table covers observed failure modes
+- [ ] Panel unanimous (Medium/High) OR skipped (Low)
+- [ ] Session State removed
