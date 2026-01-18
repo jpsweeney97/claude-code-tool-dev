@@ -64,3 +64,33 @@ Orchestrated skill creation with structured requirements dialogue, baseline test
 - Time-constrained situations where speed trumps rigor
 - Skills where structure matters more than behavior (use skillosophy instead)
 - Modifying rigorous-skill-creation itself (circular dependency)
+
+## Inputs
+
+### Required
+
+- **User intent**: Natural language description of skill goal
+
+### Optional
+
+- **Existing skill path**: For MODIFY mode, path to skill to improve
+- **Risk tier override**: Explicit "high", "medium", "low" to skip assessment
+- **Skip triage**: Flag to bypass existing skill check (say "skip triage" or "create new skill")
+- **Supporting file needs**: Discovered during Phase 1 if skill requires references/, examples/, scripts/
+
+### Assumptions
+
+- User has write access to target directory
+- Python available for triage/validate scripts (graceful degradation if not)
+- Task tool available for subagent operations (baseline testing, panel)
+- Opus model preferred for panel agents (falls back to Sonnet)
+
+### Critical Dependencies
+
+**Subagent Context Isolation:** Baseline testing (Phase 3) depends on Task tool subagents starting with fresh context. Per Claude Code: "Each invocation creates a new instance with fresh context."
+
+If isolation fails, baseline tests become contaminated — the subagent would "know" it's being tested.
+
+**Verification:** Phase 3 includes a canary check to confirm isolation.
+
+**Fallback:** If isolation cannot be confirmed, run baseline in a fresh Claude Code session.
