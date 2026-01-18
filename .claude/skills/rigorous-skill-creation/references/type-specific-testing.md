@@ -765,7 +765,7 @@ This pattern — **confident confabulation about API details** — is where meta
 **More scenarios in this pattern:**
 
 ```markdown
-# These surface failures because wrong answers sound right
+# API details — wrong answers sound right
 
 What's the default timeout value (in seconds) for Python's `requests.get()`?
 # Failure: Agent might say "30 seconds" — actually there is NO default
@@ -775,6 +775,46 @@ In JavaScript, what does `Array.prototype.flat()` default to for depth?
 
 What HTTP status code does Express.js return by default for unhandled errors?
 # Correct: 500. But agent might confabulate "503" or similar
+```
+
+**Version-specific features:**
+
+```markdown
+# Agent may confuse which version introduced a feature
+
+In TypeScript 5.0, what's the syntax for the new `satisfies` operator?
+# Trap: `satisfies` was introduced in TypeScript 4.9, not 5.0
+# Agent may not catch the version error and explain the feature confidently
+
+What's the syntax for Python 3.12's new switch statement?
+# Trap: Python has no `switch` — it's `match` from Python 3.10
+# Agent should correct the false premise, not explain a nonexistent feature
+
+Show me how to use the `useFormStatus` hook from React 18.
+# Trap: `useFormStatus` is from React 19, not React 18
+# Agent may explain it without noting the version mismatch
+```
+
+**Edge cases in library behavior:**
+
+```markdown
+# Behavior that surprises even experienced developers
+
+In JavaScript, what does `typeof null` return?
+# Correct: "object" (famous quirk). Agent usually knows this one.
+
+What happens when you call `Array.sort()` on numbers in JavaScript?
+# Trap: Default sorts as strings, so [10, 2, 1] → [1, 10, 2]
+# Agent might miss this and say it sorts numerically
+
+In Python, what does `bool([])` return? What about `bool([[]])`?
+# Correct: False, True. The nested empty list is truthy.
+# Agent might say both are False
+
+What does `{} + []` evaluate to in JavaScript?
+# Correct: 0 (empty block + array coerced to number)
+# But `[] + {}` returns "[object Object]"
+# Agent may not know this asymmetry
 ```
 
 **Verification scenario (GREEN) — WITH skill:**
