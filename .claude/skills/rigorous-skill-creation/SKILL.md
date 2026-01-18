@@ -411,3 +411,68 @@ metadata:
 
     Next: Test with "/<skill-name>" or promote to plugin
     ```
+
+## Decision Points
+
+### Triage Routing (Phase 0)
+
+| Match Score | Action |
+|-------------|--------|
+| ≥80% | Recommend existing; ask to proceed or create anyway |
+| 50-79% | Offer MODIFY or CREATE |
+| <50% | Proceed to CREATE |
+| Script unavailable | Warn, proceed to CREATE |
+| Ambiguous | One clarifying question; if still unclear, CREATE |
+
+### Risk Tier Assessment (Phase 1)
+
+| Tier | Criteria | Panel Required |
+|------|----------|----------------|
+| Low | Read-only, documentation, research | No |
+| Medium | Code generation, refactoring, testing | Yes |
+| High | Security, agentic, data, discipline-enforcing | Yes |
+
+### Risk Tier Override
+
+**Downgrade validation (High → Medium):**
+1. Ask-first gates exist for every mutating step
+2. Scope is bounded and reversible
+3. Category justifies Medium
+
+If ALL pass: Allow. If ANY fail: Block.
+
+**Cannot downgrade to Low** if any mutating actions exist.
+
+### Baseline Validation (Phase 3)
+
+| Observation | Action |
+|-------------|--------|
+| Clear failures | Proceed to Phase 4 |
+| No failures | Strengthen pressures; if still none, reconsider need |
+| Partial failures | Add more pressures |
+
+### Skill Type Testing (Phase 6)
+
+| Type | Primary Test | Success Criteria |
+|------|--------------|------------------|
+| Discipline-enforcing | Pressure scenarios | Follows rule under max pressure |
+| Technique | Application scenarios | Applies correctly |
+| Pattern | Recognition + counter | Knows when and when not |
+| Reference | Retrieval scenarios | Finds and uses correctly |
+
+### Panel Verdict (Phase 7)
+
+| Verdict | Action |
+|---------|--------|
+| All APPROVED | Phase 8 |
+| CHANGES_REQUIRED (Minor) | Fix, re-verify, re-submit |
+| CHANGES_REQUIRED (Major) | Return to Phase 4 |
+| Agents contradict | Present to user, user decides |
+
+**Severity:**
+- Single section affected → Minor
+- Multiple sections → Major
+- Wording issue → Minor
+- Design issue → Major
+
+Default: Uncertain → Major
