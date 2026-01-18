@@ -649,3 +649,47 @@ Default: Uncertain → Major
 - Skill exceeds 1000 lines
 - User repeatedly rejects sections
 - Verification softer than baseline
+
+## Extension Points
+
+### 1. Skill Type-Specific Workflows
+
+Specialize process by type: discipline, technique, pattern, reference.
+
+### 2. Batch Validation Mode
+
+```bash
+python scripts/validate.py --batch <skills-directory>
+```
+
+### 3. Category-Specific Integration
+
+21 categories with tailored guidance. See `references/category-integration.md`.
+
+### 4. Custom Panel Agents
+
+Add domain-specific reviewers to panel configuration.
+
+### 5. Panel Feedback History
+
+Track what previous iterations flagged in metadata.
+
+### 6. CI/CD Integration
+
+Exit codes and JSON output for pipelines.
+
+### 7. Skill Composition
+
+Explicit requires/enhances/conflicts declarations.
+
+### 8. Pressure Scenario Library
+
+Reusable scenarios by pressure type.
+
+### 9. Rationalization Pattern Library
+
+Common rationalizations with proven counters.
+
+### 10. Multi-Session Continuity
+
+Enhanced Session State for cross-session recovery.
