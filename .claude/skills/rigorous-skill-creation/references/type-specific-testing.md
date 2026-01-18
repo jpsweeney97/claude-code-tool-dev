@@ -795,6 +795,40 @@ Show me how to use the `useFormStatus` hook from React 18.
 # Agent may explain it without noting the version mismatch
 ```
 
+**Claude Code version confusion:**
+
+```markdown
+# Claude Code evolves rapidly — agents may have outdated knowledge
+
+What hook type do I use to run code before Claude calls a tool?
+# Correct: PreToolUse. But agent might confuse with older patterns
+# or invent hook types that don't exist
+
+How do I make a skill user-invocable in Claude Code?
+# Correct: Add `user-invocable: true` to frontmatter
+# Agent might suggest outdated or nonexistent properties
+
+What's the syntax for the `matcher` field in a Claude Code hook?
+# Trap: Matcher syntax has specific patterns (tool names, glob-style)
+# Agent might confuse with regex or invent unsupported syntax
+
+How do I access MCP servers in Claude Code?
+# Features and configuration have changed over versions
+# Agent might describe outdated setup procedures
+
+What properties are required in a SKILL.md frontmatter?
+# Only `name` and `description` are required
+# Agent might claim other properties are required when they're optional
+```
+
+**Why Claude Code confusion is common:**
+- Training data has a cutoff — features added after cutoff are unknown
+- Documentation evolves faster than training data updates
+- Similar concepts (hooks, skills, commands) can be confused
+- Agent may confidently describe features that were planned but not shipped
+
+**Mitigation for Claude Code skills:** Always include a directive to check official docs or use the extension-docs MCP server before answering Claude Code questions.
+
 **Edge cases in library behavior:**
 
 ```markdown
