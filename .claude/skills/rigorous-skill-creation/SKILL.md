@@ -331,3 +331,83 @@ metadata:
 
 42. **Update metadata.verification.testing**
 43. **All scenarios must pass before proceeding**
+
+### Phase 6: Refactor
+
+44. **Check for new rationalizations** from Phase 5
+45. **For each new rationalization, apply 4-counter approach**:
+    a. Explicit negation in relevant section
+    b. Entry in rationalization table (Anti-Patterns)
+    c. Entry in red flags list
+    d. Update description with violation symptom
+
+46. **Address "Spirit vs Letter" arguments**: Add "Violating letter IS violating spirit"
+47. **Re-run verification** on updated skill
+48. **Apply iteration limits**:
+    - Progress made? Continue (up to 5)
+    - Same issues recurring? Escalate immediately
+    - Different issues? Continue (up to 3)
+
+    On limit: "Cannot close loopholes. Options: (A) Accept risks, (B) Split into focused skills, (C) Abandon"
+
+49. **Bulletproof criteria**:
+    - [ ] Agent chooses correct option under maximum pressure
+    - [ ] Agent cites skill sections
+    - [ ] Agent acknowledges temptation but follows rule
+    - [ ] Meta-test reveals "skill was clear"
+
+50. **Update Session State**
+
+### Phase 7: Panel Review (Medium + High Risk)
+
+51. **Check risk tier**: Low → Skip to Phase 8
+52. **Load panel protocol**: Read `references/panel-protocol.md`
+53. **Launch 4 agents in parallel** via Task tool:
+    - Executability Auditor
+    - Semantic Coherence Checker
+    - Dialogue Auditor
+    - Adversarial Reviewer
+
+54. **Handle model fallback**: Opus → Sonnet → skip with warning
+55. **Handle verdicts**:
+    - All APPROVED → Phase 8
+    - CHANGES_REQUIRED → Classify severity, fix, re-test, re-submit
+
+56. **Iteration limits**: 5 (progress) / escalate (recurring) / 3 (different)
+57. **Re-run tests after panel fixes**
+58. **Update Session State**
+
+### Phase 8: Finalization
+
+59. **Remove Session State**: Locate `## Session State`, truncate from that point
+60. **Update metadata.verification.panel**
+61. **Verify supporting files exist**
+62. **Review token efficiency** (soft guideline):
+    - Aim for <500 words in SKILL.md body
+    - Move details to references
+    - Priority: Correctness > Clarity > Conciseness
+
+63. **Final validation**:
+    ```bash
+    scripts/validate_skill.sh <skill-path>
+    ```
+
+    Fallback: Manual verify all 11 sections, YAML parses, metadata complete
+
+64. **Confirm completion**:
+    ```
+    ✅ Skill created and verified.
+
+    Created: <path>/SKILL.md
+    Sections: 11/11
+
+    Testing Evidence:
+    - Baseline: N failures across N scenarios
+    - Rationalizations captured: N
+    - Verification: N/N scenarios passed
+    - Refactor iterations: N
+
+    Panel: [Unanimous APPROVED | Skipped]
+
+    Next: Test with "/<skill-name>" or promote to plugin
+    ```
