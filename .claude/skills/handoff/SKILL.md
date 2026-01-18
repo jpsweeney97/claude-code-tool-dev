@@ -2,7 +2,7 @@
 name: handoff
 description: Use when user says "wrap this up", "new session", or "handoff"; when stopping work with context to preserve; or when resuming from a previous session.
 metadata:
-  version: 4.0.0
+  version: 4.1.0
 ---
 
 # Handoff Skill
@@ -10,8 +10,6 @@ metadata:
 Capture session context at stopping points. Resume explicitly with `/resume`.
 
 **Core Promise:** One action to save (`/handoff`), one action to resume (`/resume`).
-
-**Current Session ID:** ${CLAUDE_SESSION_ID}
 
 ## When to Use
 
@@ -112,28 +110,34 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
    - If session appears trivial (no decisions, changes, or learnings), ask: "This session seems light — create a handoff anyway?"
    - If user declines, **STOP**. Do not proceed.
 
-2. **Gather context** from the session
+2. **Get session ID** by running:
+   ```bash
+   find ~/.claude/projects -name "*.jsonl" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1 | xargs basename | sed 's/.jsonl//'
+   ```
+   This returns the current session's UUID from the most recently modified transcript.
 
-3. **Select relevant sections** using the checklist below
+3. **Gather context** from the session
+
+4. **Select relevant sections** using the checklist below
    - If no sections have content, **STOP** and ask: "I don't see anything to hand off. What should I capture?"
    - Omit empty sections from output
    - **Calibration:** Distinguish verified facts (explicitly discussed) from inferred conclusions (reasonable next steps) from assumed context (background not verified this session)
 
-4. **Determine output path:**
+5. **Determine output path:**
    - If `~/.claude/handoffs/<project>/` is not writable, **STOP** and ask for alternative path
    - If project name is ambiguous (not in git, generic directory name), ask user to specify
 
-5. **Generate markdown** with frontmatter:
-   - Always include `session_id: ${CLAUDE_SESSION_ID}`
-   - Check for `~/.claude/.session-state/handoff-${CLAUDE_SESSION_ID}`
+6. **Generate markdown** with frontmatter:
+   - Include `session_id:` with the UUID from step 2
+   - Check for `~/.claude/.session-state/handoff-<session_id>` (using the UUID from step 2)
    - If state file exists, read path and include as `resumed_from`
    - Use fallbacks for optional fields (see Inputs → Constraints/Assumptions)
 
-6. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
+7. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
 
-7. **Clean up state file** (delete `~/.claude/.session-state/handoff-${CLAUDE_SESSION_ID}` if exists)
+8. **Clean up state file** (delete `~/.claude/.session-state/handoff-<session_id>` if exists)
 
-8. **Verify and confirm:**
+9. **Verify and confirm:**
    - Check file exists and frontmatter is valid
    - Confirm: "Handoff saved: <title> (N decisions, N changes, N next steps)"
 
@@ -144,7 +148,7 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
 date: 2026-01-08
 time: "14:30"
 created_at: "<ISO 8601 UTC timestamp, e.g., 2026-01-08T14:30:00Z>"
-session_id: ${CLAUDE_SESSION_ID}
+session_id: <UUID from step 2>
 resumed_from: <archive path if session resumed from handoff, omit otherwise>
 project: <git root name or directory name>
 branch: <current branch if git, omit if not git>
@@ -263,16 +267,20 @@ The `read.py` script runs silently at session start:
 
 When user runs `/resume [path]`:
 
-1. If path provided: read that specific handoff
-2. If no path: use Glob to find latest in `~/.claude/handoffs/<project>/`
-3. Read and display the handoff content
-4. Summarize key points and offer: "Continue with [next step]?"
-5. **Archive the handoff:**
+1. **Get session ID** by running:
+   ```bash
+   find ~/.claude/projects -name "*.jsonl" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1 | xargs basename | sed 's/.jsonl//'
+   ```
+2. If path provided: read that specific handoff
+3. If no path: use Glob to find latest in `~/.claude/handoffs/<project>/`
+4. Read and display the handoff content
+5. Summarize key points and offer: "Continue with [next step]?"
+6. **Archive the handoff:**
    - Create `~/.claude/handoffs/<project>/.archive/` if needed
    - Move handoff to `.archive/<filename>`
-6. **Write state file:**
+7. **Write state file:**
    - Create `~/.claude/.session-state/` if needed
-   - Write archive path to `~/.claude/.session-state/handoff-${CLAUDE_SESSION_ID}`
+   - Write archive path to `~/.claude/.session-state/handoff-<session_id>` (using UUID from step 1)
 
 ### Listing (`/list-handoffs`)
 
