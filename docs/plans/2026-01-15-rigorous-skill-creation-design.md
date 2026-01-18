@@ -15,32 +15,23 @@ An orchestration skill that adds structured requirements dialogue and risk-based
 
 ## Prerequisites
 
-This skill builds on existing infrastructure. Do not reinvent what already exists.
+This skill consolidates content from skillosophy and writing-skills into a single self-contained skill.
 
-| Dependency | Location | Purpose |
-|------------|----------|---------|
-| skillosophy | `metamarket:skillosophy` | 11 thinking lenses, 7 regression question categories, risk tiers, 21 categories |
-| writing-skills | `~/Documents/writing-skills/SKILL.md` | Skill structure, CSO, TDD mapping |
-| testing-skills-with-subagents | `~/Documents/writing-skills/testing-skills-with-subagents.md` | Pressure testing methodology |
+| Source | Files Absorbed | Purpose |
+|--------|----------------|---------|
+| skillosophy | 24 files (methodology, checklists, templates, scripts) | Thinking lenses, regression questions, risk tiers, categories, validation |
+| writing-skills | 4 files (testing, examples, reference) | Pressure testing methodology, worked examples |
 
-**What this skill adds (not duplicates):**
+**Migration path:** On success, skillosophy and writing-skills are deprecated. This skill becomes the single source for rigorous skill creation methodology.
+
+**What this skill adds (new content):**
 - 3 additional testing lenses (12-14) for skill verification
 - Structured Phase 1-2 dialogue workflow
 - Explicit requirements→scenario traceability
 - Multi-agent panel review for Medium/High risk skills
 - Audit trail (metadata.decisions, metadata.verification)
 - Session State for cross-session recovery
-
-**What this skill delegates (28 existing files):**
-
-| Category | Files | Source |
-|----------|-------|--------|
-| Methodology | regression-questions.md, thinking-lenses.md, risk-tiers.md, category-integration.md (4) | skillosophy |
-| Checklists | 14 section checklists for Phase 4 validation | skillosophy |
-| Templates | skill-skeleton.md, session-state-schema.md, decisions-schema.md (3) | skillosophy |
-| Scripts | triage_skill_request.py, discover_skills.py, validate_skill.sh (3) | skillosophy |
-| Testing | testing-skills-with-subagents.md, examples/CLAUDE_MD_TESTING.md (2) | writing-skills |
-| Reference | persuasion-principles.md, anthropic-best-practices.md (2) | writing-skills |
+- Panel protocol with embedded agent prompts
 
 ## Key Decisions
 
@@ -57,57 +48,38 @@ This skill builds on existing infrastructure. Do not reinvent what already exist
 
 ## Directory Structure
 
+References are one level deep from SKILL.md. Related content is consolidated to avoid deeply nested reference chains.
+
 ```
 .claude/skills/rigorous-skill-creation/
-├── SKILL.md                          # Main skill (11 sections)
+├── SKILL.md                              # Main skill (11 sections)
 ├── references/
-│   ├── extended-lenses.md            # 3 NEW testing lenses (lenses 12-14)
-│   └── phase-7-panel.md              # Panel agent prompts + tool permissions
-└── examples/
-    └── worked-example.md             # Complete skill creation walkthrough
+│   ├── thinking-lenses.md                # 11 base lenses (from skillosophy)
+│   ├── regression-questions.md           # 7 question categories (from skillosophy)
+│   ├── risk-tiers.md                     # Tier criteria, auto-escalation (from skillosophy)
+│   ├── category-integration.md           # 21 categories with DoD (from skillosophy)
+│   ├── section-checklists.md             # Consolidated: 14 section checklists (from skillosophy)
+│   ├── skill-skeleton.md                 # Empty 11-section template (from skillosophy)
+│   ├── session-state-schema.md           # Session State format (from skillosophy)
+│   ├── decisions-schema.md               # metadata.decisions schema (from skillosophy)
+│   ├── testing-methodology.md            # TDD for skills (from writing-skills)
+│   ├── persuasion-principles.md          # Psychology reference (from writing-skills)
+│   ├── extended-lenses.md                # NEW: 3 testing lenses (12-14)
+│   └── panel-protocol.md                 # NEW: Panel agent prompts and execution protocol
+├── examples/
+│   ├── worked-example.md                 # NEW: Complete walkthrough
+│   └── CLAUDE_MD_TESTING.md              # Worked example (from writing-skills)
+└── scripts/
+    ├── triage_skill_request.py           # Skill routing (from skillosophy)
+    ├── discover_skills.py                # Skill index builder (from skillosophy)
+    └── validate_skill.sh                 # Structural validation (from skillosophy)
 ```
 
-**Reused from skillosophy (do not duplicate):**
-
-*Methodology:*
-- `regression-questions.md` — 7 question categories
-- `thinking-lenses.md` — 11 base lenses
-- `risk-tiers.md` — Tier criteria, auto-escalation
-- `category-integration.md` — 21 categories with DoD
-
-*Checklists (14 files — section requirements for Phase 4):*
-- `frontmatter.md`, `frontmatter-decisions.md` — Frontmatter validation
-- `triggers.md`, `when-to-use.md`, `when-not-to-use.md` — Activation sections
-- `inputs.md`, `outputs.md` — Contract sections
-- `procedure.md`, `decision-points.md` — Execution sections
-- `verification.md`, `troubleshooting.md` — Quality sections
-- `anti-patterns.md`, `extension-points.md` — Polish sections
-- `session-state.md` — Transient state during creation
-
-*Templates:*
-- `skill-skeleton.md` — Empty 11-section structure with metadata.decisions
-- `session-state-schema.md` — Session State format
-- `decisions-schema.md` — metadata.decisions schema
-
-*Scripts:*
-- `triage_skill_request.py` — Intelligent skill routing (USE_EXISTING/IMPROVE/CREATE)
-- `discover_skills.py` — Skill index builder
-- `validate_skill.sh` — Structural validation
-
-*Path:* `metamarket:skillosophy/references/` and `metamarket:skillosophy/scripts/`
-
-**Reused from writing-skills (do not duplicate):**
-- `testing-skills-with-subagents.md` — Pressure testing methodology
-- `examples/CLAUDE_MD_TESTING.md` — Worked example of testing methodology
-- `persuasion-principles.md` — Psychology reference
-- `anthropic-best-practices.md` — Official guidance
-
-*Path:* `~/Documents/writing-skills/`
-
-**New in this skill (3 files only):**
-- `extended-lenses.md` — 3 additional testing lenses (12-14) for skill verification
-- `phase-7-panel.md` — Panel agent prompts (adapted from metamarket)
-- `worked-example.md` — Complete walkthrough demonstrating the integrated workflow
+**File counts:**
+- References: 12 files (10 absorbed + 2 new)
+- Examples: 2 files (1 absorbed + 1 new)
+- Scripts: 3 files (absorbed)
+- **Total: 18 files** (14 checklists consolidated into 1)
 
 ## Phase Flow
 
@@ -448,9 +420,9 @@ degraded_mode:                        # Notes when reference files unavailable
    - **Default**: If genuinely unclear after one clarifying question, default to CREATE
 3. **Self-modification guard** — If target path is within rigorous-skill-creation directory, **STOP with explanation**: "Cannot modify self — circular dependency. Edit plugin files directly."
 4. **Check skip triage flag** — If set, log "Triage skipped by user request" and proceed directly to Phase 1 (CREATE mode)
-5. **Run triage script** via skillosophy:
+5. **Run triage script**:
    ```bash
-   python ~/.claude/plugins/cache/metamarket-dev/metamarket/*/skills/skillosophy/scripts/triage_skill_request.py "<user goal>" --json
+   python scripts/triage_skill_request.py "<user goal>" --json
    ```
 6. **Handle triage result**:
    | Result | Match | Action |
@@ -463,9 +435,9 @@ degraded_mode:                        # Notes when reference files unavailable
 
 ### Phase 1: Requirements Discovery
 
-8. **Load skillosophy references**:
-   - `metamarket:skillosophy/references/methodology/thinking-lenses.md` (11 base lenses)
-   - `metamarket:skillosophy/references/methodology/regression-questions.md` (7 categories)
+8. **Load methodology references**:
+   - `references/thinking-lenses.md` (11 base lenses)
+   - `references/regression-questions.md` (7 categories)
    - `references/extended-lenses.md` (3 new testing lenses: 12-14)
 
    **Regression questioning termination:** Stop when 3 consecutive rounds yield no new insights OR all thinking models applied OR ≥3 expert perspectives considered OR evolution/timelessness explicitly evaluated with score ≥7.
@@ -607,9 +579,9 @@ degraded_mode:                        # Notes when reference files unavailable
 
 ### Phase 4: Generation
 
-31. **Load skillosophy checklists**: `metamarket:skillosophy/references/checklists/`
+31. **Load checklists**: `references/section-checklists.md`
     - Each section has a checklist with [MUST], [SHOULD], and [SEMANTIC] requirements
-    - Use `skill-skeleton.md` as starting template
+    - Use `references/skill-skeleton.md` as starting template
 32. **Write frontmatter** (validated in Phase 2) + operational fields
 
     **⚠️ Description Trap Warning:** The description field must contain ONLY triggering conditions ("Use when..."). Never summarize the skill's workflow in the description. Empirically verified: when descriptions summarize workflow, Claude follows the description instead of reading the full skill body.
@@ -681,7 +653,12 @@ degraded_mode:                        # Notes when reference files unavailable
 46. **Address "Spirit vs Letter" arguments** (per writing-skills):
     - Add foundational principle: "Violating the letter IS violating the spirit"
 47. **Re-run verification** on updated skill
-48. **Continue loop** if new rationalizations emerge
+48. **Apply adaptive iteration limits**:
+    - Progress made? Continue (up to 5 iterations)
+    - Same issues recurring? Escalate immediately
+    - Different issues each time? Continue (up to 3 iterations)
+
+    On limit reached, escalate to user: "Cannot close loopholes after N iterations. Options: (A) Accept remaining risks and document, (B) Split into focused skills, (C) Abandon skill creation."
 49. **Apply bulletproof criteria** from testing-skills-with-subagents:
     - [ ] Agent chooses correct option under maximum pressure
     - [ ] Agent cites skill sections as justification
@@ -694,41 +671,42 @@ degraded_mode:                        # Notes when reference files unavailable
 51. **Check risk tier**:
     - Low → Skip to Phase 8, set `panel.status: skipped`
     - Medium/High → Continue with panel
-52. **Launch 4 agents in parallel** via Task tool (see `references/phase-7-panel.md` for full prompts and tool permissions):
+52. **Load panel protocol**: Read `references/panel-protocol.md`
+53. **Launch 4 agents in parallel** via Task tool using prompts from panel protocol:
     - **Executability Auditor**: Steps unambiguous, decisions have defaults
     - **Semantic Coherence Checker**: Sections consistent, terminology uniform
     - **Dialogue Auditor**: Requirements complete, methodology substantive
     - **Adversarial Reviewer**: Decisions justified, failures mitigated
-53. **Handle model fallback**: Opus → Sonnet → skip with warning
-54. **Handle verdicts**:
+54. **Handle model fallback**: Opus → Sonnet → skip with warning
+55. **Handle verdicts**:
     - All APPROVED → Proceed to Phase 8
     - Any CHANGES_REQUIRED → Classify severity, fix, re-test, re-submit
-55. **Apply iteration limits**: 5 (progress) / escalate immediately (recurring) / 3 (different issues)
-56. **Re-run tests after panel fixes** (structural changes may break behavior)
-57. **Update Session State** with panel status
+56. **Apply iteration limits**: 5 (progress) / escalate immediately (recurring) / 3 (different issues)
+57. **Re-run tests after panel fixes** (structural changes may break behavior)
+58. **Update Session State** with panel status
 
 ### Phase 8: Finalization
 
-58. **Remove Session State**:
+59. **Remove Session State**:
     - Locate `## Session State` (must be last H2)
     - Truncate from that point forward
-59. **Update metadata.verification.panel**
-60. **Verify supporting files exist** (if planned)
-61. **Review token efficiency** (soft guideline):
+60. **Update metadata.verification.panel**
+61. **Verify supporting files exist** (if planned)
+62. **Review token efficiency** (soft guideline):
     - Aim for <500 words in SKILL.md body (excluding frontmatter)
     - Move implementation details to reference files
     - Compress examples; cross-reference other skills where appropriate
     - **Priority**: Correctness > Clarity > Conciseness (optimize only after behavior is verified)
-62. **Final validation via skillosophy script**:
+63. **Final validation**:
     ```bash
-    ~/.claude/plugins/cache/metamarket-dev/metamarket/*/skills/skillosophy/scripts/validate_skill.sh
+    scripts/validate_skill.sh <skill-path>
     ```
     **Fallback if script unavailable:** Manually verify against Verification section checklists:
     - All 11 sections present with correct H2 headings
     - Frontmatter parses as valid YAML
     - `metadata.decisions` and `metadata.verification` have required fields
     - Session State removed from final skill
-63. **Confirm completion to user**:
+64. **Confirm completion to user**:
     ```
     ✅ Skill created and verified.
 
@@ -1158,20 +1136,22 @@ Mark deprecated with migration path.
 | metadata.verification | Audit trail of testing evidence |
 | Session State | Cross-session recovery for long skill creation |
 
-### What This Skill Reuses (Delegated)
+### Absorbed Content (from deprecated skills)
 
-| Feature | Source | How Used |
-|---------|--------|----------|
-| 11 base thinking lenses | skillosophy | Phase 1 analysis |
-| 7 regression question categories | skillosophy | Phase 1 deepening |
-| Risk tier criteria | skillosophy | Phase 1 assessment |
-| 21 skill categories | skillosophy | Category selection |
-| Skill structure (11 sections) | writing-skills | Phase 4 generation |
-| TDD pressure testing | testing-skills-with-subagents | Phases 3, 5, 6 |
-| Rationalization tables | writing-skills | Anti-patterns section |
-| Meta-testing | testing-skills-with-subagents | Phase 5 failures |
-| CSO principles | writing-skills | Discoverability |
-| Iron Law | writing-skills | Phase 3 enforcement |
+| Feature | Original Source | Location in This Skill |
+|---------|-----------------|------------------------|
+| 11 base thinking lenses | skillosophy | `references/thinking-lenses.md` |
+| 7 regression question categories | skillosophy | `references/regression-questions.md` |
+| Risk tier criteria | skillosophy | `references/risk-tiers.md` |
+| 21 skill categories | skillosophy | `references/category-integration.md` |
+| 14 section checklists | skillosophy | `references/section-checklists.md` (consolidated) |
+| Skill skeleton template | skillosophy | `references/skill-skeleton.md` |
+| Session state schema | skillosophy | `references/session-state-schema.md` |
+| Decisions schema | skillosophy | `references/decisions-schema.md` |
+| 3 scripts | skillosophy | `scripts/` |
+| TDD pressure testing | writing-skills | `references/testing-methodology.md` |
+| Persuasion principles | writing-skills | `references/persuasion-principles.md` |
+| Worked example | writing-skills | `examples/CLAUDE_MD_TESTING.md` |
 
 ## Intentional Deviations
 
@@ -1183,26 +1163,19 @@ Documented decisions that differ from source materials:
 | skillosophy: Panel required for all CREATE | Panel for Medium+High only | Right-sized rigor; Low-risk skills don't need structural review |
 | writing-skills: Token efficiency targets (<150, <200, <500 words) | Soft guideline in Phase 8 | Strict limits not enforced; priority is Correctness > Clarity > Conciseness. Aim for <500 words, move details to references. Hard limits apply only for frequently-loaded skills (autoloaded, getting-started) |
 | skillosophy: Mode confidence percentages displayed | Thresholds only (≥80%, 50-79%, <50%) | Thresholds already communicate confidence; explicit % is implementation detail |
+| skillosophy: 11 lenses as flat list | Regrouped as 4 understanding + 7 testing + 3 new | Clearer mental model for when to apply each |
 
 ## Next Steps
 
 1. Create working branch: `feature/rigorous-skill-creation`
-2. Implement SKILL.md with all 11 sections
-3. Create reference files (2 files only):
-   - `extended-lenses.md` — 3 new testing lenses (12-14)
-   - `phase-7-panel.md` — Panel agent prompts
-4. Create example (1 file):
-   - `worked-example.md` — Complete walkthrough
-5. Test with real skill creation (using existing testing-skills-with-subagents methodology)
-6. Promote to metamarket when stable
+2. Copy absorbed files from skillosophy and writing-skills into directory structure
+3. Implement SKILL.md with all 11 sections
+4. Create new reference files (2 files):
+   - `references/extended-lenses.md` — 3 new testing lenses (12-14)
+   - `references/panel-protocol.md` — Panel agent prompts and execution protocol
+5. Create new example (1 file):
+   - `examples/worked-example.md` — Complete walkthrough
+6. Test with real skill creation
+7. Deprecate skillosophy and writing-skills when stable
 
-**Total files to create:** 1 SKILL.md + 2 references + 1 example = **4 files**
-
-**Files reused from skillosophy (24 files):**
-- Methodology: 4 files (regression-questions, thinking-lenses, risk-tiers, category-integration)
-- Checklists: 14 files (one per section + frontmatter-decisions + session-state)
-- Templates: 3 files (skill-skeleton, session-state-schema, decisions-schema)
-- Scripts: 3 files (triage_skill_request.py, discover_skills.py, validate_skill.sh)
-
-**Files reused from writing-skills (4 files):**
-- testing-skills-with-subagents.md, examples/CLAUDE_MD_TESTING.md, persuasion-principles.md, anthropic-best-practices.md
+**Total files:** 15 absorbed + 3 new = **18 files** (14 checklists consolidated into 1)
