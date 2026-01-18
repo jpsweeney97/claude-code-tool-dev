@@ -55,16 +55,23 @@ Detailed step-by-step procedures for each phase of rigorous skill creation.
     **Stop when:** 2 consecutive probes yield no new insights
 
 11. **Categorize requirements**: Explicit, Implicit, Discovered
-12. **Seed pressure scenarios** from each requirement
-13. **Assess risk tier** (see `risk-tiers.md`)
-14. **Select category** from 21 categories (see `category-integration.md`)
-15. **Create Session State**
+12. **Identify skill type** (see `type-specific-testing.md`):
+    - Process/workflow: Enforces step sequence
+    - Quality enhancement: Makes output "better"
+    - Capability: Enables new abilities
+    - Solution development: Problem → optimal solution
+    - Meta-cognitive: Recognizes own state (uncertainty, errors, limits)
+    - Recovery/Resilience: Handles failures gracefully
+13. **Seed test scenarios** from each requirement, using type-appropriate templates
+14. **Assess risk tier** (see `risk-tiers.md`)
+15. **Select category** from 21 categories (see `category-integration.md`)
+16. **Create Session State**
 
 ## Phase 2: Specification Checkpoint
 
-16. **Build metadata.decisions** with all required fields
-17. **Draft initial frontmatter**
-18. **Present consolidated summary**:
+17. **Build metadata.decisions** with all required fields
+18. **Draft initial frontmatter**
+19. **Present consolidated summary**:
     ```
     Based on our discussion, here's what we're building:
 
@@ -84,9 +91,9 @@ Detailed step-by-step procedures for each phase of rigorous skill creation.
 
     Does this capture your intent? Are the pressure scenarios right?
     ```
-19. **Iterate until user validates** — corrections loop back to Phase 1
-20. **Lock decisions** — requirements and scenarios are now stable
-21. **Update Session State**
+20. **Iterate until user validates** — corrections loop back to Phase 1
+21. **Lock decisions** — requirements and scenarios are now stable
+22. **Update Session State**
 
 ## Phase 3: Baseline Testing (RED)
 
@@ -94,36 +101,40 @@ Detailed step-by-step procedures for each phase of rigorous skill creation.
 
 **Delete means delete:** If any skill content was written before baseline testing, delete it completely.
 
-22. **Load testing methodology**: Read `testing-methodology.md`
-23. **Determine test type**:
-    - Discipline-enforcing: Pressure scenarios
-    - Technique: Application scenarios
-    - Pattern: Recognition + counter-example
-    - Reference: Retrieval scenarios
+23. **Load testing methodology**: Read `testing-methodology.md` and `type-specific-testing.md`
+24. **Select test approach based on skill type** (from Phase 1):
+    - Process/workflow: Step completion under pressure, step order violation, early exit scenarios
+    - Quality enhancement: Before/after comparison, rubric application, adversarial challenge
+    - Capability: Can/can't tasks, edge case handling, novel application
+    - Solution development: Process completeness + criteria coverage + adversarial challenge
+    - Meta-cognitive: Recognition scenarios, calibration testing, false positive/negative checks
+    - Recovery/Resilience: Failure injection, recovery strategy testing, cascading failure scenarios
 
-24. **Verify subagent isolation** (canary check):
+25. **Verify subagent isolation** (canary check):
     - Launch test subagent: "What skill are we creating in this session? If you don't know, respond NO_CONTEXT."
     - Expected: "NO_CONTEXT"
     - If subagent knows the goal: Isolation failed → run baseline in fresh session
 
-25. **Create pressure scenarios** per `testing-methodology.md`:
-    - Combine 3+ pressures: time, sunk cost, authority, economic, exhaustion, social, pragmatic
-    - Force A/B/C choice, no escape routes
+26. **Create test scenarios** using type-appropriate templates from `type-specific-testing.md`:
+    - Process/workflow: Combine 3+ pressures, force A/B/C choice
+    - Quality enhancement: Prepare baseline output for comparison
+    - Capability: Identify tasks requiring the capability
+    - Solution development: Prepare problems with known good solutions
 
-26. **Run baseline** via Task tool (WITHOUT skill)
-27. **Capture verbatim**: option chosen, exact rationalizations
-28. **Validate baseline shows failure**: If no failures, strengthen scenarios
-29. **Update metadata.verification.baseline**
-30. **Update Session State**
+27. **Run baseline** via Task tool (WITHOUT skill)
+28. **Capture verbatim**: choices made, exact rationalizations, quality scores (if applicable)
+29. **Validate baseline shows failure**: If no failures, strengthen scenarios or reconsider skill need
+30. **Update metadata.verification.baseline**
+31. **Update Session State**
 
 ## Phase 4: Generation
 
-31. **Load checklists**: `section-checklists.md`
-32. **Write frontmatter** + operational fields
+32. **Load checklists**: `section-checklists.md`
+33. **Write frontmatter** + operational fields
 
     **Description Trap:** Description must contain ONLY triggering conditions. Never summarize workflow — Claude follows description instead of reading skill body.
 
-33. **Generate sections in order**:
+34. **Generate sections in order**:
     1. Triggers
     2. When to Use
     3. When NOT to Use
@@ -136,7 +147,7 @@ Detailed step-by-step procedures for each phase of rigorous skill creation.
     10. Anti-Patterns
     11. Extension Points
 
-34. **For each section**:
+35. **For each section**:
     a. Draft content informed by Phase 1-2 requirements + Phase 3 failures
     b. Validate against checklist ([MUST] items required)
     c. Present draft to user
@@ -144,12 +155,12 @@ Detailed step-by-step procedures for each phase of rigorous skill creation.
     e. Write approved section
     f. Update Session State progress
 
-35. **Rationalization table → Anti-Patterns**: Map baseline rationalizations to explicit counters
-36. **Create supporting files if needed**
+36. **Rationalization table → Anti-Patterns**: Map baseline rationalizations to explicit counters
+37. **Create supporting files if needed**
 
 ## Phase 5: Verification Testing (GREEN)
 
-37. **Prepare skill-injected context**:
+38. **Prepare skill-injected context**:
     ```
     You must follow this skill for the task below.
 
@@ -161,85 +172,90 @@ Detailed step-by-step procedures for each phase of rigorous skill creation.
     Task: [scenario prompt]
     ```
 
-38. **Run same scenarios from Phase 3** WITH skill
-39. **Success criteria**:
-    - Agent chose correct option
-    - Agent cited skill sections as justification
-    - Agent acknowledged temptation but followed rule
+39. **Run same scenarios from Phase 3** WITH skill
+40. **Success criteria** (type-specific):
+    - Process/workflow: Agent chose correct option, cited skill sections
+    - Quality enhancement: Rubric scores improved, criteria addressed, survives adversarial challenge
+    - Capability: Task completed successfully
+    - Solution development: Process complete, criteria covered, survives adversarial challenge
+    - Meta-cognitive: Situation recognized, appropriate response, well-calibrated confidence
+    - Recovery/Resilience: Failure recognized, appropriate recovery, no damage escalation
 
-40. **On failure**: Capture new rationalization, return to Phase 4
-41. **Run meta-testing** if agent fails despite skill:
+41. **On failure**: Capture new rationalization or gap, return to Phase 4
+42. **Run meta-testing** if agent fails despite skill:
     ```
     You read the skill and chose Option [X] anyway.
     How could that skill have been written differently?
     ```
 
-42. **Update metadata.verification.testing**
-43. **All scenarios must pass before proceeding**
+43. **Update metadata.verification.testing**
+44. **All scenarios must pass before proceeding**
 
 ## Phase 6: Refactor
 
-44. **Check for new rationalizations** from Phase 5
-45. **For each new rationalization, apply 4-counter approach**:
+45. **Check for new rationalizations or gaps** from Phase 5
+46. **For each new rationalization, apply 4-counter approach**:
     a. Explicit negation in relevant section
     b. Entry in rationalization table (Anti-Patterns)
     c. Entry in red flags list
     d. Update description with violation symptom
 
-46. **Address "Spirit vs Letter" arguments**: Add "Violating letter IS violating spirit"
-47. **Re-run verification** on updated skill
-48. **Apply iteration limits**:
+47. **Address "Spirit vs Letter" arguments**: Add "Violating letter IS violating spirit"
+48. **Re-run verification** on updated skill
+49. **Apply iteration limits**:
     - Progress made? Continue (up to 5)
     - Same issues recurring? Escalate immediately
     - Different issues? Continue (up to 3)
 
     On limit: "Cannot close loopholes. Options: (A) Accept risks, (B) Split into focused skills, (C) Abandon"
 
-49. **Bulletproof criteria**:
-    - [ ] Agent chooses correct option under maximum pressure
-    - [ ] Agent cites skill sections
-    - [ ] Agent acknowledges temptation but follows rule
-    - [ ] Meta-test reveals "skill was clear"
+50. **Bulletproof criteria** (type-specific):
+    - Process/workflow: Agent follows steps under maximum pressure, cites skill
+    - Quality enhancement: Consistent rubric improvement, survives adversarial challenge
+    - Capability: High success rate on target tasks
+    - Solution development: Process complete, criteria covered, survives adversarial challenge
+    - Meta-cognitive: High recognition rate, well-calibrated, low false positive/negative rates
+    - Recovery/Resilience: High recovery rate, no damage escalation, clear communication
 
-50. **Update Session State**
+51. **Update Session State**
 
 ## Phase 7: Panel Review (Medium + High Risk)
 
-51. **Check risk tier**: Low → Skip to Phase 8
-52. **Load panel protocol**: Read `panel-protocol.md`
-53. **Launch 4 agents in parallel** via Task tool:
+52. **Check risk tier**: Low → Skip to Phase 8
+53. **Load panel protocol**: Read `panel-protocol.md`
+54. **Launch 4 agents in parallel** via Task tool:
     - Executability Auditor
     - Semantic Coherence Checker
     - Dialogue Auditor
     - Adversarial Reviewer
 
-54. **Handle model fallback**: Opus → Sonnet → skip with warning
-55. **Handle verdicts**:
+55. **Handle model fallback**: Opus → Sonnet → skip with warning
+56. **Handle verdicts**:
     - All APPROVED → Phase 8
     - CHANGES_REQUIRED → Classify severity, fix, re-test, re-submit
 
-56. **Iteration limits**: 5 (progress) / escalate (recurring) / 3 (different)
-57. **Re-run tests after panel fixes**
-58. **Update Session State**
+57. **Iteration limits**: 5 (progress) / escalate (recurring) / 3 (different)
+58. **Re-run tests after panel fixes**
+59. **Update Session State**
 
 ## Phase 8: Finalization
 
-59. **Remove Session State**: Locate `## Session State`, truncate from that point
-60. **Update metadata.verification.panel**
-61. **Verify supporting files exist**
-62. **Review token efficiency** (soft guideline):
+60. **Remove Session State**: Locate `## Session State`, truncate from that point
+61. **Update metadata.verification.panel**
+62. **Verify supporting files exist**
+63. **Review token efficiency** (soft guideline):
     - Aim for <500 words in SKILL.md body
     - Move details to references
     - Priority: Correctness > Clarity > Conciseness
 
-63. **Final validation**:
+64. **Final validation**:
     ```bash
     scripts/validate_skill.sh <skill-path>
     ```
 
     Fallback: Manual verify all 11 sections, YAML parses, metadata complete
 
-64. **Confirm completion**:
+65. **Confirm completion**:
     ```
     Skill created and verified.
 
@@ -263,12 +279,13 @@ Detailed step-by-step procedures for each phase of rigorous skill creation.
 
 | Phase | Check | Method |
 |-------|-------|--------|
+| 1 | Skill type identified | One of: Process, Quality, Capability, Solution Development |
 | 2 | Requirements locked | metadata.decisions.requirements has ≥1 explicit entry |
-| 2 | Scenarios designed | 3+ pressures documented per scenario |
-| 3 | Baseline captured | Failures and rationalizations documented verbatim |
+| 2 | Scenarios designed | Type-appropriate templates used |
+| 3 | Baseline captured | Failures documented (rationalizations, quality scores, or task failures) |
 | 4 | Section complete | H2 heading present |
-| 5 | Behavior changed | Same scenario, different outcome documented |
-| 6 | Loopholes closed | All rationalizations have counters |
+| 5 | Behavior changed | Type-specific success criteria met |
+| 6 | Loopholes closed | All gaps addressed |
 | 7 | Panel passed | All agents APPROVED (or skipped) |
 | 8 | Session State removed | No `## Session State` |
 

@@ -9,16 +9,6 @@ hooks:
           command: '${SKILL_ROOT}/scripts/validate_skill.sh'
           once: true
 license: MIT
-allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
-  - Bash
-  - Task
-  - AskUserQuestion
-  - TodoWrite
 user-invocable: true
 metadata:
   version: '0.2.0'
@@ -34,7 +24,7 @@ Create skills with verified behavior change through collaborative dialogue, base
 
 Help turn skill ideas into fully-formed, tested skills through natural collaborative dialogue.
 
-Start by understanding what the skill needs to accomplish, then explore approaches together. Once we understand what we're building, test that the skill actually changes behavior — don't assume it works.
+Start by understanding what the skill needs to accomplish, then explore approaches together. Once you understand what you're building, test that the skill actually changes behavior — don't assume it works.
 
 ## The Process
 
@@ -47,13 +37,15 @@ Start by understanding what the skill needs to accomplish, then explore approach
 
 **Exploring the design:**
 
+- Identify skill type: Process/workflow, Quality enhancement, Capability, or Solution development
 - Propose 2-3 approaches with trade-offs
 - Lead with your recommendation and explain why
 - Identify risk tier: Low (read-only), Medium (code generation), High (security/agentic/data)
 
 **Testing behavior change (the core discipline):**
 
-- Before writing the skill: run pressure scenarios WITHOUT the skill to capture baseline failures
+- Select test approach based on skill type (see `references/type-specific-testing.md`)
+- Before writing the skill: run baseline scenarios WITHOUT the skill to capture failures
 - After writing: run same scenarios WITH the skill to verify it actually changes behavior
 - If no baseline failure exists, the skill may not be needed
 
@@ -128,6 +120,7 @@ Risk tier determines panel requirement:
 - `references/section-checklists.md` — Required content per section
 - `references/thinking-lenses.md` — 14 lenses for requirements discovery
 - `references/testing-methodology.md` — How to construct pressure scenarios
+- `references/type-specific-testing.md` — Scenario templates and metrics by skill type
 - `references/panel-protocol.md` — How panel review works
 - `references/risk-tiers.md` — Risk assessment criteria
 - `references/troubleshooting.md` — Common issues and recovery
