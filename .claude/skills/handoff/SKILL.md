@@ -110,11 +110,7 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
    - If session appears trivial (no decisions, changes, or learnings), ask: "This session seems light — create a handoff anyway?"
    - If user declines, **STOP**. Do not proceed.
 
-2. **Get session ID** by running:
-   ```bash
-   find ~/.claude/projects -name "*.jsonl" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1 | xargs basename | sed 's/.jsonl//'
-   ```
-   This returns the current session's UUID from the most recently modified transcript.
+2. **Note the session ID** from the "Session ID:" line above (injected by PreToolUse hook)
 
 3. **Gather context** from the session
 
@@ -267,10 +263,7 @@ The `read.py` script runs silently at session start:
 
 When user runs `/resume [path]`:
 
-1. **Get session ID** by running:
-   ```bash
-   find ~/.claude/projects -name "*.jsonl" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1 | xargs basename | sed 's/.jsonl//'
-   ```
+1. **Note the session ID** from the "Session ID:" line above (injected by PreToolUse hook)
 2. If path provided: read that specific handoff
 3. If no path: use Glob to find latest in `~/.claude/handoffs/<project>/`
 4. Read and display the handoff content
@@ -303,6 +296,30 @@ When user runs `/list-handoffs`:
 | Active handoffs (`~/.claude/handoffs/<project>/`) | 30 days |
 | Archived handoffs (`~/.claude/handoffs/<project>/.archive/`) | 90 days |
 | State files (`~/.claude/.session-state/handoff-*`) | 24 hours |
+
+## Setup
+
+The handoff skill requires a PreToolUse hook to inject the session ID. Add this to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/skills/handoff/hooks/inject-session-id.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook script is at `hooks/inject-session-id.py` in this skill directory. When the skill is promoted to `~/.claude/skills/handoff/`, the hook path above will work.
 
 ## Verification
 
