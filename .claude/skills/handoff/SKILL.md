@@ -121,12 +121,17 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
    - If `~/.claude/handoffs/<project>/` is not writable, **STOP** and ask for alternative path
    - If project name is ambiguous (not in git, generic directory name), ask user to specify
 
-5. **Generate markdown** with frontmatter
+5. **Generate markdown** with frontmatter:
+   - Always include `session_id: ${CLAUDE_SESSION_ID}`
+   - Check for `~/.claude/.session-state/handoff-${CLAUDE_SESSION_ID}`
+   - If state file exists, read path and include as `resumed_from`
    - Use fallbacks for optional fields (see Inputs → Constraints/Assumptions)
 
 6. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
 
-7. **Verify and confirm:**
+7. **Clean up state file** (delete `~/.claude/.session-state/handoff-${CLAUDE_SESSION_ID}` if exists)
+
+8. **Verify and confirm:**
    - Check file exists and frontmatter is valid
    - Confirm: "Handoff saved: <title> (N decisions, N changes, N next steps)"
 
@@ -137,6 +142,8 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
 date: 2026-01-08
 time: "14:30"
 created_at: "<ISO 8601 UTC timestamp, e.g., 2026-01-08T14:30:00Z>"
+session_id: ${CLAUDE_SESSION_ID}
+resumed_from: <archive path if session resumed from handoff, omit otherwise>
 project: <git root name or directory name>
 branch: <current branch if git, omit if not git>
 commit: <short commit hash if git, omit if not git>
@@ -168,13 +175,14 @@ Include only sections relevant to the session. Empty sections are omitted.
 | Risks | Known concerns or fragile areas to watch |
 | User Preferences | How user likes things done (discovered this session) |
 
-### Example Handoff
+### Example Handoff (New Session)
 
 ```markdown
 ---
 date: 2026-01-08
 time: "14:30"
 created_at: "2026-01-08T14:30:00Z"
+session_id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
 project: my-app
 branch: feat/auth-middleware
 commit: 8709e5d
@@ -206,6 +214,38 @@ Implement JWT-based authentication middleware for the API.
 3. Write integration tests
 ```
 
+### Example Handoff (Resumed Session)
+
+```markdown
+---
+date: 2026-01-08
+time: "16:45"
+created_at: "2026-01-08T16:45:00Z"
+session_id: f9e8d7c6-b5a4-3210-fedc-ba0987654321
+resumed_from: ~/.claude/handoffs/my-app/.archive/2026-01-08_14-30_auth-middleware-implementation.md
+project: my-app
+branch: feat/auth-middleware
+commit: c3d4e5f
+title: Auth middleware - refresh endpoint complete
+files:
+  - src/auth/refresh.py
+  - tests/test_refresh.py
+---
+
+# Handoff: Auth middleware - refresh endpoint complete
+
+## Goal
+Complete the auth middleware implementation by adding the refresh endpoint.
+
+## Changes
+- `src/auth/refresh.py` — Token refresh endpoint
+- `tests/test_refresh.py` — Integration tests for refresh flow
+
+## Next Steps
+1. Add middleware to protected routes
+2. Update API documentation
+```
+
 ## Resuming from Handoff
 
 Handoffs require **explicit resume** — they are not auto-injected or suggested at session start. This prevents stale handoffs from cluttering unrelated sessions.
@@ -225,13 +265,18 @@ When user runs `/resume [path]`:
 2. If no path: use Glob to find latest in `~/.claude/handoffs/<project>/`
 3. Read and display the handoff content
 4. Summarize key points and offer: "Continue with [next step]?"
-5. **Trash the handoff file** after displaying (handoffs are single-use)
+5. **Archive the handoff:**
+   - Create `~/.claude/handoffs/<project>/.archive/` if needed
+   - Move handoff to `.archive/<filename>`
+6. **Write state file:**
+   - Create `~/.claude/.session-state/` if needed
+   - Write archive path to `~/.claude/.session-state/handoff-${CLAUDE_SESSION_ID}`
 
 ### Listing (`/list-handoffs`)
 
 When user runs `/list-handoffs`:
 
-1. Glob `~/.claude/handoffs/<project>/*.md`
+1. Glob `~/.claude/handoffs/<project>/*.md` (excludes `.archive/` directory)
 2. Read frontmatter from each file
 3. Format as table: date, title, branch
 
@@ -241,7 +286,13 @@ When user runs `/list-handoffs`:
 
 **Filename:** `YYYY-MM-DD_HH-MM_<title-slug>.md`
 
-**Retention:** Files older than 30 days are pruned automatically.
+**Retention:**
+
+| Location | Retention |
+|----------|-----------|
+| Active handoffs (`~/.claude/handoffs/<project>/`) | 30 days |
+| Archived handoffs (`~/.claude/handoffs/<project>/.archive/`) | 90 days |
+| State files (`~/.claude/.session-state/handoff-*`) | 24 hours |
 
 ## Verification
 
