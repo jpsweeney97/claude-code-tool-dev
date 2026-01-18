@@ -3,7 +3,6 @@ name: handoff
 description: Use when user says "wrap this up", "new session", or "handoff"; when stopping work with context to preserve; or when resuming from a previous session.
 metadata:
   version: 4.0.0
-  model: claude-opus-4-5-20251101
 ---
 
 # Handoff Skill
