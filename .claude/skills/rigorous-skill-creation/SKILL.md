@@ -40,3 +40,27 @@ Orchestrated skill creation with structured requirements dialogue, baseline test
 - "create a validated skill"
 - "TDD skill creation"
 - "skill with verification"
+
+## When to Use
+
+- Creating skills that enforce discipline (TDD, verification, process compliance)
+- High-risk skills: security, agentic workflows, data operations
+- Skills where behavior change must be verified, not assumed
+- Skills with complex requirements needing dialogue to surface
+- Skills that will be maintained long-term (audit trail valuable)
+- When you need traceability: requirement → test → behavior change
+
+**Symptoms that suggest this skill:**
+- "I need to make sure agents actually follow this"
+- "This is important enough to test properly"
+- "I want to know it works, not hope it works"
+- "Multiple stakeholders need to agree on requirements"
+
+## When NOT to Use
+
+- Simple technique documentation (use skillosophy instead)
+- Low-risk, read-only skills
+- One-off internal tools with clear requirements
+- Time-constrained situations where speed trumps rigor
+- Skills where structure matters more than behavior (use skillosophy instead)
+- Modifying rigorous-skill-creation itself (circular dependency)
