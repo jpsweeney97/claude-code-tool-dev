@@ -152,3 +152,93 @@ metadata:
 - [ ] Rationalization table covers observed failure modes
 - [ ] Panel unanimous (Medium/High) OR skipped (Low)
 - [ ] Session State removed
+
+## Procedure
+
+### Phase 0: Triage
+
+1. **Verify write access** — Check target directory is writable before investing in requirements discovery
+2. **Parse user intent** — Identify if CREATE, MODIFY, or ambiguous. Default to CREATE if unclear after one question.
+3. **Self-modification guard** — If target is within rigorous-skill-creation directory: STOP. "Cannot modify self — circular dependency."
+4. **Check skip triage flag** — If set, log and proceed to Phase 1
+5. **Run triage script**:
+   ```bash
+   python scripts/triage_skill_request.py "<user goal>" --json
+   ```
+6. **Handle triage result**:
+   - ≥80% match: Recommend existing; ask to proceed or create anyway
+   - 50-79% match: Offer MODIFY or CREATE
+   - <50% match: Proceed to Phase 1
+   - Script unavailable: Warn, proceed to Phase 1
+7. **Initialize TodoWrite** with phase-level tasks
+
+### Phase 1: Requirements Discovery
+
+8. **Load methodology references**:
+   - `references/thinking-lenses.md` (11 base lenses)
+   - `references/regression-questions.md` (7 categories)
+   - `references/extended-lenses.md` (3 testing lenses: 12-14)
+
+9. **Apply 14 thinking lenses**:
+   - Rapid scan all 14 for relevance (High/Medium/Low)
+   - Deep dive on all High-relevance lenses
+   - Resolve conflicts between lenses
+
+   **Minimum coverage:**
+   - All 14 lenses scanned
+   - At least 3 yield actionable insights
+   - All High-relevance fully applied
+
+10. **Dialogue with user** (one question at a time):
+
+    **Phase A — Broad Discovery:**
+    - Purpose and success criteria
+    - Constraints and non-negotiables
+    - Who/what will use this skill
+
+    **Phase B — Lens-Driven Deepening:**
+    Select 2-3 regression question categories based on High-relevance lenses:
+
+    | If lens flagged... | Probe with category... |
+    |--------------------|------------------------|
+    | Inversion, Adversarial | Failure Analysis |
+    | Stakeholder, Ecosystem | Expert Simulation |
+    | Evolution, Timelessness | Temporal Projection |
+    | Constraint, Resource | Script/Automation Analysis |
+    | Gap Detection, Edge Case | Missing Elements |
+
+    **Stop when:** 2 consecutive probes yield no new insights
+
+11. **Categorize requirements**: Explicit, Implicit, Discovered
+12. **Seed pressure scenarios** from each requirement
+13. **Assess risk tier** (see `references/risk-tiers.md`)
+14. **Select category** from 21 categories (see `references/category-integration.md`)
+15. **Create Session State**
+
+### Phase 2: Specification Checkpoint
+
+16. **Build metadata.decisions** with all required fields
+17. **Draft initial frontmatter**
+18. **Present consolidated summary**:
+    ```
+    Based on our discussion, here's what we're building:
+
+    **Purpose:** [one sentence]
+    **Risk Tier:** [level] — [justification]
+
+    **Requirements:**
+    - Explicit: [list]
+    - Implicit: [list]
+    - Discovered: [list]
+
+    **Pressure Scenarios:**
+    1. [Scenario → requirement it tests]
+    2. [Scenario → requirement it tests]
+
+    **Approach:** [chosen] because [rationale]
+
+    Does this capture your intent? Are the pressure scenarios right?
+    ```
+19. **Iterate until user validates** — corrections loop back to Phase 1
+20. **Lock decisions** — requirements and scenarios are now stable
+21. **Update Session State**
