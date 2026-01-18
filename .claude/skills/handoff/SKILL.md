@@ -11,6 +11,8 @@ Capture session context at stopping points. Resume explicitly with `/resume`.
 
 **Core Promise:** One action to save (`/handoff`), one action to resume (`/resume`).
 
+**Current Session ID:** ${CLAUDE_SESSION_ID}
+
 ## When to Use
 
 - User explicitly runs `/handoff` or `/handoff <title>`
