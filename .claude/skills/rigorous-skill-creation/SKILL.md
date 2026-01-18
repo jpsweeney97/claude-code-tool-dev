@@ -242,3 +242,92 @@ metadata:
 19. **Iterate until user validates** — corrections loop back to Phase 1
 20. **Lock decisions** — requirements and scenarios are now stable
 21. **Update Session State**
+
+### Phase 3: Baseline Testing (RED)
+
+**The Iron Law:** No skill generation (Phase 4) without baseline failure first.
+
+**Delete means delete:** If any skill content was written before baseline testing, delete it completely.
+
+22. **Load testing methodology**: Read `references/testing-methodology.md`
+23. **Determine test type**:
+    - Discipline-enforcing: Pressure scenarios
+    - Technique: Application scenarios
+    - Pattern: Recognition + counter-example
+    - Reference: Retrieval scenarios
+
+24. **Verify subagent isolation** (canary check):
+    - Launch test subagent: "What skill are we creating in this session? If you don't know, respond NO_CONTEXT."
+    - Expected: "NO_CONTEXT"
+    - If subagent knows the goal: Isolation failed → run baseline in fresh session
+
+25. **Create pressure scenarios** per `references/testing-methodology.md`:
+    - Combine 3+ pressures: time, sunk cost, authority, economic, exhaustion, social, pragmatic
+    - Force A/B/C choice, no escape routes
+
+26. **Run baseline** via Task tool (WITHOUT skill)
+27. **Capture verbatim**: option chosen, exact rationalizations
+28. **Validate baseline shows failure**: If no failures, strengthen scenarios
+29. **Update metadata.verification.baseline**
+30. **Update Session State**
+
+### Phase 4: Generation
+
+31. **Load checklists**: `references/section-checklists.md`
+32. **Write frontmatter** + operational fields
+
+    **⚠️ Description Trap:** Description must contain ONLY triggering conditions. Never summarize workflow — Claude follows description instead of reading skill body.
+
+33. **Generate sections in order**:
+    1. Triggers
+    2. When to Use
+    3. When NOT to Use
+    4. Inputs
+    5. Outputs
+    6. Procedure
+    7. Decision Points
+    8. Verification
+    9. Troubleshooting
+    10. Anti-Patterns
+    11. Extension Points
+
+34. **For each section**:
+    a. Draft content informed by Phase 1-2 requirements + Phase 3 failures
+    b. Validate against checklist ([MUST] items required)
+    c. Present draft to user
+    d. User approves, edits, or requests regeneration
+    e. Write approved section
+    f. Update Session State progress
+
+35. **Rationalization table → Anti-Patterns**: Map baseline rationalizations to explicit counters
+36. **Create supporting files if needed**
+
+### Phase 5: Verification Testing (GREEN)
+
+37. **Prepare skill-injected context**:
+    ```
+    You must follow this skill for the task below.
+
+    ---BEGIN SKILL---
+    [full SKILL.md content]
+    ---END SKILL---
+
+    Context: [scenario setup]
+    Task: [scenario prompt]
+    ```
+
+38. **Run same scenarios from Phase 3** WITH skill
+39. **Success criteria**:
+    - Agent chose correct option
+    - Agent cited skill sections as justification
+    - Agent acknowledged temptation but followed rule
+
+40. **On failure**: Capture new rationalization, return to Phase 4
+41. **Run meta-testing** if agent fails despite skill:
+    ```
+    You read the skill and chose Option [X] anyway.
+    How could that skill have been written differently?
+    ```
+
+42. **Update metadata.verification.testing**
+43. **All scenarios must pass before proceeding**
