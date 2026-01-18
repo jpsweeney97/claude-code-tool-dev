@@ -600,3 +600,52 @@ Default: Uncertain → Major
 - Delete partial supporting files
 - Clear TodoWrite
 - Notify: "Skill creation aborted. No artifacts remain."
+
+## Anti-Patterns
+
+### Process Anti-Patterns
+
+| Pattern | Consequence | Instead |
+|---------|-------------|---------|
+| Skipping baseline | Don't know what to prevent | Always run WITHOUT skill first |
+| Weak pressure (single) | False confidence | Combine 3+ pressures |
+| Paraphrasing rationalizations | Counters miss wording | Quote verbatim |
+| Softening verification | Tests don't prove | Same pressure as baseline |
+| Testing after writing skill | Violated Iron Law | Delete, start with baseline |
+
+### Dialogue Anti-Patterns
+
+| Pattern | Consequence | Instead |
+|---------|-------------|---------|
+| Multiple questions | User overwhelmed | One at a time |
+| Open-ended when options exist | Slower | Multiple choice |
+| Not seeding scenarios | Disconnect | Each requirement → scenario |
+
+### Testing Anti-Patterns
+
+| Pattern | Consequence | Instead |
+|---------|-------------|---------|
+| Single pressure | Easy resistance | 3+ pressures |
+| Open-ended scenarios | Theorizing | Force A/B/C |
+| "What should you do?" | No action | "What do you do?" |
+| Escape routes | Agent defers | Remove "ask user" |
+| No meta-testing | Don't know why | Ask how skill could be clearer |
+
+### Content Anti-Patterns
+
+| Pattern | Consequence | Instead |
+|---------|-------------|---------|
+| Vague triggers | False positives | Specific verb+noun |
+| "as appropriate" | Unexecutable | Exact action + condition |
+| Description summarizes workflow | Claude skips body | Triggers only |
+| Rationalization without quotes | Miss nuance | Exact phrases |
+
+### Red Flags — STOP and Reassess
+
+- Baseline shows no failures
+- Agent passes without citing skill
+- Same rationalization 3+ iterations
+- Panel finds issues tests didn't catch
+- Skill exceeds 1000 lines
+- User repeatedly rejects sections
+- Verification softer than baseline
