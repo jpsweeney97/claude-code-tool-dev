@@ -2,8 +2,10 @@
 name: handoff
 description: Use when user says "wrap this up", "new session", or "handoff"; when stopping work with context to preserve; or when resuming from a previous session.
 metadata:
-  version: 4.1.0
+  version: 4.2.2
 ---
+
+**Session ID:** ${CLAUDE_SESSION_ID}
 
 # Handoff Skill
 
@@ -110,7 +112,7 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
    - If session appears trivial (no decisions, changes, or learnings), ask: "This session seems light — create a handoff anyway?"
    - If user declines, **STOP**. Do not proceed.
 
-2. **Note the session ID** from the "Session ID:" line above (injected by PreToolUse hook)
+2. **Note the session ID** from the "Session ID:" line at the top of this skill (substituted by Claude Code at load time)
 
 3. **Gather context** from the session
 
@@ -263,7 +265,7 @@ The `read.py` script runs silently at session start:
 
 When user runs `/resume [path]`:
 
-1. **Note the session ID** from the "Session ID:" line above (injected by PreToolUse hook)
+1. **Note the session ID** from the "Session ID:" line in the command (substituted by Claude Code at load time)
 2. If path provided: read that specific handoff
 3. If no path: use Glob to find latest in `~/.claude/handoffs/<project>/`
 4. Read and display the handoff content
@@ -299,27 +301,7 @@ When user runs `/list-handoffs`:
 
 ## Setup
 
-The handoff skill requires a PreToolUse hook to inject the session ID. Add this to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/skills/handoff/hooks/inject-session-id.py"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-The hook script is at `hooks/inject-session-id.py` in this skill directory. When the skill is promoted to `~/.claude/skills/handoff/`, the hook path above will work.
+No special setup required. The skill uses Claude Code's built-in session ID substitution (the "Session ID:" line at the top of this file). This works for both manual invocation (`/handoff`) and programmatic invocation (Skill tool).
 
 ## Verification
 
