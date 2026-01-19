@@ -32,10 +32,22 @@ Essential principles for writing effective skills. **Read this before drafting a
 - Avoid: vague names (`helper`, `utils`), reserved words (`claude-*`, `anthropic-*`)
 
 **Description:**
-- Trigger conditions ONLY — never summarize workflow
+- Trigger conditions ONLY — never summarize workflow or outcomes
 - Third person (injected into system prompt)
 - ≤1024 characters
 - Include key terms for discoverability
+
+```
+❌ BAD: "Guides comments toward explaining intent" (describes outcome)
+❌ BAD: "Helps write better error messages" (describes what skill does)
+❌ BAD: "Enforces TDD by requiring tests first" (summarizes workflow)
+
+✅ GOOD: "Use when adding comments to code"
+✅ GOOD: "Use when writing code that raises exceptions"
+✅ GOOD: "Use when implementing features, before writing code"
+```
+
+**Why this matters:** Claude may follow the description instead of reading the skill body. Outcome descriptions become shortcuts that bypass the actual guidance.
 
 **Body:**
 - Under 500 lines
