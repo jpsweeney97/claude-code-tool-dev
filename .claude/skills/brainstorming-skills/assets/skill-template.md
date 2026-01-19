@@ -90,14 +90,22 @@ Match the form to the skill's nature. Forcing numbered steps on a brainstorming 
 
 **Scenario:** <!-- Concrete situation where this skill applies -->
 
-**Before** (without skill):
+### ❌ BAD: <!-- Brief label for the failure mode -->
+
 <!-- What Claude does/produces without this skill -->
 
-**After** (with skill):
+**Why it's bad:**
+<!-- Specific reasons this fails — what's missing, wrong, or harmful -->
+
+### ✅ GOOD: <!-- Brief label for the correct behavior -->
+
 <!-- What Claude does/produces with this skill -->
 
-| Skill Type | Before shows... | After shows... |
-|------------|-----------------|----------------|
+**Why it's good:**
+<!-- Specific reasons this works — what the skill ensures -->
+
+| Skill Type | BAD shows... | GOOD shows... |
+|------------|--------------|---------------|
 | Process/Workflow | Steps skipped/reordered | All steps completed in order |
 | Quality Enhancement | Lower quality output | Higher quality (per rubric) |
 | Capability | Task failure | Task success |
