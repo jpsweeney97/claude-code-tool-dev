@@ -105,21 +105,23 @@ Use [assets/skill-template.md](assets/skill-template.md) as a starting structure
 
 **Section relevance by skill type** (guidance, not strict):
 
-| Type | Core sections |
-|------|---------------|
-| Process/workflow | Procedure, Decision Points, Verification |
-| Quality enhancement | Outputs (quality criteria), Verification |
-| Capability | Procedure, Outputs, Troubleshooting |
-| Solution development | Decision Points, Anti-Patterns |
-| Meta-cognitive | Recognition Patterns*, Anti-Patterns |
-| Recovery/resilience | Failure Signals*, Decision Points, Troubleshooting |
-| Orchestration | Procedure (flow), Decision Points (routing), Extension Points |
-| Template/generation | Outputs (format spec), Verification |
+| Type | Emphasize |
+|------|-----------|
+| Process/workflow | Process (numbered steps), Decision Points (step failures) |
+| Quality enhancement | Process (criteria/framework), Outputs (quality dimensions) |
+| Capability | Process (domain knowledge), Troubleshooting (diagnostic branching) |
+| Solution development | Process (analysis framework), Decision Points (tradeoffs) |
+| Meta-cognitive | Process (recognition + response), Decision Points (thresholds) |
+| Recovery/resilience | Process (failure handling), Decision Points (recovery strategy) |
+| Orchestration | Process (phase structure), Decision Points (transitions) |
+| Template/generation | Process (format spec), Outputs (field requirements) |
 
-*Reframe "Triggers" section as recognition patterns or failure signals for these types.
+*For meta-cognitive and recovery skills, reframe "Triggers" as recognition patterns or failure signals.
 
-**Universal:** All types need Overview, Triggers (literal user phrases), When to Use (contextual conditions).
-**Contextual:** Include Outputs, Anti-Patterns, Troubleshooting, Extension Points if relevant to the specific skill.
+**Required (all types):** Overview, Triggers OR When to Use, Process, Examples, Anti-Patterns, Troubleshooting, Decision Points
+**Optional:** Outputs, Verification, Extension Points
+
+See [type-example files](references/) for concrete guidance on filling sections for each type.
 
 **Seeding test scenarios:**
 
@@ -163,8 +165,18 @@ See [references/type-specific-testing.md](references/type-specific-testing.md) f
 
 ## References
 
+- [assets/skill-template.md](assets/skill-template.md) — Starting structure for draft SKILL.md
 - [references/anthropic-skill-documentation.md](references/anthropic-skill-documentation.md) — Official skill spec and metadata fields
 - [references/type-specific-testing.md](references/type-specific-testing.md) — 8 skill types with scenario templates
 - [references/persuasion-principles.md](references/persuasion-principles.md) — For discipline-enforcing skills
 - [references/semantic-quality.md](references/semantic-quality.md) — 9 quality dimensions for skill bodies
-- [assets/skill-template.md](assets/skill-template.md) — Starting structure for draft SKILL.md
+
+**Type-specific examples** (load based on identified skill type):
+- [references/type-example-process-workflow.md](references/type-example-process-workflow.md)
+- [references/type-example-quality-enhancement.md](references/type-example-quality-enhancement.md)
+- [references/type-example-capability.md](references/type-example-capability.md)
+- [references/type-example-solution-development.md](references/type-example-solution-development.md)
+- [references/type-example-meta-cognitive.md](references/type-example-meta-cognitive.md)
+- [references/type-example-recovery-resilience.md](references/type-example-recovery-resilience.md)
+- [references/type-example-orchestration.md](references/type-example-orchestration.md)
+- [references/type-example-template-generation.md](references/type-example-template-generation.md)
