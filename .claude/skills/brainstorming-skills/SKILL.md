@@ -18,6 +18,7 @@ Turn skill ideas into testable drafts through collaborative dialogue. Preserves 
 - Skill type identified
 - Risk tier assessed
 - ≥2 test scenarios seeded
+- Writing guide read and checklist verified
 - Draft SKILL.md conforms to official spec
 - Design context document created
 - User confirmed draft addresses their intent
@@ -84,9 +85,12 @@ During the dialogue, identify (through conversation, not by asking directly unle
 
 ## Presenting the Design
 
+**Before drafting, read the writing guide:**
+
+YOU MUST read [references/skill-writing-guide.md](references/skill-writing-guide.md) before drafting any SKILL.md content. This is not optional. The guide contains essential principles that determine whether the skill will actually work.
+
 **Presenting the draft SKILL.md:**
 
-- Once understanding is confirmed, present a draft SKILL.md
 - Present one section at a time (e.g., frontmatter, overview, when to use, etc.)
 - Ask after each section whether it looks right so far
 - Be ready to go back and clarify if something doesn't make sense
@@ -94,12 +98,11 @@ During the dialogue, identify (through conversation, not by asking directly unle
 
 **Draft SKILL.md requirements:**
 
-- `name`: kebab-case, ≤64 chars, matches directory
-- `description`: ≤1024 chars, triggering conditions only (NOT workflow summary)
-  - Why: Claude may follow the description instead of reading the skill body. A description summarizing workflow can cause Claude to execute an incomplete version of the skill.
-- Body: under 500 lines, essential instructions
-  - See [references/persuasion-principles.md](references/persuasion-principles.md) and [references/semantic-quality.md](references/semantic-quality.md) for writing guidance
-- Heavy content identified for reference files
+- `name`: kebab-case, ≤64 chars, gerund form preferred (e.g., `processing-pdfs`)
+- `description`: ≤1024 chars, trigger conditions ONLY, third person
+  - Why: Claude may follow the description instead of reading the skill body. A description summarizing workflow causes incomplete execution.
+- Body: under 500 lines
+- Heavy content split to reference files (one level deep from SKILL.md)
 
 Use [assets/skill-template.md](assets/skill-template.md) as a starting structure, keeping only relevant sections.
 
@@ -165,11 +168,18 @@ See [references/type-specific-testing.md](references/type-specific-testing.md) f
 
 ## References
 
+**Required reading before drafting:**
+- [references/skill-writing-guide.md](references/skill-writing-guide.md) — Essential principles for effective skills (consolidates best practices, compliance techniques, quality dimensions)
+
+**Structure and spec:**
 - [assets/skill-template.md](assets/skill-template.md) — Starting structure for draft SKILL.md
 - [references/anthropic-skill-documentation.md](references/anthropic-skill-documentation.md) — Official skill spec and metadata fields
 - [references/type-specific-testing.md](references/type-specific-testing.md) — 8 skill types with scenario templates
-- [references/persuasion-principles.md](references/persuasion-principles.md) — For discipline-enforcing skills
-- [references/semantic-quality.md](references/semantic-quality.md) — 9 quality dimensions for skill bodies
+
+**Deep dives (if needed):**
+- [references/skills-best-practices.md](references/skills-best-practices.md) — Full authoring guide with extended examples
+- [references/persuasion-principles.md](references/persuasion-principles.md) — Psychology research behind compliance techniques
+- [references/semantic-quality.md](references/semantic-quality.md) — Detailed quality dimension explanations
 
 **Type-specific examples** (load based on identified skill type):
 - [references/type-example-process-workflow.md](references/type-example-process-workflow.md)

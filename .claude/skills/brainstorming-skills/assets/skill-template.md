@@ -153,7 +153,7 @@ How this skill can be extended or customized.
 
 # Reference Sections
 
-**Remove everything below before finalizing the skill.**
+> **Note:** These sections are scaffolding for drafting. For authoritative quality guidance, read [skill-writing-guide.md](../references/skill-writing-guide.md). Remove everything below before finalizing the skill.
 
 ---
 
