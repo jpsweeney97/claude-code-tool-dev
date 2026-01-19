@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Use when user says "wrap this up", "new session", or "handoff"; when stopping work with context to preserve; or when resuming from a previous session.
+description: Use when user says "wrap this up", "new session", or "handoff"; when stopping work with context to preserve; or when continuing from a previous session.
 metadata:
   version: 4.2.2
 ---
@@ -9,7 +9,7 @@ metadata:
 
 # Handoff Skill
 
-Capture session context at stopping points. Resume explicitly with `/resume`.
+Capture session context at stopping points.
 
 **Core Promise:** One action to save (`/handoff`), one action to resume (`/resume`).
 

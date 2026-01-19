@@ -1,6 +1,6 @@
 # Skill Skeleton
 
-Empty structure for assembly phase. Includes v2.0 additions: Triggers, Anti-Patterns, Extension Points, and metadata.decisions.
+Empty structure for assembly phase.
 
 ```yaml
 ---
