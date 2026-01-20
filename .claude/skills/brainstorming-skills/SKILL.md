@@ -14,13 +14,15 @@ Turn skill ideas into testable drafts through collaborative dialogue. Preserves 
 - Design context at `docs/plans/YYYY-MM-DD-<skill-name>-design.md`
 
 **Definition of Done:**
-- Problem summary confirmed by user
+- Baseline observation completed (or noted as not applicable with reason)
+- Problem confirmed through discussion with user
+- Success criteria captured ("what should happen instead")
 - Skill type identified
 - Risk tier assessed
-- ≥2 test scenarios seeded
+- ≥2 test scenarios seeded (including baseline scenario)
 - Writing guide read and checklist verified
 - Draft SKILL.md conforms to official spec
-- Design context document created
+- Design context document created with baseline results
 - User confirmed draft addresses their intent
 
 ## The Process
@@ -52,7 +54,85 @@ If any of these apply, ask anyway.
 - Present options conversationally with recommendation and reasoning
 - Lead with the recommended option and explain why
 
-**Skill-specific classification:**
+## Baseline Observation
+
+Before designing, validate the problem exists through empirical observation.
+
+**Design a minimal scenario:**
+
+From the user's description, create one testable scenario:
+- **Situation:** What context triggers the problem? (1-2 sentences)
+- **Pressure:** What makes this hard? (time, sunk cost, authority, exhaustion)
+- **Expected behavior:** What would a "good" response look like? (hypothesis, not requirement)
+
+Example:
+> "I'll test: Given a request to add a feature, with time pressure ('need this by EOD'), does Claude skip planning and jump to code?"
+
+**Confirm scenario before running:**
+
+After designing, present the scenario BEFORE running:
+
+> "I'll test this scenario: [situation + pressure]. Does this capture when the problem occurs for you? If not, what actually happens?"
+
+- If user confirms → run the test
+- If user corrects → incorporate their input, redesign scenario
+- If user can't specify → note limitation, proceed with flagged uncertainty
+
+**Define measurement before running:**
+
+After confirming the scenario, ask: "How will I measure the results?"
+
+| If problem is about... | Measurement requires... |
+|------------------------|------------------------|
+| Behavior/choice | Clear options to observe |
+| Completeness/coverage | Ground truth (what exists to be found) |
+| Accuracy/correctness | Known correct answer |
+| Quality/judgment | Defined criteria to score against |
+
+If you can't articulate how to measure, the test isn't ready.
+
+**For completeness problems:** Create or identify a controlled test case where you know the full answer. Don't test on unknown data.
+
+**Run baseline (subagent WITHOUT skill):**
+
+Use Task tool with general-purpose subagent:
+- Prompt: [scenario + pressure]
+- Capture: verbatim response
+
+**Present results to user:**
+
+> "Here's what I observed when testing without a skill:
+>
+> **Scenario:** [situation + pressure]
+> **Behavior:** [verbatim or summarized response]
+>
+> Is this the problem you're describing? What's wrong with this behavior?"
+
+**Discuss with user:**
+
+- If user confirms problem: "What should happen instead?" → Capture as success criteria
+- If behavior looks fine: "Did my scenario miss the problem? Or is this not actually an issue?"
+- If problem is context-dependent: "This might need main-conversation testing. Can you describe when this happens?"
+
+**Gate: Proceed or reconsider?**
+
+| Outcome | Action |
+|---------|--------|
+| Problem confirmed, success criteria clear | Proceed to design with baseline as evidence |
+| Behavior looks fine, user agrees | Skill may not be needed — discuss alternatives |
+| Behavior looks fine, user disagrees | Refine scenario and retest |
+| Problem is context-dependent | Note limitation; proceed with user-provided evidence as supplement |
+
+**Limitations:**
+
+Subagent testing cannot capture:
+- Problems requiring conversation history
+- Problems requiring project-specific context
+- Main-conversation dialogue patterns
+
+For these, supplement with user-provided evidence or plan main-conversation testing.
+
+## Skill-specific Classification
 
 During the dialogue, identify (through conversation, not by asking directly unless genuinely ambiguous):
 
@@ -188,9 +268,34 @@ See [references/type-specific-testing.md](references/type-specific-testing.md) f
 **Type:** <one of 8 types>
 **Risk:** Low | Medium | High
 
-### Test Scenarios
-1. <scenario name>: <what it tests>
-2. <scenario name>: <what it tests>
+### Baseline Observation
+
+**Scenario tested:**
+> [situation + pressure]
+
+**Observed behavior (without skill):**
+> [verbatim or summary]
+
+**User's assessment:**
+> [Is this the problem? What's wrong?]
+
+**Success criteria (what should happen instead):**
+> [From discussion]
+
+### Test Scenarios (for RED phase)
+
+1. **Baseline scenario** (from observation above)
+   - Pressures: <from scenario>
+   - Baseline failure: <observed behavior>
+   - Expected with skill: <success criteria>
+
+2. **<additional scenario>**
+   - Pressures: ...
+   - Expected baseline failure: ...
+   - Expected with skill: ...
+
+### Compliance Risks
+- <What would make an agent rationalize around this?>
 
 ### Rejected Approaches
 - <approach>: <why rejected>
@@ -199,7 +304,8 @@ See [references/type-specific-testing.md](references/type-specific-testing.md) f
 ## After the Design
 
 - Commit draft SKILL.md and design context to git
-- Ask: "Ready to proceed to testing with writing-skills?"
+- Confirm design context includes: baseline observation, success criteria, seeded scenarios
+- Ask: "Ready to proceed to testing with writing-skills? The baseline observation provides your RED phase starting point."
 
 ## References
 
