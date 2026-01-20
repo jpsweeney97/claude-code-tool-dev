@@ -74,14 +74,40 @@ During the dialogue, identify (through conversation, not by asking directly unle
 
 ## Before Presenting the Design
 
-- Summarize understanding: problem, success criteria, key constraints, skill type, risk tier
-- Apply adversarial lens — actively challenge the understanding:
-  - What requirement might be misunderstood?
-  - What constraint could make this approach unworkable?
-  - What's the simplest version that would still be valuable? Is this over-engineered?
-  - What similar skill might already exist?
-- Surface any concerns explicitly: "I'm uncertain about X" or "I may be assuming Y"
-- Ask user to confirm or correct before proceeding
+**This is a mandatory checkpoint, not optional preparation.**
+
+Before drafting, complete this checkpoint. Use TodoWrite to track. Provide **visible output for each item** — do not skip silently.
+
+**Summary (present to user):**
+- [ ] Problem statement — what's broken/missing?
+- [ ] Core behavior — what should the skill do?
+- [ ] Skill type — process, quality, capability, etc.?
+- [ ] Risk tier — low/medium/high?
+
+**Adversarial lens (visible output for each):**
+
+*Understanding:*
+- [ ] Similar skills? — Check search results. State what you found.
+- [ ] Conflicts? — Does this conflict with CLAUDE.md or existing skills?
+
+*Design:*
+- [ ] Compliance risks? — What would make an agent ignore or rationalize around this?
+- [ ] Simplest version? — What's the minimum that would still be valuable?
+
+*Testability:*
+- [ ] How would we test this? — What does failure look like without the skill?
+
+**Before drafting:**
+- [ ] Present summary AND adversarial findings to user
+- [ ] Ask: "Does this match your intent?"
+- [ ] WAIT for user confirmation — do not draft until user responds
+
+**Red flag — user pushes to skip ahead:**
+> "Just write it" / "Now make the skill" / "Stop asking questions"
+
+This is when the checkpoint matters MOST. Acknowledge the impatience, then complete the checkpoint anyway:
+
+> "I hear you — before I draft, let me confirm my understanding and flag any concerns: [summary + adversarial findings]. Does this match your intent?"
 
 ## Presenting the Design
 
@@ -96,9 +122,18 @@ YOU MUST read [references/skill-writing-guide.md](references/skill-writing-guide
 - Be ready to go back and clarify if something doesn't make sense
 - YAGNI — avoid over-engineering
 
+**Red flag — user asks for "the rest" or "everything":**
+> "Give me the rest" / "Just show me everything" / "Skip to the end"
+
+Present ONE more section, then ask again. Incremental presentation catches errors early — dumping everything means errors compound and require larger rewrites.
+
+> "Here's the next section: [section name]. Does this look right?"
+
 **Draft SKILL.md requirements:**
 
-- `name`: kebab-case, ≤64 chars, gerund form preferred (e.g., `processing-pdfs`)
+- `name`: kebab-case, ≤64 chars, gerund form (e.g., `processing-pdfs`, `writing-tests`)
+  - ❌ `code-comments` (noun) → ✅ `commenting-code` (gerund)
+  - ❌ `error-handler` (noun) → ✅ `handling-errors` (gerund)
 - `description`: ≤1024 chars, trigger conditions ONLY, third person
   - Why: Claude may follow the description instead of reading the skill body. A description summarizing workflow causes incomplete execution.
 - Body: under 500 lines

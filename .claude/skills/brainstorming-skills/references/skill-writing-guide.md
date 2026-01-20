@@ -12,13 +12,13 @@ Essential principles for writing effective skills. **Read this before drafting a
 
 **Match specificity to fragility:**
 
-| Freedom | When to Use | Example |
-|---------|-------------|---------|
-| High | Multiple valid approaches; context-dependent | Code review guidelines |
-| Medium | Preferred pattern exists; some variation OK | Report templates with customization |
-| Low | Fragile operations; consistency critical | Database migrations, exact scripts |
+| Freedom | When to Use                                  | Example                             |
+| ------- | -------------------------------------------- | ----------------------------------- |
+| High    | Multiple valid approaches; context-dependent | Code review guidelines              |
+| Medium  | Preferred pattern exists; some variation OK  | Report templates with customization |
+| Low     | Fragile operations; consistency critical     | Database migrations, exact scripts  |
 
-*Narrow bridge = low freedom (one safe path). Open field = high freedom (many paths work).*
+_Narrow bridge = low freedom (one safe path). Open field = high freedom (many paths work)._
 
 **One default, not menus.** Don't offer "use X or Y or Z." Provide one recommended approach with escape hatches for exceptions.
 
@@ -27,11 +27,15 @@ Essential principles for writing effective skills. **Read this before drafting a
 ## Requirements
 
 **Name:**
+
 - Kebab-case, ≤64 characters
-- Gerund form preferred: `processing-pdfs`, `analyzing-data`, `writing-tests`
+- Gerund form (verb-ing): `processing-pdfs`, `analyzing-data`, `writing-tests`
+  - ❌ `code-comments` (noun) → ✅ `commenting-code` (gerund)
+  - ❌ `error-handler` (noun) → ✅ `handling-errors` (gerund)
 - Avoid: vague names (`helper`, `utils`), reserved words (`claude-*`, `anthropic-*`)
 
 **Description:**
+
 - Trigger conditions ONLY — never summarize workflow or outcomes
 - Third person (injected into system prompt)
 - ≤1024 characters
@@ -50,6 +54,7 @@ Essential principles for writing effective skills. **Read this before drafting a
 **Why this matters:** Claude may follow the description instead of reading the skill body. Outcome descriptions become shortcuts that bypass the actual guidance.
 
 **Body:**
+
 - Under 500 lines
 - Split to reference files if approaching limit
 
@@ -57,7 +62,7 @@ Essential principles for writing effective skills. **Read this before drafting a
 
 ## Structure
 
-**Progressive disclosure:** SKILL.md is a table of contents. Point to detailed files; Claude loads them as needed.
+**Progressive disclosure:** SKILL.md serves as an overview that points Claude to detailed materials as needed, like a table of contents in an onboarding guide.
 
 **One level deep.** All references link directly from SKILL.md. Nested references get partially read.
 
@@ -67,36 +72,47 @@ Essential principles for writing effective skills. **Read this before drafting a
 
 ---
 
-## Compliance Techniques
+## Persuasion Principles for Skill Design
 
-LLMs respond to persuasion. Use these deliberately for discipline-enforcing skills.
+Persuasive language is key to effective Skills. Use these techniques deliberately for discipline-enforcing skills.
 
-**Authority:** Imperative language eliminates rationalization.
-- "YOU MUST", "Never", "No exceptions"
-- Removes "is this an exception?" decisions
+### Authority
 
-**Commitment:** Force explicit choices and tracking.
-- "Announce: 'I'm using [Skill Name]'"
-- Use TodoWrite for checklists
-- Public declaration → consistency pressure
+- Imperative language: "YOU MUST", "Never", "Always"
+- Non-negotiable framing: "No exceptions"
+- Eliminates decision fatigue and rationalization
 
-**Scarcity:** Time-bound requirements prevent "I'll do it later."
-- "IMMEDIATELY after X"
-- "Before proceeding"
-- Sequential dependencies
+### Commitment
 
-**Social Proof:** Establish norms via universal patterns.
-- "Every time", "Always"
-- "X without Y = failure"
+- Require announcements: "Announce skill usage"
+- Force explicit choices: "Choose A, B, or C"
+- Use tracking: TodoWrite for checklists
+
+### Scarcity
+
+- Time-bound requirements: "Before proceeding"
+- Sequential dependencies: "Immediately after X"
+- Prevents procrastination
+
+### Social Proof
+
+- Universal patterns: "Every time", "Always"
+- Failure modes: "X without Y = failure"
+- Establishes norms
+
+### Unity
+
+- Collaborative language: "our codebase", "we're colleagues"
+- Shared goals: "we both want quality"
 
 **By skill type:**
 
-| Type | Use | Avoid |
-|------|-----|-------|
-| Discipline-enforcing | Authority + Commitment + Social Proof | Liking |
-| Guidance/technique | Moderate Authority + Unity | Heavy authority |
-| Collaborative | Unity + Commitment | Authority |
-| Reference | Clarity only | All persuasion |
+| Type                 | Use                                   | Avoid           |
+| -------------------- | ------------------------------------- | --------------- |
+| Discipline-enforcing | Authority + Commitment + Social Proof | Liking          |
+| Guidance/technique   | Moderate Authority + Unity            | Heavy authority |
+| Collaborative        | Unity + Commitment                    | Authority       |
+| Reference            | Clarity only                          | All persuasion  |
 
 **Key insight:** Bright-line rules reduce rationalization. "When X, do Y" is more effective than "generally do Y."
 
@@ -104,42 +120,51 @@ LLMs respond to persuasion. Use these deliberately for discipline-enforcing skil
 
 ## Quality Dimensions
 
-Apply these to reduce ambiguity and prevent drift.
+Use these dimensions to write and review high-quality skills.
 
-**A. Intent fidelity**
+### Intent fidelity
+
 - State primary goal explicitly
 - List non-goals to prevent scope creep
 - Distinguish must-haves from nice-to-haves
 
-**B. Constraint completeness**
-- "Allowed: ..." / "Forbidden: ..."
-- "If constraint blocks progress, STOP and ask for: ..."
+### Constraint completeness
 
-**C. Terminology clarity**
+- “Allowed” vs “Forbidden” actions are explicit.
+- Constraint conflicts trigger STOP/ask.
+
+### Terminology clarity
+
 - "In this skill, 'X' means: ..."
-- Define overloaded terms once, reuse consistently
+- Define terms once, reuse consistently
 
-**D. Evidence anchoring**
+### Evidence anchoring
+
 - "Confirm `<file>` exists before acting"
 - "Do not assume `<tool>`; check `<cmd> --version`"
 
-**E. Decision sufficiency**
+### Decision sufficiency
+
 - Every decision point: condition → action → alternative
 - "If two interpretations exist, STOP and ask"
 
-**F. Verification validity**
+### Verification validity
+
 - Quick check measures primary success property
 - Include failure interpretation: likely causes + next step
 
-**G. Artifact usefulness**
+### Artifact usefulness
+
 - Specify output format, required fields, ordering
 - Tailor to consumer (reviewer, operator, user)
 
-**H. Minimality**
+### Minimality
+
 - "Prefer smallest correct change"
 - "If you need dependency/scope change, STOP and justify"
 
-**I. Calibration**
+### Calibration
+
 - Label claims: Verified / Inferred / Assumed
 - "Not run (reason): ... Run `<cmd>` to verify"
 
@@ -187,6 +212,7 @@ Use for: batch operations, destructive changes, high-stakes operations.
 Two formats, different purposes:
 
 **BAD/GOOD comparisons** — Use in SKILL.md Examples section to show skill impact:
+
 - BAD: What Claude does/produces without the skill
 - GOOD: What Claude does/produces with the skill
 - Include "Why it's bad/good" explanations
@@ -212,6 +238,7 @@ Scripts should handle errors, not defer to Claude. Verbose error messages help C
 Before finalizing any skill:
 
 **Core:**
+
 - [ ] Description contains trigger conditions only (no workflow)
 - [ ] Description is third person
 - [ ] Body under 500 lines
@@ -220,17 +247,20 @@ Before finalizing any skill:
 - [ ] Examples are concrete, not abstract
 
 **Quality:**
+
 - [ ] Primary goal stated; non-goals listed
 - [ ] Decision points have condition → action → alternative
 - [ ] Verification checks measure actual success property
 - [ ] Feedback loops for quality-critical tasks
 
 **Compliance (discipline skills):**
+
 - [ ] Authority language for critical requirements
 - [ ] Explicit choices or TodoWrite tracking
 - [ ] Bright-line rules, not "use judgment"
 
 **Code/Scripts:**
+
 - [ ] Scripts handle errors (don't punt)
 - [ ] Validation steps for critical operations
 - [ ] Plan-validate-execute for complex tasks

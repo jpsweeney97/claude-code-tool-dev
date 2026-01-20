@@ -263,17 +263,19 @@ The `read.py` script runs silently at session start:
 
 ### Manual (`/resume`)
 
-When user runs `/resume [path]`:
+When user runs `/resume [path]` (or the resume procedure is invoked via the Skill tool):
 
-1. **Note the session ID** from the "Session ID:" line in the command (substituted by Claude Code at load time)
+1. **Note the session ID** from the "Session ID:" line at the top of this skill (substituted by Claude Code at load time)
 2. If path provided: read that specific handoff
-3. If no path: use Glob to find latest in `~/.claude/handoffs/<project>/`
-4. Read and display the handoff content
-5. Summarize key points and offer: "Continue with [next step]?"
-6. **Archive the handoff:**
+3. If no path: use Glob with `pattern="*.md"` and `path` set to the absolute path `$HOME/.claude/handoffs/<project>/` (expand `$HOME` — tilde `~` doesn't expand in Glob patterns)
+4. Select the most recent by filename (format is `YYYY-MM-DD_HH-MM_*.md`)
+5. If no handoffs found: report "No handoffs found for this project" and **STOP**
+6. Read and display the handoff content
+7. Summarize key points and offer: "Continue with [next step]?"
+8. **Archive the handoff:**
    - Create `~/.claude/handoffs/<project>/.archive/` if needed
    - Move handoff to `.archive/<filename>`
-7. **Write state file:**
+9. **Write state file:**
    - Create `~/.claude/.session-state/` if needed
    - Write archive path to `~/.claude/.session-state/handoff-<session_id>` (using UUID from step 1)
 
@@ -281,7 +283,7 @@ When user runs `/resume [path]`:
 
 When user runs `/list-handoffs`:
 
-1. Glob `~/.claude/handoffs/<project>/*.md` (excludes `.archive/` directory)
+1. Use Glob with `pattern="*.md"` and `path` set to the absolute path `$HOME/.claude/handoffs/<project>/` (excludes `.archive/` subdirectory; expand `$HOME` — tilde doesn't work)
 2. Read frontmatter from each file
 3. Format as table: date, title, branch
 
