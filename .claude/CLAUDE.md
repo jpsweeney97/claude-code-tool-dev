@@ -64,8 +64,8 @@ claude plugin install <name>@tool-dev
 
 Quality standards to adhere to across all work lives in `.claude/rules/methodology`. **Read the relevant rule before starting ANY work**:
 
-- @~/Projects/active/claude-code-tool-dev/.claude/rules/methodology/rigor.md
-- @~/Projects/active/claude-code-tool-dev/.claude/rules/methodology/tenets.md
+- Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/methodology/rigor.md
+- Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/methodology/tenets.md
 
 ### Branch Protection
 
@@ -77,21 +77,21 @@ A hook blocks Edit/Write on `main`, `master`, `develop`. Create a working branch
 - `*/.claude/handoffs/*`, `*/.claude/notes/*`
 - Gitignored paths (no commit anyway)
 
-Full details: ~/Projects/active/claude-code-tool-dev/.claude/rules/workflow/git.md
+Full details: Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/workflow/git.md
 
 ### Extensions
 
 Detailed guidance for each extension type lives in `.claude/rules/extensions`. **Read the relevant rule before starting work on a new extension**:
 
-| Working on... | Read first                                                                      |
-| ------------- | ------------------------------------------------------------------------------- |
-| Skills        | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/skills.md      |
-| Hooks         | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/hooks.md       |
-| Commands      | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/commands.md    |
-| Agents        | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/agents.md      |
-| Plugins       | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/plugins.md     |
-| MCP Servers   | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/mcp-servers.md |
-| Settings      | ~/Projects/active/claude-code-tool-dev/.claude/rules/extensions/settings.md    |
+| Working on... | Read first                                                                             |
+| ------------- | --------------------------------------------------------------------------------------|
+| Skills        | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/skills.md      |
+| Hooks         | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/hooks.md       |
+| Commands      | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/commands.md    |
+| Agents        | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/agents.md      |
+| Plugins       | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/plugins.md     |
+| MCP Servers   | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/mcp-servers.md |
+| Settings      | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/settings.md    |
 
 ### Scripts
 
