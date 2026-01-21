@@ -382,8 +382,10 @@ After testing, provide one of:
 
 ## References
 
-**Detailed testing methodology:**
-- [references/testing-skills-with-subagents.md](references/testing-skills-with-subagents.md) — Complete testing methodology with pressure scenario design, meta-testing techniques
+**Testing methodology:**
+- [references/testing-skills-with-subagents.md](references/testing-skills-with-subagents.md) — Pressure scenario design, meta-testing techniques
+- [references/type-specific-testing.md](references/type-specific-testing.md) — 8 skill types × scenario templates × metrics frameworks
+- [references/methodology-dialogue-skills.md](references/methodology-dialogue-skills.md) — Testing multi-turn dialogue skills (hybrid RED-GREEN)
 
 **Bulletproofing psychology:**
 - [references/persuasion-principles.md](references/persuasion-principles.md) — Research foundation on authority, commitment, scarcity, social proof (Cialdini, 2021; Meincke et al., 2025)
