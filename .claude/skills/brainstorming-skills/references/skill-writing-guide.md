@@ -170,6 +170,38 @@ Use these dimensions to write and review high-quality skills.
 
 ---
 
+## Framework for Thoroughness
+
+Some skills need rigor — iterative analysis, evidence tracking, principled stopping. The [Framework for Thoroughness](../../../references/framework-for-thoroughness_v1.0.0.md) provides reusable patterns.
+
+**When to integrate:**
+
+| Skill characteristic | Integration level |
+|---------------------|-------------------|
+| Open-ended analysis, unknown iteration count | **Full protocol** — Entry Gate, loop, Yield%, Exit Gate |
+| Structured workflow, defined passes | **Vocabulary only** — Evidence/Confidence levels |
+| Linear workflow, fixed steps | **None** — framework adds overhead without benefit |
+
+**Full protocol examples:** codebase exploration, security audits, research synthesis
+**Vocabulary only examples:** design validation, gap analysis, recommendations
+
+**Canonical vocabulary** (use these terms for consistency):
+
+- **Evidence levels:** E0 (assertion), E1 (single source), E2 (two methods), E3 (triangulated + disconfirmed)
+- **Confidence levels:** High/Medium/Low — capped by evidence (E0/E1 caps at Medium)
+- **Stakes:** Adequate (<20% yield), Rigorous (<10%), Exhaustive (<5%)
+
+**Declaring framework use in a skill:**
+
+```markdown
+**Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness.md)
+**Default thoroughness:** Rigorous
+```
+
+See `.claude/rules/extensions/skills.md` → "Framework for Thoroughness" for full details.
+
+---
+
 ## Patterns
 
 ### Feedback Loops
@@ -252,6 +284,7 @@ Before finalizing any skill:
 - [ ] Decision points have condition → action → alternative
 - [ ] Verification checks measure actual success property
 - [ ] Feedback loops for quality-critical tasks
+- [ ] Thoroughness framework considered (full protocol / vocabulary only / none)
 
 **Compliance (discipline skills):**
 
