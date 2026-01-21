@@ -1,0 +1,10 @@
+{
+  "name": "handoff",
+  "version": "1.0.0",
+  "description": "Session handoff and resume skills for context continuity",
+  "author": {
+    "name": "JP"
+  },
+  "license": "MIT",
+  "keywords": ["handoff", "session", "context", "continuity"]
+}
