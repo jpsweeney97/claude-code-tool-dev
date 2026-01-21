@@ -2,7 +2,7 @@
 name: handoff
 description: Use when user says "wrap this up", "new session", or "handoff"; when stopping work with context to preserve; or when continuing from a previous session.
 metadata:
-  version: 4.2.2
+  version: 4.3.0
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
@@ -114,28 +114,34 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
 
 2. **Note the session ID** from the "Session ID:" line at the top of this skill (substituted by Claude Code at load time)
 
-3. **Gather context** from the session
+3. **Complete the synthesis process:**
+   - YOU MUST read [synthesis-guide.md](synthesis-guide.md) completely before proceeding
+   - Answer every applicable synthesis prompt in the guide
+   - This is not optional — do not skip to filling sections
+   - The synthesis prompts are THINKING; the handoff sections are OUTPUT
 
-4. **Select relevant sections** using the checklist below
+4. **Gather context** from the session (informed by your synthesis work)
+
+5. **Select relevant sections** using the checklist below
    - If no sections have content, **STOP** and ask: "I don't see anything to hand off. What should I capture?"
    - Omit empty sections from output
    - **Calibration:** Distinguish verified facts (explicitly discussed) from inferred conclusions (reasonable next steps) from assumed context (background not verified this session)
 
-5. **Determine output path:**
+6. **Determine output path:**
    - If `~/.claude/handoffs/<project>/` is not writable, **STOP** and ask for alternative path
    - If project name is ambiguous (not in git, generic directory name), ask user to specify
 
-6. **Generate markdown** with frontmatter:
+7. **Generate markdown** with frontmatter:
    - Include `session_id:` with the UUID from step 2
    - Check for `~/.claude/.session-state/handoff-<session_id>` (using the UUID from step 2)
    - If state file exists, read path and include as `resumed_from`
    - Use fallbacks for optional fields (see Inputs → Constraints/Assumptions)
 
-7. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
+8. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
 
-8. **Clean up state file** (delete `~/.claude/.session-state/handoff-<session_id>` if exists)
+9. **Clean up state file** (delete `~/.claude/.session-state/handoff-<session_id>` if exists)
 
-9. **Verify and confirm:**
+10. **Verify and confirm:**
    - Check file exists and frontmatter is valid
    - Confirm: "Handoff saved: <title> (N decisions, N changes, N next steps)"
 
@@ -166,6 +172,7 @@ Include only sections relevant to the session. Empty sections are omitted.
 | Goal | Session had a clear objective |
 | Decisions | Choices made with tradeoffs/reasoning |
 | Changes | Files created/modified with purpose |
+| In Progress | Work was ongoing when session ended (approach, state, open questions) |
 | Gotchas | Something unexpected or tricky discovered |
 | Next Steps | Work is incomplete, clear follow-ups exist |
 | Blockers | Stuck on something, waiting for resolution |
