@@ -15,6 +15,7 @@ Turn skill ideas into testable drafts through collaborative dialogue. Preserves 
 
 **Definition of Done:**
 - Problem understood through discussion with user
+- Understanding converged (two consecutive low-yield question rounds)
 - Success criteria captured ("what should happen instead")
 - Skill type identified
 - Risk tier assessed
@@ -46,6 +47,40 @@ Turn skill ideas into testable drafts through collaborative dialogue. Preserves 
 - User seems confident about their approach — unexamined confidence creates blind spots
 
 If any of these apply, ask anyway.
+
+**Convergence tracking:**
+
+Track whether each question round surfaces new information or just confirms existing understanding.
+
+*A question round yields if it surfaces:*
+- New requirement or constraint
+- Correction to existing understanding
+- New edge case or failure mode
+- New compliance risk
+- Priority change to existing concern
+
+*A question round does NOT yield if it only:*
+- Confirms existing understanding ("yes, that's right")
+- Adds detail without changing conclusions
+- Rephrases what's already known
+
+**Convergence rule:** Understanding has converged when two consecutive question rounds yield nothing new. Do not proceed to checkpoint until converged.
+
+**Dimensions to cover:**
+
+Before claiming convergence, verify these dimensions have been explored:
+
+| Dimension | Explored? |
+|-----------|-----------|
+| Problem statement | What's broken/missing? |
+| Trigger conditions | When should the skill activate? |
+| Success criteria | What should happen instead? |
+| Constraints | What can't the skill do? |
+| Edge cases | What could go wrong? |
+| Compliance risks | What would make Claude ignore this? |
+| Conflicts | Does this clash with existing skills/CLAUDE.md? |
+
+Not all dimensions apply to every skill — mark inapplicable ones as such and move on.
 
 **Exploring approaches:**
 
@@ -99,10 +134,25 @@ Before drafting, complete this checkpoint. Use TodoWrite to track. Provide **vis
 *Testability:*
 - [ ] How would we test this? — What does failure look like without the skill?
 
-**Before drafting:**
+**Loop decision:**
+
+After completing the adversarial lens, decide whether to loop back or proceed:
+
+| Finding | Action |
+|---------|--------|
+| Adversarial check revealed unexplored dimension | → Loop back to understanding |
+| Assumption was invalidated | → Revisit affected understanding |
+| Neither | → Proceed to presenting |
+
+**Red flag — rushing past the loop decision:**
+> "The adversarial check is done, now I'll draft"
+
+If the adversarial lens surfaced anything new, that's a signal to loop back — not to note it and continue. The checkpoint exists to catch what was missed; catching something means there's more to explore.
+
+**Before presenting:**
 - [ ] Present summary AND adversarial findings to user
 - [ ] Ask: "Does this match your intent?"
-- [ ] WAIT for user confirmation — do not draft until user responds
+- [ ] WAIT for user confirmation — do not present draft until user responds
 
 **Red flag — user pushes to skip ahead:**
 > "Just write it" / "Now make the skill" / "Stop asking questions"
