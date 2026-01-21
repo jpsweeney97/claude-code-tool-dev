@@ -1,13 +1,13 @@
 ---
-name: resume
-description: Use when continuing from a previous session. Run `/resume` to load the most recent handoff, or `/resume <path>` for a specific handoff.
+name: resuming-handoffs
+description: Used when continuing from a previous session; when user runs `/resume` to load the most recent handoff, or `/resume <path>` for a specific handoff.
 metadata:
   version: 1.0.0
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
 
-# Resume Skill
+# Resuming Handoffs
 
 Continue work from a previous handoff.
 
@@ -21,12 +21,12 @@ Continue work from a previous handoff.
 
 ## When NOT to Use
 
-- **Creating a new handoff** — use the `handoff` skill instead
+- **Creating a new handoff** — use the `creating-handoffs` skill instead
 - Session has no prior handoffs for this project
 - User wants to start fresh without prior context
 
 **Non-goals (this skill does NOT):**
-- Create handoffs (that's the handoff skill)
+- Create handoffs (that's the `creating-handoffs` skill)
 - Auto-inject handoffs at session start (explicit resume only)
 - Suggest handoffs (user must request)
 - Load the synthesis guide (not needed for resume)
@@ -72,6 +72,31 @@ Continue work from a previous handoff.
 | `/resume` | Load most recent handoff for this project |
 | `/resume <path>` | Load specific handoff by path |
 | `/list-handoffs` | List available handoffs for project |
+
+## Decision Points
+
+1. **Path argument provided:**
+   - If path provided: validate file exists, then use that specific handoff.
+   - If path doesn't exist: report "Handoff not found at <path>" and **STOP**.
+   - If no path: search for most recent handoff in project directory.
+
+2. **Handoff availability:**
+   - If handoffs found for project: select most recent by filename timestamp.
+   - If no handoffs found: report "No handoffs found for this project" and **STOP**.
+
+3. **Project detection:**
+   - If in git repository: use git root directory name as project.
+   - If not in git: use current directory name.
+   - If project name ambiguous or undeterminable: ask user to specify.
+
+4. **Archive directory:**
+   - If `.archive/` exists: move handoff there.
+   - If `.archive/` doesn't exist: create it, then move handoff.
+   - If cannot create `.archive/`: warn user but continue (handoff still readable).
+
+5. **State file creation:**
+   - If `~/.claude/.session-state/` writable: write state file with archive path.
+   - If not writable: warn user (next handoff won't have `resumed_from` field).
 
 ## Procedure
 
@@ -193,4 +218,4 @@ After resuming, verify:
 
 | Skill | Relationship |
 |-------|--------------|
-| `handoff` | Complementary: handoff creates, resume loads |
+| `creating-handoffs` | Complementary: creating-handoffs creates, resuming-handoffs loads |

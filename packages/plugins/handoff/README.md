@@ -11,7 +11,7 @@ claude plugin install handoff@tool-dev
 
 ## Skills
 
-### `/handoff:handoff [title]`
+### `/handoff:creating-handoffs [title]`
 
 Create a handoff document capturing session context:
 - Decisions made and their rationale
@@ -21,7 +21,7 @@ Create a handoff document capturing session context:
 
 Includes a synthesis process to ensure thorough context capture.
 
-### `/handoff:resume [path]`
+### `/handoff:resuming-handoffs [path]`
 
 Resume from the most recent handoff:
 - Loads handoff content into context
@@ -30,9 +30,9 @@ Resume from the most recent handoff:
 
 Lightweight — does not load the synthesis guide.
 
-### `/handoff:list-handoffs`
+### `/list-handoffs`
 
-List available handoffs for the current project.
+List available handoffs for the current project (part of `resuming-handoffs` skill).
 
 ## Storage
 
@@ -49,7 +49,7 @@ This plugin splits what was a monolithic skill (758 lines) into focused skills:
 
 | Operation | Lines Loaded |
 |-----------|-------------|
-| `/handoff:handoff` | ~570 (skill + synthesis guide) |
-| `/handoff:resume` | ~196 (skill only) |
+| `/handoff:creating-handoffs` | ~570 (skill + synthesis guide) |
+| `/handoff:resuming-handoffs` | ~220 (skill only) |
 
 Resume operations load 71% less context than before.

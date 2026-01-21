@@ -1,13 +1,13 @@
 ---
-name: handoff
-description: Use when user says "wrap this up", "new session", or "handoff"; when stopping work with context to preserve.
+name: creating-handoffs
+description: Used when user says "wrap this up", "new session", or "handoff"; when stopping work with context to preserve.
 metadata:
   version: 1.0.0
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
 
-# Handoff Skill
+# Creating Handoffs
 
 Capture session context at stopping points.
 
@@ -26,10 +26,10 @@ Capture session context at stopping points.
 - User explicitly declines handoff offer
 - Context is already captured elsewhere (PR description, committed docs, issue tracker)
 - Session is exploratory research with no actionable next steps
-- **Resuming from a handoff** — use the `resume` skill instead
+- **Resuming from a handoff** — use the `resuming-handoffs` skill instead
 
 **Non-goals (this skill does NOT):**
-- Resume from handoffs (that's the resume skill)
+- Resume from handoffs (that's the `resuming-handoffs` skill)
 - Replace proper documentation (handoffs are ephemeral, docs are permanent)
 - Capture every detail (focus on decisions and next steps, not transcript)
 - Work across different machines (handoffs are local to `~/.claude/`)
@@ -201,4 +201,4 @@ After creating handoff, verify:
 
 | Skill | Relationship |
 |-------|--------------|
-| `resume` | Complementary: handoff creates, resume loads |
+| `resuming-handoffs` | Complementary: creating-handoffs creates, resuming-handoffs loads |
