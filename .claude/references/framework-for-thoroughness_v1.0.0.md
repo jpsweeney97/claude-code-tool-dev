@@ -8,7 +8,7 @@ A reusable framework for ensuring genuine completeness in tasks that require tho
 | --- | --- |
 | **Protocol ID** | `thoroughness.framework` |
 | **Version** | `1.0.0` |
-| **Role** | Shared dependency for Agent Skills (SKILL.md) that require thoroughness (analysis, exploration, auditing, research). |
+| **Role** | Shared guidance for Agent Skills (SKILL.md) that require thoroughness (analysis, exploration, auditing, research). |
 | **Compatibility** | Within a **major** version, meanings of: the loop stages (DISCOVER/EXPLORE/VERIFY/REFINE), Entry/Exit gates, status markers, evidence levels, confidence levels, **Yield%**, stopping templates, and the required report sections are stable. Minor versions may add optional guidance/templates without changing existing meanings. |
 
 ## Contract (Normative Requirements)
