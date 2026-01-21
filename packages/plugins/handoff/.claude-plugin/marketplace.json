@@ -1,0 +1,7 @@
+{
+  "name": "handoff-dev",
+  "owner": { "name": "JP" },
+  "plugins": [
+    { "name": "handoff", "source": "./" }
+  ]
+}

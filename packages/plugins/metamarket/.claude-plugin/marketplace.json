@@ -2,7 +2,6 @@
   "name": "metamarket-dev",
   "owner": { "name": "JP" },
   "plugins": [
-    { "name": "metamarket", "source": "./" },
-    { "name": "handoff", "source": "../handoff" }
+    { "name": "metamarket", "source": "./" }
   ]
 }

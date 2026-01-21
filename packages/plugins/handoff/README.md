@@ -5,8 +5,8 @@ Session handoff and resume skills for context continuity between Claude Code ses
 ## Installation
 
 ```bash
-claude plugin marketplace update tool-dev
-claude plugin install handoff@tool-dev
+claude plugin marketplace add ./packages/plugins/handoff
+claude plugin install handoff@handoff-dev
 ```
 
 ## Skills
