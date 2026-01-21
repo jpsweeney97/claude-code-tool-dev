@@ -130,52 +130,20 @@ Agent found new rationalization during GREEN? Add explicit counter.
 
 ## Testing by Skill Type
 
-Different skill types need different test approaches:
+Different skill types need different test approaches. Identify your type, then design scenarios accordingly.
 
-### Discipline-Enforcing Skills
+| Type | Core Question | Test With |
+|------|---------------|-----------|
+| Process/Workflow | Did Claude follow the steps? | Pressure on step completion/order |
+| Quality Enhancement | Is output measurably better? | Before/after comparison + adversarial |
+| Capability | Can Claude do the thing? | Success rate delta (with/without skill) |
+| Solution Development | Did Claude find the best approach? | Alternatives explored + adversarial |
+| Meta-cognitive | Did Claude notice what it should? | Recognition rate + calibration |
+| Recovery/Resilience | Did Claude recover appropriately? | Failure injection scenarios |
+| Orchestration | Right skills invoked in right order? | Phase transition + artifact handoff |
+| Template/Generation | Does output match required format? | Structure validation + edge cases |
 
-**Examples:** TDD, verification-before-completion, designing-before-coding
-
-**Test with:**
-- Academic questions: Do they understand the rules?
-- Pressure scenarios: Do they comply under stress?
-- Multiple pressures combined: time + sunk cost + exhaustion
-- Identify rationalizations and add explicit counters
-
-**Success criteria:** Agent follows rule under maximum pressure
-
-### Technique Skills
-
-**Examples:** condition-based-waiting, root-cause-tracing, defensive-programming
-
-**Test with:**
-- Application scenarios: Can they apply the technique correctly?
-- Variation scenarios: Do they handle edge cases?
-- Missing information tests: Do instructions have gaps?
-
-**Success criteria:** Agent successfully applies technique to new scenario
-
-### Pattern Skills
-
-**Examples:** reducing-complexity, information-hiding concepts
-
-**Test with:**
-- Recognition scenarios: Do they recognize when pattern applies?
-- Application scenarios: Can they use the mental model?
-- Counter-examples: Do they know when NOT to apply?
-
-**Success criteria:** Agent correctly identifies when/how to apply pattern
-
-### Reference Skills
-
-**Examples:** API documentation, command references, library guides
-
-**Test with:**
-- Retrieval scenarios: Can they find the right information?
-- Application scenarios: Can they use what they found correctly?
-- Gap testing: Are common use cases covered?
-
-**Success criteria:** Agent finds and correctly applies reference information
+**Not sure which type?** See [type-specific-testing.md](references/type-specific-testing.md) for decision trees, scenario templates, and worked examples.
 
 ## Pressure Scenario Design
 
