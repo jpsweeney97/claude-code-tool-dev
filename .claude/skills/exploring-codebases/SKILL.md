@@ -53,7 +53,7 @@ This skill applies `thoroughness.framework@1.0.0` to codebase exploration, produ
 - Context (protocol, scope, constraints)
 - Entry Gate (assumptions, thoroughness level, stopping criteria, seed dimensions)
 - Coverage Tracker (items with Cell Schema: ID, Status, Priority, Evidence, Confidence)
-- Iteration Log (pass-by-pass Yield%)
+- Iteration Log (table with New/Total/Yield%/Decision per pass)
 - Findings (with Evidence + Confidence levels)
 - Disconfirmation Attempts
 - Decidable vs Undecidable
@@ -122,6 +122,28 @@ DISCOVER → EXPLORE → VERIFY → REFINE → (loop or exit)
 
 **REFINE:** Compute Yield%. If below threshold and no new dimensions, exit. Otherwise loop.
 
+### Iteration Log Format
+
+Each pass MUST include an explicit Iteration Log entry showing the Yield% calculation:
+
+```
+## Iteration Log
+
+| Pass | New Findings | Total Findings | Yield% | Decision |
+|------|--------------|----------------|--------|----------|
+| 1    | 12           | 12             | 100%   | Continue |
+| 2    | 4            | 16             | 25%    | Continue |
+| 3    | 1            | 17             | 5.9%   | Exit (< 10%) |
+```
+
+**Required columns:**
+- **New Findings:** Count of genuinely new items discovered this pass
+- **Total Findings:** Cumulative count
+- **Yield%:** `New / Total × 100` (show the math)
+- **Decision:** Continue or Exit with reason
+
+**Anti-pattern:** Reporting only final Yield% without iteration history. The log proves convergence wasn't faked.
+
 ### Exit Gate
 
 Cannot claim "done" until:
@@ -129,7 +151,7 @@ Cannot claim "done" until:
 - [ ] Connections mapped (dependencies, failure propagation)
 - [ ] Disconfirmation attempted for P0 findings
 - [ ] Assumptions resolved (verified, invalidated, or flagged)
-- [ ] Convergence reached (Yield% below threshold)
+- [ ] Convergence reached (Iteration Log shows Yield% below threshold)
 - [ ] Stopping criteria satisfied
 
 ## Decision Points
@@ -192,27 +214,35 @@ Claude runs Entry Gate, identifies dimensions, loops until convergence:
 - Stopping: Discovery-based (two loops, no new P0/P1)
 - Structure: Tree (clear module hierarchy)
 
-**Pass 1 findings (Yield% = 100%):**
+**Iteration Log:**
+
+| Pass | New Findings | Total Findings | Yield% | Decision |
+|------|--------------|----------------|--------|----------|
+| 1    | 8            | 8              | 100%   | Continue |
+| 2    | 3            | 11             | 27%    | Continue |
+| 3    | 1            | 12             | 8%     | Exit (< 10%) |
+
+**Pass 1 findings:**
 - Structure: 4 top-level modules identified (core, router, middleware, plugins)
 - Data flow: Request → middleware chain → handler → response
 - Dependencies: 3 external (http, path, events), tight internal coupling in core
 
-**Pass 2 findings (Yield% = 35%):**
+**Pass 2 findings:**
 - NEW: Plugin system discovered (missed in Pass 1) — P0, escalated
 - REVISED: Middleware isn't linear — supports branching via conditions
 - Testing: Unit tests mock core, integration tests use real server
 
-**Pass 3 findings (Yield% = 8%):**
+**Pass 3 findings:**
 - No new dimensions
 - Refined understanding of plugin lifecycle hooks
 - Disconfirmation: Tried to find global state mutation — none found
 
-**Exit:** Yield% < 10%, discovery-based criteria met.
+**Exit:** Iteration Log shows Yield% < 10%, discovery-based criteria met.
 
 **Why it's good:**
 - Systematic coverage with tracked dimensions
 - Evidence levels assigned (E2 for P0 findings)
-- Convergence measured — knows when to stop
+- Iteration Log shows convergence with explicit math — proves rigor wasn't faked
 - Documented methodology — reproducible, auditable
 - Discovered non-obvious patterns through iteration
 
@@ -221,6 +251,10 @@ Claude runs Entry Gate, identifies dimensions, loops until convergence:
 **Pattern:** One-pass theater
 **Why it fails:** Running the loop once and claiming "it converged" defeats the purpose. Real exploration discovers new dimensions that require re-exploration.
 **Fix:** Yield% must actually drop below threshold over multiple passes. First pass is always 100%.
+
+**Pattern:** Summary-only Yield%
+**Why it fails:** Reporting "final Yield% was 8%" without showing the iteration log hides whether convergence was real or fabricated.
+**Fix:** Include the full Iteration Log table showing New/Total/Yield%/Decision for each pass. The math must be visible.
 
 **Pattern:** Skipping Entry Gate
 **Why it fails:** Without assumptions surfaced, you don't know what you're taking for granted. Without thoroughness level set, you have no stopping criteria.
@@ -281,7 +315,7 @@ Claude runs Entry Gate, identifies dimensions, loops until convergence:
 
 ## Verification
 
-**Quick check:** Exit Gate passes and Yield% below threshold.
+**Quick check:** Exit Gate passes and Iteration Log shows Yield% below threshold.
 
 **Deeper validation:**
 - Compare findings against actual documentation (if available)
