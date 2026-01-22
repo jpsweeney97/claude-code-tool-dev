@@ -1,144 +1,310 @@
 ---
 name: making-recommendations
-description: Use when asked to make a recommendation, suggest an approach, or choose between options. Use when the user says "what should I use", "which is better", "recommend", or "help me decide". Do not use for simple factual questions or when user has already decided.
+description: Use when asked to recommend, suggest an approach, or choose between options. Use when user says "what should I use", "which is better", "recommend", or "help me decide". Use when user says "make a recommendation" during an ongoing conversation. Do not use for trivial decisions where both scope and reversibility are negligible.
 ---
 
 # Making Recommendations
 
-Make recommendations through rigorous analysis, not pattern matching.
+Make recommendations through structured analysis, not pattern matching.
 
-**The problem:** Claude often recommends the first thing that comes to mind — familiar tools, popular options, or whatever fits the pattern. This leads to shallow recommendations that miss alternatives, ignore second-order effects, and don't survive scrutiny.
+**Protocol:** [decision-making.framework@1.0.0](../../../docs/frameworks/framework-for-decision-making_v1.0.0.md)
 
-**This skill ensures:** Every recommendation goes through structured analysis and adversarial challenge before being presented.
+**The problem:** Claude often recommends the first thing that comes to mind — familiar tools, popular options, or whatever fits the pattern. This leads to:
+- Premature commitment without iteration
+- No signal for when a recommendation is "ready" vs just "made"
+- Same shallow process for trivial and high-stakes decisions
+- Missing activities: null option, information gaps, sensitivity analysis
+
+**This skill ensures:**
+- Every recommendation follows the decision-making framework
+- Stakes-calibrated depth (adequate/rigorous/exhaustive)
+- Explicit convergence before claiming "ready"
+- Persistent Decision Record with traceable reasoning
+
+**Outputs:**
+- Decision Record file at `docs/decisions/YYYY-MM-DD-<decision-slug>.md`
+- Inline summary: recommendation + key reasoning in chat
+
+**Definition of Done:**
+- Decision Record file created and complete for stakes level
+- Convergence indicators satisfied
+- Recommendation + summary presented in chat
 
 ## Triggers
 
+**Direct request:**
 - "What should I use for..."
 - "Which is better, X or Y?"
 - "Recommend a..."
 - "Help me decide between..."
 - "What's the best way to..."
-- "Make a recommendation"
 - "What do you recommend?"
-- `/recommend`
+
+**Mid-conversation pivot:**
+- "Just make a recommendation"
+- "What would you recommend?" (after discussion)
+- "Stop asking and decide"
 
 **Do not use when:**
-
 - User has already decided and wants implementation help
 - Question is purely factual ("What is X?")
-- User explicitly wants a quick answer without analysis
+- Decision is trivial (both scope AND reversibility are negligible)
+  - Scope: affects only a single line/variable/name
+  - Reversibility: < 5 minutes to undo
+  - **Both must be true to skip** — if either has substance, use the skill
 
 ## Process
 
-### Phase 1: Understand Before Recommending
+### Entry Gate
 
-Before any recommendation, establish:
+Before any analysis, establish and record:
 
-- **The actual need** — What problem is being solved? (Not what solution is being asked for)
-- **Constraints** — Time, budget, team skills, existing systems, preferences
-- **Success criteria** — What would make this recommendation "good"?
-- **Stakes** — How reversible is this decision? What's the cost of being wrong?
+**1. Entry context check:**
+- **Direct request:** Proceed to full Entry Gate
+- **Mid-conversation pivot:** First summarize what you understood from prior conversation, confirm with user, then proceed to full Entry Gate
 
-If any of these are unclear, ask. Do not assume.
+**2. Thoroughness gate:**
+- Can you name 2+ plausible options (including "defer/do nothing")?
+- Is the remaining uncertainty about preferences/trade-offs (not basic facts)?
 
-### Phase 2: Generate Alternatives
+If NO to either: **Stop.** Recommend running thoroughness exploration first. Do not proceed until option space is known or user explicitly overrides.
 
-List at least 3 viable options:
+**3. Stakes calibration:**
 
-- The obvious choice (what comes to mind first)
-- An unconventional option (what would someone who disagrees suggest?)
-- A simpler option (what's the minimum that would work?)
+| Factor | Adequate | Rigorous | Exhaustive |
+|--------|----------|----------|------------|
+| Reversibility | Easy to undo | Some undo cost | Hard/irreversible |
+| Blast radius | Localized | Moderate | Wide/systemic |
+| Cost of error | Low | Medium | High |
+| Uncertainty | Low | Moderate | High |
 
-Do not filter yet. Capture all reasonable approaches before evaluating.
+**Rule:** If any two factors land in a higher column, choose that level.
 
-### Phase 3: Evaluate Against Criteria
+**4. Record Entry Gate outputs:**
 
-For each option, assess:
+| Field | Record |
+|-------|--------|
+| Stakes level | adequate / rigorous / exhaustive |
+| Rationale | Why this level matches the situation |
+| Iteration cap | adequate: 2, rigorous: 3, exhaustive: 5 |
+| Minimum passes | adequate: 1, rigorous: 2, exhaustive: 3 |
+| Escalation trigger | What will cause escalation to user |
 
-| Dimension            | Questions                                                  |
-| -------------------- | ---------------------------------------------------------- |
-| Fit                  | Does it solve the actual problem? Meet the constraints?    |
-| Tradeoffs            | What is gained? What is sacrificed?                        |
-| Second-order effects | What downstream impacts? What does this make harder later? |
-| Uncertainty          | How confident is Claude? What is unknown?                  |
+### Outer Loop: Frame the Decision
 
-### Phase 4: Adversarial Challenge
+Complete before entering the inner loop. Each guards against a specific failure mode.
 
-Apply each lens with genuine adversarial intent. Try to break the emerging recommendation.
+| Activity | Question | Failure if Skipped |
+|----------|----------|-------------------|
+| **Identify the choice** | What exactly are we deciding? State as a clear question. | Wrong problem |
+| **Surface constraints** | What limits our options? (Technical, budget, time, policy) | Infeasible options |
+| **Define criteria** | What does "good" look like? Assign weights (1-5). | Arbitrary selection |
+| **Identify stakeholders** | Who's affected? What do they value? | Key perspectives missed |
+| **Surface assumptions** | What are we taking for granted? | Hidden assumptions |
+| **Check scope** | Is this one decision or several? Split or combine? | Scope confusion |
+| **Assess reversibility** | How hard to undo each potential path? | Miscalibrated rigor |
+| **Identify dependencies** | Does this block or depend on other decisions? | Blocked cascade |
+| **Downstream impact** | What will this decision affect later? | Unintended consequences |
 
-**Kill the Recommendation**
+**Depth by level:**
+- **Adequate:** O1-O4 required; O5-O9 noted briefly
+- **Rigorous:** All required
+- **Exhaustive:** All required at deep analysis
 
-- What's the strongest argument against this approach?
-- If this fails, what will be the cause?
-- Would Claude bet on this recommendation?
+**Output:** Frame document in Decision Record with: decision statement, constraints, weighted criteria, stakeholders, assumptions, scope, reversibility, dependencies, downstream impacts.
 
-**Pre-mortem**
+**Frame converges when:** Frame hasn't changed across an inner loop pass.
 
-- It's 6 months later. This recommendation led to failure.
-- What went wrong? What warning signs were ignored?
+### Inner Loop: Evaluate Options
 
-**Steelman Alternatives**
+With a stable frame, evaluate alternatives. Each activity guards against a specific failure mode.
 
-- Take rejected options seriously: What would make them better than the recommendation?
-- Is the rejection justified, or dismissed too quickly?
+**Generate alternatives (I1-I3):**
+- List at least 3 viable options (4+ for rigorous, exhaust space for exhaustive)
+- **Always include null option:** What if we do nothing or defer?
+- Check for hidden options: Hybrids? Orthogonal approaches?
 
-**Challenge the Framing**
+**Assess trade-offs (I4-I5):**
+- For each option: What is gained? What is sacrificed?
+- Score against weighted criteria (0-5 scale)
+- Mark speculative scores with `?` and list in Information Gaps
 
-- What if the premise is wrong?
-- Is this the right question to be answering?
+**Scoring rubric:**
+| Score | Meaning |
+|-------|---------|
+| 0 | Fails criterion |
+| 3 | Acceptable |
+| 5 | Excellent |
 
-**Hidden Complexity**
+**Weighted total:** `sum(score × weight)`. If option violates a hard constraint, mark **disqualified**.
 
-- Where is complexity being underestimated?
-- What looks simple but isn't?
+**Identify gaps (I6):**
+- What don't we know that would change the ranking?
+- What evidence would we need to increase confidence?
 
-**Motivated Reasoning Check**
+**Check for bias (I7):**
+- Familiarity bias: Am I favoring what I know?
+- Sunk cost: Am I protecting prior investment?
+- Anchoring: Am I stuck on the first option considered?
 
-- Is Claude rationalizing a preferred approach?
-- What would the recommendation be if forced to pick something completely different?
+**Pressure-test frontrunner (I8-I9) — Adversarial Challenge:**
 
-### Phase 5: Recommend
+Apply these lenses with genuine adversarial intent. Objections must cause discomfort if true — softball objections don't count.
 
-State the recommendation with:
+| Lens | Question |
+|------|----------|
+| **Kill it** | What's the strongest argument against this? If it fails, what's the cause? |
+| **Pre-mortem** | It's 6 months later, this failed. What went wrong? What warning signs were ignored? |
+| **Steelman alternatives** | What would make rejected options better than the frontrunner? |
+| **Challenge framing** | What if the premise is wrong? Is this the right question? |
+| **Hidden complexity** | Where is complexity being underestimated? |
+| **Motivated reasoning** | Am I rationalizing a preferred approach? |
 
-- **The choice** — Clear, unambiguous
-- **Why this** — Positive case against the criteria
-- **Why not others** — What alternatives lacked (having steelmanned them)
-- **Tradeoffs accepted** — What is being sacrificed and why it's acceptable
-- **Assumptions** — What, if wrong, would change the recommendation
-- **Confidence level** — How certain, and why
+**Check perspectives (I10):**
+- How does this look from each stakeholder's view?
+- Would any stakeholder strongly object?
+
+**Identify risks (I11-I12):**
+- What could go wrong with each option?
+- What does this choice enable or preclude next? (Second-order effects)
+
+**Sensitivity analysis (I13):**
+- Required for exhaustive; recommended for rigorous; skip allowed for adequate
+- Weight swap: If most important criterion's weight changed ±1, does ranking change?
+- Assumption flip: Score frontrunner in best/worst plausible case
+
+**Output:** Evaluation record with options, trade-offs, scores, risks, and pressure-tested frontrunner.
+
+### Transition Trees
+
+**After inner loop pass, evaluate:**
+
+```
+Is there a clear frontrunner?
+├─ NO → Are more options discoverable?
+│        ├─ YES → ITERATE inner (focus on I1-I3)
+│        └─ NO → BREAK to outer (frame may be wrong)
+│
+└─ YES → Has it survived pressure-testing?
+         ├─ NO → ITERATE inner (focus on I8-I9)
+         └─ YES → Are stakeholder perspectives aligned?
+                  ├─ NO → ITERATE inner (focus on I10)
+                  └─ YES → Convergence criteria met?
+                           ├─ NO → ITERATE inner
+                           └─ YES → EXIT (decide)
+
+ESCAPE: Stuck after iteration cap with no progress? → ESCALATE to user
+```
+
+**After outer loop (inner exits or breaks):**
+
+```
+Did inner loop EXIT with a decision?
+├─ YES → Did frame remain stable throughout?
+│        ├─ YES → EXIT (produce Decision Record)
+│        └─ NO → ITERATE outer (frame changed, re-validate)
+│
+└─ NO (inner BROKE) → Is a better frame apparent?
+                      ├─ YES → ITERATE outer (reframe)
+                      └─ NO → ESCALATE to user
+```
+
+### Convergence Indicators
+
+| Level | Requirements |
+|-------|--------------|
+| **Adequate** | Frontrunner stable 1 pass, trade-offs stated, criteria defined |
+| **Rigorous** | Frontrunner stable 2 passes, objections resolved, all perspectives checked |
+| **Exhaustive** | Frontrunner stable 2+ passes, disconfirmation yielded nothing new, sensitivity shows robustness |
+
+### Iteration Log
+
+**YOU MUST** maintain an iteration log showing what changed between passes:
+
+| Pass | Frame Changes | Frontrunner | Key Findings |
+|------|---------------|-------------|--------------|
+| 1 | (initial) | Option A | ... |
+| 2 | None | Option A | Pressure-test survived |
+
+**Convergence justification:** If claiming convergence, explain why — not just "stable" but what evidence supports stability. If nothing changed, state what was tested that could have changed it.
+
+### Exit Gate
+
+Cannot claim "done" until all criteria pass for the chosen level:
+
+| Criterion | Check |
+|-----------|-------|
+| **Minimum passes met** | adequate: 1, rigorous: 2, exhaustive: 3 |
+| **Frame complete** | All required outer loop activities documented |
+| **Evaluation complete** | All required inner loop activities documented |
+| **Convergence met** | Indicators satisfied for chosen level |
+| **Trade-offs explicit** | Decision record includes "Trade-offs Accepted" |
+| **Iteration log complete** | Pass-by-pass changes documented with justification |
+| **Transition tree passed** | Exited via proper tree path, not bypassed |
+
+### Produce Output
+
+**1. Create Decision Record file:**
+
+Location: `docs/decisions/YYYY-MM-DD-<decision-slug>.md`
+
+Use the Decision Record Template from [decision-making.framework@1.0.0](../../../docs/frameworks/framework-for-decision-making_v1.0.0.md). Include all sections appropriate to stakes level.
+
+**2. Present in chat:**
+
+After creating the file, present inline:
+
+```
+**Recommendation:** [Selected option]
+
+**Why:** [2-3 sentence summary of positive case]
+
+**Trade-offs accepted:** [What's being sacrificed]
+
+**Confidence:** High / Medium / Low
+
+**Caveats:** [What would change this]
+
+**Full analysis:** [link to Decision Record file]
+```
+
+This summary lets the user see the answer without opening the file, while the file preserves full reasoning.
 
 ## Decision Points
 
-**Not enough alternatives:**
+**Thoroughness gate blocks:**
+- If option space unknown or evidence weak → Recommend thoroughness exploration first
+- If user overrides → Document override in Entry Gate, proceed with explicit uncertainty
 
-- If only 1-2 options come to mind → Stop and actively seek more. "What would someone who disagrees suggest?"
-- If all options seem equivalent → Something is missing. Dig deeper on criteria or constraints.
+**Stakes unclear:**
+- If factors split across columns → Choose the higher level
+- If user disagrees with stakes assessment → User's assessment wins; document rationale
 
-**Uncertainty about the domain:**
+**Mid-conversation pivot:**
+- Summarize prior understanding → Confirm with user → Run full Entry Gate
+- Prior conversation informs the gate but doesn't skip steps
 
-- If Claude is not confident in the domain → State so explicitly. "I'm less familiar with X, so this recommendation has higher uncertainty."
-- If key facts cannot be verified → State them as assumptions. Do not present guesses as knowledge.
+**All options fail criteria:**
+- BREAK to outer loop → Ask: "Can constraints change?"
+- If no → ESCALATE: "Given current constraints, no option meets criteria. What should we prioritize?"
 
-**Adversarial phase finds problems:**
+**Near-tie (top options within ~10%):**
+- Treat as tie → Choose based on declared priority (e.g., safety > speed)
+- Or run a small spike targeting the one unknown most likely to break the tie
+- Or defer: pick safest reversible step now, decide when evidence arrives
 
-- If pre-mortem reveals serious risks → Either mitigate in the recommendation or reconsider alternatives.
-- If steelmanning makes an alternative look better → Follow the evidence. Change the recommendation.
+**Pressure to skip ("just decide"):**
+- Acknowledge the pressure
+- Complete at least minimum passes for stakes level
+- Compress output, not process: "Here's the recommendation. Full analysis in the Decision Record."
 
-**User wants a quick answer:**
+**Iteration cap reached without convergence:**
+- ESCALATE: Present current state to user
+- "After [N] passes, [frontrunner] leads but [uncertainty remains]. Do you want to decide now or [gather more information]?"
 
-- Give the recommendation BUT still surface the top tradeoff and uncertainty.
-- Never skip adversarial thinking; compress the output, not the process.
-
-**High stakes, low confidence:**
-
-- Recommend gathering more information before deciding.
-- "I'd recommend [X] with current information, but given the stakes, consider [ways to reduce uncertainty] before committing."
-
-**Conflicting criteria:**
-
-- Make the tradeoff explicit: "Option A wins on X and Y but loses on Z. Given the constraints, X and Y matter more because..."
-- Do not hide the conflict in a clean-sounding recommendation.
+**Adversarial phase feels perfunctory:**
+- If objections don't cause discomfort → They're too weak
+- Red flag: "I can't think of strong objections" → Try harder. Steelman the alternatives. What would a critic say?
 
 ## Examples
 
@@ -146,66 +312,85 @@ State the recommendation with:
 
 ### BAD: Pattern-matching without analysis
 
-"I'd recommend using Auth0 or Firebase Auth. They handle the complexity of authentication for you, support multiple providers (Google, GitHub, etc.), and are well-documented. Auth0 is more feature-rich for enterprise needs, while Firebase is simpler and integrates well if you're already using Firebase."
+"I'd recommend using Auth0 or Firebase Auth. They handle the complexity of authentication for you, support multiple providers (Google, GitHub, etc.), and are well-documented. Auth0 is more feature-rich for enterprise needs, while Firebase is simpler."
 
 **Why it's bad:**
-
-- No understanding of constraints (team size, budget, existing stack)
+- No Entry Gate — stakes not assessed, no iteration cap set
+- No constraints gathered — team size, budget, existing stack unknown
 - Only considered third-party services — missed self-hosted and library options
-- No tradeoffs surfaced
-- No adversarial challenge — what if Auth0 pricing explodes at scale?
-- Confident tone despite knowing nothing about the context
+- No null option — didn't consider "defer" or "roll minimal"
+- No trade-offs surfaced — vendor lock-in, pricing at scale not mentioned
+- No adversarial challenge — what if Auth0 pricing explodes?
+- No Decision Record — reasoning not preserved, not reproducible
+- Confident tone despite knowing nothing about context
 
-### GOOD: Structured analysis with adversarial challenge
+### GOOD: Framework-driven analysis with Decision Record
 
-**Understanding:**
+**Entry Gate:**
+- Stakes: Rigorous (moderate blast radius, some undo cost, medium uncertainty)
+- Iteration cap: 3
+- Minimum passes: 2
 
-- Need: User authentication for a B2B SaaS app
-- Constraints: Small team (2 devs), limited budget, already using PostgreSQL and Node.js
-- Success criteria: Secure, maintainable by small team, cost-effective
-- Stakes: Medium — can migrate later but painful
+**Frame:**
+- Decision: "What authentication approach for a B2B SaaS app?"
+- Constraints: Small team (2 devs), limited budget, PostgreSQL + Node.js stack
+- Criteria: Security (5), Maintainability (4), Cost (4), Time-to-implement (3)
+- Stakeholders: Dev team, end users, future maintainers
 
-**Alternatives:**
+**Options (including null):**
+1. Auth0/Firebase — Managed service
+2. Lucia — Lightweight library
+3. Keycloak — Self-hosted
+4. Roll own — bcrypt + sessions
+5. Null: Defer auth, use basic API keys for now
 
-1. Auth0/Firebase — Managed auth service
-2. Roll your own — bcrypt + sessions/JWT
-3. Open source self-hosted — Keycloak, Authentik
-4. Lightweight library — Passport.js, Lucia
+**Evaluation (Pass 1):**
+| Option | Security | Maint. | Cost | Time | Total |
+|--------|----------|--------|------|------|-------|
+| Auth0 | 5 | 4 | 2 | 5 | 58 |
+| Lucia | 4 | 4 | 5 | 3 | 56 |
+| Keycloak | 5 | 2 | 4 | 2 | 46 |
+| Roll own | 2 | 3 | 5 | 1 | 36 |
+| Defer | 1 | 5 | 5 | 5 | 48 |
 
-**Evaluation:**
+Frontrunner: Auth0
 
-| Option        | Fit                     | Tradeoffs                         | Second-order                        |
-| ------------- | ----------------------- | --------------------------------- | ----------------------------------- |
-| Auth0         | Good features           | $$$ at scale, vendor lock-in      | Pricing surprises as you grow       |
-| Roll your own | Full control            | Security risk, maintenance burden | Every edge case is your problem     |
-| Keycloak      | Feature-rich            | Complex to operate, Java stack    | Operational overhead for small team |
-| Lucia         | Lightweight, fits stack | Less batteries-included           | May need to build features later    |
+**Adversarial (Pass 1):**
+- Kill it: Auth0 pricing scales with MAU — could become painful at 10k+ users
+- Pre-mortem: "We hit enterprise customer needing on-prem, Auth0 can't do it"
+- Steelman Lucia: Cheaper long-term, fits stack, avoids lock-in
 
-**Adversarial challenge:**
+**Evaluation (Pass 2):**
+Revised Cost score for Auth0 to 2 (from 3) after pricing analysis. Lucia now leads.
 
-_Kill it:_ Lucia is newer, smaller community. If edge cases are hit, less help available.
+**Adversarial (Pass 2):**
+- Kill Lucia: Smaller community, less battle-tested
+- Response: Acceptable risk for B2B SaaS; can migrate if needed
 
-_Pre-mortem:_ "Lucia was chosen, then SAML was needed for an enterprise customer. Lucia doesn't support it. A separate solution had to be bolted on, creating two auth systems."
+**Convergence:** Frontrunner (Lucia) stable across 2 passes. Objections addressed.
 
-_Steelman Auth0:_ The cost scales with success. If pricing becomes a problem, that's a good problem. Time saved on auth = time spent on product.
+**Inline output:**
 
-**Recommendation:** Lucia
-
-- **Why:** Fits the stack (Node.js), lightweight, gives control without rolling crypto. Budget-friendly.
-- **Why not Auth0:** Cost at scale is real concern for bootstrapped B2B; lock-in complicates future options.
-- **Why not roll your own:** Security risk too high for 2-person team.
-- **Why not Keycloak:** Operational complexity exceeds team capacity.
-- **Tradeoff accepted:** Smaller community, may need to build features (SAML) if enterprise customers require them.
-- **Assumption:** If enterprise customers needing SAML/OIDC federation appear, revisit Auth0 or add Keycloak alongside.
-- **Confidence:** Medium-high. Claude is familiar with these options but hasn't used Lucia in production.
+> **Recommendation:** Lucia
+>
+> **Why:** Fits Node.js stack, lightweight, gives control without rolling crypto. Budget-friendly for small team.
+>
+> **Trade-offs accepted:** Smaller community, may need to build SAML if enterprise customers require it.
+>
+> **Confidence:** Medium-high
+>
+> **Caveats:** If enterprise customers needing SAML appear early, revisit Auth0.
+>
+> **Full analysis:** docs/decisions/2024-01-15-auth-approach.md
 
 **Why it's good:**
-
-- Established context before recommending
-- Generated diverse alternatives (managed, DIY, self-hosted, library)
-- Evaluated against criteria with tradeoffs explicit
-- Applied adversarial thinking — tried to kill the recommendation, steelmanned alternatives
-- Stated assumptions and confidence level
+- Entry Gate calibrated stakes before starting
+- Gathered constraints before evaluating
+- Generated 5 options including null
+- Weighted scoring with explicit criteria
+- Two passes with genuine adversarial challenge
+- Trade-offs explicit in recommendation
+- Decision Record preserves full reasoning
 
 ## Anti-Patterns
 
@@ -215,11 +400,11 @@ _Steelman Auth0:_ The cost scales with success. If pricing becomes a problem, th
 
 **Pattern:** Skipping adversarial phase because "it's obviously right"
 **Why it fails:** Confidence is when Claude is most likely to miss something. The adversarial phase exists precisely for "obvious" choices.
-**Fix:** Pre-mortem and steelman are mandatory, not optional.
+**Fix:** Pre-mortem and steelman are mandatory, not optional. If objections don't cause discomfort, they're too weak.
 
-**Pattern:** Listing tradeoffs but not weighting them
+**Pattern:** Listing trade-offs but not weighting them
 **Why it fails:** "A has pros X, Y. B has pros Z, W." Unweighted comparison doesn't help decide.
-**Fix:** Explicitly state which criteria matter more given the constraints.
+**Fix:** Explicitly state which criteria matter more given the constraints. Use weighted scoring.
 
 **Pattern:** Hiding uncertainty behind confident language
 **Why it fails:** "Use X" sounds authoritative but may be a guess. User cannot calibrate trust.
@@ -229,37 +414,111 @@ _Steelman Auth0:_ The cost scales with success. If pricing becomes a problem, th
 **Why it fails:** Context changes. Assumptions may be wrong. User needs to know when to revisit.
 **Fix:** Always state assumptions and conditions that would change the recommendation.
 
+**Pattern:** Claiming convergence after one pass
+**Why it fails:** One pass means the frontrunner was never challenged. "Stable" requires testing stability.
+**Fix:** Minimum passes: adequate 1, rigorous 2, exhaustive 3. Iteration log must show what was tested.
+
+**Pattern:** Softball objections in adversarial phase
+**Why it fails:** "A minor concern is..." isn't pressure-testing. The phase becomes theater.
+**Fix:** Objections must cause discomfort if true. Steelman alternatives seriously. Ask: "What would make me change my mind?"
+
+**Pattern:** Skipping null option
+**Why it fails:** "Do nothing" or "defer" is often valid. Omitting it biases toward action.
+**Fix:** Always include null option. Score it against criteria like any other option.
+
+**Pattern:** Treating user pressure as permission to skip steps
+**Why it fails:** "Just decide" doesn't change what good analysis requires. Fast wrong recommendations are slower than methodical right ones.
+**Fix:** Acknowledge pressure, complete minimum passes, compress output not process.
+
+**Pattern:** Empty iteration log
+**Why it fails:** "Pass 1... Pass 2..." without content is checkbox compliance, not iteration.
+**Fix:** Each pass must show: what changed, what was tested, why convergence is (or isn't) reached.
+
 ## Troubleshooting
 
-**Symptom:** Claude recommends immediately without analysis
-**Cause:** Pattern matching to familiar solutions, not actually analyzing
-**Fix:** Return to Phase 1. Explicitly work through each phase before recommending.
+**Symptom:** Claude recommends immediately without Entry Gate
+**Cause:** Pattern matching to familiar solutions, not following the process
+**Next steps:** Return to Entry Gate. Explicitly work through stakes calibration before any analysis.
 
 **Symptom:** Analysis is thorough but no clear recommendation emerges
 **Cause:** Criteria not weighted, or avoiding commitment
-**Fix:** Force ranking: "If forced to choose today, which one and why?" Make the tradeoff call.
+**Next steps:** Force ranking: "If forced to choose today, which one and why?" Make the trade-off call. If genuinely tied, use near-tie protocol.
 
 **Symptom:** User disagrees with recommendation
 **Cause:** Different criteria weights or unstated constraints
-**Fix:** Do not defend — explore. "What criteria matter most to you? What constraints am I missing?"
+**Next steps:** Do not defend — explore. "What criteria matter most to you? What constraints am I missing?" Update frame and re-evaluate.
 
-**Symptom:** Recommendation seems wrong in hindsight
-**Cause:** Missing criteria, wrong assumptions, or overlooked alternatives
-**Fix:** Post-mortem: Which criterion was misjudged? What option wasn't considered? Feed back into future recommendations.
+**Symptom:** Frontrunner keeps changing across passes
+**Cause:** Criteria unclear, options too close, or frame unstable
+**Next steps:** Check: Are criteria well-defined? Are weights appropriate? If options are genuinely close, treat as near-tie.
 
 **Symptom:** Adversarial phase feels like going through the motions
 **Cause:** Not genuinely trying to break the recommendation
-**Fix:** The pre-mortem should produce a plausible failure story. If it doesn't feel uncomfortable, dig harder.
+**Next steps:** The pre-mortem should produce a plausible failure story. If it doesn't feel uncomfortable, dig harder. Try: "What would a critic of this approach say?"
+
+**Symptom:** Claude skipped steps 2-4 and went straight to recommending
+**Cause:** High confidence in the diagnosis ("I know what this is")
+**Next steps:** Confidence isn't proof. The process exists because confident guesses are often wrong. Return to Entry Gate.
+
+**Symptom:** Iteration cap reached without convergence
+**Cause:** Genuinely difficult decision, or frame is wrong
+**Next steps:** ESCALATE. Present current state to user: frontrunner, uncertainty, what would resolve it. Let user decide or provide more information.
+
+**Symptom:** Decision Record file not created
+**Cause:** Process completed in chat only
+**Next steps:** The file is mandatory. Create Decision Record at `docs/decisions/YYYY-MM-DD-<slug>.md` before claiming done.
+
+**Symptom:** User interrupted demanding immediate action
+**Cause:** External pressure (deadline, frustration, authority)
+**Next steps:** Acknowledge the pressure. Complete minimum passes for stakes level. Compress output: "Here's the recommendation — full analysis in the Decision Record."
 
 ## Verification
 
 After completing a recommendation, verify:
 
-- [ ] Context established — constraints, success criteria, and stakes identified before recommending
-- [ ] Alternatives explored — at least 3 options considered, including an unconventional one
-- [ ] Adversarial applied — recommendation challenged with pre-mortem, steelmanning, and framing checks
-- [ ] Tradeoffs explicit — recommendation states what is being sacrificed
-- [ ] Assumptions surfaced — assumptions listed with conditions that would change the recommendation
-- [ ] Confidence calibrated — uncertainty acknowledged where it exists
+**Entry Gate:**
+- [ ] Stakes level assessed and recorded
+- [ ] Thoroughness gate passed (or override documented)
+- [ ] Iteration cap and minimum passes set
+
+**Frame:**
+- [ ] Decision statement is a clear question
+- [ ] Constraints identified
+- [ ] Criteria defined with weights
+- [ ] Stakeholders identified
+
+**Evaluation:**
+- [ ] 3+ options generated (including null option)
+- [ ] Trade-offs explicit for each option
+- [ ] Scoring against weighted criteria
+- [ ] Information gaps identified
+
+**Adversarial:**
+- [ ] Frontrunner pressure-tested with genuine objections
+- [ ] Objections would cause discomfort if true
+- [ ] Alternatives steelmanned
+
+**Convergence:**
+- [ ] Minimum passes completed for stakes level
+- [ ] Iteration log shows what changed each pass
+- [ ] Convergence justification explains why stable (not just claims it)
+
+**Output:**
+- [ ] Decision Record file created at `docs/decisions/YYYY-MM-DD-<slug>.md`
+- [ ] Inline summary presented in chat with recommendation, trade-offs, confidence, caveats
 
 **Quick self-test:** If the recommendation were wrong, would the user have enough information to understand why and what to try instead?
+
+## Extension Points
+
+**Framework handoffs:**
+- If option space unknown → Hand off to [thoroughness.framework](../../../docs/frameworks/framework-for-thoroughness_v1.0.0.md) first
+- Outputs from thoroughness (dimensions, findings, gaps) feed directly into this skill's Entry Gate
+
+**Domain-specific criteria:**
+- Skills can extend the criteria table with domain-specific dimensions
+- Example: Security skill might add "Attack surface", "Compliance requirements"
+
+**Custom Decision Record locations:**
+- Default: `docs/decisions/YYYY-MM-DD-<slug>.md`
+- Projects can override via CLAUDE.md if a different convention exists
