@@ -1,8 +1,6 @@
 ---
 name: creating-handoffs
 description: Used when user says "wrap this up", "new session", or "handoff"; when stopping work with context to preserve.
-metadata:
-  version: 1.0.0
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}

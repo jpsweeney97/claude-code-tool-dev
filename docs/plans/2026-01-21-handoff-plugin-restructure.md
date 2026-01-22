@@ -24,11 +24,11 @@ packages/plugins/handoff/
 ├── skills/
 │   ├── handoff/
 │   │   ├── SKILL.md           # Creating handoffs only
-│   │   └── synthesis-guide.md # Synthesis process (from current branch)
+│   │   ├── synthesis-guide.md # Synthesis process (from current branch)
+│   │   └── format-reference.md
 │   └── resuming-handoffs/
-│       └── SKILL.md           # /resume and /list-handoffs
-├── references/
-│   └── format-reference.md    # Shared: frontmatter schema, storage, naming, retention
+│       ├── SKILL.md           # Resuming from handoffs
+│       └── format-reference.md
 └── hooks/
     └── hooks.json             # SessionStart cleanup (migrate from read.py)
 ```
@@ -58,20 +58,10 @@ packages/plugins/handoff/
 - Retention policies (30 days active, 90 days archive, 24 hours state)
 - Section checklist (shared so resume understands handoff structure)
 
-### Migration Path
-
-1. Create plugin structure in `packages/plugins/handoff/`
-2. Extract handoff creation logic to `skills/handoff/SKILL.md`
-3. Extract resume/list logic to `skills/resuming-handoffs/SKILL.md`
-4. Extract shared format to `references/format-reference.md`
-5. Migrate `read.py` cleanup logic to plugin hooks
-6. Test via `claude plugin install handoff@tool-dev`
-7. Remove old skill from `~/.claude/skills/handoff/` after validation
-
 ### Open Questions
 
 - Should the plugin be named `handoff` or `session-handoff` or `context-handoff`?
-- Should `/list-handoffs` be its own skill or stay with resume?
+- Should `/list-handoffs` be its own skill or be dropped?
 - Any other hooks needed? (e.g., offer handoff on session end?)
 
 ### Benefits

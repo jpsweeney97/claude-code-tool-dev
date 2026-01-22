@@ -1,8 +1,6 @@
 ---
 name: resuming-handoffs
 description: Used when continuing from a previous session; when user runs `/resume` to load the most recent handoff, or `/resume <path>` for a specific handoff.
-metadata:
-  version: 1.0.0
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
