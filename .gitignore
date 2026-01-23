@@ -36,7 +36,9 @@ packages/plugins/plugin-dev/.claude/
 
 # Local rules (not tracked)
 .claude/rules/extensions/
-.claude/rules/methodology/
+# Methodology rules - ignore all except frameworks.md
+.claude/rules/methodology/*
+!.claude/rules/methodology/frameworks.md
 
 # Archives
 

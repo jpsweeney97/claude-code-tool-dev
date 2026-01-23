@@ -62,10 +62,13 @@ claude plugin install <name>@tool-dev
 
 ### Methodology
 
-Quality standards to adhere to across all work lives in `.claude/rules/methodology`. **Read the relevant rule before starting ANY work**:
+Quality standards to adhere to across all work lives in `.claude/rules/methodology/`. **Read the relevant rule before starting ANY work**:
 
 - Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/methodology/rigor.md
 - Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/methodology/tenets.md
+- Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/methodology/frameworks.md
+
+Full frameworks (templates, worked examples, detailed guidance) live in `docs/frameworks/` — the rules file above tells you when to consult them.
 
 ### Branch Protection
 
@@ -81,7 +84,7 @@ Full details: Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/workfl
 
 ### Extensions
 
-Detailed guidance for each extension type lives in `.claude/rules/extensions`. **Read the relevant rule before starting work on a new extension**:
+Detailed guidance for each extension type lives in `.claude/rules/extensions/`. **Read the relevant rule before starting work on a new extension**:
 
 | Working on... | Read first                                                                             |
 | ------------- | --------------------------------------------------------------------------------------|
