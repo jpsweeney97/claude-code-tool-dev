@@ -77,8 +77,9 @@ If NO to either: **Stop.** Recommend running thoroughness exploration first. Do 
 | Blast radius | Localized | Moderate | Wide/systemic |
 | Cost of error | Low | Medium | High |
 | Uncertainty | Low | Moderate | High |
+| Time pressure | High (need action) | Moderate | Low / no constraint |
 
-**Rule:** If any two factors land in a higher column, choose that level.
+**Rule:** If any two factors land in a higher column, choose that level. To choose a lower level despite this, document why those factors don't apply (e.g., "Blast radius appears wide but is limited to test environment").
 
 **4. Record Entry Gate outputs:**
 
@@ -86,9 +87,38 @@ If NO to either: **Stop.** Recommend running thoroughness exploration first. Do 
 |-------|--------|
 | Stakes level | adequate / rigorous / exhaustive |
 | Rationale | Why this level matches the situation |
+| Time budget | Deadline or "no constraint" |
 | Iteration cap | adequate: 2, rigorous: 3, exhaustive: 5 |
 | Minimum passes | adequate: 1, rigorous: 2, exhaustive: 3 |
+| Evidence bar | What must be true before EXIT is allowed |
+| Allowed skips | Which optional activities will be skipped and why |
+| Overrides | Any non-default parameters: `[param]: [old]→[new] because [reason]` |
 | Escalation trigger | What will cause escalation to user |
+
+### Recalibration
+
+If during execution you discover the decision is more complex than initially assessed (e.g., hidden dependencies surface, stakeholder conflict emerges, option space expands significantly):
+
+1. **Pause** at the current pass boundary
+2. **Re-evaluate** using the Stakes Calibration table
+3. **If stakes level changes:** Document in iteration log: `Recalibrated from [old level] to [new level] because [trigger]`. Adjust iteration cap and activity depth accordingly.
+4. **Continue** from current pass (don't restart)
+
+### Adequate Fast Path (Optional)
+
+For low-stakes decisions where you want a defensible record without a large artifact, use this streamlined approach:
+
+1. **Entry Gate (brief):** Stakes level = adequate, time budget, iteration cap (default 2), allowed skips, escalation trigger
+2. **Frame:** Decision statement, 2-5 constraints, 3-6 criteria (weights optional), key stakeholders (if any)
+3. **Options:** 3+ options including **Null (do nothing/defer)**
+4. **Trade-offs:** 1-2 sentences per option (explicit gains and sacrifices)
+5. **Evaluation:** Lightweight scoring or ranking against criteria; call out unknowns
+6. **Pressure test:** 2-3 strongest objections to frontrunner and responses (or accepted risks)
+7. **Decision:** Choice, trade-offs accepted, confidence, and what would change the decision
+
+**Exit condition:** One pass is OK if frontrunner is stable and trade-offs are explicit; otherwise do a second pass or escalate.
+
+**When to use:** Time pressure is high, reversibility is easy, and blast radius is localized. Skip this path if any of those conditions aren't met.
 
 ### Outer Loop: Frame the Decision
 
@@ -143,9 +173,14 @@ With a stable frame, evaluate alternatives. Each activity guards against a speci
 - What evidence would we need to increase confidence?
 
 **Check for bias (I7):**
-- Familiarity bias: Am I favoring what I know?
-- Sunk cost: Am I protecting prior investment?
-- Anchoring: Am I stuck on the first option considered?
+
+| Bias | Check Question | If Yes |
+|------|----------------|--------|
+| **Anchoring** | Was the first option I considered still my frontrunner? | Re-score options in random order |
+| **Familiarity** | Is the frontrunner something I/we have used before? | Explicitly score unfamiliar option's learning curve vs long-term benefit |
+| **Sunk cost** | Have we already invested in one option (time, money, reputation)? | Score as if starting fresh; past investment is not a criterion |
+| **Confirmation** | Did I seek evidence FOR my frontrunner more than AGAINST it? | Run I9 (disconfirmation) more aggressively |
+| **Availability** | Am I weighting recent experiences or vivid examples too heavily? | Check base rates; ask "how often does this actually happen?" |
 
 **Pressure-test frontrunner (I8-I9) — Adversarial Challenge:**
 
@@ -328,8 +363,12 @@ This summary lets the user see the answer without opening the file, while the fi
 
 **Entry Gate:**
 - Stakes: Rigorous (moderate blast radius, some undo cost, medium uncertainty)
+- Time budget: This sprint
 - Iteration cap: 3
 - Minimum passes: 2
+- Evidence bar: Confirm approach handles common auth patterns; verify migration path exists
+- Allowed skips: Deep sensitivity analysis (will do lightweight version)
+- Escalation trigger: Team disagrees on security vs simplicity trade-off
 
 **Frame:**
 - Decision: "What authentication approach for a B2B SaaS app?"
@@ -477,9 +516,13 @@ Revised Cost score for Auth0 to 2 (from 3) after pricing analysis. Lucia now lea
 After completing a recommendation, verify:
 
 **Entry Gate:**
-- [ ] Stakes level assessed and recorded
+- [ ] Stakes level assessed and recorded with rationale
+- [ ] Time budget established
 - [ ] Thoroughness gate passed (or override documented)
 - [ ] Iteration cap and minimum passes set
+- [ ] Evidence bar defined
+- [ ] Allowed skips documented (if any)
+- [ ] Escalation trigger identified
 
 **Frame:**
 - [ ] Decision statement is a clear question
