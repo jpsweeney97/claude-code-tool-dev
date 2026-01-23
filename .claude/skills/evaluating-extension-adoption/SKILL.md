@@ -140,8 +140,14 @@ Before evaluation, establish:
 | Reversibility | Easy to undo | Some undo cost | Hard/irreversible |
 | Blast radius | Localized | Moderate | Wide/systemic |
 | Cost of error | Low | Medium | High |
+| Uncertainty | Low | Moderate | High |
+| Time pressure | High (need action) | Moderate | Low / no constraint |
+
+**Rule of thumb:** If any two factors land in a higher column, choose that higher stakes level unless you can document why those factors don't apply here.
 
 **Default:** Adequate (most extension adoptions are reversible)
+
+**Recalibration:** If during evaluation you discover the decision is more complex than initially assessed (hidden dependencies, stakeholder conflict, option space expands), pause at the current pass boundary, re-evaluate stakes using this rubric, and document the change in the iteration log.
 
 **Gate check:** Cannot proceed until stakes level chosen and evidence bar set.
 
@@ -184,7 +190,10 @@ When findings come from `exploring-claude-repos`, signals MUST be explicitly con
 | **Define criteria** | What does "good adoption" look like? Weights 1-5. | Arbitrary decision |
 | **Identify stakeholders** | Who's affected? (You, team, future maintainers) | Missing perspectives |
 | **Surface assumptions** | What about your setup are you taking for granted? | Hidden blockers |
+| **Check scope** | Is this one decision or several? Should we split/combine? | Scope confusion |
 | **Assess reversibility** | How hard to undo this adoption? | Miscalibrated rigor |
+| **Identify dependencies** | Does this block or depend on other decisions? | Blocked cascade |
+| **Identify downstream impact** | What will this decision affect later? | Unintended consequences |
 
 **Default criteria for extension adoption:**
 
@@ -221,6 +230,15 @@ Adjust weights based on context. Add domain-specific criteria as needed.
 
 **Weighted total:** `sum(score × weight)`
 
+**Check for bias (before pressure-testing):**
+
+| Bias | Check Question | If Yes |
+|------|----------------|--------|
+| **Anchoring** | Was my first option still the frontrunner? | Re-score in random order |
+| **Familiarity** | Is frontrunner something I've used before? | Score unfamiliar option's learning curve vs long-term benefit |
+| **Sunk cost** | Have I already invested in one option? | Score as if starting fresh |
+| **Confirmation** | Did I seek evidence FOR my frontrunner more than AGAINST? | Run pressure-test more aggressively |
+
 **Pressure-test the frontrunner:**
 
 | Lens | Question |
@@ -234,6 +252,15 @@ Adjust weights based on context. Add domain-specific criteria as needed.
 - How does this affect daily workflow?
 - What about edge cases or advanced usage?
 - Will future-me thank or curse this decision?
+
+**Second-order effects:**
+- What does this choice enable next? (new capabilities, patterns, integrations)
+- What does it preclude? (conflicting patterns, alternative approaches)
+
+**Sensitivity analysis (rigorous/exhaustive):**
+- If the most important criterion weight changed by ±1, would the ranking change?
+- Under best/worst plausible interpretation of key assumption, would the frontrunner change?
+- If yes to either: decision is fragile on that factor — document explicitly
 
 ### Transition Trees
 
@@ -264,15 +291,32 @@ ESCAPE: Stuck after cap? → ESCALATE to user
 | **Rigorous** | Frontrunner stable 2 passes, objections resolved |
 | **Exhaustive** | Frontrunner stable 2+ passes, disconfirmation yielded nothing |
 
+### Near-Ties
+
+When top options are close, avoid false precision. Treat as near-tie if:
+- Top two options within 10% of each other on weighted score, OR
+- Ranking flips when any single weight changes by ±1, OR
+- Difference depends on an unresolved information gap
+
+**Near-tie actions (pick one and document):**
+- **Treat as tie:** Choose based on declared priority (e.g., lower risk > higher value)
+- **Run experiment:** Small spike targeting the unknown most likely to change ranking
+- **Defer/phase:** Pick safest reversible step now; schedule decision when evidence arrives
+- **Escalate:** When trade-offs are value-laden or stakeholders disagree
+
 ### Exit Gate
 
 Cannot claim "done" until:
-- [ ] Frame complete (criteria defined, constraints surfaced)
+- [ ] Frame complete (all outer loop activities at required depth)
 - [ ] Signals consumed explicitly (if from exploration findings)
+- [ ] Bias check completed
 - [ ] All options evaluated (including Skip/Defer)
 - [ ] Frontrunner pressure-tested
+- [ ] Second-order effects documented (enables/precludes)
+- [ ] Sensitivity analysis completed (rigorous/exhaustive)
 - [ ] Trade-offs explicitly documented
 - [ ] Convergence indicators satisfied for stakes level
+- [ ] Transition tree passed (exited via proper path, not bypassed)
 - [ ] Decision record written to `docs/decisions/`
 - [ ] Brief summary presented in chat (NOT full report — full analysis stays in artifact)
 
@@ -470,7 +514,7 @@ Claude glances at the skill and says:
 **Deeper validation:**
 
 Entry Gate:
-- [ ] Stakes level assessed with rationale
+- [ ] Stakes level assessed with rationale (all 5 factors considered)
 - [ ] Evidence bar set
 - [ ] Iteration cap appropriate for stakes
 
@@ -478,10 +522,14 @@ Frame:
 - [ ] Decision statement is clear question
 - [ ] Criteria defined with weights
 - [ ] Constraints surfaced (including from conflict signals)
+- [ ] Scope checked (one decision or several?)
+- [ ] Dependencies identified (blocks/blocked-by)
+- [ ] Downstream impact identified (enables/precludes)
 - [ ] Signals from exploration consumed explicitly (finding ID, signal → frame mapping)
 
 Evaluation:
 - [ ] All five options considered (Adopt, Adapt, Inspire, Skip, Defer)
+- [ ] Bias check completed before scoring
 - [ ] Scoring against weighted criteria
 - [ ] Defer has revisit trigger (if selected)
 
@@ -489,9 +537,11 @@ Adversarial:
 - [ ] Frontrunner pressure-tested with genuine objections
 - [ ] Pre-mortem produced plausible failure scenario
 - [ ] Objections addressed or accepted as trade-offs
+- [ ] Sensitivity analysis completed (rigorous/exhaustive)
 
 Convergence:
 - [ ] Frontrunner stable for required passes
+- [ ] Near-tie handled if applicable (action documented)
 - [ ] Trade-offs explicitly documented
 - [ ] Iteration log shows what changed (for rigorous/exhaustive)
 

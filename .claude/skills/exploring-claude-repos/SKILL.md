@@ -149,16 +149,21 @@ Start with these; DISCOVER phase will expand:
 DISCOVER → EXPLORE → VERIFY → REFINE → (loop or exit)
 ```
 
-**DISCOVER:** Apply ≥3 techniques to find dimensions beyond the seed list:
-- Pre-mortem: "This exploration would be worthless if I missed..."
-- Perspective multiplication: What would someone migrating from this repo need to know?
-- Boundary perturbation: What if someone only uses hooks? Only skills?
+**DISCOVER:** Apply ≥3 techniques to find dimensions beyond the seed list. **Always include External taxonomy check:**
+
+| Technique | Method | Example |
+|-----------|--------|---------|
+| **External taxonomy check** (required) | Find established framework for Claude Code extensions; compare against your dimensions | Check official Claude Code docs, community conventions, extension categories |
+| **Pre-mortem** | "This exploration would be worthless if I missed..." | "...hidden MCP configs", "...nested skill directories" |
+| **Perspective multiplication** | What would someone migrating from this repo need to know? | New user, power user, maintainer perspectives |
+| **Boundary perturbation** | What if someone only uses hooks? Only skills? | Single-extension-type deep dive |
 
 **EXPLORE:** For each extension type, systematically:
 1. Locate all instances (glob patterns, directory traversal)
 2. Catalog with metadata (name, purpose, dependencies)
 3. Assess signals (novelty, quality, conflict, complexity)
 4. Assign evidence level (E1: read file, E2: read + cross-referenced)
+5. Assign confidence (High/Medium/Low) — **confidence can't exceed evidence** (E0/E1 caps at Medium)
 
 **VERIFY:** Cross-reference findings:
 - Do dependencies between extensions check out?
@@ -167,25 +172,47 @@ DISCOVER → EXPLORE → VERIFY → REFINE → (loop or exit)
 
 **REFINE:** Compute Yield%. If below threshold and no new dimensions, exit. Otherwise loop.
 
+### Yield% Definition
+
+**Yield% measures convergence**, not completion of planned work. An entity "yields" if it is:
+- **New:** didn't exist in previous pass
+- **Reopened:** status changed from resolved → unresolved
+- **Revised:** core claim/conclusion changed (not just added detail)
+- **Escalated:** priority increased (P2→P1 or P1→P0)
+
+**Not counted:** Routine completion of planned work (checking off items that were already scoped). The distinction: did the work *surprise* you or change your model? If yes, it yields. If you just confirmed what you expected, it doesn't.
+
+**Calculation:** `Yield% = (Yielding entities / Total in-scope entities) × 100`
+
+**Pass 1 special case:** Always 100% (everything is new).
+
+**Thresholds:**
+- Adequate: <20%
+- Rigorous: <10%
+- Exhaustive: <5%
+
 ### Iteration Log Format
 
-Each pass MUST include explicit Yield% tracking:
+Each pass MUST include explicit Yield% tracking with all yield-impacting columns:
 
 ```markdown
-| Pass | New Findings | Total Findings | Yield% | Decision |
-|------|--------------|----------------|--------|----------|
-| 1    | 15           | 15             | 100%   | Continue |
-| 2    | 6            | 21             | 29%    | Continue |
-| 3    | 2            | 23             | 8.7%   | Exit (< 10%) |
+| Pass | New | Reopened | Revised | Escalated | Total | Yield% | Decision |
+|------|-----|----------|---------|-----------|-------|--------|----------|
+| 1    | 15  | —        | —       | —         | 15    | 100%   | Continue |
+| 2    | 4   | 0        | 2       | 0         | 21    | 29%    | Continue |
+| 3    | 1   | 0        | 1       | 0         | 23    | 8.7%   | Exit (< 10%) |
 ```
 
 **Anti-pattern:** Reporting only final Yield% without iteration history. The log proves convergence wasn't faked.
+
+**Anti-pattern:** Using simplified `New/Total` when items were revised or reopened. The full calculation catches "churning" that simple counting misses.
 
 ### Exit Gate
 
 Cannot claim "done" until:
 - [ ] Coverage complete (all extension types explored)
 - [ ] Signals assigned (novelty, quality, conflict, complexity for each finding)
+- [ ] Connections mapped (dependencies between extensions documented at depth appropriate to level)
 - [ ] Disconfirmation attempted (actively looked for missed extensions)
 - [ ] Assumptions resolved (verified, invalidated, or flagged)
 - [ ] Convergence reached (Iteration Log shows Yield% below threshold)
@@ -193,6 +220,11 @@ Cannot claim "done" until:
 - [ ] Handoff prepared (finding IDs, suggested evaluation invocations)
 - [ ] Full report written to `docs/exploration-findings/`
 - [ ] Brief summary presented in chat (NOT full report — full analysis stays in artifact)
+
+**Connections mapped — by level:**
+- **Adequate:** List dependencies that would cause P0 findings to propagate
+- **Rigorous:** Map dependencies for all P0/P1 findings as a table (Finding → Depends On → Impact)
+- **Exhaustive:** Produce dependency graph for all in-scope findings
 
 ## Decision Points
 
