@@ -8,19 +8,31 @@ A reusable framework for structured, defensible decisions during agentic work. A
 | --- | --- |
 | **Protocol ID** | `decision-making.framework` |
 | **Version** | `1.0.0` |
-| **Role** | Shared guidance for Agent Skills (SKILL.md) that require Claude to make decisions (implementation choices, task strategy, autonomy boundaries, etc.) |
-| **See also** | `thoroughness.framework@1.0.0` (use first when the main uncertainty is coverage/verification rather than trade-offs) |
+| **Role** | Shared guidance for skills that require Claude to make decisions (implementation choices, task strategy, autonomy boundaries, etc.) |
+| **See also** | `thoroughness.framework@1.0.0` — a companion protocol for coverage and understanding; use it first when the main uncertainty is *what is true* rather than *which option to choose*. `verification.framework@1.0.0` — use after implementation to confirm outputs are correct. |
 | **Compatibility** | Within a **major** version, meanings of: the nested loop stages (FRAME/EVALUATE), transition trees, activity definitions, convergence indicators, failure modes, and required decision record sections are stable. Minor versions may add optional guidance without changing existing meanings. |
+
+## Key Terms
+
+| Term | Definition |
+|------|------------|
+| **Pass** | One complete traversal of a loop's activities. An inner loop pass means completing I1–I13 (at the required depth for the chosen level). An outer loop pass means completing O1–O9 plus one inner loop. |
+| **Iteration** | Synonym for pass; used interchangeably. |
+| **Frontrunner** | The option currently leading based on criteria scoring. |
+| **Transition tree** | A decision tree at a loop boundary that determines the next action (iterate, exit, break, or escalate) based on current state. |
+| **Convergence** | The state where repeated passes no longer change the frontrunner or frame. |
+| **Escalation** | Handing the decision to a human (the user) when the framework cannot resolve it autonomously. |
+| **Stakes level** | A calibration of how much rigor to apply: adequate, rigorous, or exhaustive. |
 
 ## A Good Decision Is
 
-- **Trade-off explicit** — What's gained AND lost is stated
+- **Trade-offs explicit** — What's gained AND lost is stated for each option
 - **Evidence-proportional** — Confidence matches available information
 - **Stakeholder-aligned** — Considers who's affected and their priorities
-- **Well-reasoned** — Logic is traceable, not gut-feel
-- **Pressure-tested** — Objections surfaced and addressed
+- **Well-reasoned** — Logic is traceable (reviewer can follow from evidence to conclusion)
+- **Pressure-tested** — Objections surfaced and responded to (dismissed with reason, mitigated, or accepted as risk)
 - **Unbiased** — Checked for anchoring, sunk cost, confirmation bias
-- **Multi-perspective** — Considered from different angles
+- **Multi-perspective** — Considered from each stakeholder's viewpoint
 
 ## Contract (Normative Requirements)
 
@@ -38,16 +50,25 @@ The keywords **MUST**, **SHOULD**, and **MAY** are used as normative requirement
 
 ### SHOULD
 
-- Maintain an iteration log (pass-by-pass changes to frame and frontrunner).
+- Maintain an iteration log (record frame changes and frontrunner after each pass).
 - Keep artifacts reproducible (criteria definitions, scoring rationale, evidence sources).
-- Recalibrate effort vs. stakes if the decision proves more complex than expected.
-- Check for bias at multiple points, not just once.
+- Recalibrate stakes level if the decision proves more complex than expected (see **Recalibration** below).
+- Check for bias at the start (I7), after pressure-testing (I8-I9), and before final exit.
 
 ### MAY
 
 - Add domain-specific activities (e.g., security review, performance analysis).
-- Override minimum iteration counts or convergence thresholds — but any override MUST be declared in the Entry Gate.
-- Skip activities marked optional for the chosen decision level — but MUST document what was skipped and why.
+- Override minimum iteration counts or convergence thresholds — but any override MUST be declared in the Entry Gate under "Overrides" with format: `Override: [parameter] changed from [default] to [new value] because [reason]`.
+- Skip activities marked optional for the chosen decision level — but MUST document what was skipped and why in the Entry Gate under "Allowed skips".
+
+### Recalibration
+
+If during execution you discover the decision is more complex than initially assessed (e.g., hidden dependencies surface, stakeholder conflict emerges, option space expands significantly):
+
+1. **Pause** at the current pass boundary.
+2. **Re-evaluate** using the Stakes Calibration Rubric.
+3. **If stakes level changes:** Document in iteration log: `Recalibrated from [old level] to [new level] because [trigger]`. Adjust iteration cap and activity depth accordingly.
+4. **Continue** from current pass (don't restart).
 
 ## Entry Gate
 
@@ -65,7 +86,7 @@ Use this to make **adequate / rigorous / exhaustive** more consistent across ski
 | Uncertainty | Low | Moderate | High |
 | Time pressure | High (need action) | Moderate | Low / no constraint |
 
-**Rule of thumb:** If any two factors land in a higher column, choose that higher stakes level unless strong reasons are documented in the Entry Gate rationale.
+**Rule of thumb:** If any two factors land in a higher column, choose that higher stakes level. To choose a lower level despite this, document in the Entry Gate rationale: (1) which factors triggered the higher level, and (2) why those factors don't apply here (e.g., "Blast radius appears wide but is limited to test environment").
 
 ## Relationship to Thoroughness Framework
 
@@ -89,8 +110,8 @@ This framework is optimized for **making a choice under trade-offs** (i.e., sele
 
 When top options are close, avoid false precision. Treat the result as a near-tie if:
 
-- The top two options are within ~10% of each other on weighted score **or**
-- The ranking flips under a plausible weight/score variation **or**
+- The top two options are within 10% of each other on weighted score (e.g., scores of 90 vs 82 when max is ~100) **or**
+- The ranking flips when any single weight changes by ±1 (the sensitivity test) **or**
 - The difference depends on an unresolved critical information gap.
 
 **Near-tie actions (pick one and document it):**
@@ -102,23 +123,13 @@ When top options are close, avoid false precision. Treat the result as a near-ti
 
 ## Fast Sensitivity Analysis (Recommended)
 
-Do a quick robustness check (5–10 minutes):
+Do a quick robustness check:
 
-- **Weight swap:** increase the most important criterion’s weight by +1 (or decrease by -1) and see if the leader changes.
-- **Assumption flip:** for one key assumption, score the frontrunner in a “best plausible” and “worst plausible” case.
-- **Threshold check:** if any hard constraint is near-violated, treat as disqualified until verified.
+- **Weight swap:** Increase the most important criterion's weight by +1 (or decrease by -1) and recalculate totals. If the leader changes, flag as near-tie.
+- **Assumption flip:** For one key assumption, score the frontrunner under "best plausible" and "worst plausible" interpretations. If ranking changes, the decision is fragile on that assumption.
+- **Threshold check:** If any hard constraint is near-violated (within 10% of limit), treat as disqualified until verified.
 
-### Entry Gate Outputs (Required)
-
-| Field | What to Record |
-|------|-----------------|
-| Stakes level | adequate / rigorous / exhaustive |
-| Rationale | Why this level matches reversibility + cost of error |
-| Time budget | Minutes/hours available (or "no constraint") |
-| Iteration cap | Default: adequate 2, rigorous 3, exhaustive 5 (override allowed) |
-| Evidence bar | What evidence is required before "EXIT (decide)" is allowed |
-| Allowed skips | Which level-optional activities may be skipped and why |
-| Escalation trigger | What will cause escalation (e.g., cap reached, missing critical info) |
+**Example:** If Safety has weight 5 and the frontrunner wins by 8 points, increase Safety to 6 and recalculate. If second place now leads, the decision is sensitive to how much you value safety.
 
 ## Structure Overview
 
@@ -153,25 +164,24 @@ Do a quick robustness check (5–10 minutes):
 - **Trees at transitions** prevent both premature exit AND endless iteration
 - **Escalation paths** acknowledge when Claude shouldn't decide alone
 
-### Entry Gate Checklist
+### Entry Gate (Required Before Proceeding)
 
-| Aspect | Question | Output |
-| ------ | -------- | ------ |
+Complete this gate before entering the outer loop. It calibrates rigor and sets process parameters.
+
+| Field | Question | Output |
+|-------|----------|--------|
 | **Decision trigger** | What prompted this decision? | Context statement |
-| **Stakes assessment** | How much rigor does this need? | Level: adequate / rigorous / exhaustive |
-| **Time pressure** | Is there urgency? (optional consideration) | Deadline or "no constraint" |
+| **Stakes level** | How much rigor does this need? (Use Stakes Calibration Rubric) | adequate / rigorous / exhaustive |
+| **Rationale** | Why this level? | Reference to rubric factors |
+| **Time budget** | Is there urgency? | Deadline or "no constraint" |
+| **Iteration cap** | How many passes before escalation? | Default: adequate=2, rigorous=3, exhaustive=5 |
+| **Evidence bar** | What must be true before EXIT is allowed? | Specific conditions |
+| **Allowed skips** | Which optional activities will be skipped and why? | Activity IDs + reasons |
+| **Overrides** | Any non-default parameters? | Format: `[param]: [old]→[new] because [reason]` |
+| **Escalation trigger** | What will cause escalation? | e.g., "cap reached", "critical info unfillable" |
 | **Initial frame** | What do we think we're deciding? | Draft decision statement |
 | **Known constraints** | What limits are already apparent? | Constraint list |
 | **Known stakeholders** | Who's obviously affected? | Stakeholder list |
-| **Entry assumptions** | What am I taking for granted at the start? | Assumption list |
-
-### Stakes Calibration
-
-| Level | When to Use | Process Depth |
-|-------|-------------|---------------|
-| **Adequate** | Low stakes, easily reversible, time-constrained | Single pass acceptable if convergence met |
-| **Rigorous** | Medium stakes, moderate cost of error | Multiple passes expected, full activity set |
-| **Exhaustive** | High stakes, costly/irreversible, high uncertainty | Deep iteration, aggressive disconfirmation |
 
 **Gate check:** Cannot proceed to outer loop activities until stakes level chosen and initial frame drafted.
 
@@ -207,7 +217,7 @@ With a stable frame, evaluate alternatives. Each activity guards against a speci
 | I4 | **Assess trade-offs** | What does each option gain and sacrifice? | Invisible trade-offs — gains stated, losses hidden |
 | I5 | **Score against criteria** | How does each option perform on defined criteria? | Gut-feel decision — inconsistent reasoning |
 | I6 | **Identify information gaps** | What don't we know that would change the ranking? | Deciding blind — critical unknowns unaddressed |
-| I7 | **Check for bias** | Familiarity, sunk cost, anchoring on first option? | Anchoring/sunk cost — favoring familiar or invested |
+| I7 | **Check for bias** | Familiarity, sunk cost, anchoring on first option? (See bias check questions below) | Anchoring/sunk cost — favoring familiar or invested |
 | I8 | **Pressure-test frontrunner** | Devil's advocate the leading option | Premature commitment — untested choice |
 | I9 | **Seek disconfirming evidence** | Actively find reasons NOT to pick the leader | Confirmation bias — only supporting evidence sought |
 | I10 | **Check perspectives** | How does this look from each stakeholder's view? | Single-viewpoint — missing how others see it |
@@ -216,6 +226,18 @@ With a stable frame, evaluate alternatives. Each activity guards against a speci
 | I13 | **Sensitivity analysis** | How robust is the ranking if assumptions are wrong? | Fragile decision — ranking breaks under uncertainty |
 
 **Output:** Evaluation record with options, trade-offs, scores, risks, and a pressure-tested frontrunner.
+
+### Bias Check Questions (I7)
+
+Answer these questions to surface common biases:
+
+| Bias | Check Question | If Yes |
+|------|----------------|--------|
+| **Anchoring** | Was the first option I considered still my frontrunner? Did I adjust scores after seeing it? | Re-score options in random order |
+| **Familiarity** | Is the frontrunner something I/we have used before? | Explicitly score the unfamiliar option's learning curve vs long-term benefit |
+| **Sunk cost** | Have we already invested in one option (time, money, reputation)? | Score as if starting fresh; past investment is not a criterion |
+| **Confirmation** | Did I seek evidence FOR my frontrunner more than AGAINST it? | Run I9 (disconfirmation) more aggressively |
+| **Availability** | Am I weighting recent experiences or vivid examples too heavily? | Check base rates; ask "how often does this actually happen?" |
 
 ## Transition Trees
 
@@ -240,7 +262,8 @@ After completing inner loop activities, evaluate:
 │                             ├─ NO → ITERATE inner               │
 │                             └─ YES → EXIT (decide)              │
 │                                                                 │
-│  ESCAPE: Stuck after 3+ iterations with no progress?            │
+│  ESCAPE: Stuck after iteration cap with no progress?            │
+│          (No progress = frontrunner unchanged AND no new info)  │
 │          → ESCALATE (ask user / flag uncertainty)               │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -280,9 +303,9 @@ How to know when a decision is ready — not just made, but made well.
 
 | Level | Convergence Requirements |
 |-------|-------------------------|
-| **Adequate** | Frontrunner stable 1 pass, trade-offs stated, criteria defined |
-| **Rigorous** | Frontrunner stable 2 passes, objections resolved, all perspectives checked, bias check completed |
-| **Exhaustive** | Frontrunner stable 2+ passes, disconfirmation yielded nothing new, sensitivity analysis shows robustness, all activities at full depth |
+| **Adequate** | Frontrunner stable for 1 pass (unchanged from previous), trade-offs stated, criteria defined |
+| **Rigorous** | Frontrunner stable for 2 consecutive passes, objections resolved, all perspectives checked, bias check completed |
+| **Exhaustive** | Frontrunner stable for 2+ consecutive passes, disconfirmation yielded nothing new, sensitivity analysis shows robustness, all activities at full depth |
 
 ### Convergence Failures
 
@@ -339,15 +362,7 @@ Each failure mode maps to an activity that prevents it. If a failure mode appear
 
 ## Decision Levels
 
-How much process to apply based on stakes.
-
-### Level Definitions
-
-| Level | When to Use | Key Characteristics |
-|-------|-------------|---------------------|
-| **Adequate** | Low stakes, easily reversible, time-constrained | Single pass may suffice, core activities only |
-| **Rigorous** | Medium stakes, moderate cost of error | Full activity set, multiple passes expected |
-| **Exhaustive** | High stakes, costly/irreversible, high uncertainty | Deep iteration, aggressive disconfirmation, sensitivity required |
+Stakes level (determined in Entry Gate) controls process depth. See **Stakes Calibration Rubric** for how to choose.
 
 ### Adequate Fast Path (Minimum Compliant)
 
@@ -375,7 +390,7 @@ Use this when the decision is low stakes and reversible, but you still want a de
 | O6 (Check scope) | Quick check | Required | Required |
 | O7-O9 (Reversibility, Dependencies, Downstream) | Noted | Required | Deep analysis |
 | **Inner Loop** | | | |
-| I1-I3 (Generate, Null, Hidden options) | 3+ options | 4+ options | Exhaust option space |
+| I1-I3 (Generate, Null, Hidden options) | 3+ options | 4+ options | 5+ options + document search for more |
 | I4-I5 (Trade-offs, Scoring) | Required | Required | Required |
 | I6 (Information gaps) | Identify | Address critical | Address all |
 | I7 (Bias check) | Quick check | Full check | Multiple checks |
@@ -386,21 +401,13 @@ Use this when the decision is low stakes and reversible, but you still want a de
 
 ### Recommended Scoring Rubric
 
-To reduce "rigor theater," use a consistent scale and document uncertainty.
+Use a consistent scale to make scoring comparable and auditable.
 
-- **Scale:** 0-5 per criterion (0 = fails, 3 = acceptable, 5 = excellent).
-- **Weights:** 1-5 per criterion (1 = minor, 3 = important, 5 = critical).
-- **Weighted score:** `sum(score * weight)`; include totals and the unweighted narrative.
-- **Unknowns:** If a score is speculative, mark it with `?` and list the uncertainty in **Information Gaps** (e.g., `2?`).
-- **Hard constraints:** If an option violates a constraint, mark as **disqualified** instead of scoring it.
-
-### Convergence by Level
-
-| Level | Frontrunner Stability | Additional Requirements |
-|-------|----------------------|------------------------|
-| Adequate | 1 pass | Trade-offs stated |
-| Rigorous | 2 passes | Objections resolved, perspectives checked |
-| Exhaustive | 2+ passes | Disconfirmation empty, sensitivity robust |
+- **Scale:** 0-5 per criterion (0 = completely fails to meet, 1-2 = below acceptable, 3 = meets expectations, 4 = exceeds, 5 = excellent).
+- **Weights:** 1-5 per criterion (1 = minor consideration, 3 = important, 5 = critical/blocking).
+- **Weighted score:** `sum(score * weight)`; include totals and a brief narrative explaining non-obvious scores.
+- **Unknowns:** If a score is speculative, mark it with `?` (e.g., `2?`) and list the uncertainty in **Information Gaps**.
+- **Hard constraints:** If an option violates a hard constraint (defined in O2), mark as **DISQUALIFIED** — do not score it. Disqualification is binary; a score of 0 means "fails this criterion badly but could still be chosen." Disqualified options cannot be chosen.
 
 ## Worked Example (Adequate)
 
@@ -632,11 +639,11 @@ Exhaustive decisions share the same structure as rigorous but go deeper on speci
 | Aspect | Rigorous | Exhaustive |
 |--------|----------|------------|
 | **Iteration cap** | 3 passes | 5 passes |
-| **Option generation** | 4+ options | Exhaust option space (prove no hidden options remain) |
+| **Option generation** | 4+ options | 5+ options; document where you searched for alternatives (literature, prior art, experts) and what you found/didn't find |
 | **Disconfirmation** | Active (seek objections) | Aggressive (assign devil's advocate role; document what would falsify the frontrunner) |
 | **Sensitivity analysis** | Recommended | Required (vary weights ±1; vary scores ±1; report if ranking changes) |
 | **Information gaps** | Address critical gaps | Address all gaps or explicitly accept residual uncertainty |
-| **Stakeholder perspectives** | All stakeholders checked | Deep per stakeholder (document their ranking, not just concerns) |
+| **Stakeholder perspectives** | All stakeholders checked | Deep per stakeholder (document their inferred ranking based on stated values, not just concerns) |
 | **Convergence** | 2 passes stable | 2+ passes stable AND disconfirmation yielded nothing new |
 
 ### What Aggressive Disconfirmation Looks Like
@@ -645,6 +652,25 @@ Exhaustive decisions share the same structure as rigorous but go deeper on speci
 2. **Seek that evidence:** Actively look for it (don't just imagine objections).
 3. **Document the search:** What you looked for, where, and what you found (or didn't).
 4. **Red team the assumptions:** For each assumption, ask "What if this is false?" and trace the impact.
+
+**Example disconfirmation record:**
+
+```
+Frontrunner: Option A (domain-module stores)
+
+Falsification question: "What would prove modular stores are wrong for this codebase?"
+
+Search:
+- Looked for: prior attempts at modular state in this codebase → Found: none
+- Looked for: blog posts/case studies where modular stores failed → Found: 2 articles citing boundary drift as main failure mode
+- Looked for: current cross-module dependencies that would break modularity → Found: 3 shared state objects
+
+Findings: Boundary drift is a real risk. Mitigated by adding boundary lint rule to CI.
+
+Assumption red-team:
+- A1 "Most bugs stem from unclear state ownership" — If false: modular stores add overhead without benefit. Check: reviewed last 20 bugs; 14/20 were state-related. Assumption holds.
+- A2 "We can migrate module-by-module" — If false: big-bang rewrite required, changes calculus. Check: routing is module-independent. Assumption holds.
+```
 
 ### Example Iteration Log (Exhaustive)
 

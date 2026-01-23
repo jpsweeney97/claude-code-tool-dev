@@ -10,7 +10,7 @@ A reusable framework for ensuring genuine completeness in tasks that require tho
 | **Version** | `1.0.0` |
 | **Role** | Shared guidance for Agent Skills (SKILL.md) that require thoroughness (analysis, exploration, auditing, research). |
 | **See also** | `decision-making.framework@1.0.0` (use after this when selecting among options under trade-offs) |
-| **Compatibility** | Within a **major** version, meanings of: the loop stages (DISCOVER/EXPLORE/VERIFY/REFINE), Entry/Exit gates, status markers, evidence levels, confidence levels, **Yield%**, stopping templates, and the required report sections are stable. Minor versions may add optional guidance/templates without changing existing meanings. |
+| **Compatibility** | Within a **major** version, meanings of: the loop stages (DISCOVER/EXPLORE/VERIFY/REFINE), Entry/Exit gates, status markers, evidence levels, confidence levels, **Yield%** (defined in REFINE stage), stopping templates, and the required report sections are stable. Minor versions may add optional guidance/templates without changing existing meanings. |
 
 ## Contract (Normative Requirements)
 
@@ -19,7 +19,7 @@ The keywords **MUST**, **SHOULD**, and **MAY** are used as normative requirement
 ### MUST
 
 - **Run the Entry Gate** and record its outputs before doing substantive work.
-- **Choose and use a coverage structure** (matrix/tree/graph/backlog) and track work items using the **Cell Schema** fields.
+- **Choose and use a coverage structure** (matrix/tree/graph/backlog) and track work items using the **Cell Schema** fields (defined in Cell Schema section).
 - **Assign Evidence + Confidence** to every finding, and obey the rule: *confidence can’t exceed evidence*.
 - **Execute the loop** (DISCOVER → EXPLORE → VERIFY → REFINE) until the Exit Gate passes and the chosen stopping template(s) are satisfied.
 - **Attempt disconfirmation** for all P0 dimensions/findings (scaled by thoroughness level).
@@ -31,12 +31,12 @@ The keywords **MUST**, **SHOULD**, and **MAY** are used as normative requirement
 - Maintain an iteration log (pass-by-pass deltas + Yield%).
 - Keep artifacts reproducible (file paths, commands run, links, and any relevant parameters).
 - Recalibrate effort vs stakes each pass.
-- Use diversity of methods for P0 items (e.g., read + grep + run) unless infeasible (document why).
+- Use diversity of methods for P0 items (e.g., read + grep + run) unless infeasible (document why). Methods are **independent** if they don't share failure modes — e.g., static inspection + runtime execution, or two people verifying separately.
 
 ### MAY
 
 - Add domain-specific fields/checklists (e.g., threat models, performance budgets).
-- Override: seed dimensions, independence criteria for “independent methods”, disconfirmation menus, and the **scope** of Yield% (e.g., include P2) — but any override MUST be declared in the Entry Gate.
+- Override: seed dimensions, independence criteria (what counts as "not sharing failure modes"), disconfirmation menus, and the **scope** of Yield% (e.g., include P2) — but any override MUST be declared in the Entry Gate.
 
 ## Principle
 
@@ -75,7 +75,7 @@ Use this to make **adequate / rigorous / exhaustive** more consistent across ski
 | Uncertainty | Low | Moderate | High |
 | Time pressure | High (need action) | Moderate | Low / no constraint |
 
-**Rule of thumb:** If any two factors land in a higher column, choose that higher thoroughness level unless strong reasons are documented in the Entry Gate rationale.
+**Rule of thumb:** If any two factors land in a higher column, choose that higher thoroughness level unless you can document in the Entry Gate rationale: (1) which specific factors override the higher-level signal, and (2) what compensating controls or accepted risks apply.
 
 | Aspect                   | Question                           | Output                                  |
 | ------------------------ | ---------------------------------- | --------------------------------------- |
@@ -113,7 +113,7 @@ Not all dimensions fit a matrix. Choose the structure that matches your domain:
 | Relational             | Graph     | Components have dependencies |
 | Evolving / Unknown     | Backlog   | Dimensions discovered as you go |
 
-**Anti-explosion rule:** If a matrix exceeds ~50 cells, switch to sparse tracking (backlog with tags, or tree structure).
+**Anti-explosion rule:** If a matrix exceeds ~50 cells, switch to sparse tracking — track only cells that have findings, using a backlog with tags or a tree structure, rather than maintaining the full N×M grid.
 
 ## Evidence Levels
 
@@ -124,10 +124,10 @@ Every finding needs an evidence rating — not just a status marker.
 | **E0** | Assertion only | "I believe X" |
 | **E1** | Single source / single method | Read file, saw X |
 | **E2** | Two independent methods | Read + grep confirmed; inspect + run |
-| **E3** | Triangulated + disconfirmation | Multiple sources + actively tried to disprove |
+| **E3** | Triangulated + disconfirmation | ≥3 independent sources converging + actively tried to disprove |
 
 **Minimum evidence by stakes:**
-- Adequate: E1 for P0 dimensions
+- Adequate: E1 for P0 dimensions (note: E1 caps confidence at Medium — this is intentional; Adequate level accepts Medium-confidence findings)
 - Rigorous: E2 for P0, E1 for P1
 - Exhaustive: E2 for all, E3 for P0
 
@@ -145,13 +145,13 @@ Assign confidence to findings — not just status.
 
 ### DISCOVER: What should I look for?
 
-You can't think your way to unknown unknowns — you must **import them from elsewhere**. Apply at least 3 of these techniques *(skills MAY override the minimum, but MUST declare the override at Entry Gate)*:
+You can't think your way to unknown unknowns — you must **import them from elsewhere**. Apply at least 3 of these techniques to ensure coverage across different blind-spot sources *(skills MAY override the minimum, but MUST declare the override at Entry Gate)*. **Selection guidance:** Always include External taxonomy check (structural coverage); then pick 2+ from different categories — stakeholder-based (Perspective multiplication), failure-based (Pre-mortem, Historical), or boundary-based (Perturbation, Temporal):
 
 | Technique | Method | Output |
 |-----------|--------|--------|
-| **External taxonomy check** | Find established framework for this domain (STRIDE, OWASP, Porter's Five Forces, "-ilities"). Compare against your dimensions. | Missing dimensions from taxonomy |
+| **External taxonomy check** | Find established framework for this domain. Search "[domain] checklist," "[domain] framework," or "[domain] -ilities." Examples: STRIDE/OWASP (security), Porter's Five Forces (business), "-ilities" (architecture). Compare against your dimensions. | Missing dimensions from taxonomy |
 | **Perspective multiplication** | List 3-5 stakeholders. For each: "What would they notice that I haven't?" | Stakeholder-specific dimensions |
-| **Pre-mortem inversion** | Complete: "This analysis would be worthless if ___" (5+ completions) | Implicit assumptions as dimensions |
+| **Pre-mortem inversion** | Complete: "This analysis would be worthless if ___" (5+ completions). *Example: "...if the logs are incomplete," "...if the config differs in prod," "...if there's a race condition."* | Implicit assumptions as dimensions |
 | **Historical pattern mining** | Search postmortems / lessons-learned in this domain. Extract dimensions that caused problems. | Historically-problematic dimensions |
 | **Boundary perturbation** | For key parameters: 10x larger? 10x smaller? Zero? Sudden change? | Edge case dimensions |
 | **Temporal expansion** | For each component: What changes at T+1 week, 3 months, 1 year, 3 years? | Time-dependent dimensions |
@@ -186,15 +186,17 @@ After each pass, assess what changed:
 
 **Continue iterating if any:**
 - New dimensions were discovered
-- Findings were significantly revised (not just refined)
+- Findings were significantly revised (changed conclusion, risk level, or implicated components — not just added detail or clarified wording)
 - Coverage structure still has unresolved items (`[ ]` or `[?]`)
 - Assumptions were invalidated that affect completed items
 
-**Exit when all:**
+**Exit when all (these are pre-checks; full exit requires Exit Gate):**
 - No new dimensions discovered in the last pass
 - No significant revisions to findings
 - All items resolved (`[x]`, `[-]`, or `[~]` with documented gaps)
 - Yield% from last pass below threshold (see definition + table)
+
+If all REFINE conditions pass, proceed to Exit Gate for final validation.
 
 #### Yield% (Unambiguous Default)
 
@@ -204,9 +206,9 @@ Yield% measures how much **meaningfully new or revisionary** information emerged
 
 - **Pass:** one full loop iteration (DISCOVER → EXPLORE → VERIFY → REFINE).
 - **Entity:** a tracked coverage item (matrix cell / backlog item / tree node / graph element) **or** a finding in your Findings list.
-- **In-scope entities (default):** all entities whose effective priority is **P0 or P1**.
-  - For coverage items, use their **Priority** field.
-  - For findings, priority defaults to the **highest** priority among the dimensions/items the finding is linked to (P0 > P1 > P2), unless explicitly set.
+- **In-scope entities (default):** all entities whose **effective priority** is **P0 or P1**.
+  - For coverage items, effective priority = their **Priority** field.
+  - For findings, effective priority defaults to the **highest** priority among the dimensions/items the finding is linked to (P0 > P1 > P2), unless explicitly set. If a finding is not yet linked to any dimension, treat it as P1 until linked.
 - **Stable identity:** every entity MUST have a stable identifier across passes (e.g., `D3`, `I17`, `F2`). If an entity is renamed without an ID, treat it as “removed + new”.
 
 ##### Yield-impacting change types (counted)
@@ -215,13 +217,10 @@ An in-scope entity counts as **yielding** in the current pass if, compared to th
 
 1. **New:** the entity did not exist previously.
 2. **Reopened:** status changed from resolved (`[x]` or `[-]`) → unresolved (`[~]`, `[ ]`, or `[?]`).
-3. **Revised:** its core claim/conclusion changed (not just added detail) in a way that would change:
-   - a decision, OR
-   - a risk/severity assessment, OR
-   - which dimensions/components are implicated.
+3. **Revised:** its core claim/conclusion changed in a way that would change a decision, risk/severity assessment, or which dimensions/components are implicated. (Adding detail or clarifying wording without changing the conclusion is *not* a revision.)
 4. **Escalated:** priority increased (P2→P1/P0 or P1→P0).
 
-> **Not counted by default:** routine completion of planned work (e.g., `[ ]` → `[x]`, or adding detail that doesn’t change a conclusion).
+> **Not counted by default:** routine completion of planned work — checking off items that were already scoped (`[ ]` → `[x]`) or adding supporting detail that doesn't change a conclusion. The distinction: did the work *surprise* you or change your model? If yes, it yields. If you just confirmed what you expected, it doesn't.
 
 ##### Calculation
 
@@ -240,17 +239,28 @@ Then:
 
 For pass 1 (no prior snapshot), define **Yield% = 100**.
 
+##### Worked example
+
+| Pass | E_prev | E_cur | New | Reopened | Revised | Escalated | Y | U | Yield% |
+|------|--------|-------|-----|----------|---------|-----------|---|---|--------|
+| 1 | ∅ | {D1, D2, D3, F1} | — | — | — | — | — | — | 100% (special case) |
+| 2 | {D1, D2, D3, F1} | {D1, D2, D3, D4, F1, F2} | D4, F2 | 0 | 0 | 0 | 2 | 6 | 33% |
+| 3 | {D1, D2, D3, D4, F1, F2} | {D1, D2, D3, D4, F1, F2} | 0 | 0 | F1 revised | 0 | 1 | 6 | 17% |
+| 4 | {D1, D2, D3, D4, F1, F2} | {D1, D2, D3, D4, F1, F2} | 0 | 0 | 0 | 0 | 0 | 6 | 0% |
+
+Pass 4 at 0% meets the <20% threshold for Adequate; if Rigorous, pass 3 (17%) would already qualify.
+
 ##### Skill overrides
 
 A skill MAY override the **scope** of Yield% (e.g., include P2, exclude findings), but MUST declare the override (definition + rationale) in the Entry Gate.
 
 | Level | Yield Threshold | Stability Requirement |
 |-------|-----------------|----------------------|
-| Adequate | <20% from last pass | Dimensions stable for 1 pass |
-| Rigorous | <10% from last pass | Dimensions + findings stable |
-| Exhaustive | <5% from last pass | Stable 2 passes + disconfirmation yielded nothing |
+| Adequate | <20% from last pass | Dimensions stable for 1 pass (no new dimensions, no priority changes) |
+| Rigorous | <10% from last pass | Dimensions + findings stable for 1 pass (no new, no revisions, no escalations) |
+| Exhaustive | <5% from last pass | Dimensions + findings stable for 2 consecutive passes + disconfirmation yielded nothing new |
 
-**Note:** There is no minimum iteration count. A simple problem might converge in 2 passes; a complex one might take 5. The criterion is convergence, not count.
+**Note:** There is no minimum iteration count — convergence is the criterion, not count. However, pass 1 is always 100% yield (by definition), so the earliest possible exit is after pass 2. A simple problem might converge in 2 passes; a complex one might take 5+.
 
 ## Throughout Practices
 
@@ -269,16 +279,16 @@ These apply at every stage, not just one phase:
 | ----------------------------- | ------------------------------------------------------------------ |
 | **Coverage complete**         | No `[ ]` or `[?]`. All items are `[x]`, `[-]` (with rationale), or `[~]` with documented gaps |
 | **Connections mapped**        | Document connections at a depth proportional to level (see below) |
-| **Disconfirmation attempted** | Actively tried to find what was missed                             |
+| **Disconfirmation attempted** | Applied techniques from Disconfirmation Menu; documented what was tried and what was found (including negative results) |
 | **Assumptions resolved**      | Each verified, invalidated, or flagged as unverified               |
 | **Convergence reached**       | Last pass below yield threshold for chosen thoroughness level      |
 | **Stopping criteria met**     | Chosen template satisfied (see below)                              |
 
 ### Connections Mapped — By Level (Recommended)
 
-- **Adequate:** list key dependencies and 1–2 plausible failure propagation paths (bullet list is fine).
-- **Rigorous:** map primary dependencies and main failure propagation paths (table or short causal chain).
-- **Exhaustive:** produce a dependency graph or explicit causal chain for the full in-scope system.
+- **Adequate:** list dependencies that would cause P0 findings to propagate, plus 1–2 failure paths. *Example: "Auth depends on Redis; if Redis fails, auth fails silently (F1)."*
+- **Rigorous:** map dependencies for all P0/P1 findings as a table or causal chain. *Example: table showing Component → Depends On → Failure Mode → Impact.*
+- **Exhaustive:** produce a dependency graph or explicit causal chain for the full in-scope system with all in-scope components and their interactions.
 
 ### Stopping Criteria Templates
 
@@ -296,9 +306,9 @@ Choose 1-2 at Entry Gate:
 
 | Level          | When to use                           | Yield Threshold | Evidence Required | Disconfirmation |
 | -------------- | ------------------------------------- | --------------- | ----------------- | --------------- |
-| **Adequate**   | Low stakes, reversible                | <20%            | E1 for P0         | Light           |
-| **Rigorous**   | Medium stakes, moderate cost of error | <10%            | E2 for P0, E1 for P1 | Active       |
-| **Exhaustive** | High stakes, costly/irreversible      | <5%             | E2 all, E3 for P0 | Aggressive      |
+| **Adequate**   | Low stakes, reversible                | <20%            | E1 for P0         | Light (1 technique from menu per P0; document what was tried) |
+| **Rigorous**   | Medium stakes, moderate cost of error | <10%            | E2 for P0, E1 for P1 | Active (2+ techniques per P0; document findings positive or negative) |
+| **Exhaustive** | High stakes, costly/irreversible      | <5%             | E2 all, E3 for P0 | Aggressive (3+ techniques per P0; assume current model is wrong, document evidence that refutes the failure hypothesis) |
 
 ## Failure Modes
 
@@ -331,9 +341,16 @@ This schema makes checkbox mentality harder — you can't just mark `[x]` withou
 
 `[~]` is allowed only when **all** are true:
 
-- The remaining gap is **bounded** (what’s missing is specific, not open-ended).
-- The impact of the gap is **low or acceptable** at the chosen thoroughness level.
+- The remaining gap is **bounded** (what's missing is specific, not open-ended).
+- The impact of the gap is **low or acceptable** at the chosen thoroughness level (judgment call — document why).
 - The gap is carried into **Exit Gate → Remaining documented gaps** with a next-check or rationale for deferral.
+
+**Example of proper `[~]` usage:**
+> D3: Database error handling — `[~]` P1, E1, Med
+> - Verified: connection failures retry 3x with backoff
+> - Gap: timeout behavior under load not tested (requires load test environment)
+> - Impact: Low — timeout defaults are reasonable; can verify post-deploy
+> - Next check: Load test in staging before GA
 
 ## Thoroughness Report Template
 
@@ -461,8 +478,10 @@ If thoroughness is being used to delay decisions indefinitely, the framework is 
 
 For each P0 dimension/finding, pick one or more:
 
-- **Counterexample search:** try to find a case that breaks the current claim.
-- **Alternative hypothesis:** write the strongest competing explanation and test it.
-- **Adversarial read:** look for reasons the evidence could be misleading (selection bias, missing context).
-- **Negative test:** run a check expected to fail if the model is wrong.
-- **Cross-check:** verify via an independent method (e.g., read + search + run).
+| Technique | Method | Example |
+|-----------|--------|---------|
+| **Counterexample search** | Try to find a case that breaks the current claim | Claim: "All API errors return JSON." Search for endpoints returning HTML errors. |
+| **Alternative hypothesis** | Write the strongest competing explanation and test it | Finding: "Slow due to DB." Alternative: "Slow due to network." Test: measure DB time vs total latency. |
+| **Adversarial read** | Look for reasons evidence could be misleading | Evidence from logs only — could logs be missing entries? Check log config. |
+| **Negative test** | Run a check expected to fail if the model is wrong | Model: "Auth rejects expired tokens." Test: submit expired token, expect 401. |
+| **Cross-check** | Verify via an independent method | Found via grep; confirm by actually running the code path. |
