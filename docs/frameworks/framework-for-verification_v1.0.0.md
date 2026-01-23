@@ -38,15 +38,20 @@ The keywords **MUST**, **SHOULD**, and **MAY** are used as normative requirement
 ### SHOULD
 
 - Pre-register expected results before executing verification steps.
-- Use multiple independent methods for P0 criteria at rigorous+ levels.
+- Use multiple independent methods for P0 criteria at rigorous+ levels. (Methods are independent if they don't share failure modes — e.g., automated test + manual inspection, or two people verifying separately.)
 - Maintain an execution log showing actual steps taken and results observed.
-- Timestamp verdicts and note conditions that would require re-verification. (At rigorous+ levels, timestamps are expected; omitting them undermines the "stale verification" countermeasure.)
+- Timestamp verdicts and note conditions that would require re-verification. (At rigorous+ levels, timestamps are required — not merely expected — because omitting them disables the "stale verification" countermeasure.)
 
 ### MAY
 
 - Add domain-specific criteria, methods, or environment requirements.
 - Override iteration caps or evidence requirements — but any override MUST be declared in the Entry Gate.
-- Collapse DEFINE and DESIGN at adequate level for simple verifications — but MUST document what was combined. (Example: "Criterion: function returns expected output for input X. Method: execute with input X, compare to expected Y." — this combines criterion definition with verification method in a single statement.)
+- Collapse DEFINE and DESIGN at adequate level for simple verifications — but MUST document what was combined.
+
+**Example of collapsed DEFINE+DESIGN:**
+> "Criterion: `add(2,3)` returns `5`. Oracle: Execution. Method: Run `add(2,3)`, compare output to `5`."
+>
+> This combines criterion definition (what), oracle type (evidence category), and method (how) in a single statement. Acceptable at adequate level for trivial verifications.
 
 ## Principle
 
@@ -69,7 +74,7 @@ Verification is the gatekeeper. Nothing is "done" until verified. Verification f
 | From | Trigger | What verification receives |
 |------|---------|---------------------------|
 | Any work | Output produced that needs checking | The output/claim/artifact to verify |
-| Thoroughness | Findings complete, need confirmation | Findings with E/C ratings to verify |
+| Thoroughness | Findings complete, need confirmation | Findings with Evidence/Confidence ratings to verify |
 | Decision-making | Decision made, need to verify it worked | Chosen option + expected outcomes |
 | Implementation | Code/doc/artifact complete | The deliverable + acceptance criteria |
 
@@ -81,8 +86,8 @@ Verification is the gatekeeper. Nothing is "done" until verified. Verification f
 | Not verified — wrong output | Back to implementation | What failed + evidence |
 | Not verified — unclear criteria | Thoroughness | Need to understand what "correct" means |
 | Not verified — wrong approach | Decision-making | Need to choose different approach |
-| Partially verified | Depends on gaps | Gap analysis determines next step |
-| New requirement discovered | Thoroughness / Decision-making / Escalate | Based on scope impact |
+| Partially verified | Depends on gaps | Analyze each gap: blocking (→ route to fix) vs. acceptable (→ document and proceed) |
+| New requirement discovered | Thoroughness / Decision-making / Escalate | In-scope → Thoroughness or Decision-making; Out-of-scope → Escalate |
 
 ### The Pipeline (Logical Flow)
 
@@ -124,7 +129,7 @@ Before starting verification, establish and record:
 | Uncertainty | Low | Moderate | High |
 | Time pressure | High (need action) | Moderate | Low / no constraint |
 
-**Rule of thumb:** If any two factors land in a higher column, choose that higher verification level unless strong reasons are documented in the Entry Gate rationale.
+**Rule of thumb:** If any two factors land in a higher column, choose that higher verification level unless you can document in the Entry Gate rationale: (1) which specific factors override the higher-level signal, and (2) what compensating controls or accepted risks apply.
 
 **Gate check:** Cannot proceed to DEFINE until:
 - Target is specific and bounded (not "verify everything works")
@@ -145,7 +150,7 @@ Before starting verification, establish and record:
                                     EXIT / ITERATE / ROUTE
 ```
 
-**Terminology:** A **pass** is one complete cycle through DEFINE→DESIGN→EXECUTE→EVALUATE, or one ITERATE cycle (re-execute after correcting an execution error). Breaking back to DESIGN or DEFINE starts a new pass. Iteration caps (see Stakes Calibration) count passes.
+**Terminology:** An **iteration** is one complete cycle through DEFINE→DESIGN→EXECUTE→EVALUATE, or one ITERATE cycle (re-execute after correcting an execution error). Breaking back to DESIGN or DEFINE starts a new iteration. Iteration caps (see Stakes Calibration) count these cycles. (Note: "pass" in this document refers only to verdicts — pass/fail/not verified — not to iteration cycles.)
 
 ## Stage 1: DEFINE — What Does "Correct" Mean?
 
@@ -179,7 +184,14 @@ Good criteria are specific, testable, and scoped. Bad criteria are vague or rely
 | **Demonstration** | Show working to observer | Demo to stakeholder |
 | **Execution** | Run and observe behavior | Run script, observe output |
 
-**Note:** Oracle types and verification methods (Stage 2) use overlapping terminology. The distinction: **Oracle type** names what evidence counts as valid (the test result type); **Method** names the activity that produces that evidence. The same term may appear in both — e.g., "Execution" as an oracle means "observable runtime behavior is valid evidence"; as a method it means "run it and capture output."
+**Oracle vs. Method — Important distinction:**
+
+| Concept | Question answered | Example |
+|---------|-------------------|---------|
+| **Oracle type** | "What counts as valid evidence?" | "Execution output is valid evidence for this criterion" |
+| **Method** | "How will we produce that evidence?" | "Run the script and capture stdout" |
+
+The same term may appear in both tables (e.g., "Execution"). Oracle type names the *evidence category*; Method names the *activity*. In DEFINE, choose the oracle type. In DESIGN, choose the method that produces that type of evidence.
 
 **Failure mode prevented:** Scope confusion — verifying the wrong thing or using the wrong success definition.
 
@@ -208,7 +220,7 @@ Choose appropriate methods for each criterion:
 | **Stress test** | Push beyond normal conditions | Systems, assumptions, limits |
 | **Negative test** | Verify it fails when it should | Error handling, validation |
 | **Independence** | Different person/method confirms | High-stakes claims |
-| **Time-shift** | Re-verify after delay to catch transient successes | Caching effects, rate limits, token expiry, time-dependent logic |
+| **Time-shift** | Re-verify after delay to catch transient successes | Caching effects, rate limits, token expiry, time-dependent logic. *Example: API call succeeds now because token is cached; re-run after cache TTL expires to verify the refresh flow works.* |
 
 **Method requirements by level:**
 - **Adequate:** At least 1 method per criterion
@@ -283,9 +295,9 @@ Interpret evidence and assign verdicts.
 
 | Level | Meaning | Evidence Required |
 |-------|---------|-------------------|
-| **High** | Strong evidence, no contradictions | Multiple confirmations or strong single source |
-| **Medium** | Reasonable evidence, some uncertainty | Single verification method, no contradictions |
-| **Low** | Weak evidence, significant uncertainty | Partial check, ambiguous results |
+| **High** | Strong evidence, no contradictions | Multiple confirmations, OR single authoritative source (official output, cryptographic proof, direct observation with full trace) |
+| **Medium** | Reasonable evidence, some uncertainty | Single verification method with clear result, no contradictions |
+| **Low** | Weak evidence, significant uncertainty | Partial check, ambiguous results, or inference from indirect signals |
 
 **Rule:** Confidence cannot exceed evidence strength. Weak evidence caps confidence at Low.
 
@@ -298,9 +310,14 @@ Before claiming any criterion passes, ask:
 
 | Stakes Level | Disconfirmation Required |
 |--------------|-------------------------|
-| **Adequate** | Quick "what would failure look like?" |
-| **Rigorous** | Active search for failure evidence |
-| **Exhaustive** | Assume failure, prove otherwise |
+| **Adequate** | Quick "what would failure look like?" — documented in one sentence |
+| **Rigorous** | Active search for failure evidence — document what was searched and findings (positive or negative) |
+| **Exhaustive** | Assume failure, prove otherwise — document the "failure hypothesis" and the evidence that refutes it |
+
+**Example (rigorous disconfirmation for "API returns correct data"):**
+- *What would failure look like?* Wrong field values, missing fields, wrong status code, timeout
+- *How we looked for it:* Checked all fields against schema, tested with invalid auth (should fail), tested with malformed input (should return 400)
+- *What we found:* No failure evidence; all checks passed
 
 **Failure modes prevented:**
 - False positive — claiming pass with weak evidence
@@ -330,11 +347,26 @@ EVALUATE complete. Did all criteria pass?
          │   └─ EXIT (not verified) — route back to implementation
          │
          ├─ New requirement discovered
-         │   └─ Route to Thoroughness / Decision-making / Escalate
+         │   └─ Route based on gap type:
+         │       • "What is X?" → Thoroughness (understand first)
+         │       • "Should we do X or Y?" → Decision-making (choose approach)
+         │       • "This is out of scope" → Escalate (user decides scope)
          │
          └─ Stuck after iteration cap
-             └─ ESCALATE to user
+             └─ ESCALATE to user (see Escalation below)
 ```
+
+### Escalation
+
+**When to escalate:** Verification is stuck after reaching the iteration cap, or a decision exceeds the verifier's authority.
+
+**What to provide:**
+1. Current state: What was verified, what failed, what remains unknown
+2. Blocking issue: Why verification cannot proceed
+3. Options considered: What was tried, why it didn't work
+4. Decision needed: Specific question the user must answer (e.g., "Accept partial verification?" or "Provide access to X?")
+
+**Escalation is not failure** — it's honest acknowledgment that verification requires input beyond the verifier's scope.
 
 ## Stakes Calibration
 
@@ -342,16 +374,16 @@ What changes at each level:
 
 | Dimension | Adequate | Rigorous | Exhaustive |
 |-----------|----------|----------|------------|
-| **Criteria scope** | Critical path only | All stated criteria | All criteria + edge cases + failure modes |
-| **Method depth** | Single method per criterion | Primary + backup for critical | Multiple independent methods; triangulation |
+| **Criteria scope** | Critical path only (P0 criteria that block the primary use case) | All stated criteria | All criteria + edge cases + failure modes |
+| **Method depth** | Single method per criterion | Primary + backup for critical | Multiple independent methods; triangulation (≥3 sources converging) |
 | **Evidence bar** | Artifacts required | Artifacts + explicit comparison | Artifacts + comparison + independent confirmation |
 | **Disconfirmation** | Quick "what would failure look like?" | Active search for failure evidence | Assume failure, prove otherwise |
-| **Iteration cap** | 1-2 passes | 2-3 passes | 3-5 passes |
+| **Iteration cap** | 1-2 iterations | 2-3 iterations | 3-5 iterations |
 | **Environment** | Primary environment | Primary + one alternate | All relevant environments |
 
 **Important:** Each level is a package. Don't mix levels across dimensions — if you need more depth on one dimension, upgrade the whole level.
 
-**Exception (allowed only if declared in the Entry Gate):** You may **upgrade** a single dimension (e.g., add an extra disconfirmation pass or use multiple methods where the level only requires one) if you explicitly record the deviation and rationale. Downgrading individual dimensions is not permitted — that would undermine the level's guarantees. If you need less rigor, choose a lower level entirely.
+**Exception (allowed only if declared in the Entry Gate):** You may **upgrade** a single dimension (e.g., add an extra disconfirmation check or use multiple methods where the level only requires one) if you explicitly record the deviation and rationale. Upgrading does not change the claimed level — a verification at "adequate" with one upgraded dimension is still "adequate," not "rigorous-lite." Downgrading individual dimensions is not permitted — that would undermine the level's guarantees. If you need less rigor, choose a lower level entirely.
 
 ## Failure Modes
 
@@ -397,7 +429,7 @@ Cannot claim **Fully verified** until all P0 criteria have verdict = pass AND we
 
 | Criterion | Check |
 |-----------|-------|
-| **All criteria evaluated** | Every acceptance criterion has a verdict (pass / fail / not verified) |
+| **All criteria evaluated** | Every acceptance criterion (P0, P1, P2) has a verdict (pass / fail / not verified) |
 | **Evidence documented** | Each verdict has linked artifacts |
 | **Confidence appropriate** | Verdict confidence doesn't exceed evidence strength |
 | **Gaps explicit** | Any "not verified" items have documented reasons |
@@ -427,13 +459,20 @@ Some targets are not deterministic: flaky tests, performance benchmarks, AI/mode
 **Approach:**
 | Aspect | Guidance |
 |--------|----------|
-| **Sample size** | Minimum 3 runs for adequate; 5+ for rigorous; 10+ for exhaustive or high-variance systems |
+| **Sample size** | Minimum 3 runs for adequate; 5+ for rigorous; 10+ for exhaustive or high-variance systems. (Rationale: 3 runs can detect ~70% reproducible failures; 5+ approaches statistical utility; 10+ enables meaningful variance analysis.) |
 | **Variance recording** | Record range, mean, and any outliers; note if variance exceeds acceptable threshold |
 | **Confidence cap** | High variance or small samples cap confidence at **Low** regardless of mean result |
-| **Pass threshold** | Define upfront: "passes if ≥N of M runs succeed" or "mean latency < Xms with p95 < Yms" |
+| **Pass threshold** | Define upfront: "passes if ≥N of M runs succeed" (e.g., 9/10) or "mean latency < Xms with p95 < Yms" |
 | **Flaky failures** | A single failure in N runs is still a failure signal — investigate before dismissing as flakiness |
 
 **For AI/model outputs:** Use rubric-based evaluation with explicit criteria. Multiple independent evaluations (human or automated) increase confidence. Document disagreements.
+
+**Example (verifying a flaky integration test):**
+- *Pass threshold:* 9/10 runs succeed
+- *Runs:* 10
+- *Results:* 8 pass, 2 fail (failures on runs 3 and 7, both timeout-related)
+- *Verdict:* Fail (below threshold)
+- *Action:* Investigate timeout root cause before retesting
 
 ## Verification Report Template
 
@@ -528,7 +567,7 @@ Verification theater is going through the motions without genuine testing. Signs
 |--------|---------|
 | "Tests pass" without output shown | May not have run tests |
 | "I verified it" without artifacts | No verification occurred |
-| All criteria pass, no gaps | Suspiciously perfect |
+| All criteria pass, no gaps, no disconfirmation attempts | Suspiciously perfect (genuine thorough verification almost always finds *something* worth noting) |
 | No disconfirmation attempts | Confirmation bias likely |
 | Vague criteria, confident verdict | Can't fail what isn't defined |
 
