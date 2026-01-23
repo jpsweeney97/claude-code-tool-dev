@@ -71,33 +71,36 @@ This skill applies `decision-making.framework@1.0.0` to adoption decisions for f
 
 ## Outputs
 
-**Artifact:** Decision record at `docs/decisions/YYYY-MM-DD-<extension-or-pattern>-adoption.md`
+**IMPORTANT:** The full evaluation report goes in the artifact ONLY. Chat receives a brief summary. Do NOT reproduce the full analysis, scoring tables, or pressure-testing details in chat.
+
+**Artifact (full report):** Decision record at `docs/decisions/YYYY-MM-DD-<extension-or-pattern>-adoption.md`
 
 **Decision record includes:**
 - Context (protocol, stakes level, what triggered the decision)
+- Finding reference (ID and signals consumed)
 - Frame (decision statement, constraints, criteria, stakeholders)
 - Options evaluated (including null/defer)
 - Trade-offs for each option
-- Evaluation scoring
+- Evaluation scoring table
 - Pressure-testing results
 - Decision with explicit trade-offs accepted
 - Iteration log (for rigorous/exhaustive)
 
-**Inline summary (presented in chat):**
+**Chat summary (brief — not the full report):**
 
 ```
-**Decision:** [Adopt / Adapt / Inspire / Skip / Defer]
+**Decision:** [Adopt / Adapt / Inspire / Skip / Defer] — [Finding ID if applicable]
 
-**Why:** [2-3 sentence positive case]
+**Why:** [1-2 sentences — the key reason]
 
-**Trade-offs accepted:** [What's being sacrificed]
+**Trade-offs:** [What's being sacrificed, briefly]
 
 **Confidence:** High / Medium / Low
 
-**Caveats:** [What would change this decision]
-
-**Full analysis:** [link to decision record]
+**Full analysis:** `docs/decisions/YYYY-MM-DD-<name>-adoption.md`
 ```
+
+Do NOT include in chat: scoring tables, detailed options analysis, pressure-testing questions/answers, iteration logs, or full constraint lists. These belong in the artifact only.
 
 **Batch mode output:**
 - Prioritized list of findings with decision for each
@@ -108,10 +111,11 @@ This skill applies `decision-making.framework@1.0.0` to adoption decisions for f
 **Definition of Done:**
 - Entry Gate completed (stakes calibrated)
 - Frame stable (criteria defined, stakeholders identified)
+- Signals consumed explicitly (if from exploration)
 - Convergence indicators satisfied for stakes level
 - Trade-offs explicitly documented
-- Decision record written
-- Inline summary presented
+- Decision record written to artifact
+- Brief summary presented in chat (NOT full report)
 
 ## Process
 
@@ -143,19 +147,33 @@ Before evaluation, establish:
 
 ### Consuming Exploration Findings
 
-When findings come from `exploring-claude-repos`, signals map to the decision frame:
+When findings come from `exploring-claude-repos`, signals MUST be explicitly consumed in the decision frame.
 
-| Signal | How it informs evaluation |
-|--------|---------------------------|
-| **Novelty** | Frames the decision: `new` → full evaluation; `similar-to` → compare to existing; `extends` → incremental decision |
-| **Quality** | Becomes a criterion weight: `polished` reduces implementation risk; `rough` increases it |
-| **Conflict** | Becomes a hard constraint: `conflicts-with` may disqualify or require resolution |
-| **Complexity** | Informs effort/risk criteria: `drop-in` vs `significant-integration` |
+**Reference the finding ID:** When evaluating a finding (e.g., F3), include its ID in the Entry Gate and Frame sections.
+
+**Mandatory signal mapping:**
+
+| Signal | How it informs evaluation | Frame location |
+|--------|---------------------------|----------------|
+| **Novelty** | Frames the decision: `new` → full evaluation; `similar-to` → compare to existing; `extends` → incremental decision | Include in "Identify the choice" |
+| **Quality** | Becomes a criterion weight: `polished` reduces implementation risk; `rough` increases it | Adjust Risk/Effort criterion weights |
+| **Conflict** | Becomes a hard constraint: `conflicts-with` may disqualify or require resolution | Add to "Surface constraints" |
+| **Complexity** | Informs effort/risk criteria: `drop-in` vs `significant-integration` | Add to "Surface constraints" |
+
+**When framing, explicitly state:**
+```
+**Finding:** F3 — tdd-workflow skill
+**Signals consumed:**
+- Novelty: new → requires full evaluation
+- Quality: polished → lower Risk weight (2 instead of 3)
+- Conflict: none → no hard constraints from signals
+- Complexity: needs-adaptation → adds effort constraint
+```
 
 **Ad-hoc input (no prior exploration):**
 1. Read the extension/pattern source
 2. Assess the four signals against user's setup
-3. Proceed to framing with signals as input
+3. Document signal assessment before proceeding to framing
 
 ### Outer Loop: Frame the Decision
 
@@ -250,12 +268,13 @@ ESCAPE: Stuck after cap? → ESCALATE to user
 
 Cannot claim "done" until:
 - [ ] Frame complete (criteria defined, constraints surfaced)
+- [ ] Signals consumed explicitly (if from exploration findings)
 - [ ] All options evaluated (including Skip/Defer)
 - [ ] Frontrunner pressure-tested
 - [ ] Trade-offs explicitly documented
 - [ ] Convergence indicators satisfied for stakes level
-- [ ] Decision record written
-- [ ] Inline summary presented
+- [ ] Decision record written to `docs/decisions/`
+- [ ] Brief summary presented in chat (NOT full report — full analysis stays in artifact)
 
 ## Decision Points
 
@@ -322,54 +341,42 @@ Claude glances at the skill and says:
 - Stakes: Adequate (skill can be removed if it doesn't work)
 - Evidence bar: Understand skill behavior, check for conflicts
 
-**Consuming signals from exploration:**
-- Novelty: `new` (user has no TDD skill)
-- Quality: `polished` (well-documented, clear structure)
-- Conflict: `none`
-- Complexity: `needs-adaptation` (references testing framework user doesn't use)
+**Signals consumed (explicit — required):**
+```
+**Finding:** F1 — tdd-workflow skill
+**Signals consumed:**
+- Novelty: new → requires full evaluation (user has no TDD skill)
+- Quality: polished → lower Risk weight (2 instead of 3)
+- Conflict: none → no hard constraints from signals
+- Complexity: needs-adaptation → adds constraint (references jest, user has pytest)
+```
 
 **Frame:**
 - Decision: Should I adopt this TDD workflow skill?
-- Constraints: Must work with my test runner (pytest, not jest)
-- Criteria: Value (5), Fit (4), Effort (3), Risk (3)
+- Constraints: Must work with my test runner (pytest, not jest) [from complexity signal]
+- Criteria: Value (5), Fit (4), Effort (3), Risk (2) [reduced from 3 due to quality signal]
 
-**Options:**
+**Options, scoring, and pressure-testing:** *(documented in decision record, not shown in chat)*
 
-| Option | Value | Fit | Effort | Risk | Total |
-|--------|-------|-----|--------|------|-------|
-| Adopt as-is | 5 | 2 | 5 | 2 | 54 |
-| Adapt (change test runner refs) | 5 | 5 | 3 | 4 | 66 |
-| Inspire (write my own TDD skill) | 5 | 5 | 1 | 5 | 59 |
-| Skip | 0 | 5 | 5 | 5 | 45 |
-| Defer | 2 | 5 | 5 | 5 | 51 |
+**Chat output (brief summary only):**
 
-**Pressure-test (Adapt):**
-- Kill it: "Adapting means ongoing maintenance if upstream changes"
-- Response: Acceptable — skill is self-contained, upstream changes unlikely to affect core workflow
-- Pre-mortem: "Adaptation missed a jest reference, skill broke on first use"
-- Response: Do thorough search-replace, test before committing
-
-**Inline output:**
-
-> **Decision:** Adapt
+> **Decision:** Adapt — F1
 >
-> **Why:** TDD workflow adds significant value. Adaptation is straightforward (test runner references). Quality is high, reducing implementation risk.
+> **Why:** TDD workflow adds significant value; adaptation is straightforward (test runner refs).
 >
-> **Trade-offs accepted:** One-time adaptation effort; won't receive upstream updates automatically.
+> **Trade-offs:** One-time adaptation effort; no automatic upstream updates.
 >
 > **Confidence:** High
 >
-> **Caveats:** If adaptation proves more complex than expected, consider Inspire instead.
->
-> **Full analysis:** docs/decisions/2024-01-15-tdd-workflow-adoption.md
+> **Full analysis:** `docs/decisions/2024-01-15-tdd-workflow-adoption.md`
 
 **Why it's good:**
 - Stakes calibrated before analysis
-- Signals from exploration informed the frame
-- All five options considered with scoring
-- Trade-offs explicit
-- Frontrunner pressure-tested
-- Decision record preserves reasoning
+- Signals explicitly consumed and documented
+- Signals inform criteria weights and constraints
+- Full analysis (scoring, pressure-testing) in artifact only
+- Chat gets brief summary, not full report
+- Decision record preserves complete reasoning
 
 ## Anti-Patterns
 
@@ -458,7 +465,7 @@ Claude glances at the skill and says:
 
 ## Verification
 
-**Quick check:** Decision record written with trade-offs explicit and convergence met for stakes level.
+**Quick check:** Decision record written with trade-offs explicit; brief summary in chat (not full report).
 
 **Deeper validation:**
 
@@ -471,7 +478,7 @@ Frame:
 - [ ] Decision statement is clear question
 - [ ] Criteria defined with weights
 - [ ] Constraints surfaced (including from conflict signals)
-- [ ] Signals from exploration consumed (if applicable)
+- [ ] Signals from exploration consumed explicitly (finding ID, signal → frame mapping)
 
 Evaluation:
 - [ ] All five options considered (Adopt, Adapt, Inspire, Skip, Defer)
@@ -490,7 +497,9 @@ Convergence:
 
 Output:
 - [ ] Decision record written at `docs/decisions/YYYY-MM-DD-<name>-adoption.md`
-- [ ] Inline summary presented with decision, trade-offs, confidence, caveats
+- [ ] Full analysis (scoring, pressure-testing, options) in artifact ONLY
+- [ ] Chat contains brief summary: decision, why (1-2 sentences), trade-offs, confidence, link
+- [ ] Chat does NOT contain: scoring tables, detailed options, pressure-test Q&A, iteration logs
 
 **Self-test:** If this decision turns out wrong, would the record help you understand why and what to try instead?
 

@@ -263,6 +263,51 @@ Use BAD/GOOD for skill verification (does the skill change behavior?). Use input
 
 Scripts should handle errors, not defer to Claude. Verbose error messages help Claude fix issues: "Field 'X' not found. Available: A, B, C."
 
+### Artifact vs Chat Output
+
+**For skills that produce files:** Separate what goes in the artifact from what goes in chat.
+
+**The principle:** Artifact is the work product. Chat is the summary.
+
+Without explicit separation, Claude dumps full reports into chat — iteration logs, scoring tables, complete findings — overwhelming users who want actionable next steps.
+
+**In the Outputs section, specify all three:**
+
+```markdown
+## Outputs
+
+**IMPORTANT:** Full report goes in artifact ONLY. Chat receives brief summary.
+
+**Artifact:** `docs/reports/YYYY-MM-DD-<name>.md`
+- [Full list of sections]
+
+**Chat summary (brief — not the full report):**
+```
+**Result:** [outcome]
+**Key point:** [1-2 sentences]
+**Full report:** `path/to/artifact.md`
+```
+
+Do NOT include in chat: [explicit list — scoring tables, iteration logs, etc.]
+```
+
+**Include verification checks:**
+
+```markdown
+Output:
+- [ ] Full report written to artifact location
+- [ ] Chat contains brief summary only
+- [ ] Chat does NOT contain: [skill-specific list]
+```
+
+**When this applies:**
+
+| Skill type | Applies? |
+|------------|----------|
+| Produces files (reports, records, documents) | **Yes** |
+| Modifies existing code | No |
+| Pure conversation (Q&A, explanation) | No |
+
 ---
 
 ## Checklist
@@ -297,3 +342,10 @@ Before finalizing any skill:
 - [ ] Scripts handle errors (don't punt)
 - [ ] Validation steps for critical operations
 - [ ] Plan-validate-execute for complex tasks
+
+**Output (for skills producing files):**
+
+- [ ] Artifact location specified
+- [ ] Chat summary format defined (brief, not full report)
+- [ ] Explicit list of what NOT to show in chat
+- [ ] Verification includes artifact/chat separation checks

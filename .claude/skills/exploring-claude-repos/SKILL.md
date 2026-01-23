@@ -58,14 +58,16 @@ This skill applies `thoroughness.framework@1.0.0` to Claude Code config repos (s
 
 ## Outputs
 
-**Artifact:** Exploration report at `docs/exploration-findings/YYYY-MM-DD-<repo-name>-exploration.md`
+**IMPORTANT:** The full exploration report goes in the artifact ONLY. Chat receives a brief summary. Do NOT reproduce the full iteration log, complete findings table, or coverage tracker in chat.
+
+**Artifact (full report):** Exploration report at `docs/exploration-findings/YYYY-MM-DD-<repo-name>-exploration.md`
 
 **Report structure:**
 - Context (protocol, scope, target repo(s))
 - Entry Gate (assumptions, thoroughness level, stopping criteria)
 - Coverage Tracker (extensions by type with Cell Schema)
 - Iteration Log (pass-by-pass Yield%)
-- Findings with signals (see below)
+- Complete findings table with all signals
 - Disconfirmation Attempts
 - Exit Gate verification
 - Suggested next steps (evaluation invocations)
@@ -81,12 +83,31 @@ This skill applies `thoroughness.framework@1.0.0` to Claude Code config repos (s
 
 **Handoff format:** Each finding has a stable ID (e.g., `F1`, `F2`) that `evaluating-extension-adoption` can reference.
 
+**Chat summary (brief — not the full report):**
+
+```
+**Explored:** [repo name] — [N] findings across [extension types covered]
+
+**Highlights (P0 findings):**
+- F1: [name] — [1-sentence description] (novelty: new, complexity: drop-in)
+- F3: [name] — [1-sentence description] (novelty: new, conflict: conflicts-with:X)
+
+**Notable conflicts:** [any findings with conflict signals, or "none"]
+
+**Next steps:** Evaluate F1, F3 for adoption, or see full report for complete findings.
+
+**Full report:** `docs/exploration-findings/YYYY-MM-DD-<repo>-exploration.md`
+```
+
+Do NOT include in chat: full iteration log, complete findings table, coverage tracker details, or disconfirmation attempt details. These belong in the artifact only.
+
 **Definition of Done:**
 - Entry Gate completed
 - All P0/P1 dimensions explored with required evidence
 - Yield% below threshold for chosen thoroughness level
 - Exit Gate criteria satisfied
 - Report written with finding IDs and signals
+- Brief summary presented in chat (NOT full report)
 
 ## Process
 
@@ -170,6 +191,8 @@ Cannot claim "done" until:
 - [ ] Convergence reached (Iteration Log shows Yield% below threshold)
 - [ ] Stopping criteria satisfied
 - [ ] Handoff prepared (finding IDs, suggested evaluation invocations)
+- [ ] Full report written to `docs/exploration-findings/`
+- [ ] Brief summary presented in chat (NOT full report — full analysis stays in artifact)
 
 ## Decision Points
 
@@ -233,7 +256,7 @@ Claude scans the README, glances at a few directories, and reports:
 
 ### GOOD: Framework-driven thorough exploration
 
-Claude runs Entry Gate, explores systematically, loops until convergence:
+Claude runs Entry Gate, explores systematically, loops until convergence. Full details go in artifact; chat gets brief summary.
 
 **Entry Gate:**
 - Scope: Single repo with comparison to user's setup
@@ -241,37 +264,30 @@ Claude runs Entry Gate, explores systematically, loops until convergence:
 - Thoroughness: Rigorous
 - Stopping: Discovery-based
 
-**Iteration Log:**
+**Iteration Log, findings table, coverage tracker:** *(documented in exploration report, not shown in chat)*
 
-| Pass | New Findings | Total Findings | Yield% | Decision |
-|------|--------------|----------------|--------|----------|
-| 1    | 18           | 18             | 100%   | Continue |
-| 2    | 7            | 25             | 28%    | Continue |
-| 3    | 2            | 27             | 7.4%   | Exit (< 10%) |
+**Chat output (brief summary only):**
 
-**Sample findings with signals:**
-
-| ID | Type | Name | Novelty | Quality | Conflict | Complexity |
-|----|------|------|---------|---------|----------|------------|
-| F1 | Skill | tdd-workflow | `new` | `polished` | `none` | `needs-adaptation` |
-| F2 | Hook | console-log-warning | `similar-to:lint-hook` | `functional` | `none` | `drop-in` |
-| F3 | Agent | security-reviewer | `new` | `polished` | `none` | `significant-integration` |
-| F4 | Command | /plan | `extends:brainstorming` | `functional` | `conflicts-with:plan-mode` | `needs-adaptation` |
-
-**Exit Gate:** All extension types covered, signals assigned, Yield% < 10%
-
-**Handoff:**
-> To evaluate specific findings for adoption:
-> - "Evaluate F1 (tdd-workflow) for adoption"
-> - "Compare F4 (/plan) against my existing approach"
+> **Explored:** everything-claude-code — 27 findings across Skills, Hooks, Commands, Agents, MCP configs
+>
+> **Highlights (P0 findings):**
+> - F1: tdd-workflow — structured TDD process skill (novelty: new, complexity: needs-adaptation)
+> - F3: security-reviewer — code security analysis agent (novelty: new, complexity: significant-integration)
+>
+> **Notable conflicts:** F4 (/plan command) conflicts with your existing plan-mode setup
+>
+> **Next steps:** Evaluate F1, F3 for adoption, or resolve F4 conflict first.
+>
+> **Full report:** `docs/exploration-findings/2024-01-15-everything-claude-code-exploration.md`
 
 **Why it's good:**
 - Systematic coverage with explicit dimensions
 - Evidence levels assigned (E2 for P0 findings)
-- All four signals for each finding
-- Iteration Log proves convergence
+- All four signals for each finding (in artifact)
+- Iteration Log proves convergence (in artifact)
 - Finding IDs enable handoff to evaluation skill
-- User can immediately triage based on signals
+- Chat summary gives actionable overview without overwhelming
+- Full details preserved in artifact for reference
 
 ## Anti-Patterns
 
@@ -355,7 +371,7 @@ Claude runs Entry Gate, explores systematically, loops until convergence:
 
 ## Verification
 
-**Quick check:** Exit Gate passes and Iteration Log shows Yield% below threshold.
+**Quick check:** Exit Gate passes, Iteration Log shows Yield% below threshold, brief summary in chat (not full report).
 
 **Deeper validation:**
 
@@ -384,6 +400,11 @@ Handoff:
 - [ ] Every finding has stable ID (F1, F2, ...)
 - [ ] Report includes suggested evaluation invocations
 - [ ] Findings are structured for `evaluating-extension-adoption` consumption
+
+Output:
+- [ ] Full report written to `docs/exploration-findings/`
+- [ ] Chat contains brief summary: finding count, P0 highlights, conflicts, next steps, link
+- [ ] Chat does NOT contain: full iteration log, complete findings table, coverage tracker details
 
 **Self-test:** Could someone use this report to decide which findings to evaluate for adoption without re-exploring the repo?
 

@@ -110,11 +110,12 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
 
 2. **Note the session ID** from the "Session ID:" line at the top of this skill (substituted by Claude Code at load time)
 
-3. **Complete the synthesis process:**
+3. **Complete the synthesis process (INTERNAL — do not output to chat):**
    - YOU MUST read [synthesis-guide.md](synthesis-guide.md) completely before proceeding
    - Answer every applicable synthesis prompt in the guide
    - This is not optional — do not skip to filling sections
    - The synthesis prompts are THINKING; the handoff sections are OUTPUT
+   - **IMPORTANT:** The synthesis work is internal reasoning. Do NOT present synthesis answers in chat. Only the final handoff file is the deliverable.
 
 4. **Gather context** from the session (informed by your synthesis work)
 
@@ -137,9 +138,10 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
 
 9. **Clean up state file** (delete `~/.claude/.session-state/handoff-<session_id>` if exists)
 
-10. **Verify and confirm:**
+10. **Verify and confirm (brief summary only):**
     - Check file exists and frontmatter is valid
-    - Confirm: "Handoff saved: <title> (N decisions, N changes, N next steps)"
+    - Confirm briefly: "Handoff saved: `<path>` — <title>"
+    - **Do NOT** reproduce handoff content or synthesis answers in chat. The file is the deliverable.
 
 ## Verification
 
