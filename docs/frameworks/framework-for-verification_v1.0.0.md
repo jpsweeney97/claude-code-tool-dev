@@ -40,13 +40,13 @@ The keywords **MUST**, **SHOULD**, and **MAY** are used as normative requirement
 - Pre-register expected results before executing verification steps.
 - Use multiple independent methods for P0 criteria at rigorous+ levels.
 - Maintain an execution log showing actual steps taken and results observed.
-- Timestamp verdicts and note conditions that would require re-verification.
+- Timestamp verdicts and note conditions that would require re-verification. (At rigorous+ levels, timestamps are expected; omitting them undermines the "stale verification" countermeasure.)
 
 ### MAY
 
 - Add domain-specific criteria, methods, or environment requirements.
 - Override iteration caps or evidence requirements — but any override MUST be declared in the Entry Gate.
-- Collapse DEFINE and DESIGN at adequate level for simple verifications — but MUST document what was combined.
+- Collapse DEFINE and DESIGN at adequate level for simple verifications — but MUST document what was combined. (Example: "Criterion: function returns expected output for input X. Method: execute with input X, compare to expected Y." — this combines criterion definition with verification method in a single statement.)
 
 ## Principle
 
@@ -145,6 +145,8 @@ Before starting verification, establish and record:
                                     EXIT / ITERATE / ROUTE
 ```
 
+**Terminology:** A **pass** is one complete cycle through DEFINE→DESIGN→EXECUTE→EVALUATE, or one ITERATE cycle (re-execute after correcting an execution error). Breaking back to DESIGN or DEFINE starts a new pass. Iteration caps (see Stakes Calibration) count passes.
+
 ## Stage 1: DEFINE — What Does "Correct" Mean?
 
 Establish acceptance criteria and how you'll know if they're met.
@@ -177,6 +179,8 @@ Good criteria are specific, testable, and scoped. Bad criteria are vague or rely
 | **Demonstration** | Show working to observer | Demo to stakeholder |
 | **Execution** | Run and observe behavior | Run script, observe output |
 
+**Note:** Oracle types and verification methods (Stage 2) use overlapping terminology. The distinction: **Oracle type** names what evidence counts as valid (the test result type); **Method** names the activity that produces that evidence. The same term may appear in both — e.g., "Execution" as an oracle means "observable runtime behavior is valid evidence"; as a method it means "run it and capture output."
+
 **Failure mode prevented:** Scope confusion — verifying the wrong thing or using the wrong success definition.
 
 ## Stage 2: DESIGN — How Will We Test It?
@@ -204,7 +208,7 @@ Choose appropriate methods for each criterion:
 | **Stress test** | Push beyond normal conditions | Systems, assumptions, limits |
 | **Negative test** | Verify it fails when it should | Error handling, validation |
 | **Independence** | Different person/method confirms | High-stakes claims |
-| **Time-shift** | Verify it still holds later | Assumptions, dependencies |
+| **Time-shift** | Re-verify after delay to catch transient successes | Caching effects, rate limits, token expiry, time-dependent logic |
 
 **Method requirements by level:**
 - **Adequate:** At least 1 method per criterion
@@ -347,7 +351,7 @@ What changes at each level:
 
 **Important:** Each level is a package. Don't mix levels across dimensions — if you need more depth on one dimension, upgrade the whole level.
 
-**Exception (allowed only if declared in the Entry Gate):** You may upgrade a single dimension (e.g., add an extra disconfirmation pass) if you explicitly record the deviation and rationale. This is to keep verification honest, not to downgrade rigor.
+**Exception (allowed only if declared in the Entry Gate):** You may **upgrade** a single dimension (e.g., add an extra disconfirmation pass or use multiple methods where the level only requires one) if you explicitly record the deviation and rationale. Downgrading individual dimensions is not permitted — that would undermine the level's guarantees. If you need less rigor, choose a lower level entirely.
 
 ## Failure Modes
 
@@ -409,12 +413,27 @@ Cannot claim **Fully verified** until all P0 criteria have verdict = pass AND we
 | P1 criterion not verified | Only if documented and accepted risk |
 | P2 criterion not verified | YES — document and proceed |
 
-### Optional: Non-deterministic / Probabilistic Verification
+### Non-deterministic / Probabilistic Verification
 
-Some targets are not deterministic (manual judgments, flaky systems, model outputs, performance). In these cases:
-- Prefer **sampling** (multiple examples/runs) over a single spot-check
-- Record sample size and observed variance; weak/variable evidence caps confidence at **Low**
-- Favor independent methods for P0 criteria at rigorous+ stakes
+Some targets are not deterministic: flaky tests, performance benchmarks, AI/model outputs, manual judgments, systems with eventual consistency, or time-dependent behavior. Standard single-execution verification is insufficient.
+
+**When to apply:**
+- Output varies across runs with identical inputs
+- System has known flakiness or race conditions
+- Verification involves human judgment (different reviewers may differ)
+- Performance or latency is being verified (inherent variance)
+- AI/LLM outputs are being evaluated
+
+**Approach:**
+| Aspect | Guidance |
+|--------|----------|
+| **Sample size** | Minimum 3 runs for adequate; 5+ for rigorous; 10+ for exhaustive or high-variance systems |
+| **Variance recording** | Record range, mean, and any outliers; note if variance exceeds acceptable threshold |
+| **Confidence cap** | High variance or small samples cap confidence at **Low** regardless of mean result |
+| **Pass threshold** | Define upfront: "passes if ≥N of M runs succeed" or "mean latency < Xms with p95 < Yms" |
+| **Flaky failures** | A single failure in N runs is still a failure signal — investigate before dismissing as flakiness |
+
+**For AI/model outputs:** Use rubric-based evaluation with explicit criteria. Multiple independent evaluations (human or automated) increase confidence. Document disagreements.
 
 ## Verification Report Template
 
