@@ -34,6 +34,11 @@ _Narrow bridge = low freedom (one safe path). Open field = high freedom (many pa
   - ❌ `error-handler` (noun) → ✅ `handling-errors` (gerund)
 - Avoid: vague names (`helper`, `utils`), reserved words (`claude-*`, `anthropic-*`)
 
+**Argument Hint:**
+
+- Optional `argument-hint` in frontmatter shows expected arguments during autocomplete
+- Examples: `[issue-number]`, `[filename] [format]`, `[branch-name]`
+
 **Description:**
 
 - Trigger conditions ONLY — never summarize workflow or outcomes
@@ -57,6 +62,21 @@ _Narrow bridge = low freedom (one safe path). Open field = high freedom (many pa
 
 - Under 500 lines
 - Split to reference files if approaching limit
+
+**String Substitutions:**
+
+Skills support dynamic value substitution:
+
+| Variable | Description |
+|----------|-------------|
+| `$ARGUMENTS` | Arguments passed when invoking. If not in body, appended as `ARGUMENTS: <value>` |
+| `${CLAUDE_SESSION_ID}` | Session ID for logging or session-specific files |
+
+**Context Budget:**
+
+- Default: 15,000 characters for skill descriptions in context
+- If exceeded, some skills may be excluded
+- Check with `/context`, increase via `SLASH_COMMAND_TOOL_CHAR_BUDGET`
 
 ---
 
@@ -239,6 +259,25 @@ Use for: batch operations, destructive changes, high-stakes operations.
 **Strict** (API responses, data formats): "ALWAYS use this exact structure"
 **Flexible** (reports, analysis): "Sensible default; adapt as needed"
 
+### Dynamic Context Injection
+
+The `` !`command` `` syntax runs shell commands as **preprocessing** before skill content is sent to Claude. Output replaces the placeholder.
+
+```markdown
+## Current state
+- Branch: !`git branch --show-current`
+- Uncommitted changes: !`git diff --stat`
+- Recent commits: !`git log --oneline -5`
+```
+
+**Use for:** Injecting real-time context (git state, environment info, API responses) without Claude executing commands.
+
+**Note:** This is preprocessing — commands run when the skill loads, not during execution.
+
+### Extended Thinking
+
+Include the word **"ultrathink"** anywhere in skill content to enable extended thinking for that skill. Useful for complex analysis or multi-step reasoning tasks.
+
 ### Examples Pattern
 
 Two formats, different purposes:
@@ -318,10 +357,12 @@ Before finalizing any skill:
 
 - [ ] Description contains trigger conditions only (no workflow)
 - [ ] Description is third person
-- [ ] Body under 500 lines
+- [ ] Body under 500 lines (context budget: 15k chars for all skill descriptions)
 - [ ] Consistent terminology throughout
 - [ ] References one level deep from SKILL.md
 - [ ] Examples are concrete, not abstract
+- [ ] `argument-hint` added if skill accepts arguments
+- [ ] String substitutions (`$ARGUMENTS`, `${CLAUDE_SESSION_ID}`) used where appropriate
 
 **Quality:**
 
@@ -342,6 +383,7 @@ Before finalizing any skill:
 - [ ] Scripts handle errors (don't punt)
 - [ ] Validation steps for critical operations
 - [ ] Plan-validate-execute for complex tasks
+- [ ] Dynamic context injection (`` !`command` ``) considered for real-time state
 
 **Output (for skills producing files):**
 
