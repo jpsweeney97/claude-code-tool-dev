@@ -20,7 +20,7 @@ This skill applies `thoroughness.framework@1.0.0` to Claude Code config repos (s
 
 **Default thoroughness:** Rigorous (Yield <10%, E2 evidence for P0 dimensions)
 
-**Protocol:** [references/framework-for-thoroughness.md](references/framework-for-thoroughness.md)
+**Protocol:** [references/framework-for-thoroughness_v1.0.0.md](references/framework-for-thoroughness_v1.0.0.md) — **YOU MUST read this file for normative requirements (MUST/SHOULD/MAY), Cell Schema, Disconfirmation Menu, and Report Template.**
 
 **Companion skill:** After exploration, use `evaluating-extension-adoption` to decide whether to adopt specific findings.
 
@@ -62,15 +62,16 @@ This skill applies `thoroughness.framework@1.0.0` to Claude Code config repos (s
 
 **Artifact (full report):** Exploration report at `docs/exploration-findings/YYYY-MM-DD-<repo-name>-exploration.md`
 
-**Report structure:**
-- Context (protocol, scope, target repo(s))
-- Entry Gate (assumptions, thoroughness level, stopping criteria)
-- Coverage Tracker (extensions by type with Cell Schema)
-- Iteration Log (pass-by-pass Yield%)
-- Complete findings table with all signals
-- Disconfirmation Attempts
-- Exit Gate verification
-- Suggested next steps (evaluation invocations)
+**Report structure:** Use the **Thoroughness Report Template** from the framework (see [references/framework-for-thoroughness_v1.0.0.md](references/framework-for-thoroughness_v1.0.0.md)). Required sections:
+- Context (protocol version, audience, scope/goal, constraints)
+- Entry Gate (assumptions, stakes/thoroughness level, stopping criteria, initial dimensions with priorities, coverage structure, any declared overrides)
+- Coverage Tracker (extensions by type using Cell Schema fields with stable IDs)
+- Iteration Log (pass-by-pass: New, Reopened, Revised, Escalated, Yield%, Decision)
+- Findings (each with Priority, Evidence, Confidence, Claim, Linked dimensions, Artifacts, Gaps)
+- Disconfirmation Attempts (what would disprove, how tested, result)
+- Decidable vs Undecidable (what can be decided now, what can't, what would change it)
+- Exit Gate (all criteria with status)
+- Appendix (commands run, file links, data extracts)
 
 **Finding signals (each finding includes):**
 
@@ -111,7 +112,7 @@ Do NOT include in chat: full iteration log, complete findings table, coverage tr
 
 ## Process
 
-This skill follows `thoroughness.framework@1.0.0`. This section summarizes; see [references/framework-for-thoroughness.md](references/framework-for-thoroughness.md) for full protocol.
+This skill follows `thoroughness.framework@1.0.0`. This section summarizes; see [references/framework-for-thoroughness_v1.0.0.md](references/framework-for-thoroughness_v1.0.0.md) for full protocol.
 
 ### Entry Gate
 
@@ -121,12 +122,18 @@ Before exploring, establish:
 |--------|----------|---------|
 | Scope | Single repo, multiple repos, or focused extraction? | Infer from request |
 | Assumptions | What am I taking for granted about the repo? | List explicitly |
-| Thoroughness | How thorough? | Rigorous |
-| Stopping criteria | When is "enough"? | Discovery-based (two loops with no new P0/P1 findings) |
+| Thoroughness | How thorough? (Use Stakes Calibration Rubric from framework) | Rigorous |
+| Stopping criteria | Which template? Risk-based, Discovery-based, or Decision-based? | Discovery-based |
+| Deliverable format | What output form? Who is the audience? | Exploration report for user |
 | Comparison target | Against user's setup, another repo, or standalone? | Infer from request |
-| Coverage structure | How to track? | Backlog (extensions discovered as you go) |
+| Coverage structure | How to track? Matrix, tree, graph, or backlog? | Backlog (extensions discovered as you go) |
 
-**Gate check:** Cannot proceed until assumptions listed, thoroughness level set, and scope clarified.
+**Stopping criteria templates (choose 1-2):**
+- **Risk-based:** All P0 dimensions are `[x]` with ≥E2 evidence
+- **Discovery-based:** Two consecutive loops with no new P0/P1 findings
+- **Decision-based:** Remaining unknowns don't change the decision (document why)
+
+**Gate check:** Cannot proceed until assumptions listed, thoroughness level chosen, stopping criteria template selected, and scope clarified.
 
 ### Seed Dimensions
 
@@ -162,15 +169,52 @@ DISCOVER → EXPLORE → VERIFY → REFINE → (loop or exit)
 1. Locate all instances (glob patterns, directory traversal)
 2. Catalog with metadata (name, purpose, dependencies)
 3. Assess signals (novelty, quality, conflict, complexity)
-4. Assign evidence level (E1: read file, E2: read + cross-referenced)
-5. Assign confidence (High/Medium/Low) — **confidence can't exceed evidence** (E0/E1 caps at Medium)
+4. **Track using Cell Schema** — every item MUST have:
+   - **ID:** Stable identifier (e.g., `D3`, `F2`)
+   - **Status:** `[x]` done, `[~]` partial, `[-]` N/A, `[ ]` not started, `[?]` unknown
+   - **Priority:** P0 / P1 / P2
+   - **Evidence:** E0 (assertion) / E1 (single source) / E2 (two methods) / E3 (triangulated + disconfirmation)
+   - **Confidence:** High / Medium / Low
+   - **Artifacts:** Links, commands run, docs reviewed
+   - **Notes:** What's missing, next action
+5. **Evidence levels:**
+   - E0: Assertion only ("I believe X")
+   - E1: Single source/method (read file, saw X)
+   - E2: Two independent methods (read + grep confirmed)
+   - E3: Triangulated + actively tried to disprove
+6. **Confidence rule:** Confidence can't exceed evidence. E0/E1 caps confidence at Medium.
+
+**Minimum evidence by level:**
+- Adequate: E1 for P0 dimensions
+- Rigorous: E2 for P0, E1 for P1
+- Exhaustive: E2 for all, E3 for P0
 
 **VERIFY:** Cross-reference findings:
 - Do dependencies between extensions check out?
 - Do README claims match actual content?
 - For comparison: does the signal assessment (novelty, conflict) hold up?
 
-**REFINE:** Compute Yield%. If below threshold and no new dimensions, exit. Otherwise loop.
+**Disconfirmation (apply to P0 findings):**
+
+| Technique | Method |
+|-----------|--------|
+| **Counterexample search** | Try to find a case that breaks the current claim |
+| **Alternative hypothesis** | Write the strongest competing explanation and test it |
+| **Adversarial read** | Look for reasons evidence could be misleading |
+| **Negative test** | Run a check expected to fail if the model is wrong |
+| **Cross-check** | Verify via an independent method |
+
+**Disconfirmation depth by level:**
+- Adequate: 1 technique per P0; document what was tried
+- Rigorous: 2+ techniques per P0; document findings positive or negative
+- Exhaustive: 3+ techniques per P0; assume current model is wrong, prove otherwise
+
+**REFINE:** Assess convergence. Exit when ALL of these are true:
+- No new dimensions discovered in the last pass
+- No significant revisions to findings (changed conclusion, not just added detail)
+- All items resolved (`[x]`, `[-]`, or `[~]` with documented gaps)
+- Yield% from last pass below threshold
+- Assumptions were not invalidated (if invalidated, re-check affected items)
 
 ### Yield% Definition
 
@@ -191,6 +235,20 @@ DISCOVER → EXPLORE → VERIFY → REFINE → (loop or exit)
 - Rigorous: <10%
 - Exhaustive: <5%
 
+### Using `[~]` (Partially Explored) Without Cheating
+
+`[~]` is allowed ONLY when **all three** are true:
+1. The remaining gap is **bounded** (what's missing is specific, not open-ended)
+2. The impact of the gap is **low or acceptable** at the chosen thoroughness level (document why)
+3. The gap is carried into **Exit Gate → Remaining documented gaps** with a next-check or rationale for deferral
+
+**Example of proper `[~]` usage:**
+> D3: MCP configurations — `[~]` P1, E1, Medium
+> - Verified: 3 MCP servers found (github, slack, memory)
+> - Gap: credentials/auth patterns not inspected (requires .env access)
+> - Impact: Low — structure is visible; auth details not needed for exploration
+> - Next check: Review auth patterns if adopting specific MCP config
+
 ### Iteration Log Format
 
 Each pass MUST include explicit Yield% tracking with all yield-impacting columns:
@@ -209,22 +267,26 @@ Each pass MUST include explicit Yield% tracking with all yield-impacting columns
 
 ### Exit Gate
 
-Cannot claim "done" until:
-- [ ] Coverage complete (all extension types explored)
-- [ ] Signals assigned (novelty, quality, conflict, complexity for each finding)
-- [ ] Connections mapped (dependencies between extensions documented at depth appropriate to level)
-- [ ] Disconfirmation attempted (actively looked for missed extensions)
-- [ ] Assumptions resolved (verified, invalidated, or flagged)
-- [ ] Convergence reached (Iteration Log shows Yield% below threshold)
-- [ ] Stopping criteria satisfied
-- [ ] Handoff prepared (finding IDs, suggested evaluation invocations)
-- [ ] Full report written to `docs/exploration-findings/`
-- [ ] Brief summary presented in chat (NOT full report — full analysis stays in artifact)
+Cannot claim "done" until ALL criteria pass:
+
+| Criterion | Check |
+|-----------|-------|
+| **Coverage complete** | No `[ ]` or `[?]` remaining. All items are `[x]`, `[-]` (with rationale), or `[~]` (with documented gaps meeting the 3 conditions) |
+| **Signals assigned** | Every finding has all four signals (novelty, quality, conflict, complexity) |
+| **Connections mapped** | Dependencies documented at depth appropriate to level (see below) |
+| **Disconfirmation attempted** | Techniques from menu applied; documented what was tried and found (including negative results) |
+| **Assumptions resolved** | Each verified, invalidated, or flagged as unverified |
+| **Convergence reached** | Last pass below Yield% threshold for chosen level |
+| **Stopping criteria met** | Chosen template satisfied |
+| **Iteration threshold met** | Minimum passes completed (earliest exit is after pass 2; pass 1 is always 100%) |
+| **Handoff prepared** | Finding IDs, suggested evaluation invocations |
+| **Report written** | Full report at `docs/exploration-findings/YYYY-MM-DD-<repo>-exploration.md` |
+| **Summary presented** | Brief summary in chat (NOT full report) |
 
 **Connections mapped — by level:**
-- **Adequate:** List dependencies that would cause P0 findings to propagate
-- **Rigorous:** Map dependencies for all P0/P1 findings as a table (Finding → Depends On → Impact)
-- **Exhaustive:** Produce dependency graph for all in-scope findings
+- **Adequate:** List dependencies that would cause P0 findings to propagate, plus 1-2 failure paths
+- **Rigorous:** Map dependencies for all P0/P1 findings as a table (Finding → Depends On → Failure Mode → Impact)
+- **Exhaustive:** Produce dependency graph for all in-scope findings with interactions
 
 ## Decision Points
 
@@ -442,16 +504,21 @@ Output:
 
 ## References
 
-**Required protocol:**
-- [references/framework-for-thoroughness.md](references/framework-for-thoroughness.md) — Full framework specification (Entry/Exit Gates, loop phases, Yield%, evidence levels, report template)
+**Required protocol — YOU MUST read before executing:**
+- [references/framework-for-thoroughness_v1.0.0.md](references/framework-for-thoroughness_v1.0.0.md) — Full framework specification
+
+**The framework reference contains (authoritative):**
+- Normative requirements (MUST/SHOULD/MAY) — this skill inherits them
+- Stakes Calibration Rubric — for choosing thoroughness level
+- Coverage structure options (matrix/tree/graph/backlog) with anti-explosion rule
+- Cell Schema for tracking items — required fields and status markers
+- Evidence levels (E0-E3) and confidence levels with cap rule
+- DISCOVER techniques menu — apply ≥3, taxonomy check required
+- Disconfirmation Menu — techniques for P0 findings
+- Yield% definition — unambiguous calculation with worked example
+- Stopping criteria templates — Risk-based, Discovery-based, Decision-based
+- Thoroughness Report Template — required output structure
+- Failure modes and countermeasures
 
 **Companion skill:**
 - `evaluating-extension-adoption` — Use after exploration to decide whether to adopt specific findings
-
-**The framework reference contains:**
-- Normative requirements (MUST/SHOULD/MAY)
-- Coverage structure options (matrix/tree/graph/backlog)
-- Cell Schema for tracking items
-- Thoroughness Report Template
-- Stopping criteria templates
-- Evidence and confidence level definitions

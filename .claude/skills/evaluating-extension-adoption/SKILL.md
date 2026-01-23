@@ -19,7 +19,7 @@ This skill applies `decision-making.framework@1.0.0` to adoption decisions for f
 
 **Default stakes:** Adequate (most adoption decisions are reversible)
 
-**Protocol:** [references/framework-for-decision-making.md](references/framework-for-decision-making.md)
+**Protocol:** [references/framework-for-decision-making_v1.0.0.md](references/framework-for-decision-making_v1.0.0.md) — **YOU MUST read this file for normative requirements (MUST/SHOULD/MAY), activity depth by level, transition trees, and Decision Record Template.**
 
 **Companion skill:** Use `exploring-claude-repos` first to discover findings with signals.
 
@@ -75,16 +75,18 @@ This skill applies `decision-making.framework@1.0.0` to adoption decisions for f
 
 **Artifact (full report):** Decision record at `docs/decisions/YYYY-MM-DD-<extension-or-pattern>-adoption.md`
 
-**Decision record includes:**
-- Context (protocol, stakes level, what triggered the decision)
-- Finding reference (ID and signals consumed)
-- Frame (decision statement, constraints, criteria, stakeholders)
-- Options evaluated (including null/defer)
-- Trade-offs for each option
-- Evaluation scoring table
-- Pressure-testing results
-- Decision with explicit trade-offs accepted
-- Iteration log (for rigorous/exhaustive)
+**Decision record structure:** Use the **Decision Record Template** from the framework (see [references/framework-for-decision-making_v1.0.0.md](references/framework-for-decision-making_v1.0.0.md)). Required sections:
+- Context (protocol version, stakes level, decision trigger, time pressure)
+- Entry Gate (all fields: stakes, rationale, time budget, iteration cap, evidence bar, allowed skips, overrides, escalation trigger)
+- Frame (decision statement as clear question, constraints, criteria with weights, stakeholders with values and priorities, assumptions with status, scope, reversibility, dependencies, downstream impact)
+- Options Considered (each with description and trade-offs including null/defer)
+- Evaluation (criteria scores table, risks per option, information gaps, bias check)
+- Perspectives (stakeholder views table)
+- Pressure Test (arguments against frontrunner with responses, disconfirmation attempts)
+- Decision (choice, trade-offs accepted, confidence, caveats)
+- Downstream Impact (enables, precludes, next decisions triggered)
+- Iteration Log (pass-by-pass: frame changes, frontrunner, key findings)
+- Exit Gate (all criteria with explicit status)
 
 **Chat summary (brief — not the full report):**
 
@@ -119,7 +121,7 @@ Do NOT include in chat: scoring tables, detailed options analysis, pressure-test
 
 ## Process
 
-This skill follows `decision-making.framework@1.0.0`. This section summarizes; see [references/framework-for-decision-making.md](references/framework-for-decision-making.md) for full protocol.
+This skill follows `decision-making.framework@1.0.0`. This section summarizes; see [references/framework-for-decision-making_v1.0.0.md](references/framework-for-decision-making_v1.0.0.md) for full protocol.
 
 ### Entry Gate
 
@@ -127,11 +129,18 @@ Before evaluation, establish:
 
 | Field | Record |
 |-------|--------|
+| Decision trigger | What prompted this decision? |
 | Stakes level | adequate / rigorous / exhaustive |
-| Rationale | Why this level (reversibility, blast radius, cost of error) |
+| Rationale | Why this level (use Stakes Calibration Rubric) |
+| Time budget | Is there urgency? Deadline or "no constraint" |
 | Iteration cap | adequate: 2, rigorous: 3, exhaustive: 5 |
-| Evidence bar | What's needed before deciding |
-| Escalation trigger | What causes escalation to user |
+| Evidence bar | What must be true before EXIT is allowed? |
+| Allowed skips | Which optional activities will be skipped and why? |
+| Overrides | Any non-default parameters? Format: `[param]: [old]→[new] because [reason]` |
+| Escalation trigger | What causes escalation to user? |
+| Initial frame | What do we think we're deciding? (Draft decision statement) |
+| Known constraints | What limits are already apparent? |
+| Known stakeholders | Who's obviously affected? |
 
 **Stakes calibration:**
 
@@ -143,13 +152,18 @@ Before evaluation, establish:
 | Uncertainty | Low | Moderate | High |
 | Time pressure | High (need action) | Moderate | Low / no constraint |
 
-**Rule of thumb:** If any two factors land in a higher column, choose that higher stakes level unless you can document why those factors don't apply here.
+**Rule of thumb:** If any two factors land in a higher column, choose that higher stakes level. To choose a lower level despite this, document in Entry Gate: (1) which factors triggered the higher level, and (2) why those factors don't apply here.
 
 **Default:** Adequate (most extension adoptions are reversible)
 
-**Recalibration:** If during evaluation you discover the decision is more complex than initially assessed (hidden dependencies, stakeholder conflict, option space expands), pause at the current pass boundary, re-evaluate stakes using this rubric, and document the change in the iteration log.
+**Recalibration:** If during evaluation you discover the decision is more complex than initially assessed (hidden dependencies, stakeholder conflict, option space expands):
+1. **Pause** at the current pass boundary
+2. **Re-evaluate** using the Stakes Calibration Rubric
+3. **If stakes level changes:** Document in iteration log: `Recalibrated from [old level] to [new level] because [trigger]`
+4. **Adjust** iteration cap and activity depth accordingly
+5. **Continue** from current pass (don't restart)
 
-**Gate check:** Cannot proceed until stakes level chosen and evidence bar set.
+**Gate check:** Cannot proceed until stakes level chosen, initial frame drafted, and evidence bar set.
 
 ### Consuming Exploration Findings
 
@@ -224,11 +238,19 @@ Adjust weights based on context. Add domain-specific criteria as needed.
 
 | Score | Meaning |
 |-------|---------|
-| 0 | Fails criterion |
-| 3 | Acceptable |
+| 0 | Completely fails to meet |
+| 1-2 | Below acceptable |
+| 3 | Meets expectations |
+| 4 | Exceeds expectations |
 | 5 | Excellent |
 
-**Weighted total:** `sum(score × weight)`
+**Weights:** 1-5 per criterion (1 = minor consideration, 3 = important, 5 = critical/blocking)
+
+**Weighted total:** `sum(score × weight)` — include totals and brief narrative for non-obvious scores
+
+**Unknowns:** If a score is speculative, mark it with `?` (e.g., `3?`) and list the uncertainty in Information Gaps
+
+**Hard constraints:** If an option violates a hard constraint (from O2), mark as **DISQUALIFIED** — do not score it. Disqualified options cannot be chosen.
 
 **Check for bias (before pressure-testing):**
 
@@ -258,9 +280,28 @@ Adjust weights based on context. Add domain-specific criteria as needed.
 - What does it preclude? (conflicting patterns, alternative approaches)
 
 **Sensitivity analysis (rigorous/exhaustive):**
-- If the most important criterion weight changed by ±1, would the ranking change?
-- Under best/worst plausible interpretation of key assumption, would the frontrunner change?
-- If yes to either: decision is fragile on that factor — document explicitly
+- **Weight swap:** Increase the most important criterion's weight by +1 (or decrease by -1) and recalculate totals. If the leader changes, flag as near-tie.
+- **Assumption flip:** For one key assumption, score the frontrunner under "best plausible" and "worst plausible" interpretations. If ranking changes, the decision is fragile on that assumption.
+- **Threshold check:** If any hard constraint is near-violated (within 10% of limit), treat as disqualified until verified.
+
+### Activity Depth by Level
+
+| Activity | Adequate | Rigorous | Exhaustive |
+|----------|----------|----------|------------|
+| **I1-I3** (Options) | 3+ options | 4+ options | 5+ options; document search |
+| **I4-I5** (Trade-offs, Scoring) | Required | Required | Required |
+| **I6** (Information gaps) | Identify | Address critical | Address all |
+| **I7** (Bias check) | Quick check | Full check | Multiple checks |
+| **I8-I9** (Pressure-test, Disconfirm) | Basic | Active | Aggressive |
+| **I10** (Perspectives) | Key stakeholders | All stakeholders | Deep per stakeholder |
+| **I11-I12** (Risks, Second-order) | Identify | Analyze | Mitigate |
+| **I13** (Sensitivity) | Skip allowed | Recommended | Required |
+
+**What "Aggressive" disconfirmation looks like (exhaustive):**
+1. **Falsification question:** "What evidence would prove the frontrunner is wrong?"
+2. **Seek that evidence:** Actively look for it (don't just imagine objections)
+3. **Document the search:** What you looked for, where, and what you found (or didn't)
+4. **Red team assumptions:** For each assumption, ask "What if this is false?" and trace the impact
 
 ### Transition Trees
 
@@ -287,9 +328,27 @@ ESCAPE: Stuck after cap? → ESCALATE to user
 
 | Level | Requirements |
 |-------|--------------|
-| **Adequate** | Frontrunner stable 1 pass, trade-offs stated |
-| **Rigorous** | Frontrunner stable 2 passes, objections resolved |
-| **Exhaustive** | Frontrunner stable 2+ passes, disconfirmation yielded nothing |
+| **Adequate** | Frontrunner stable 1 pass, trade-offs stated, criteria defined |
+| **Rigorous** | Frontrunner stable 2 consecutive passes, objections resolved, all perspectives checked, bias check completed |
+| **Exhaustive** | Frontrunner stable 2+ consecutive passes, disconfirmation yielded nothing new, sensitivity analysis shows robustness, all activities at full depth |
+
+### Escalation Paths
+
+When the framework cannot resolve, escalate to the user:
+
+| Situation | Escalation Action |
+|-----------|-------------------|
+| **Frame won't stabilize** | Ask user to clarify the actual decision |
+| **All options fail criteria** | Ask user if constraints can change |
+| **Stuck after iteration cap** | Present current state, ask user to decide |
+| **Stakeholders conflict irreconcilably** | Surface conflict, ask user for priority |
+| **Critical information gap is unfillable** | Document uncertainty, ask user for risk tolerance |
+
+**What to provide when escalating:**
+1. Current state: What was evaluated, what the frontrunner is (if any), what remains uncertain
+2. Blocking issue: Why the framework cannot proceed
+3. Options considered: What was tried, why it didn't resolve
+4. Decision needed: Specific question the user must answer
 
 ### Near-Ties
 
@@ -306,19 +365,24 @@ When top options are close, avoid false precision. Treat as near-tie if:
 
 ### Exit Gate
 
-Cannot claim "done" until:
-- [ ] Frame complete (all outer loop activities at required depth)
-- [ ] Signals consumed explicitly (if from exploration findings)
-- [ ] Bias check completed
-- [ ] All options evaluated (including Skip/Defer)
-- [ ] Frontrunner pressure-tested
-- [ ] Second-order effects documented (enables/precludes)
-- [ ] Sensitivity analysis completed (rigorous/exhaustive)
-- [ ] Trade-offs explicitly documented
-- [ ] Convergence indicators satisfied for stakes level
-- [ ] Transition tree passed (exited via proper path, not bypassed)
-- [ ] Decision record written to `docs/decisions/`
-- [ ] Brief summary presented in chat (NOT full report — full analysis stays in artifact)
+Cannot claim "done" until ALL criteria pass:
+
+| Criterion | Check |
+|-----------|-------|
+| **Frame complete** | All O1-O9 activities documented at required depth for level |
+| **Signals consumed** | If from exploration: finding ID and signal → frame mapping explicit |
+| **Evaluation complete** | All I1-I13 activities documented at required depth for level |
+| **Bias check** | Completed at Entry Gate start, after pressure-testing, and before final exit |
+| **All options evaluated** | Including Skip/Defer; each scored against criteria |
+| **Frontrunner pressure-tested** | With genuine objections (not softball) |
+| **Second-order effects** | Documented: what this enables, what it precludes |
+| **Sensitivity analysis** | Completed at required depth (skip allowed at adequate; required at exhaustive) |
+| **Trade-offs explicit** | "Trade-offs Accepted" section complete — no decision without stating sacrifices |
+| **Convergence met** | Frontrunner stable for required passes (1 adequate, 2 rigorous, 2+ exhaustive) |
+| **Transition tree passed** | Exited via proper tree path (not bypassed); documented which path |
+| **Defensible** | Could explain reasoning to skeptical stakeholder |
+| **Decision record written** | At `docs/decisions/YYYY-MM-DD-<name>-adoption.md` |
+| **Summary presented** | Brief summary in chat (NOT full report) |
 
 ## Decision Points
 
@@ -514,36 +578,41 @@ Claude glances at the skill and says:
 **Deeper validation:**
 
 Entry Gate:
+- [ ] All 12 Entry Gate fields recorded
 - [ ] Stakes level assessed with rationale (all 5 factors considered)
+- [ ] Initial frame drafted
 - [ ] Evidence bar set
 - [ ] Iteration cap appropriate for stakes
 
-Frame:
-- [ ] Decision statement is clear question
-- [ ] Criteria defined with weights
-- [ ] Constraints surfaced (including from conflict signals)
-- [ ] Scope checked (one decision or several?)
-- [ ] Dependencies identified (blocks/blocked-by)
-- [ ] Downstream impact identified (enables/precludes)
+Frame (Outer Loop):
+- [ ] O1: Decision statement is clear question
+- [ ] O2: Constraints surfaced (including from conflict signals)
+- [ ] O3: Criteria defined with weights (1-5)
+- [ ] O4: Stakeholders identified with what they value
+- [ ] O5: Assumptions surfaced with status
+- [ ] O6: Scope checked (one decision or several?)
+- [ ] O7: Reversibility assessed
+- [ ] O8: Dependencies identified (blocks/blocked-by)
+- [ ] O9: Downstream impact identified (enables/precludes)
 - [ ] Signals from exploration consumed explicitly (finding ID, signal → frame mapping)
 
-Evaluation:
-- [ ] All five options considered (Adopt, Adapt, Inspire, Skip, Defer)
-- [ ] Bias check completed before scoring
-- [ ] Scoring against weighted criteria
+Evaluation (Inner Loop):
+- [ ] I1-I3: All five options considered (Adopt, Adapt, Inspire, Skip, Defer)
+- [ ] I4-I5: Scoring against weighted criteria with trade-offs
+- [ ] I6: Information gaps identified (and addressed at rigorous+)
+- [ ] I7: Bias check completed (at required depth for level)
+- [ ] I8-I9: Frontrunner pressure-tested with genuine objections
+- [ ] I10: Perspectives checked (at required depth for level)
+- [ ] I11-I12: Risks and second-order effects documented
+- [ ] I13: Sensitivity analysis completed (at required depth for level)
 - [ ] Defer has revisit trigger (if selected)
 
-Adversarial:
-- [ ] Frontrunner pressure-tested with genuine objections
-- [ ] Pre-mortem produced plausible failure scenario
-- [ ] Objections addressed or accepted as trade-offs
-- [ ] Sensitivity analysis completed (rigorous/exhaustive)
-
 Convergence:
-- [ ] Frontrunner stable for required passes
+- [ ] Frontrunner stable for required passes (1/2/2+ by level)
 - [ ] Near-tie handled if applicable (action documented)
-- [ ] Trade-offs explicitly documented
+- [ ] Trade-offs explicitly documented ("Trade-offs Accepted" section)
 - [ ] Iteration log shows what changed (for rigorous/exhaustive)
+- [ ] Transition tree exited via proper path (documented which path)
 
 Output:
 - [ ] Decision record written at `docs/decisions/YYYY-MM-DD-<name>-adoption.md`
@@ -555,17 +624,24 @@ Output:
 
 ## References
 
-**Required protocol:**
-- [references/framework-for-decision-making.md](references/framework-for-decision-making.md) — Full framework specification (Entry/Exit Gates, nested loops, transition trees, convergence indicators, decision record template)
+**Required protocol — YOU MUST read before executing:**
+- [references/framework-for-decision-making_v1.0.0.md](references/framework-for-decision-making_v1.0.0.md) — Full framework specification
+
+**The framework reference contains (authoritative):**
+- Normative requirements (MUST/SHOULD/MAY) — this skill inherits them
+- Key Terms definitions (pass, iteration, frontrunner, convergence, escalation)
+- Stakes Calibration Rubric — for choosing stakes level
+- Recalibration procedure — for mid-execution adjustments
+- Outer loop activities (O1-O9) — Frame the Decision
+- Inner loop activities (I1-I13) — Evaluate Options with depth by level
+- Bias Check Questions — the 5 biases to check
+- Transition trees — for loop navigation (inner and outer)
+- Near-Ties handling — 4 specific actions
+- Fast Sensitivity Analysis method — weight swap, assumption flip, threshold check
+- Convergence indicators by stakes level
+- Failure modes and countermeasures (frame failures, evaluation failures, process failures)
+- Decision Record Template — required output structure
+- Worked examples (Adequate, Rigorous) with full detail
 
 **Companion skill:**
 - `exploring-claude-repos` — Use first to discover extensions/patterns with signals
-
-**The framework reference contains:**
-- Normative requirements (MUST/SHOULD/MAY)
-- Outer loop activities (Frame the Decision)
-- Inner loop activities (Evaluate Options)
-- Transition trees for loop navigation
-- Convergence indicators by stakes level
-- Decision Record Template
-- Worked examples (Adequate, Rigorous, Exhaustive)
