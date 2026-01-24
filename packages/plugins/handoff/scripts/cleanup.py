@@ -5,6 +5,7 @@ cleanup.py - Handoff plugin SessionStart hook script.
 Responsibilities:
 - Prune handoffs older than 30 days (silent background cleanup)
 - Prune archived handoffs older than 90 days
+- Prune state files older than 24 hours
 
 Does NOT auto-inject or prompt for handoffs. Users must explicitly
 run /resume to load a handoff. This prevents stale handoffs from
@@ -62,6 +63,26 @@ def prune_old_handoffs(handoffs_dir: Path, max_age_days: int = 30) -> list[Path]
     return deleted
 
 
+def prune_old_state_files(max_age_hours: int = 24) -> list[Path]:
+    """Delete state files older than max_age_hours. Returns list of deleted files."""
+    state_dir = Path.home() / ".claude" / ".session-state"
+    if not state_dir.exists():
+        return []
+
+    deleted = []
+    cutoff = time.time() - (max_age_hours * 60 * 60)
+
+    for state_file in state_dir.glob("handoff-*"):
+        try:
+            if state_file.stat().st_mtime < cutoff:
+                state_file.unlink(missing_ok=True)
+                deleted.append(state_file)
+        except OSError:
+            pass  # Silently ignore errors during cleanup
+
+    return deleted
+
+
 def main() -> int:
     """Main entry point for SessionStart hook.
 
@@ -73,8 +94,14 @@ def main() -> int:
     """
     handoffs_dir = get_handoffs_dir()
 
-    # Prune old handoffs (silent cleanup)
+    # Prune active handoffs older than 30 days
     prune_old_handoffs(handoffs_dir, max_age_days=30)
+
+    # Prune archived handoffs older than 90 days
+    prune_old_handoffs(handoffs_dir / ".archive", max_age_days=90)
+
+    # Prune stale state files older than 24 hours
+    prune_old_state_files(max_age_hours=24)
 
     return 0
 
