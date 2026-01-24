@@ -8,7 +8,7 @@ Expand the extension-docs MCP server (located at `packages/mcp-servers/extension
 
 | Aspect | Current | New |
 |--------|---------|-----|
-| Package name | `@mcp-servers/extension-docs` | `@mcp-servers/claude-code-docs` |
+| Package name | `@claude-tools/extension-docs` | `@claude-tools/claude-code-docs` |
 | Server name | `extension-docs` | `claude-code-docs` |
 | Tool names | `search_extension_docs`, `reload_extension_docs` | `search_docs`, `reload_docs` |
 | Categories | 9 (extension-only) | 24 (all docs) |
@@ -93,9 +93,9 @@ export const KNOWN_CATEGORIES = new Set([
 | File | Changes |
 |------|---------|
 | `src/frontmatter.ts` | Import from `categories.ts`, update `deriveCategory()` to map new sections (see example below) |
-| `src/index.ts` | Server name → `claude-code-docs`, tool names → `search_docs`/`reload_docs`, expand `CATEGORY_VALUES` enum (the category filter for the search tool) |
+| `src/index.ts` | Server name → `claude-code-docs`, tool names → `search_docs`/`reload_docs`, expand `CATEGORY_VALUES` enum, add `.transform()` to normalize category aliases (see below) |
 | `src/loader.ts` | Remove `filterToExtensions()` import and call |
-| `package.json` | Name → `@mcp-servers/claude-code-docs` |
+| `package.json` | Name → `@claude-tools/claude-code-docs` |
 
 **Example `deriveCategory()` change:**
 ```typescript
@@ -125,12 +125,36 @@ function deriveCategory(section: string): string {
 }
 ```
 
+**Example alias normalization in `src/index.ts`:**
+```typescript
+const CATEGORY_ALIASES: Record<string, string> = {
+  'subagents': 'agents',
+  'sub-agents': 'agents',
+  'slash-commands': 'commands',
+  'claude-md': 'memory',
+  'configuration': 'config',
+};
+
+// In SearchInputSchema:
+category: z
+  .enum([...CATEGORY_VALUES, ...Object.keys(CATEGORY_ALIASES)])
+  .transform((val) => CATEGORY_ALIASES[val] ?? val)
+  .optional()
+```
+
 ### Tests to Update
 
-- `tests/frontmatter.test.ts` — new category derivation expectations
-- `tests/loader.test.ts` — no filtering expected
-- `tests/golden-queries.test.ts` — add golden queries for new categories (at least one query per new category)
-- `tests/integration.test.ts` — update expectations
+| Test File | Changes Required |
+|-----------|------------------|
+| `tests/frontmatter.test.ts` | New category derivation expectations; default 'overview' instead of 'general' |
+| `tests/loader.test.ts` | Remove filtering expectations; all sections pass through |
+| `tests/golden-queries.test.ts` | Add golden queries for new categories (at least one per new category) |
+| `tests/integration.test.ts` | Update chunk counts, category expectations |
+| `tests/filter.test.ts` | **Delete** (functionality removed) |
+| `tests/server.test.ts` | Update tool names (`search_docs`, `reload_docs`), server name |
+| `tests/corpus-validation.test.ts` | Update expected category list |
+
+Tests unchanged: `bm25.test.ts`, `cache*.test.ts`, `chunk*.test.ts`, `chunker.test.ts`, `error-messages.test.ts`, `fence-tracker.test.ts`, `fetcher.test.ts`, `index-cache.test.ts`, `parser.test.ts`, `tokenizer.test.ts`, `url-helpers.test.ts`
 
 ## Migration Script
 
@@ -152,6 +176,8 @@ uv run scripts/migrate-extension-docs.py --apply  # execute changes
 ...
 Summary: 8 files would be modified, 2 directories would be renamed
 ```
+
+**On failure:** Script preserves original files (no partial writes). If interrupted, re-run `--dry-run` to see remaining changes. No automatic rollback needed — each file is written atomically.
 
 ### Scope
 
@@ -181,8 +207,10 @@ Summary: 8 files would be modified, 2 directories would be renamed
 3. Update `src/index.ts`: server name, tool names, `CATEGORY_VALUES`
 4. Update `src/loader.ts`: remove filter
 5. Delete `src/filter.ts` and `tests/filter.test.ts`
-6. Update remaining tests
+6. Update affected tests (see Tests to Update table)
 7. Update `package.json` name field
+
+**Exit criterion:** `npm test` passes with all tests green.
 
 **Note:** Directory rename happens in Phase 2 via migration script, not manually here.
 
@@ -191,6 +219,8 @@ Summary: 8 files would be modified, 2 directories would be renamed
 1. Create `scripts/migrate-extension-docs.py`
 2. Implement dry-run and apply modes
 3. Test on repo files
+
+**Exit criterion:** `--dry-run` completes without error and shows expected file list matching Scope table.
 
 ### Phase 3: Production Migration
 
@@ -220,6 +250,7 @@ Summary: 8 files would be modified, 2 directories would be renamed
 | Cache handling | Allow automatic rebuild | Index rebuilds in <5s; avoids cache migration complexity and potential corruption |
 | Migration approach | Single script, dry-run default | Dry-run shows all changes before execution; single script ensures atomic rename across all references |
 | Tool naming | Short (`search_docs`) | MCP server name (`claude-code-docs`) provides namespace context |
+| Default unmapped category | `'overview'` instead of `'general'` | `'general'` too vague; `'overview'` is the actual catch-all category for docs homepage content |
 
 ## Risks
 
