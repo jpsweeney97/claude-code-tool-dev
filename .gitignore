@@ -34,8 +34,6 @@ __pycache__/
 .claude/handoffs/
 packages/plugins/plugin-dev/.claude/
 
-# Local rules (not tracked)
-.claude/rules/extensions/
 # Methodology rules - ignore all except frameworks.md
 .claude/rules/methodology/*
 !.claude/rules/methodology/frameworks.md
