@@ -84,6 +84,34 @@ If blocked on a protected branch:
 3. Create appropriate working branch (see patterns above)
 4. Continue work on the new branch
 
+## Parallel Development with Worktrees
+
+For working on multiple features simultaneously without stashing:
+
+```bash
+# Create worktree for a feature (from any branch)
+git worktree add ../project-feature-x feature/x
+
+# Or create worktree with new branch
+git worktree add -b feature/new-thing ../project-new-thing develop
+```
+
+Each worktree has its own working directory and checked-out branch. The GitFlow hook enforces branch rules in all worktrees.
+
+**When worktrees help:**
+- Running tests on `main` while developing on a feature branch
+- Reviewing a PR without disrupting current work
+- Comparing behavior between branches side-by-side
+
+**Managing worktrees:**
+```bash
+git worktree list              # Show all worktrees
+git worktree remove <path>     # Remove a worktree (branch remains)
+git worktree prune             # Clean up stale worktree references
+```
+
+**Note:** Each worktree uses disk space for a full copy of tracked files. The `.git` data is shared.
+
 ## Emergency Bypass
 
 For genuine emergencies only:
