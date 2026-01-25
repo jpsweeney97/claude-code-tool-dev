@@ -26,6 +26,46 @@ Gap analysis finds what's missing, incomplete, or inaccurate when comparing a ta
 - Single-source summaries (no gap to analyze)
 - Code reviews (use code-review skills)
 
+## Outputs
+
+**IMPORTANT:** Full analysis goes in artifact ONLY. Chat receives brief summary.
+
+**Artifact:** `docs/audits/gap-analysis-YYYY-MM-DD-<target-name>.md`
+
+Contents:
+- Analysis metadata (sources, target, date)
+- Findings from all 7 passes with evidence
+- Consolidated checklist with statuses
+- Priority-sorted gap list with resolutions
+- Verification results
+
+**Chat summary (brief — this is all that appears in conversation):**
+
+```
+**Gap Analysis Complete**
+
+| Priority | Count |
+|----------|-------|
+| Critical | N     |
+| High     | N     |
+| Medium   | N     |
+| Low      | N     |
+
+**Top issues:**
+1. [Critical/High item with one-line description]
+2. [Next priority item]
+3. [Next priority item]
+
+**Full report:** `docs/audits/gap-analysis-YYYY-MM-DD-<name>.md`
+```
+
+**Do NOT include in chat:**
+- Individual pass findings
+- The consolidated checklist
+- Detailed evidence or reasoning
+- Full gap descriptions
+- Verification step-by-step
+
 ## The 7-Pass Architecture
 
 One comprehensive pass misses entire categories. Use multiple passes with different lenses.
@@ -240,6 +280,7 @@ After completing analysis, verify:
 2. **Prioritization:** Are Critical items actually execution-breaking?
 3. **Actionability:** Does each gap have a clear resolution?
 4. **Adversarial check:** What gaps might this analysis have missed?
+5. **Output separation:** Full report in artifact; chat has summary table only?
 
 ## Quick Reference
 
