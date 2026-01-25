@@ -330,6 +330,7 @@ Make it easy for agents to self-check when rationalizing:
 ### RED Phase - Baseline Testing
 
 - [ ] Read design context (problem statement, success criteria, compliance risks)
+- [ ] **Verify execution-based testing:** agent performs the task, not describes it (see "Execution, Not Description")
 - [ ] Create test materials with known flaws (obvious/medium/subtle) and answer key
 - [ ] Design pressure scenarios (3+ combined pressures for discipline skills)
 - [ ] Run scenarios WITHOUT skill — agent must actually perform the task
@@ -449,7 +450,7 @@ After testing, provide one of:
 ## References
 
 **Testing methodology:**
-- [references/testing-skills-with-subagents.md](references/testing-skills-with-subagents.md) — Pressure scenario design, meta-testing techniques
+- [references/testing-skills-with-subagents.md](references/testing-skills-with-subagents.md) — Subagent execution details, meta-testing techniques, worked examples
 - [references/type-specific-testing.md](references/type-specific-testing.md) — 8 skill types × scenario templates × metrics frameworks
 - [references/methodology-dialogue-skills.md](references/methodology-dialogue-skills.md) — Testing multi-turn dialogue skills (hybrid RED-GREEN)
 
