@@ -1,6 +1,6 @@
 ---
 name: testing-skills
-description: "Use when validating a draft skill works. Receives draft SKILL.md from brainstorming-skills and validates it through RED-GREEN-REFACTOR testing."
+description: Use when validating a draft skill works.
 ---
 
 # Testing Skills
@@ -95,6 +95,19 @@ Run pressure scenarios with subagent WITHOUT the skill loaded. Document exact be
 
 **Output:** Documented baseline failures and rationalizations
 
+**If baseline doesn't fail:**
+
+The agent performed well without the skill. This could mean:
+
+| Situation | Action |
+|-----------|--------|
+| Scenario too easy | Add more pressure, make task harder |
+| Testing description not execution | Give agent actual work to do (see "Execution, Not Description") |
+| Skill teaches what agents already do | Skill may not add value — consider if it's needed |
+| Agent got lucky on this scenario | Try different scenarios targeting other compliance risks |
+
+Before concluding "skill not needed," verify you're testing actual execution under realistic pressure with materials that have known flaws at multiple difficulty levels.
+
 ### GREEN Phase: Verify Skill Works
 
 Run same scenarios WITH the skill loaded. Agent should now comply.
@@ -146,6 +159,70 @@ Different skill types need different test approaches. Identify your type, then d
 **Not sure which type?** See [type-specific-testing.md](references/type-specific-testing.md) for decision trees, scenario templates, and worked examples.
 
 ## Pressure Scenario Design
+
+### Execution, Not Description
+
+**Critical:** Test scenarios must have the agent **actually perform** the skill's task — not describe how they would perform it.
+
+| Wrong | Right |
+|-------|-------|
+| "How would you review this design?" | "Here's a design document. Review it." |
+| "What's your approach to debugging?" | "Here's a failing test. Debug it." |
+| "Describe your TDD process" | "Write tests for this function." |
+
+**Why this matters:**
+- Describing a process tests *knowledge* — agent can articulate correct steps
+- Performing a task tests *behavior* — agent actually follows the steps under pressure
+
+An agent can perfectly describe a process while skipping critical steps when actually doing the work. Only execution-based tests catch this gap.
+
+**For each skill type:**
+- Reviewing skill → give them a document to review
+- Debugging skill → give them a bug to debug
+- TDD skill → give them code to write tests for
+- Decision skill → give them a decision to make
+
+Pressure scenarios and decision points occur *during* execution. The "Choose A, B, or C" templates test specific decision points mid-task — they assume the agent is already doing the work.
+
+### Test Materials with Known Flaws
+
+For skills that process input (review, analyze, debug, etc.), create test materials with **known defects at varying difficulty levels**.
+
+**Why this matters:**
+- You can't measure skill effectiveness without knowing the right answer
+- Pass/fail is less informative than "found 42% baseline → 75% with skill"
+- Layered difficulty shows where the skill adds value
+
+**Structure:**
+
+```
+Test Material (e.g., design document, code with bugs, spec to review)
+├── Obvious flaws (3-5) — should catch in first pass
+├── Medium flaws (3-5) — requires cross-referencing or careful reading
+├── Subtle flaws (3-5) — requires adversarial thinking or deep analysis
+└── Answer key (separate file) — documents all flaws with locations
+```
+
+**Answer key format:**
+
+```markdown
+| ID | Flaw | Difficulty | Location | Why it matters |
+|----|------|------------|----------|----------------|
+| O1 | Missing error handling | Obvious | Section 3 | Crashes on invalid input |
+| M1 | Inconsistent terminology | Medium | Section 2 vs 5 | Confuses implementers |
+| H1 | Race condition under load | Subtle | Section 4 | Only surfaces at scale |
+```
+
+**Measurement:**
+
+| Metric | Baseline | With Skill | Delta |
+|--------|----------|------------|-------|
+| Obvious flaws found | X/N | Y/N | |
+| Medium flaws found | X/N | Y/N | |
+| Subtle flaws found | X/N | Y/N | |
+| Process steps followed | list | list | |
+
+The skill adds value if with-skill finds more issues, especially subtle ones that require the skill's methodology (e.g., adversarial pass, systematic iteration).
 
 ### Pressure Types
 
@@ -253,16 +330,20 @@ Make it easy for agents to self-check when rationalizing:
 ### RED Phase - Baseline Testing
 
 - [ ] Read design context (problem statement, success criteria, compliance risks)
+- [ ] Create test materials with known flaws (obvious/medium/subtle) and answer key
 - [ ] Design pressure scenarios (3+ combined pressures for discipline skills)
-- [ ] Run scenarios WITHOUT skill
+- [ ] Run scenarios WITHOUT skill — agent must actually perform the task
 - [ ] Document baseline behavior verbatim
-- [ ] Identify patterns in rationalizations/failures
+- [ ] Score: what flaws did baseline find? What process steps did they follow?
+- [ ] If baseline doesn't fail: verify you're testing execution, not description
 
 ### GREEN Phase - Verify Skill Works
 
 - [ ] Run same scenarios WITH skill loaded
-- [ ] Verify agent now complies
+- [ ] Verify agent follows the skill's process (not just good outcomes)
 - [ ] Agent cites skill as justification
+- [ ] Score: what flaws did with-skill find? Compare to baseline
+- [ ] Measure process compliance: Entry Gate? Iteration? Required steps?
 - [ ] If fails: document gaps, provide feedback for revision
 
 ### REFACTOR Phase - Close Loopholes
@@ -311,6 +392,12 @@ You just wrote it, you'll unconsciously confirm it works
 
 **Fix:** Always run baseline. Document actual behavior, not assumptions.
 
+### ❌ Testing Description Instead of Execution
+
+Asking "How would you approach this?" instead of giving the agent actual work to do.
+
+**Fix:** Give the agent the actual task. For a review skill, provide a document to review. For a debugging skill, provide a bug to debug. Watch them *do* the work, not *describe* the work.
+
 ## Output
 
 After testing, provide one of:
@@ -321,9 +408,20 @@ After testing, provide one of:
 
 **Status:** Ready for deployment
 
-**Tests run:**
-- [Scenario 1]: PASS - agent followed skill under [pressures]
-- [Scenario 2]: PASS - agent resisted [rationalization]
+**Coverage (if test materials with known flaws used):**
+
+| Category | Baseline | With Skill | Delta |
+|----------|----------|------------|-------|
+| Obvious  | X/N      | Y/N        | +Z    |
+| Medium   | X/N      | Y/N        | +Z    |
+| Subtle   | X/N      | Y/N        | +Z    |
+
+**Process compliance:**
+
+| Requirement | Baseline | With Skill |
+|-------------|----------|------------|
+| [Step 1]    | No       | Yes        |
+| [Step 2]    | Partial  | Yes        |
 
 **Rationalizations captured:** [N] added to skill's table
 
