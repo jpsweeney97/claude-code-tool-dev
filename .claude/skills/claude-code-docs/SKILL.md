@@ -1,9 +1,9 @@
 ---
-name: extension-docs
+name: claude-code-docs
 description: Search Claude Code extension documentation for hooks, skills, plugins, MCP, subagents, commands, and settings. Use when answering questions about Claude Code features or extension development.
 allowed-tools:
-  - mcp__extension-docs__search_extension_docs
-  - mcp__extension-docs__reload_extension_docs
+  - mcp__claude-code-docs__search_docs
+  - mcp__claude-code-docs__reload_docs
 ---
 
 # Extension Docs Lookup
@@ -34,7 +34,7 @@ Search the official Claude Code extension documentation to answer questions accu
 - Category filter: `hooks`, `skills`, `commands`, `slash-commands`, `agents`, `subagents`, `sub-agents`, `plugins`, `plugin-marketplaces`, `mcp`, `settings`, `claude-md`, `memory`, `configuration`
 
 **Constraints:**
-- Requires extension-docs MCP server to be running
+- Requires claude-code-docs MCP server to be running
 - Documentation may not cover bleeding-edge features
 
 ## Outputs
@@ -51,7 +51,7 @@ Search the official Claude Code extension documentation to answer questions accu
 ## Procedure
 
 1. Parse the user's question to identify key terms
-2. Search using `search_extension_docs` with relevant query
+2. Search using `search_docs` with relevant query
 3. If results are sparse, try alternative phrasings:
    - CamelCase vs spaces: `PreToolUse` ↔ `pre tool use`
    - Synonyms: `before` ↔ `pre`, `after` ↔ `post`
@@ -89,10 +89,10 @@ If no citations present, re-run search or explicitly state "No documentation fou
 ## Troubleshooting
 
 **Symptom:** Search returns "MCP server not available"
-**Cause:** extension-docs MCP server not running or not configured
+**Cause:** claude-code-docs MCP server not running or not configured
 **Next steps:**
 1. Check `/mcp` to verify server status
-2. Run `reload_extension_docs` to refresh index
+2. Run `reload_docs` to refresh index
 3. If server missing, it needs to be added to MCP configuration
 
 **Symptom:** Search returns few/no results for known feature
@@ -100,10 +100,10 @@ If no citations present, re-run search or explicitly state "No documentation fou
 **Next steps:**
 1. Try exact feature name (e.g., `PreToolUse` not `before tool`)
 2. Try category filter to narrow scope
-3. Run `reload_extension_docs` in case index is stale
+3. Run `reload_docs` in case index is stale
 
 **Symptom:** Results seem outdated or don't reflect recent documentation changes
 **Cause:** Cached index is stale
 **Next steps:**
-1. Run `reload_extension_docs` to refresh the index from the remote source
+1. Run `reload_docs` to refresh the index from the remote source
 2. Re-run the search query
