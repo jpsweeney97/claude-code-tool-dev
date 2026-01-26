@@ -268,6 +268,8 @@ def migrate(dry_run: bool) -> int:
                 ("search_extension_docs", "search_docs"),
                 ("reload_extension_docs", "reload_docs"),
                 ("extension-docs MCP", "claude-code-docs MCP"),
+                ("<extension-docs-reminder>", "<claude-code-docs-reminder>"),
+                ("</extension-docs-reminder>", "</claude-code-docs-reminder>"),
             ],
             dry_run,
         ):
