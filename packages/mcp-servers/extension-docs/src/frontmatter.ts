@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import { isHttpUrl, extractContentPath } from './url-helpers.js';
-import { KNOWN_CATEGORIES } from './filter.js';
+import { SECTION_TO_CATEGORY } from './categories.js';
 
 export interface Frontmatter {
   category?: string;
@@ -194,8 +194,8 @@ export function formatMetadataHeader(fm: Frontmatter): string {
  *
  * For URLs (e.g., 'https://code.claude.com/docs/en/hooks/overview'):
  * - Extracts content path segments after /docs/{lang}/
- * - Returns first segment that matches a known category
- * - Falls back to first segment or 'general'
+ * - Uses SECTION_TO_CATEGORY mapping to find canonical category
+ * - Falls back to 'overview' for unmapped sections
  *
  * For file paths (e.g., 'hooks/overview.md'):
  * - Returns the first directory segment
@@ -204,14 +204,12 @@ export function formatMetadataHeader(fm: Frontmatter): string {
 export function deriveCategory(path: string): string {
   if (isHttpUrl(path)) {
     const segments = extractContentPath(path);
-    // Find first segment that's a known category
     for (const seg of segments) {
-      if (KNOWN_CATEGORIES.has(seg)) {
-        return seg;
-      }
+      const category = SECTION_TO_CATEGORY[seg];
+      if (category) return category;
     }
-    // Fall back to first segment or 'general'
-    return segments[0] ?? 'general';
+    // Default unmapped sections to 'overview' — ensures searchability
+    return 'overview';
   }
 
   // Original logic for file paths
