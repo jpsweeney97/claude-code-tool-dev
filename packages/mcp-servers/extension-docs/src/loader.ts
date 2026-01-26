@@ -6,7 +6,6 @@ import * as path from 'path';
 import type { MarkdownFile, ParsedSection } from './types.js';
 import { fetchOfficialDocs, FetchHttpError, FetchNetworkError, FetchTimeoutError } from './fetcher.js';
 import { parseSections } from './parser.js';
-import { filterToExtensions } from './filter.js';
 import { readCache, readCacheIfFresh, writeCache, getDefaultCachePath } from './cache.js';
 import { extractContentPath } from './url-helpers.js';
 import { deriveCategory } from './frontmatter.js';
@@ -118,7 +117,7 @@ export async function loadFromOfficial(
 ): Promise<LoadResult> {
   const resolvedCachePath = resolveCachePath(cachePath);
   const { sections, contentHash } = await fetchAndParse(url, resolvedCachePath, forceRefresh);
-  const filtered = filterToExtensions(sections).filter((s) => s.content.trim().length > 0);
+  const filtered = sections.filter((s) => s.content.trim().length > 0);
 
   return {
     contentHash,

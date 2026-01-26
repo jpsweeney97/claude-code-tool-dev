@@ -135,7 +135,7 @@ describe('loadFromOfficial', () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  it('fetches, parses, and filters to extension sections', async () => {
+  it('fetches, parses, and returns all sections (no filtering)', async () => {
     const mockContent = `# Hooks Guide
 Source: https://code.claude.com/docs/en/hooks
 
@@ -159,9 +159,11 @@ Getting started content`;
     const cachePath = path.join(tempDir, 'cache.txt');
     const { files, contentHash } = await loadFromOfficial('https://example.com/docs', cachePath);
 
-    expect(files).toHaveLength(1);
-    expect(files[0].path).toContain('hooks');
-    expect(contentHash).toMatch(/^[a-f0-9]{64}$/); // SHA-256 hex
+    // Now expects 2 files (both hooks AND quickstart), not 1
+    expect(files).toHaveLength(2);
+    expect(files.some(f => f.path.includes('hooks'))).toBe(true);
+    expect(files.some(f => f.path.includes('quickstart'))).toBe(true);
+    expect(contentHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('falls back to cache on fetch failure', async () => {
