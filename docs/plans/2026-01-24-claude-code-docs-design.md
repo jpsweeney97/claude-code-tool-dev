@@ -47,6 +47,8 @@ Section names (e.g., "hooks-guide", "plugins-reference") correspond to URL paths
 | `ide` | vs-code, jetbrains, devcontainer |
 | `ci-cd` | github-actions, gitlab-ci-cd, headless |
 | `desktop` | desktop, chrome, claude-code-on-the-web |
+
+**Note:** BM25 (Best Matching 25) is a term-frequency ranking algorithm used for relevance-based search. The current server uses BM25 to rank search results.
 | `integrations` | slack, third-party-integrations |
 | `config` | configuration, model-config, network-config, terminal-config, output-styles, statusline |
 | `operations` | analytics, costs, monitoring-usage |
@@ -68,12 +70,12 @@ These alternate names are accepted by the search tool's category filter but norm
 
 ### Delete
 
-- `src/filter.ts` — no longer needed
+- `src/filter.ts` — no longer needed (note: `KNOWN_CATEGORIES` export moves to new `categories.ts`)
 - `tests/filter.test.ts` — tests deleted functionality
 
 ### Create
 
-- `src/categories.ts` — exports `KNOWN_CATEGORIES: Set<string>` with all 24 category names:
+- `src/categories.ts` — exports `KNOWN_CATEGORIES: Set<string>` with all 24 canonical category names (moved from `filter.ts`):
 
 ```typescript
 export const KNOWN_CATEGORIES = new Set([
@@ -92,36 +94,101 @@ export const KNOWN_CATEGORIES = new Set([
 
 | File | Changes |
 |------|---------|
-| `src/frontmatter.ts` | Import from `categories.ts`, update `deriveCategory()` to map new sections (see example below) |
-| `src/index.ts` | Server name → `claude-code-docs`, tool names → `search_docs`/`reload_docs`, expand `CATEGORY_VALUES` enum, add `.transform()` to normalize category aliases (see below) |
+| `src/frontmatter.ts` | Change import from `filter.ts` to `categories.ts`, update `deriveCategory()` to map new sections (see example below) |
+| `src/index.ts` | Server name → `claude-code-docs`, tool names → `search_docs`/`reload_docs`, expand `CATEGORY_VALUES` to include 24 canonical categories, add `CATEGORY_ALIASES` and `.transform()` to normalize aliases (see below) |
 | `src/loader.ts` | Remove `filterToExtensions()` import and call |
+| `src/cache.ts` | Update `getDefaultCachePath()` directory from `'extension-docs'` to `'claude-code-docs'` (line 31) |
 | `package.json` | Name → `@claude-tools/claude-code-docs` |
 
 **Example `deriveCategory()` change:**
 ```typescript
-// Before: only extension sections
-function deriveCategory(section: string): string | null {
-  const map: Record<string, string> = {
-    'hooks': 'hooks',
-    'hooks-guide': 'hooks',
-    'skills': 'skills',
-    // ... 9 extension categories
-  };
-  return map[section] ?? null; // null = filtered out
+// Before (current): returns first segment or 'general' for URLs
+export function deriveCategory(path: string): string {
+  if (isHttpUrl(path)) {
+    const segments = extractContentPath(path);
+    for (const seg of segments) {
+      if (KNOWN_CATEGORIES.has(seg)) {
+        return seg;
+      }
+    }
+    return segments[0] ?? 'general';
+  }
+  // ... file path logic
 }
 
-// After: all sections mapped, KNOWN_CATEGORIES used for validation elsewhere
-function deriveCategory(section: string): string {
-  const map: Record<string, string> = {
-    'hooks': 'hooks',
-    'quickstart': 'getting-started',
-    'amazon-bedrock': 'providers',
-    // ... all section → category mappings
-  };
-  // Default to 'overview' for unmapped sections (e.g., new docs added upstream).
-  // This ensures new content is searchable immediately, even if miscategorized.
-  // The KNOWN_CATEGORIES set is used elsewhere to validate user-provided filters.
-  return map[section] ?? 'overview';
+// After: explicit section → category mapping, default 'overview'
+const SECTION_TO_CATEGORY: Record<string, string> = {
+  // Extension categories (see Categories table above for complete list)
+  'hooks': 'hooks',
+  'hooks-guide': 'hooks',
+  'skills': 'skills',
+  'commands': 'commands',
+  'slash-commands': 'commands',
+  'sub-agents': 'agents',
+  'plugins': 'plugins',
+  'plugins-reference': 'plugins',
+  'discover-plugins': 'plugins',
+  'plugin-marketplaces': 'plugin-marketplaces',
+  'mcp': 'mcp',
+  'settings': 'settings',
+  'memory': 'memory',
+  'claude-md': 'memory',
+  // New categories (see Categories table above for complete list)
+  'overview': 'overview',
+  'features-overview': 'overview',
+  'how-claude-code-works': 'overview',
+  'quickstart': 'getting-started',
+  'setup': 'getting-started',
+  'cli-reference': 'cli',
+  'best-practices': 'best-practices',
+  'common-workflows': 'best-practices',
+  'interactive-mode': 'interactive',
+  'checkpointing': 'interactive',
+  'security': 'security',
+  'data-usage': 'security',
+  'sandboxing': 'security',
+  'iam': 'security',
+  'legal-and-compliance': 'security',
+  'amazon-bedrock': 'providers',
+  'google-vertex-ai': 'providers',
+  'microsoft-foundry': 'providers',
+  'llm-gateway': 'providers',
+  'vs-code': 'ide',
+  'jetbrains': 'ide',
+  'devcontainer': 'ide',
+  'github-actions': 'ci-cd',
+  'gitlab-ci-cd': 'ci-cd',
+  'headless': 'ci-cd',
+  'desktop': 'desktop',
+  'chrome': 'desktop',
+  'claude-code-on-the-web': 'desktop',
+  'slack': 'integrations',
+  'third-party-integrations': 'integrations',
+  'configuration': 'config',
+  'model-config': 'config',
+  'network-config': 'config',
+  'terminal-config': 'config',
+  'output-styles': 'config',
+  'statusline': 'config',
+  'analytics': 'operations',
+  'costs': 'operations',
+  'monitoring-usage': 'operations',
+  'troubleshooting': 'troubleshooting',
+  'changelog': 'changelog',
+};
+
+export function deriveCategory(path: string): string {
+  if (isHttpUrl(path)) {
+    const segments = extractContentPath(path);
+    for (const seg of segments) {
+      const category = SECTION_TO_CATEGORY[seg];
+      if (category) return category;
+    }
+    // Default unmapped sections to 'overview' — ensures searchability
+    // Consider logging unmapped sections for maintenance visibility
+    return 'overview';
+  }
+  // ... file path logic unchanged
 }
 ```
 
@@ -154,7 +221,9 @@ category: z
 | `tests/server.test.ts` | Update tool names (`search_docs`, `reload_docs`), server name |
 | `tests/corpus-validation.test.ts` | Update expected category list |
 
-Tests unchanged: `bm25.test.ts`, `cache*.test.ts`, `chunk*.test.ts`, `chunker.test.ts`, `error-messages.test.ts`, `fence-tracker.test.ts`, `fetcher.test.ts`, `index-cache.test.ts`, `parser.test.ts`, `tokenizer.test.ts`, `url-helpers.test.ts`
+Tests unchanged: `bm25.test.ts`, `cache.mock.test.ts`, `chunk-helpers.test.ts`, `chunker.test.ts`, `error-messages.test.ts`, `fence-tracker.test.ts`, `fetcher.test.ts`, `index-cache.test.ts`, `parser.test.ts`, `tokenizer.test.ts`, `url-helpers.test.ts`
+
+**Note:** `cache.test.ts` may need updates if the new cache path is tested explicitly.
 
 ## Migration Script
 
@@ -170,11 +239,11 @@ uv run scripts/migrate-extension-docs.py --apply  # execute changes
 ```
 [DRY-RUN] Would rename: packages/mcp-servers/extension-docs/ → claude-code-docs/
 [DRY-RUN] Would update: packages/mcp-servers/claude-code-docs/package.json
-  - name: "@mcp-servers/extension-docs" → "@mcp-servers/claude-code-docs"
+  - name: "@claude-tools/extension-docs" → "@claude-tools/claude-code-docs"
 [DRY-RUN] Would update: ~/.claude.json
   - mcpServers.extension-docs → mcpServers.claude-code-docs
 ...
-Summary: 8 files would be modified, 2 directories would be renamed
+Summary: N files would be modified, N directories would be renamed
 ```
 
 **On failure:** Script preserves original files (no partial writes). If interrupted, re-run `--dry-run` to see remaining changes. No automatic rollback needed — each file is written atomically.
@@ -186,12 +255,14 @@ Summary: 8 files would be modified, 2 directories would be renamed
 | `packages/mcp-servers/extension-docs/` | Rename to `claude-code-docs/` |
 | `package.json` | Update name |
 | `src/index.ts` | Update server name, tool names |
-| `.claude/agents/extension-docs-researcher.md` | Update references |
-| `.claude/settings.local.json` | Update MCP config |
-| `~/.claude/settings.json` | Update hook references (global Claude Code settings) |
-| `~/.claude/skills/extension-docs/` | Rename to `claude-code-docs/` |
-| `~/.claude.json` | Update MCP server config (MCP server definitions) |
-| `~/.claude/hooks/extension-docs-reminder.sh` | Rename script |
+| `src/cache.ts` | Update default cache directory |
+| `.claude/agents/extension-docs-researcher.md` | Update tool references (`mcp__extension-docs__*` → `mcp__claude-code-docs__*`) |
+| `.claude/skills/extension-docs/` | Rename to `claude-code-docs/`, update name, tool references, and description |
+| `.claude/settings.local.json` | Update tool permission (`mcp__extension-docs__search_extension_docs` → `mcp__claude-code-docs__search_docs`) |
+| `~/.claude/settings.json` | Update hook references (if any) |
+| `~/.claude/skills/extension-docs/` | Rename to `claude-code-docs/`, update contents |
+| `~/.claude.json` | Update MCP server config (`mcpServers.extension-docs` → `mcpServers.claude-code-docs`) |
+| `~/.claude/hooks/extension-docs-reminder.sh` | Rename script (if exists) |
 
 ### Out of Scope
 
@@ -235,17 +306,19 @@ Summary: 8 files would be modified, 2 directories would be renamed
 
 ### Phase 4: Cleanup
 
-1. Update extension-docs-researcher agent to reference new tool names
-2. Delete orphaned cache: `rm -rf ~/.cache/extension-docs/`
+1. Delete orphaned cache: `rm -rf ~/.cache/extension-docs/`
    - Migration script prints this command in its completion message
    - Not automated because cache deletion is low-risk and user may want to verify migration first
+2. Verify negative test: old tool names (`search_extension_docs`) should error
+
+**Note:** Agent and skill updates are handled by migration script in Phase 3, not manually here.
 
 ## Design Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Category structure | Flat (24 categories) | Simple, matches current API, manageable count |
-| Cross-cutting categories | None (topic-only) | BM25 (a term-frequency ranking algorithm) handles cross-cutting queries via relevance ranking; no need for explicit cross-category tagging |
+| Cross-cutting categories | None (topic-only) | BM25 handles cross-cutting queries via relevance ranking; no need for explicit cross-category tagging |
 | Filter removal | Delete entirely | No use case for extension-only in renamed server |
 | Cache handling | Allow automatic rebuild | Index rebuilds in <5s; avoids cache migration complexity and potential corruption |
 | Migration approach | Single script, dry-run default | Dry-run shows all changes before execution; single script ensures atomic rename across all references |
@@ -259,3 +332,5 @@ Summary: 8 files would be modified, 2 directories would be renamed
 | Search result dilution | Low | Category filter available; BM25 relevance ranking prioritizes matches. Extension queries typically use specific terms (e.g., "PreToolUse") that won't match non-extension docs. General queries (e.g., "how to configure") may return broader results, but category filter addresses this when precision needed. |
 | Index size increase (~3-4x) | Certain | Current index: ~100 chunks. New index: ~400 chunks. Memory impact negligible (<10MB). |
 | Migration script misses a reference | Medium | Dry-run mode shows all changes; grep for "extension-docs" after migration to catch stragglers |
+| Partial migration state | Low | Script writes atomically; if interrupted, re-run `--dry-run` to see remaining changes; no rollback needed |
+| Config file doesn't exist or has unexpected structure | Low | Script should check for file existence before modification; skip with warning if missing |
