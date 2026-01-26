@@ -233,8 +233,6 @@ Use these dimensions to evaluate subagent designs.
 
 ## Requirements
 
-Condensed from the official spec. See [anthropic-subagents-documentation.md](anthropic-subagents-documentation.md) for full details.
-
 ### Frontmatter
 
 **Required:**
