@@ -273,6 +273,17 @@ def migrate(dry_run: bool) -> int:
         ):
             changes += 1
 
+    # 8. Update ~/.claude/settings.json hook references
+    settings_json = home / ".claude/settings.json"
+    if update_text_file(
+        settings_json,
+        [
+            ("extension-docs-reminder.sh", "claude-code-docs-reminder.sh"),
+        ],
+        dry_run,
+    ):
+        changes += 1
+
     # Summary
     print()
     if dry_run:
