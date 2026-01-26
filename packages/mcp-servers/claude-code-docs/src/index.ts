@@ -248,22 +248,20 @@ async function main() {
   const shutdown = async (signal: string) => {
     console.error(`Received ${signal}, shutting down...`);
 
-    let timeoutId: NodeJS.Timeout;
     let exitCode = 0;
+    const timeoutId = setTimeout(() => {
+      console.error('Shutdown timeout');
+      process.exit(1);
+    }, 5000);
 
     try {
-      await Promise.race([
-        server.close(),
-        new Promise((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error('Shutdown timeout')), 5000);
-        }),
-      ]);
-      clearTimeout(timeoutId!);
+      await server.close();
       console.error('Graceful shutdown complete');
     } catch (err) {
-      clearTimeout(timeoutId!);
       console.error('Shutdown error:', err instanceof Error ? err.message : 'unknown');
       exitCode = 1;
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     process.exit(exitCode);

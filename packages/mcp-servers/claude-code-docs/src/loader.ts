@@ -200,16 +200,13 @@ async function fetchAndParse(
     await writeCache(cachePath, content);
     return { sections, contentHash };
   } catch (err: unknown) {
+    // Log error with appropriate prefix based on error type
     if (err instanceof ContentValidationError) {
       console.error(`Content validation failed: ${err.message}`);
-    } else if (err instanceof FetchTimeoutError) {
-      console.error(err.message);
-    } else if (err instanceof FetchHttpError) {
-      console.error(err.message);
-    } else if (err instanceof FetchNetworkError) {
+    } else if (err instanceof Error) {
       console.error(err.message);
     } else {
-      console.error(`Fetch failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`Fetch failed: ${String(err)}`);
     }
 
     // Fall back to stale cache on fetch error or validation failure
