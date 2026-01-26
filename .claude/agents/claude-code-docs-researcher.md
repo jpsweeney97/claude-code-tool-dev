@@ -22,7 +22,7 @@ You handle questions about:
 
 When given a question about Claude Code extensions:
 
-1. **Search the docs** — Use `search_extension_docs` with specific queries. Try multiple search terms if the first doesn't yield results.
+1. **Search the docs** — Use `search_docs` with specific queries. Try multiple search terms if the first doesn't yield results.
 
 2. **Gather evidence** — Collect relevant excerpts that directly answer the question. Note the source for each finding.
 
