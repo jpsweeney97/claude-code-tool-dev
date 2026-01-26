@@ -70,6 +70,54 @@ Quality standards to adhere to across all work lives in `.claude/rules/methodolo
 
 Full frameworks (templates, worked examples, detailed guidance) live in `docs/frameworks/` — the rules file above tells you when to consult them.
 
+#### Thoroughness Framework (Quick Reference)
+
+**Principle:** Thoroughness is iterative, not linear. You discover dimensions as you go.
+
+**The Loop:**
+```
+DISCOVER → EXPLORE → VERIFY → REFINE → (loop if new dimensions) → EXIT
+```
+
+| Stage | Question | Output |
+|-------|----------|--------|
+| DISCOVER | What should I look for? | Dimensions with P0/P1/P2 priority |
+| EXPLORE | Cover each dimension | Filled coverage matrix with evidence |
+| VERIFY | Check findings | Verified findings with confidence |
+| REFINE | Loop or exit? | Continue if new dimensions or revisions; exit if converged |
+
+**DISCOVER Techniques** — apply ≥3 to find unknown unknowns:
+
+| Technique | Method |
+|-----------|--------|
+| External taxonomy | Find established framework for domain (STRIDE, OWASP, "-ilities") |
+| Perspective multiplication | List 3-5 stakeholders: "What would they notice?" |
+| Pre-mortem | "This analysis would be worthless if ___" (5+ completions) |
+| Historical mining | Search postmortems/lessons-learned in this domain |
+| Boundary perturbation | Key parameters: 10x larger? smaller? zero? sudden change? |
+| Temporal expansion | What changes at T+1 week, 3 months, 1 year? |
+
+**Yield%** — convergence signal measuring new/revisionary information per pass:
+
+- *Counts:* New entity, reopened item, revised conclusion, escalated priority
+- *Does not count:* Routine completion, adding detail without changing conclusions
+
+| Level | Yield Threshold | Stability Requirement |
+|-------|-----------------|----------------------|
+| Adequate | <20% | Dimensions stable 1 pass |
+| Rigorous | <10% | Dimensions + findings stable 1 pass |
+| Exhaustive | <5% | Stable 2 passes + disconfirmation empty |
+
+**Disconfirmation Menu** — apply 1+ (adequate), 2+ (rigorous), 3+ (exhaustive) per P0:
+
+| Technique | Method |
+|-----------|--------|
+| Counterexample search | Find a case that breaks the current claim |
+| Alternative hypothesis | Write strongest competing explanation; test it |
+| Adversarial read | Look for reasons evidence could be misleading |
+| Negative test | Run check expected to fail if model is wrong |
+| Cross-check | Verify via independent method |
+
 ### Branch Protection
 
 A hook blocks Edit/Write on `main`, `master`, `develop`. Create a working branch first.
