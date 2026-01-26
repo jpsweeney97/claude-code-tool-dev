@@ -47,13 +47,13 @@ Section names (e.g., "hooks-guide", "plugins-reference") correspond to URL paths
 | `ide` | vs-code, jetbrains, devcontainer |
 | `ci-cd` | github-actions, gitlab-ci-cd, headless |
 | `desktop` | desktop, chrome, claude-code-on-the-web |
-
-**Note:** BM25 (Best Matching 25) is a term-frequency ranking algorithm used for relevance-based search. The current server uses BM25 to rank search results.
 | `integrations` | slack, third-party-integrations |
 | `config` | configuration, model-config, network-config, terminal-config, output-styles, statusline |
 | `operations` | analytics, costs, monitoring-usage |
 | `troubleshooting` | troubleshooting |
 | `changelog` | changelog |
+
+**Note:** BM25 (Best Matching 25) is a term-frequency ranking algorithm used for relevance-based search. The current server uses BM25 to rank search results.
 
 ### Category Aliases (Accepted but Normalized)
 
@@ -219,11 +219,11 @@ category: z
 | `tests/integration.test.ts` | Update chunk counts, category expectations |
 | `tests/filter.test.ts` | **Delete** (functionality removed) |
 | `tests/server.test.ts` | Update tool names (`search_docs`, `reload_docs`), server name |
-| `tests/corpus-validation.test.ts` | Update expected category list |
+| `tests/corpus-validation.test.ts` | No category changes needed (tests chunk size bounds, not categories) |
 
 Tests unchanged: `bm25.test.ts`, `cache.mock.test.ts`, `chunk-helpers.test.ts`, `chunker.test.ts`, `error-messages.test.ts`, `fence-tracker.test.ts`, `fetcher.test.ts`, `index-cache.test.ts`, `parser.test.ts`, `tokenizer.test.ts`, `url-helpers.test.ts`
 
-**Note:** `cache.test.ts` may need updates if the new cache path is tested explicitly.
+**Note:** `cache.test.ts` requires updates — tests at lines 33-35 and 229-231 explicitly assert `extension-docs` in the cache path regex.
 
 ## Migration Script
 
@@ -256,17 +256,19 @@ Summary: N files would be modified, N directories would be renamed
 | `package.json` | Update name |
 | `src/index.ts` | Update server name, tool names |
 | `src/cache.ts` | Update default cache directory |
-| `.claude/agents/extension-docs-researcher.md` | Update tool references (`mcp__extension-docs__*` → `mcp__claude-code-docs__*`) |
-| `.claude/skills/extension-docs/` | Rename to `claude-code-docs/`, update name, tool references, and description |
-| `.claude/settings.local.json` | Update tool permission (`mcp__extension-docs__search_extension_docs` → `mcp__claude-code-docs__search_docs`) |
+| `.claude/agents/extension-docs-researcher.md` | Rename to `claude-code-docs-researcher.md`, update tool references (`mcp__extension-docs__*` → `mcp__claude-code-docs__*`), update prose references ("extension-docs MCP server" → "claude-code-docs MCP server") |
+| `.claude/skills/extension-docs/` | Rename to `claude-code-docs/`, update name, tool references (`mcp__extension-docs__*` → `mcp__claude-code-docs__*`), description, and prose references to "extension-docs MCP server" in troubleshooting section |
+| `.claude/settings.local.json` | Update tool permission (`mcp__extension-docs__search_extension_docs` → `mcp__claude-code-docs__search_docs`). Note: `reload_extension_docs` not in permissions — only `search_extension_docs` requires update |
 | `~/.claude/settings.json` | Update hook references (if any) |
-| `~/.claude/skills/extension-docs/` | Rename to `claude-code-docs/`, update contents |
+| `~/.claude/skills/extension-docs/` | Rename to `claude-code-docs/`, update contents (if exists) |
 | `~/.claude.json` | Update MCP server config (`mcpServers.extension-docs` → `mcpServers.claude-code-docs`) |
-| `~/.claude/hooks/extension-docs-reminder.sh` | Rename script (if exists) |
+| `~/.claude/hooks/extension-docs-reminder.sh` | Rename to `claude-code-docs-reminder.sh`, update tool names in content (`search_extension_docs` → `search_docs`, `reload_extension_docs` → `reload_docs`, "extension-docs MCP" → "claude-code-docs MCP") (if exists) |
 
 ### Out of Scope
 
 - `docs/plans/*.md` — historical references, no migration (these are snapshots of past state)
+- `docs/decisions/*.md` — active references are acceptable; document decisions reference tooling at time of writing
+- `.claude/skills/testing-skills/references/*.md` — contains contextual reference ("use extension-docs MCP") that will naturally update to "claude-code-docs MCP" in prose; not critical path
 - `~/.cache/extension-docs/` — orphaned cache directory (see Phase 4 for cleanup instructions)
 
 ## Implementation Order

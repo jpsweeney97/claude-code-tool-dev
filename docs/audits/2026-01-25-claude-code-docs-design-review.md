@@ -9,11 +9,13 @@
 
 | Priority | Count | Description |
 |----------|-------|-------------|
-| P0 | 4 | Issues that break correctness or execution |
-| P1 | 15 | Issues that degrade quality |
-| P2 | 1 | Polish items |
+| P0 | 5 | Issues that break correctness or execution |
+| P1 | 18 | Issues that degrade quality |
+| P2 | 3 | Polish items |
 
 **All P0 and P1 issues have been fixed.**
+
+*Re-review pass (2026-01-25): Found 1 P1 and 2 P2 issues; all fixed.*
 
 ---
 
@@ -99,8 +101,12 @@
 | 3 | Implementation readiness | 1 | 2 | 0 | 18% |
 | 4 | Cross-validation | 0 | 2 | 0 | 11% |
 | 5 | Final verification | 0 | 1 | 0 | 5% |
+| 6 | Post-fix verification | 1 | 1 | 0 | 10% |
+| 7 | Convergence check | 0 | 0 | 0 | 0% |
+| 8 | Re-review verification | 0 | 1 | 2 | 14% |
+| 9 | Post-fix verification | 0 | 0 | 0 | 0% |
 
-**Convergence reached at Pass 5 (Yield% = 5% < 10% threshold)**
+**Convergence reached at Pass 9 (Yield% = 0% < 10% threshold)**
 
 ---
 
@@ -130,8 +136,10 @@
 
 ### P1 Findings (Fixed)
 
-**F1: BM25 undefined at first use** — Added note after Categories table
+**F1: BM25 undefined at first use** — Added note after Categories table (note: subsequent review found this fix broke table; moved note to after table)
+**F26: BM25 note placement broke table** — Note inserted between table rows 49-50 and 52-56, creating orphaned rows. Moved note to after table.
 **F4: cache*.test.ts glob unclear** — Expanded to explicit file names
+**F27: cache.test.ts change understated** — "may need updates" changed to "requires updates" with specific line references (33-35, 229-231)
 **F5: Package name mismatch in dry-run example** — Corrected @mcp-servers → @claude-tools
 **F6: KNOWN_CATEGORIES move unclear** — Added note about moving from filter.ts
 **F7: Cache path change not in Code Changes** — Added to Modify table
@@ -146,9 +154,15 @@
 **F24: Unmapped section logging** — Added comment suggesting logging
 **F25: cache.test.ts may need updates** — Added note to Tests section
 
+**F28: Agent scope understates update work** — Line 259 said "Update tool references" but agent file has prose refs at lines 10, 25, 39 ("extension-docs MCP server"). Expanded scope entry to include rename and prose updates.
+
 ### P2 Findings
 
 **F2: "Section names" terminology ambiguity** — Minor, not fixed (context makes it clear)
+
+**F29: testing-skills reference not in scope** — `.claude/skills/testing-skills/references/testing-type-5-meta-cognitive.md:186` mentions "extension-docs MCP server". Added to Out of Scope with rationale.
+
+**F30: Decision document not in scope** — `docs/decisions/2026-01-24-documentation-drift-prevention.md:52` mentions "extension-docs MCP". Added to Out of Scope with rationale.
 
 ---
 
@@ -197,6 +211,11 @@
 | F20, F21 | Added .claude/skills/extension-docs/ to scope | Migration Scope table |
 | F23 | Provided complete SECTION_TO_CATEGORY mapping | Code Changes > Example section |
 | F24 | Added logging suggestion for unmapped sections | Code Changes > Example section |
+| F26 | Moved BM25 note to after table | Categories > New Categories table |
+| F27 | Changed "may need updates" to "requires updates" with line refs | Tests section |
+| F28 | Expanded agent scope to include rename and prose updates | Migration Scope table |
+| F29 | Added testing-skills reference to Out of Scope with rationale | Out of Scope section |
+| F30 | Added decision document to Out of Scope with rationale | Out of Scope section |
 
 ---
 
@@ -208,7 +227,7 @@
 | Evidence requirements met | [x] E2 for all P0 dimensions |
 | Disconfirmation attempted | [x] All P0s verified via code |
 | Assumptions resolved | [x] All listed and addressed |
-| Convergence reached | [x] Yield% = 5% < 10% |
+| Convergence reached | [x] Yield% = 0% < 10% |
 | Adversarial pass complete | [x] All 9 lenses applied |
 | Fixes applied | [x] All P0 and P1 fixed |
 
