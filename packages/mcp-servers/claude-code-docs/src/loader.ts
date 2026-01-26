@@ -10,6 +10,35 @@ import { readCache, readCacheIfFresh, writeCache, getDefaultCachePath } from './
 import { extractContentPath } from './url-helpers.js';
 import { deriveCategory } from './frontmatter.js';
 
+/**
+ * Default minimum number of sections required for content to be considered valid.
+ * Prevents caching truncated or incomplete documentation.
+ * Current full docs have ~50 sections; 40 provides margin for minor changes.
+ * Override with MIN_SECTION_COUNT env var for testing (set to 0 to disable).
+ */
+const DEFAULT_MIN_SECTION_COUNT = 40;
+
+export function getMinSectionCount(): number {
+  const raw = process.env.MIN_SECTION_COUNT?.trim();
+  if (raw !== undefined && raw.length > 0) {
+    const val = parseInt(raw, 10);
+    if (Number.isFinite(val) && val >= 0) {
+      return val;
+    }
+  }
+  return DEFAULT_MIN_SECTION_COUNT;
+}
+
+/**
+ * Error thrown when fetched content fails validation checks.
+ */
+export class ContentValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ContentValidationError';
+  }
+}
+
 function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
@@ -156,11 +185,24 @@ async function fetchAndParse(
 
   try {
     const { content } = await fetchOfficialDocs(url);
+    const sections = parseSections(content);
+
+    // Validate section count to detect truncated content
+    const minSections = getMinSectionCount();
+    if (minSections > 0 && sections.length < minSections) {
+      throw new ContentValidationError(
+        `Fetched content has only ${sections.length} sections (minimum: ${minSections}). ` +
+          'Content may be truncated or incomplete.',
+      );
+    }
+
     const contentHash = hashContent(content);
     await writeCache(cachePath, content);
-    return { sections: parseSections(content), contentHash };
+    return { sections, contentHash };
   } catch (err: unknown) {
-    if (err instanceof FetchTimeoutError) {
+    if (err instanceof ContentValidationError) {
+      console.error(`Content validation failed: ${err.message}`);
+    } else if (err instanceof FetchTimeoutError) {
       console.error(err.message);
     } else if (err instanceof FetchHttpError) {
       console.error(err.message);
@@ -170,7 +212,7 @@ async function fetchAndParse(
       console.error(`Fetch failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    // Fall back to stale cache on fetch error
+    // Fall back to stale cache on fetch error or validation failure
     const cached = await readCache(cachePath);
     if (cached) {
       const ageHours = (cached.age / 3600000).toFixed(1);

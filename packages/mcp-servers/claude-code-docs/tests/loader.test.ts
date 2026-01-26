@@ -123,14 +123,25 @@ describe('loadMarkdownFiles glob failures', () => {
 
 describe('loadFromOfficial', () => {
   let tempDir: string;
+  let originalMinSectionCount: string | undefined;
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-official-test-'));
+    // Disable section count validation for unit tests with small mock data
+    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
+    process.env.MIN_SECTION_COUNT = '0';
+    vi.resetModules(); // Reset modules so loader picks up new env
     vi.stubGlobal('fetch', vi.fn());
     ({ parseFrontmatter } = await import('../src/frontmatter.js'));
   });
 
   afterEach(async () => {
+    // Restore original env
+    if (originalMinSectionCount === undefined) {
+      delete process.env.MIN_SECTION_COUNT;
+    } else {
+      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
+    }
     vi.unstubAllGlobals();
     await fs.rm(tempDir, { recursive: true, force: true });
   });
@@ -289,5 +300,170 @@ Schema details`;
 
     expect(frontmatter.category).toBe('hooks');
     expect(frontmatter.id).toBe('hooks-input-schema');
+  });
+});
+
+describe('content validation', () => {
+  let tempDir: string;
+  let originalMinSectionCount: string | undefined;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-validation-test-'));
+    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(async () => {
+    if (originalMinSectionCount === undefined) {
+      delete process.env.MIN_SECTION_COUNT;
+    } else {
+      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
+    }
+    vi.unstubAllGlobals();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('rejects content with fewer sections than minimum and falls back to cache', async () => {
+    // Set minimum to 5 sections
+    process.env.MIN_SECTION_COUNT = '5';
+    vi.resetModules();
+
+    // Cached content with enough sections
+    const cachedContent = `# Section 1
+Source: https://example.com/1
+
+Content 1
+
+# Section 2
+Source: https://example.com/2
+
+Content 2
+
+# Section 3
+Source: https://example.com/3
+
+Content 3
+
+# Section 4
+Source: https://example.com/4
+
+Content 4
+
+# Section 5
+Source: https://example.com/5
+
+Content 5`;
+
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.mkdir(path.dirname(cachePath), { recursive: true });
+    await fs.writeFile(cachePath, cachedContent);
+
+    // Fetched content with only 2 sections (below minimum)
+    const truncatedContent = `# Section A
+Source: https://example.com/a
+
+Content A
+
+# Section B
+Source: https://example.com/b
+
+Content B`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(truncatedContent),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath, true);
+
+    // Should fall back to cached content (5 sections), not truncated (2 sections)
+    expect(files).toHaveLength(5);
+  });
+
+  it('throws when content is truncated and no cache exists', async () => {
+    process.env.MIN_SECTION_COUNT = '5';
+    vi.resetModules();
+
+    const truncatedContent = `# Only One
+Source: https://example.com/one
+
+Content`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(truncatedContent),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial, ContentValidationError } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'nonexistent-cache.txt');
+
+    await expect(loadFromOfficial('https://example.com/docs', cachePath, true))
+      .rejects.toThrow(ContentValidationError);
+  });
+
+  it('accepts content when section count meets minimum', async () => {
+    process.env.MIN_SECTION_COUNT = '3';
+    vi.resetModules();
+
+    const validContent = `# Section 1
+Source: https://example.com/1
+
+Content 1
+
+# Section 2
+Source: https://example.com/2
+
+Content 2
+
+# Section 3
+Source: https://example.com/3
+
+Content 3`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(validContent),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath, true);
+
+    expect(files).toHaveLength(3);
+  });
+
+  it('skips validation when MIN_SECTION_COUNT is 0', async () => {
+    process.env.MIN_SECTION_COUNT = '0';
+    vi.resetModules();
+
+    const singleSection = `# Only One
+Source: https://example.com/one
+
+Content`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(singleSection),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath, true);
+
+    expect(files).toHaveLength(1);
   });
 });

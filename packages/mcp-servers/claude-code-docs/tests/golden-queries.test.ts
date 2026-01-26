@@ -139,9 +139,15 @@ Enable debug logging for troubleshooting by setting CLAUDE_DEBUG=1.
 
 describe('golden queries (URL-based)', () => {
   let index: ReturnType<typeof buildBM25Index>;
+  let originalMinSectionCount: string | undefined;
 
   beforeAll(async () => {
     clearParseWarnings();
+
+    // Disable section count validation for test with small mock data
+    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
+    process.env.MIN_SECTION_COUNT = '0';
+    vi.resetModules();
 
     // Mock fetch to return our test content
     const mockFetch = vi.fn().mockResolvedValue({
@@ -167,6 +173,12 @@ describe('golden queries (URL-based)', () => {
   });
 
   afterAll(() => {
+    // Restore original env
+    if (originalMinSectionCount === undefined) {
+      delete process.env.MIN_SECTION_COUNT;
+    } else {
+      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
+    }
     vi.unstubAllGlobals();
   });
 
