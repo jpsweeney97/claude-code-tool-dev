@@ -1,5 +1,5 @@
 {
-  "name": "@claude-tools/extension-docs",
+  "name": "@claude-tools/claude-code-docs",
   "version": "1.0.0",
   "type": "module",
   "main": "dist/index.js",

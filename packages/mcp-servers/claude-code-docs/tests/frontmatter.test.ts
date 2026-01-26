@@ -133,17 +133,14 @@ describe('deriveCategory', () => {
     expect(deriveCategory('https://code.claude.com/docs/en/agents/sub-agents')).toBe('agents');
   });
 
-  it('handles hyphenated categories in URLs', () => {
-    expect(deriveCategory('https://code.claude.com/docs/en/slash-commands')).toBe('slash-commands');
+  it('handles hyphenated URL sections via SECTION_TO_CATEGORY mapping', () => {
+    // These URL sections map to canonical categories
+    expect(deriveCategory('https://code.claude.com/docs/en/slash-commands')).toBe('commands');
     expect(deriveCategory('https://code.claude.com/docs/en/plugin-marketplaces')).toBe(
       'plugin-marketplaces',
     );
-    expect(deriveCategory('https://code.claude.com/docs/en/claude-md')).toBe('claude-md');
-    expect(deriveCategory('https://code.claude.com/docs/en/sub-agents')).toBe('sub-agents');
-  });
-
-  it('handles subagents variant (no hyphen)', () => {
-    expect(deriveCategory('https://code.claude.com/docs/en/subagents')).toBe('subagents');
+    expect(deriveCategory('https://code.claude.com/docs/en/claude-md')).toBe('memory');
+    expect(deriveCategory('https://code.claude.com/docs/en/sub-agents')).toBe('agents');
   });
 
   it('handles regional language codes (zh-cn, pt-br)', () => {
@@ -151,14 +148,29 @@ describe('deriveCategory', () => {
     expect(deriveCategory('https://code.claude.com/docs/pt-br/skills')).toBe('skills');
   });
 
-  it('returns general for URL with no content path', () => {
-    expect(deriveCategory('https://code.claude.com/')).toBe('general');
-    expect(deriveCategory('https://code.claude.com/docs/en/')).toBe('general');
+  it('returns overview for URL with no content path', () => {
+    expect(deriveCategory('https://code.claude.com/')).toBe('overview');
+    expect(deriveCategory('https://code.claude.com/docs/en/')).toBe('overview');
   });
 
-  it('falls back to first segment for unknown category', () => {
-    // If first segment is not a known category, still use it
-    expect(deriveCategory('https://example.com/custom/page')).toBe('custom');
+  it('returns overview for unknown URL sections', () => {
+    // Unknown sections default to overview, not the first segment
+    expect(deriveCategory('https://example.com/custom/page')).toBe('overview');
+  });
+
+  // New tests for SECTION_TO_CATEGORY mapping
+  it('uses SECTION_TO_CATEGORY mapping for URLs', () => {
+    // Known sections map to their category
+    expect(deriveCategory('https://code.claude.com/docs/en/quickstart')).toBe('getting-started');
+    expect(deriveCategory('https://code.claude.com/docs/en/amazon-bedrock')).toBe('providers');
+    expect(deriveCategory('https://code.claude.com/docs/en/vs-code')).toBe('ide');
+    expect(deriveCategory('https://code.claude.com/docs/en/github-actions')).toBe('ci-cd');
+  });
+
+  it('returns overview for unmapped URL sections', () => {
+    // Unknown sections default to 'overview' not 'general'
+    expect(deriveCategory('https://code.claude.com/docs/en/unknown-page')).toBe('overview');
+    expect(deriveCategory('https://code.claude.com/docs/en/some-new-page')).toBe('overview');
   });
 });
 

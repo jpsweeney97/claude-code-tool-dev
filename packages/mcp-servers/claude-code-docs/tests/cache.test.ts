@@ -30,14 +30,14 @@ afterEach(() => {
 });
 
 describe('getDefaultCachePath', () => {
-  it('returns path ending with extension-docs/llms-full.txt', () => {
+  it('returns path ending with claude-code-docs/llms-full.txt', () => {
     const cachePath = cache.getDefaultCachePath();
-    expect(cachePath).toMatch(/extension-docs[/\\]llms-full\.txt$/);
+    expect(cachePath).toMatch(/claude-code-docs[/\\]llms-full\.txt$/);
   });
 
   it('accepts custom filename', () => {
     const cachePath = cache.getDefaultCachePath('custom.txt');
-    expect(cachePath).toMatch(/extension-docs[/\\]custom\.txt$/);
+    expect(cachePath).toMatch(/claude-code-docs[/\\]custom\.txt$/);
   });
 });
 
@@ -228,7 +228,7 @@ describe('index cache helpers', () => {
 
   it('getDefaultIndexCachePath returns json file path', () => {
     const indexCachePath = cache.getDefaultIndexCachePath();
-    expect(indexCachePath).toMatch(/extension-docs[/\\]llms-full\.index\.json$/);
+    expect(indexCachePath).toMatch(/claude-code-docs[/\\]llms-full\.index\.json$/);
   });
 
   it('writeIndexCache and readIndexCache round-trip', async () => {

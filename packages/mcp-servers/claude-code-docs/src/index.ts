@@ -7,6 +7,7 @@ import { loadFromOfficial } from './loader.js';
 import { chunkFile } from './chunker.js';
 import { buildBM25Index, search, type BM25Index } from './bm25.js';
 import { getParseWarnings, clearParseWarnings } from './frontmatter.js';
+import { KNOWN_CATEGORIES, CATEGORY_ALIASES } from './categories.js';
 import {
   serializeIndex,
   deserializeIndex,
@@ -119,22 +120,7 @@ async function doLoadIndex(forceRefresh = false): Promise<BM25Index | null> {
 }
 
 // === Zod Schemas ===
-const CATEGORY_VALUES = [
-  'hooks',
-  'skills',
-  'commands',
-  'slash-commands',
-  'agents',
-  'subagents',
-  'sub-agents',
-  'plugins',
-  'plugin-marketplaces',
-  'mcp',
-  'settings',
-  'claude-md',
-  'memory',
-  'configuration',
-] as const;
+const CATEGORY_VALUES = [...KNOWN_CATEGORIES] as const;
 
 const SearchInputSchema = z.object({
   query: z
@@ -153,9 +139,10 @@ const SearchInputSchema = z.object({
     .optional()
     .describe('Maximum results to return (default: 5, max: 20)'),
   category: z
-    .enum(CATEGORY_VALUES)
+    .enum([...CATEGORY_VALUES, ...Object.keys(CATEGORY_ALIASES)] as [string, ...string[]])
+    .transform((val) => CATEGORY_ALIASES[val] ?? val)
     .optional()
-    .describe('Filter to a specific category (e.g., "hooks", "plugins")'),
+    .describe('Filter to a specific category (e.g., "hooks", "plugins", "security")'),
 });
 
 const SearchOutputSchema = z.object({
@@ -172,16 +159,16 @@ const SearchOutputSchema = z.object({
 
 async function main() {
   const server = new McpServer({
-    name: 'extension-docs',
+    name: 'claude-code-docs',
     version: '1.0.0',
   });
 
   server.registerTool(
-    'search_extension_docs',
+    'search_docs',
     {
-      title: 'Search Extension Docs',
+      title: 'Search Claude Code Docs',
       description:
-        'Search Claude Code extension documentation (hooks, skills, commands, agents, plugins, MCP). Use specific queries.',
+        'Search Claude Code documentation (extensions, setup, security, providers, IDE integration, CI/CD, and more). Use specific queries.',
       inputSchema: SearchInputSchema,
       outputSchema: SearchOutputSchema,
     },
@@ -200,22 +187,22 @@ async function main() {
           content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }],
           structuredContent: { results },
         };
-    } catch (err) {
-      console.error('Search error:', err);
-      return {
-        isError: true,
-        content: [{ type: 'text' as const, text: formatSearchError(err) }],
-      };
-    }
+      } catch (err) {
+        console.error('Search error:', err);
+        return {
+          isError: true,
+          content: [{ type: 'text' as const, text: formatSearchError(err) }],
+        };
+      }
     },
   );
 
   server.registerTool(
-    'reload_extension_docs',
+    'reload_docs',
     {
-      title: 'Reload Extension Docs',
+      title: 'Reload Claude Code Docs',
       description:
-        'Force reload of extension documentation. Use after editing docs to refresh search index.',
+        'Force reload of Claude Code documentation. Use after editing docs to refresh search index.',
       inputSchema: z.object({}),
     },
     async () => {

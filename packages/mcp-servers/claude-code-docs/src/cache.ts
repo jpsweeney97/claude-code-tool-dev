@@ -28,7 +28,7 @@ export function getDefaultCachePath(filename = 'llms-full.txt'): string {
   } else {
     baseDir = path.join(os.homedir(), '.cache');
   }
-  return path.join(baseDir, 'extension-docs', filename);
+  return path.join(baseDir, 'claude-code-docs', filename);
 }
 
 async function sleep(ms: number): Promise<void> {

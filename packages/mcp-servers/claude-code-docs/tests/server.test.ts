@@ -3,26 +3,12 @@ import { describe, it, expect } from 'vitest';
 
 import { z } from 'zod';
 
+import { KNOWN_CATEGORIES, CATEGORY_ALIASES } from '../src/categories.js';
+
 // Test the state management and schema validation logic
 // Full MCP integration tests require spawning the server process
 
-// Category values matching KNOWN_CATEGORIES in filter.ts
-const CATEGORY_VALUES = [
-  'hooks',
-  'skills',
-  'commands',
-  'slash-commands',
-  'agents',
-  'subagents',
-  'sub-agents',
-  'plugins',
-  'plugin-marketplaces',
-  'mcp',
-  'settings',
-  'claude-md',
-  'memory',
-  'configuration',
-] as const;
+const CATEGORY_VALUES = [...KNOWN_CATEGORIES] as const;
 
 // Import the schemas we'll define
 const SearchInputSchema = z.object({
@@ -32,7 +18,10 @@ const SearchInputSchema = z.object({
     .transform((s) => s.trim())
     .pipe(z.string().min(1, 'Query cannot be empty')),
   limit: z.number().int().min(1).max(20).optional(),
-  category: z.enum(CATEGORY_VALUES).optional(),
+  category: z
+    .enum([...CATEGORY_VALUES, ...Object.keys(CATEGORY_ALIASES)] as [string, ...string[]])
+    .transform((val) => CATEGORY_ALIASES[val] ?? val)
+    .optional(),
 });
 
 describe('SearchInputSchema validation', () => {
@@ -94,9 +83,9 @@ describe('Category Schema Validation', () => {
   it('accepts valid categories', () => {
     expect(CategorySchema.parse('hooks')).toBe('hooks');
     expect(CategorySchema.parse('skills')).toBe('skills');
-    expect(CategorySchema.parse('slash-commands')).toBe('slash-commands');
     expect(CategorySchema.parse('plugin-marketplaces')).toBe('plugin-marketplaces');
-    expect(CategorySchema.parse('claude-md')).toBe('claude-md');
+    expect(CategorySchema.parse('memory')).toBe('memory');
+    expect(CategorySchema.parse('security')).toBe('security');
   });
 
   it('accepts undefined category', () => {
@@ -131,7 +120,76 @@ describe('Category Schema Validation', () => {
   });
 });
 
-describe('search_extension_docs tool with category', () => {
+describe('Category alias normalization', () => {
+  it('normalizes subagents to agents', () => {
+    const result = SearchInputSchema.safeParse({ query: 'test', category: 'subagents' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.category).toBe('agents');
+    }
+  });
+
+  it('normalizes sub-agents to agents', () => {
+    const result = SearchInputSchema.safeParse({ query: 'test', category: 'sub-agents' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.category).toBe('agents');
+    }
+  });
+
+  it('normalizes claude-md to memory', () => {
+    const result = SearchInputSchema.safeParse({ query: 'test', category: 'claude-md' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.category).toBe('memory');
+    }
+  });
+
+  it('normalizes configuration to config', () => {
+    const result = SearchInputSchema.safeParse({ query: 'test', category: 'configuration' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.category).toBe('config');
+    }
+  });
+
+  it('normalizes slash-commands to commands', () => {
+    const result = SearchInputSchema.safeParse({ query: 'test', category: 'slash-commands' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.category).toBe('commands');
+    }
+  });
+
+  it('passes through canonical categories unchanged', () => {
+    const result = SearchInputSchema.safeParse({ query: 'test', category: 'hooks' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.category).toBe('hooks');
+    }
+  });
+});
+
+describe('New category validation', () => {
+  it('accepts new general categories', () => {
+    const newCategories = [
+      'overview', 'getting-started', 'cli', 'best-practices',
+      'interactive', 'security', 'providers', 'ide', 'ci-cd',
+      'desktop', 'integrations', 'config', 'operations',
+      'troubleshooting', 'changelog',
+    ];
+
+    for (const cat of newCategories) {
+      const result = SearchInputSchema.safeParse({ query: 'test', category: cat });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.category).toBe(cat);
+      }
+    }
+  });
+});
+
+describe('search_docs tool with category', () => {
   // This test verifies the tool handler passes category to search
   // Full integration test would require MCP client setup
   it('search function accepts category parameter', async () => {
