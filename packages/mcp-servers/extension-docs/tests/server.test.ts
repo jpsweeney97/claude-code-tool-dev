@@ -6,7 +6,7 @@ import { z } from 'zod';
 // Test the state management and schema validation logic
 // Full MCP integration tests require spawning the server process
 
-// Category values matching KNOWN_CATEGORIES in filter.ts
+// Category values matching KNOWN_CATEGORIES in categories.ts
 const CATEGORY_VALUES = [
   'hooks',
   'skills',
