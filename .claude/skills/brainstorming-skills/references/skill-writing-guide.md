@@ -236,6 +236,8 @@ Some skills need rigor — iterative analysis, evidence tracking, principled sto
 
 **Declaring framework use in a skill:**
 
+If a skill adopts the full thoroughness framework, add this declaration in the skill header (adjust the path to your skill's actual reference location):
+
 ```markdown
 **Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness.md)
 **Default thoroughness:** Rigorous

@@ -29,7 +29,10 @@ Turn skill ideas into testable drafts through collaborative dialogue. Preserves 
 
 **Understanding the idea:**
 
-- Check project context first (existing skills, patterns, CLAUDE.md)
+- Check project context first:
+  - Scan existing skills: `ls .claude/skills/` or Glob for `**/.claude/skills/**/SKILL.md`
+  - Read project CLAUDE.md for conventions
+  - Note any relevant patterns or standards
 - **YOU MUST ask only one question per message** — break complex topics into multiple questions
 - Prefer multiple choice when possible, open-ended when needed
 - Focus on understanding: purpose, constraints, success criteria, key behavior
@@ -63,9 +66,11 @@ Track whether each question round surfaces new information or just confirms exis
 - Adds detail without changing conclusions
 - Rephrases what's already known
 
-**Convergence rule:** Understanding has converged when two consecutive question rounds yield nothing new.
+**Convergence rule:** Understanding has converged when two consecutive question rounds yield nothing new. (Two rounds, not one — one no-yield round could be lucky; two confirms the understanding is stable.)
 
-**YOU MUST** verify convergence before proceeding to the checkpoint. Do not proceed until converged.
+**YOU MUST** track each round explicitly: "Round N: [yielded | no yield] — [what was learned or confirmed]"
+
+Do not proceed to the checkpoint until you can show two consecutive no-yield rounds.
 
 **Dimensions to cover:**
 
@@ -85,9 +90,22 @@ Not all dimensions apply to every skill — mark inapplicable ones as N/A with r
 
 **Exploring approaches:**
 
-- Propose 2-3 different approaches with trade-offs
-- Present options conversationally with recommendation and reasoning
-- Lead with the recommended option and explain why
+Before converging on a single approach, surface 2-3 alternatives. For each skill idea, consider:
+
+| Dimension | Questions to Ask |
+|-----------|------------------|
+| Skill type | Process/workflow vs capability vs quality enhancement? Does type change what sections matter? |
+| Scope | Narrower (single concern) vs broader (multiple concerns)? |
+| Compliance level | High discipline (bright-line rules) vs guidance (principles)? |
+| Reference weight | Inline content vs heavy references? |
+| Feedback mechanism | What signals success/failure during use? |
+
+**Surface non-obvious possibilities:**
+- "You could make this a process skill with numbered steps, OR a quality enhancement skill with a rubric"
+- "This could be one comprehensive skill, OR two smaller skills that compose"
+- "High compliance makes sense, but a lighter guidance approach might be enough"
+
+Propose 2-3 different approaches with trade-offs. Present options conversationally with recommendation and reasoning. Lead with the recommended option and explain why.
 
 ## Skill-specific Classification
 
@@ -167,6 +185,8 @@ This is when the checkpoint matters MOST. Acknowledge the impatience, then compl
 **Before drafting, read the writing guide:**
 
 YOU MUST read [references/skill-writing-guide.md](references/skill-writing-guide.md) before drafting any SKILL.md content. This is not optional. The guide contains essential principles that determine whether the skill will actually work.
+
+After reading, verify internally: Can I articulate the "description must be trigger-only" rule? Can I name 3 persuasion principles? If not, re-read.
 
 **Presenting the draft SKILL.md:**
 
@@ -253,9 +273,37 @@ See [type-example files](references/) for concrete guidance on filling sections 
 - Confirm design context includes: problem statement, success criteria, compliance risks
 - Ask: "Ready to test this skill? Use testing-skills to validate it works."
 
+## Decision Points
+
+**User unsure what they want:**
+- If goal is vague → Start with "What problem are you trying to solve?"
+- If user says "I don't know" → Offer skill type examples as a menu: "Here are common skill types — which resonates?"
+
+**Skill type genuinely ambiguous:**
+- If multiple types could fit → Default to the simpler type; complexity can be added later
+- If user has strong preference → Follow it; note trade-offs in design context
+
+**User changes requirements after checkpoint:**
+- If change is minor → Incorporate and continue
+- If change invalidates core understanding → Return to understanding phase; don't patch a flawed foundation
+
+**Convergence not reached after many rounds:**
+- If scope keeps expanding → Pause and summarize: "We've covered X, Y, Z. Is this the core problem, or should we scope down?"
+- If user keeps discovering requirements → Consider splitting into multiple skills
+
+**Draft exceeds 500 lines:**
+- If approaching limit → Split by extracting: examples to `references/examples.md`, checklists to `references/checklists.md`, type-specific content to type example files
+- Heavy reference content should NOT be inline in SKILL.md
+
+**User wants to skip checkpoint:**
+- Acknowledge impatience: "I hear you."
+- Complete checkpoint anyway: "Let me confirm my understanding before drafting."
+- Never skip the adversarial lens — this is when issues surface
+
 ## When NOT to Use
 
-- **Existing skill needs minor edits** — edit directly without brainstorming
+- **Existing skill needs minor edits** — edit directly without brainstorming (minor = single section changes, wording tweaks, adding examples)
+- **Existing skill fundamentally broken** — use this skill (treat as significant redesign; "fundamentally broken" = wrong skill type, missing core sections, or process that doesn't achieve its goal)
 - **Complete spec already exists** — use reviewing-skills to validate, then implement
 - **Modifying hook or agent** — use brainstorming-hooks or brainstorming-subagents instead
 - **Quick rename or typo fix** — just do it
