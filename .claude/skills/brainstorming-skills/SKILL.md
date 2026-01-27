@@ -15,7 +15,7 @@ Turn skill ideas into testable drafts through collaborative dialogue. Preserves 
 
 **Definition of Done:**
 - Problem understood through discussion with user
-- Understanding converged (two consecutive low-yield question rounds)
+- Understanding converged (two consecutive question rounds that yield nothing new)
 - Success criteria captured ("what should happen instead")
 - Skill type identified
 - Risk tier assessed
@@ -30,9 +30,8 @@ Turn skill ideas into testable drafts through collaborative dialogue. Preserves 
 **Understanding the idea:**
 
 - Check project context first (existing skills, patterns, CLAUDE.md)
-- Ask questions one at a time to refine the idea
+- **YOU MUST ask only one question per message** — break complex topics into multiple questions
 - Prefer multiple choice when possible, open-ended when needed
-- Only one question per message — break complex topics into multiple questions
 - Focus on understanding: purpose, constraints, success criteria, key behavior
 
 **Assumption traps** — when tempted to skip asking because:
@@ -46,7 +45,7 @@ Turn skill ideas into testable drafts through collaborative dialogue. Preserves 
 - Terminology matches something familiar — Claude's definition may differ from user's meaning
 - User seems confident about their approach — unexamined confidence creates blind spots
 
-If any of these apply, ask anyway.
+**If any of these apply, YOU MUST ask.** No exceptions.
 
 **Convergence tracking:**
 
@@ -64,11 +63,13 @@ Track whether each question round surfaces new information or just confirms exis
 - Adds detail without changing conclusions
 - Rephrases what's already known
 
-**Convergence rule:** Understanding has converged when two consecutive question rounds yield nothing new. Do not proceed to checkpoint until converged.
+**Convergence rule:** Understanding has converged when two consecutive question rounds yield nothing new.
+
+**YOU MUST** verify convergence before proceeding to the checkpoint. Do not proceed until converged.
 
 **Dimensions to cover:**
 
-Before claiming convergence, verify these dimensions have been explored:
+Before claiming convergence, verify these dimensions have been explored. Use TodoWrite to track:
 
 | Dimension | Explored? |
 |-----------|-----------|
@@ -80,7 +81,7 @@ Before claiming convergence, verify these dimensions have been explored:
 | Compliance risks | What would make Claude ignore this? |
 | Conflicts | Does this clash with existing skills/CLAUDE.md? |
 
-Not all dimensions apply to every skill — mark inapplicable ones as such and move on.
+Not all dimensions apply to every skill — mark inapplicable ones as N/A with rationale. **YOU MUST** check all applicable dimensions before claiming convergence.
 
 **Exploring approaches:**
 
@@ -124,7 +125,7 @@ Before drafting, complete this checkpoint. Use TodoWrite to track. Provide **vis
 **Adversarial lens (visible output for each):**
 
 *Understanding:*
-- [ ] Similar skills? — Check search results. State what you found.
+- [ ] Similar skills? — Use Grep to search `.claude/skills/` for related terms. State what you found.
 - [ ] Conflicts? — Does this conflict with CLAUDE.md or existing skills?
 
 *Design:*
@@ -252,14 +253,102 @@ See [type-example files](references/) for concrete guidance on filling sections 
 - Confirm design context includes: problem statement, success criteria, compliance risks
 - Ask: "Ready to test this skill? Use testing-skills to validate it works."
 
+## When NOT to Use
+
+- **Existing skill needs minor edits** — edit directly without brainstorming
+- **Complete spec already exists** — use reviewing-skills to validate, then implement
+- **Modifying hook or agent** — use brainstorming-hooks or brainstorming-subagents instead
+- **Quick rename or typo fix** — just do it
+
+## Examples
+
+**Scenario:** User says "I want a skill for writing commit messages."
+
+### BAD: Skip questions and draft immediately
+
+Claude immediately drafts a SKILL.md for "writing-commit-messages" with generic content about conventional commits, without asking about:
+- What's actually broken (are messages too vague? wrong format? missing context?)
+- What format the user's project uses
+- Whether conventional commits is even desired
+
+**Why it's bad:** The draft addresses a generic problem, not the user's actual problem. Rework required after user feedback reveals the real need.
+
+### GOOD: Understand before drafting
+
+Claude asks one question at a time:
+1. "What's the current problem with commit messages in this project?"
+2. "Can you show me a recent commit message that didn't work well?"
+3. "What should that message have said instead?"
+
+After convergence, Claude presents summary + adversarial findings, gets confirmation, then drafts a skill tailored to the actual problem.
+
+**Why it's good:** The draft addresses the user's specific problem. Less rework. User feels heard.
+
+## Anti-Patterns
+
+### Dump all questions at once
+
+**Pattern:** Asking 5+ questions in one message to "be efficient."
+
+**Why it fails:** User can't process everything; answers are shallow; context is lost. Follow-up questions based on answers are impossible.
+
+**Fix:** One question per message. Track what you've learned. Build understanding incrementally.
+
+### Skip the checkpoint when user seems impatient
+
+**Pattern:** User says "just write it" → Claude starts drafting immediately.
+
+**Why it fails:** Skipping the checkpoint means skipping adversarial validation. Issues surface during implementation instead of during design.
+
+**Fix:** Acknowledge impatience, complete checkpoint anyway: "I hear you — let me confirm my understanding first: [summary]. Does this match your intent?"
+
+### Trust familiar patterns without verification
+
+**Pattern:** "This looks like a standard X skill" → import assumptions from similar skills.
+
+**Why it fails:** Every skill has unique context. Imported assumptions mask what makes this skill different.
+
+**Fix:** Check assumption traps. If the pattern looks familiar, ask anyway — that's when assumptions are most dangerous.
+
+## Troubleshooting
+
+**Symptom:** User gives one-word answers
+**Cause:** Questions may be too broad or user may not understand what's needed
+**Next steps:** Offer concrete options: "Would you describe this as [A], [B], or something else?"
+
+**Symptom:** Convergence never reached (new information every round)
+**Cause:** Scope may be expanding; user may be discovering requirements as they talk
+**Next steps:** Pause and summarize: "So far I've heard [X, Y, Z]. Is this the core problem, or should we scope down?"
+
+**Symptom:** User pushes back on checkpoint findings
+**Cause:** Findings may be wrong, or user may have context you don't
+**Next steps:** Explore, don't defend: "Tell me more about why this isn't a concern."
+
+**Symptom:** Draft doesn't match user's intent despite checkpoint
+**Cause:** Confirmation was superficial; user said "yes" without reading carefully
+**Next steps:** Present sections incrementally. Ask specific questions: "Does this example capture what you meant by X?"
+
+## Rationalizations to Watch For
+
+| Excuse | Reality |
+|--------|---------|
+| "The skill idea is simple enough" | Simple ideas still have edge cases and compliance risks. The process exists for a reason. |
+| "User already knows what they want" | User knows the problem; the skill design is a collaboration. Skip questions, miss context. |
+| "I'll just draft something and iterate" | Iterating on a flawed draft is more expensive than understanding first. |
+| "The pattern is obvious" | Obvious patterns hide unique requirements. This is assumption trap #2. |
+| "User seems impatient" | Impatience is when the checkpoint matters most. Complete it anyway. |
+| "I already asked about this" | This context may differ. Ask if uncertain. |
+| "The checkpoint is just overhead" | The checkpoint catches what understanding missed. Skipping it propagates errors. |
+
+**All of these mean: Complete the process. No shortcuts.**
+
 ## References
 
 **Required reading before drafting:**
 - [references/skill-writing-guide.md](references/skill-writing-guide.md) — Essential principles for effective skills (consolidates best practices, compliance techniques, quality dimensions)
 
-**Structure and spec:**
+**Structure:**
 - [assets/skill-template.md](assets/skill-template.md) — Starting structure for draft SKILL.md
-- [references/anthropic-skill-documentation.md](references/anthropic-skill-documentation.md) — Official skill spec and metadata fields
 
 **Deep dives (if needed):**
 - [references/skills-best-practices.md](references/skills-best-practices.md) — Full authoring guide with extended examples

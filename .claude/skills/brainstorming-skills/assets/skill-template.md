@@ -142,6 +142,17 @@ How to confirm the skill worked correctly.
 <!-- Why it fails: Why this is wrong -->
 <!-- Fix: Correct approach -->
 
+## Rationalizations to Watch For (optional)
+
+**For discipline-enforcing skills only.** Preempt common excuses agents use to skip steps.
+
+| Excuse | Reality |
+|--------|---------|
+| <!-- Common rationalization --> | <!-- Why it's wrong --> |
+
+<!-- End with: "**All of these mean: Complete the process. No shortcuts.**" -->
+<!-- See skill-writing-guide.md → Persuasion Principles → Rationalization Tables -->
+
 ## Extension Points (optional)
 
 How this skill can be extended or customized.
