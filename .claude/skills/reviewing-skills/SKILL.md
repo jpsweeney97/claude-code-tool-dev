@@ -94,7 +94,7 @@ This skill reviews SKILL.md files and their references/ directories for structur
 **Definition of Done:**
 
 - [ ] Entry Gate completed and recorded
-- [ ] All dimensions explored with Evidence/Confidence ratings
+- [ ] All dimensions explored with Evidence/Confidence ratings meeting stakes requirements (Adequate: E1 for P0; Rigorous: E2 for P0, E1 for P1; Exhaustive: E2 for all, E3 for P0)
 - [ ] Yield% below threshold for thoroughness level
 - [ ] Disconfirmation attempted for P0 dimensions
 - [ ] Adversarial pass completed
@@ -120,7 +120,7 @@ If inputs are unclear, ask. Accept paths or skill names.
 
 **2. Inventory the skill:**
 
-- Read SKILL.md
+- Read the entire SKILL.md — not just headers, but full content. You need to understand the skill's purpose and flow before checking individual dimensions.
 - List all files in references/ (if exists)
 - Note any external sources referenced
 
@@ -194,6 +194,8 @@ If #2 is "maybe not" or #3 is "no" → check the dimension anyway.
 
 ### The Review Loop
 
+**Note:** This skill adds a FIX stage to the standard thoroughness framework loop (DISCOVER → EXPLORE → VERIFY → REFINE). The FIX stage is where corrections are applied to the skill being reviewed, between verification and convergence checking.
+
 ```
     ┌─────────────────────────────────────────────┐
     │                                             │
@@ -235,11 +237,22 @@ For each dimension, record using Cell Schema:
 | Artifacts | If applicable | File paths, quotes, line numbers |
 | Notes | If applicable | What's missing, proposed fix |
 
+**For dimensions with no issues:** Mark as `[x]` with Evidence level reflecting how thoroughly you checked. Example: `| D8 | [x] | P1 | E1 | High | Notes: "When NOT to Use" section present and specific |`
+
+**For dimensions with findings:** Create separate finding entries (F1, F2, etc.) linked to the dimension. The dimension status reflects overall check completion, not whether issues were found.
+
 **Evidence requirements by stakes:**
 
 - Adequate: E1 for P0 dimensions
 - Rigorous: E2 for P0, E1 for P1
 - Exhaustive: E2 for all, E3 for P0
+
+**Independent methods for document review:**
+- Reading the section directly (E1)
+- Cross-referencing with examples or other sections (E1 → E2 when combined)
+- Tracing a concept through the full document (E1 → E2 when combined)
+- Checking against project CLAUDE.md or external standards (independent source)
+- Testing a claim by applying the skill mentally to a hypothetical case
 
 **Rule:** Confidence cannot exceed evidence. E0/E1 caps confidence at Medium.
 
@@ -249,7 +262,7 @@ For each dimension, record using Cell Schema:
 - Assign priority based on impact
 - Rate evidence and confidence
 - Note artifacts (quotes, line references)
-- Draft proposed fix
+- Draft proposed fix (prose description of the change; e.g., "Add 'YOU MUST' before the instruction" or "Replace vague 'appropriate' with specific criteria")
 
 #### VERIFY: Check findings
 
@@ -280,9 +293,11 @@ For each dimension, record using Cell Schema:
 
 For each verified finding:
 
-1. Apply the fix to the skill or reference file
-2. Note what changed (original → revised)
+1. Apply the fix directly to the skill or reference file using the Edit tool
+2. Note what changed in your tracking (original text → revised text, with file and line reference)
 3. Mark finding as fixed in the coverage tracker
+
+**Apply fixes at the end of each pass**, not during EXPLORE/VERIFY. This prevents fixes from interfering with dimension checking.
 
 **Fix order:** P0 issues first, then P1, then P2.
 
@@ -320,18 +335,22 @@ An entity *yields* if it is:
 - Fixes introduced new issues
 - Yield% above threshold
 
-**Exit to Adversarial Pass when:**
+**Proceed to Adversarial Pass when ALL of these are true:**
 
 - No new dimensions in last pass
 - No significant revisions
 - All items resolved
 - Yield% below threshold (Adequate <20%, Rigorous <10%, Exhaustive <5%)
 
+**YOU MUST** complete the Adversarial Pass before claiming done. Do not skip it even if the loop found no issues.
+
 **Iteration cap (failsafe):** If convergence not reached after 5 passes (Adequate), 7 passes (Rigorous), or 10 passes (Exhaustive), exit with finding: "Skill may need fundamental revision — review did not converge."
 
 ### Reviewing References
 
-For each file in references/:
+**If no references/ directory exists:** Skip this section. Note "No references directory" in the review report and proceed to Adversarial Pass.
+
+**For each file in references/:**
 
 **Existence and linkage:**
 - [ ] File exists at the linked path
@@ -372,7 +391,7 @@ This pass challenges the *skill itself*, not individual findings. Apply each len
 
 **Minimum depth by stakes:**
 
-- Adequate: Apply 4 lenses; document key objections; fix issues found
+- Adequate: Apply 4 lenses (must include Compliance Prediction and Trigger Ambiguity; choose 2 others); document key objections; fix issues found
 - Rigorous: Apply all 7 lenses; document objections and responses; fix issues found
 - Exhaustive: Apply all 7 lenses; document objections, responses, and residual risks; fix issues found
 
@@ -526,17 +545,17 @@ Yield% = 100% (first pass)
 - D5 (Precision): P1 — "wait appropriate amount" is vague
 - D9 (Reference validity): P2 — link to retry-strategies.md works but file has stale example
 
-Yield% = 3/5 = 60%
+Yield% = 3 new P0/P1 findings / 5 total P0/P1 entities = 60%
 
 **Pass 2 FIX:** Defined backoff ceiling, replaced "appropriate amount" with specific formula, updated stale example.
 
 **Pass 3:** Final dimension sweep
 
-- No new P0/P1 issues
+- D4 (Compliance strength): P1 — revised: added stronger "YOU MUST" for backoff
 - D10 (Edge cases): P2 — what if rate limit is permanent (banned)?
 - Added edge case handling
 
-Yield% = 1/6 = 17%
+Yield% = 1 revised P1 finding / 6 total P0/P1 entities = 17%
 
 **Pass 4:** Convergence check
 
@@ -664,6 +683,7 @@ First pass found nothing → "Skill is perfect."
 | "Testing will catch any issues" | Testing catches behavioral issues. Review catches document quality issues. Both needed. |
 | "This is just a quick fix" | Quick fixes accumulate into quality drift. Review the change, not just the original. |
 | "No time for full review" | Deploying unreviewed skills wastes more time fixing them later. Compress output, not process. |
+| "I'll just do a quick check" | Pass 1 is always 100% yield — one pass is never enough. The loop exists for a reason. |
 
 **All of these mean: Complete the review. No exceptions.**
 
