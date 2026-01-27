@@ -158,9 +158,9 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 
 | Finding | Priority | Proposed Fix |
 |---------|----------|--------------|
-| Missing "When NOT to Use" section | P0 | Add section listing exclusions |
 | Name is "skill-review" (noun) | P0 | Rename to "reviewing-skills" (gerund) |
 | Body is 650 lines | P1 | Split detailed content to references/ |
+| Missing required "Examples" section | P0 | Add Examples section with BAD/GOOD patterns |
 
 ---
 

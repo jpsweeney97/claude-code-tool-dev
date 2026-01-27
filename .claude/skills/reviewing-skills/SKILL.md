@@ -84,7 +84,7 @@ This skill reviews SKILL.md files and their references/ directories for structur
 
 ```
 **Review complete:** <skill-name>
-**Findings:** P0: N | P1: N | P2: N (N fixed)
+**Findings:** P0: N | P1: N | P2: N (N fixed, M accepted)
 **Key changes:** [1-2 most significant fixes]
 **Full report:** `docs/audits/YYYY-MM-DD-<skill-name>-review.md`
 ```
