@@ -313,6 +313,8 @@ For each verified finding:
 - Issues outside skill's scope (flag for separate work)
 - Issues requiring user decision (flag and ask)
 
+**For controversial fixes** (where reasonable people might disagree — e.g., word choice, organizational structure, level of detail): Flag for user review before applying. If uncertain whether a fix is controversial, ask.
+
 #### REFINE: Loop or exit?
 
 **Calculate Yield%:**
@@ -531,6 +533,8 @@ Claude scans the skill once, notes "has Overview, Process, Examples," and report
 
 **Pass 1:** DISCOVER dimensions, assign priorities
 
+Findings (format: `Dimension: finding priority — description`):
+
 - D1 (Trigger clarity): P0 — description says "manages rate limit responses" (summarizes workflow)
 - D3 (Structural conformance): P0 — missing "When NOT to Use" section
 - D4 (Compliance strength): P1 — no rationalization table
@@ -684,6 +688,7 @@ First pass found nothing → "Skill is perfect."
 | "This is just a quick fix" | Quick fixes accumulate into quality drift. Review the change, not just the original. |
 | "No time for full review" | Deploying unreviewed skills wastes more time fixing them later. Compress output, not process. |
 | "I'll just do a quick check" | Pass 1 is always 100% yield — one pass is never enough. The loop exists for a reason. |
+| "I already reviewed this recently" | Skills drift. Context changes. Re-review catches what shifted since last time. |
 
 **All of these mean: Complete the review. No exceptions.**
 
@@ -720,6 +725,10 @@ First pass found nothing → "Skill is perfect."
 **Symptom:** References directory has many files, review is taking too long
 **Cause:** Review scope may be too broad for stakes level
 **Next steps:** For Adequate stakes, focus on SKILL.md and spot-check references. For Rigorous+, review all references but prioritize those linked from critical sections.
+
+**Symptom:** Skill missing required frontmatter (name, description)
+**Cause:** Incomplete or malformed skill
+**Next steps:** Flag as P0 structural conformance issue (D3). Skill needs basic structure before detailed review. Consider whether to fix frontmatter first or escalate to brainstorming-skills for fundamental rework.
 
 ## Verification
 
@@ -810,7 +819,7 @@ After completing a review, verify:
 | Skill | Relationship |
 |-------|--------------|
 | brainstorming-skills | Upstream — produces draft SKILL.md that this skill reviews |
-| testing-skills | Downstream — validates behavioral effectiveness after review |
+| testing-skills | Downstream — validates behavioral effectiveness after review. Pass: reviewed SKILL.md path. Does not require review report but may reference it if behavioral issues arise. |
 | reviewing-documents | Sibling — same pattern, different target (prose specs vs skills) |
 
 **References directory depth:**
