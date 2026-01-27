@@ -155,6 +155,7 @@ const SearchOutputSchema = z.object({
       source_file: z.string(),
     }),
   ),
+  error: z.string().optional().describe('Error message if search failed'),
 });
 
 async function main() {
@@ -175,9 +176,11 @@ async function main() {
     async ({ query, limit = 5, category }: z.infer<typeof SearchInputSchema>) => {
       const idx = await ensureIndex();
       if (!idx) {
+        const error = loadError ?? 'Index not available';
         return {
           isError: true,
-          content: [{ type: 'text' as const, text: `Search unavailable: ${loadError}` }],
+          content: [{ type: 'text' as const, text: `Search unavailable: ${error}` }],
+          structuredContent: { results: [], error },
         };
       }
 
@@ -189,9 +192,11 @@ async function main() {
         };
       } catch (err) {
         console.error('Search error:', err);
+        const error = formatSearchError(err);
         return {
           isError: true,
-          content: [{ type: 'text' as const, text: formatSearchError(err) }],
+          content: [{ type: 'text' as const, text: error }],
+          structuredContent: { results: [], error },
         };
       }
     },
@@ -244,6 +249,15 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // Eagerly load the index to avoid first-search latency.
+  // If a search arrives while loading, ensureIndex() will wait for this same promise.
+  ensureIndex().then((idx) => {
+    if (idx) {
+      console.error(`Index ready (${idx.chunks.length} chunks)`);
+    }
+    // If idx is null, loadError was already logged by doLoadIndex
+  });
 
   const shutdown = async (signal: string) => {
     console.error(`Received ${signal}, shutting down...`);
