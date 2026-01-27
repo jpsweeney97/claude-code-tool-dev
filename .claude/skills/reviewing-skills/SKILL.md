@@ -210,7 +210,7 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE?
 
 **Seed dimensions:** Start with D1-D12 from the catalog (D13 if orchestration skill).
 
-**Assign priorities:** Use catalog defaults, adjust if context warrants.
+**Assign priorities:** Use catalog defaults, adjust if context warrants. Different skill types have different priority emphases — see [Skill Type Adaptation](references/skill-type-adaptation.md) for type-specific guidance on which dimensions to elevate.
 
 **Expand dimensions:** Apply ≥3 DISCOVER techniques:
 
@@ -801,3 +801,5 @@ After completing a review, verify:
 ## References
 
 - [Dimension Definitions](references/dimension-definitions.md) — Detailed checking guidance for each D1-D12 dimension
+- [Skill Type Adaptation](references/skill-type-adaptation.md) — Type-specific priority adjustments and additional checks
+- [Framework for Thoroughness](references/framework-for-thoroughness.md) — Protocol specification for Yield%, stakes calibration, evidence levels
