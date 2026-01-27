@@ -1,6 +1,6 @@
 ---
 name: testing-skills
-description: Use when validating a draft skill works.
+description: Use when validating a draft skill is behaviorally effective, when agents don't follow an existing skill reliably, or when re-testing after skill revisions.
 ---
 
 # Testing Skills
@@ -15,6 +15,23 @@ You run test scenarios (pressure scenarios with subagents), watch them fail with
 
 **Input:** Draft SKILL.md + design context from brainstorming-skills
 
+## When to Use
+
+- After brainstorming-skills produces a draft SKILL.md (primary use case)
+- When agents don't follow an existing skill reliably (suggests behavioral gaps)
+- After revising a skill that previously passed testing (regression check)
+- When a skill exists but you're uncertain it actually changes agent behavior
+- Before promoting a skill from development to production
+
+## When NOT to Use
+
+- **No skill exists yet** — use brainstorming-skills first
+- **Document quality review needed** — use reviewing-skills (checks clarity, not behavior)
+- **Pure reference skills** — skills that only provide information without rules to violate don't need pressure testing
+- **Trivial skill edits** — typo fixes or formatting changes don't require full re-testing
+- **Skill has no compliance cost** — if following the skill is always the path of least resistance, pressure testing adds nothing
+- **Hybrid skills with minor compliance rules** — if a skill is 90% reference and 10% rules, test only the rule portions, not the entire skill
+
 ## Input from brainstorming-skills
 
 Testing-skills expects:
@@ -28,6 +45,11 @@ Testing-skills expects:
 - **Problem statement** — what's broken/missing (informs scenario design)
 - **Success criteria** — what should happen instead (defines GREEN)
 - **Compliance risks** — what might cause agents to rationalize (informs pressure scenarios)
+
+**If no design context exists** (legacy skill, imported skill, or brainstorming was skipped):
+1. Read the skill and identify: What rules could agents violate? Under what pressures?
+2. Create minimal design context by documenting: the problem (what the skill prevents), success criteria (what compliance looks like), and compliance risks (reasons agents might rationalize)
+3. Proceed with testing using this reconstructed context
 
 ## TDD Mapping for Skills
 
@@ -57,7 +79,7 @@ Skip testing because "it's obviously clear"? Violation.
 
 - Not for "simple skills"
 - Not for "just documentation"
-- Not for "reference material"
+- Not for pure reference skills that have rules users might bypass (test the rule portions)
 
 ## The Testing Cycle
 
@@ -85,7 +107,7 @@ Run pressure scenarios with subagent WITHOUT the skill loaded. Document exact be
    ```
    Task tool → general-purpose subagent
    Prompt: [scenario + pressure]
-   Skill: NOT loaded
+   Skill: NOT loaded (subagents don't have skill access by default)
    ```
 
 3. **Capture verbatim:**
@@ -93,7 +115,7 @@ Run pressure scenarios with subagent WITHOUT the skill loaded. Document exact be
    - What rationalizations did they use (exact words)?
    - Which pressures triggered violations?
 
-**Output:** Documented baseline failures and rationalizations
+**Output:** Documented baseline failures and rationalizations (PRESERVE these for REFACTOR phase — you'll compare them to new rationalizations discovered during GREEN)
 
 **If baseline doesn't fail:**
 
@@ -115,8 +137,9 @@ Run same scenarios WITH the skill loaded. Agent should now comply.
 1. **Run test with skill:**
    ```
    Task tool → general-purpose subagent
-   Prompt: [same scenario + pressure]
-   Skill: Loaded via @skill-name or inline
+   Prompt: [same scenario + pressure + skill content inline]
+   OR
+   Fresh main conversation with skill properly loaded
    ```
 
 2. **Verify compliance:**
@@ -125,6 +148,8 @@ Run same scenarios WITH the skill loaded. Agent should now comply.
    - Does agent resist the pressure?
 
 **If agent still fails:** Skill needs revision. Note specific gaps and loop back to brainstorming-skills with feedback.
+
+**If skill is fundamentally flawed:** If GREEN reveals the skill concept itself is wrong (not just missing counters), escalate to brainstorming-skills for redesign rather than continuing to patch.
 
 **Output:** Confirmed compliance or feedback for revision
 
@@ -137,9 +162,13 @@ Agent found new rationalization during GREEN? Add explicit counter.
    - Explicit counters in rules
    - Entries in rationalization table
    - Red flags list updates
-3. **Re-test until bulletproof**
+3. **Re-test the scenario**
+4. **Loop until bulletproof**
 
-**Bulletproof = no new rationalizations under maximum pressure**
+**Exit criterion:** No new rationalizations discovered under maximum pressure (3+ combined pressures). The last test round must show the agent:
+- Choosing the correct option
+- Citing the skill as justification
+- Acknowledging temptation but following the rule anyway
 
 ## Testing by Skill Type
 
@@ -272,7 +301,7 @@ Choose and explain your reasoning.
 1. Agent chooses correct option under maximum pressure
 2. Agent cites skill sections as justification
 3. Agent acknowledges temptation but follows rule anyway
-4. Meta-testing reveals "skill was clear, I should follow it"
+4. Meta-testing (asking agent post-hoc: "How could the skill have been clearer?") reveals "skill was clear, I should follow it"
 
 ### Signs Skill Needs Work
 
@@ -308,20 +337,22 @@ Make it easy for agents to self-check when rationalizing:
 **All of these mean: Follow the skill. No exceptions.**
 ```
 
-## Common Rationalizations for Skipping Testing
+## Rationalizations to Watch For
 
-| Excuse                         | Reality                                                          |
-| ------------------------------ | ---------------------------------------------------------------- |
-| "Skill is obviously clear"     | Clear to you ≠ clear to other agents. Test it.                   |
-| "It's just a reference"        | References can have gaps, unclear sections. Test retrieval.      |
-| "Testing is overkill"          | Untested skills have issues. Always. 15 min testing saves hours. |
-| "I'll test if problems emerge" | Problems = agents can't use skill. Test BEFORE deploying.        |
-| "Too tedious to test"          | Testing is less tedious than debugging bad skill in production.  |
-| "I'm confident it's good"      | Overconfidence guarantees issues. Test anyway.                   |
-| "Academic review is enough"    | Reading ≠ using. Test application scenarios.                     |
-| "No time to test"              | Deploying untested skill wastes more time fixing it later.       |
+These thoughts mean STOP — you're rationalizing skipping tests:
 
-**All of these mean: Test before deploying. No exceptions.**
+| Excuse | Reality |
+|--------|---------|
+| "This skill is obviously clear" | Clear to you ≠ clear to agents under pressure. Test it. |
+| "Baseline will obviously fail" | Assumption. Run baseline anyway — you might be surprised. |
+| "I already know what rationalizations agents use" | Actual rationalizations differ from predicted ones. Capture verbatim. |
+| "One scenario is enough" | Different pressures trigger different rationalizations. Test at least 2-3 scenarios covering different compliance risks. |
+| "The skill passed GREEN, we're done" | Check for NEW rationalizations. One pass isn't bulletproof. |
+| "Testing takes too long" | Debugging untested skills in production takes longer. |
+| "I'll test after deployment if issues arise" | Issues = agents ignoring your skill. Test BEFORE deploying. |
+| "This is a trivial skill" | Trivial skills with compliance rules still need pressure testing. |
+
+**All of these mean: Complete the testing cycle. No exceptions.**
 
 ## Testing Checklist
 
