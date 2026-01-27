@@ -2,6 +2,19 @@
 
 Reference for matching problems to Claude Code extension types.
 
+## Table of Contents
+
+- [Quick Reference](#quick-reference)
+- [Extension Types](#extension-types)
+  - [Hooks](#hooks)
+  - [Skills](#skills)
+  - [Agents (Subagents)](#agents-subagents)
+  - [MCP Servers](#mcp-servers)
+  - [Plugins](#plugins)
+- [Decision Heuristics](#decision-heuristics)
+- [Hybrid Patterns](#hybrid-patterns)
+- [Tradeoffs](#tradeoffs)
+
 ## Quick Reference
 
 | Problem Pattern | Extension | Core Value |

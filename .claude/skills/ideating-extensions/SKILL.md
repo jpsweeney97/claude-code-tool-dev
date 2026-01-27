@@ -1,6 +1,7 @@
 ---
 name: ideating-extensions
 description: Use when stuck generating Claude Code extension ideas, after a frustrating session where something felt annoying but you can't articulate what, or when deliberately exploring workflow improvements. Use when user says "I need extension ideas", "what should I build", "help me brainstorm extensions", or "I'm stuck on what to create".
+argument-hint: "[focus-area]"
 ---
 
 ## Overview
@@ -13,7 +14,7 @@ Surfaces Claude Code extension ideas through structured dialogue. You describe y
 1. Discovery — Questions about workflow, recent frustrations, existing extensions
 2. Proposal — Claude generates 3-5 ranked extension ideas based on what surfaced
 3. Exploration — Dig deeper into selected ideas (feasibility, value, shape, risks)
-4. Handoff — Selected idea flows to the appropriate brainstorming-* skill
+4. Handoff — Offer to invoke the appropriate brainstorming-* skill for the selected idea
 
 **Non-goals:**
 - Teaching extension types abstractly (learn by doing, not lecture)
@@ -28,11 +29,12 @@ Surfaces Claude Code extension ideas through structured dialogue. You describe y
 - Stuck in a rut — keep thinking of the same types of extensions
 - Post-frustration — after a session where something felt annoying but you couldn't name it
 - Exploration mode — deliberately setting aside time to think about workflow improvements
+- Focused ideation — optionally pass a focus area (e.g., `/ideating-extensions testing`) to narrow discovery questions to that domain
 
 **Do NOT invoke when:**
 - You already know what to build — go directly to brainstorming-skills/hooks/mcp/etc.
 - You want to learn about extension types — read documentation instead
-- You have a specific problem to solve — this is for open-ended ideation
+- You have a specific, named problem AND know the extension type to solve it — use brainstorming-* directly (e.g., "I need a hook that validates X" → /brainstorming-hooks)
 
 ## Outputs
 
@@ -64,14 +66,18 @@ Summary suitable for passing to brainstorming-* skill:
 ## Process
 
 **Protocol:** Thoroughness framework (vocabulary only — evidence/confidence levels)
-**Default thoroughness:** Rigorous (8-12 questions before proposal)
 
 ### Phase 1: Context Gathering
 
+**YOU MUST complete discovery before proposing ideas.** The skill's value is surfacing friction you didn't know you had. Skipping to Phase 3 produces generic ideas that waste everyone's time.
+
+**If focus area provided:** Narrow workflow and friction questions to the specified domain (e.g., if `$ARGUMENTS` is "testing", ask specifically about testing workflows and friction). Still complete full discovery within that domain.
+
 **Examine existing setup:**
-- Check `~/.claude/` and `.claude/` for existing extensions
+- Use Glob to check `~/.claude/skills/`, `~/.claude/hooks/`, `.claude/skills/`, `.claude/hooks/` for existing extensions
 - Note what types they've built (skills, hooks, agents, etc.)
 - Identify gaps — extension types not represented
+- If no extensions exist, note this as a blank slate — focus discovery on workflow friction rather than extension gaps
 
 **Ask about workflow:** (one question at a time)
 - What kind of work do you do most often?
@@ -84,7 +90,9 @@ Summary suitable for passing to brainstorming-* skill:
 - Where do you make mistakes or forget steps?
 - What takes longer than it should?
 
-**Convergence rule:** Continue asking until two consecutive question rounds yield no new friction points or workflow details.
+**Probing:** If an answer hints at deeper friction (e.g., "I guess testing is slow"), probe once: "Tell me more about that — what specifically about testing?" Then move on regardless of depth. Don't interrogate.
+
+**Convergence rule:** A "round" is one question and its answer. Continue asking until two consecutive rounds yield no new friction points or workflow details (i.e., answers repeat or generalize what was already said).
 
 ### Phase 2: Problem Synthesis
 
@@ -104,7 +112,7 @@ Generate 3-5 extension ideas. For each idea:
 | Field | Content |
 |-------|---------|
 | Name | Descriptive working title |
-| Type | skill / hook / command / agent / MCP server / plugin |
+| Type | skill / hook / agent / MCP server / plugin |
 | Problem | Specific friction point it addresses |
 | Behavior | What it would do (1-2 sentences) |
 | Fit | Why this extension type suits this problem |
@@ -113,6 +121,8 @@ Generate 3-5 extension ideas. For each idea:
 - Specific to their actual workflow (not generic)
 - Non-obvious (they wouldn't think of it without help)
 - Right abstraction (concrete enough to act on, not trivially specific)
+
+**If focus area is too narrow:** If the focus area yields fewer than 3 ideas, broaden slightly or propose 2 ideas with a note: "The focused domain limits options — would you like to expand scope?"
 
 **Ranking:** Order by estimated value-to-effort ratio based on what you know about their context.
 
@@ -134,7 +144,7 @@ For ideas the user wants to explore further, assess:
 Once an idea is selected:
 1. Confirm which brainstorming-* skill applies (skills, hooks, mcp, etc.)
 2. Summarize the idea in terms that skill can use
-3. Suggest invoking that skill to begin design
+3. Offer to invoke that skill: "Would you like me to invoke /brainstorming-<type> to begin design?"
 
 ## Decision Points
 
@@ -226,7 +236,7 @@ Once an idea is selected:
 
 **Pattern:** Proposing ideas before asking questions
 **Why it fails:** Without context, ideas are generic. Generic ideas waste the user's time and erode trust in the skill.
-**Fix:** Always complete at least 5-6 discovery questions before any proposal. Discovery is the skill's value.
+**Fix:** Complete discovery until two consecutive low-yield rounds. Discovery is the skill's value.
 
 **Pattern:** Asking about extension types instead of problems
 **Why it fails:** "Would you like a hook or a skill?" puts the burden on the user. They came here because they don't know what to build.
@@ -269,10 +279,10 @@ Once an idea is selected:
 **Cause:** Misunderstanding of extension type capabilities
 **Next steps:** Review what each type does:
 - Hooks: automatic checks/enforcement, run silently
-- Skills: guided workflows, explicit invocation
-- Commands: shortcuts, quick actions
+- Skills: guided workflows, explicit invocation (commands merged into skills)
 - Agents: delegated complex tasks
 - MCP servers: external tool integrations
+- Plugins: distributable bundles of the above
 
 **Symptom:** User rejects all ideas but can't say why
 **Cause:** Mismatch between user's unstated criteria and Claude's inferred criteria
@@ -287,10 +297,10 @@ Once an idea is selected:
 **Handoff to brainstorming-* skills:**
 After exploration, the selected idea flows to the appropriate skill:
 - Skills → `brainstorming-skills`
-- Hooks → `brainstorming-hooks` (planned)
+- Hooks → `brainstorming-hooks`
 - Agents → `brainstorming-subagents`
-- MCP servers → `brainstorming-mcp` (planned)
-- Plugins → `brainstorming-plugins` (planned)
+- MCP servers → For now, use `brainstorming-skills` with MCP context; dedicated skill planned
+- Plugins → For now, use `brainstorming-skills` with plugin context; dedicated skill planned
 
 **Reference: Extension Pattern Guide**
 The skill uses [references/extension-patterns.md](references/extension-patterns.md) to inform proposals — a guide covering:
