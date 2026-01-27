@@ -15,11 +15,11 @@ Make recommendations through structured analysis, not pattern matching.
 - Same shallow process for trivial and high-stakes decisions
 - Missing activities: null option, information gaps, sensitivity analysis
 
-**This skill ensures:**
-- Every recommendation follows the decision-making framework
-- Stakes-calibrated depth (adequate/rigorous/exhaustive)
-- Explicit convergence before claiming "ready"
-- Persistent Decision Record with traceable reasoning
+**YOU MUST:**
+- Follow the decision-making framework for every recommendation
+- Calibrate depth to stakes (adequate/rigorous/exhaustive)
+- Achieve explicit convergence before claiming "ready"
+- Create a persistent Decision Record with traceable reasoning
 
 **Outputs:**
 - Decision Record file at `docs/decisions/YYYY-MM-DD-<decision-slug>.md`
@@ -48,6 +48,7 @@ Make recommendations through structured analysis, not pattern matching.
 **Do not use when:**
 - User has already decided and wants implementation help
 - Question is purely factual ("What is X?")
+- Open-ended ideation where option space is unknown — use thoroughness exploration first, then return here when 2+ options identified
 - Decision is trivial (both scope AND reversibility are negligible)
   - Scope: affects only a single line/variable/name
   - Reversibility: < 5 minutes to undo
@@ -67,7 +68,7 @@ Before any analysis, establish and record:
 - Can you name 2+ plausible options (including "defer/do nothing")?
 - Is the remaining uncertainty about preferences/trade-offs (not basic facts)?
 
-If NO to either: **Stop.** Recommend running thoroughness exploration first. Do not proceed until option space is known or user explicitly overrides.
+If NO to either: **Stop.** Recommend running thoroughness exploration first. Do not proceed until option space is known or user explicitly overrides (see Decision Points: Thoroughness gate blocks).
 
 **3. Stakes calibration:**
 
@@ -341,6 +342,12 @@ This summary lets the user see the answer without opening the file, while the fi
 - If objections don't cause discomfort → They're too weak
 - Red flag: "I can't think of strong objections" → Try harder. Steelman the alternatives. What would a critic say?
 
+**Hard deadline forces early termination:**
+- Document current state (frontrunner, confidence, open questions) in Decision Record
+- Mark confidence as "Low — analysis truncated by deadline"
+- Present best available recommendation with caveat: "Given time constraint, recommend [X] but [Y uncertainty remains]"
+- Note in Decision Record what would need verification post-decision
+
 ## Examples
 
 **Scenario:** "I need to add authentication to my app. What should I use?"
@@ -363,11 +370,13 @@ This summary lets the user see the answer without opening the file, while the fi
 
 **Entry Gate:**
 - Stakes: Rigorous (moderate blast radius, some undo cost, medium uncertainty)
+- Rationale: Auth affects all users (moderate blast radius) and is costly to change later (some undo cost)
 - Time budget: This sprint
 - Iteration cap: 3
 - Minimum passes: 2
 - Evidence bar: Confirm approach handles common auth patterns; verify migration path exists
 - Allowed skips: Deep sensitivity analysis (will do lightweight version)
+- Overrides: None
 - Escalation trigger: Team disagrees on security vs simplicity trade-off
 
 **Frame:**
@@ -556,6 +565,7 @@ After completing a recommendation, verify:
 
 **Framework handoffs:**
 - If option space unknown → Hand off to [thoroughness.framework](../../../docs/frameworks/framework-for-thoroughness_v1.0.0.md) first
+- Return condition: When thoroughness identifies 2+ viable options with evidence, resume this skill at Entry Gate
 - Outputs from thoroughness (dimensions, findings, gaps) feed directly into this skill's Entry Gate
 
 **Domain-specific criteria:**
