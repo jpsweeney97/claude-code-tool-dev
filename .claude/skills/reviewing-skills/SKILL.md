@@ -161,8 +161,8 @@ Document assumptions, stakes level, scope, and stopping criteria before proceedi
 | D2 | Process completeness | P0 | Missing steps, undefined decision points, unclear exit criteria |
 | D3 | Structural conformance | P0 | Missing required sections, wrong frontmatter, exceeds size limits |
 | D4 | Compliance strength | P1 | Weak language, missing rationalization counters, no red flags |
-| D5 | Precision | P1 | Vague wording, loopholes, wiggle room |
-| D6 | Actionability | P1 | Instructions clear in theory but ambiguous in practice |
+| D5 | Precision | P1 | Vague wording that allows multiple interpretations (language quality) |
+| D6 | Actionability | P1 | Instructions lack execution details — tools, paths, methods unspecified (execution readiness) |
 | D7 | Internal consistency | P1 | Contradictions between sections, terminology drift |
 | D8 | Scope boundaries | P1 | Missing "When NOT to Use", unclear exclusions |
 | D9 | Reference validity | P2 | Broken links, outdated references, missing assets |

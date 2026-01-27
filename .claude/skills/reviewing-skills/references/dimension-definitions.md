@@ -223,7 +223,9 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 
 ## D5: Precision (P1)
 
-**What it catches:** Vague wording, loopholes, wiggle room.
+**What it catches:** Vague wording that allows multiple interpretations (language quality).
+
+**Distinction from D6:** D5 checks if language is *unambiguous* — only one valid interpretation. D6 checks if instructions are *executable* — reader has what they need to act. A statement can be precise but not actionable ("Run the validation script" — unambiguous but which script?). A statement can fail both ("Handle appropriately" — vague AND unexecutable).
 
 **How to check:**
 
@@ -251,7 +253,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 
 **Pass criteria:**
 
-- Instructions are unambiguous
+- Instructions have only one valid interpretation
 - Quantifiers are specific or defined
 - Thresholds are explicit
 - No wiggle room in critical paths
@@ -264,11 +266,22 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 | "Handle several edge cases" | P1 | List the specific edge cases |
 | "If the task is complex" | P1 | Define: "complex = >3 files OR architectural change OR security-sensitive" |
 
+**D5 vs D6 examples:**
+
+| Statement | D5 (Precision) | D6 (Actionability) |
+|-----------|----------------|-------------------|
+| "Handle errors appropriately" | FAIL — "appropriately" is vague | FAIL — no method specified |
+| "Run the validation script" | PASS — unambiguous | FAIL — which script? where? |
+| "Retry 3 times" | PASS — specific | FAIL — how to retry? what delay? |
+| "Run `./validate.py`, expect 'OK'" | PASS | PASS |
+
 ---
 
 ## D6: Actionability (P1)
 
-**What it catches:** Instructions clear in theory but ambiguous in practice.
+**What it catches:** Instructions that lack execution details — tools, paths, methods unspecified (execution readiness).
+
+**Distinction from D5:** D5 checks if language is *unambiguous*. D6 checks if the reader can *immediately execute* without asking questions or looking things up. An instruction can be unambiguous but still require the reader to figure out HOW to do it.
 
 **How to check:**
 
@@ -277,6 +290,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 3. Are file paths or locations clear?
 4. Is the expected output defined?
 5. What does success look like?
+6. Is assumed knowledge actually provided or linked?
 
 **Red flags:**
 
@@ -284,7 +298,8 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 - "Update the relevant files" — which files?
 - "Ensure quality" — what criteria?
 - "Follow best practices" — which ones?
-- Instructions that require external knowledge not provided
+- "Run the script" — which script? where?
+- Instructions that require external knowledge not provided or linked
 
 **Good patterns:**
 
@@ -293,13 +308,15 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 - Clear success criteria: "Tests pass with 0 failures"
 - Links to external docs when needed
 - Examples showing the action
+- Expected output specified
 
 **Pass criteria:**
 
-- Every instruction is immediately actionable
+- Every instruction is immediately executable
 - Tools and commands specified
 - Locations explicit
 - Success criteria verifiable
+- Required knowledge provided or linked
 
 **Example findings:**
 
@@ -308,6 +325,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 | "Verify the service is running" | P1 | "Run `curl localhost:8080/health` — expect 200 OK" |
 | "Update relevant documentation" | P1 | List specific files or provide checklist |
 | "Follow the style guide" | P2 | Link to style guide or inline key rules |
+| "Run the validation script" | P1 | "Run `./scripts/validate.py` — expect exit code 0" |
 
 ---
 
