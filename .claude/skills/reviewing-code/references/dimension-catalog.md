@@ -1,12 +1,21 @@
 # Dimension Catalog
 
-Complete definitions for all 31 code review dimensions across 9 categories.
+Complete definitions for all 41 code review dimensions across 9 categories.
 
 ## How to Use This File
 
 - **During DISCOVER:** Consult to identify which dimensions apply
 - **During EXPLORE:** Reference definitions to check each dimension correctly
 - **Core process lives in SKILL.md** — this file is lookup reference only
+
+**Checking methods:** How you check each dimension depends on the codebase. Common methods include:
+- **Read:** Direct inspection of code
+- **Grep:** Search for patterns (e.g., `catch` blocks for R1, `TODO` for H1)
+- **Run:** Execute code paths (tests, manual testing)
+- **Trace:** Follow data/control flow across files
+- **Tool:** Use linters, type checkers, security scanners
+
+For each dimension, the "Checks" column lists what to look for; you choose the method based on context.
 
 ---
 
@@ -65,10 +74,10 @@ Complete definitions for all 31 code review dimensions across 9 categories.
 
 | ID | Dimension | Question | Checks |
 |----|-----------|----------|--------|
-| P1 | Algorithmic efficiency | Time/space complexity appropriate? | Big-O analysis, unnecessary iterations, data structure choice |
-| P2 | Resource usage | Memory leaks, connection pooling, caching? | Resource cleanup, pool management, cache invalidation |
-| P3 | Database efficiency | N+1 queries, missing indexes, transaction scope? | Query patterns, index coverage, transaction boundaries |
-| P4 | Scalability | Bottlenecks at 10x/100x scale? | Horizontal scaling, statelessness, queue depth |
+| PF1 | Algorithmic efficiency | Time/space complexity appropriate? | Big-O analysis, unnecessary iterations, data structure choice |
+| PF2 | Resource usage | Memory leaks, connection pooling, caching? | Resource cleanup, pool management, cache invalidation |
+| PF3 | Database efficiency | N+1 queries, missing indexes, transaction scope? | Query patterns, index coverage, transaction boundaries |
+| PF4 | Scalability | Bottlenecks at 10x/100x scale? | Horizontal scaling, statelessness, queue depth |
 
 **Mandatory:** Conditional — when code is on critical path or handles scale
 

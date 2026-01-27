@@ -11,7 +11,7 @@ Code reviews often fail silently: one-pass "looks good" verdicts, fragmented too
 
 This skill addresses these failures through:
 
-1. **Comprehensive coverage** — 31 dimensions across 9 categories (correctness, robustness, security, performance, maintainability, code health, architecture, testing, type design)
+1. **Comprehensive coverage** — 41 dimensions across 9 categories (correctness, robustness, security, performance, maintainability, code health, architecture, testing, type design)
 2. **Context-first approach** — Dedicated exploration phase understands codebase patterns and conventions before reviewing
 3. **Iterative convergence** — Multiple passes with Yield% tracking; cannot exit after one pass
 4. **Fixes applied** — Issues are fixed in place, not just reported
@@ -74,7 +74,7 @@ This skill addresses these failures through:
 - Context Summary (patterns discovered, conventions identified)
 - Coverage Tracker (dimensions with Cell Schema)
 - Iteration Log (pass-by-pass Yield%)
-- Findings grouped by category (C1-C5, R1-R4, S1-S5, P1-P4, M1-M6, H1-H5, A1-A4, T1-T4, TD1-TD4)
+- Findings grouped by category (C1-C5, R1-R4, S1-S5, PF1-PF4, M1-M6, H1-H5, A1-A4, T1-T4, TD1-TD4)
 - Fixes Applied (what changed, where, risk level)
 - Fixes Deferred (user approval required)
 - Disconfirmation Attempts
@@ -113,7 +113,7 @@ This skill addresses these failures through:
 | Maintainability | M1-M6 | Always |
 | Code Health | H1-H5 | Always |
 | Security | S1-S5 | When code handles user input, auth, or sensitive data |
-| Performance | P1-P4 | When code is on critical path or handles scale |
+| Performance | PF1-PF4 | When code is on critical path or handles scale |
 | Architecture | A1-A4 | When reviewing module/feature (not single file) |
 | Testing | T1-T4 | When tests exist or should exist |
 | Type Design | TD1-TD4 | When code defines types/classes/interfaces |
@@ -137,6 +137,11 @@ This skill addresses these failures through:
 - **Module/feature:** Use Explore agent
 - **Large scope:** Deploy multiple Explore agents in parallel (e.g., one for architecture, one for patterns, one for dependencies) then synthesize findings
 
+**Multi-file synthesis:** When reviewing multiple files, look for:
+- Inconsistent patterns between files (different error handling styles, naming conventions)
+- Assumptions in one file that aren't validated in another (caller assumes non-null but callee can return null)
+- Circular dependencies or layer violations across file boundaries
+
 ### The Review Loop
 
 ```
@@ -151,12 +156,12 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE? ─�
 
 **FIX:** Apply corrections stratified by risk:
 
-| Fix Type | Strategy |
-|----------|----------|
-| Cosmetic | Apply → Run tests → Verify green |
-| Simplification | Apply → Run tests → Verify green |
-| Behavior-changing | Write failing test → Apply → Verify passes |
-| Behavior-changing (no coverage) | **Defer for user approval** |
+| Fix Type | Definition | Strategy |
+|----------|------------|----------|
+| Cosmetic | Formatting, naming, comments, type annotations (no runtime change) | Apply → Run tests → Verify green |
+| Simplification | Refactoring that preserves exact behavior (extract function, reduce nesting) | Apply → Run tests → Verify green |
+| Behavior-changing | Any fix that could change runtime behavior (logic, error handling, validation) | Write failing test → Apply → Verify passes |
+| Behavior-changing (no coverage) | Behavior-changing fix where no tests exercise the affected code | **Defer for user approval** |
 
 **REFINE:** Calculate Yield%. Continue if above threshold; exit to Adversarial Pass when below.
 
@@ -178,9 +183,28 @@ See [Dimension Catalog](references/dimension-catalog.md) for full dimension defi
 | Hidden Complexity | Where is complexity hiding? |
 | Over-engineering | What here is unnecessary? |
 
+**Minimum depth by stakes:**
+
+| Level | Required Lenses | Must Include |
+|-------|-----------------|--------------|
+| Adequate | 4 | Assumption Hunting, Failure Modes, + 2 others |
+| Rigorous | 6 | All of Adequate + Security Mindset, Pre-mortem |
+| Exhaustive | All 9 | Complete coverage |
+
+**Pre-mortem requirement:** At every level, the Pre-mortem lens must produce a specific, plausible failure story — not just "could fail." If no plausible story emerges, document why (e.g., "code is pure function with no side effects").
+
 ### Exit Gate
 
-Cannot claim "done" until: Context complete, Coverage complete, Evidence requirements met, Disconfirmation attempted, Convergence reached, Adversarial pass complete, Fixes applied, Tests pass.
+Cannot claim "done" until ALL criteria pass:
+
+- [ ] Context Phase complete (patterns, conventions, dependencies documented)
+- [ ] Coverage complete (no `[ ]` or `[?]` items remaining)
+- [ ] Evidence requirements met (E2 for P0 at Rigorous; E3 for P0 at Exhaustive)
+- [ ] Disconfirmation attempted (1+ technique per P0 at Adequate; 2+ at Rigorous; 3+ at Exhaustive)
+- [ ] Convergence reached (Yield% below threshold: <20% Adequate, <10% Rigorous, <5% Exhaustive)
+- [ ] Adversarial pass complete (minimum lenses applied, Pre-mortem produced story)
+- [ ] Fixes applied (stratified by risk; behavior-changing with tests verified)
+- [ ] Tests pass (all tests green after fixes)
 
 ## Decision Points
 
@@ -201,6 +225,20 @@ See [Examples section in full documentation](references/examples.md) for detaile
 - **Checking presence not correctness** → Ask "Is this CORRECT?" not "Does this EXIST?"
 - **Applying behavior-changing fixes without tests** → Defer to user
 - **Adversarial pass as checkbox** → Pre-mortem must produce plausible failure story
+
+## Rationalizations to Watch For
+
+| Excuse | Reality |
+|--------|---------|
+| "I know this code well" | Familiarity breeds blindness. Context Phase is mandatory. |
+| "It's just a small change" | Small changes can have large blast radius. Check scope. |
+| "Tests are passing" | Passing tests ≠ correct code. Tests may not cover the issue. |
+| "The fix is obvious" | Obvious fixes can introduce subtle bugs. Verify with tests. |
+| "No time for full review" | Partial review finds partial issues. Compress output, not process. |
+| "This dimension doesn't apply" | Correctness, Robustness, Maintainability, Code Health always apply. |
+| "I'll just do a quick check" | Pass 1 is always 100% yield — one pass is never enough. |
+
+**All of these mean: Complete the review. No exceptions.**
 
 ## Troubleshooting
 
@@ -233,5 +271,5 @@ See [Examples section in full documentation](references/examples.md) for detaile
 
 ## References
 
-- [Dimension Catalog](references/dimension-catalog.md) — Full definitions for all 31 dimensions
+- [Dimension Catalog](references/dimension-catalog.md) — Full definitions for all 41 dimensions
 - [Framework for Thoroughness](references/framework-for-thoroughness.md) — Protocol specification
