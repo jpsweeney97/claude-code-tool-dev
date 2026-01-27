@@ -136,6 +136,29 @@ Persuasive language is key to effective Skills. Use these techniques deliberatel
 
 **Key insight:** Bright-line rules reduce rationalization. "When X, do Y" is more effective than "generally do Y."
 
+### Rationalization Tables
+
+For discipline-enforcing skills, include a "Rationalizations to Watch For" section that preempts common excuses:
+
+```markdown
+## Rationalizations to Watch For
+
+| Excuse | Reality |
+|--------|---------|
+| "This case is simple enough" | Simple cases still benefit from the process. |
+| "I'm under time pressure" | Rushing causes rework. Complete the process. |
+| "I already know the answer" | Assumptions are most dangerous when confident. |
+
+**All of these mean: Complete the process. No shortcuts.**
+```
+
+**Why this works:**
+- Names the rationalization before the agent thinks it
+- Provides the counter-argument in advance
+- The closing line creates a bright-line rule
+
+**When to include:** Discipline-enforcing skills where agents might skip steps under pressure. Not needed for reference or guidance skills.
+
 ---
 
 ## Quality Dimensions
