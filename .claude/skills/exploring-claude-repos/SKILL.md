@@ -169,19 +169,8 @@ DISCOVER → EXPLORE → VERIFY → REFINE → (loop or exit)
 1. Locate all instances (glob patterns, directory traversal)
 2. Catalog with metadata (name, purpose, dependencies)
 3. Assess signals (novelty, quality, conflict, complexity)
-4. **Track using Cell Schema** — every item MUST have:
-   - **ID:** Stable identifier (e.g., `D3`, `F2`)
-   - **Status:** `[x]` done, `[~]` partial, `[-]` N/A, `[ ]` not started, `[?]` unknown
-   - **Priority:** P0 / P1 / P2
-   - **Evidence:** E0 (assertion) / E1 (single source) / E2 (two methods) / E3 (triangulated + disconfirmation)
-   - **Confidence:** High / Medium / Low
-   - **Artifacts:** Links, commands run, docs reviewed
-   - **Notes:** What's missing, next action
-5. **Evidence levels:**
-   - E0: Assertion only ("I believe X")
-   - E1: Single source/method (read file, saw X)
-   - E2: Two independent methods (read + grep confirmed)
-   - E3: Triangulated + actively tried to disprove
+4. **Track using Cell Schema** (ID, Status, Priority, Evidence, Confidence, Artifacts, Notes) — see framework for field definitions
+5. **Evidence levels:** E0 (assertion) → E1 (single source) → E2 (two methods) → E3 (triangulated + disconfirmation)
 6. **Confidence rule:** Confidence can't exceed evidence. E0/E1 caps confidence at Medium.
 
 **Minimum evidence by level:**
@@ -194,20 +183,7 @@ DISCOVER → EXPLORE → VERIFY → REFINE → (loop or exit)
 - Do README claims match actual content?
 - For comparison: does the signal assessment (novelty, conflict) hold up?
 
-**Disconfirmation (apply to P0 findings):**
-
-| Technique | Method |
-|-----------|--------|
-| **Counterexample search** | Try to find a case that breaks the current claim |
-| **Alternative hypothesis** | Write the strongest competing explanation and test it |
-| **Adversarial read** | Look for reasons evidence could be misleading |
-| **Negative test** | Run a check expected to fail if the model is wrong |
-| **Cross-check** | Verify via an independent method |
-
-**Disconfirmation depth by level:**
-- Adequate: 1 technique per P0; document what was tried
-- Rigorous: 2+ techniques per P0; document findings positive or negative
-- Exhaustive: 3+ techniques per P0; assume current model is wrong, prove otherwise
+**Disconfirmation (apply to P0 findings):** Use techniques from framework's Disconfirmation Menu (counterexample search, alternative hypothesis, adversarial read, negative test, cross-check). Depth by level: Adequate = 1 technique per P0, Rigorous = 2+, Exhaustive = 3+.
 
 **REFINE:** Assess convergence. Exit when ALL of these are true:
 - No new dimensions discovered in the last pass
@@ -216,38 +192,17 @@ DISCOVER → EXPLORE → VERIFY → REFINE → (loop or exit)
 - Yield% from last pass below threshold
 - Assumptions were not invalidated (if invalidated, re-check affected items)
 
-### Yield% Definition
+### Yield% and Convergence
 
-**Yield% measures convergence**, not completion of planned work. An entity "yields" if it is:
-- **New:** didn't exist in previous pass
-- **Reopened:** status changed from resolved → unresolved
-- **Revised:** core claim/conclusion changed (not just added detail)
-- **Escalated:** priority increased (P2→P1 or P1→P0)
+**Quick reference (see framework for full definition):**
 
-**Not counted:** Routine completion of planned work (checking off items that were already scoped). The distinction: did the work *surprise* you or change your model? If yes, it yields. If you just confirmed what you expected, it doesn't.
+- **Yield%** = (New + Reopened + Revised + Escalated) / Total in-scope entities × 100
+- **Thresholds:** Adequate <20%, Rigorous <10%, Exhaustive <5%
+- **Pass 1:** Always 100% (everything is new) — earliest exit is after Pass 2
+- **Counts:** New, Reopened, Revised conclusions, Escalated priority
+- **Doesn't count:** Routine completion of planned work
 
-**Calculation:** `Yield% = (Yielding entities / Total in-scope entities) × 100`
-
-**Pass 1 special case:** Always 100% (everything is new).
-
-**Thresholds:**
-- Adequate: <20%
-- Rigorous: <10%
-- Exhaustive: <5%
-
-### Using `[~]` (Partially Explored) Without Cheating
-
-`[~]` is allowed ONLY when **all three** are true:
-1. The remaining gap is **bounded** (what's missing is specific, not open-ended)
-2. The impact of the gap is **low or acceptable** at the chosen thoroughness level (document why)
-3. The gap is carried into **Exit Gate → Remaining documented gaps** with a next-check or rationale for deferral
-
-**Example of proper `[~]` usage:**
-> D3: MCP configurations — `[~]` P1, E1, Medium
-> - Verified: 3 MCP servers found (github, slack, memory)
-> - Gap: credentials/auth patterns not inspected (requires .env access)
-> - Impact: Low — structure is visible; auth details not needed for exploration
-> - Next check: Review auth patterns if adopting specific MCP config
+**`[~]` (partial):** Allowed only when gap is bounded, impact is acceptable, and gap is documented in Exit Gate. See framework for details.
 
 ### Iteration Log Format
 
@@ -412,6 +367,23 @@ Claude runs Entry Gate, explores systematically, loops until convergence. Full d
 **Pattern:** Stopping when "it feels complete"
 **Why it fails:** Human intuition about completeness is unreliable. "Feels done" is not a stopping criterion.
 **Fix:** Use Yield% and stopping criteria. Exit Gate must pass.
+
+## Rationalizations to Watch For
+
+If you're thinking any of these, **STOP** — you're about to skip the process:
+
+| Excuse | Reality |
+|--------|---------|
+| "This is just a quick look" | Quick looks produce unreliable findings. Run Entry Gate at Adequate level minimum. |
+| "I already know what's interesting" | You don't. Systematic coverage finds what you'd miss cherry-picking. |
+| "The user wants speed" | Speed comes from compressing output, not skipping process. One full loop first. |
+| "Nothing interesting here" | E0 assertion. Prove it with systematic coverage and low Yield%. |
+| "I'll just scan the README" | READMEs lie or are incomplete. Explore the actual files. |
+| "Pass 1 looks complete" | Pass 1 is always 100% yield. You haven't converged yet. |
+| "The repo is simple" | Simple repos still need Entry Gate and at least one convergence check. |
+| "I've explored repos like this before" | This repo is different. Each exploration starts fresh. |
+
+**All of these mean: Complete the loop. No exceptions.**
 
 ## Troubleshooting
 
