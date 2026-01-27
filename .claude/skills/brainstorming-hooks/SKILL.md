@@ -114,6 +114,8 @@ Consult [references/creative-patterns-catalog.md](references/creative-patterns-c
 
 ### Phase 3: Present Candidates
 
+**Prerequisite:** You must have at least 2-3 candidate approaches from Phase 2 before presenting sketches. If you only have one obvious approach, return to Phase 2 and apply the dimension questions to surface alternatives.
+
 For each viable approach, provide a **sketch**:
 
 ```
@@ -125,7 +127,9 @@ For each viable approach, provide a **sketch**:
 - Trade-off: [what you gain vs give up]
 ```
 
-Present 2-4 sketches. Recommend one and explain why.
+Present 2-4 sketches. Each approach should be genuinely viable — don't pad with options that are clearly worse. Recommend one and explain why.
+
+**Phase 3 is complete when:** User selects an approach to implement.
 
 ### Phase 4: Expand the Chosen Approach
 
@@ -139,6 +143,8 @@ Once user selects an approach, fully specify:
 6. **Output mechanism** — exit codes, JSON structure, stdout/stderr behavior
 7. **Performance** — expected latency, any concerns
 8. **Independence** — can run without assuming other hooks
+
+Document the specification inline or as a design context file at `docs/plans/YYYY-MM-DD-<hook-name>-design.md`.
 
 ### Phase 5: Implement
 
@@ -162,6 +168,8 @@ Based on hook type and scope:
 
 Consult [references/hook-implementation-checklist.md](references/hook-implementation-checklist.md) for format details.
 
+**After implementation:** Verify the hook matches the Phase 4 specification — event, matcher, logic, and output mechanism should all align with the design.
+
 ### Phase 6: Verify Checkpoint
 
 Before declaring done, verify all dimensions:
@@ -174,6 +182,7 @@ Before declaring done, verify all dimensions:
 - [ ] **Performance** — Will this add acceptable latency?
 - [ ] **Independence** — Can run without assuming other hooks ran?
 - [ ] **Exit codes** — Using exit 2 to block (not exit 1)?
+- [ ] **User confirmation** — Does the user confirm the hook addresses their original intent?
 
 ## Decision Points
 
