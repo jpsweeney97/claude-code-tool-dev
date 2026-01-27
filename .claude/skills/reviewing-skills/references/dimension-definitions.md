@@ -508,83 +508,154 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 
 ## D11: Feasibility (P2)
 
-**What it catches:** Requirements that can't be achieved.
+**What it catches:** Requirements that can't be achieved given available resources, tools, knowledge, or constraints.
+
+**Distinction from D12:** D11 asks "CAN this be done?" — are the resources available? D12 asks "Can we VERIFY it was done?" — is there a way to check? A requirement can be feasible but untestable ("think carefully" — doable but unverifiable). A requirement can be testable but infeasible ("run on 1000 servers" — verifiable but you don't have 1000 servers).
 
 **How to check:**
 
-1. Can each step actually be done with available tools?
-2. Are time/resource expectations realistic?
-3. Do prerequisites actually exist?
-4. Are external dependencies accessible?
-5. Is the required knowledge available?
+1. **Tool availability:**
+   - Does each step specify what tool to use?
+   - Are tools available by default, or do they need installation?
+   - Are there platform-specific tools that won't work everywhere?
+
+2. **Knowledge requirements:**
+   - What does the reader need to know to follow this?
+   - Is that knowledge provided, linked, or assumed?
+   - Can an agent actually obtain this knowledge?
+
+3. **Resource constraints:**
+   - What compute/memory/time does this require?
+   - Are there API limits, rate limits, or quotas?
+   - Does this require credentials or permissions the agent might not have?
+
+4. **Environmental assumptions:**
+   - What does the skill assume about the environment?
+   - Git repo? Specific language runtime? Network access?
+   - Are these assumptions stated or silent?
+
+5. **Dependency accessibility:**
+   - Are external services always available?
+   - What happens if a dependency is down or changed?
+   - Are there fallbacks?
 
 **Red flags:**
 
-- Steps requiring unavailable tools
-- Unrealistic expectations ("always perfect")
-- Prerequisites that don't exist
-- External services without fallback
-- Requires information that can't be obtained
+- Steps requiring unavailable tools without install instructions
+- Unrealistic expectations ("always perfect", "100% accuracy", "zero errors")
+- Prerequisites that don't exist or aren't provided
+- External services without fallback or error handling
+- Requires information that agents cannot obtain (internal wikis, private docs)
+- Assumes credentials/permissions without noting them
+- Platform-specific instructions without alternatives
+- "Use [tool]" without specifying version or installation
+- Requires human judgment that agents can't provide
+- Time-dependent instructions ("wait until the market opens")
 
 **Good patterns:**
 
-- Tool availability checked or alternatives provided
-- Realistic expectations with acceptable tolerances
-- Prerequisites verified or created
-- Fallbacks for external dependencies
-- Knowledge requirements stated with sources
+- Tool availability noted: "Requires X, install with [command]"
+- Realistic expectations: "Target 80% coverage" not "100% coverage"
+- Prerequisites listed explicitly with verification commands
+- Fallbacks for external dependencies: "If X unavailable, use Y"
+- Knowledge requirements stated with sources or inlined
+- Environment assumptions documented in Prerequisites section
+- Platform alternatives: "On Mac use X, on Linux use Y"
+- Graceful degradation: "If full analysis not possible, provide partial"
 
 **Pass criteria:**
 
-- All steps achievable
-- Expectations realistic
-- Dependencies accessible
-- Alternatives for unavailable resources
+- All steps achievable with stated resources
+- Expectations realistic and toleranced
+- Dependencies accessible or fallbacks provided
+- Knowledge requirements stated and obtainable
+- Environmental assumptions explicit
+- No hidden resource requirements
 
 **Example findings:**
 
 | Finding | Priority | Proposed Fix |
 |---------|----------|--------------|
 | Requires `jq` but not installed by default | P2 | Add: "Requires jq, install with `brew install jq`" |
-| "Always achieve 100% coverage" — unrealistic | P2 | Change to: "Target 80% coverage, note gaps" |
-| References internal wiki that agents can't access | P1 | Inline key content or provide alternative |
+| "Always achieve 100% coverage" — unrealistic | P2 | Change to: "Target 80% coverage, document gaps" |
+| References internal wiki that agents can't access | P1 | Inline key content or provide alternative source |
+| "Run the enterprise linter" — what linter? | P1 | Specify tool name, version, and installation |
+| Assumes AWS credentials exist | P2 | Add: "Requires AWS credentials in environment or ~/.aws/credentials" |
+| "Wait for approval" — agent can't wait for humans | P1 | Restructure: "Pause and request approval, then resume" or remove |
+| Requires 16GB RAM for analysis | P2 | Note requirement; provide lightweight alternative if possible |
+
+**Questions to ask:**
+
+- "If I tried to follow this skill right now, what would stop me?"
+- "What does this assume I have that I might not have?"
+- "What could change externally that would break this?"
 
 ---
 
 ## D12: Testability (P2)
 
-**What it catches:** Requirements that can't be verified.
+**What it catches:** Requirements that can't be verified — no way to check if the skill was followed or if it produced the right outcome.
+
+**Distinction from D11:** D11 asks "CAN this be done?" D12 asks "Can we VERIFY it was done?" A requirement can be feasible but untestable ("think carefully" — doable but how do you check?). This dimension matters because untestable requirements can't be validated by testing-skills.
+
+**Connection to testing-skills:** This dimension checks if requirements are *structured for testing*. The actual behavioral testing happens in testing-skills. If requirements fail D12, testing-skills won't be able to validate them.
 
 **How to check:**
 
-1. For each requirement, ask: "How would I verify this was done?"
-2. Are success criteria measurable?
-3. Can compliance be checked automatically or manually?
-4. Is there a clear pass/fail determination?
-5. Can behavioral testing validate this?
+1. **Measurability:**
+   - For each requirement, ask: "How would I verify this was done?"
+   - Can success be measured objectively?
+   - Is there a number, state, or artifact that indicates success?
+
+2. **Observability:**
+   - Can compliance be observed from outside?
+   - Are there outputs, logs, or artifacts that show the skill was followed?
+   - Or does it rely on internal state that can't be checked?
+
+3. **Reproducibility:**
+   - Would two reviewers agree on whether this was done?
+   - Is there enough specificity to avoid subjective judgment?
+
+4. **Automation potential:**
+   - Can verification be automated (script, test, linter)?
+   - Or does it require human judgment?
+
+5. **Pass/fail clarity:**
+   - Is there a clear threshold between pass and fail?
+   - Or is it a gradient with no defined cutoff?
 
 **Red flags:**
 
-- "Ensure quality" — how to measure?
-- "Be thorough" — what counts as thorough?
-- "Handle appropriately" — what's appropriate?
+- "Ensure quality" — quality of what? By what measure?
+- "Be thorough" — what counts as thorough? Checklist?
+- "Handle appropriately" — what's appropriate? Defined where?
+- "Think carefully" — unobservable internal state
+- "Use good judgment" — subjective, varies by person
+- "Make it better" — better than what? By what metric?
 - Requirements without verification method
-- Subjective criteria with no rubric
+- Subjective criteria with no rubric or examples
+- "Consider" or "take into account" — no observable output
+- Success defined as absence: "no issues" — how to confirm none exist?
+- Process requirements with no artifacts: "review the code" — what proves review happened?
 
 **Good patterns:**
 
-- Measurable criteria: "tests pass", "no errors", "under 500ms"
-- Verification commands: "Run X, expect Y"
-- Checklists with concrete items
-- Rubrics for subjective assessments
-- Testing guidance in Verification section
+- Measurable criteria: "tests pass", "no lint errors", "response under 500ms"
+- Verification commands: "Run `npm test`, expect 0 failures"
+- Observable artifacts: "Create review report at [path]"
+- Checklists with concrete items (each item is verifiable)
+- Rubrics for subjective assessments with specific criteria
+- Verification section with explicit checks
+- Examples of pass vs fail cases
+- Thresholds defined: "coverage > 80%", "complexity < 10"
 
 **Pass criteria:**
 
-- Requirements are verifiable
-- Success criteria are measurable
-- Verification method specified
-- Pass/fail determination clear
+- Requirements are verifiable by observation or measurement
+- Success criteria have clear pass/fail thresholds
+- Verification method specified for critical requirements
+- Subjective criteria have rubrics or examples
+- Process requirements produce observable artifacts
 
 **Example findings:**
 
@@ -593,6 +664,26 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 | "Ensure code quality" — untestable | P2 | Define: "No lint errors, all tests pass, no security warnings" |
 | "Be thorough" — no verification | P2 | Add checklist of what "thorough" includes |
 | No Verification section | P2 | Add section with specific checks |
+| "Review the code carefully" — no artifact | P1 | Add: "Document findings in review report" |
+| "Consider edge cases" — unobservable | P2 | Change to: "List edge cases considered in [section]" |
+| "Use appropriate error handling" — vague | P1 | Define: "All P0 errors have try/catch with logging" |
+| "Make it readable" — subjective | P2 | Add rubric: "Functions < 50 lines, names descriptive, comments for non-obvious logic" |
+
+**Testability spectrum:**
+
+| Level | Example | Testable? |
+|-------|---------|-----------|
+| Objective + automated | "Tests pass" | Yes — run tests |
+| Objective + manual | "All links work" | Yes — click each link |
+| Rubric-based | "Code is readable per style guide" | Partially — apply rubric |
+| Subjective | "Code is elegant" | No — no shared definition |
+| Internal state | "Think carefully" | No — unobservable |
+
+**Questions to ask:**
+
+- "If I claimed this was done, how would you check?"
+- "Could two reviewers disagree on whether this was satisfied?"
+- "What artifact or observation proves this happened?"
 
 ---
 
