@@ -60,8 +60,8 @@ _Narrow bridge = low freedom (one safe path). Open field = high freedom (many pa
 
 **Body:**
 
-- Under 500 lines
-- Split to reference files if approaching limit
+- ~500 lines is a guideline, not a hard cap
+- Split to reference files if content grows significantly larger
 
 **String Substitutions:**
 
@@ -382,7 +382,7 @@ Before finalizing any skill:
 
 - [ ] Description contains trigger conditions only (no workflow)
 - [ ] Description is third person
-- [ ] Body under 500 lines (context budget: 15k chars for all skill descriptions)
+- [ ] Body reasonably sized (~500 lines guideline; split to references/ if significantly larger)
 - [ ] Consistent terminology throughout
 - [ ] References one level deep from SKILL.md
 - [ ] Examples are concrete, not abstract

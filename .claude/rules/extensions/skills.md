@@ -47,7 +47,7 @@ Skills are directories containing `SKILL.md`:
 
 Skills share Claude's context window with conversation history, other skills, and your request. Keep skills focused:
 
-- **Keep SKILL.md under 500 lines** — larger skills degrade performance
+- **Aim for ~500 lines in SKILL.md** — significantly larger skills should split content to references/
 - **Keep references one level deep** — link from SKILL.md to reference files, not reference → reference (deeply nested files may be partially read)
 - **Use scripts for zero-context execution** — scripts run without loading contents into context; only output consumes tokens
 
@@ -55,7 +55,7 @@ Skills share Claude's context window with conversation history, other skills, an
 
 | Signal                    | Action                                                     |
 | ------------------------- | ---------------------------------------------------------- |
-| SKILL.md > 500 lines      | Move detailed reference to `references/` directory         |
+| SKILL.md significantly exceeds ~500 lines | Move detailed content to `references/` directory |
 | Repeated validation logic | Extract to `scripts/` and tell Claude to run (not read) it |
 | Large examples/templates  | Move to `templates/` directory                             |
 

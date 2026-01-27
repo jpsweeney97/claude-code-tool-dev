@@ -209,8 +209,8 @@ Present ONE more section, then ask again. Incremental presentation catches error
   - ❌ `error-handler` (noun) → ✅ `handling-errors` (gerund)
 - `description`: ≤1024 chars, trigger conditions ONLY, third person
   - Why: Claude may follow the description instead of reading the skill body. A description summarizing workflow causes incomplete execution.
-- Body: under 500 lines
-- Heavy content split to reference files (one level deep from SKILL.md)
+- Body: ~500 lines is a guideline; split heavy content to reference files if significantly larger
+- References one level deep from SKILL.md
 
 Use [assets/skill-template.md](assets/skill-template.md) as a starting structure, keeping only relevant sections.
 

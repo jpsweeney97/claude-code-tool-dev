@@ -198,7 +198,7 @@ SKILL.md serves as an overview that points Claude to detailed materials as neede
 
 **Practical guidance:**
 
-- Keep SKILL.md body under 500 lines for optimal performance
+- Aim for ~500 lines in SKILL.md body; split to references/ if significantly larger
 - Split content into separate files when approaching this limit
 - Use the patterns below to organize instructions, code, and resources effectively
 
@@ -649,7 +649,7 @@ The SKILL.md frontmatter requires `name` and `description` fields with specific 
 
 ### Token budgets
 
-Keep SKILL.md body under 500 lines for optimal performance. If your content exceeds this, split it into separate files using the progressive disclosure patterns described earlier.
+Aim for ~500 lines in SKILL.md body for optimal context usage. If your content grows significantly larger, split it into separate files using the progressive disclosure patterns described earlier.
 
 ## Checklist for effective Skills
 
@@ -657,7 +657,7 @@ Keep SKILL.md body under 500 lines for optimal performance. If your content exce
 
 - [ ] Description is specific and includes key terms
 - [ ] Description makes clear when to use Skill
-- [ ] SKILL.md body is under 500 lines
+- [ ] SKILL.md body reasonably sized (~500 lines guideline; larger is fine if content is necessary)
 - [ ] Additional details are in separate files (if needed)
 - [ ] No time-sensitive information (or in "old patterns" section)
 - [ ] Consistent terminology throughout
