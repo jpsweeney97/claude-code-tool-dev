@@ -32,7 +32,7 @@ Turn subagent ideas into testable drafts through collaborative dialogue. Preserv
 - Ask questions one at a time to refine the idea
 - Prefer multiple choice when possible, open-ended when needed
 - Only one question per message — break complex topics into multiple questions
-- Focus on understanding: purpose, constraints, success criteria, key behavior
+- Focus on understanding: purpose, constraints, success criteria, key behavior (see dimension table below for comprehensive coverage)
 
 **Assumption traps** — when tempted to skip asking because:
 - The answer seems "obvious" — this is when assumptions are most dangerous
@@ -45,7 +45,7 @@ Turn subagent ideas into testable drafts through collaborative dialogue. Preserv
 - Terminology matches something familiar — Claude's definition may differ from user's meaning
 - User seems confident about their approach — unexamined confidence creates blind spots
 
-If any of these apply, ask anyway.
+**If any of these apply, YOU MUST ask.** No exceptions.
 
 **Convergence tracking:**
 
@@ -71,7 +71,7 @@ Before claiming convergence, verify these dimensions have been explored:
 | Dimension | Explored? |
 |-----------|-----------|
 | Purpose | What should this agent do? |
-| Trigger conditions | When should Claude delegate to this agent? |
+| Trigger conditions | When should Claude delegate to this agent? (This becomes the `description` field) |
 | Task clarity | What specific steps should the agent follow? |
 | Context needs | What info must be passed in the prompt? |
 | Output contract | What should the agent return to the main thread? |
@@ -147,6 +147,8 @@ This is when the checkpoint matters MOST. Acknowledge the impatience, then compl
 
 YOU MUST read [references/subagent-writing-guide.md](references/subagent-writing-guide.md) before drafting any agent file. This is not optional. The guide contains essential principles that determine whether the agent will actually work.
 
+After reading, verify internally: Can I articulate why the description must be trigger-only (not workflow summary)? Can I name the 4 prompt clarity dimensions? If not, re-read.
+
 **Presenting the draft agent file:**
 
 - Present one section at a time (e.g., frontmatter, purpose, task instructions, etc.)
@@ -155,7 +157,7 @@ YOU MUST read [references/subagent-writing-guide.md](references/subagent-writing
 - YAGNI — avoid over-engineering
 
 **Red flag — user asks for "the rest" or "everything":**
-> "Give me the rest" / "Just show me everything" / "Skip to the end"
+> "Give me the rest" / "Just show me everything" / "Skip to the end" / "I trust you, just do it"
 
 Present ONE more section, then ask again. Incremental presentation catches errors early — dumping everything means errors compound and require larger rewrites.
 
@@ -167,7 +169,7 @@ Present ONE more section, then ask again. Incremental presentation catches error
 - `description`: when Claude should delegate to this agent (include "proactively" if auto-invoke desired)
 - Body: clear purpose, specific task instructions, explicit constraints, defined output format
 
-Use [assets/subagent-template.md](assets/subagent-template.md) as a starting structure.
+Use [assets/subagent-template.md](assets/subagent-template.md) as a starting structure. Before finalizing, verify against the template's validation checklist.
 
 **Required sections in agent body:**
 
@@ -175,7 +177,7 @@ Use [assets/subagent-template.md](assets/subagent-template.md) as a starting str
 |---------|---------|
 | Purpose statement | Clear, specific description of what this agent does |
 | Task instructions | What the agent should do when invoked |
-| Constraints | Explicit boundaries — what NOT to do |
+| Constraints | Explicit boundaries — what the agent should NOT do |
 | Output format | Exact structure of what the agent returns |
 
 **Prompt quality checklist:**
@@ -188,7 +190,7 @@ Before showing preview, internally verify:
 4. **Boundary definition:** Are constraints clear from both directions (too broad/too narrow)?
 5. **Instruction consistency:** Do any instructions contradict each other?
 
-If issues found, fix them before showing preview. Don't ask user — improve silently.
+If issues found, fix them before showing preview. Don't ask user — silently improve quality issues; reserve questions for design decisions that require user input.
 
 ## Outputs
 
@@ -284,15 +286,117 @@ User: "Yes"
 
 ## After the Design
 
+**Before committing, verify:**
+- [ ] Draft agent file has all required sections (Purpose, Task, Constraints, Output)
+- [ ] `description` field is trigger-only (no workflow summary)
+- [ ] Tools match constraints (no Edit if read-only)
+- [ ] Design context document is complete
+
+**Then:**
 - Commit draft agent file and design context to git
-- Confirm design context includes: purpose, success criteria, prompt clarity assessment, scope calibration
 - Ask: "Ready to test this agent? Invoke it via the Task tool to validate it works."
+
+## When NOT to Use
+
+- **Minor edits to existing agent** — edit directly without brainstorming (minor = wording tweaks, adding examples, adjusting tool list)
+- **Creating a skill** — use brainstorming-skills instead (skills are different from agents)
+- **Creating a hook** — use brainstorming-hooks instead
+- **Quick rename or typo fix** — just do it
+- **Agent already has complete spec** — proceed to implementation; use this skill only when design is unclear
+
+## Decision Points
+
+**User unsure what they want:**
+- If goal is vague → Start with "What problem should this agent solve?"
+- If user says "I don't know" → Offer examples: "Common agent types include: code reviewers, documentation researchers, test runners. Which resonates?"
+
+**Scope genuinely unclear:**
+- If agent could be broad or narrow → Default to narrower; scope can expand later
+- If user has strong preference → Follow it; note trade-offs in design context
+
+**User changes requirements after checkpoint:**
+- If change is minor → Incorporate and continue
+- If change invalidates core understanding → Return to understanding phase; don't patch a flawed foundation
+
+**User wants to skip checkpoint:**
+- Acknowledge impatience: "I hear you."
+- Complete checkpoint anyway: "Let me confirm my understanding first: [summary]. Does this match your intent?"
+- Never skip the adversarial lens — this is when issues surface
+
+**Model selection uncertain:**
+- For simple lookups, pattern matching → haiku
+- For standard analysis, code review → sonnet
+- For complex reasoning, architecture → opus
+- When unsure → sonnet (balanced default)
+
+## Anti-Patterns
+
+### Dump all questions at once
+
+**Pattern:** Asking 5+ questions in one message to "be efficient."
+
+**Why it fails:** User can't process everything; answers are shallow; context is lost. Follow-up questions based on answers are impossible.
+
+**Fix:** One question per message. Track what you've learned. Build understanding incrementally.
+
+### Skip the checkpoint when user seems impatient
+
+**Pattern:** User says "just write it" → Claude starts drafting immediately.
+
+**Why it fails:** Skipping the checkpoint means skipping adversarial validation. Issues surface during implementation instead of during design.
+
+**Fix:** Acknowledge impatience, complete checkpoint anyway: "I hear you — let me confirm my understanding first: [summary]. Does this match your intent?"
+
+### Import assumptions from similar agents
+
+**Pattern:** "This looks like a standard code-reviewer agent" → import patterns from similar agents.
+
+**Why it fails:** Every agent has unique context. Imported assumptions mask what makes this agent different.
+
+**Fix:** Check assumption traps. If the pattern looks familiar, ask anyway — that's when assumptions are most dangerous.
+
+## Troubleshooting
+
+**Symptom:** User gives one-word answers
+**Cause:** Questions may be too broad or user may not understand what's needed
+**Next steps:** Offer concrete options: "Would you describe this as [A], [B], or something else?"
+
+**Symptom:** Convergence never reached (new information every round)
+**Cause:** Scope may be expanding; user may be discovering requirements as they talk
+**Next steps:** Pause and summarize: "So far I've heard [X, Y, Z]. Is this the core need, or should we scope down?"
+
+**Symptom:** User pushes back on checkpoint findings
+**Cause:** Findings may be wrong, or user may have context you don't
+**Next steps:** Explore, don't defend: "Tell me more about why this isn't a concern."
+
+**Symptom:** Draft doesn't match user's intent despite checkpoint
+**Cause:** Confirmation was superficial; user said "yes" without reading carefully
+**Next steps:** Present sections incrementally. Ask specific questions: "Does this example capture what you meant by X?"
+
+**Symptom:** Agent doesn't work when tested
+**Cause:** Prompt clarity issue — task ambiguous, context missing, or constraints contradictory
+**Next steps:** Review against prompt quality checklist. Which dimension failed?
+
+## Rationalizations to Watch For
+
+| Excuse | Reality |
+|--------|---------|
+| "The agent idea is simple enough" | Simple ideas still have edge cases and prompt clarity concerns. The process exists for a reason. |
+| "User already knows what they want" | User knows the problem; the agent design is a collaboration. Skip questions, miss context. |
+| "I'll just draft something and iterate" | Iterating on a flawed draft is more expensive than understanding first. |
+| "The pattern is obvious" | Obvious patterns hide unique requirements. This is assumption trap #2. |
+| "User seems impatient" | Impatience is when the checkpoint matters most. Complete it anyway. |
+| "I already asked about this" | This context may differ. Ask if uncertain. |
+| "The checkpoint is just overhead" | The checkpoint catches what understanding missed. Skipping it propagates errors. |
+
+**All of these mean: Complete the process. No shortcuts.**
 
 ## References
 
 **Required reading before drafting:**
 - [references/subagent-writing-guide.md](references/subagent-writing-guide.md) — Essential principles for effective subagents (prompt clarity, scope calibration, quality dimensions)
 
-**Structure and spec:**
+**Structure:**
 - [assets/subagent-template.md](assets/subagent-template.md) — Starting structure for draft agent file
-- [references/anthropic-subagents-documentation.md](references/anthropic-subagents-documentation.md) — Official subagent spec and frontmatter fields
+
+**Official spec:** For authoritative subagent documentation (frontmatter fields, tool selection, model options), use the claude-code-docs MCP server: `search_docs` with query "subagent frontmatter fields".

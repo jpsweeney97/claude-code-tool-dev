@@ -412,3 +412,5 @@ After convergence, Claude presents summary + adversarial findings, gets confirma
 - [references/type-example-recovery-resilience.md](references/type-example-recovery-resilience.md)
 - [references/type-example-orchestration.md](references/type-example-orchestration.md)
 - [references/type-example-template-generation.md](references/type-example-template-generation.md)
+
+**Official spec:** For authoritative skills documentation (frontmatter fields, invocation patterns, skill loading), use the claude-code-docs MCP server: `search_docs` with query "skill frontmatter" or "SKILL.md format".
