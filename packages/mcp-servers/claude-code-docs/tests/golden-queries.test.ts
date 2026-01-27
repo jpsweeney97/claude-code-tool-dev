@@ -1,10 +1,15 @@
 // tests/golden-queries.test.ts
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
 import { chunkFile } from '../src/chunker.js';
 import { buildBM25Index, search } from '../src/bm25.js';
 import { clearParseWarnings } from '../src/frontmatter.js';
 
 // Mock content that simulates the llms-full.txt format from code.claude.com
+// IMPORTANT: This content is used for testing search quality, not loading.
+// Any changes here affect the golden query tests below.
 const MOCK_LLMS_CONTENT = `# Hooks
 Source: https://code.claude.com/docs/en/hooks
 
@@ -135,14 +140,37 @@ If you see connection errors during troubleshooting, check your network settings
 ## Debug logging
 
 Enable debug logging for troubleshooting by setting CLAUDE_DEBUG=1.
+
+# Create custom subagents
+Source: https://code.claude.com/docs/en/sub-agents
+
+Subagents are specialized assistants defined in .claude/agents/ that Claude can delegate to for isolated tasks. They run in their own context with their own set of allowed tools.
+
+## Defining subagents
+
+Create agent files in .claude/agents/<agent-name>.md with YAML frontmatter specifying name, description, tools, and model.
+
+## Subagent isolation
+
+Each subagent runs in a separate context window. This keeps the main conversation clean by offloading investigation and analysis to isolated specialists.
+
+## Using subagents
+
+Invoke subagents with phrases like "use a subagent to review this code" or delegate specific tasks to specialized agents for focused analysis.
 `;
 
 describe('golden queries (URL-based)', () => {
   let index: ReturnType<typeof buildBM25Index>;
   let originalMinSectionCount: string | undefined;
+  let tempDir: string;
 
   beforeAll(async () => {
     clearParseWarnings();
+
+    // Create isolated temp directory for cache to avoid polluting production cache
+    // This is critical: without this, the mock content would overwrite the real
+    // cached docs at ~/Library/Caches/claude-code-docs/llms-full.txt
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'golden-queries-test-'));
 
     // Disable section count validation for test with small mock data
     originalMinSectionCount = process.env.MIN_SECTION_COUNT;
@@ -160,10 +188,12 @@ describe('golden queries (URL-based)', () => {
 
     // Import and call loadFromOfficial with mocked fetch
     // Use forceRefresh=true to bypass cache and use the mocked fetch
+    // IMPORTANT: Pass explicit cachePath to avoid writing to production cache
     const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'test-cache.txt');
     const { files } = await loadFromOfficial(
       'https://code.claude.com/docs/llms-full.txt',
-      undefined,
+      cachePath,
       true, // forceRefresh
     );
 
@@ -172,7 +202,7 @@ describe('golden queries (URL-based)', () => {
     index = buildBM25Index(chunks);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     // Restore original env
     if (originalMinSectionCount === undefined) {
       delete process.env.MIN_SECTION_COUNT;
@@ -180,6 +210,11 @@ describe('golden queries (URL-based)', () => {
       process.env.MIN_SECTION_COUNT = originalMinSectionCount;
     }
     vi.unstubAllGlobals();
+
+    // Clean up temp directory
+    if (tempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   const goldenQueries = [
@@ -189,6 +224,7 @@ describe('golden queries (URL-based)', () => {
     { query: 'skill frontmatter', expectedTopCategory: 'skills' },
     { query: 'MCP server registration', expectedTopCategory: 'mcp' },
     { query: 'common fields hook input', expectedTopCategory: 'hooks' },
+    { query: 'subagent isolated context delegation', expectedTopCategory: 'agents' },
     // New categories
     { query: 'quickstart npm package installation', expectedTopCategory: 'getting-started' },
     { query: 'bedrock AWS credentials region', expectedTopCategory: 'providers' },
@@ -239,6 +275,7 @@ describe('golden queries (URL-based)', () => {
     const troubleshootingChunks = index.chunks.filter((c) =>
       c.source_file.includes('troubleshooting'),
     );
+    const subagentChunks = index.chunks.filter((c) => c.source_file.includes('sub-agents'));
 
     expect(quickstartChunks.length).toBeGreaterThan(0);
     expect(bedrockChunks.length).toBeGreaterThan(0);
@@ -246,6 +283,7 @@ describe('golden queries (URL-based)', () => {
     expect(actionsChunks.length).toBeGreaterThan(0);
     expect(securityChunks.length).toBeGreaterThan(0);
     expect(troubleshootingChunks.length).toBeGreaterThan(0);
+    expect(subagentChunks.length).toBeGreaterThan(0);
 
     // Verify categories are correctly derived from URLs
     for (const chunk of quickstartChunks) {
@@ -265,6 +303,10 @@ describe('golden queries (URL-based)', () => {
     }
     for (const chunk of troubleshootingChunks) {
       expect(chunk.category).toBe('troubleshooting');
+    }
+    // sub-agents URL maps to 'agents' category via SECTION_TO_CATEGORY
+    for (const chunk of subagentChunks) {
+      expect(chunk.category).toBe('agents');
     }
   });
 
