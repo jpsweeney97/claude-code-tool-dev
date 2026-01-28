@@ -29,6 +29,7 @@ Turn skill ideas into testable drafts through collaborative dialogue. Preserves 
 
 **Understanding the idea:**
 
+- If arriving from ideating-extensions, acknowledge the context: problem statement, suggested type, and any explored alternatives. Don't restart from zero.
 - Check project context first:
   - Scan existing skills: `ls .claude/skills/` or Glob for `**/.claude/skills/**/SKILL.md`
   - Read project CLAUDE.md for conventions
@@ -269,6 +270,7 @@ See [type-example files](examples/) for concrete guidance on filling sections fo
 
 ## After the Design
 
+- Create a working branch if on a protected branch (main/develop): `git checkout -b feature/<skill-name>`
 - Commit draft SKILL.md and design context to git
 - Confirm design context includes: problem statement, success criteria, compliance risks
 - Ask: "Ready to test this skill? Use testing-skills to validate it works."
@@ -286,6 +288,11 @@ See [type-example files](examples/) for concrete guidance on filling sections fo
 **User changes requirements after checkpoint:**
 - If change is minor → Incorporate and continue
 - If change invalidates core understanding → Return to understanding phase; don't patch a flawed foundation
+
+**User provides conflicting requirements:**
+- If requirements conflict (e.g., "simple but comprehensive", "fast but thorough") → Surface the tension explicitly
+- Ask user to prioritize: "These goals are in tension. Which matters more for this skill?"
+- Document the trade-off in design context
 
 **Convergence not reached after many rounds:**
 - If scope keeps expanding → Pause and summarize: "We've covered X, Y, Z. Is this the core problem, or should we scope down?"
@@ -332,6 +339,44 @@ Claude asks one question at a time:
 After convergence, Claude presents summary + adversarial findings, gets confirmation, then drafts a skill tailored to the actual problem.
 
 **Why it's good:** The draft addresses the user's specific problem. Less rework. User feels heard.
+
+---
+
+**Scenario:** User arrives from ideating-extensions with a partial spec: "I need an orchestration skill that coordinates debugging workflows."
+
+### BAD: Ignore the context and start from scratch
+
+Claude asks "What problem are you trying to solve?" — ignoring that the user already identified the problem in ideating-extensions. The user repeats context they've already provided.
+
+**Why it's bad:** Wastes user's time. Creates frustration. Ignores valuable context from upstream skill.
+
+### GOOD: Build on existing context
+
+Claude acknowledges the handoff: "I see you're coming from ideating-extensions with an orchestration skill idea for debugging workflows. Let me confirm a few things before we design it."
+
+Proceeds with targeted questions:
+1. "What debugging phases should this skill coordinate?"
+2. "Should it use subagents for each phase, or run inline?"
+
+**Why it's good:** Respects user's prior work. Asks only what's needed to fill gaps.
+
+---
+
+**Scenario:** User keeps changing requirements mid-checkpoint: "Actually, I want it to also handle testing, not just debugging."
+
+### BAD: Keep patching the draft
+
+Claude incorporates each new requirement without revisiting the foundation. The skill becomes a patchwork of conflicting concerns.
+
+**Why it's bad:** Scope creep without acknowledgment. The checkpoint exists to catch this.
+
+### GOOD: Return to understanding phase
+
+Claude recognizes the scope change: "Adding testing changes the core problem. Let me step back — should this be one skill that does both, or two skills that compose?"
+
+Returns to understanding phase with the new scope, re-converges, then presents updated checkpoint.
+
+**Why it's good:** Catches scope changes explicitly. Prevents architectural drift.
 
 ## Anti-Patterns
 
