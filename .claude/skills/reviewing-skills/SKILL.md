@@ -23,7 +23,7 @@ This skill reviews SKILL.md files and their references/ directories for structur
 - Validate domain expertise (can check consistency with sources, not whether sources are correct)
 - Rewrite fundamentally broken skills (recommend brainstorming-skills instead)
 
-**Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness.md)
+**Protocol:** [thoroughness.framework@1.0.0](framework-for-thoroughness.md)
 **Default thoroughness:** Rigorous
 
 **Outputs:**
@@ -158,7 +158,7 @@ Document assumptions, stakes level, scope, and stopping criteria before proceedi
 Use TaskCreate to create one task per dimension (D1-D15). This externalizes your checklist so you don't need to hold all dimensions in memory.
 
 - Subject: "D1: Trigger clarity" (use dimension name)
-- Description: Include priority (P0/P1/P2) and the "What it catches" summary from [Dimension Definitions](references/dimension-definitions.md)
+- Description: Include priority (P0/P1/P2) and the "What it catches" summary from [Dimension Definitions](dimension-definitions.md)
 - Do not start checking until all dimension tasks are created
 
 This step is critical for cognitive manageability — the review process involves tracking 15 dimensions across multiple passes. Task tracking externalizes this burden and survives context compaction.
@@ -200,7 +200,7 @@ This step is critical for cognitive manageability — the review process involve
 
 If #2 is "maybe not" or #3 is "no" → check the dimension anyway.
 
-**For detailed checking guidance per dimension, see [Dimension Definitions](references/dimension-definitions.md).**
+**For detailed checking guidance per dimension, see [Dimension Definitions](dimension-definitions.md).**
 
 ### The Review Loop
 
@@ -222,7 +222,7 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE?
 
 **Seed dimensions:** Start with D1-D12 from the catalog (D13 if orchestration skill).
 
-**Assign priorities:** Use catalog defaults, adjust if context warrants. Different skill types have different priority emphases — see [Skill Type Adaptation](references/skill-type-adaptation.md) for type-specific guidance on which dimensions to elevate.
+**Assign priorities:** Use catalog defaults, adjust if context warrants. Different skill types have different priority emphases — see [Skill Type Adaptation](skill-type-adaptation.md) for type-specific guidance on which dimensions to elevate.
 
 **Expand dimensions:** Apply ≥3 DISCOVER techniques:
 
@@ -241,7 +241,7 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE?
 
 1. TaskUpdate to mark `in_progress`
 2. Re-read the relevant section of the skill being reviewed (don't rely on memory from Entry Gate)
-3. Check the dimension using guidance from [Dimension Definitions](references/dimension-definitions.md)
+3. Check the dimension using guidance from [Dimension Definitions](dimension-definitions.md)
 4. TaskUpdate to mark `completed` with Cell Schema fields in metadata
 
 **Cell Schema fields** (record in task metadata):
@@ -529,129 +529,10 @@ If P0 findings exceed 5, or if the skill has fundamental structural problems:
 
 ## Examples
 
-### Example 1: Reviewing a draft skill
+See [Examples](examples.md) for worked examples demonstrating:
 
-**Scenario:** Review a draft skill for handling API rate limits.
-
-#### BAD: Single-pass "looks fine" review
-
-Claude scans the skill once, notes "has Overview, Process, Examples," and reports: "Skill looks complete. Ready for testing."
-
-**Why it's bad:**
-
-- No Entry Gate — stakes not assessed, no stopping criteria
-- Single pass — no iteration, no Yield% tracking
-- Checked presence, not quality — "has Process" ≠ "Process is complete and actionable"
-- Skipped compliance strength — didn't check for rationalization counters
-- No adversarial pass — didn't try to find ways an agent could ignore the skill
-- No disconfirmation — accepted "looks fine" without testing that conclusion
-- Missed: Description summarizes workflow (triggers bypass), decision points undefined for edge cases, no "When NOT to Use" section
-
-#### GOOD: Iterative review with fixes applied
-
-**Entry Gate:**
-
-- Target: `.claude/skills/handling-rate-limits/SKILL.md`
-- References: `references/retry-strategies.md` (exists)
-- Stakes: Rigorous (skill will guide production behavior)
-- Stopping: Yield% <10%
-
-**Pass 1:** DISCOVER dimensions, assign priorities
-
-Findings (format: `Dimension: finding priority — description`):
-
-- D1 (Trigger clarity): P0 — description says "manages rate limit responses" (summarizes workflow)
-- D3 (Structural conformance): P0 — missing "When NOT to Use" section
-- D4 (Compliance strength): P1 — no rationalization table
-
-Yield% = 100% (first pass)
-
-**Pass 1 FIX:** Rewrote description to trigger-only, added When NOT to Use section.
-
-**Pass 2:** Deeper check on remaining dimensions
-
-- D2 (Process completeness): P1 — retry logic defined but backoff ceiling undefined
-- D5 (Precision): P1 — "wait appropriate amount" is vague
-- D9 (Reference validity): P2 — link to retry-strategies.md works but file has stale example
-
-Yield% = 3 new P0/P1 findings / 5 total P0/P1 entities = 60%
-
-**Pass 2 FIX:** Defined backoff ceiling, replaced "appropriate amount" with specific formula, updated stale example.
-
-**Pass 3:** Final dimension sweep
-
-- D4 (Compliance strength): P1 — revised: added stronger "YOU MUST" for backoff
-- D10 (Edge cases): P2 — what if rate limit is permanent (banned)?
-- Added edge case handling
-
-Yield% = 1 revised P1 finding / 6 total P0/P1 entities = 17%
-
-**Pass 4:** Convergence check
-
-- No new issues, no revisions
-- Yield% = 0%
-
-**Adversarial Pass:**
-
-- Compliance Prediction: "Under time pressure, agent might skip backoff" → Added explicit: "YOU MUST wait the full backoff period. No shortcuts."
-- Trigger Ambiguity: "Could fire for non-rate-limit errors" → Tightened description to specify HTTP 429 only
-- Author Blindness: "Assumes reader knows exponential backoff" → Added brief explanation
-
-**Exit Gate:** Yield% <10%, all dimensions checked, 8 fixes applied.
-
-**Output:**
-
-```
-**Review complete:** handling-rate-limits
-**Findings:** P0: 2 | P1: 4 | P2: 2 (8 fixed)
-**Key changes:** Rewrote description to trigger-only; added backoff ceiling and compliance language
-**Full report:** `docs/audits/2024-01-15-handling-rate-limits-review.md`
-```
-
-**Why it's good:**
-
-- Entry Gate established scope and stakes
-- Iterative passes with Yield% tracking
-- Checked quality, not just presence
-- All dimensions covered with appropriate priority
-- Fixes applied after each pass
-- Adversarial pass strengthened compliance language
-- Clear output with fix count and key changes
-
-### Example 2: Auditing an existing production skill
-
-**Scenario:** The `writing-tests` skill exists but agents frequently skip the "run tests before claiming done" step.
-
-**Entry Gate:**
-
-- Target: `~/.claude/skills/writing-tests/SKILL.md`
-- Context: Behavioral compliance issue reported
-- Stakes: Rigorous
-
-**Key findings:**
-
-| Dimension | Finding | Priority |
-|-----------|---------|----------|
-| D4 (Compliance strength) | "Run tests" instruction uses weak language ("should run") | P0 |
-| D4 (Compliance strength) | No rationalization table for "tests take too long" excuse | P1 |
-| D1 (Trigger clarity) | Description overlaps with `debugging-code` skill | P1 |
-
-**Fixes applied:**
-
-- Changed "should run tests" → "YOU MUST run tests and see them pass"
-- Added rationalization table entry: "Tests take too long" → "Skipped tests waste more time debugging. Run them."
-- Tightened description to distinguish from debugging-code
-
-**Output:**
-
-```
-**Review complete:** writing-tests
-**Findings:** P0: 1 | P1: 2 | P2: 0 (3 fixed)
-**Key changes:** Strengthened compliance language; added rationalization counter
-**Full report:** `docs/audits/2024-02-01-writing-tests-review.md`
-```
-
-**Why this matters:** The behavioral issue (agents skipping tests) traced back to weak compliance language — a document quality issue that review catches and testing wouldn't.
+- **Example 1:** Reviewing a draft skill — shows BAD (single-pass "looks fine") vs GOOD (iterative with fixes)
+- **Example 2:** Auditing a production skill — traces behavioral issue to document quality
 
 ## Anti-Patterns
 
@@ -719,141 +600,19 @@ First pass found nothing → "Skill is perfect."
 
 ## Troubleshooting
 
-**Symptom:** Review completed in one pass
-**Cause:** Pass 1 is always 100% yield — cannot exit after one pass
-**Next steps:** Run at least one more pass. If truly no new findings, Yield% will drop below threshold naturally.
-
-**Symptom:** Most dimensions marked N/A
-**Cause:** Over-aggressive skipping. D1-D8 cannot be N/A.
-**Next steps:** Revisit N/A justifications. Apply the skeptical reviewer test: "Would someone else accept this rationale?"
-
-**Symptom:** "No issues found" but skill feels off
-**Cause:** Checking presence instead of quality, or insufficient disconfirmation
-**Next steps:** Re-run with explicit quality questions per dimension. Apply Adversarial Pass lenses even if loop found nothing.
-
-**Symptom:** Fixes keep conflicting with each other
-**Cause:** Skill has structural problems that can't be resolved with targeted edits
-**Next steps:** Escalate: "Skill may need fundamental rethinking — recommend brainstorming-skills."
-
-**Symptom:** Review found issues but agent still doesn't follow the skill
-**Cause:** Document quality ≠ behavioral effectiveness. Review checks the document; testing checks agent behavior.
-**Next steps:** After review fixes are applied, use testing-skills to validate behavioral compliance.
-
-**Symptom:** Yield% stays high across many passes
-**Cause:** Each fix introduces new issues, or scope is expanding
-**Next steps:** Check if fixes are causing new problems. Consider whether skill is trying to do too much. Hit iteration cap if necessary and note "did not converge."
-
-**Symptom:** Unsure whether finding is real issue or acceptable variation
-**Cause:** Ambiguous quality criteria
-**Next steps:** Apply disconfirmation. If still ambiguous, note as P2 with "possible issue" and let user decide.
-
-**Symptom:** References directory has many files, review is taking too long
-**Cause:** Review scope may be too broad for stakes level
-**Next steps:** For Adequate stakes, focus on SKILL.md and spot-check references. For Rigorous+, review all references but prioritize those linked from critical sections.
-
-**Symptom:** Skill missing required frontmatter (name, description)
-**Cause:** Incomplete or malformed skill
-**Next steps:** Flag as P0 structural conformance issue (D3). Skill needs basic structure before detailed review. Consider whether to fix frontmatter first or escalate to brainstorming-skills for fundamental rework.
+For common issues and solutions, see [Troubleshooting](troubleshooting.md).
 
 ## Verification
 
-After completing a review, verify:
+After completing a review, verify all items in the Definition of Done (Outputs section) are satisfied.
 
-**Entry Gate:**
-
-- [ ] Inputs identified (skill path, references, external sources if applicable)
-- [ ] Skill and references inventoried
-- [ ] Assumptions listed
-- [ ] Stakes level assessed and recorded
-- [ ] Stopping criteria selected
-
-**DISCOVER:**
-
-- [ ] All 12 dimensions considered (D13 if orchestration skill)
-- [ ] ≥3 DISCOVER techniques applied
-- [ ] D1-D8 not skipped
-- [ ] Any N/A dimensions have skeptical-reviewer-level justification
-
-**EXPLORE:**
-
-- [ ] Each checked dimension has Cell Schema fields (Status, Evidence, Confidence)
-- [ ] Evidence requirements met for stakes level
-- [ ] Findings linked to dimensions with priority assigned
-- [ ] Proposed fixes drafted for each finding
-
-**VERIFY:**
-
-- [ ] Disconfirmation attempted for P0 dimensions
-- [ ] Assumptions resolved (verified, invalidated, or flagged)
-
-**FIX:**
-
-- [ ] Fixes applied in priority order (P0 first)
-- [ ] Each fix documented (original → revised)
-- [ ] Conflicts noted and resolved
-
-**REFINE:**
-
-- [ ] Yield% calculated for each pass
-- [ ] Convergence reached or iteration cap hit
-
-**Adversarial Pass:**
-
-- [ ] Required lenses applied for stakes level
-- [ ] Objections documented with responses or accepted risks
-- [ ] Compliance Prediction lens applied (critical for skills)
-
-**Exit Gate:**
-
-- [ ] All criteria passed
-- [ ] Full report written to artifact location
-- [ ] Chat summary contains P0/P1/P2 counts and key changes only
-
-**Quick self-test:**
-
-- If a P0 issue existed, would the user definitely see it in the summary?
-- Did I check quality of content, not just presence of sections?
-- Are the fixes actually applied, not just reported?
-
-## Extension Points
-
-**Skill-type-specific dimensions:**
-
-- Process/Workflow skills: Add "Step ordering" dimension — are steps in logical sequence?
-- Quality Enhancement skills: Add "Criteria clarity" dimension — are quality dimensions measurable?
-- Meta-cognitive skills: Add "Recognition specificity" dimension — are triggers concrete enough to detect?
-
-**Framework handoffs:**
-
-- If review finds skill is fundamentally flawed → Recommend returning to brainstorming-skills
-- If review passes → Skill ready for testing-skills validation
-- These are recommendations, not automated handoffs (user decides)
-
-**Custom artifact locations:**
-
-- Default: `docs/audits/YYYY-MM-DD-<skill-name>-review.md`
-- Projects can override via CLAUDE.md
-
-**Stakes presets:**
-
-- Projects can define default stakes in CLAUDE.md (e.g., "all skill reviews are Rigorous minimum")
-- User can still override per-review
-
-**Integration with other skills:**
-
-| Skill | Relationship |
-|-------|--------------|
-| brainstorming-skills | Upstream — produces draft SKILL.md that this skill reviews |
-| testing-skills | Downstream — validates behavioral effectiveness after review. Pass: reviewed SKILL.md path. Does not require review report but may reference it if behavioral issues arise. |
-| reviewing-documents | Sibling — same pattern, different target (prose specs vs skills) |
-
-**References directory depth:**
-
-- Default: Review all files in references/ one level deep
-- For skills with nested reference structures, note which files were reviewed and which were skipped
+For the detailed verification checklist, see [Verification Checklist](verification-checklist.md).
 
 ## References
 
-- [Dimension Definitions](references/dimension-definitions.md) — Detailed checking guidance for each D1-D12 dimension
-- [Skill Type Adaptation](references/skill-type-adaptation.md) — Type-specific priority adjustments and additional checks
-- [Framework for Thoroughness](references/framework-for-thoroughness.md) — Protocol specification for Yield%, stakes calibration, evidence levels
+- [Dimension Definitions](dimension-definitions.md) — Detailed checking guidance for each D1-D15 dimension
+- [Skill Type Adaptation](skill-type-adaptation.md) — Type-specific priority adjustments, extension points, and additional checks
+- [Framework for Thoroughness](framework-for-thoroughness.md) — Protocol specification for Yield%, stakes calibration, evidence levels
+- [Examples](examples.md) — Worked examples showing BAD vs GOOD review approaches
+- [Troubleshooting](troubleshooting.md) — Common issues and solutions
+- [Verification Checklist](verification-checklist.md) — Detailed checklist for review completion

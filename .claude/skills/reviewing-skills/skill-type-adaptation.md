@@ -326,3 +326,42 @@ Different skill types have different quality priorities. Use this reference duri
 | Recovery/Resilience | D2, D10 | Failure enumeration, escalation criteria |
 | Orchestration | D7, D13 | Handoff triggers, state passing, return conditions |
 | Template/Generation | D3, D5 | Field specs, format precision, validation |
+
+---
+
+## Extension Points
+
+### Skill-type-specific dimensions
+
+- Process/Workflow skills: Add "Step ordering" dimension — are steps in logical sequence?
+- Quality Enhancement skills: Add "Criteria clarity" dimension — are quality dimensions measurable?
+- Meta-cognitive skills: Add "Recognition specificity" dimension — are triggers concrete enough to detect?
+
+### Framework handoffs
+
+- If review finds skill is fundamentally flawed → Recommend returning to brainstorming-skills
+- If review passes → Skill ready for testing-skills validation
+- These are recommendations, not automated handoffs (user decides)
+
+### Custom artifact locations
+
+- Default: `docs/audits/YYYY-MM-DD-<skill-name>-review.md`
+- Projects can override via CLAUDE.md
+
+### Stakes presets
+
+- Projects can define default stakes in CLAUDE.md (e.g., "all skill reviews are Rigorous minimum")
+- User can still override per-review
+
+### Integration with other skills
+
+| Skill | Relationship |
+|-------|--------------|
+| brainstorming-skills | Upstream — produces draft SKILL.md that this skill reviews |
+| testing-skills | Downstream — validates behavioral effectiveness after review. Pass: reviewed SKILL.md path. Does not require review report but may reference it if behavioral issues arise. |
+| reviewing-documents | Sibling — same pattern, different target (prose specs vs skills) |
+
+### References directory depth
+
+- Default: Review all files in references/ one level deep
+- For skills with nested reference structures, note which files were reviewed and which were skipped
