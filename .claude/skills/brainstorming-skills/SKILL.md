@@ -184,7 +184,7 @@ This is when the checkpoint matters MOST. Acknowledge the impatience, then compl
 
 **Before drafting, read the writing guide:**
 
-YOU MUST read [references/skill-writing-guide.md](references/skill-writing-guide.md) before drafting any SKILL.md content. This is not optional. The guide contains essential principles that determine whether the skill will actually work.
+YOU MUST read [skill-writing-guide.md](skill-writing-guide.md) before drafting any SKILL.md content. This is not optional. The guide contains essential principles that determine whether the skill will actually work.
 
 After reading, verify internally: Can I articulate the "description must be trigger-only" rule? Can I name 3 persuasion principles? If not, re-read.
 
@@ -212,7 +212,7 @@ Present ONE more section, then ask again. Incremental presentation catches error
 - Body: ~500 lines is a guideline; split heavy content to reference files if significantly larger
 - References one level deep from SKILL.md
 
-Use [assets/skill-template.md](assets/skill-template.md) as a starting structure, keeping only relevant sections.
+Use [skill-template.md](skill-template.md) as a starting structure, keeping only relevant sections.
 
 **Section relevance by skill type** (guidance, not strict):
 
@@ -232,7 +232,7 @@ Use [assets/skill-template.md](assets/skill-template.md) as a starting structure
 **Required (all types):** Overview, Triggers OR When to Use, Process, Examples, Anti-Patterns, Troubleshooting, Decision Points
 **Optional:** Outputs, Verification, Extension Points
 
-See [type-example files](references/) for concrete guidance on filling sections for each type.
+See [type-example files](examples/) for concrete guidance on filling sections for each type.
 
 ## Outputs
 
@@ -292,8 +292,9 @@ See [type-example files](references/) for concrete guidance on filling sections 
 - If user keeps discovering requirements → Consider splitting into multiple skills
 
 **Draft exceeds 500 lines:**
-- If approaching limit → Split by extracting: examples to `references/examples.md`, checklists to `references/checklists.md`, type-specific content to type example files
+- If approaching limit → Split by extracting to supporting files (e.g., `examples.md` in skill root, or subdirectories like `reference/`, `examples/`)
 - Heavy reference content should NOT be inline in SKILL.md
+- Supporting files must be one level deep from SKILL.md and linked directly
 
 **User wants to skip checkpoint:**
 - Acknowledge impatience: "I hear you."
@@ -393,24 +394,24 @@ After convergence, Claude presents summary + adversarial findings, gets confirma
 ## References
 
 **Required reading before drafting:**
-- [references/skill-writing-guide.md](references/skill-writing-guide.md) — Essential principles for effective skills (consolidates best practices, compliance techniques, quality dimensions)
+- [skill-writing-guide.md](skill-writing-guide.md) — Essential principles for effective skills (consolidates best practices, compliance techniques, quality dimensions)
 
 **Structure:**
-- [assets/skill-template.md](assets/skill-template.md) — Starting structure for draft SKILL.md
+- [skill-template.md](skill-template.md) — Starting structure for draft SKILL.md
 
 **Deep dives (if needed):**
-- [references/skills-best-practices.md](references/skills-best-practices.md) — Full authoring guide with extended examples
-- [references/persuasion-principles.md](references/persuasion-principles.md) — Psychology research behind compliance techniques
-- [references/semantic-quality.md](references/semantic-quality.md) — Detailed quality dimension explanations
+- [skills-best-practices.md](skills-best-practices.md) — Full authoring guide with extended examples
+- [persuasion-principles.md](persuasion-principles.md) — Psychology research behind compliance techniques
+- [semantic-quality.md](semantic-quality.md) — Detailed quality dimension explanations
 
 **Type-specific examples** (load based on identified skill type):
-- [references/type-example-process-workflow.md](references/type-example-process-workflow.md)
-- [references/type-example-quality-enhancement.md](references/type-example-quality-enhancement.md)
-- [references/type-example-capability.md](references/type-example-capability.md)
-- [references/type-example-solution-development.md](references/type-example-solution-development.md)
-- [references/type-example-meta-cognitive.md](references/type-example-meta-cognitive.md)
-- [references/type-example-recovery-resilience.md](references/type-example-recovery-resilience.md)
-- [references/type-example-orchestration.md](references/type-example-orchestration.md)
-- [references/type-example-template-generation.md](references/type-example-template-generation.md)
+- [examples/type-example-process-workflow.md](examples/type-example-process-workflow.md)
+- [examples/type-example-quality-enhancement.md](examples/type-example-quality-enhancement.md)
+- [examples/type-example-capability.md](examples/type-example-capability.md)
+- [examples/type-example-solution-development.md](examples/type-example-solution-development.md)
+- [examples/type-example-meta-cognitive.md](examples/type-example-meta-cognitive.md)
+- [examples/type-example-recovery-resilience.md](examples/type-example-recovery-resilience.md)
+- [examples/type-example-orchestration.md](examples/type-example-orchestration.md)
+- [examples/type-example-template-generation.md](examples/type-example-template-generation.md)
 
 **Official spec:** For authoritative skills documentation (frontmatter fields, invocation patterns, skill loading), use the claude-code-docs MCP server: `search_docs` with query "skill frontmatter" or "SKILL.md format".

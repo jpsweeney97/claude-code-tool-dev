@@ -9,12 +9,12 @@ description: Use after brainstorming-skills produces a draft. Use when auditing 
 
 Skills fail silently: vague triggers cause misfires, weak compliance language gets rationalized around, missing sections leave gaps that testing catches too late. Document quality issues compound — a slightly unclear instruction becomes agent confusion becomes user frustration.
 
-This skill reviews SKILL.md files and their references/ directories for structural quality, clarity, and compliance strength. It catches issues before behavioral testing (testing-skills), when fixes are cheap.
+This skill reviews SKILL.md files and their supporting files for structural quality, clarity, and compliance strength. It catches issues before behavioral testing (testing-skills), when fixes are cheap.
 
 **What this skill can do:**
 - Assess document quality (clarity, precision, completeness)
 - Predict compliance strength (rationalization resistance, not actual behavior)
-- Validate internal references (references/ exists, links work, content aligns with SKILL.md)
+- Validate internal references (linked files exist, links work, content aligns with SKILL.md)
 - Cross-check external sources (if skill claims to implement a spec or follow official docs, verify alignment)
 - Escalate when issues are too fundamental to fix in place
 
@@ -59,7 +59,7 @@ This skill reviews SKILL.md files and their references/ directories for structur
 | Artifact | Location |
 |----------|----------|
 | Refined skill | Original location (edits applied in place) |
-| Refined references | Original locations in references/ (edits applied in place) |
+| Refined supporting files | Original locations (edits applied in place) |
 | Review report | `docs/audits/YYYY-MM-DD-<skill-name>-review.md` |
 
 **Review report includes:**
@@ -98,7 +98,7 @@ This skill reviews SKILL.md files and their references/ directories for structur
 - [ ] Yield% below threshold for thoroughness level
 - [ ] Disconfirmation attempted for P0 dimensions
 - [ ] Adversarial pass completed
-- [ ] Fixes applied to skill and references
+- [ ] Fixes applied to skill and supporting files
 - [ ] Exit Gate criteria satisfied
 - [ ] Full report written to artifact location
 - [ ] Chat contains brief summary only
@@ -112,7 +112,7 @@ This skill reviews SKILL.md files and their references/ directories for structur
 **1. Identify inputs:**
 
 - Target skill (SKILL.md path)
-- References directory (if exists)
+- Supporting files (any files linked from SKILL.md — may be in skill root or subdirectories)
 - External sources (official docs, specs the skill claims to implement), if applicable
 - User-specified concerns, if any
 
@@ -121,7 +121,7 @@ If inputs are unclear, ask. Accept paths or skill names.
 **2. Inventory the skill:**
 
 - Read the entire SKILL.md — not just headers, but full content. You need to understand the skill's purpose and flow before checking individual dimensions.
-- List all files in references/ (if exists)
+- Identify all linked supporting files (look for markdown links like `[text](file.md)` — files may be in skill root or subdirectories like `reference/`, `examples/`, `scripts/`)
 - Note any external sources referenced
 
 **3. Surface assumptions:**
@@ -371,16 +371,25 @@ An entity *yields* if it is:
 
 **Iteration cap (failsafe):** If convergence not reached after 5 passes (Adequate), 7 passes (Rigorous), or 10 passes (Exhaustive), exit with finding: "Skill may need fundamental revision — review did not converge."
 
-### Reviewing References
+### Reviewing Supporting Files
 
-**If no references/ directory exists:** Skip this section. Note "No references directory" in the review report and proceed to Adversarial Pass.
+Supporting files can live anywhere in the skill directory: in the root (e.g., `examples.md`, `template.md`) or in subdirectories (e.g., `reference/`, `scripts/`, `examples/`). The key requirement is that they're linked from SKILL.md and kept one level deep (never deeply nested).
 
-**For each file in references/:**
+**If no supporting files exist:** Skip this section. Note "No supporting files" in the review report and proceed to Adversarial Pass.
+
+**Discovery:**
+
+1. Scan SKILL.md for markdown links: `[text](path)`
+2. List the skill directory contents to find any files not linked
+3. Scripts in `scripts/` subdirectories are executed, not loaded — check they exist but don't apply document quality dimensions
+
+**For each linked supporting file:**
 
 **Existence and linkage:**
 - [ ] File exists at the linked path
 - [ ] Link syntax is correct (relative path from SKILL.md)
-- [ ] No orphaned files (files that exist but aren't linked)
+- [ ] No orphaned files (files that exist but aren't linked from SKILL.md)
+- [ ] Files are one level deep from SKILL.md (not nested like `reference/sub/file.md`)
 
 **Quality (apply relevant dimensions):**
 - D5 (Precision): Is language precise?
@@ -388,12 +397,12 @@ An entity *yields* if it is:
 - D7 (Internal consistency): Does it use same terminology as SKILL.md?
 
 **Coherence with SKILL.md:**
-- [ ] Reference supports claims made in SKILL.md
-- [ ] No contradictions between SKILL.md and reference
-- [ ] Reference doesn't introduce requirements not mentioned in SKILL.md
+- [ ] Supporting file supports claims made in SKILL.md
+- [ ] No contradictions between SKILL.md and supporting file
+- [ ] Supporting file doesn't introduce requirements not mentioned in SKILL.md
 - [ ] Terminology matches (no drift)
 
-**Reference-specific checks:**
+**File-specific checks:**
 - TOC present if >100 lines?
 - Examples concrete, not abstract?
 - Outdated information (dates, versions, deprecated features)?
@@ -460,7 +469,7 @@ If P0 findings exceed 5, or if the skill has fundamental structural problems:
 **Inputs unclear:**
 
 - If skill path not specified → Ask: "Which skill should I review?"
-- If references/ exists but not inventoried → Inventory it automatically
+- If supporting files exist but not inventoried → Inventory them automatically by scanning links in SKILL.md
 - If user says "just review it" → Proceed with all dimensions; note any scope assumptions
 
 **Stakes disagreement:**

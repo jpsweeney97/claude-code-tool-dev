@@ -25,7 +25,7 @@ Claude scans the skill once, notes "has Overview, Process, Examples," and report
 **Entry Gate:**
 
 - Target: `.claude/skills/handling-rate-limits/SKILL.md`
-- References: `references/retry-strategies.md` (exists)
+- Supporting files: `retry-strategies.md` (linked from SKILL.md)
 - Stakes: Rigorous (skill will guide production behavior)
 - Stopping: Yield% <10%
 

@@ -198,7 +198,7 @@ SKILL.md serves as an overview that points Claude to detailed materials as neede
 
 **Practical guidance:**
 
-- Aim for ~500 lines in SKILL.md body; split to references/ if significantly larger
+- Aim for ~500 lines in SKILL.md body; split to supporting files if significantly larger
 - Split content into separate files when approaching this limit
 - Use the patterns below to organize instructions, code, and resources effectively
 

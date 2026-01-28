@@ -215,7 +215,7 @@ Use these dimensions to write and review high-quality skills.
 
 ## Framework for Thoroughness
 
-Some skills need rigor — iterative analysis, evidence tracking, principled stopping. The [Framework for Thoroughness](../../../references/framework-for-thoroughness_v1.0.0.md) provides reusable patterns.
+Some skills need rigor — iterative analysis, evidence tracking, principled stopping. The [Framework for Thoroughness](framework-for-thoroughness_v1.0.0.md) provides reusable patterns.
 
 **When to integrate:**
 
@@ -382,7 +382,7 @@ Before finalizing any skill:
 
 - [ ] Description contains trigger conditions only (no workflow)
 - [ ] Description is third person
-- [ ] Body reasonably sized (~500 lines guideline; split to references/ if significantly larger)
+- [ ] Body reasonably sized (~500 lines guideline; split to supporting files if significantly larger)
 - [ ] Consistent terminology throughout
 - [ ] References one level deep from SKILL.md
 - [ ] Examples are concrete, not abstract

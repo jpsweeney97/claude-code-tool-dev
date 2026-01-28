@@ -361,7 +361,8 @@ Different skill types have different quality priorities. Use this reference duri
 | testing-skills | Downstream — validates behavioral effectiveness after review. Pass: reviewed SKILL.md path. Does not require review report but may reference it if behavioral issues arise. |
 | reviewing-documents | Sibling — same pattern, different target (prose specs vs skills) |
 
-### References directory depth
+### Supporting file depth
 
-- Default: Review all files in references/ one level deep
-- For skills with nested reference structures, note which files were reviewed and which were skipped
+- Default: Review all files linked from SKILL.md (may be in skill root or subdirectories)
+- Supporting files should be one level deep from SKILL.md (never nested)
+- For skills with nested structures, note which files were reviewed and which were skipped

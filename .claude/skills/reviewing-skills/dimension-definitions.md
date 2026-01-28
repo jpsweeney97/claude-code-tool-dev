@@ -133,7 +133,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
    - [ ] `description`: ≤1024 chars, trigger conditions only
 
 3. **Size guidance:**
-   - [ ] Body reasonably sized (~500 lines is a guideline, not a hard cap; consider splitting to references/ if significantly larger)
+   - [ ] Body reasonably sized (~500 lines is a guideline, not a hard cap; consider splitting to supporting files if significantly larger)
    - [ ] References one level deep from SKILL.md
 
 4. **Structure:**
@@ -145,7 +145,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 - Missing required sections
 - Name not gerund form ("code-review" vs "reviewing-code")
 - Description over 1024 characters
-- Body significantly exceeds ~500 lines with content that could be split to references/
+- Body significantly exceeds ~500 lines with content that could be split to supporting files
 - Nested references (reference files linking to other reference files)
 - Inconsistent heading hierarchy
 
@@ -153,7 +153,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 
 - All required sections present
 - Frontmatter valid
-- Size reasonable (lengthy skills have content appropriately split to references/)
+- Size reasonable (lengthy skills have content appropriately split to supporting files)
 - References one level deep
 
 **Example findings:**
@@ -161,7 +161,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 | Finding | Priority | Proposed Fix |
 |---------|----------|--------------|
 | Name is "skill-review" (noun) | P0 | Rename to "reviewing-skills" (gerund) |
-| Body is 650 lines | P1 | Split detailed content to references/ |
+| Body is 650 lines | P1 | Split detailed content to supporting files |
 | Missing required "Examples" section | P0 | Add Examples section with BAD/GOOD patterns |
 
 ---
@@ -427,7 +427,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 
 1. Click/verify every link in SKILL.md
 2. Check that referenced files exist
-3. Check for orphaned files in references/ (exist but not linked)
+3. Check for orphaned files in skill directory (exist but not linked from SKILL.md)
 4. Look for stale content (old dates, deprecated features, dead links)
 5. Verify external links still work
 
@@ -457,8 +457,8 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 
 | Finding | Priority | Proposed Fix |
 |---------|----------|--------------|
-| Link to `references/examples.md` broken | P2 | Create file or remove link |
-| `references/old-api.md` not linked anywhere | P2 | Link it or delete it |
+| Link to `examples.md` broken | P2 | Create file or remove link |
+| `old-api.md` not linked from SKILL.md | P2 | Link it or delete it |
 | Example uses deprecated `fs.exists()` | P2 | Update to `fs.existsSync()` |
 
 ---
@@ -969,7 +969,7 @@ If a skill has inherent complexity that can't be simplified, it should explicitl
 For each dimension:
 1. TaskUpdate to mark in_progress
 2. Re-read the relevant section of the skill being reviewed
-3. Check the dimension using the guidance in references/
+3. Check the dimension using the guidance from dimension-definitions.md
 4. TaskUpdate to mark completed with findings in notes
 
 ### Phase 3: Synthesis
