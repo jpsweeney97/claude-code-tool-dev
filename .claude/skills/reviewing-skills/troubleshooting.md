@@ -55,3 +55,9 @@ Common issues encountered during skill reviews and how to resolve them.
 **Cause:** Incomplete or malformed skill.
 
 **Next steps:** Flag as P0 structural conformance issue (D3). Skill needs basic structure before detailed review. Consider whether to fix frontmatter first or escalate to brainstorming-skills for fundamental rework.
+
+## Cannot read or write skill files
+
+**Cause:** File permissions, non-text file format, or directory access issue.
+
+**Next steps:** If file is unreadable, ask user to check permissions or provide file contents. If fixes cannot be applied due to write permissions, document proposed fixes in the review report without applying them — user can apply manually.

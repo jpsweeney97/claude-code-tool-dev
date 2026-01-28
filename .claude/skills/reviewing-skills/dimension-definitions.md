@@ -134,7 +134,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 
 3. **Size guidance:**
    - [ ] Body reasonably sized (~500 lines is a guideline, not a hard cap; consider splitting to supporting files if significantly larger)
-   - [ ] References one level deep from SKILL.md
+   - [ ] Supporting files one level deep from SKILL.md
 
 4. **Structure:**
    - [ ] Progressive disclosure (overview → details)
@@ -146,7 +146,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 - Name not gerund form ("code-review" vs "reviewing-code")
 - Description over 1024 characters
 - Body significantly exceeds ~500 lines with content that could be split to supporting files
-- Nested references (reference files linking to other reference files)
+- Nested supporting files (supporting files linking to other supporting files)
 - Inconsistent heading hierarchy
 
 **Pass criteria:**

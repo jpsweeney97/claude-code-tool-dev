@@ -125,3 +125,47 @@ Yield% = 1 revised P1 finding / 6 total P0/P1 entities = 17%
 ```
 
 **Why this matters:** The behavioral issue (agents skipping tests) traced back to weak compliance language — a document quality issue that review catches and testing wouldn't.
+
+## Example 3: Reviewing a mature, well-tested skill (no issues found)
+
+**Scenario:** Review a stable production skill that has been in use for months without reported issues.
+
+**Entry Gate:**
+
+- Target: `~/.claude/skills/handling-rate-limits/SKILL.md` (the skill from Example 1, after fixes were applied)
+- Stakes: Rigorous (periodic audit)
+
+**Pass 1:** Full dimension sweep
+
+All dimensions checked with E2 evidence. No issues found.
+
+**Pass 2:** Disconfirmation focus
+
+Applied disconfirmation techniques to all P0 dimensions:
+- D1: Searched for trigger overlaps with other skills — none found
+- D2: Traced through process steps looking for gaps — none found
+- D3: Verified all sections present and frontmatter valid — confirmed
+
+Yield% = 0%
+
+**Adversarial Pass:**
+
+- Compliance Prediction: Reviewed under "agent under pressure" lens — compliance language is strong, rationalization table addresses common excuses
+- Author Blindness: Asked "what would I miss?" — nothing new surfaced; skill was previously reviewed and fixed
+
+**Exit Gate:**
+
+- Coverage complete: All dimensions `[x]`
+- Disconfirmation attempted: Yes, documented above
+- Self-check: "Did I actually look, or assume it was fine?" — Actually looked; Pass 2 was specifically focused on disconfirmation
+
+**Output:**
+
+```
+**Review complete:** handling-rate-limits
+**Findings:** P0: 0 | P1: 0 | P2: 0
+**Key changes:** None — skill passes review
+**Full report:** `docs/audits/2024-06-15-handling-rate-limits-review.md`
+```
+
+**Why this matters:** A clean review is valid when disconfirmation was genuinely attempted and documented. "No issues found" requires extra verification, which this example demonstrates.

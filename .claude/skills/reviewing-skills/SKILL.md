@@ -60,7 +60,7 @@ This skill reviews SKILL.md files and their supporting files for structural qual
 |----------|----------|
 | Refined skill | Original location (edits applied in place) |
 | Refined supporting files | Original locations (edits applied in place) |
-| Review report | `docs/audits/YYYY-MM-DD-<skill-name>-review.md` |
+| Review report | `docs/audits/YYYY-MM-DD-<skill-name>-review.md` (create directory if needed) |
 
 **Review report includes:**
 
@@ -292,6 +292,23 @@ Example proposed fix: "Add 'YOU MUST' before the instruction" or "Replace vague 
 
 These finding tasks will be processed in the FIX stage.
 
+**For subsequent passes (Pass 2+):**
+
+Dimension tasks track *cumulative state* (status, evidence, confidence). Pass tasks track *activity* (what you're examining this iteration). Use both:
+
+1. **Create a pass task** at the start of each subsequent pass:
+   - Subject: "Execute Pass N: [focus]" (e.g., "Execute Pass 2: Deep compliance check")
+   - Description: List which dimensions you'll re-examine and why
+   - activeForm: "Executing Pass N"
+
+2. **When re-checking a dimension**, update its task metadata (not status — dimension remains `completed`):
+   - Add to Notes: "Pass 2: re-checked, no changes" or "Pass 2: found issue, see F6"
+   - Update Evidence/Confidence fields if the re-check changes your assessment
+
+3. **Mark the pass task complete** when done, recording Yield% in metadata
+
+This maintains dimension → finding linkage while making pass progression visible and surviving context compaction.
+
 #### VERIFY: Check findings
 
 **Cross-reference:** Do findings from different dimensions agree or contradict?
@@ -470,6 +487,8 @@ If P0 findings exceed 5, or if the skill has fundamental structural problems:
 
 1. Write full report to `docs/audits/YYYY-MM-DD-<skill-name>-review.md`
 2. Present brief summary in chat (P0/P1/P2 counts, fixes applied, key changes only)
+
+**After review completes:** If no P0 issues remain, the skill is ready for testing-skills to validate behavioral effectiveness. Pass the reviewed SKILL.md path.
 
 ## Decision Points
 
