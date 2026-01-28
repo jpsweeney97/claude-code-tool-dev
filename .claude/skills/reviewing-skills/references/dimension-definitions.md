@@ -17,6 +17,8 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 - [D11: Feasibility (P2)](#d11-feasibility-p2)
 - [D12: Testability (P2)](#d12-testability-p2)
 - [D13: Integration Clarity (P1, Conditional)](#d13-integration-clarity-p1-conditional)
+- [D14: Example Quality (P1)](#d14-example-quality-p1)
+- [D15: Cognitive Manageability (P2)](#d15-cognitive-manageability-p2)
 
 ---
 
@@ -732,3 +734,262 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 | "Hand off to testing-skills" — no state passed | P1 | Specify: "Pass draft SKILL.md path and design context location" |
 | What if downstream skill fails? | P1 | Add: "If testing fails, return with feedback for revision" |
 | Circular dependency with brainstorming-skills | P0 | Define clear entry/exit conditions to break cycle |
+
+---
+
+## D14: Example Quality (P1)
+
+**What it catches:** Examples that exist but are unrealistic, lack diversity, don't show graduated complexity, or fail to demonstrate the skill's value.
+
+**Distinction from D3:** D3 checks that an Examples section exists with BAD/GOOD patterns. D14 checks whether those examples are *effective* — realistic enough to transfer to real situations, diverse enough to cover the skill's scope, and graduated to build understanding.
+
+**How to check:**
+
+1. **Realism:**
+   - Are examples based on plausible scenarios an agent would encounter?
+   - Or are they contrived/toy examples that don't reflect real complexity?
+   - Would an agent recognize "I'm in this situation" from the example?
+
+2. **Diversity:**
+   - Do examples cover the skill's full scope, or just one narrow case?
+   - Are different contexts represented (different file types, project sizes, error types)?
+   - Do BAD examples show *different kinds* of failures, not just one failure repeated?
+
+3. **Graduated complexity:**
+   - Is there a simple example that shows the core pattern?
+   - Are there progressively complex examples that show edge cases and nuance?
+   - Can a reader understand the simple case before tackling the complex one?
+
+4. **Failure mode coverage:**
+   - Do BAD examples show the *common* ways agents fail, not just strawmen?
+   - Are BAD examples ones an agent might actually produce under pressure?
+   - Is the distinction between BAD and GOOD clear and instructive?
+
+5. **Transferability:**
+   - After reading examples, could an agent handle a *different* situation correctly?
+   - Or do examples only show how to handle the exact cases shown?
+
+**Red flags:**
+
+- Single example claimed to represent the whole skill
+- BAD examples that are obviously wrong (no agent would actually do that)
+- Examples all from one domain (all web, all CLI, all Python)
+- No simple "base case" example — jumps straight to complex scenarios
+- Examples that are too short to show the skill's full process
+- GOOD examples that are actually mediocre (just "less bad")
+- Toy examples: "Imagine a function called `doThing()`..."
+- Examples that skip the hard parts: "...then handle the edge cases appropriately"
+
+**Good patterns:**
+
+- 2-3 examples showing simple → moderate → complex cases
+- BAD examples that show realistic mistakes (the kind agents actually make)
+- Examples from different contexts (different languages, project types, scenarios)
+- Full worked examples showing complete skill execution, not just snippets
+- Clear annotations explaining *why* BAD is bad and GOOD is good
+- Examples that highlight decision points and show how to navigate them
+- "What would happen if..." variations that show consequences
+
+**Pass criteria:**
+
+- Examples are realistic — agents would recognize the situations
+- Examples are diverse — cover skill's scope, not just one narrow case
+- Complexity is graduated — simple case first, then progressively harder
+- BAD examples show realistic failures, not strawmen
+- Examples are instructive — reader learns principles, not just specific cases
+- Hard parts are shown, not skipped
+
+**Example findings:**
+
+| Finding | Priority | Proposed Fix |
+|---------|----------|--------------|
+| Only one example, covers narrow case | P1 | Add 2-3 examples covering different contexts |
+| BAD example is strawman ("forgot to save file") | P1 | Replace with realistic failure an agent would make under pressure |
+| All examples are Python web apps | P2 | Add examples from different domains (CLI, library, config) |
+| GOOD example skips the hard decision | P1 | Expand to show how decision was made, not just the outcome |
+| No simple base case — first example is complex | P1 | Add minimal example showing core pattern before complex ones |
+| Examples show what to do, not why | P2 | Add annotations explaining the reasoning |
+
+**Questions to ask:**
+
+- "If I only saw these examples, would I understand what to do in a *different* situation?"
+- "Would an agent under pressure actually make the mistake shown in the BAD example?"
+- "Is there a simple case that teaches the core pattern before the complex cases?"
+
+---
+
+## D15: Cognitive Manageability (P2)
+
+**What it catches:** Skills that are structurally correct and precisely worded but unusable in practice because they overwhelm working memory or require holding too much context simultaneously.
+
+**Why this matters:** Agents have limited context windows and attention. A skill can pass all other dimensions yet fail because following it requires tracking too many things at once, or because the structure doesn't match how agents process information. Claude Code provides tools to externalize memory — skills should guide agents to use them.
+
+**How to check:**
+
+1. **Step count and depth:**
+   - How many steps must be held in memory simultaneously?
+   - Are there deeply nested conditionals (if → if → if)?
+   - Can each step be completed before needing to think about the next?
+   - Does the skill use TaskCreate to externalize multi-step tracking?
+
+2. **Decision complexity:**
+   - How many factors must be weighed for each decision?
+   - Are decision criteria independent or do they interact?
+   - Can decisions be made sequentially, or must multiple be held pending?
+
+3. **Cross-referencing burden:**
+   - How often must the agent jump between sections?
+   - Are related concepts co-located or scattered?
+   - Can a section be understood without flipping back to previous sections?
+
+4. **Chunking support:**
+   - Is information grouped into meaningful chunks?
+   - Are there natural "save points" where partial progress is stable?
+   - Can the skill be applied in phases without losing state?
+
+5. **Progressive disclosure:**
+   - Does the skill front-load what matters most?
+   - Can simple cases be handled without reading the full skill?
+   - Is complexity introduced gradually or all at once?
+
+6. **Parallel vs sequential load:**
+   - How many things must be tracked simultaneously?
+   - Or can items be processed one at a time?
+
+7. **Tool usage for memory externalization:**
+   - Does the skill guide use of TaskCreate for complex checklists?
+   - Does it delegate sub-work to Task (subagents) where appropriate?
+   - Does it instruct agents to re-read files rather than rely on memory?
+
+**Red flags:**
+
+- More than 7 top-level steps without TaskCreate tracking
+- Nested conditionals more than 2 levels deep
+- Decision tables with more than 4 factors to weigh simultaneously
+- Frequent forward/backward references between sections
+- No clear phases or checkpoints — one long undifferentiated process
+- Important details buried in walls of text
+- Multiple processes interleaved rather than sequential
+- "Remember to also check X" scattered throughout (should be in a checklist)
+- Critical information only in footnotes or references
+- Steps that require output from multiple prior non-adjacent steps
+- Assumes agent remembers file contents from earlier in conversation
+- Complex sub-tasks inline instead of delegated to Task tool
+
+**Good patterns:**
+
+- Clear phases with distinct purposes (Entry → Process → Exit)
+- Each section self-contained where possible
+- Key information surfaced early, details available when needed
+- Decision tables with ≤4 factors
+- "Quick path" for simple cases separate from full complexity
+- **TaskCreate for multi-step processes** — externalize the checklist
+- **Task tool for complex sub-work** — delegate to subagent, receive summary
+- **Explicit "re-read X before Y" instructions** — don't assume agent remembers
+- Natural checkpoints where state is stable
+- Related concepts co-located, not scattered
+- Visual hierarchy that guides attention
+- Summary tables before detailed explanations
+
+**Tools that reduce cognitive load:**
+
+Claude Code provides tools that externalize memory and offload complexity. Skills should guide agents to use these:
+
+| Tool | How It Helps | Use When |
+|------|--------------|----------|
+| **TaskCreate / TaskUpdate** | Externalizes checklists to persistent storage — agent doesn't need to hold all steps in working memory | Multi-step processes, complex workflows |
+| **TaskList / TaskGet** | Retrieves current state without relying on memory | Resuming after context compaction, checking progress |
+| **Task** (subagents) | Offloads complex sub-tasks to separate context window — main agent receives summary, not raw data | Independent sub-tasks, parallel work streams, exploration |
+| **Read** | Re-reads files instead of trying to remember contents | Any time file contents are needed — don't memorize |
+
+**When cognitive load is high, use tools:**
+
+If a skill has inherent complexity that can't be simplified, it should explicitly guide agents to use memory-externalizing tools:
+
+| High Complexity Pattern | Mitigation | Skill Should Say |
+|-------------------------|------------|------------------|
+| Many steps to track | TaskCreate | "Create tasks for each phase before starting" |
+| Need to remember findings | TaskUpdate with notes | "Record findings in task metadata as you go" |
+| Complex sub-problem | Task (subagent) | "Delegate X to a subagent; receive summary" |
+| File contents needed later | Read again | "Re-read the file before proceeding" |
+| Parallel workstreams | Multiple Task calls | "Launch subagents in parallel for independent items" |
+
+**Pass criteria:**
+
+- Skill can be applied without exceeding working memory
+- Decisions can be made with information that's locally available
+- Clear phases allow partial completion with stable state
+- Progressive disclosure — simple cases don't require full complexity
+- Cross-referencing burden is minimal
+- Complexity is structured, not dumped
+- Tool-based externalization used where appropriate for complex skills
+
+**Severity calibration:**
+
+| Pattern | Impact | Priority |
+|---------|--------|----------|
+| >10 steps with no phases or task tracking | High — agents lose track | P1 |
+| 3+ level nested conditionals | High — decision path unclear | P1 |
+| Assumes memory of file contents | Medium — leads to errors | P1 |
+| Constant cross-referencing required | Medium — slows execution | P2 |
+| No quick path for simple cases | Medium — overhead on easy tasks | P2 |
+| Dense text without visual hierarchy | Low — harder to scan | P2 |
+| Complex sub-work not delegated to subagents | Medium — context pollution | P2 |
+
+**Example findings:**
+
+| Finding | Priority | Proposed Fix |
+|---------|----------|--------------|
+| 12 steps with no phase structure or task tracking | P1 | Group into 3-4 phases; add "Use TaskCreate to track progress" |
+| Decision requires weighing 6 factors simultaneously | P1 | Restructure as sequential filters or use decision tree |
+| Must refer to 3 prior sections to understand current step | P2 | Co-locate required context or add summary |
+| No quick path — trivial cases require full process | P2 | Add "Fast Path" section for simple cases |
+| Nested if → if → if → then structure | P1 | Flatten to decision table or sequential checks |
+| "Also remember X" scattered in 5 different places | P2 | Consolidate into TaskCreate checklist |
+| 500-line skill with no phases or headers | P1 | Add structure with clear sections and phases |
+| "Using the findings from earlier..." without re-read | P1 | Add: "Re-read [file] before this step" |
+| Complex exploration inline in main process | P2 | Add: "Delegate exploration to Explore subagent" |
+
+**Example of tool-guided process in a skill:**
+
+```markdown
+## Process
+
+### Phase 1: Setup
+
+1. **Create tracking tasks:**
+   Use TaskCreate to create one task per dimension. This externalizes your
+   checklist so you don't need to hold all dimensions in memory.
+
+2. **Inventory inputs:**
+   Read all relevant files. Do not try to memorize — you will re-read as needed.
+
+### Phase 2: Analysis (per dimension)
+
+For each dimension:
+1. TaskUpdate to mark in_progress
+2. Re-read the relevant section of the skill being reviewed
+3. Check the dimension using the guidance in references/
+4. TaskUpdate to mark completed with findings in notes
+
+### Phase 3: Synthesis
+
+1. TaskList to see all findings
+2. ...
+```
+
+**Questions to ask:**
+
+- "How many things must I hold in my head to complete step N?"
+- "If I paused mid-skill, could I resume without re-reading everything?"
+- "Can I handle a simple case without engaging with all the complexity?"
+- "Where are the natural 'save points' in this process?"
+- "Does this skill tell me to use TaskCreate, or does it expect me to track everything mentally?"
+- "When I need file contents, does the skill tell me to re-read or assume I remember?"
+
+**Interaction with other dimensions:**
+
+- **D2 (Process Completeness):** A process can be complete but unmanageable. D2 checks if steps exist; D15 checks if they can be followed without overload.
+- **D3 (Structural Conformance):** D3 checks required sections exist; D15 checks if the structure *supports* cognitive processing.
+- **D6 (Actionability):** D6 checks if instructions are executable; D15 checks if they're executable *given attention limits*.
+- **D11 (Feasibility):** D11 checks if requirements can be achieved; D15 checks if they can be achieved *without exceeding cognitive capacity*.

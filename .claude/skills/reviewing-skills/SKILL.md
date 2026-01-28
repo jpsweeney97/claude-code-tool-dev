@@ -153,6 +153,16 @@ List what you're taking for granted:
 
 Document assumptions, stakes level, scope, and stopping criteria before proceeding.
 
+**7. Initialize dimension tracking:**
+
+Use TaskCreate to create one task per dimension (D1-D15). This externalizes your checklist so you don't need to hold all dimensions in memory.
+
+- Subject: "D1: Trigger clarity" (use dimension name)
+- Description: Include priority (P0/P1/P2) and the "What it catches" summary from [Dimension Definitions](references/dimension-definitions.md)
+- Do not start checking until all dimension tasks are created
+
+This step is critical for cognitive manageability — the review process involves tracking 15 dimensions across multiple passes. Task tracking externalizes this burden and survives context compaction.
+
 ### Dimension Catalog
 
 | ID | Dimension | Priority | What it catches |
@@ -225,7 +235,16 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE?
 
 #### EXPLORE: Check each dimension
 
-For each dimension, record using Cell Schema:
+**Before checking any dimension:** Verify all dimension tasks exist (created in Entry Gate step 7). Use TaskList to confirm.
+
+**For each dimension:**
+
+1. TaskUpdate to mark `in_progress`
+2. Re-read the relevant section of the skill being reviewed (don't rely on memory from Entry Gate)
+3. Check the dimension using guidance from [Dimension Definitions](references/dimension-definitions.md)
+4. TaskUpdate to mark `completed` with Cell Schema fields in metadata
+
+**Cell Schema fields** (record in task metadata):
 
 | Field | Required | Values |
 |-------|----------|--------|
@@ -256,13 +275,15 @@ For each dimension, record using Cell Schema:
 
 **Rule:** Confidence cannot exceed evidence. E0/E1 caps confidence at Medium.
 
-**For each finding:**
+**For each finding, use TaskCreate:**
 
-- Link to dimension(s) it relates to
-- Assign priority based on impact
-- Rate evidence and confidence
-- Note artifacts (quotes, line references)
-- Draft proposed fix (prose description of the change; e.g., "Add 'YOU MUST' before the instruction" or "Replace vague 'appropriate' with specific criteria")
+Create a finding task (F1, F2, etc.) with:
+- Subject: "F1: [brief description of issue]"
+- Description: Include linked dimension(s), priority, evidence, confidence, artifacts (quotes, line refs), and proposed fix
+
+Example proposed fix: "Add 'YOU MUST' before the instruction" or "Replace vague 'appropriate' with specific criteria"
+
+These finding tasks will be processed in the FIX stage.
 
 #### VERIFY: Check findings
 
@@ -291,11 +312,13 @@ For each dimension, record using Cell Schema:
 
 #### FIX: Apply corrections
 
-For each verified finding:
+**Use TaskList to see all finding tasks.** Process in priority order (P0 first, then P1, then P2).
 
-1. Apply the fix directly to the skill or reference file using the Edit tool
-2. Note what changed in your tracking (original text → revised text, with file and line reference)
-3. Mark finding as fixed in the coverage tracker
+For each finding task:
+
+1. TaskUpdate to mark `in_progress`
+2. Apply the fix directly to the skill or reference file using the Edit tool
+3. TaskUpdate to mark `completed` with metadata noting what changed (original text → revised text, with file and line reference)
 
 **Apply fixes at the end of each pass**, not during EXPLORE/VERIFY. This prevents fixes from interfering with dimension checking.
 
@@ -378,6 +401,8 @@ An entity *yields* if it is:
 ### Adversarial Pass
 
 **YOU MUST** complete the Adversarial Pass before Exit Gate, even if the review loop found nothing.
+
+**Before starting:** Use TaskCreate to create one task per lens you'll apply (7 for Rigorous/Exhaustive, 4 for Adequate). This ensures no lens is skipped.
 
 This pass challenges the *skill itself*, not individual findings. Apply each lens with genuine adversarial intent.
 
