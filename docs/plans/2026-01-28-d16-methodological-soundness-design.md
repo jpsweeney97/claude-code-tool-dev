@@ -291,6 +291,53 @@ The next session should focus on **ideation and exploration**, not implementatio
 
 ---
 
+## Implementation Status
+
+**Status: IMPLEMENTED** (2026-01-28)
+
+D16 has been formalized and added to reviewing-skills:
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `dimension-definitions.md` | Added D16 entry (~200 lines) with full checking guidance |
+| `SKILL.md` | Added D16 to dimension catalog table |
+| `skill-type-adaptation.md` | Added D16 to type-specific priority tables (P0 for Process/Quality/Solution, P1/P2 for others) |
+| `verification-checklist.md` | Updated "15 dimensions" → "16 dimensions" |
+
+### Design Decisions Made During Exploration
+
+1. **Two-tier structure:** D16 split into D16a (internal validity, always checkable) and D16b (external validity, may need domain search)
+
+2. **Source requirements:** Rationale required, citations recommended but not required. P1 for missing rationale, P2 for "could benefit from sources"
+
+3. **Contested approaches:** Skill can teach one valid approach but cannot claim universality without evidence. Contested approaches should acknowledge debate.
+
+4. **Evidence levels:** D16a requires E1 (step/goal trace), D16b requires E1-E2 depending on finding severity
+
+5. **Priority by type:** P0 for Process/Quality/Solution (wrong methodology = wrong outcome), P1 for Capability/Meta/Recovery/Orchestration, P2 for Template
+
+### Stress Testing Performed
+
+D16 was stress-tested against 9 existing skills:
+
+| Skill | D16a | D16b | Key Finding |
+|-------|------|------|-------------|
+| brainstorming-skills | PASS | P1 | Strong claim without external evidence |
+| writing-clearly-and-concisely | PASS | P2 | Contested rules not acknowledged |
+| exploring-codebases | PASS | P2 | Custom methodology |
+| making-recommendations | PASS | P2 | No citations |
+| reviewing-code | PASS | P2 | Custom dimensions |
+| testing-skills | PASS | PASS | Cites TDD and research |
+| using-frameworks | PASS | P2 | Custom wrapper |
+| ideating-extensions | PASS | P2 | Follows design thinking |
+| reviewing-documents | PASS | P2 | Aligns with inspections |
+
+**Calibration validated:** D16a catches hard failures (none found — skills are well-designed). D16b differentiates meaningfully: P1 for strong unjustified claims, P2 for "could strengthen with sources", PASS for actually citing sources.
+
+---
+
 ## Additional Enhancements Identified (Future Work)
 
 During this exploration, three other enhancements were identified for reviewing-skills:

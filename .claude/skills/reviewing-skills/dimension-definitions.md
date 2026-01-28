@@ -19,6 +19,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 - [D13: Integration Clarity (P1, Conditional)](#d13-integration-clarity-p1-conditional)
 - [D14: Example Quality (P1)](#d14-example-quality-p1)
 - [D15: Cognitive Manageability (P2)](#d15-cognitive-manageability-p2)
+- [D16: Methodological Soundness (P1)](#d16-methodological-soundness-p1)
 
 ---
 
@@ -993,3 +994,188 @@ For each dimension:
 - **D3 (Structural Conformance):** D3 checks required sections exist; D15 checks if the structure *supports* cognitive processing.
 - **D6 (Actionability):** D6 checks if instructions are executable; D15 checks if they're executable *given attention limits*.
 - **D11 (Feasibility):** D11 checks if requirements can be achieved; D15 checks if they can be achieved *without exceeding cognitive capacity*.
+
+---
+
+## D16: Methodological Soundness (P1)
+
+**What it catches:** Skills that teach wrong, outdated, or poorly-justified approaches — problems that pass document quality checks (D1-D15) but fail at the level of *what* the skill teaches rather than *how well* it's documented.
+
+**Why this dimension is different:** D1-D15 assess document quality — clarity, completeness, consistency, compliance. Any competent reviewer can check these. D16 assesses approach validity — whether the methodology itself is correct. This may require domain knowledge or explicit justification within the skill.
+
+**Two sub-dimensions:**
+
+| Sub-dimension | Priority | What it checks | Always checkable? |
+|---------------|----------|----------------|-------------------|
+| **D16a: Internal validity** | P0 | Steps achieve goals, skill matches its own sources, logical coherence | Yes |
+| **D16b: External validity** | P1 | Methodology justified, limitations acknowledged, doesn't contradict established practice | Partially (may need domain search) |
+
+**How to check:**
+
+**D16a — Internal Validity (always check):**
+
+1. **Coherence:** Do the steps logically achieve the stated goal?
+   - Trace methodology → expected outcome
+   - Are there steps that work against the goal?
+   - Does the approach fit the goal type? (e.g., "fast iteration" shouldn't use heavyweight process)
+
+2. **Alignment:** Does the skill match what it cites?
+   - Compare skill's instructions to referenced sources
+   - Any contradictions between what the skill says and what its sources say?
+   - If skill claims to follow X methodology, does it actually follow X?
+
+3. **Goal-methodology fit:** Is the methodology appropriate?
+   - Process skills should have sequences; quality skills should have criteria
+   - Heavy process for simple goals is a red flag
+   - Light process for complex/risky goals is a red flag
+
+**D16b — External Validity (check with domain search):**
+
+4. **Rationale:** Does skill explain WHY this approach?
+   - Is there a rationale section or explanation of methodology choice?
+   - Does it explain why this approach over alternatives?
+   - "We do X because Y" not just "Do X"
+
+5. **Limitations:** Are limitations acknowledged?
+   - Does "When NOT to Use" cover methodology limits?
+   - Any "always/never" claims without supporting evidence?
+   - Does skill acknowledge when other approaches might be better?
+
+6. **Domain search:** Does skill contradict established practice?
+   - Search: "[approach] criticism" or "[domain] best practices"
+   - Does skill recommend known anti-patterns?
+   - Does skill contradict authoritative sources?
+
+7. **Contested approaches:** If the approach is debated, is that acknowledged?
+   - Skill can teach one valid approach
+   - Skill cannot claim it's the "only" or "always correct" approach without evidence
+   - Contested methodologies should acknowledge the debate
+
+**Red flags:**
+
+- No rationale for methodology chosen (cargo cult risk)
+- "Always", "never", "only way" claims without evidence
+- Contradicts cited source (internal inconsistency)
+- Cites non-authoritative sources as authority (blog post as if it were official docs)
+- Steps don't logically achieve stated goal (coherence failure)
+- No "When NOT to Use" covering methodology limits
+- Claims universality for contested approach
+- Methodology copied from another domain without adaptation
+- Goal and methodology mismatch (heavy process for light task or vice versa)
+
+**Good patterns:**
+
+- Rationale section explaining why this approach
+- Cites authoritative sources (official docs, research, established frameworks)
+- Acknowledges alternative approaches exist
+- Explains trade-offs of chosen approach
+- Methodology clearly achieves stated goal
+- "When NOT to Use" covers methodology limitations
+- Contested approaches acknowledged as contested
+- Domain-appropriate methodology
+
+**Pass criteria:**
+
+**D16a (must pass):**
+- Steps logically achieve stated goal
+- Skill matches what it cites
+- Methodology appropriate for goal type
+
+**D16b (should pass):**
+- Rationale present for methodology choice
+- No unjustified universality claims
+- No contradiction with authoritative sources (or contradiction acknowledged/justified)
+- Limitations acknowledged
+
+**Evidence requirements:**
+
+| Finding | Required Evidence |
+|---------|-------------------|
+| D16a pass | Traced steps → goal (E1) |
+| D16a fail | Specific step/goal mismatch or source contradiction cited (E1) |
+| D16b pass (full) | Domain search found no contradicting advice, OR skill acknowledges debate (E1-E2) |
+| D16b P0 | Contradicting authoritative source cited (E2) |
+| D16b P1 | Missing rationale or unjustified universality identified (E1) |
+| D16b P2 | Improvement opportunity noted — could strengthen with sources (E1) |
+
+**Priority by skill type:**
+
+| Skill Type | D16a | D16b | Rationale |
+|------------|------|------|-----------|
+| Process/Workflow | P0 | P0 | Wrong process = wrong outcome |
+| Quality Enhancement | P0 | P0 | Wrong criteria = wrong improvements |
+| Solution Development | P0 | P0 | Wrong framework = wrong recommendations |
+| Capability | P0 | P1 | Wrong technique may still partially work |
+| Meta-cognitive | P0 | P1 | Recognition patterns harder to get objectively "wrong" |
+| Recovery/Resilience | P0 | P1 | Recovery approaches vary by context |
+| Orchestration | P0 | P1 | Coordination logic less methodology-dependent |
+| Template/Generation | P0 | P2 | Output format less about methodology |
+
+**Example findings:**
+
+| Finding | Priority | Proposed Fix |
+|---------|----------|--------------|
+| TDD skill says "write tests after code works" | D16a P0 | Rewrite to test-first approach or rename skill to not claim TDD |
+| No rationale for "one question at a time" methodology | D16b P1 | Add rationale explaining why single questions over bundled questions |
+| Skill contradicts its cited source (claims X, source says Y) | D16a P0 | Align skill with source or explain divergence |
+| Claims "only correct way" without supporting sources | D16b P1 | Add citations or soften to "recommended approach" |
+| Steps don't achieve stated goal (heavy process for "fast iteration") | D16a P0 | Align methodology with goal or adjust stated goal |
+| Contested approach (e.g., Strunk's "always active voice") taught as universal | D16b P1 | Acknowledge debate: "This skill follows X style; other valid styles exist" |
+| Custom methodology, works but no external validation | D16b P2 | Consider citing established methodology that inspired approach |
+
+**Domain search guidance:**
+
+When checking D16b, search for potential contradictions:
+
+| Domain | Search terms |
+|--------|--------------|
+| Testing | "[approach] vs [alternative]", "TDD criticism", "testing best practices" |
+| Code review | "code review research", "effective code review", "[approach] problems" |
+| Writing | "[style guide] criticism", "technical writing best practices" |
+| Process | "[methodology] anti-patterns", "[process] when not to use" |
+| General | "[claimed approach] myths", "[domain] common mistakes" |
+
+**If domain search finds contradicting advice:**
+- If skill contradicts authoritative source without acknowledgment → P0
+- If skill contradicts one expert but aligns with another → P1 (should acknowledge debate)
+- If search finds no contradictions → record as supporting evidence
+
+**Distinction from other dimensions:**
+
+| Dimension | What it checks | D16 checks differently |
+|-----------|---------------|------------------------|
+| D2 (Process Completeness) | Are all steps defined? | Are these the *right* steps? |
+| D5 (Precision) | Is language unambiguous? | Is the *content* correct? |
+| D6 (Actionability) | Can instructions be executed? | *Should* they be executed this way? |
+| D11 (Feasibility) | Can this be done? | Is this the right thing to do? |
+| D12 (Testability) | Can we verify completion? | Are we verifying the right thing? |
+
+**Questions to ask:**
+
+- "If I followed this skill perfectly, would I get a good outcome?"
+- "Why this approach instead of alternatives?"
+- "Would an expert in this domain agree with this methodology?"
+- "Does the skill claim to be more universal than it actually is?"
+- "What would happen if the skill's methodology assumptions are wrong?"
+
+**When reviewer lacks domain expertise:**
+
+If you cannot assess D16b due to lack of domain knowledge:
+
+1. Check D16a fully (always possible)
+2. For D16b, verify the skill is self-justifying:
+   - Does it explain its methodology rationale?
+   - Does it cite sources?
+   - Does it acknowledge limitations?
+3. If skill lacks self-justification, flag as P1: "Methodology not justified within skill — requires domain expert review or addition of rationale section"
+4. If skill has strong self-justification, accept it provisionally: "Methodology appears justified based on skill's stated rationale; not independently verified"
+
+**Interaction with testing-skills:**
+
+D16 is a static review dimension — it checks the skill document. It complements testing-skills, which checks behavioral effectiveness:
+
+- D16 catches: Wrong methodology documented
+- testing-skills catches: Right methodology documented but not followed under pressure
+
+A skill can pass D16 but fail testing (methodology is sound but skill doesn't enforce it).
+A skill can fail D16 but pass testing (agents follow it, but they're being taught the wrong thing).

@@ -155,14 +155,14 @@ Document assumptions, stakes level, scope, and stopping criteria before proceedi
 
 **7. Initialize dimension tracking:**
 
-Use TaskCreate to create one task per dimension (D1-D15). This externalizes your checklist so you don't need to hold all dimensions in memory.
+Use TaskCreate to create one task per dimension (D1-D16). This externalizes your checklist so you don't need to hold all dimensions in memory.
 
 - Subject: "D1: Trigger clarity" (use dimension name)
 - Description: Include priority (P0/P1/P2) and the "What it catches" summary from [Dimension Definitions](dimension-definitions.md)
 - activeForm: "Checking trigger clarity" (shown in spinner while task is in_progress)
 - Do not start checking until all dimension tasks are created
 
-This step is critical for cognitive manageability — the review process involves tracking 15 dimensions across multiple passes. Task tracking externalizes this burden and survives context compaction.
+This step is critical for cognitive manageability — the review process involves tracking 16 dimensions across multiple passes. Task tracking externalizes this burden and survives context compaction.
 
 ### Dimension Catalog
 
@@ -182,6 +182,7 @@ This step is critical for cognitive manageability — the review process involve
 | D12 | Testability | P2 | Requirements that can't be verified |
 | D14 | Example quality | P1 | Unrealistic, non-diverse, or non-graduated examples that don't transfer |
 | D15 | Cognitive manageability | P2 | Skill overwhelms working memory or requires tracking too much simultaneously |
+| D16 | Methodological soundness | P1 | Wrong, outdated, or poorly-justified approach — skill teaches bad methodology |
 
 **Conditional dimension:**
 
@@ -195,6 +196,7 @@ This step is critical for cognitive manageability — the review process involve
 - **D9-D12:** Always check, but lower priority
 - **D13:** Only for orchestration skills (mark N/A otherwise)
 - **D14-D15:** Always check, but lower priority (P1/P2)
+- **D16:** Always check; priority varies by skill type (P0 for Process/Quality/Solution, P1 for others)
 
 **Before marking any dimension N/A:**
 
@@ -224,7 +226,7 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE?
 
 #### DISCOVER: What dimensions should I check?
 
-**Seed dimensions:** Start with D1-D15 from the catalog. D13 applies only to orchestration skills (mark N/A otherwise).
+**Seed dimensions:** Start with D1-D16 from the catalog. D13 applies only to orchestration skills (mark N/A otherwise).
 
 **Assign priorities:** Use catalog defaults, adjust if context warrants. Different skill types have different priority emphases — see [Skill Type Adaptation](skill-type-adaptation.md) for type-specific guidance on which dimensions to elevate.
 
@@ -645,7 +647,7 @@ For the detailed verification checklist, see [Verification Checklist](verificati
 
 ## References
 
-- [Dimension Definitions](dimension-definitions.md) — Detailed checking guidance for each D1-D15 dimension
+- [Dimension Definitions](dimension-definitions.md) — Detailed checking guidance for each D1-D16 dimension
 - [Skill Type Adaptation](skill-type-adaptation.md) — Type-specific priority adjustments, extension points, and additional checks
 - [Framework for Thoroughness](framework-for-thoroughness.md) — Protocol specification for Yield%, stakes calibration, evidence levels
 - [Examples](examples.md) — Worked examples showing BAD vs GOOD review approaches
