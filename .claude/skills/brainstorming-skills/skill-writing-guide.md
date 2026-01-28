@@ -106,7 +106,7 @@ Persuasive language is key to effective Skills. Use these techniques deliberatel
 
 - Require announcements: "Announce skill usage"
 - Force explicit choices: "Choose A, B, or C"
-- Use tracking: TodoWrite for checklists
+- Use tracking: TaskCreate/TaskUpdate for complex workflows (persists across compaction)
 
 ### Scarcity
 
@@ -267,7 +267,54 @@ For code: `validate.py` → fix errors → validate again → only then proceed.
 
 ### Checklists for Multi-Step Workflows
 
-Provide checklists Claude can track. Use TodoWrite for enforcement. Clear steps prevent skipping critical validation.
+Provide checklists Claude can track. For simple checklists, inline markdown works. For complex workflows, use task tracking (see below).
+
+### Task Tracking for Complex Skills
+
+For skills with many steps, multi-pass workflows, or checkpoints that must survive context compaction, guide agents to use task list tools instead of inline checklists.
+
+**When to use task tools:**
+- Workflow has >7 steps that need tracking
+- Process spans multiple passes (iterative loops)
+- Checkpoint state must survive context compaction
+- Meaningful spinner UX improves user experience
+
+**TaskCreate guidance to include in skills:**
+
+```markdown
+Use TaskCreate for each [dimension/step/item]:
+- Subject: "[ID]: [name]" (e.g., "D1: Trigger clarity")
+- Description: [what needs to be checked/done]
+- activeForm: "[Present participle] [what]" (e.g., "Checking trigger clarity")
+```
+
+The `activeForm` field provides meaningful spinner text while the task is in_progress, improving UX.
+
+**TaskUpdate for status transitions:**
+
+```markdown
+1. TaskUpdate to mark `in_progress` (activeForm shows in spinner)
+2. [Do the work]
+3. TaskUpdate to mark `completed` with findings in metadata
+```
+
+**TaskGet for context recovery:**
+
+If resuming after context compaction, use TaskGet to retrieve full task details. TaskList shows summaries; TaskGet returns complete description and metadata. Include guidance like:
+
+```markdown
+**If resuming after context compaction:** Use TaskGet to retrieve full details for any task you need to continue.
+```
+
+**Task dependencies (optional):**
+
+For sequenced workflows where Step B cannot start until Step A completes, use addBlockedBy:
+
+```markdown
+TaskUpdate: taskId="step-b", addBlockedBy=["step-a"]
+```
+
+**Reference:** See [task-list-guide.md](task-list-guide.md) for complete tool schemas.
 
 ### Verifiable Intermediate Outputs
 
@@ -400,7 +447,7 @@ Before finalizing any skill:
 **Compliance (discipline skills):**
 
 - [ ] Authority language for critical requirements
-- [ ] Explicit choices or TodoWrite tracking
+- [ ] Explicit choices or task tracking (TaskCreate for complex workflows)
 - [ ] Bright-line rules, not "use judgment"
 
 **Code/Scripts:**

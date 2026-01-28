@@ -909,7 +909,7 @@ If a skill has inherent complexity that can't be simplified, it should explicitl
 | High Complexity Pattern | Mitigation | Skill Should Say |
 |-------------------------|------------|------------------|
 | Many steps to track | TaskCreate | "Create tasks for each phase before starting" |
-| Need to remember findings | TaskUpdate with notes | "Record findings in task metadata as you go" |
+| Need to remember findings | TaskUpdate with metadata | "Record findings in task metadata as you go" |
 | Complex sub-problem | Task (subagent) | "Delegate X to a subagent; receive summary" |
 | File contents needed later | Read again | "Re-read the file before proceeding" |
 | Parallel workstreams | Multiple Task calls | "Launch subagents in parallel for independent items" |

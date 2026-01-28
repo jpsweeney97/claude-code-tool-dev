@@ -74,7 +74,7 @@ Do not proceed to the checkpoint until you can show two consecutive no-yield rou
 
 **Dimensions to cover:**
 
-Before claiming convergence, verify these dimensions have been explored. Use TodoWrite to track:
+Before claiming convergence, verify these dimensions have been explored. Track coverage as you go:
 
 | Dimension | Explored? |
 |-----------|-----------|
@@ -131,7 +131,7 @@ During the dialogue, identify (through conversation, not by asking directly unle
 
 **This is a mandatory checkpoint, not optional preparation.**
 
-Before drafting, complete this checkpoint. Use TodoWrite to track. Provide **visible output for each item** — do not skip silently.
+Before drafting, complete this checkpoint. Provide **visible output for each item** — do not skip silently.
 
 **Summary (present to user):**
 - [ ] Problem statement — what's broken/missing?

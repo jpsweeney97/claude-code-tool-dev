@@ -159,6 +159,7 @@ Use TaskCreate to create one task per dimension (D1-D15). This externalizes your
 
 - Subject: "D1: Trigger clarity" (use dimension name)
 - Description: Include priority (P0/P1/P2) and the "What it catches" summary from [Dimension Definitions](dimension-definitions.md)
+- activeForm: "Checking trigger clarity" (shown in spinner while task is in_progress)
 - Do not start checking until all dimension tasks are created
 
 This step is critical for cognitive manageability — the review process involves tracking 15 dimensions across multiple passes. Task tracking externalizes this burden and survives context compaction.
@@ -237,9 +238,11 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE?
 
 **Before checking any dimension:** Verify all dimension tasks exist (created in Entry Gate step 7). Use TaskList to confirm.
 
+**If resuming after context compaction:** Use TaskGet to retrieve full details for any task you need to continue. TaskList shows summaries; TaskGet returns the complete description and metadata.
+
 **For each dimension:**
 
-1. TaskUpdate to mark `in_progress`
+1. TaskUpdate to mark `in_progress` (the activeForm you set during creation will show in the spinner)
 2. Re-read the relevant section of the skill being reviewed (don't rely on memory from Entry Gate)
 3. Check the dimension using guidance from [Dimension Definitions](dimension-definitions.md)
 4. TaskUpdate to mark `completed` with Cell Schema fields in metadata
@@ -280,6 +283,7 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE?
 Create a finding task (F1, F2, etc.) with:
 - Subject: "F1: [brief description of issue]"
 - Description: Include linked dimension(s), priority, evidence, confidence, artifacts (quotes, line refs), and proposed fix
+- activeForm: "Investigating [brief description]" (shown in spinner during FIX stage)
 
 Example proposed fix: "Add 'YOU MUST' before the instruction" or "Replace vague 'appropriate' with specific criteria"
 
@@ -316,7 +320,7 @@ These finding tasks will be processed in the FIX stage.
 
 For each finding task:
 
-1. TaskUpdate to mark `in_progress`
+1. TaskUpdate to mark `in_progress` with activeForm: "Fixing [brief description]"
 2. Apply the fix directly to the skill or reference file using the Edit tool
 3. TaskUpdate to mark `completed` with metadata noting what changed (original text → revised text, with file and line reference)
 
@@ -411,7 +415,7 @@ Supporting files can live anywhere in the skill directory: in the root (e.g., `e
 
 **YOU MUST** complete the Adversarial Pass before Exit Gate, even if the review loop found nothing.
 
-**Before starting:** Use TaskCreate to create one task per lens you'll apply (7 for Rigorous/Exhaustive, 4 for Adequate). This ensures no lens is skipped.
+**Before starting:** Use TaskCreate to create one task per lens you'll apply (7 for Rigorous/Exhaustive, 4 for Adequate). Include activeForm for each (e.g., "Applying compliance prediction lens"). This ensures no lens is skipped.
 
 This pass challenges the *skill itself*, not individual findings. Apply each lens with genuine adversarial intent.
 

@@ -67,7 +67,13 @@ What the skill produces, if applicable.
 **Recognition + response** — Use for awareness-based skills
   Example: Uncertainty detection, error recognition
 
-Match the form to the skill's nature. Forcing numbered steps on a brainstorming skill makes it worse. -->
+Match the form to the skill's nature. Forcing numbered steps on a brainstorming skill makes it worse.
+
+**Task tracking** — For multi-step workflows (>7 steps) or processes that span multiple passes:
+- Guide agents to use TaskCreate for each step/dimension (persists across context compaction)
+- Include activeForm for meaningful spinner text (e.g., "Checking trigger clarity")
+- Include TaskGet guidance for context recovery after compaction
+- See skill-writing-guide.md → Task Tracking for Complex Skills -->
 
 ## Decision Points
 
