@@ -179,9 +179,54 @@ Format: `/mcp__<server>__<prompt-name> [args]`
 
 Configure via `MAX_MCP_OUTPUT_TOKENS` environment variable. Higher limits useful for servers querying large datasets or generating detailed reports.
 
+Configure MCP server startup timeout via `MCP_TIMEOUT` environment variable (e.g., `MCP_TIMEOUT=10000 claude` for 10-second timeout).
+
 ### Dynamic Tool Updates
 
 MCP servers can send `list_changed` notifications to dynamically update available tools, prompts, and resources without reconnecting.
+
+### MCP Tool Search
+
+When many MCP servers are configured, tool definitions can consume significant context. Tool Search dynamically loads tools on-demand instead of preloading all of them.
+
+**How it works:**
+- Automatically enables when MCP tool descriptions exceed 10% of context window
+- MCP tools are deferred rather than loaded upfront
+- Claude uses a search tool to discover relevant MCP tools when needed
+- Only tools actually needed are loaded into context
+
+**Configuration via `ENABLE_TOOL_SEARCH`:**
+
+| Value | Behavior |
+|-------|----------|
+| `auto` | Activates when MCP tools exceed 10% of context (default) |
+| `auto:<N>` | Activates at custom threshold (e.g., `auto:5` for 5%) |
+| `true` | Always enabled |
+| `false` | Disabled, all MCP tools loaded upfront |
+
+```bash
+# Use a custom 5% threshold
+ENABLE_TOOL_SEARCH=auto:5 claude
+
+# Disable tool search entirely
+ENABLE_TOOL_SEARCH=false claude
+```
+
+Or set in `settings.json` `env` field.
+
+**Disable MCPSearch tool specifically:**
+
+```json
+{
+  "permissions": {
+    "deny": ["MCPSearch"]
+  }
+}
+```
+
+**Note:** Requires Sonnet 4+ or Opus 4+. Haiku models do not support tool search.
+
+**For MCP server authors:** Use the server instructions field to help Claude understand when to search for your tools. Describe what category of tasks your tools handle and when Claude should search for them.
 
 ## Tool Definition
 
@@ -306,7 +351,7 @@ if (!args.sql.trim().toLowerCase().startsWith("select")) {
 | --------- | ----------------------------------- | -------------------------------------------------- |
 | **stdio** | Local processes, system access      | `claude mcp add --transport stdio <name> -- <cmd>` |
 | **http**  | Remote/cloud services (recommended) | `claude mcp add --transport http <name> <url>`     |
-| **sse**   | Server-sent events (deprecated)     | `claude mcp add --transport sse <name> <url>`      |
+| **sse**   | Server-sent events (deprecated — use HTTP where available) | `claude mcp add --transport sse <name> <url>` |
 
 ### Option Ordering
 
@@ -480,7 +525,7 @@ claude mcp add --transport sse <name> <url>
 claude mcp add-json <name> '<json>'
 claude mcp add-json <name> '<json>' --scope user
 
-# Import from Claude Desktop
+# Import from Claude Desktop (macOS and WSL only)
 claude mcp add-from-claude-desktop
 claude mcp add-from-claude-desktop --scope user
 
@@ -503,6 +548,8 @@ claude mcp serve
 | `--scope local`   | Default; stored in `~/.claude.json` per project |
 | `--scope project` | Stored in `.mcp.json`; checked into git         |
 | `--scope user`    | Stored in `~/.claude.json` cross-project        |
+
+**Note:** `local` was previously called `project`, and `user` was previously called `global` in older versions.
 
 ## Compliance Checklist
 
@@ -662,6 +709,42 @@ Expensive operations (API calls, queries) should have rate limits.
 ### Principle of least privilege
 
 Tools should request minimal permissions. Read-only where possible.
+
+## Plugin-Provided MCP Servers
+
+Plugins can bundle MCP servers, automatically providing tools when the plugin is enabled.
+
+**Configuration in plugin:**
+
+In `.mcp.json` at plugin root (no `mcpServers` wrapper):
+```json
+{
+  "database-tools": {
+    "command": "${CLAUDE_PLUGIN_ROOT}/servers/db-server",
+    "args": ["--config", "${CLAUDE_PLUGIN_ROOT}/config.json"],
+    "env": { "DB_URL": "${DB_URL}" }
+  }
+}
+```
+
+Or inline in `plugin.json`:
+```json
+{
+  "name": "my-plugin",
+  "mcpServers": {
+    "plugin-api": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/servers/api-server",
+      "args": ["--port", "8080"]
+    }
+  }
+}
+```
+
+**Key behaviors:**
+- Servers start when plugin enables
+- **Must restart Claude Code** to apply MCP server changes (enabling/disabling)
+- Use `${CLAUDE_PLUGIN_ROOT}` for plugin-relative paths
+- Plugin servers appear in `/mcp` list with plugin indicators
 
 ## See Also
 
