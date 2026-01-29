@@ -145,7 +145,7 @@ This is when the checkpoint matters MOST. Acknowledge the impatience, then compl
 
 **Before drafting, read the writing guide:**
 
-YOU MUST read [references/subagent-writing-guide.md](references/subagent-writing-guide.md) before drafting any agent file. This is not optional. The guide contains essential principles that determine whether the agent will actually work.
+YOU MUST read [subagent-writing-guide.md](subagent-writing-guide.md) before drafting any agent file. This is not optional. The guide contains essential principles that determine whether the agent will actually work.
 
 After reading, verify internally: Can I articulate why the description must be trigger-only (not workflow summary)? Can I name the 4 prompt clarity dimensions? If not, re-read.
 
@@ -169,7 +169,7 @@ Present ONE more section, then ask again. Incremental presentation catches error
 - `description`: when Claude should delegate to this agent (include "proactively" if auto-invoke desired)
 - Body: clear purpose, specific task instructions, explicit constraints, defined output format
 
-Use [assets/subagent-template.md](assets/subagent-template.md) as a starting structure. Before finalizing, verify against the template's validation checklist.
+Use [subagent-template.md](subagent-template.md) as a starting structure. Before finalizing, verify against the template's validation checklist.
 
 **Required sections in agent body:**
 
@@ -394,9 +394,9 @@ User: "Yes"
 ## References
 
 **Required reading before drafting:**
-- [references/subagent-writing-guide.md](references/subagent-writing-guide.md) — Essential principles for effective subagents (prompt clarity, scope calibration, quality dimensions)
+- [subagent-writing-guide.md](subagent-writing-guide.md) — Essential principles for effective subagents (prompt clarity, scope calibration, quality dimensions)
 
 **Structure:**
-- [assets/subagent-template.md](assets/subagent-template.md) — Starting structure for draft agent file
+- [subagent-template.md](subagent-template.md) — Starting structure for draft agent file
 
 **Official spec:** For authoritative subagent documentation (frontmatter fields, tool selection, model options), use the claude-code-docs MCP server: `search_docs` with query "subagent frontmatter fields".
