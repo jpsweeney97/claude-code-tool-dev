@@ -6,7 +6,7 @@ Essential principles for writing effective subagents. **Read this before draftin
 
 ## Philosophy
 
-**Subagents are autonomous workers.** Once started, they run to completion without user interaction. They cannot ask clarifying questions, share state with the main conversation, or spawn other subagents. Design for autonomy.
+**Subagents are autonomous workers.** Once started, they run to completion. They cannot share state with the main conversation or spawn other subagents. Background agents cannot ask clarifying questions (the call fails and the agent continues); foreground agents can pass `AskUserQuestion` through to the user. Design for autonomy.
 
 **The prompt is everything.** Subagents receive only their system prompt (the markdown body) plus basic environment details. They don't inherit the main conversation's context or the full Claude Code system prompt. Everything the agent needs must be in the prompt.
 
