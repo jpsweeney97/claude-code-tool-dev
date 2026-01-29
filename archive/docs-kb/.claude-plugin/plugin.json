@@ -1,9 +1,0 @@
-{
-  "name": "docs-kb",
-  "version": "1.0.0",
-  "description": "Documentation verification for Claude Code",
-  "author": {
-    "name": "JP"
-  },
-  "skills": "./skills/"
-}
