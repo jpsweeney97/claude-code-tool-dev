@@ -132,17 +132,17 @@ Full details: Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/workfl
 
 ### Extensions
 
-Detailed guidance for each extension type lives in `.claude/rules/extensions/`. **Read the relevant rule before starting work on a new extension**:
+Detailed guidance for each extension type lives in `.claude/rules/`. **Read the relevant rule before starting work on a new extension**:
 
 | Working on... | Read first                                                                             |
 | ------------- | --------------------------------------------------------------------------------------|
-| Skills        | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/skills.md      |
-| Hooks         | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/hooks.md       |
-| Commands      | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/commands.md    |
-| Agents        | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/agents.md      |
-| Plugins       | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/plugins.md     |
-| MCP Servers   | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/mcp-servers.md |
-| Settings      | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/extensions/settings.md    |
+| Skills        | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/skills.md      |
+| Hooks         | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/hooks.md       |
+| Commands      | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/commands.md    |
+| Agents        | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/agents.md      |
+| Plugins       | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/plugins.md     |
+| MCP Servers   | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/mcp-servers.md |
+| Settings      | Users/jp/Projects/active/claude-code-tool-dev/.claude/rules/settings.md    |
 
 ### Scripts
 

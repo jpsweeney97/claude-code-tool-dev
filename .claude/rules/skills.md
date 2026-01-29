@@ -7,6 +7,10 @@ paths:
 
 # Skill Development
 
+> **Note:** This document covers official Claude Code skill features plus project-specific conventions. Project conventions are marked with 📋.
+
+For complete official documentation including troubleshooting and extended examples, see the [Claude Code skills documentation](https://code.claude.com/docs/en/skills).
+
 ## Storage Locations & Priority
 
 | Location | Path | Scope |
@@ -38,26 +42,34 @@ Skills are directories containing `SKILL.md`:
 .claude/skills/<name>/
 ├── SKILL.md          # Main skill file (required)
 ├── references/       # Deep documentation (optional)
-├── scripts/          # Automation - stdlib only (optional)
+├── scripts/          # Utility scripts Claude can execute (optional)
 ├── templates/        # Output templates (optional)
 └── assets/           # Images, prompts (optional)
 ```
+
+## Types of Skill Content
+
+Thinking about invocation style guides what to include:
+
+**Reference content** — knowledge Claude applies to current work (conventions, patterns, domain knowledge). Runs inline alongside conversation context.
+
+**Task content** — step-by-step instructions for specific actions (deployments, commits, code generation). Often invoke directly with `/skill-name`. Add `disable-model-invocation: true` to prevent automatic triggering.
 
 ## Progressive Disclosure
 
 Skills share Claude's context window with conversation history, other skills, and your request. Keep skills focused:
 
-- **Aim for ~500 lines in SKILL.md** — significantly larger skills should split content to references/
-- **Keep references one level deep** — link from SKILL.md to reference files, not reference → reference (deeply nested files may be partially read)
+- **📋 Keep SKILL.md under 500 lines** — move detailed content to supporting files
+- **Keep references one level deep** — link from SKILL.md to supporting files, not file → file chains
 - **Use scripts for zero-context execution** — scripts run without loading contents into context; only output consumes tokens
 
 ### When to Split
 
 | Signal                    | Action                                                     |
 | ------------------------- | ---------------------------------------------------------- |
-| SKILL.md significantly exceeds ~500 lines | Move detailed content to `references/` directory |
+| SKILL.md exceeds 500 lines | Move detailed content to supporting files |
 | Repeated validation logic | Extract to `scripts/` and tell Claude to run (not read) it |
-| Large examples/templates  | Move to `templates/` directory                             |
+| Large examples/templates  | Move to `templates/` or `examples/` directory              |
 
 In SKILL.md, point to supporting files:
 
@@ -84,14 +96,9 @@ When you send a request, Claude follows these steps:
 
 ```yaml
 ---
-name: skill-name # Required: kebab-case, gerund form (verb-ing), max 64 chars
-description: Trigger conditions only # Required: max 1024 chars, never summarize workflow
-argument-hint: "<query>" # Optional: hint shown during autocomplete (e.g., "[pr-number]", "<filename>")
-license: MIT # Optional: license type
-metadata: # Optional: version and quality info
-  version: '1.0.0'
-  timelessness_score: 8
-  model: claude-opus-4-5-20251101 # Recommended model (informational only)
+name: skill-name # Recommended: lowercase letters, numbers, hyphens only; max 64 chars; 📋 prefer gerund form (verb-ing)
+description: Trigger conditions only # Recommended: max 1024 chars; if omitted, uses first paragraph of content
+argument-hint: "<query>" # Optional: hint shown during autocomplete (e.g., "[issue-number]", "[filename] [format]")
 allowed-tools: Tool1, Tool2 # Optional: comma or YAML list; patterns like Bash(python:*)
 model: claude-sonnet-4-20250514 # Optional: specific model
 context: fork # Optional: run in isolated subagent
@@ -102,7 +109,7 @@ hooks: # Optional: component-scoped hooks
       hooks:
         - type: command
           command: ./validate.sh
-          once: true # Optional: run only once per session
+          once: true # Optional: run only once per session (skill hooks only, not agents)
 user-invocable: true # Optional: controls slash menu visibility
 disable-model-invocation: false # Optional: blocks Skill tool invocation
 ---
@@ -115,6 +122,8 @@ Skills support dynamic value substitution in the body:
 | Variable | Description |
 |----------|-------------|
 | `$ARGUMENTS` | All arguments passed when invoking the skill. If not present in body, appended as `ARGUMENTS: <value>` |
+| `$ARGUMENTS[N]` | Access a specific argument by 0-based index (e.g., `$ARGUMENTS[0]` for first argument) |
+| `$N` | Shorthand for `$ARGUMENTS[N]` (e.g., `$0` for first argument, `$1` for second) |
 | `${CLAUDE_SESSION_ID}` | Current session ID for logging, session-specific files, or correlating output |
 
 ### Context Fork Behavior
