@@ -50,6 +50,11 @@ MCP servers use separate files:
 | `cleanupPeriodDays` | number | Delete sessions older than N days (default: 30) |
 | `respectGitignore` | boolean | @ file picker respects .gitignore (default: true) |
 | `companyAnnouncements` | array | Startup messages (multiple cycle randomly) |
+| `plansDirectory` | string | Where plan files are stored (default: `~/.claude/plans`) |
+| `showTurnDuration` | boolean | Show turn duration messages after responses |
+| `autoUpdatesChannel` | string | Release channel: `"stable"` or `"latest"` (default) |
+| `spinnerTipsEnabled` | boolean | Show tips in spinner (default: true) |
+| `terminalProgressBarEnabled` | boolean | Terminal progress bar in iTerm2/Windows Terminal (default: true) |
 
 ### Available Tools
 
@@ -57,7 +62,6 @@ MCP servers use separate files:
 |------|-------------|------------|
 | `AskUserQuestion` | Ask multiple choice questions | No |
 | `Bash` | Execute shell commands | Yes |
-| `BashOutput` | Retrieve background shell output | No |
 | `Edit` | Make targeted file edits | Yes |
 | `ExitPlanMode` | Prompt user to exit plan mode | Yes |
 | `Glob` | Find files by pattern | No |
@@ -67,7 +71,13 @@ MCP servers use separate files:
 | `Read` | Read file contents | No |
 | `Skill` | Execute a skill or slash command | Yes |
 | `Task` | Run a subagent | No |
-| `TodoWrite` | Manage task lists | No |
+| `TaskCreate` | Create task in task list | No |
+| `TaskGet` | Get task details by ID | No |
+| `TaskList` | List all tasks with status | No |
+| `TaskUpdate` | Update task status/details | No |
+| `TaskOutput` | Retrieve background task output | No |
+| `MCPSearch` | Search/load MCP tools (when tool search enabled) | No |
+| `LSP` | Code intelligence via language servers | No |
 | `WebFetch` | Fetch URL content | Yes |
 | `WebSearch` | Perform web searches | Yes |
 | `Write` | Create or overwrite files | Yes |
@@ -107,9 +117,10 @@ echo $MY_VAR         # NOT available in command 2
    {
      "hooks": {
        "SessionStart": [{
+         "matcher": "startup",
          "hooks": [{
            "type": "command",
-           "command": "echo 'source ~/.venv/bin/activate' >> \"$CLAUDE_ENV_FILE\""
+           "command": "echo 'conda activate myenv' >> \"$CLAUDE_ENV_FILE\""
          }]
        }]
      }
@@ -158,12 +169,12 @@ echo $MY_VAR         # NOT available in command 2
 **Bash commands**:
 ```json
 "Bash(npm run build)"       // Exact match
-"Bash(npm run test:*)"      // Prefix match (:* at end only)
-"Bash(npm *)"               // Glob-style wildcard
+"Bash(npm run *)"           // Glob-style wildcard
 "Bash(git * main)"          // Multiple parts with wildcards
+"Bash(* --version)"         // Wildcard at start
 ```
 
-**Note:** Bash rules use glob-style matching, not regex. Patterns can be bypassed with shell features (options, env vars, redirects, subshells). Use PreToolUse hooks for robust command validation.
+**Note:** Bash rules use glob-style matching, not regex. The legacy `:*` suffix syntax is deprecated — use ` *` instead. Patterns can be bypassed with shell features (options, env vars, redirects, subshells). Use PreToolUse hooks for robust command validation.
 
 **File operations**:
 ```json
@@ -254,7 +265,7 @@ See `hooks.md` for event types, matchers, and exit codes.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `enabled` | boolean | Enable sandbox (macOS/Linux only, default: false) |
+| `enabled` | boolean | Enable sandbox (macOS, Linux, WSL2; default: false) |
 | `autoAllowBashIfSandboxed` | boolean | Auto-approve bash when sandboxed (default: true) |
 | `excludedCommands` | array | Commands to run outside sandbox |
 | `allowUnsandboxedCommands` | boolean | Allow dangerouslyDisableSandbox parameter |
@@ -380,6 +391,23 @@ Set via environment or in settings.json `env` field:
 | `DISABLE_PROMPT_CACHING_OPUS` | Disable for Opus models |
 | `DISABLE_PROMPT_CACHING_SONNET` | Disable for Sonnet models |
 
+#### Context and Tasks
+
+| Variable | Purpose |
+|----------|---------|
+| `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | Trigger auto-compaction at N% context (default: ~95%) |
+| `CLAUDE_CODE_ENABLE_TASKS` | Set to `false` to use old TODO list (default: true) |
+| `CLAUDE_CODE_TASK_LIST_ID` | Share task list across sessions |
+| `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` | Disable run_in_background, Ctrl+B |
+
+#### Foundry Configuration
+
+| Variable | Purpose |
+|----------|---------|
+| `ANTHROPIC_FOUNDRY_BASE_URL` | Full Foundry base URL |
+| `ANTHROPIC_FOUNDRY_RESOURCE` | Foundry resource name |
+| `CLAUDE_CODE_SKIP_FOUNDRY_AUTH` | Skip Azure auth for LLM gateways |
+
 #### Other
 
 | Variable | Purpose |
@@ -388,6 +416,12 @@ Set via environment or in settings.json `env` field:
 | `CLAUDE_CODE_API_KEY_HELPER_TTL_MS` | Credential refresh interval |
 | `CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL` | Skip IDE extension auto-install |
 | `USE_BUILTIN_RIPGREP` | Set to `0` to use system ripgrep |
+| `CLAUDE_CODE_TMPDIR` | Override temp directory |
+| `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD` | Load CLAUDE.md from --add-dir paths |
+| `ENABLE_TOOL_SEARCH` | MCP tool search: `auto`, `auto:N`, `true`, `false` |
+| `FORCE_AUTOUPDATE_PLUGINS` | Force plugin updates when autoupdater disabled |
+| `IS_DEMO` | Demo mode for streaming/recording |
+| `DISABLE_NON_ESSENTIAL_MODEL_CALLS` | Skip non-critical model calls |
 
 Environment variables override settings.json values. Provider variables (`USE_BEDROCK`, etc.) are mutually exclusive.
 
@@ -452,9 +486,12 @@ Allowlist of marketplaces users can add. Only in `managed-settings.json`.
 
 // Directory
 { "source": "directory", "path": "/opt/acme-corp/approved-marketplaces" }
+
+// Host pattern (regex matching)
+{ "source": "hostPattern", "hostPattern": "^github\\.example\\.com$" }
 ```
 
-**Sources must match exactly** including optional fields like `ref` and `path`.
+**Sources must match exactly** including optional fields like `ref` and `path`. Host patterns use regex matching against the marketplace host.
 
 #### extra vs strict Marketplaces
 
@@ -598,19 +635,19 @@ Quick reference for all settings fields, organized by group.
     "allow": [
       "Read(src/**)",
       "Edit(src/**)",
-      "Bash(npm run:*)",
+      "Bash(npm run *)",
       "Bash(git status)",
-      "Bash(git diff:*)",
+      "Bash(git diff *)",
       "WebFetch(domain:api.github.com)"
     ],
     "ask": [
-      "Bash(git push:*)",
-      "Bash(git commit:*)"
+      "Bash(git push *)",
+      "Bash(git commit *)"
     ],
     "deny": [
       "Read(.env)",
       "Read(secrets/**)",
-      "Bash(rm -rf:*)"
+      "Bash(rm -rf *)"
     ],
     "defaultMode": "default"
   },
@@ -675,7 +712,7 @@ Quick reference for all settings fields, organized by group.
 
 ### Bash Pattern Limitations
 
-- `:*` prefix matching only works at end
+- The `:*` suffix syntax is deprecated; use ` *` (glob-style) instead
 - Patterns can be bypassed with options, env vars, redirects
 - Use hooks for robust command validation
 
