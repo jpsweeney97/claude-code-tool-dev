@@ -60,7 +60,7 @@ _Narrow bridge = low freedom (one safe path). Open field = high freedom (many pa
 
 **Body:**
 
-- ~500 lines is a guideline, not a hard cap
+- ~500 lines
 - Split to reference files if content grows significantly larger
 
 **String Substitutions:**
@@ -161,58 +161,6 @@ For discipline-enforcing skills, include a "Rationalizations to Watch For" secti
 
 ---
 
-## Quality Dimensions
-
-Use these dimensions to write and review high-quality skills.
-
-### Intent fidelity
-
-- State primary goal explicitly
-- List non-goals to prevent scope creep
-- Distinguish must-haves from nice-to-haves
-
-### Constraint completeness
-
-- “Allowed” vs “Forbidden” actions are explicit.
-- Constraint conflicts trigger STOP/ask.
-
-### Terminology clarity
-
-- "In this skill, 'X' means: ..."
-- Define terms once, reuse consistently
-
-### Evidence anchoring
-
-- "Confirm `<file>` exists before acting"
-- "Do not assume `<tool>`; check `<cmd> --version`"
-
-### Decision sufficiency
-
-- Every decision point: condition → action → alternative
-- "If two interpretations exist, STOP and ask"
-
-### Verification validity
-
-- Quick check measures primary success property
-- Include failure interpretation: likely causes + next step
-
-### Artifact usefulness
-
-- Specify output format, required fields, ordering
-- Tailor to consumer (reviewer, operator, user)
-
-### Minimality
-
-- "Prefer smallest correct change"
-- "If you need dependency/scope change, STOP and justify"
-
-### Calibration
-
-- Label claims: Verified / Inferred / Assumed
-- "Not run (reason): ... Run `<cmd>` to verify"
-
----
-
 ## Framework for Thoroughness
 
 Some skills need rigor — iterative analysis, evidence tracking, principled stopping. The [Framework for Thoroughness](framework-for-thoroughness_v1.0.0.md) provides reusable patterns.
@@ -225,9 +173,6 @@ Some skills need rigor — iterative analysis, evidence tracking, principled sto
 | Structured workflow, defined passes | **Vocabulary only** — Evidence/Confidence levels |
 | Linear workflow, fixed steps | **None** — framework adds overhead without benefit |
 
-**Full protocol examples:** codebase exploration, security audits, research synthesis
-**Vocabulary only examples:** design validation, gap analysis, recommendations
-
 **Canonical vocabulary** (use these terms for consistency):
 
 - **Evidence levels:** E0 (assertion), E1 (single source), E2 (two methods), E3 (triangulated + disconfirmed)
@@ -239,11 +184,11 @@ Some skills need rigor — iterative analysis, evidence tracking, principled sto
 If a skill adopts the full thoroughness framework, add this declaration in the skill header (adjust the path to your skill's actual reference location):
 
 ```markdown
-**Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness.md)
+**Protocol:** [thoroughness.framework@1.0.0](framework-for-thoroughness.md)
 **Default thoroughness:** Rigorous
 ```
 
-See `.claude/rules/extensions/skills.md` → "Framework for Thoroughness" for full details.
+See `.claude/rules/skills.md` → "Framework for Thoroughness" for full details.
 
 ---
 
@@ -274,7 +219,7 @@ Provide checklists Claude can track. For simple checklists, inline markdown work
 For skills with many steps, multi-pass workflows, or checkpoints that must survive context compaction, guide agents to use task list tools instead of inline checklists.
 
 **When to use task tools:**
-- Workflow has >7 steps that need tracking
+- Workflow has >5 steps that need tracking
 - Process spans multiple passes (iterative loops)
 - Checkpoint state must survive context compaction
 - Meaningful spinner UX improves user experience
@@ -438,7 +383,6 @@ Before finalizing any skill:
 
 **Quality:**
 
-- [ ] Primary goal stated; non-goals listed
 - [ ] Decision points have condition → action → alternative
 - [ ] Verification checks measure actual success property
 - [ ] Feedback loops for quality-critical tasks
