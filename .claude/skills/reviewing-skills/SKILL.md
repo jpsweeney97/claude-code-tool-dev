@@ -31,24 +31,18 @@ This skill reviews SKILL.md files and their supporting files for structural qual
 - Review report at `docs/audits/YYYY-MM-DD-<skill-name>-review.md`
 - Brief summary in chat
 
-## When to Use
+## Reference Files
 
-- After brainstorming-skills produces a draft SKILL.md
-- Before testing-skills validates behavioral effectiveness
-- When auditing existing production skills for quality drift
-- When a skill exists but agents don't follow it reliably (suggests clarity or compliance issues)
-- When asked to "review," "audit," or "improve" a skill
-- When merging or refactoring multiple skills
-- When skill references seem outdated or broken
-- Before promoting a skill from development to production
+This skill uses supporting files for detailed guidance. Consult them as indicated:
 
-## When NOT to Use
-
-- **No skill exists yet** — use brainstorming-skills first
-- **Behavioral validation needed** — use testing-skills (this skill checks document quality, not agent behavior)
-- **Code review** — use code review skills; this is for skill documentation
-- **Non-skill documents** — use reviewing-documents for specs, designs, frameworks
-- **Quick typo fix** — just fix it; full review is overkill for trivial edits
+| File | Consult When | How to Use |
+|------|--------------|------------|
+| [dimension-definitions.md](dimension-definitions.md) | During EXPLORE, when checking each dimension | Read the full section for the dimension: "What it catches" (context), "How to check" (process), "Red flags" and "Good patterns" (calibration), "Pass criteria" (completion), "Example findings" (formatting your own). |
+| [skill-type-adaptation.md](skill-type-adaptation.md) | During DISCOVER, after listing initial dimensions | First identify the skill type using the "Identifying Skill Type" table. Then read that type's section: use "Core question" to frame your review, apply "Elevate priority" to adjust dimension priorities, add "Additional checks" to your checklist, watch for "Common issues", and incorporate "Adversarial focus" questions into your Adversarial Pass. |
+| [framework-for-thoroughness.md](framework-for-thoroughness.md) | Rarely — only if Yield% calculation or evidence levels are unclear | SKILL.md contains what you need for normal reviews. Consult this only for edge cases or deeper understanding of the protocol. |
+| [examples.md](examples.md) | Before your first review; when unsure if your approach is correct | Compare your process to the GOOD example. Check if you're falling into BAD patterns. |
+| [troubleshooting.md](troubleshooting.md) | When you hit a specific problem during review | Find your symptom in the list, apply the recommended next steps. |
+| [verification-checklist.md](verification-checklist.md) | At Exit Gate, before claiming done | Walk through each checkbox. This is more detailed than the Exit Gate section. |
 
 ## Outputs
 
@@ -206,7 +200,7 @@ This step is critical for cognitive manageability — the review process involve
 
 If #2 is "maybe not" or #3 is "no" → check the dimension anyway.
 
-**For detailed checking guidance per dimension, see [Dimension Definitions](dimension-definitions.md).**
+**For detailed checking guidance per dimension, see [Dimension Definitions](dimension-definitions.md).** Each dimension section contains: "What it catches" (context), "How to check" (process), "Red flags" and "Good patterns" (calibration), "Pass criteria" (completion), and "Example findings" (formatting your own).
 
 ### The Review Loop
 
@@ -228,7 +222,7 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE?
 
 **Seed dimensions:** Start with D1-D16 from the catalog. D13 applies only to orchestration skills (mark N/A otherwise).
 
-**Assign priorities:** Use catalog defaults, adjust if context warrants. Different skill types have different priority emphases — see [Skill Type Adaptation](skill-type-adaptation.md) for type-specific guidance on which dimensions to elevate.
+**Assign priorities:** Use catalog defaults, adjust if context warrants. Different skill types have different priority emphases — consult [Skill Type Adaptation](skill-type-adaptation.md): first identify the skill type using the "Identifying Skill Type" table, then read that type's section for "Elevate priority" (dimension adjustments), "Additional checks" (extra checklist items), "Common issues" (typical problems), and "Adversarial focus" (type-specific adversarial questions).
 
 **Expand dimensions:** Apply ≥3 DISCOVER techniques:
 
@@ -249,7 +243,7 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE?
 
 1. TaskUpdate to mark `in_progress` (the activeForm you set during creation will show in the spinner)
 2. Re-read the relevant section of the skill being reviewed (don't rely on memory from Entry Gate)
-3. Check the dimension using guidance from [Dimension Definitions](dimension-definitions.md)
+3. Check the dimension using [Dimension Definitions](dimension-definitions.md) — read that dimension's section: "What it catches" for context, "How to check" as your process, "Red flags" and "Good patterns" to calibrate, "Pass criteria" to confirm completion, and "Example findings" to format your own
 4. TaskUpdate to mark `completed` with Cell Schema fields in metadata
 
 **Cell Schema fields** (record in task metadata):
