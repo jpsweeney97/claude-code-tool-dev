@@ -37,6 +37,34 @@ When multiple agents share the same name, higher priority wins:
 
 This allows project-level agents to shadow user-level agents for testing.
 
+### Managing Agents with /agents
+
+The `/agents` command provides interactive management:
+
+- View all subagents (built-in, user, project, plugin)
+- Create with guided setup or Claude generation
+- Edit configuration and tool access
+- Delete custom subagents
+
+This is the recommended way to manage agents. For automation, use file-based or CLI approaches.
+
+### CLI-Defined Agents
+
+Pass JSON when launching Claude Code (session-only, not saved to disk):
+
+```bash
+claude --agents '{
+  "code-reviewer": {
+    "description": "Expert code reviewer. Use proactively after code changes.",
+    "prompt": "You are a senior code reviewer. Focus on code quality, security, and best practices.",
+    "tools": ["Read", "Grep", "Glob", "Bash"],
+    "model": "sonnet"
+  }
+}'
+```
+
+The JSON uses the same fields as frontmatter. Use `prompt` for the system prompt (equivalent to markdown body in files).
+
 ## Structure
 
 Agents are markdown files:
@@ -80,7 +108,7 @@ Return your findings as:
 | ----------------- | -------- | ------ | ------------------------------------------------------------------------------------ |
 | `name`            | Yes      | string | Unique identifier (lowercase + hyphens)                                              |
 | `description`     | Yes      | string | Natural language description. Include "use proactively" to encourage auto-delegation |
-| `tools`           | No       | string | Comma-separated allowlist; omit to inherit all                                       |
+| `tools`           | No       | string | Comma-separated allowlist; omit to inherit all (including MCP tools)                 |
 | `disallowedTools` | No       | string | Comma-separated denylist; removed from inherited/specified tools                     |
 | `model`           | No       | string | `sonnet`, `opus`, `haiku`, or `inherit`                                              |
 | `permissionMode`  | No       | string | Permission mode (see table below)                                                    |
@@ -162,25 +190,27 @@ Beyond hooks in agent frontmatter, define hooks in `settings.json` that respond 
 
 Use `matcher` to target specific agents. Omit to run for all agents.
 
-### Hook Environment Variables
+### Hook Input
 
-Hook commands receive context via environment variables:
-
-| Variable      | Description                                |
-| ------------- | ------------------------------------------ |
-| `$TOOL_INPUT` | JSON string of the tool's input parameters |
-
-Example validation script:
+Hook commands receive JSON via **stdin** containing session info and tool parameters. Use `jq` (or Python/etc.) to parse:
 
 ```bash
 #!/bin/bash
 # Block write queries in db-reader agent
-if echo "$TOOL_INPUT" | grep -qiE '(INSERT|UPDATE|DELETE|DROP)'; then
+
+# Read JSON input from stdin
+INPUT=$(cat)
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+
+# Block SQL write operations (case-insensitive)
+if echo "$COMMAND" | grep -qiE '\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE)\b'; then
   echo "Write operations not allowed" >&2
   exit 2  # Block the tool call
 fi
 exit 0
 ```
+
+Exit code 2 blocks the operation and shows stderr to Claude. See `hooks.md` for full input schema and exit codes.
 
 ## Invoking Agents
 
@@ -227,7 +257,7 @@ Built-in agents `general-purpose` and `Plan` inherit the main conversation's mod
 
 ## Prompt Clarity
 
-The prompt determines whether the agent works or fails. See [subagent-writing-guide.md](skills/brainstorming-subagents/references/subagent-writing-guide.md) for full details.
+The prompt determines whether the agent works or fails. See [subagent-writing-guide.md](skills/brainstorming-subagents/subagent-writing-guide.md) for full details.
 
 | Dimension | Check |
 |-----------|-------|
@@ -263,7 +293,7 @@ Finding the right scope is the difference between a useful agent and a broken on
 
 ## Quality Dimensions
 
-Quick reference for agent review. See [subagent-writing-guide.md](skills/brainstorming-subagents/references/subagent-writing-guide.md) for full details.
+Quick reference for agent review. See [subagent-writing-guide.md](skills/brainstorming-subagents/subagent-writing-guide.md) for full details.
 
 | Dimension | Check |
 |-----------|-------|
@@ -447,6 +477,11 @@ Task(
 
 Returns immediately with `output_file` path. Check progress with Read tool or `tail`.
 
+**Runtime controls:**
+
+- Press **Ctrl+B** to background a running foreground task
+- Set `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` to disable all background execution
+
 ### Background Execution Limitations
 
 Background agents differ from foreground:
@@ -546,13 +581,16 @@ Before promoting an agent, verify:
 
 ## Built-in Agent Types
 
-Claude Code includes three built-in subagents:
+Claude Code includes built-in subagents. Each inherits parent permissions with additional tool restrictions:
 
-| Type              | Model    | Tools                              | Notes                                      |
-| ----------------- | -------- | ---------------------------------- | ------------------------------------------ |
-| `general-purpose` | Inherits | All                                | Multi-step modification tasks              |
-| `Plan`            | Inherits | Read, Glob, Grep, Bash             | Plan mode architecture                     |
-| `Explore`         | Haiku    | Glob, Grep, Read, Bash (read-only) | Thoroughness: quick, medium, very thorough |
+| Type              | Model    | Tools                                   | Notes                                      |
+| ----------------- | -------- | --------------------------------------- | ------------------------------------------ |
+| `general-purpose` | Inherits | All                                     | Multi-step modification tasks              |
+| `Plan`            | Inherits | Read-only (denied Write, Edit)          | Plan mode architecture                     |
+| `Explore`         | Haiku    | Read-only (denied Write, Edit)          | Thoroughness: quick, medium, very thorough |
+| `Bash`            | Inherits | Bash                                    | Terminal commands in separate context      |
+| `statusline-setup`| Sonnet   | Read, Edit                              | Invoked by /statusline                     |
+| `Claude Code Guide`| Haiku   | Read-only                               | Questions about Claude Code features       |
 
 **Auto-triggering**: Built-in agents activate automatically based on context:
 
