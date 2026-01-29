@@ -1,6 +1,7 @@
 ---
 name: making-recommendations
 description: Use when asked to recommend, suggest an approach, or choose between options. Use when user says "what should I use", "which is better", "recommend", or "help me decide". Use when user says "make a recommendation" during an ongoing conversation. Do not use for trivial decisions where both scope and reversibility are negligible.
+disable-model-invocation: true
 ---
 
 # Making Recommendations

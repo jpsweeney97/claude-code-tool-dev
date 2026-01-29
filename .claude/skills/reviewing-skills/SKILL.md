@@ -1,6 +1,7 @@
 ---
 name: reviewing-skills
 description: Use after brainstorming-skills produces a draft. Use when auditing existing skills for quality drift. Use when agents don't follow a skill reliably. Use when asked to "review," "audit," or "improve" a skill.
+disable-model-invocation: true
 ---
 
 # Reviewing Skills
