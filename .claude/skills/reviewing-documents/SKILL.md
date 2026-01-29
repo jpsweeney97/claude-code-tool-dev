@@ -19,7 +19,7 @@ A single pass checking "is X mentioned?" misses decision rules, exit criteria, a
 
 This skill uses the Framework for Thoroughness to iterate until findings converge, then applies fixes.
 
-**Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness.md)
+**Protocol:** [thoroughness.framework@1.0.0](framework-for-thoroughness.md)
 **Default thoroughness:** Rigorous
 
 **Outputs:**
@@ -178,7 +178,7 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE?
 
 #### DISCOVER: What dimensions should I check?
 
-**Seed dimensions:** See [Dimension Catalog](references/dimensions-and-troubleshooting.md#dimension-catalog) for full definitions.
+**Seed dimensions:** See [Dimension Catalog](dimensions-and-troubleshooting.md#dimension-catalog) for full definitions.
 
 | Category | Dimensions | When to Check |
 |----------|------------|---------------|
@@ -568,7 +568,7 @@ Yield% = 8/8 = 100% (first pass)
 
 ## Anti-Patterns
 
-Common failure modes and fixes: [Anti-Patterns Reference](references/dimensions-and-troubleshooting.md#anti-patterns)
+Common failure modes and fixes: [Anti-Patterns Reference](dimensions-and-troubleshooting.md#anti-patterns)
 
 **Most critical (memorize these):**
 
@@ -578,7 +578,7 @@ Common failure modes and fixes: [Anti-Patterns Reference](references/dimensions-
 
 ## Troubleshooting
 
-If the review process isn't working as expected, see [Troubleshooting Reference](references/dimensions-and-troubleshooting.md#troubleshooting).
+If the review process isn't working as expected, see [Troubleshooting Reference](dimensions-and-troubleshooting.md#troubleshooting).
 
 **Quick checks:**
 
@@ -681,5 +681,5 @@ After completing a review, verify:
 
 ## References
 
-- [Dimension Catalog & Troubleshooting](references/dimensions-and-troubleshooting.md) — Full dimension definitions, additional anti-patterns, troubleshooting details
-- [Framework for Thoroughness](references/framework-for-thoroughness.md) — Protocol specification for Yield%, stakes calibration, evidence levels
+- [Dimension Catalog & Troubleshooting](dimensions-and-troubleshooting.md) — Full dimension definitions, additional anti-patterns, troubleshooting details
+- [Framework for Thoroughness](framework-for-thoroughness.md) — Protocol specification for Yield%, stakes calibration, evidence levels
