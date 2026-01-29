@@ -1,6 +1,6 @@
 # Subagent Template
 
-A starting structure for subagent files. Adapt based on the agent's purpose.
+Starting structures for subagent files. Choose the style that fits your agent's domain.
 
 ```yaml
 ---
@@ -11,50 +11,72 @@ model: <haiku | sonnet | opus | inherit>
 ---
 ```
 
-**Note:** Remove placeholder comments and unused optional sections before finalizing.
-
 ---
 
-## Purpose Statement
+## Two Valid Structures
 
-**Required.** Clear, specific description of what this agent does.
+The prompt body must address four concerns: **purpose**, **task instructions**, **constraints**, and **output format**. How you organize them is flexible.
 
-<!-- What is this agent's specialty? What domain does it own? -->
+### Option A: Formal Sections
 
-## Task Instructions
+Use explicit headers when the agent is complex or when clarity benefits from separation.
 
-**Required.** What the agent should do when invoked.
+```markdown
+## Purpose
 
-<!--
-Methodology or approach:
-1. First step (context gathering or immediate action)
-2. Core task steps
-3. Output/delivery step
--->
+You are a security specialist focusing on injection vulnerabilities and auth bypasses.
+
+## Task
+
+When invoked:
+1. Scan the specified files for security issues
+2. Trace data flows from user input to sensitive operations
+3. Report findings with evidence
 
 ## Constraints
 
-**Required.** Explicit boundaries — what NOT to do.
+- Do not modify any files
+- Do not report style issues — security only
+- Skip test files unless explicitly included
 
-<!--
-- What areas are out of scope?
-- What actions are forbidden?
-- What should the agent skip or ignore?
--->
+## Output
 
-## Output Format
+Return findings as:
+### [Severity] Issue Title
+- **Location**: file:line
+- **Problem**: What's wrong
+- **Evidence**: Code snippet showing the issue
 
-**Required.** Exact structure of what the agent returns.
+Do not include: minor issues, suggestions for unrelated improvements.
+```
 
-<!--
-Return:
-1. [Primary output]
-2. [Supporting details]
-3. [Evidence or references]
+### Option B: Fluid Prose
 
-Do not include:
-- [What to omit]
--->
+Use conversational flow when the agent is straightforward or when domain context reads more naturally inline.
+
+```markdown
+You are a senior code reviewer ensuring high standards of code quality and security.
+
+When invoked:
+1. Run git diff to see recent changes
+2. Focus on modified files
+3. Begin review immediately
+
+Review checklist:
+- Code is clear and readable
+- Proper error handling
+- No exposed secrets or API keys
+- Input validation implemented
+
+Provide feedback organized by priority:
+- Critical issues (must fix)
+- Warnings (should fix)
+- Suggestions (consider improving)
+
+Include specific examples of how to fix issues. Do not report minor style issues or suggest unrelated refactoring.
+```
+
+Both examples address all four concerns. The second embeds constraints ("Do not report minor style issues") and output format ("Provide feedback organized by priority") inline rather than in separate sections.
 
 ---
 
@@ -89,9 +111,16 @@ The description enables delegation. It answers **"when should Claude delegate to
 
 ## Validation Checklist
 
-- [ ] Required sections present: Purpose, Task Instructions, Constraints, Output Format
+Content (all required — structure is flexible):
+
+- [ ] **Purpose** addressed: What is this agent's specialty?
+- [ ] **Task instructions** addressed: What should it do when invoked?
+- [ ] **Constraints** addressed: What should it NOT do?
+- [ ] **Output format** addressed: What should it return (and not return)?
+
+Quality:
+
 - [ ] Description contains delegation trigger only (no methodology)
-- [ ] Constraints specify what NOT to do
-- [ ] Output format specifies what NOT to return
-- [ ] No contradictions between sections
+- [ ] No contradictions between instructions
 - [ ] Tools match constraints (no Edit if read-only)
+- [ ] Two specialists reading this prompt would work the same way

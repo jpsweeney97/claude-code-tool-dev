@@ -1,6 +1,16 @@
-# Skill Template
+# Methodology Skill Template
 
-A menu of sections for skill assembly. Not all sections apply to every skill — select based on skill type and needs.
+For skills that enforce discipline: complex workflows where agents might skip steps under pressure, multi-phase processes, rigorous methodologies.
+
+**Use this template when:**
+- Agents need guardrails to prevent shortcuts
+- The skill has failure modes that require Anti-Patterns and Troubleshooting
+- You need Rationalizations to preempt excuses for skipping steps
+- The skill coordinates multiple phases or enforces a specific order
+
+**For simpler skills, consider:**
+- `template-reference.md` — conventions, patterns, domain knowledge
+- `template-task.md` — step-by-step instructions without discipline enforcement
 
 ```yaml
 ---
