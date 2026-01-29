@@ -149,7 +149,6 @@ Different skill types have different quality priorities. Use this reference duri
 | Dimension | Why it matters more |
 |-----------|---------------------|
 | D2 (Process completeness) | → **P0**: Analysis framework must be complete. |
-| D8 (Scope boundaries) | → **P0**: What's in/out of consideration must be clear. |
 | D16 (Methodological soundness) | → **P0**: Wrong framework = wrong recommendations. Analysis approach must be valid. |
 
 **Additional checks:**
@@ -324,7 +323,7 @@ Different skill types have different quality priorities. Use this reference duri
 | Process/Workflow | D2, D7, D16 | **P0** | Step completion criteria, failure paths |
 | Quality Enhancement | D5, D12, D16 | **P0** | Measurable criteria, trade-offs |
 | Capability | D6, D11 | P1 | Tool availability, prerequisites |
-| Solution Development | D2, D8, D16 | **P0** | Multiple alternatives, trade-off criteria |
+| Solution Development | D2, D16 | **P0** | Multiple alternatives, trade-off criteria |
 | Meta-cognitive | D1, D10 | P1 | Recognition precision, false positive/negative |
 | Recovery/Resilience | D2, D10 | P1 | Failure enumeration, escalation criteria |
 | Orchestration | D7, D13 | P1 | Handoff triggers, state passing, return conditions |

@@ -10,7 +10,7 @@ Common issues encountered during skill reviews and how to resolve them.
 
 ## Most dimensions marked N/A
 
-**Cause:** Over-aggressive skipping. D1-D8 cannot be N/A.
+**Cause:** Over-aggressive skipping. D1-D7 cannot be N/A.
 
 **Next steps:** Revisit N/A justifications. Apply the skeptical reviewer test: "Would someone else accept this rationale?"
 

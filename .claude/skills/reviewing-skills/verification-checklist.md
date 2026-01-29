@@ -14,7 +14,7 @@ After completing a review, verify all items below before claiming done.
 
 - [ ] All 16 dimensions considered (D13 conditional for orchestration skills)
 - [ ] ≥3 DISCOVER techniques applied
-- [ ] D1-D8 not skipped
+- [ ] D1-D7 not skipped
 - [ ] Any N/A dimensions have skeptical-reviewer-level justification
 
 ## EXPLORE

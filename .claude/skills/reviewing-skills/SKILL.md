@@ -9,27 +9,7 @@ description: Use after brainstorming-skills produces a draft. Use when auditing 
 
 Skills fail silently: vague triggers cause misfires, weak compliance language gets rationalized around, missing sections leave gaps that testing catches too late. Document quality issues compound — a slightly unclear instruction becomes agent confusion becomes user frustration.
 
-This skill reviews SKILL.md files and their supporting files for structural quality, clarity, and compliance strength. It catches issues before behavioral testing (testing-skills), when fixes are cheap.
-
-**What this skill can do:**
-- Assess document quality (clarity, precision, completeness)
-- Predict compliance strength (rationalization resistance, not actual behavior)
-- Validate internal references (linked files exist, links work, content aligns with SKILL.md)
-- Cross-check external sources (if skill claims to implement a spec or follow official docs, verify alignment)
-- Escalate when issues are too fundamental to fix in place
-
-**What this skill cannot do:**
-- Verify agents actually follow the skill (that's testing-skills)
-- Validate domain expertise (can check consistency with sources, not whether sources are correct)
-- Rewrite fundamentally broken skills (recommend brainstorming-skills instead)
-
-**Protocol:** [thoroughness.framework@1.0.0](framework-for-thoroughness.md)
-**Default thoroughness:** Rigorous
-
-**Outputs:**
-- Refined skill with fixes applied
-- Review report at `docs/audits/YYYY-MM-DD-<skill-name>-review.md`
-- Brief summary in chat
+This skill reviews SKILL.md files and their supporting files for quality across multiple dimensions.
 
 ## Reference Files
 
@@ -46,17 +26,19 @@ This skill uses supporting files for detailed guidance. Consult them as indicate
 
 ## Outputs
 
-**IMPORTANT:** Full report goes in artifact ONLY. Chat receives brief summary.
+**IMPORTANT:** NEVER include verbose review findings detail in the chat. YOU MUST keep review detail in the chat brief.
+ONLY include full report in Review report artifact.
 
 **Artifacts:**
 
 | Artifact | Location |
 |----------|----------|
+| Brief review summary | In session chat (inline) |
 | Refined skill | Original location (edits applied in place) |
 | Refined supporting files | Original locations (edits applied in place) |
 | Review report | `docs/audits/YYYY-MM-DD-<skill-name>-review.md` (create directory if needed) |
 
-**Review report includes:**
+### Review report includes:
 
 - Entry Gate (assumptions, stakes, stopping criteria)
 - Coverage Tracker (dimensions with Cell Schema: ID, Status, Priority, Evidence, Confidence)
@@ -66,7 +48,7 @@ This skill uses supporting files for detailed guidance. Consult them as indicate
 - Disconfirmation Attempts
 - Exit Gate verification
 
-**Summary table (top of report and in chat):**
+### Summary table (top of report and in chat):
 
 | Priority | Count | Description |
 |----------|-------|-------------|
@@ -74,8 +56,18 @@ This skill uses supporting files for detailed guidance. Consult them as indicate
 | P1 | N | Issues that degrade quality |
 | P2 | N | Polish items |
 
-**Chat summary (brief — not the full report):**
+### Review summaries in chat (brief — not the full report):
 
+**Summary After Each VERIFY Stage:**
+
+```
+| Findings + Priority |  Description   | Proposed Fix |
+|---------------------|----------------|--------------|
+| Finding | Description of finding | Proposed Fix |
+
+```
+
+**Final Summary:**
 ```
 **Review complete:** <skill-name>
 **Findings:** P0: N | P1: N | P2: N (N fixed, M accepted)
@@ -83,9 +75,9 @@ This skill uses supporting files for detailed guidance. Consult them as indicate
 **Full report:** `docs/audits/YYYY-MM-DD-<skill-name>-review.md`
 ```
 
-**Do NOT include in chat:** Full findings list, iteration log, coverage tracker, disconfirmation details, complete list of fixes.
+**NEVER include in chat:** Full findings list, iteration log, detailed results after each step, coverage tracker, disconfirmation details, complete list of fixes.
 
-**Definition of Done:**
+## Definition of Done:
 
 - [ ] Entry Gate completed and recorded
 - [ ] All dimensions explored with Evidence/Confidence ratings meeting stakes requirements (Adequate: E1 for P0; Rigorous: E2 for P0, E1 for P1; Exhaustive: E2 for all, E3 for P0)
@@ -114,8 +106,8 @@ If inputs are unclear, ask. Accept paths or skill names.
 
 **2. Inventory the skill:**
 
-- Read the entire SKILL.md — not just headers, but full content. You need to understand the skill's purpose and flow before checking individual dimensions.
-- Identify all linked supporting files (look for markdown links like `[text](file.md)` — files may be in skill root or subdirectories like `reference/`, `examples/`, `scripts/`)
+- Read the entire SKILL.md using the Read tool — not just headers, but full content. You need to understand the skill's purpose and flow before checking individual dimensions.
+- Identify all linked supporting files by scanning for markdown links (`[text](path)` pattern). Files may be in skill root or subdirectories like `references/`, `examples/`, `scripts/`.
 - Note any external sources referenced
 
 **3. Surface assumptions:**
@@ -169,7 +161,6 @@ This step is critical for cognitive manageability — the review process involve
 | D5 | Precision | P1 | Vague wording that allows multiple interpretations (language quality) |
 | D6 | Actionability | P1 | Instructions lack execution details — tools, paths, methods unspecified (execution readiness) |
 | D7 | Internal consistency | P1 | Contradictions between sections, terminology drift |
-| D8 | Scope boundaries | P1 | Missing "When NOT to Use", unclear exclusions |
 | D9 | Reference validity | P2 | Broken links, outdated references, missing assets |
 | D10 | Edge cases | P2 | Boundary situations undefined |
 | D11 | Feasibility | P2 | Requirements that can't be achieved |
@@ -186,7 +177,7 @@ This step is critical for cognitive manageability — the review process involve
 
 **Dimension applicability:**
 
-- **D1-D8:** Always check (cannot skip)
+- **D1-D7:** Always check (cannot skip)
 - **D9-D12:** Always check, but lower priority
 - **D13:** Only for orchestration skills (mark N/A otherwise)
 - **D14-D15:** Always check, but lower priority (P1/P2)
@@ -204,7 +195,7 @@ If #2 is "maybe not" or #3 is "no" → check the dimension anyway.
 
 ### The Review Loop
 
-**Note:** This skill adds a FIX stage to the standard thoroughness framework loop (DISCOVER → EXPLORE → VERIFY → REFINE). The FIX stage is where corrections are applied to the skill being reviewed, between verification and convergence checking.
+**Note:** The standard thoroughness framework loop is DISCOVER → EXPLORE → VERIFY → REFINE. This skill inserts a **FIX** stage between VERIFY and REFINE, where corrections are applied to the skill being reviewed before checking convergence.
 
 ```
     ┌─────────────────────────────────────────────┐
@@ -258,7 +249,7 @@ DISCOVER ──► EXPLORE ──► VERIFY ──► FIX ──► REFINE?
 | Artifacts | If applicable | File paths, quotes, line numbers |
 | Notes | If applicable | What's missing, proposed fix |
 
-**For dimensions with no issues:** Mark as `[x]` with Evidence level reflecting how thoroughly you checked. Example: `| D8 | [x] | P1 | E1 | High | Notes: "When NOT to Use" section present and specific |`
+**For dimensions with no issues:** Mark as `[x]` with Evidence level reflecting how thoroughly you checked. Example: `| D7 | [x] | P1 | E1 | High | Notes: Terminology consistent throughout |`
 
 **For dimensions with findings:** Create separate finding entries (F1, F2, etc.) linked to the dimension. The dimension status reflects overall check completion, not whether issues were found.
 
@@ -356,7 +347,7 @@ For each finding task:
 - Issues outside skill's scope (flag for separate work)
 - Issues requiring user decision (flag and ask)
 
-**For controversial fixes** (where reasonable people might disagree — e.g., word choice, organizational structure, level of detail): Flag for user review before applying. If uncertain whether a fix is controversial, ask.
+**For controversial fixes** — word choice, organizational structure, level of detail, stylistic preferences: Flag for user review before applying. Non-controversial fixes (missing compliance language, broken references, factual errors, terminology inconsistencies) can be applied without asking.
 
 #### REFINE: Loop or exit?
 
@@ -393,7 +384,7 @@ An entity *yields* if it is:
 
 ### Reviewing Supporting Files
 
-Supporting files can live anywhere in the skill directory: in the root (e.g., `examples.md`, `template.md`) or in subdirectories (e.g., `reference/`, `scripts/`, `examples/`). The key requirement is that they're linked from SKILL.md and kept one level deep (never deeply nested).
+Supporting files can be in the skill's root directory (e.g., `examples.md`, `template.md`) or in one-level-deep subdirectories (e.g., `references/`, `scripts/`, `examples/`). Requirements: linked from SKILL.md, never deeply nested.
 
 **If no supporting files exist:** Skip this section. Note "No supporting files" in the review report and proceed to Adversarial Pass.
 
@@ -484,7 +475,7 @@ If P0 findings exceed 5, or if the skill has fundamental structural problems:
 1. Write full report to `docs/audits/YYYY-MM-DD-<skill-name>-review.md`
 2. Present brief summary in chat (P0/P1/P2 counts, fixes applied, key changes only)
 
-**After review completes:** If no P0 issues remain, the skill is ready for testing-skills to validate behavioral effectiveness. Pass the reviewed SKILL.md path.
+**After review completes:** If no P0 issues remain, the skill is ready for testing-skills to validate behavioral effectiveness. Pass the reviewed SKILL.md path. If testing-skills finds behavioral issues that trace to document quality, return here for another review pass. If issues require fundamental rethinking, use brainstorming-skills instead.
 
 ## Decision Points
 
@@ -502,7 +493,7 @@ If P0 findings exceed 5, or if the skill has fundamental structural problems:
 **Dimension not applicable:**
 
 - Mark as `[-]` with brief rationale
-- D1-D8 cannot be marked N/A (core quality dimensions)
+- D1-D7 cannot be marked N/A (core quality dimensions)
 - D13 (Integration clarity) is N/A for non-orchestration skills
 
 **P0 issue found during EXPLORE:**
@@ -635,9 +626,7 @@ For common issues and solutions, see [Troubleshooting](troubleshooting.md).
 
 ## Verification
 
-After completing a review, verify all items in the Definition of Done (Outputs section) are satisfied.
-
-For the detailed verification checklist, see [Verification Checklist](verification-checklist.md).
+Before claiming done, walk through every checkbox in [Verification Checklist](verification-checklist.md). This is more detailed than the Definition of Done and catches omissions the main checklist misses.
 
 ## References
 
