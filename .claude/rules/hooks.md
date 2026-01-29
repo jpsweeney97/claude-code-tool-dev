@@ -20,7 +20,7 @@ Hooks are scripts that execute in response to Claude Code events. They can obser
 - **Complex logic requiring conversation**: Use skills instead (hooks can't converse)
 - **One-off commands**: Use commands instead (hooks run automatically)
 - **Subagent orchestration**: Use agents instead (hooks are synchronous)
-- **Heavy computation**: Hooks block execution; keep them fast (<1s ideal, <60s max)
+- **Heavy computation**: Hooks block execution; keep them fast (<1s ideal, 60s default timeout, configurable per command)
 
 ## Structure
 
@@ -68,26 +68,28 @@ if __name__ == "__main__":
 
 ## Event Types
 
-| Event                 | When                                        | Can Block | Use Case                            |
-| --------------------- | ------------------------------------------- | --------- | ----------------------------------- |
-| **PreToolUse**        | Before tool call                            | Yes       | Validate commands, enforce policies |
-| **PostToolUse**       | After tool completes                        | No        | Log results, capture outputs        |
-| **UserPromptSubmit**  | User submits prompt                         | Yes       | Inject context, validate input      |
-| **Stop**              | Main agent finishes (not on user interrupt) | Yes       | Cleanup, final checks               |
-| **SubagentStop**      | Subagent completes                          | Yes       | Validate subagent output            |
-| **SessionStart**      | Session begins                              | No        | Initialize state, load context      |
-| **SessionEnd**        | Session terminates                          | No        | Cleanup, persist state              |
-| **PreCompact**        | Before context compaction                   | No        | Preserve critical context           |
-| **Notification**      | Notification sent                           | No        | External integrations               |
-| **PermissionRequest** | Permission dialog                           | Yes       | Auto-approve/deny patterns          |
+| Event                    | When                                        | Can Block | Use Case                            |
+| ------------------------ | ------------------------------------------- | --------- | ----------------------------------- |
+| **PreToolUse**           | Before tool call                            | Yes       | Validate commands, enforce policies |
+| **PostToolUse**          | After tool succeeds                         | No        | Log results, capture outputs        |
+| **PostToolUseFailure**   | After tool fails                            | No        | Error handling, failure logging     |
+| **PermissionRequest**    | Permission dialog shown                     | Yes       | Auto-approve/deny patterns          |
+| **UserPromptSubmit**     | User submits prompt                         | Yes       | Inject context, validate input      |
+| **Stop**                 | Main agent finishes (not on user interrupt) | Yes       | Cleanup, final checks               |
+| **SubagentStart**        | Subagent spawned                            | No        | Track subagent creation             |
+| **SubagentStop**         | Subagent completes                          | Yes       | Validate subagent output            |
+| **SessionStart**         | Session begins or resumes                   | No        | Initialize state, load context      |
+| **SessionEnd**           | Session terminates                          | No        | Cleanup, persist state              |
+| **Setup**                | `--init`, `--init-only`, or `--maintenance` | No        | One-time setup, migrations          |
+| **PreCompact**           | Before context compaction                   | No        | Preserve critical context           |
+| **Notification**         | Notification sent                           | No        | External integrations               |
 
 ## Hook Types
 
-| Type      | Description                 | Model        | Default Timeout | Availability |
-| --------- | --------------------------- | ------------ | --------------- | ------------ |
-| `command` | Execute bash script         | N/A          | 60s             | All hooks    |
-| `prompt`  | LLM-based evaluation        | Haiku        | 30s             | All hooks    |
-| `agent`   | Agentic verifier with tools | Configurable | —               | Plugins only |
+| Type      | Description          | Model | Default Timeout | Notes                                      |
+| --------- | -------------------- | ----- | --------------- | ------------------------------------------ |
+| `command` | Execute bash script  | N/A   | 60s             | Deterministic rules, fast execution        |
+| `prompt`  | LLM-based evaluation | Haiku | 30s             | Context-aware decisions, slower (API call) |
 
 ### Command Hook (Default)
 
@@ -109,16 +111,6 @@ if __name__ == "__main__":
 ```
 
 Use `$ARGUMENTS` as a placeholder for hook input JSON. If omitted, input is appended to the prompt.
-
-### Agent Hook (Plugins Only)
-
-```json
-{
-  "type": "agent",
-  "agent": "security-reviewer",
-  "timeout": 120
-}
-```
 
 ## Component-Scoped Hooks
 
@@ -230,6 +222,15 @@ Matchers filter which events trigger the hook. Syntax:
 | `clear`   | `/clear` command                       |
 | `compact` | After auto or manual compact           |
 
+### Setup Matchers
+
+| Pattern       | Matches                                     |
+| ------------- | ------------------------------------------- |
+| `init`        | `--init` or `--init-only` flag              |
+| `maintenance` | `--maintenance` flag                        |
+
+**Note:** Use Setup for one-time operations (dependency installation, migrations). Use SessionStart for things needed every session. Setup requires explicit flags because running automatically would slow session starts.
+
 ## Input/Output Contract
 
 ### Input (stdin)
@@ -248,16 +249,21 @@ Hooks receive JSON on stdin. Common fields across all events:
 
 Event-specific additional fields:
 
-| Event                  | Additional Fields                                                              |
-| ---------------------- | ------------------------------------------------------------------------------ |
-| `PreToolUse`           | `tool_name`, `tool_input`, `tool_use_id`                                       |
-| `PostToolUse`          | `tool_name`, `tool_input`, `tool_response`, `tool_use_id`                      |
-| `UserPromptSubmit`     | `prompt`                                                                       |
-| `Notification`         | `message`, `notification_type`                                                 |
-| `Stop`, `SubagentStop` | `stop_hook_active`                                                             |
-| `PreCompact`           | `trigger` (manual/auto), `custom_instructions`                                 |
-| `SessionStart`         | `source` (startup/resume/clear/compact), `agent_type` (if `--agent` specified) |
-| `SessionEnd`           | `reason` (clear/logout/prompt_input_exit/other)                                |
+| Event                  | Additional Fields                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------- |
+| `PreToolUse`           | `tool_name`, `tool_input`, `tool_use_id`                                                 |
+| `PostToolUse`          | `tool_name`, `tool_input`, `tool_response`, `tool_use_id`                                |
+| `PostToolUseFailure`   | `tool_name`, `tool_input`, `tool_response`, `tool_use_id`                                |
+| `PermissionRequest`    | Same as PreToolUse                                                                       |
+| `UserPromptSubmit`     | `prompt`                                                                                 |
+| `Notification`         | `message`, `notification_type`                                                           |
+| `Stop`                 | `stop_hook_active`                                                                       |
+| `SubagentStart`        | `agent_id`, `agent_type`                                                                 |
+| `SubagentStop`         | `stop_hook_active`, `agent_id`, `agent_transcript_path`                                  |
+| `PreCompact`           | `trigger` (manual/auto), `custom_instructions`                                           |
+| `Setup`                | `trigger` (init/maintenance)                                                             |
+| `SessionStart`         | `source` (startup/resume/clear/compact), `model`, `agent_type` (if `--agent` specified)  |
+| `SessionEnd`           | `reason` (clear/logout/prompt_input_exit/other)                                          |
 
 ### Output
 
@@ -268,14 +274,14 @@ Event-specific additional fields:
 
 ### Environment Variables
 
-| Variable             | Description                                | Available In      |
-| -------------------- | ------------------------------------------ | ----------------- |
-| `CLAUDE_PROJECT_DIR` | Project root directory (absolute path)     | All events        |
-| `CLAUDE_CODE_REMOTE` | `"true"` if remote/web, empty if local CLI | All events        |
-| `CLAUDE_PLUGIN_ROOT` | Plugin directory (absolute path)           | Plugin hooks only |
-| `CLAUDE_ENV_FILE`    | Path for env persistence                   | SessionStart only |
+| Variable             | Description                                | Available In            |
+| -------------------- | ------------------------------------------ | ----------------------- |
+| `CLAUDE_PROJECT_DIR` | Project root directory (absolute path)     | All events              |
+| `CLAUDE_CODE_REMOTE` | `"true"` if remote/web, empty if local CLI | All events              |
+| `CLAUDE_PLUGIN_ROOT` | Plugin directory (absolute path)           | Plugin hooks only       |
+| `CLAUDE_ENV_FILE`    | Path for env persistence                   | SessionStart, Setup     |
 
-#### CLAUDE_ENV_FILE Usage (SessionStart only)
+#### CLAUDE_ENV_FILE Usage (SessionStart and Setup)
 
 Persist environment variables for subsequent bash commands in the session:
 
@@ -309,12 +315,12 @@ exit 0
 
 **Note**: The PEP 723-style frontmatter is this project's convention for `sync-settings`. Native Claude Code configures hooks via `settings.json` directly.
 
-| Field               | Required | Type    | Notes                                        |
-| ------------------- | -------- | ------- | -------------------------------------------- |
-| `event`             | Yes      | string  | Event type from table above                  |
-| `matcher`           | No       | string  | Filter pattern (tool/notification type/etc.) |
-| `timeout` (command) | No       | integer | Seconds (default 60)                         |
-| `timeout` (prompt)  | No       | integer | Seconds (default 30)                         |
+| Field               | Required | Type    | Notes                                                                    |
+| ------------------- | -------- | ------- | ------------------------------------------------------------------------ |
+| `event`             | Yes      | string  | Event type from table above                                              |
+| `matcher`           | No       | string  | Filter pattern (tool/notification type/etc.) — see Matcher Patterns      |
+| `timeout` (command) | No       | integer | Seconds (default 60, configurable)                                       |
+| `timeout` (prompt)  | No       | integer | Seconds (default 30)                                                     |
 
 ## Design Principles
 
@@ -460,6 +466,19 @@ sys.exit(0)
 ```
 
 Both work with exit 0. Plain text appears as hook output in transcript; `additionalContext` is added more discretely.
+
+### Setup Output
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "Setup",
+    "additionalContext": "Repository initialized with custom configuration"
+  }
+}
+```
+
+Setup hooks have access to `CLAUDE_ENV_FILE` for persisting environment variables. Multiple hooks' `additionalContext` values are concatenated.
 
 ### SessionStart Output
 
