@@ -29,7 +29,7 @@ Plugins bundle multiple Claude Code extensions (skills, commands, agents, hooks,
 plugin-name/
 ├── .claude-plugin/           # Metadata directory (REQUIRED)
 │   └── plugin.json          # Plugin manifest (REQUIRED)
-├── commands/                 # Default command location
+├── commands/                 # Simple slash commands (*.md) — legacy; prefer skills/
 │   └── *.md
 ├── agents/                   # Default agent location
 │   └── *.md
@@ -91,6 +91,7 @@ Only `name` is required. Use kebab-case, no spaces.
 | `name`         | string         | Yes      | Unique kebab-case identifier       |
 | `version`      | string         | No       | Semantic version (e.g., `"1.0.0"`) |
 | `description`  | string         | No       | Brief explanation                  |
+| `strict`       | boolean        | No       | Marketplace only: when `false`, no `plugin.json` needed in source |
 | `author`       | object         | No       | `{name, email?, url?}`             |
 | `homepage`     | string         | No       | Documentation URL                  |
 | `repository`   | string         | No       | Source code URL                    |
@@ -116,7 +117,7 @@ Only `name` is required. Use kebab-case, no spaces.
 
 ### Skills
 
-Skills are directories containing `SKILL.md`:
+Skills are directories containing `SKILL.md` with required frontmatter:
 
 ```
 skills/
@@ -128,11 +129,24 @@ skills/
     └── SKILL.md
 ```
 
-See `skills.md` rules for SKILL.md requirements.
+**Required SKILL.md frontmatter:**
 
-### Commands
+```yaml
+---
+name: skill-name
+description: When this skill should be invoked
+---
 
-Commands are markdown files with optional frontmatter:
+Skill instructions...
+```
+
+See `skills.md` rules for complete SKILL.md requirements.
+
+### Commands (Legacy)
+
+> **Note:** The `commands/` directory is legacy. Prefer `skills/` for new development.
+
+Commands are simple markdown files with optional frontmatter:
 
 ```markdown
 ---
@@ -188,7 +202,9 @@ Configure in `hooks/hooks.json` or inline in `plugin.json`:
 - `prompt`: Evaluate a prompt with an LLM (uses `$ARGUMENTS` placeholder)
 - `agent`: Run an agentic verifier with tools (plugins only)
 
-**Available events**: PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, UserPromptSubmit, Notification, Stop, SubagentStart, SubagentStop, SessionStart, SessionEnd, PreCompact
+**Available events**: PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, UserPromptSubmit, Notification, Stop, SubagentStart, SubagentStop, Setup, SessionStart, SessionEnd, PreCompact
+
+- `Setup`: Fires when `--init`, `--init-only`, or `--maintenance` flags are used
 
 **Execution**: All matching hooks from all sources (user, project, plugins) run in parallel with no guaranteed order. Design hooks for independent execution.
 
@@ -299,6 +315,11 @@ Installation is two-step:
 
 **Both must succeed**. If plugin appears installed but doesn't work, reinstall.
 
+**Caching behavior:**
+- Plugins are copied (not symlinked) to the cache directory
+- Paths referencing files outside the plugin directory (`../`) won't work after installation
+- **Exception**: Symlinks within the plugin directory are followed and their content is copied
+
 ### Post-Install
 
 **Restart Claude Code** after installing plugins. Skills load at session start.
@@ -335,7 +356,7 @@ Installation is two-step:
 | `version`     | Semver version                                                               |
 | `strict`      | When `false`, marketplace entry defines everything (no `plugin.json` needed) |
 
-Use `strict: false` when the marketplace entry should fully define the plugin without requiring a separate `plugin.json` manifest.
+Use `strict: false` when the marketplace entry should fully define the plugin without requiring a separate `plugin.json` manifest. When `true` (default), the plugin source must contain a `plugin.json`, and marketplace entry fields are merged with it.
 
 ### Local Development Marketplace
 
@@ -364,6 +385,16 @@ claude plugin install plugin-name@marketplace-name
 claude plugin marketplace update marketplace-name
 ```
 
+**Private repository authentication:**
+
+For background auto-updates, set the appropriate token:
+
+| Provider  | Environment variables        |
+|-----------|------------------------------|
+| GitHub    | `GITHUB_TOKEN` or `GH_TOKEN` |
+| GitLab    | `GITLAB_TOKEN` or `GL_TOKEN` |
+| Bitbucket | `BITBUCKET_TOKEN`            |
+
 ### Publishing Workflow
 
 1. Validate: `claude plugin validate <path>`
@@ -380,7 +411,11 @@ claude plugin marketplace update marketplace-name
 ### Validation
 
 ```bash
+# CLI
 claude plugin validate ./packages/plugins/my-plugin
+
+# Interactive (from within Claude Code)
+/plugin validate ./packages/plugins/my-plugin
 ```
 
 ### Manual Testing
@@ -441,8 +476,10 @@ claude plugin marketplace update tool-dev
 # 4. Reinstall
 claude plugin install <name>@tool-dev
 
-# 5. Restart Claude Code
+# 5. Restart Claude Code (required for skills, MCP server changes)
 ```
+
+**Restart required after:** Installing/updating plugins, MCP server config changes, skill changes.
 
 ## See Also
 
