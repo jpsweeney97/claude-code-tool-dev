@@ -207,7 +207,7 @@ Built-in commands like `/compact` and `/init` are not available through the Skil
 
 ## Persuasion Principles
 
-Use deliberately for discipline-enforcing skills. See [skill-writing-guide.md](skills/brainstorming-skills/references/skill-writing-guide.md) for full details.
+Use deliberately for discipline-enforcing skills.
 
 | Technique | Use | Example |
 |-----------|-----|---------|
@@ -229,17 +229,17 @@ Use deliberately for discipline-enforcing skills. See [skill-writing-guide.md](s
 
 ## Quality Dimensions
 
-Quick reference for skill review. See [skill-writing-guide.md](skills/brainstorming-skills/references/skill-writing-guide.md) for full details.
+Quick reference for skill review.
 
 | Dimension | Check |
 |-----------|-------|
-| **Intent fidelity** | Primary goal explicit; non-goals listed |
+| **Intent fidelity** | Primary goal explicit |
 | **Constraint completeness** | Allowed vs forbidden explicit; conflicts trigger STOP |
 | **Terminology clarity** | Terms defined once, reused consistently |
 | **Evidence anchoring** | "Confirm X exists before acting" |
 | **Decision sufficiency** | Every decision: condition → action → alternative |
 | **Verification validity** | Quick check measures actual success property |
-| **Artifact usefulness** | Output format, required fields, tailored to consumer |
+| **Artifact usefulness** | Output format, required fields, tailored to use-case |
 | **Minimality** | "Prefer smallest correct change" |
 | **Calibration** | Claims labeled: Verified / Inferred / Assumed |
 
@@ -381,7 +381,7 @@ If a skill adopts the full framework, declare it in the skill header:
 
 Systematic analysis using the Framework for Thoroughness.
 
-**Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness.md)
+**Protocol:** [thoroughness.framework@1.0.0](framework-for-thoroughness.md)
 **Default thoroughness:** Rigorous
 ```
 
