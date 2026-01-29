@@ -21,6 +21,8 @@ Agents (subagents) are autonomous workers that run in separate contexts via the 
 - **Shared state operations**: Agents run in separate contexts; no state sharing
 - **Simple single-file reads**: Use Read tool directly (lower overhead)
 - **Quick lookups**: Use Grep/Glob directly (agents add latency)
+- **Iterative refinement**: When the task needs frequent back-and-forth
+- **Latency-sensitive operations**: Agents start fresh and may need time to gather context
 
 ## Agent Priority
 
@@ -81,9 +83,21 @@ Return your findings as:
 | `tools`           | No       | string | Comma-separated allowlist; omit to inherit all                                       |
 | `disallowedTools` | No       | string | Comma-separated denylist; removed from inherited/specified tools                     |
 | `model`           | No       | string | `sonnet`, `opus`, `haiku`, or `inherit`                                              |
-| `permissionMode`  | No       | string | `default`, `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions`                     |
-| `skills`          | No       | string | Comma-separated skills to auto-load (injected at startup, not inherited from parent) |
+| `permissionMode`  | No       | string | Permission mode (see table below)                                                    |
+| `skills`          | No       | list   | YAML list of skills to auto-load (injected at startup, not inherited from parent) |
 | `hooks`           | No       | object | `PreToolUse`, `PostToolUse`, or `Stop` handlers scoped to subagent                   |
+
+### Permission Modes
+
+| Mode                | Behavior                                                           |
+| ------------------- | ------------------------------------------------------------------ |
+| `default`           | Standard permission checking with prompts                          |
+| `acceptEdits`       | Auto-accept file edits                                             |
+| `dontAsk`           | Auto-deny permission prompts (explicitly allowed tools still work) |
+| `bypassPermissions` | Skip all permission checks (use with caution)                      |
+| `plan`              | Plan mode (read-only exploration)                                  |
+
+If the parent uses `bypassPermissions`, this takes precedence and cannot be overridden.
 
 ### Skills Field Example
 
@@ -92,7 +106,9 @@ Return your findings as:
 name: data-analyst
 description: Analyzes data using SQL and visualization
 tools: Read, Grep, Bash
-skills: sql-analysis, chart-generation
+skills:
+  - sql-analysis
+  - chart-generation
 ---
 ```
 
@@ -403,6 +419,20 @@ Launch multiple agents simultaneously for independent tasks:
 
 All three run in parallel; results return as they complete.
 
+**Note:** When subagents complete, their results return to your main conversation. Running many subagents that each return detailed results can consume significant context. Design agents to return summaries, not raw data.
+
+## Chaining Agents
+
+For multi-step workflows, use agents in sequence. Each agent completes and returns results, which are then passed to the next:
+
+```
+# From main conversation:
+1. Use code-reviewer agent to find performance issues
+2. Use optimizer agent to fix them (receives reviewer's findings)
+```
+
+This works because the main conversation coordinates — agents cannot spawn other agents.
+
 ## Background Execution
 
 For long-running tasks:
@@ -421,12 +451,14 @@ Returns immediately with `output_file` path. Check progress with Read tool or `t
 
 Background agents differ from foreground:
 
-| Aspect          | Foreground           | Background                    |
-| --------------- | -------------------- | ----------------------------- |
-| MCP tools       | Available            | Not available                 |
-| Permissions     | Prompts pass through | Auto-deny if not pre-approved |
-| AskUserQuestion | Works                | Fails (agent continues)       |
-| Recovery        | N/A                  | Resume in foreground to retry |
+| Aspect          | Foreground           | Background                           |
+| --------------- | -------------------- | ------------------------------------ |
+| MCP tools       | Available            | **Not available** (design around)    |
+| Permissions     | Prompts pass through | Auto-deny if not pre-approved        |
+| AskUserQuestion | Works                | Fails (agent continues)              |
+| Recovery        | N/A                  | Resume in foreground to retry        |
+
+If an agent needs MCP tools, it must run in foreground.
 
 ## Resuming Agents
 
@@ -454,6 +486,10 @@ Task(resume: "abc123", prompt: "Now also check authorization")
 Transcripts persist at `~/.claude/projects/{project}/{sessionId}/subagents/agent-{agentId}.jsonl`
 
 Auto-deleted after `cleanupPeriodDays` (default: 30).
+
+### Auto-Compaction
+
+Subagents support automatic compaction using the same logic as the main conversation. By default, auto-compaction triggers at approximately 95% capacity. Set `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` to a lower percentage (e.g., `50`) to trigger earlier.
 
 ## Testing
 
@@ -525,6 +561,8 @@ Claude Code includes three built-in subagents:
 - `Explore`: Searching/understanding codebase without making changes
 
 **Disabling built-in agents**: Add to `deny` array in settings: `["Task(Explore)", "Task(Plan)"]`
+
+Or via CLI: `claude --disallowedTools "Task(Explore)"`
 
 Custom agents extend these capabilities for specialized workflows.
 
