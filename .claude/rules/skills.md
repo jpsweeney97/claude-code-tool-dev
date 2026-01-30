@@ -7,25 +7,6 @@ paths:
 
 # Skill Development
 
-> **Note:** This document covers official Claude Code skill features plus project-specific conventions. Project conventions are marked with 📋.
-
-For complete official documentation including troubleshooting and extended examples, see the [Claude Code skills documentation](https://code.claude.com/docs/en/skills).
-
-## Storage Locations & Priority
-
-| Location | Path | Scope |
-|----------|------|-------|
-| Enterprise | Managed settings | Organization-wide |
-| Personal | `~/.claude/skills/<skill-name>/SKILL.md` | All user's projects |
-| Project | `.claude/skills/<skill-name>/SKILL.md` | Project only |
-| Plugin | `<plugin>/skills/<skill-name>/SKILL.md` | Where plugin enabled |
-
-**Priority:** enterprise > personal > project
-
-**Nested discovery:** Claude Code automatically discovers skills from nested `.claude/skills/` directories (e.g., `packages/frontend/.claude/skills/`) for monorepo support.
-
-**Plugin namespacing:** Plugin skills use `plugin-name:skill-name` to avoid conflicts.
-
 ## Backward Compatibility
 
 Custom slash commands have been merged into skills:
@@ -36,30 +17,58 @@ Custom slash commands have been merged into skills:
 
 ## Structure
 
-Skills are directories containing `SKILL.md`:
+Each skill is a directory with `SKILL.md` as the entrypoint:
 
 ```
-.claude/skills/<name>/
-├── SKILL.md          # Main skill file (required)
-├── references/       # Deep documentation (optional)
-├── scripts/          # Utility scripts Claude can execute (optional)
-├── templates/        # Output templates (optional)
-└── assets/           # Images, prompts (optional)
+my-skill/
+├── SKILL.md
+├── reference.md
+├── examples.md
+└── scripts/
+    └── script.py
 ```
 
-## Types of Skill Content
+The SKILL.md contains the main instructions and is required. Other files are optional and let you build more powerful skills: templates for Claude to fill in, example outputs showing the expected format, scripts Claude can execute, or detailed reference documentation. Reference these files from your SKILL.md so Claude knows what they contain and when to load them.
 
-Thinking about invocation style guides what to include:
+Skills can include multiple files in their directory. This keeps SKILL.md focused on the essentials while letting Claude access detailed reference material only when needed. Large reference docs, specifications, or example collections don’t need to load into context every time the skill runs.
 
-**Reference content** — knowledge Claude applies to current work (conventions, patterns, domain knowledge). Runs inline alongside conversation context.
-
-**Task content** — step-by-step instructions for specific actions (deployments, commits, code generation). Often invoke directly with `/skill-name`. Add `disable-model-invocation: true` to prevent automatic triggering.
 
 ## Progressive Disclosure
 
+**Three types of Skill content, three levels of loading**
+
+Skills can contain three types of content, each loaded at different times:
+
+### Level 1: Metadata (always loaded)
+
+**Content type: Instructions**. The Skill's YAML frontmatter provides discovery information. Claude loads this metadata at startup and includes it in the system prompt. This lightweight approach means the user can install many Skills without context penalty; Claude only knows each Skill exists and when to use it.
+
+### Level 2: Instructions (loaded when triggered)
+
+**Content type: Instructions**. The main body of SKILL.md contains procedural knowledge: workflows, best practices, and guidance. When the user requests something that matches a Skill's description, or explicitly invokes the skill, Claude reads SKILL.md. Only then does this content enter the context window.
+
+### Level 3: Supporting Files (Loaded as Needed)
+
+**Content types: Instructions, code, and resources**. Skills can bundle additional materials.
+
+Instructions: Additional markdown files containing specialized guidance and workflows
+
+Code: Executable scripts that Claude runs; scripts provide deterministic operations without consuming context
+
+Resources: Reference materials like schemas, documentation, specs, templates, frameworks, methodologies, examples, etc.
+
+Claude accesses these files only when referenced.
+
+
+
+This keeps operations efficient while providing deep expertise on demand. Initially, Claude sees just the metadata from the YAML frontmatter of SKILL.md. Only when a skill is relevant does Claude load the full contents, including any helper scripts and resources.
+
+
+
+
 Skills share Claude's context window with conversation history, other skills, and your request. Keep skills focused:
 
-- **📋 Keep SKILL.md under 500 lines** — move detailed content to supporting files
+- **Keep SKILL.md under 500 lines** — move detailed content to supporting files
 - **Keep references one level deep** — link from SKILL.md to supporting files, not file → file chains
 - **Use scripts for zero-context execution** — scripts run without loading contents into context; only output consumes tokens
 
@@ -78,17 +87,13 @@ For detailed API reference, see [REFERENCE.md](REFERENCE.md).
 Run the validation script: `python scripts/validate.py input.pdf`
 ```
 
-## Hot-Reload
+## Types of Skill Content
 
-Skills auto-reload when modified. Changes to files in `~/.claude/skills/` or `.claude/skills/` are immediately available without restarting the session.
+Skill files can contain any instructions, but thinking about how the user wants to invoke them helps guide what to include:
 
-## Skill Lifecycle
+**Reference content** — Reference content adds knowledge Claude applies to the user's current work. Conventions, patterns, style guides, domain knowledge. This content runs inline so Claude can use it alongside the user's conversation context.
 
-When you send a request, Claude follows these steps:
-
-1. **Discovery**: At startup, loads only name + description of each skill (keeps startup fast)
-2. **Activation**: When request matches a skill's description, Claude asks to use it. Full SKILL.md loads after user confirms.
-3. **Execution**: Claude follows the skill's instructions, loading referenced files or running bundled scripts as needed.
+**Task content** — Task content gives Claude step-by-step instructions for a specific action, like deployments, commits, or code generation. These are often actions that the user wants to invoke directly with `/skill-name` rather than letting Claude decide when to run them. Add `disable-model-invocation: true` to prevent Claude from triggering it automatically.
 
 ## SKILL.md Format
 
