@@ -1,394 +1,852 @@
----
-paths:
-  - ".claude/skills/**"
-  - "~/.claude/skills/**"
-  - "**/SKILL.MD"
----
+# Skills
 
-# Skill Development
+## Table of Contents
 
-## Backward Compatibility
+- [Skill Structure](#skill-structure)
+- [Skill Design Principles](#skill-design-principles)
+- [Common Skill Types](#common-skill-types)
+- [Writing Effective Skills](#planning-and-design)
+- [Patterns and Troubleshooting](#patterns-and-troubleshooting)
 
-Custom slash commands have been merged into skills:
-- `.claude/commands/review.md` and `.claude/skills/review/SKILL.md` both create `/review`
-- When skill and command share the same name, **skill takes precedence**
-- Commands support same frontmatter but lack supporting file features
-- Existing `.claude/commands/` files continue working
+## Skill Structure
 
-## Structure
+Each skill is a directory with `SKILL.md` as the entrypoint. The `SKILL.md` contains the main instructions and is required. Other files are optional and can be used to build more powerful skills: templates for Claude to fill in, example outputs showing the expected format, scripts Claude can execute, or detailed reference documentation.
 
-Each skill is a directory with `SKILL.md` as the entrypoint:
+### Directory Structure
 
 ```
 my-skill/
-├── SKILL.md
-├── reference.md
-├── examples.md
-└── scripts/
-    └── script.py
+├── SKILL.md                  # Required - main skill file
+├── scripts/                  # Optional - executable code
+│    ├── process_data.py      # Example
+│    └── validate.sh          # Example
+├── references/               # Optional - documentation
+│    ├── api-guide.md         # Example
+│    └── examples/            # Example
+└── assets/                   # Optional - templates, etc.
+     └── report-template.md   # Example
 ```
 
-The SKILL.md contains the main instructions and is required. Other files are optional and let you build more powerful skills: templates for Claude to fill in, example outputs showing the expected format, scripts Claude can execute, or detailed reference documentation. Reference these files from your SKILL.md so Claude knows what they contain and when to load them.
+### The SKILL.md file
 
-Skills can include multiple files in their directory. This keeps SKILL.md focused on the essentials while letting Claude access detailed reference material only when needed. Large reference docs, specifications, or example collections don’t need to load into context every time the skill runs.
+Every skill starts with a `SKILL.md` file containing YAML frontmatter and Markdown instructions.
 
+#### YAML frontmatter
 
-## Progressive Disclosure
+The YAML frontmatter is how Claude decides whether to load your skill.
 
-**Three types of Skill content, three levels of loading**
-
-Skills can contain three types of content, each loaded at different times:
-
-### Level 1: Metadata (always loaded)
-
-**Content type: Instructions**. The Skill's YAML frontmatter provides discovery information. Claude loads this metadata at startup and includes it in the system prompt. This lightweight approach means the user can install many Skills without context penalty; Claude only knows each Skill exists and when to use it.
-
-### Level 2: Instructions (loaded when triggered)
-
-**Content type: Instructions**. The main body of SKILL.md contains procedural knowledge: workflows, best practices, and guidance. When the user requests something that matches a Skill's description, or explicitly invokes the skill, Claude reads SKILL.md. Only then does this content enter the context window.
-
-### Level 3: Supporting Files (Loaded as Needed)
-
-**Content types: Instructions, code, and resources**. Skills can bundle additional materials.
-
-Instructions: Additional markdown files containing specialized guidance and workflows
-
-Code: Executable scripts that Claude runs; scripts provide deterministic operations without consuming context
-
-Resources: Reference materials like schemas, documentation, specs, templates, frameworks, methodologies, examples, etc.
-
-Claude accesses these files only when referenced.
-
-
-
-This keeps operations efficient while providing deep expertise on demand. Initially, Claude sees just the metadata from the YAML frontmatter of SKILL.md. Only when a skill is relevant does Claude load the full contents, including any helper scripts and resources.
-
-
-
-
-Skills share Claude's context window with conversation history, other skills, and your request. Keep skills focused:
-
-- **Keep SKILL.md under 500 lines** — move detailed content to supporting files
-- **Keep references one level deep** — link from SKILL.md to supporting files, not file → file chains
-- **Use scripts for zero-context execution** — scripts run without loading contents into context; only output consumes tokens
-
-### When to Split
-
-| Signal                    | Action                                                     |
-| ------------------------- | ---------------------------------------------------------- |
-| SKILL.md exceeds 500 lines | Move detailed content to supporting files |
-| Repeated validation logic | Extract to `scripts/` and tell Claude to run (not read) it |
-| Large examples/templates  | Move to `templates/` or `examples/` directory              |
-
-In SKILL.md, point to supporting files:
-
-```markdown
-For detailed API reference, see [REFERENCE.md](REFERENCE.md).
-Run the validation script: `python scripts/validate.py input.pdf`
-```
-
-## Types of Skill Content
-
-Skill files can contain any instructions, but thinking about how the user wants to invoke them helps guide what to include:
-
-**Reference content** — Reference content adds knowledge Claude applies to the user's current work. Conventions, patterns, style guides, domain knowledge. This content runs inline so Claude can use it alongside the user's conversation context.
-
-**Task content** — Task content gives Claude step-by-step instructions for a specific action, like deployments, commits, or code generation. These are often actions that the user wants to invoke directly with `/skill-name` rather than letting Claude decide when to run them. Add `disable-model-invocation: true` to prevent Claude from triggering it automatically.
-
-## SKILL.md Format
-
-### Frontmatter
+**Minimal Required Format**
 
 ```yaml
 ---
-name: skill-name # Recommended: lowercase letters, numbers, hyphens only; max 64 chars; 📋 prefer gerund form (verb-ing)
-description: Trigger conditions only # Recommended: max 1024 chars; if omitted, uses first paragraph of content
-argument-hint: "<query>" # Optional: hint shown during autocomplete (e.g., "[issue-number]", "[filename] [format]")
-allowed-tools: Tool1, Tool2 # Optional: comma or YAML list; patterns like Bash(python:*)
-model: claude-sonnet-4-20250514 # Optional: specific model
-context: fork # Optional: run in isolated subagent
-agent: general-purpose # Optional: agent type when context: fork
-hooks: # Optional: component-scoped hooks
-  PreToolUse:
-    - matcher: Bash
-      hooks:
-        - type: command
-          command: ./validate.sh
-          once: true # Optional: run only once per session (skill hooks only, not agents)
-user-invocable: true # Optional: controls slash menu visibility
-disable-model-invocation: false # Optional: blocks Skill tool invocation
+name: your-skill-name
+description: What it does + When to use it + Key capabilities
 ---
 ```
 
-### String Substitutions
+There are only two required YAML frontmatter fields:
 
-Skills support dynamic value substitution in the body:
+**name**:
 
-| Variable | Description |
-|----------|-------------|
-| `$ARGUMENTS` | All arguments passed when invoking the skill. If not present in body, appended as `ARGUMENTS: <value>` |
-| `$ARGUMENTS[N]` | Access a specific argument by 0-based index (e.g., `$ARGUMENTS[0]` for first argument) |
-| `$N` | Shorthand for `$ARGUMENTS[N]` (e.g., `$0` for first argument, `$1` for second) |
-| `${CLAUDE_SESSION_ID}` | Current session ID for logging, session-specific files, or correlating output |
+- kebab-case only
+- No spaces or capitals
+- Should match folder name
 
-### Context Fork Behavior
+**description**:
 
-When `context: fork` is set, the skill runs in a separate subagent. However:
+- **MUST include BOTH:**
+  - What the skill does
+  - When to use it (trigger conditions)
+- Under 1024 characters
+- No XML tags (`<` or `>`)
+- Include specific tasks users might say
+- Mention file types if relevant
 
-- **Built-in agents** (Explore, Plan, general-purpose) cannot access your skills
-- **Custom subagents** need an explicit `skills` field to load skills
+The remaining available YAML frontmatter fields are optional - use them as needed:
 
-To give a custom subagent access to skills, define it in `.claude/agents/`:
+| Field                      | Required | Description                                                                                                                                           |
+| :------------------------- | :------- | :---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `argument-hint`            | No       | Hint shown during autocomplete to indicate expected arguments. Example: `[issue-number]` or `[filename] [format]`.                                    |
+| `disable-model-invocation` | No       | Set to `true` to prevent Claude from automatically loading this skill. Use for workflows you want to trigger manually with `/name`. Default: `false`. |
+| `user-invocable`           | No       | Set to `false` to hide from the `/` menu. Use for background knowledge users shouldn't invoke directly. Default: `true`.                              |
+| `allowed-tools`            | No       | Tools Claude can use without asking permission when this skill is active.                                                                             |
+| `model`                    | No       | Model to use when this skill is active.                                                                                                               |
+| `context`                  | No       | Set to `fork` to run in a forked subagent context.                                                                                                    |
+| `agent`                    | No       | Which subagent type to use when `context: fork` is set.                                                                                               |
+| `hooks`                    | No       | Hooks scoped to this skill's lifecycle.                                                                                                               |
+
+#### Body content
+
+The Markdown body after the frontmatter contains the skill instructions. There are no strict format restrictions. Write whatever helps agents perform the task effectively.
+
+**Keep `SKILL.md` under 500 lines. Move detailed reference material to supporting files**
+
+### Supporting files
+
+Skills can include multiple files in their directory. This keeps `SKILL.md` focused on the essentials while letting Claude access detailed reference material only when needed. Large reference docs, specifications, or example collections don't need to load into context every time the skill runs.
+
+#### File references
+
+Reference supporting files from `SKILL.md` so Claude knows what each file contains and when to load it.
+
+When referencing supporting files, use relative paths from the skill root:
+
+```markdown
+For complete details, read [the reference guide](references/REFERENCE.md)
+For usage examples, read [examples.md](examples.md)
+```
+
+Keep file references one level deep from `SKILL.md`. Avoid deeply nested reference chains.
+
+## Skill Design Principles
+
+### Progressive disclosure
+
+Skills use a three-level system:
+
+- **First level (YAML frontmatter):** Always loaded in Claude's system prompt. Provides just enough information for Claude to know when each skill should be used without loading all of it into context.
+- **Second level (SKILL.md body):** Loaded when Claude thinks the skill is relevant to the current task. Contains the full instructions and guidance.
+- **Third level (Supporting files):** Additional files bundled within the skill directory that Claude can choose to navigate and discover only as needed.
+
+This progressive disclosure minimizes token usage while maintaining specialized expertise.
+
+### Composability
+
+Claude can load multiple skills simultaneously. Skills should work well alongside others, not assume it's the only capability available.
+
+### Concise is key
+
+The context window is a public good. Each Skill shares the context window with everything else Claude needs to know, including:
+
+- The system prompt
+- Conversation history
+- Other Skills' metadata
+- User prompts
+
+Not every token in a Skill has an immediate cost. At startup, only the metadata (name and description) from all Skills is pre-loaded. Claude reads SKILL.md only when the Skill becomes relevant, and reads additional files only as needed. However, being concise in SKILL.md still matters: once Claude loads it, every token competes with conversation history and other context.
+
+**Default assumption**: Claude is already very smart
+
+Only add context Claude doesn't already have. Challenge each piece of information:
+
+- "Does Claude really need this explanation?"
+- "Can I assume Claude knows this?"
+- "Does this paragraph justify its token cost?"
+
+### Set appropriate degrees of freedom
+
+Match the level of specificity to the task's fragility and variability.
+
+**High freedom**
+
+Use when:
+
+- Multiple approaches are valid
+- Decisions depend on context
+- Heuristics guide the approach
+
+**Medium freedom**
+
+Use when:
+
+- A preferred pattern exists
+- Some variation is acceptable
+- Configuration affects behavior
+
+**Low freedom**
+
+Use when:
+
+- Operations are fragile and error-prone
+- Consistency is critical
+- A specific sequence must be followed
+
+### Start with Use Cases
+
+Before writing anything, identify 2-3 concrete use cases your skill should enable.
+
+**Good use case definition:**
+
+```
+Use Case: Project Sprint Planning
+Trigger: User says "help me plan this sprint" or "create sprint tasks"
+Steps:
+1. Fetch current project status from Linear (via MCP)
+2. Analyze team velocity and capacity
+3. Suggest task prioritization
+4. Create tasks in Linear with proper labels and estimates
+Result: Fully planned sprint with tasks created
+```
+
+**Ask yourself:**
+
+- What does the user want to accomplish?
+- What multi-step workflows does this require?
+- Which tools are needed (built-in or MCP?)
+- What domain knowledge or best practices should be embedded?
+
+### Define Success Criteria
+
+**How will you know if a skill is working?**
+
+These are aspirational targets — rough benchmarks rather than precise thresholds. Aim for rigor but accept that there will be an element of vibes-based assessment.
+
+#### Quantitative Metrics
+
+- **Skill triggers on 90% of relevant queries**
+  - _How to measure:_ Run 10-20 test queries that should trigger your skill. Track how many times it loads automatically vs. requires explicit invocation.
+- **Completes workflow in X tool calls**
+  - _How to measure:_ Compare the same task with and without the skill enabled. Count tool calls and total tokens consumed.
+
+#### Qualitative Metrics
+
+- **Users don't need to prompt Claude about next steps**
+  - _How to assess:_ During testing, note how often you need to redirect or clarify. Ask beta users for feedback.
+- **Workflows complete without user correction**
+  - _How to assess:_ Run the same request 3-5 times. Compare outputs for structural consistency and quality.
+- **Consistent results across sessions**
+  - _How to assess:_ Can a new user accomplish the task on first try with minimal guidance?
+
+## Common Skill Types
+
+### Discipline-Enforcing Skills (rules/requirements)
+
+**Used for:** Enforcing methodologies that Claude might otherwise shortcut or skip entirely. These skills address a fundamental challenge: Claude tends to jump directly to solutions, claim completion without verification, or skip intermediate steps that seem unnecessary in the moment but prevent errors. Discipline skills make specific phases mandatory, requiring evidence of completion before proceeding. They're particularly valuable for workflows where skipping steps causes subtle, hard-to-detect problems—like writing tests after code (which produces weaker tests) or claiming "tests pass" without actually running them.
+
+**Key techniques:**
+
+- Rigid phase structure with explicit gates between stages
+- Blocking language that makes requirements non-negotiable ("MUST", "before ANY", "NEVER skip")
+- Evidence requirements before phase transitions (show output, cite file:line)
+- Anti-pattern tables that name and describe common shortcuts
+- Explicit "red flag" thoughts that signal rationalization ("this is simple enough to skip")
+- Checklists requiring verification of each item, not just acknowledgment
+- Failure mode descriptions showing consequences of skipping steps
+
+### Technique Skills (how-to)
+
+**Used for:** Teaching specific methods for accomplishing complex activities that benefit from structure. Unlike discipline skills (which constrain behavior), technique skills provide the how—structured approaches to tasks that would otherwise be ad-hoc. They're valuable when an activity has a learnable method that produces better results than improvisation: brainstorming that actually explores the space, code review that catches real issues, codebase exploration that builds accurate mental models. These skills transfer expertise about how to think about a problem, not just what to do.
+
+**Key techniques:**
+
+- Step-by-step workflows with clear inputs and outputs per stage
+- Decision trees for handling variations and edge cases
+- Templates that guide execution while allowing adaptation
+- Worked examples showing the technique applied to real scenarios
+- Heuristics for knowing when to apply which sub-technique
+- Quality criteria for evaluating outputs at each stage
+- Common failure modes and how to recognize/recover from them
+- Iteration patterns showing when and how to loop back
+- Perspective prompts that shift thinking ("What would a skeptic say?")
+- Time-boxing guidance for stages that could expand indefinitely
+
+### Pattern Skills (mental models)
+
+**Used for:** Encoding reusable patterns for situations that recur with variations. These skills capture domain expertise—the accumulated knowledge of what works—in a form that can be applied repeatedly. They're valuable when a task has a known-good structure that shouldn't be reinvented each time: CLI tools have standard argument parsing patterns, frontend components have established composition patterns, clear writing follows identifiable principles. Pattern skills provide starting points and guardrails, not rigid prescriptions.
+
+**Key techniques:**
+
+- Template structures (file layouts, component hierarchies, document sections)
+- Style guides with concrete before/after examples
+- Checklists of elements to include and consider
+- Anti-patterns showing what to avoid and why
+- Variation catalogs showing how the pattern adapts to different contexts
+- Decision tables mapping situations to pattern variants
+- Composition rules for combining patterns
+- Migration paths from one pattern to another
+- Naming conventions that encode pattern semantics
+- Integration points where patterns connect to larger systems
+
+### Reference Skills (documentation/conventions/knowledge)
+
+**Used for:** Providing lookup capabilities, reference information, or access to authoritative sources. Unlike other skill types that prescribe behavior, reference skills surface information that informs decisions. They're valuable when accurate, current information exists but isn't in Claude's training data or memory: documentation that evolves, configuration options that expand, APIs that change. Reference skills bridge the gap between what Claude knows and what's actually true in the current environment.
+
+**Key techniques:**
+
+- Integration with search tools (MCP servers, grep patterns, API queries)
+- Structured query guidance that improves search effectiveness
+- Quick-reference tables for common lookups
+- Links to authoritative sources with context on when to consult them
+- Caching strategies for frequently-accessed information
+- Freshness indicators showing when information might be stale
+- Cross-reference maps connecting related concepts
+- Query reformulation suggestions when initial searches fail
+- Disambiguation prompts when queries match multiple concepts
+- Summary extraction from verbose sources
+
+**This set of common skill types is not exhaustive. Most real skills blend types but lean toward one.**
+
+## Writing Effective Skills
+
+### The Description Field
+
+The description field provides just enough information for Claude to know when each skill should be used without loading all of it into context. This is the first level of progressive disclosure.
+
+**Structure:**
+
+```
+[What it does] + [When to use it] + [Key capabilities]
+```
+
+**Examples of good descriptions:**
 
 ```yaml
-# .claude/agents/code-reviewer.md
+# Good - specific and actionable
+description: Analyzes Figma design files and generates developer handoff documentation. Use when user uploads .fig files, asks for "design specs", "component documentation", or "design-to-code handoff".
+
+# Good - includes trigger phrases
+description: Manages Linear project workflows including sprint planning, task creation, and status tracking. Use when user mentions "sprint", "Linear tasks", "project planning", or asks to "create tickets".
+
+# Good - clear value proposition
+description: End-to-end customer onboarding workflow for PayFlow. Handles account creation, payment setup, and subscription management. Use when user says "onboard new customer", "set up subscription", or "create PayFlow account".
+```
+
+**Examples of bad descriptions:**
+
+```yaml
+# Too vague
+description: Helps with projects.
+
+# Missing triggers
+description: Creates sophisticated multi-page documentation systems.
+
+# Too technical, no user triggers
+description: Implements the Project entity model with hierarchical relationships.
+```
+
+### Writing the Main Instructions
+
+After the frontmatter, write the actual instructions in Markdown.
+
+#### Recommended structure:
+
+Adapt this template for skills. Replace bracketed sections with relevant specific content. Add sections as needed.
+
+````markdown
+```yaml
 ---
-name: code-reviewer
-description: Review code for quality and best practices
-skills: pr-review, security-check
+name: my-skill
+description: [...]
 ---
 ```
 
-If `skills` is omitted, no skills are preloaded into the subagent context.
+# Skill Name
 
-#### Skills vs Subagents Integration
+## Instructions
 
-| Approach | System prompt | Task | Also loads |
-|----------|--------------|------|-----------|
-| Skill with `context: fork` | From agent type (Explore, Plan, etc.) | SKILL.md content | CLAUDE.md |
-| Subagent with `skills` field | Subagent's markdown body | Claude's delegation message | Preloaded skills + CLAUDE.md |
+### Step 1: [First Major Step]
 
-### Dynamic Context Injection
+Clear explanation of what happens.
 
-The `` !`command` `` syntax runs shell commands as **preprocessing** — before skill content is sent to Claude. Output replaces the placeholder, so Claude receives actual data, not commands.
+Example:
+
+```bash
+python scripts/fetch_data.py --project-id PROJECT_ID
+```
+
+Expected output: [describe what success looks like]
+
+(Add more steps as needed)
+
+## Examples
+
+### Example 1: [common scenario]
+
+**User says:** "Set up a new marketing campaign"
+
+**Actions:**
+
+1. Fetch existing campaigns via MCP
+2. Create new campaign with provided parameters
+
+**Result:** Campaign created with confirmation link
+
+(Add more examples as needed)
+
+## Troubleshooting
+
+### Error: [Common error message]
+
+**Cause:** [Why it happens]
+
+**Solution:** [How to fix]
+
+(Add more error cases as needed)
+````
+
+### Best Practices for Writing Skills
+
+#### Be Specific and Actionable
+
+✅ **Good:**
 
 ```markdown
----
-name: pr-summary
-description: Summarize changes in a pull request
-context: fork
-agent: Explore
----
+Run `python scripts/validate.py --input {filename}` to check data format.
+If validation fails, common issues include:
 
-## Pull request context
-- PR diff: !`gh pr diff`
-- PR comments: !`gh pr view --comments`
+- Missing required fields (add them to the CSV)
+- Invalid date formats (use YYYY-MM-DD)
 ```
 
-This is preprocessing, not Claude execution — the commands run when the skill loads.
-
-### Extended Thinking
-
-To enable extended thinking in a skill, include the word **"ultrathink"** anywhere in your skill content.
-
-### Context Budget
-
-- **Default limit:** 15,000 characters for skill descriptions
-- If exceeded, some skills may be excluded from context
-- Check current usage with `/context` command
-- Increase limit via `SLASH_COMMAND_TOOL_CHAR_BUDGET` environment variable
-
-### Agent Types
-
-| Agent             | Model  | Best For                       |
-| ----------------- | ------ | ------------------------------ |
-| `Explore`         | haiku  | Read-only codebase exploration |
-| `Plan`            | sonnet | Architecture and planning      |
-| `general-purpose` | sonnet | Multi-step modifications        |
-
-## Permission Control
-
-Three ways to restrict Claude's skill access:
-
-1. **Disable all skills:** Deny the Skill tool in `/permissions`
-2. **Allow/deny specific skills:** Use permission rules with patterns:
-   - **Exact match:** `Skill(commit)`
-   - **Prefix match:** `Skill(deploy:*)`
-3. **Hide individual skills:** Add `disable-model-invocation: true` to frontmatter
-
-**Note:** The `user-invocable` field only controls menu visibility, not Skill tool access. Use `disable-model-invocation: true` to block programmatic invocation.
-
-Built-in commands like `/compact` and `/init` are not available through the Skill tool.
-
-## Persuasion Principles
-
-Use deliberately for discipline-enforcing skills.
-
-| Technique | Use | Example |
-|-----------|-----|---------|
-| **Authority** | Critical requirements | "YOU MUST", "Never", "No exceptions" |
-| **Commitment** | Tracking compliance | "Announce skill usage", TodoWrite checklists |
-| **Scarcity** | Preventing procrastination | "Before proceeding", "Immediately after X" |
-| **Social Proof** | Establishing norms | "Every time", "X without Y = failure" |
-| **Unity** | Collaborative skills | "our codebase", "we both want quality" |
-
-**By skill type:**
-
-| Type | Use | Avoid |
-|------|-----|-------|
-| Discipline-enforcing | Authority + Commitment + Social Proof | Liking |
-| Guidance/technique | Moderate Authority + Unity | Heavy authority |
-| Collaborative | Unity + Commitment | Authority |
-
-**Key insight:** Bright-line rules reduce rationalization. "When X, do Y" beats "generally do Y."
-
-## Quality Dimensions
-
-Quick reference for skill review.
-
-| Dimension | Check |
-|-----------|-------|
-| **Intent fidelity** | Primary goal explicit |
-| **Constraint completeness** | Allowed vs forbidden explicit; conflicts trigger STOP |
-| **Terminology clarity** | Terms defined once, reused consistently |
-| **Evidence anchoring** | "Confirm X exists before acting" |
-| **Decision sufficiency** | Every decision: condition → action → alternative |
-| **Verification validity** | Quick check measures actual success property |
-| **Artifact usefulness** | Output format, required fields, tailored to use-case |
-| **Minimality** | "Prefer smallest correct change" |
-| **Calibration** | Claims labeled: Verified / Inferred / Assumed |
-
-## Output Conventions
-
-Skills that produce files (reports, decision records, exploration findings, etc.) must separate **artifact output** from **chat output**.
-
-### The Principle
-
-**Artifact is the work product. Chat is the summary.**
-
-Without explicit separation, Claude defaults to showing its full work in chat — iteration logs, scoring tables, complete findings — overwhelming users who want actionable next steps.
-
-### When This Applies
-
-| Skill Type | Applies? | Example |
-|------------|----------|---------|
-| Produces files (reports, records, documents) | **Yes** | Exploration, evaluation, handoffs |
-| Modifies existing code | No | Refactoring, bug fixes |
-| Pure conversation (Q&A, explanation) | No | Clarification, guidance |
-
-### Required in SKILL.md
-
-For skills that produce files, the **Outputs** section must explicitly specify:
-
-**1. What goes in the artifact:**
-```markdown
-**Artifact:** Report at `docs/reports/YYYY-MM-DD-<name>.md`
-
-Includes: [full list of sections — iteration logs, scoring tables,
-complete findings, evidence, etc.]
-```
-
-**2. What goes in chat:**
-```markdown
-**Chat summary (brief — not the full report):**
-
-[Template showing the exact format — typically 5-8 lines max]
-```
-
-**3. What NOT to show in chat:**
-```markdown
-Do NOT include in chat: [explicit list — scoring tables, iteration logs,
-full findings, pressure-testing Q&A, etc.]
-```
-
-### Example Pattern
+❌ **Bad:**
 
 ```markdown
-## Outputs
-
-**IMPORTANT:** Full report goes in artifact ONLY. Chat receives brief summary.
-
-**Artifact:** `docs/decisions/YYYY-MM-DD-<name>.md`
-- [Full list of sections]
-
-**Chat summary:**
-```
-**Decision:** [outcome]
-**Why:** [1-2 sentences]
-**Trade-offs:** [brief]
-**Full report:** `path/to/artifact.md`
+Validate the data before proceeding.
 ```
 
-Do NOT include in chat: scoring tables, iteration logs, full analysis.
-```
-
-### Verification
-
-Skills producing files should include in their verification checklist:
+#### Include error handling
 
 ```markdown
-Output:
-- [ ] Full report written to artifact location
-- [ ] Chat contains brief summary only
-- [ ] Chat does NOT contain: [skill-specific list]
+## Common Issues
+
+### MCP Connection Failed
+
+If you see "Connection refused":
+
+1. Verify MCP server is running: Check Settings > Extensions
+2. Confirm API key is valid
+3. Try reconnecting: Settings > Extensions > [Your Service] > Reconnect
 ```
 
-## Framework for Thoroughness
-
-Some skills need rigor — iterative analysis, evidence tracking, principled stopping criteria. The [Framework for Thoroughness](../../references/framework-for-thoroughness_v1.0.0.md) provides reusable patterns.
-
-### When to Use the Framework
-
-| Situation | Integration Level |
-|-----------|-------------------|
-| Open-ended analysis (unknown iteration count) | **Full protocol** — adopt Entry Gate, loop, Yield%, Exit Gate |
-| Structured workflow that needs rigor vocabulary | **Vocabulary only** — use Evidence/Confidence levels, Stakes calibration |
-| Linear workflow with fixed steps | **Don't use** — framework adds overhead without benefit |
-
-**Use full protocol when:**
-- You don't know upfront how many passes are needed
-- Findings in one pass may invalidate earlier findings
-- "Done" is defined by convergence, not checklist completion
-- Examples: codebase exploration, security audits, research synthesis
-
-**Use vocabulary only when:**
-- Workflow has defined phases/passes (not iterative until convergence)
-- Want consistent rigor language without restructuring the skill
-- Examples: design validation (11 dimensions), gap analysis (7 passes)
-
-### Canonical Vocabulary
-
-When skills need rigor concepts, use these definitions for consistency across the ecosystem.
-
-#### Evidence Levels
-
-| Level | Meaning | Example |
-|-------|---------|---------|
-| **E0** | Assertion only | "I believe X" |
-| **E1** | Single source / single method | Read file, saw X |
-| **E2** | Two independent methods | Read + grep confirmed; inspect + run |
-| **E3** | Triangulated + disconfirmation | Multiple sources + actively tried to disprove |
-
-#### Confidence Levels
-
-| Level | Meaning |
-|-------|---------|
-| **High** | Replicated / strongly supported; disconfirmation attempts failed |
-| **Medium** | Supported but incomplete; some assumptions untested |
-| **Low** | Plausible hypothesis; major gaps or contradictory signals |
-
-**Rule:** Confidence cannot exceed evidence. E0/E1 evidence caps confidence at Medium.
-
-#### Stakes Calibration
-
-| Level | When to Use | Yield Threshold | Evidence Required |
-|-------|-------------|-----------------|-------------------|
-| **Adequate** | Low stakes, reversible | <20% | E1 for P0 |
-| **Rigorous** | Medium stakes, moderate cost of error | <10% | E2 for P0, E1 for P1 |
-| **Exhaustive** | High stakes, costly/irreversible | <5% | E2 all, E3 for P0 |
-
-### Declaring Framework Use
-
-If a skill adopts the full framework, declare it in the skill header:
+#### Reference bundled resources clearly
 
 ```markdown
-# My Analysis Skill
+Before writing queries, read `references/api-patterns.md` for:
 
-Systematic analysis using the Framework for Thoroughness.
-
-**Protocol:** [thoroughness.framework@1.0.0](framework-for-thoroughness.md)
-**Default thoroughness:** Rigorous
+- Rate limiting guidance
+- Pagination patterns
+- Error codes and handling
 ```
 
-If adopting vocabulary only, no declaration needed — just use the canonical terms consistently.
+#### Use progressive disclosure
 
+Keep SKILL.md focused on core instructions. Move detailed documentation to `references/` and link to it.
+
+### Bulletproofing Skills Against Rationalization
+
+Skills that enforce discipline need to resist rationalization. Claude is smart and will find loopholes.
+
+#### Use persuasive language
+
+**Authority**
+
+- Imperative language: "YOU MUST", "Never", "Always"
+- Non-negotiable framing: "No exceptions"
+
+**Commitment**
+
+- Require announcements: "Announce skill usage"
+- Force explicit choices: "Choose A, B, or C"
+- Use tracking: TaskCreate/TaskUpdate for checklists and complex workflows
+
+**Scarcity**
+
+- Time-bound requirements: "Before proceeding"
+- Sequential dependencies: "Immediately after X"
+
+**Social Proof**
+
+- Universal patterns: "Every time", "Always"
+- Failure modes: "X without Y = failure"
+
+Bright-line rules reduce rationalization. "When X, do Y" is more effective than "generally do Y."
+
+#### Close Every Loophole Explicitly
+
+Don't just state rules - specifically forbid workarounds:
+
+❌ **Bad:**
+
+```markdown
+Write code before test? Delete it.
+```
+
+✅ **Good:**
+
+```markdown
+Write code before test? Delete it. Start over.
+
+**No exceptions:**
+
+- Don't keep it as "reference"
+- Don't "adapt" it while writing tests
+- Don't look at it
+- Delete means delete
+```
+
+#### Build Rationalization Table
+
+Preempt common excuses Claude could use to skip steps:
+
+```markdown
+| Excuse                       | Reality                                        |
+| ---------------------------- | ---------------------------------------------- |
+| "This case is simple enough" | Simple cases still benefit from the process.   |
+| "I'm under time pressure"    | Rushing causes rework. Complete the process.   |
+| "I already know the answer"  | Assumptions are most dangerous when confident. |
+
+**All of these mean: Complete the process. No shortcuts.**
+```
+
+#### Create Red Flags List
+
+Make it easy for agents to self-check when rationalizing:
+
+```markdown
+## Red Flags - STOP and Start Over
+
+- Code before test
+- "I already manually tested it"
+- "Tests after achieve the same purpose"
+- "It's about spirit not ritual"
+- "This is different because..."
+
+**All of these mean: Delete code. Start over with TDD.**
+```
+
+## Patterns and Troubleshooting
+
+These patterns represent common approaches, not prescriptive templates.
+
+### Choosing Your Approach: Problem-First vs. Tool-First
+
+- **Problem-first:** "I need to set up a project workspace" → Your skill orchestrates the right MCP calls in the right sequence. Users describe outcomes; the skill handles the tools.
+- **Tool-first:** "I have Notion MCP connected" → Your skill teaches Claude the optimal workflows and best practices. Users have access; the skill provides expertise.
+
+Most skills lean one direction. Knowing which framing fits your use case helps you choose the right pattern below.
+
+### Pattern 1: Sequential Workflow Orchestration
+
+**Use when:** Your users need multi-step processes in a specific order.
+
+**Example structure:**
+
+```markdown
+## Workflow: Onboard New Customer
+
+### Step 1: Create Account
+
+Call MCP tool: `create_customer`
+Parameters: name, email, company
+
+### Step 2: Setup Payment
+
+Call MCP tool: `setup_payment_method`
+Wait for: payment method verification
+
+### Step 3: Create Subscription
+
+Call MCP tool: `create_subscription`
+Parameters: plan_id, customer_id (from Step 1)
+
+### Step 4: Send Welcome Email
+
+Call MCP tool: `send_email`
+Template: welcome_email_template
+```
+
+**Key techniques:**
+
+- Explicit step ordering
+- Dependencies between steps
+- Validation at each stage
+- Rollback instructions for failures
+
+### Pattern 2: Multi-MCP Coordination
+
+**Use when:** Workflows span multiple services.
+
+**Example: Design-to-development handoff**
+
+```markdown
+### Phase 1: Design Export (Figma MCP)
+
+1. Export design assets from Figma
+2. Generate design specifications
+3. Create asset manifest
+
+### Phase 2: Asset Storage (Drive MCP)
+
+1. Create project folder in Drive
+2. Upload all assets
+3. Generate shareable links
+
+### Phase 3: Task Creation (Linear MCP)
+
+1. Create development tasks
+2. Attach asset links to tasks
+3. Assign to engineering team
+
+### Phase 4: Notification (Slack MCP)
+
+1. Post handoff summary to #engineering
+2. Include asset links and task references
+```
+
+**Key techniques:**
+
+- Clear phase separation
+- Data passing between MCPs
+- Validation before moving to next phase
+- Centralized error handling
+
+### Pattern 3: Iterative Refinement
+
+**Use when:** Output quality improves with iteration.
+
+**Example: Report generation**
+
+```markdown
+## Iterative Report Creation
+
+### Initial Draft
+
+1. Fetch data via MCP
+2. Generate first draft report
+3. Save to temporary file
+
+### Quality Check
+
+1. Run validation script: `scripts/check_report.py`
+2. Identify issues:
+   - Missing sections
+   - Inconsistent formatting
+   - Data validation errors
+
+### Refinement Loop
+
+1. Address each identified issue
+2. Regenerate affected sections
+3. Re-validate
+4. Repeat until quality threshold met
+
+### Finalization
+
+1. Apply final formatting
+2. Generate summary
+3. Save final version
+```
+
+**Key techniques:**
+
+- Explicit quality criteria
+- Iterative improvement
+- Validation scripts
+- Know when to stop iterating
+
+### Pattern 4: Context-Aware Tool Selection
+
+**Use when:** Same outcome, different tools depending on context.
+
+**Example: File storage**
+
+```markdown
+## Smart File Storage
+
+### Decision Tree
+
+1. Check file type and size
+2. Determine best storage location:
+   - Large files (>10MB): Use cloud storage MCP
+   - Collaborative docs: Use Notion/Docs MCP
+   - Code files: Use GitHub MCP
+   - Temporary files: Use local storage
+
+### Execute Storage
+
+Based on decision:
+
+- Call appropriate MCP tool
+- Apply service-specific metadata
+- Generate access link
+
+### Provide Context to User
+
+Explain why that storage was chosen
+```
+
+**Key techniques:**
+
+- Clear decision criteria
+- Fallback options
+- Transparency about choices
+
+### Pattern 5: Domain-Specific Intelligence
+
+**Use when:** Your skill adds specialized knowledge beyond tool access.
+
+**Example: Financial compliance**
+
+```markdown
+## Payment Processing with Compliance
+
+### Before Processing (Compliance Check)
+
+1. Fetch transaction details via MCP
+2. Apply compliance rules:
+   - Check sanctions lists
+   - Verify jurisdiction allowances
+   - Assess risk level
+3. Document compliance decision
+
+### Processing
+
+IF compliance passed:
+
+- Call payment processing MCP tool
+- Apply appropriate fraud checks
+- Process transaction
+  ELSE:
+- Flag for review
+- Create compliance case
+
+### Audit Trail
+
+- Log all compliance checks
+- Record processing decisions
+- Generate audit report
+```
+
+**Key techniques:**
+
+- Domain expertise embedded in logic
+- Compliance before action
+- Comprehensive documentation
+- Clear governance
+
+### Troubleshooting
+
+#### Skill Doesn't Trigger
+
+**Symptom:** Skill never loads automatically
+
+**Fix:** Revise your description field.
+
+**Quick checklist:**
+
+- Is it too generic? ("Helps with projects" won't work)
+- Does it include trigger phrases users would actually say?
+- Does it mention relevant file types if applicable?
+
+**Debugging approach:** Ask Claude: "When would you use the [skill name] skill?" Claude will quote the description back. Adjust based on what's missing.
+
+#### Skill Triggers Too Often
+
+**Symptom:** Skill loads for unrelated queries
+
+**Solutions:**
+
+1. **Add negative triggers**
+
+```yaml
+description: Advanced data analysis for CSV files. Use for statistical modeling, regression, clustering. Do NOT use for simple data exploration (use data-viz skill instead).
+```
+
+2. **Be more specific**
+
+```yaml
+# Too broad
+description: Processes documents
+
+# More specific
+description: Processes PDF legal documents for contract review
+```
+
+3. **Clarify scope**
+
+```yaml
+description: PayFlow payment processing for e-commerce. Use specifically for online payment workflows, not for general financial queries.
+```
+
+#### MCP Connection Issues
+
+**Symptom:** Skill loads but MCP calls fail
+
+**Checklist:**
+
+1. **Verify MCP server is connected**
+   - Claude.ai: Settings > Extensions > [Your Service]
+   - Should show "Connected" status
+
+2. **Check authentication**
+   - API keys valid and not expired
+   - Proper permissions/scopes granted
+   - OAuth tokens refreshed
+
+3. **Test MCP independently**
+   - Ask Claude to call MCP directly (without skill)
+   - "Use [Service] MCP to fetch my projects"
+   - If this fails, issue is MCP not skill
+
+4. **Verify tool names**
+   - Skill references correct MCP tool names
+   - Check MCP server documentation
+   - Tool names are case-sensitive
+
+#### Instructions Not Followed
+
+**Symptom:** Skill loads but Claude doesn't follow instructions
+
+**Common causes:**
+
+1. **Instructions too verbose**
+   - Keep instructions concise
+   - Use bullet points and numbered lists
+   - Move detailed reference to separate files
+
+2. **Instructions buried**
+   - Put critical instructions at the top
+   - Use `## Important` or `## Critical` headers
+   - Repeat key points if needed
+
+3. **Ambiguous language**
+
+```markdown
+# Bad
+
+Make sure to validate things properly
+
+# Good
+
+CRITICAL: Before calling create_project, verify:
+
+- Project name is non-empty
+- At least one team member assigned
+- Start date is not in the past
+```
+
+**Advanced technique:** For critical validations, consider bundling a script that performs the checks programmatically rather than relying on language instructions. Code is deterministic; language interpretation isn't. See the Office skills for examples of this pattern.
+
+4. **Model "laziness"** — Add explicit encouragement:
+
+```markdown
+## Performance Notes
+
+- Take your time to do this thoroughly
+- Quality is more important than speed
+- Do not skip validation steps
+```
+
+Note: Adding this to user prompts is more effective than in SKILL.md
+
+#### Large Context Issues
+
+**Symptom:** Skill seems slow or responses degraded
+
+**Causes:**
+
+- Skill content too large
+- Too many skills enabled simultaneously
+- All content loaded instead of progressive disclosure
+
+**Solutions:**
+
+1. **Optimize SKILL.md size**
+   - Move detailed docs to `references/`
+   - Link to references instead of inline
+   - Keep SKILL.md under 5,000 words
+
+2. **Reduce enabled skills**
+   - Evaluate if you have more than 20-50 skills enabled simultaneously
+   - Recommend selective enablement
+   - Consider skill "packs" for related capabilities
