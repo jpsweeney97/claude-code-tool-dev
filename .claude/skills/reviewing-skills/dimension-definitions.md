@@ -11,6 +11,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 - [D5: Precision (P1)](#d5-precision-p1)
 - [D6: Actionability (P1)](#d6-actionability-p1)
 - [D7: Internal Consistency (P1)](#d7-internal-consistency-p1)
+- [D8: Scope Boundaries (P1)](#d8-scope-boundaries-p1)
 - [D9: Reference Validity (P2)](#d9-reference-validity-p2)
 - [D10: Edge Cases (P2)](#d10-edge-cases-p2)
 - [D11: Feasibility (P2)](#d11-feasibility-p2)
@@ -375,6 +376,50 @@ Detailed guidance for checking each dimension. Use this reference when exploring
 
 ---
 
+## D8: Scope Boundaries (P1)
+
+**What it catches:** Missing "When NOT to Use", unclear exclusions.
+
+**How to check:**
+
+1. Is there a "When NOT to Use" section?
+2. Are exclusions specific and actionable?
+3. Does the skill clearly define what's out of scope?
+4. Are there handoffs to other skills for excluded cases?
+5. Could someone mistakenly use this skill for something it doesn't cover?
+
+**Red flags:**
+
+- No "When NOT to Use" section
+- Vague exclusions: "when not appropriate"
+- Skill tries to do too much (scope creep)
+- No handoff guidance for excluded cases
+- Boundary between this skill and related skills unclear
+
+**Good patterns:**
+
+- Explicit "When NOT to Use" with specific scenarios
+- Handoffs: "For X, use [other-skill] instead"
+- Clear scope statement in Overview
+- Non-goals listed explicitly
+
+**Pass criteria:**
+
+- "When NOT to Use" section present
+- Exclusions are specific
+- Handoffs to related skills defined
+- Scope is clear and bounded
+
+**Example findings:**
+
+| Finding | Priority | Proposed Fix |
+|---------|----------|--------------|
+| No "When NOT to Use" section | P1 | Add section with common misuse cases |
+| Exclusion "when it's not needed" is vague | P1 | Specify: "when code is read-only" or "when changes are trivial" |
+| Overlap with related skill unclear | P1 | Add: "For [case], use [other-skill] instead" |
+
+---
+
 ## D9: Reference Validity (P2)
 
 **What it catches:** Broken links, outdated references, missing assets.
@@ -478,7 +523,7 @@ Detailed guidance for checking each dimension. Use this reference when exploring
    - Are there platform-specific tools that won't work everywhere?
 
 2. **Knowledge requirements:**
-   - What does the reader need to know to follow this?
+   - What does the Claude need to know to follow this?
    - Is that knowledge provided, linked, or assumed?
    - Can an agent actually obtain this knowledge?
 

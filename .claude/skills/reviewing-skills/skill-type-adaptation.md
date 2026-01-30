@@ -43,7 +43,6 @@ Different skill types have different quality priorities. Use this reference duri
 |-----------|---------------------|
 | D2 (Process completeness) | → **P0**: Steps ARE the skill. Missing steps = broken skill. |
 | D7 (Internal consistency) | → **P0**: Step references must match across sections. |
-| D16 (Methodological soundness) | → **P0**: Wrong process = wrong outcome. Steps must be the *right* steps. |
 
 **Additional checks:**
 
@@ -79,7 +78,6 @@ Different skill types have different quality priorities. Use this reference duri
 |-----------|---------------------|
 | D5 (Precision) | → **P0**: Quality criteria must be unambiguous. |
 | D12 (Testability) | → **P0**: "Better" must be verifiable. |
-| D16 (Methodological soundness) | → **P0**: Wrong quality criteria = wrong improvements. Criteria must be valid. |
 
 **Additional checks:**
 
@@ -149,7 +147,7 @@ Different skill types have different quality priorities. Use this reference duri
 | Dimension | Why it matters more |
 |-----------|---------------------|
 | D2 (Process completeness) | → **P0**: Analysis framework must be complete. |
-| D16 (Methodological soundness) | → **P0**: Wrong framework = wrong recommendations. Analysis approach must be valid. |
+| D8 (Scope boundaries) | → **P0**: What's in/out of consideration must be clear. |
 
 **Additional checks:**
 
@@ -318,16 +316,16 @@ Different skill types have different quality priorities. Use this reference duri
 
 ## Quick Reference Table
 
-| Type | Elevate to P0 | D16 Priority | Key Additional Checks |
-|------|---------------|--------------|----------------------|
-| Process/Workflow | D2, D7, D16 | **P0** | Step completion criteria, failure paths |
-| Quality Enhancement | D5, D12, D16 | **P0** | Measurable criteria, trade-offs |
-| Capability | D6, D11 | P1 | Tool availability, prerequisites |
-| Solution Development | D2, D16 | **P0** | Multiple alternatives, trade-off criteria |
-| Meta-cognitive | D1, D10 | P1 | Recognition precision, false positive/negative |
-| Recovery/Resilience | D2, D10 | P1 | Failure enumeration, escalation criteria |
-| Orchestration | D7, D13 | P1 | Handoff triggers, state passing, return conditions |
-| Template/Generation | D3, D5 | P2 | Field specs, format precision, validation |
+| Type | Elevate to P0 | Key Additional Checks |
+|------|---------------|----------------------|
+| Process/Workflow | D2, D7 | Step completion criteria, failure paths |
+| Quality Enhancement | D5, D12 | Measurable criteria, trade-offs |
+| Capability | D6, D11 | Tool availability, prerequisites |
+| Solution Development | D2, D8 | Multiple alternatives, trade-off criteria |
+| Meta-cognitive | D1, D10 | Recognition precision, false positive/negative |
+| Recovery/Resilience | D2, D10 | Failure enumeration, escalation criteria |
+| Orchestration | D7, D13 | Handoff triggers, state passing, return conditions |
+| Template/Generation | D3, D5 | Field specs, format precision, validation |
 
 ---
 
