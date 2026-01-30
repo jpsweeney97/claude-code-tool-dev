@@ -181,30 +181,6 @@ This is when the checkpoint matters MOST. Acknowledge the impatience, then compl
 
 > "I hear you — before I draft, let me confirm my understanding and flag any concerns: [summary + adversarial findings]. Does this match your intent?"
 
-## Selecting a Template
-
-Before drafting, select the appropriate template based on skill type:
-
-| If the skill... | Use | Example |
-|-----------------|-----|---------|
-| Provides knowledge Claude applies (conventions, patterns, style guides) | [template-reference.md](template-reference.md) | api-conventions, coding-style |
-| Gives step-by-step instructions for a specific action | [template-task.md](template-task.md) | deploy, commit, release |
-| Enforces discipline with guardrails against shortcuts | [template-methodology.md](template-methodology.md) | TDD, debugging, brainstorming |
-
-**Decision guide:**
-
-```
-Does the skill have steps agents might skip under pressure?
-├─ YES → Does it need Anti-Patterns, Troubleshooting, Rationalizations?
-│        ├─ YES → template-methodology.md
-│        └─ NO → template-task.md
-└─ NO → Is it knowledge/conventions (no procedure)?
-         ├─ YES → template-reference.md
-         └─ NO → template-task.md
-```
-
-**Hybrid skills:** If a skill has both reference content AND a process (e.g., conventions that include a validation workflow), start with `template-task.md` and add sections as needed. Don't use `template-methodology.md` unless discipline enforcement is the core purpose.
-
 ## Presenting the Design
 
 **Before drafting, read the writing guide:**
@@ -237,7 +213,7 @@ Present ONE more section, then ask again. Incremental presentation catches error
 - Body: ~500 lines is a guideline; split heavy content to reference files if significantly larger
 - References one level deep from SKILL.md
 
-Use the template selected above. See "Selecting a Template" for guidance.
+Use [skill-template.md](skill-template.md) as a starting structure, keeping only relevant sections.
 
 **Section relevance by skill type** (guidance, not strict):
 
@@ -254,12 +230,8 @@ Use the template selected above. See "Selecting a Template" for guidance.
 
 *For meta-cognitive and recovery skills, reframe "Triggers" as recognition patterns or failure signals.
 
-**Required sections vary by template:**
-- **Reference:** Name, description, content only
-- **Task:** When to Use, Steps, Verification
-- **Methodology:** Overview, Triggers/When to Use, Process, Examples, Anti-Patterns, Troubleshooting, Decision Points
-
-**Optional (all):** Outputs, Extension Points
+**Required (all types):** Overview, Triggers OR When to Use, Process, Examples, Anti-Patterns, Troubleshooting, Decision Points
+**Optional:** Outputs, Verification, Extension Points
 
 See [type-example files](examples/) for concrete guidance on filling sections for each type.
 
@@ -469,10 +441,8 @@ Returns to understanding phase with the new scope, re-converges, then presents u
 **Required reading before drafting:**
 - [skill-writing-guide.md](skill-writing-guide.md) — Essential principles for effective skills (consolidates best practices, compliance techniques, quality dimensions)
 
-**Templates (select based on skill type — see "Selecting a Template"):**
-- [template-reference.md](template-reference.md) — Conventions, patterns, domain knowledge (minimal)
-- [template-task.md](template-task.md) — Step-by-step instructions (moderate)
-- [template-methodology.md](template-methodology.md) — Discipline-enforcing workflows (full)
+**Structure:**
+- [skill-template.md](skill-template.md) — Starting structure for draft SKILL.md
 
 **Deep dives (if needed):**
 - [skills-best-practices.md](skills-best-practices.md) — Full authoring guide with extended examples
