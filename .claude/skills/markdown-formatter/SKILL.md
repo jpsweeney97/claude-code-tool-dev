@@ -24,6 +24,15 @@ Normalize markdown structure without changing content. Every word in, every word
 
 ---
 
+## When NOT to Use
+
+- **Non-markdown files** — `.txt`, `.rst`, `.adoc`, or other formats (will fail validation)
+- **Intentionally non-standard structure** — ASCII art, creative layouts, or files where heading levels carry domain-specific meaning
+- **Generated markdown** — Output from tools that will regenerate and overwrite changes
+- **Markdown flavors with incompatible syntax** — If the file relies on extensions that conflict with GFM (e.g., custom directives that use `#` syntax)
+
+---
+
 ## Guarantee
 
 **Lossless transformation.** This skill changes markdown *structure* (headings, whitespace, tables), never *content* (text, code, references). Verification proves it.
@@ -147,6 +156,8 @@ Only these markdown structural changes are permitted:
 - **Strip:** Markdown syntax markers (`#`, `*`, `` ` ``, `|`, `>`), URLs, HTML tags
 - **Remove entirely:** HTML comments (`<!-- ... -->`), YAML frontmatter
 
+**Method:** Process the markdown line by line, applying regex or string operations to strip syntax markers while preserving text. The exact implementation may vary, but the rules above define what the output must contain.
+
 ### Structural Checks (Report)
 
 | Check | Criterion |
@@ -213,7 +224,53 @@ After formatting, return this verification report:
 
 ---
 
-## Example
+## Decision Points
+
+| Situation | Decision |
+|-----------|----------|
+| Zero H1s in file | Promote first H2 to H1 |
+| Multiple H1s | Keep first, demote rest to H2 |
+| H5+ headings | Demote to H4 (max depth) |
+| 2-item list | Warn but preserve (don't convert to prose) |
+| Soft constraint conflicts with hard constraint | Skip the soft change; log in "Skipped Changes" |
+| Unknown markdown syntax | Preserve verbatim |
+| YAML frontmatter present | Preserve byte-for-byte; do not parse or reformat |
+| Losslessness check fails | Abort; do not save changes; report divergence point |
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| Losslessness check fails | Content was accidentally modified during formatting | Review plaintext extraction; ensure only structure markers changed |
+| H1 count ≠ 1 after formatting | Edge case in H1 normalization logic | Check for frontmatter title vs body H1 confusion |
+| Code block contents changed | Code fence markers were processed incorrectly | Ensure only fence markers (not contents) are touched |
+| Links/images count changed | Link syntax was malformed or accidentally modified | Check for escaped brackets or nested link syntax |
+| File rejected as non-markdown | Binary content or wrong encoding | Verify file is UTF-8 text without null bytes |
+| Whitespace normalization breaks code | Whitespace inside code blocks was changed | Ensure code block boundaries are correctly detected |
+
+---
+
+## Examples
+
+### BAD: Modifying content while formatting
+
+An agent reformats the file but also "improves" the text:
+
+```markdown
+# My Document
+
+Some introductory text explaining the purpose.  <!-- Changed "intro" to "introductory" -->
+
+## Section One
+
+Here are the details.  <!-- Changed "Details here" -->
+```
+
+**Why it's bad:** The agent changed "Some intro text" to "Some introductory text" and "Details here" to "Here are the details." This violates the losslessness guarantee. The plaintext comparison will fail.
+
+### GOOD: Structure-only changes
 
 ### Before
 
@@ -283,21 +340,6 @@ More details.
 ### Skipped Changes
 - None
 ```
-
----
-
-## Framework Connection
-
-This skill implements the [Framework for Improvement](~/.claude/references/framework-for-improvement.md).
-
-| Framework Element | This Skill |
-|-------------------|------------|
-| **Criteria** | Heading discipline rules, formatting rules (tables above) |
-| **Invariants** | Text content, code blocks, reference URLs |
-| **Fidelity** | Plaintext extraction comparison ensures meaning preserved |
-| **Validity** | Each change maps to a specific rule |
-| **Completeness** | All headings checked, all formatting rules applied |
-| **Verifiability** | Verification report with pass/fail per check |
 
 ---
 
