@@ -18,6 +18,16 @@ Read [skills-guide.md](skills-guide.md) before drafting any skill content. The g
 
 Do not rely on memory of the guide — read it fresh for each skill you create.
 
+### Center Claude's Actual Needs
+
+Skills exist to help Claude succeed where Claude needs help. Throughout the process, ask:
+
+- What does Claude need to know or understand to succeed at this task?
+- What would be genuinely valuable to Claude?
+- What does Claude already handle well without guidance?
+
+Content earns inclusion by providing value Claude wouldn't have otherwise. Anti-patterns earn inclusion by addressing failures Claude actually exhibits — not hypothetical ones.
+
 ## The Dialogue
 
 Guide the conversation through collaborative questioning. Understanding, classification, and design emerge together — they're not sequential phases.
@@ -111,6 +121,7 @@ These concerns surface through dialogue, not in a fixed order:
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Problem**            | What's broken or missing? What prompted this?                                                                                                               |
 | **Success**            | What should happen instead? How will you know it's working?                                                                                                 |
+| **Claude's needs**     | What does Claude need to know here? What would Claude handle poorly without this skill? What does Claude already do well?                                   |
 | **Use cases**          | What are 2-3 concrete scenarios? (Trigger → steps → result)                                                                                                 |
 | **Triggers**           | What should activate this skill? What phrases might users say?                                                                                              |
 | **Scope**              | What's in bounds? What's explicitly out?                                                                                                                    |
@@ -165,8 +176,8 @@ You don't need complete certainty — drafting often clarifies remaining questio
 
 As you draft each section, challenge every piece of content:
 
-**Ask: "Does Claude need this?"**
-If Claude already knows something from training, don't explain it. Focus on what's unique to this skill — the specific workflow, the particular failure modes, the domain knowledge Claude lacks.
+**Ask: "What value does this provide Claude?"**
+Every piece of content should help Claude succeed at something it would otherwise struggle with. If Claude already knows something from training, don't explain it. If Claude doesn't actually exhibit a failure mode, don't include an anti-pattern for it. Focus on what's genuinely valuable — the specific workflow, the particular failure modes Claude exhibits, the domain knowledge Claude lacks.
 
 **Challenge preemptive content**
 Before adding an anti-pattern or example, ask: "Have I witnessed this failure mode?" Hypothetical failures add noise. Include anti-patterns that address real, observed problems — not things that sound plausible but don't actually happen.
