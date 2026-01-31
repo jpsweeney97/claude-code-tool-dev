@@ -1,7 +1,0 @@
-{
-  "name": "metamarket-dev",
-  "owner": { "name": "JP" },
-  "plugins": [
-    { "name": "metamarket", "source": "./" }
-  ]
-}
