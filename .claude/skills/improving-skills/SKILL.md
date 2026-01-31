@@ -18,6 +18,16 @@ Read [skills-guide.md](skills-guide.md) before proposing any changes. The guide 
 - Address symptoms instead of root causes
 - Miss the actual problem entirely
 
+## Center Claude's Actual Needs
+
+When assessing a skill, evaluate content through Claude's perspective:
+
+- Does this content help Claude succeed at something it would otherwise struggle with?
+- Does Claude actually exhibit the failure modes these anti-patterns address?
+- Is this explaining something Claude already knows from training?
+
+Content that doesn't provide genuine value to Claude is noise, regardless of how reasonable it sounds. Preemptive anti-patterns — addressing failures Claude doesn't actually exhibit — add bulk without benefit.
+
 ## When to Hand Off to creating-skills
 
 **Hand off when any of these are true:**
@@ -99,6 +109,10 @@ Create two lists. Each item MUST have:
 - Vague or unactionable instructions
 - Gaps in coverage
 
+For each potential weakness, also ask:
+- Does this content provide genuine value to Claude, or is it noise?
+- For anti-patterns: Does Claude actually exhibit this failure mode?
+
 **You cannot proceed to Step 4 without cited evidence for every finding.**
 
 ### Step 4: Understand Why
@@ -134,6 +148,7 @@ For every weakness, answer:
 - Could this be intentional? (Design choice, not oversight)
 - Is there context I'm missing? (Supporting files, related skills, user's workflow)
 - What would make this actually a strength? (Different perspective, different use case)
+- Is this preemptive? (Addresses a failure Claude doesn't actually exhibit)
 
 **If you cannot articulate why the weakness survives scrutiny, remove it.**
 
