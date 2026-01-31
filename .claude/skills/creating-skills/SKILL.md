@@ -10,12 +10,13 @@ Create effective skills through collaborative dialogue. This skill guides the co
 ## Before You Start
 
 Read [skills-guide.md](skills-guide.md) before drafting any skill content. The guide is the authoritative reference for:
-- Skill types and when to use each
-- YAML frontmatter requirements
-- Writing effective descriptions
+
+- Common Skill types
+- YAML frontmatter
+- Writing effective skills
 - Quality checklist
 
-Do not rely on memory of the guide — read it fresh for each skill you create.
+Do not rely on memory of the guide — **ALWAYS** read it fresh for each skill you create.
 
 ## The Dialogue
 
@@ -23,80 +24,53 @@ Guide the conversation through collaborative questioning. Understanding, classif
 
 ### One Question at a Time
 
-**YOU MUST ask a single question per message.** Break complex topics into multiple questions. This creates space for the user to think and for you to respond to what they actually said rather than what you assumed.
+**YOU MUST ask a single question per message.**
 
-Prefer multiple choice when possible, open-ended when needed. Multiple choice reduces cognitive load and surfaces options the user might not have considered. Open-ended questions work better when the space is too large to enumerate or when you need the user's unprimed perspective.
+**YOU MUST** break complex topics into multiple questions. This creates space for the user to think and for you to respond to what they actually said rather than what you assumed.
+
+**ALWAYS** prefer multiple choice; only ask open-ended questions when truly necessary. Multiple choice reduces cognitive load and surfaces options the user might not have considered. Open-ended questions work better when the space is too large to enumerate.
 
 When tempted to ask multiple questions "for efficiency" — don't. Bundled questions get shallow answers and miss follow-up opportunities.
 
-### Concerns to Address
+**Exploring approaches:**
 
-These concerns surface through dialogue, not in a fixed order:
+- Propose 3-4 different approaches with trade-offs
+- Present options conversationally with your recommendation and reasoning
+- Lead with your recommended option and explain why
 
-| Concern | Key Questions |
-|---------|---------------|
-| **Problem** | What's broken or missing? What prompted this? |
-| **Success** | What should happen instead? How will you know it's working? |
-| **Use cases** | What are 2-3 concrete scenarios? (Trigger → steps → result) |
-| **Triggers** | What should activate this skill? What phrases might users say? |
-| **Scope** | What's in bounds? What's explicitly out? |
-| **Type** | Discipline, technique, pattern, or reference? (Often blended — recognize, don't assign) |
-| **Degrees of freedom** | How much latitude should the skill allow? (High: multiple valid approaches / Medium: preferred pattern with variation / Low: fragile, exact steps required) |
-| **Risks** | What would make an agent ignore or rationalize around this? |
-| **Alternatives** | What other approaches could work? What are the trade-offs? |
+### Peer Posture
 
-Not every concern applies to every skill. Some emerge early, some late, some not at all. Use judgment about what matters for this particular skill.
+You are a collaborator, not a cheerleader. Your job is to help create an effective skill. **ALWAYS** challenge weak ideas before they become weak implementations.
 
-### When to Draft
-
-Begin drafting when you can:
-- State the problem in one sentence
-- Describe 2-3 concrete use cases
-- Articulate what success looks like
-- Name the skill type (even if blended)
-- List trigger conditions for the description
-
-**Signals you're NOT ready:**
-- Problem statement is vague or shifts when probed
-- Success criteria are fuzzy ("it should work better")
-- User keeps discovering new requirements
-- Major scope questions remain open
-
-You don't need complete certainty — drafting often clarifies remaining questions. But you need enough foundation that feedback will refine the skill rather than restart it.
-
-Announce the transition: "I think I understand enough to start drafting. Here's my understanding: [summary]. Does this match your intent?"
-
-If the user says it doesn't match, return to dialogue. Don't patch a misunderstood foundation.
-
-## Peer Posture
-
-You are a collaborator, not a cheerleader. Your job is to help create an effective skill, which means challenging weak ideas before they become weak implementations.
-
-### What This Looks Like
+#### What This Looks Like
 
 The examples below illustrate the posture — adapt the language to fit the conversation naturally. These are starting points, not scripts.
 
 **Challenge assumptions:**
+
 - "You said this is simple — what makes you confident?"
 - "You're assuming users will provide X. What happens if they don't?"
 - "This relies on Y being true. Have you verified that?"
 
 **Surface alternatives:**
+
 - "Before we commit to this approach, have you considered...?"
 - "This could be a discipline skill or a technique skill — the choice affects how strict the guidance needs to be."
 - "You could build one comprehensive skill, or two smaller skills that compose. Trade-offs are..."
 
 **Probe for gaps:**
+
 - "What happens when...?"
 - "How should the skill handle...?"
 - "What would make an agent skip this step?"
 
 **Question the approach:**
+
 - "This feels like a discipline skill, but do you actually need compliance enforcement, or is guidance enough?"
 - "You've described a complex workflow. Could a simpler version achieve 80% of the value?"
 - "Is this a skill problem, or would a hook or CLAUDE.md rule work better?"
 
-### What This Doesn't Mean
+#### What This Doesn't Mean
 
 Peer posture is not:
 
@@ -110,9 +84,36 @@ Peer posture is not:
 
 - **Refusing to be convinced** — If the user has good answers to your challenges, accept them. Peer posture means you ask hard questions — not that you hold out indefinitely.
 
-### Throughout, Not Just Once
+#### Throughout, Not Just Once
 
 This posture applies throughout the dialogue, not as a single "adversarial checkpoint." When something seems off, say so immediately rather than waiting for a designated review moment.
+
+### Concerns to Address
+
+These concerns surface through dialogue, not in a fixed order:
+
+| Concern                | Key Questions                                                                                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Problem**            | What's broken or missing? What prompted this?                                                                                                               |
+| **Success**            | What should happen instead? How will you know it's working?                                                                                                 |
+| **Use cases**          | What are 2-3 concrete scenarios? (Trigger → steps → result)                                                                                                 |
+| **Triggers**           | What should activate this skill? What phrases might users say?                                                                                              |
+| **Scope**              | What's in bounds? What's explicitly out?                                                                                                                    |
+| **Type**               | Discipline, technique, pattern, or reference? (Often blended — recognize, don't assign)                                                                     |
+| **Degrees of freedom** | How much latitude should the skill allow? (High: multiple valid approaches / Medium: preferred pattern with variation / Low: fragile, exact steps required) |
+| **Risks**              | What would make an agent ignore or rationalize around this?                                                                                                 |
+| **Alternatives**       | What other approaches could work? What are the trade-offs?                                                                                                  |
+
+Not every concern applies to every skill. Some emerge early, some late, some not at all. Use judgment about what matters for this particular skill.
+
+### Key Principles
+
+- **One question at a time** - Don't overwhelm with multiple questions
+- **Multiple choice** - Surface options the user might not have considered
+- **YAGNI ruthlessly** - Help the user avoid over-engineering
+- **Explore alternatives** - Always propose 3-4 approaches before settling
+- **Be flexible** - Be adaptable. Go back and clarify when something doesn't make sense
+- **Peer Posture** - Challenge assumptions, surface alternatives, probe for gaps, question the framing
 
 ## Working with Skill Types
 
@@ -120,36 +121,40 @@ Skill type emerges from the problem — recognize it, don't assign it. Most skil
 
 ### The Four Types
 
-| Type | Core Question | Key Indicator |
-|------|---------------|---------------|
-| **Discipline** | "How do we prevent Claude from skipping steps?" | Claude tends to shortcut this workflow |
-| **Technique** | "How do we teach a structured method?" | Activity has a learnable approach that beats improvisation |
-| **Pattern** | "How do we encode reusable structure?" | Task recurs with variations |
-| **Reference** | "How do we surface information Claude doesn't have?" | Info exists but isn't in Claude's training data |
+| Type           | Core Question                                        | Key Indicator                                              |
+| -------------- | ---------------------------------------------------- | ---------------------------------------------------------- |
+| **Discipline** | "How do we prevent Claude from skipping steps?"      | Claude tends to shortcut this workflow                     |
+| **Technique**  | "How do we teach a structured method?"               | Activity has a learnable approach that beats improvisation |
+| **Pattern**    | "How do we encode reusable structure?"               | Task recurs with variations                                |
+| **Reference**  | "How do we surface information Claude doesn't have?" | Info exists but isn't in Claude's training data            |
 
 ### What Type Implies for Writing
 
-**Discipline skills** need:
+**Discipline skills MUST HAVE**:
+
 - Rigid phase structure with gates between stages
 - Blocking language ("MUST", "NEVER", "before ANY")
 - Evidence requirements before transitions
 - Rationalization tables that preempt excuses
 - Red flags that signal shortcut thinking
 
-**Technique skills** need:
+**Technique skills MUST HAVE**:
+
 - Step-by-step workflows with clear inputs/outputs
 - Decision trees for variations
 - Worked examples showing the technique applied
 - Quality criteria for evaluating outputs
 - Guidance on when to iterate
 
-**Pattern skills** need:
+**Pattern skills MUST HAVE**:
+
 - Template structures (file layouts, component hierarchies)
 - Before/after examples
 - Variation catalogs showing how the pattern adapts
 - Anti-patterns showing what to avoid
 
-**Reference skills** need:
+**Reference skills MUST HAVE**:
+
 - Integration with search tools or documentation
 - Quick-reference tables for common lookups
 - Links to authoritative sources
@@ -168,6 +173,7 @@ Example: A "code review" skill might be primarily **Technique** (teaching how to
 ### Type Is Not Rigid
 
 If you're unsure of the type mid-dialogue, that's fine. Keep exploring. The type often becomes clear once you understand:
+
 - What problem the skill solves
 - What failure looks like without the skill
 - What behavior needs to change
@@ -176,13 +182,35 @@ Don't ask the user "What type should this be?" — infer it from the problem the
 
 ## Drafting
 
-Drafting is a continuation of the dialogue, not a separate phase. Present sections incrementally, confirm each part, and loop back when something doesn't fit.
+### When to Draft
+
+Begin drafting when you can:
+
+- State the problem in one sentence
+- Describe 2-3 concrete use cases
+- Articulate what success looks like
+- Name the skill type (even if blended)
+- List trigger conditions for the description
+
+**Signals you're NOT ready:**
+
+- Problem statement is vague or shifts when probed
+- Success criteria are fuzzy ("it should work better")
+- User keeps discovering new requirements
+- Major scope questions remain open
+
+You don't need complete certainty — drafting often clarifies remaining questions. But you need enough foundation that feedback will refine the skill rather than restart it.
+
+### Before You Draft
+
+**YOU MUST read [skills-guide.md](skills-guide.md) before writing any skill content.** Do not rely on memory — read it fresh. The guide contains authoritative requirements for frontmatter, descriptions, and structure that are easy to misremember.
 
 ### Announce the Transition
 
-Before drafting, summarize your understanding and confirm:
+Before presenting the draft, summarize your understanding and confirm:
 
 > "I think I understand enough to start drafting. Here's what I have:
+>
 > - **Problem:** [one sentence]
 > - **Success:** [what should happen]
 > - **Type:** [dominant type, noting any blend]
@@ -190,15 +218,12 @@ Before drafting, summarize your understanding and confirm:
 >
 > Does this match your intent?"
 
-Wait for confirmation. If the user corrects something, return to dialogue — don't start drafting a misunderstood foundation.
-
-### Before You Draft
-
-**YOU MUST read [skills-guide.md](skills-guide.md) before writing any skill content.** Do not rely on memory — read it fresh. The guide contains authoritative requirements for frontmatter, descriptions, and structure that are easy to misremember.
+Wait for confirmation. If the user corrects something, **YOU MUST** return to dialogue. **NEVER** patch a misunderstood foundation.
 
 ### Present Incrementally
 
 Draft one section at a time:
+
 1. Frontmatter (name + description)
 2. Overview
 3. Main instructions/process
@@ -214,6 +239,7 @@ After each section, ask: "Does this look right?" or "Does this capture what you 
 ### When to Loop Back
 
 Loop back to dialogue when:
+
 - User says the section doesn't match their intent
 - You realize a concern wasn't fully addressed
 - New requirements emerge during drafting
@@ -224,6 +250,7 @@ Loop back means return to dialogue — ask questions, clarify, then redraft. Don
 ### When to Adjust and Continue
 
 Adjust and continue when:
+
 - User suggests wording changes
 - User adds detail that fits the current structure
 - Feedback refines rather than redirects
@@ -233,6 +260,7 @@ The distinction: **redirect → loop back**, **refine → adjust and continue**.
 ### Structure and Format
 
 Follow the guidance in [skills-guide.md](skills-guide.md) for:
+
 - YAML frontmatter requirements (name, description fields)
 - Writing effective descriptions (trigger conditions, key phrases)
 - Skill design principles (progressive disclosure, composability, conciseness)
@@ -283,6 +311,7 @@ The guide's template is a starting point. Include sections that serve the skill;
 > **User:** I need a skill that makes code reviews better.
 >
 > **Claude:** I understand. Here's my plan for a code review skill:
+>
 > - Overview of code review best practices
 > - Checklist of things to look for
 > - Examples of good review comments
