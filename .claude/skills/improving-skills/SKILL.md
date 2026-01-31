@@ -160,6 +160,40 @@ Then evaluate hand-off criteria:
 
 Do not patch a broken foundation. Do not "try to salvage" what should be rebuilt.
 
+### Presenting Assessment Results
+
+Rigor is in the doing, not the displaying. Present a concise summary — the user needs your conclusions, not your working document.
+
+**Template:**
+
+```
+**Assessment complete.**
+
+**Strengths ([X] identified):**
+1. **[Strength]** — [what makes it effective]
+2. **[Strength]** — [what makes it effective]
+3. [etc.]
+
+**Weaknesses ([Y] identified, priority order):**
+
+**1. [Weakness title]**
+[One-line description of the problem]
+- *Confidence:* [level] — [reasoning]
+- *Root cause:* [explanation]
+
+**2. [Weakness title]**
+[One-line description of the problem]
+- *Confidence:* [level] — [reasoning]
+- *Root cause:* [explanation]
+
+Starting with weakness #1. Ready to discuss options?
+```
+
+**What stays internal (available if user asks):**
+- Full evidence citations (file:line)
+- Disconfirmation reasoning
+- Assumption validation details
+
 ---
 
 ## The Recommendations Phase
