@@ -310,41 +310,7 @@ After assessment and recommendation preparation, engage the user in collaborativ
 
 ### Presenting Options
 
-For each weakness, present:
-
-```
-**Weakness:** [What's not working]
-**Evidence:** [Specific quote or citation]
-**Root Cause:** [Why this is happening]
-
-**Options:**
-
-1. **[Option Name]** — [One-sentence description]
-   - Gains: [What improves]
-   - Costs: [What's sacrificed or complicated]
-   - Risk: [What could go wrong]
-
-2. **[Option Name]** — [One-sentence description]
-   - Gains: [What improves]
-   - Costs: [What's sacrificed or complicated]
-   - Risk: [What could go wrong]
-
-3. **[Option Name]** — [One-sentence description]
-   - Gains: [What improves]
-   - Costs: [What's sacrificed or complicated]
-   - Risk: [What could go wrong]
-
-4. **[Option Name]** — [One-sentence description]
-   - Gains: [What improves]
-   - Costs: [What's sacrificed or complicated]
-   - Risk: [What could go wrong]
-
-**Recommendation:** [Which option and why — but user decides]
-
-Which option would you like, or would you prefer a different approach?
-```
-
-**Always end with an explicit invitation for the user to choose or propose alternatives.**
+For each weakness, use the format template from the [Examples](#examples) section. Always end with an explicit invitation for the user to choose or propose alternatives.
 
 ### When the User Chooses
 
@@ -474,297 +440,83 @@ These are excuses to skip steps. **All of them are wrong.**
 
 ---
 
-## Red Flags — STOP If You Notice These
-
-These behaviors signal you're about to shortcut the process. If you notice any of them, **STOP and return to the appropriate phase.**
-
-**If you catch yourself thinking any rationalization from the table above, that's also a red flag — stop and return to the process.**
-
-### Behaviors
-
-- Editing before assessment is complete
-- Presenting fewer than 3 options
-- Making changes without explicit user approval
-- Bundling multiple weaknesses into one decision
-- Stating findings without citations
-- Dismissing user alternatives without serious consideration
-- Proceeding on "seems like" instead of explicit confirmation
-- Skipping the hand-off check when the skill has major problems
-- Not re-reading skills-guide.md before proposing changes
-- Adjusting implementation silently instead of surfacing problems
-- Skimming the skill instead of reading fully
-- Moving to the next weakness before the current one is resolved
-
-### What To Do
-
-1. **Recognize the flag** — Name it explicitly: "I notice I'm about to [X]"
-2. **Stop** — Do not proceed with the shortcut
-3. **Return** — Go back to the appropriate phase:
-   - Skipping assessment → Return to Assessment Phase
-   - Skipping options → Return to Recommendations Phase, Step 1
-   - Skipping approval → Return to Dialogue Phase
-   - Silent editing → Stop, surface the issue, ask user
-
-**Red flags are features, not bugs.** Noticing them means the process is working.
-
----
-
 ## Anti-Patterns
 
-### Skipping Assessment
-
-**Pattern:** Jumping straight to recommendations without completing the assessment phase.
-
-**Why it fails:** Without rigorous assessment, you're guessing at what's wrong. Recommendations address symptoms, not root causes. Changes break things that were working.
-
-**Fix:** Complete every step of the assessment phase. No shortcuts.
-
----
-
-### One-Option Recommendations
-
-**Pattern:** Presenting a single recommendation as the obvious choice.
-
-**Why it fails:** Single options aren't decisions — they're directives. The user can't evaluate trade-offs they can't see. You may have missed better approaches.
-
-**Fix:** Generate 3-4 options for every weakness. If you can only think of one, you haven't thought hard enough.
-
----
-
-### Silent Editing
-
-**Pattern:** Making changes without presenting them for approval.
-
-**Why it fails:** The user loses control. Errors compound before they're caught. Trust erodes.
-
-**Fix:** Present every change, get explicit approval, then implement. No exceptions.
-
----
-
-### Bundling Decisions
-
-**Pattern:** Presenting multiple weaknesses together as a package deal.
-
-**Why it fails:** Users can't make nuanced decisions. One disagreement blocks everything. Dependencies get hidden.
-
-**Fix:** One weakness at a time. Separate decisions for each.
-
----
-
-### Dismissing User Alternatives
-
-**Pattern:** Explaining why the user's idea won't work instead of engaging with it.
-
-**Why it fails:** The user may have context you don't. You're there to help, not to win. Dismissal shuts down dialogue.
-
-**Fix:** Engage seriously with user alternatives. Ask clarifying questions. Evaluate against the same criteria you used for your options.
-
----
-
-### Confidence Without Evidence
-
-**Pattern:** Stating findings with high confidence but no citations.
-
-**Why it fails:** Uncited findings are opinions, not assessments. You may be wrong. The user can't verify your claims.
-
-**Fix:** Every finding needs evidence. Confidence cannot exceed evidence. No exceptions.
-
----
-
-### Patching Instead of Looping Back
-
-**Pattern:** When problems emerge, adding fixes on top rather than returning to the appropriate phase.
-
-**Why it fails:** Patches create inconsistency. Root causes stay unaddressed. The skill becomes a mess of layered fixes.
-
-**Fix:** When something's wrong, identify which phase failed and loop back. Reassess, regenerate options, or re-engage dialogue as needed.
-
----
-
-### Preserving for Preservation's Sake
-
-**Pattern:** Keeping something because it exists, not because it's good.
-
-**Why it fails:** Sunk cost bias. The skill accumulates cruft. Real improvements get blocked by attachment to existing content.
-
-**Fix:** Evaluate every element on merit. "It's already there" is not a reason to keep it.
-
----
-
-### Over-Improving
-
-**Pattern:** Proposing improvements beyond what the user asked for or what the assessment identified.
-
-**Why it fails:** Scope creep. The user wanted targeted improvements, not a redesign. You waste time on things that don't matter.
-
-**Fix:** Improve what the assessment identified. Stop there. If you see additional opportunities, mention them separately — don't bundle them in.
+| Pattern | Why It Fails | Fix |
+|---------|--------------|-----|
+| **Skipping Assessment** | Guessing at what's wrong; recommendations address symptoms, not root causes | Complete every step of assessment. No shortcuts. |
+| **One-Option Recommendations** | Single options are directives, not decisions; user can't evaluate unseen trade-offs | Generate 3-4 options for every weakness. |
+| **Silent Editing** | User loses control; errors compound before caught; trust erodes | Present every change, get explicit approval, then implement. |
+| **Bundling Decisions** | Users can't make nuanced decisions; one disagreement blocks everything | One weakness at a time. Separate decisions for each. |
+| **Dismissing User Alternatives** | User may have context you don't; dismissal shuts down dialogue | Engage seriously. Ask clarifying questions. Evaluate against same criteria. |
+| **Confidence Without Evidence** | Uncited findings are opinions; user can't verify claims | Every finding needs evidence. Confidence cannot exceed evidence. |
+| **Patching Instead of Looping Back** | Patches create inconsistency; root causes stay unaddressed | Identify which phase failed and loop back. |
+| **Preserving for Preservation's Sake** | Sunk cost bias; skill accumulates cruft; real improvements get blocked | Evaluate every element on merit. "It's already there" is not a reason. |
+| **Over-Improving** | Scope creep; user wanted targeted improvements, not a redesign | Improve what assessment identified. Stop there. |
 
 ---
 
 ## Examples
 
-### Scenario: User wants to improve a skill's description
+### Weakness + Options Format Template
 
-**BAD: Skipping assessment and jumping to edits**
+```
+**Weakness:** [Specific problem statement]
+**Evidence:** [Quote or file:line citation]
+**Confidence:** [High/Medium/Low] — [Why this confidence level]
+**Root Cause:** [Why this is happening]
 
-> **User:** This skill isn't triggering reliably. Can you improve it?
->
-> **Claude:** I'll update the description to include more trigger phrases. Here's the new version:
->
-> ```yaml
-> description: [Updated description with more triggers]
-> ```
->
-> Done!
+**Options:**
 
-**Why it's bad:** Claude skipped the entire assessment phase. The problem might not be the description — it could be wrong skill type, conflicting triggers with another skill, or a scope issue. The "fix" addresses a symptom without understanding the cause.
+1. **[Direct fix]** — [One-sentence description]
+   - Gains: [What improves]
+   - Costs: [What's sacrificed]
+   - Risk: [What could go wrong]
 
-**GOOD: Following the process**
+2. **[Structural change]** — [One-sentence description]
+   - Gains: [What improves]
+   - Costs: [What's sacrificed]
+   - Risk: [What could go wrong]
 
-> **User:** This skill isn't triggering reliably. Can you improve it?
->
-> **Claude:** I'll assess the skill to understand what's happening. First, let me surface my assumptions:
-> - I'm assuming the problem is with the skill itself, not with how it's being invoked
-> - I'm assuming "not triggering reliably" means it sometimes triggers and sometimes doesn't
->
-> Do these assumptions match your experience, or should I adjust my understanding?
->
-> **User:** Yes, that's right — it triggers maybe 50% of the time when I expect it to.
->
-> **Claude:** Got it. Let me read the skill and skills-guide.md to assess what might be causing that.
->
-> [Reads skill and guide]
->
-> **Assessment:**
->
-> **Strengths:**
-> - Clear structure following technique skill patterns (High confidence — structure matches skills-guide.md recommendations)
-> - Good examples section (High confidence — examples are specific and actionable)
->
-> **Weaknesses:**
-> - Description lacks trigger phrases (High confidence — skills-guide.md requires "when to use" + trigger phrases; current description only says what the skill does, not when to use it)
-> - Description is generic (Medium confidence — "helps with X" doesn't distinguish from similar skills)
->
-> **Root cause:** Description was written for human readers, not for Claude's skill selection logic.
->
-> Before I proceed — could the triggering problem be something else? Is there another skill with similar triggers that might be competing?
->
-> **User:** No, this is the only skill for this domain.
->
-> **Claude:** Good, that rules out competition. Let me present options for the description weakness...
+3. **[Removal]** — [One-sentence description]
+   - Gains: [What improves]
+   - Costs: [What's sacrificed]
+   - Risk: [What could go wrong]
 
-**Why it's good:** Claude surfaced assumptions and asked for validation, completed assessment with evidence, identified root cause, and checked for alternative explanations before proceeding.
+4. **[Reframe]** — [One-sentence description]
+   - Gains: [What improves]
+   - Costs: [What's sacrificed]
+   - Risk: [What could go wrong]
 
----
+**Recommendation:** [Which option and why — but user decides]
 
-### Scenario: User disagrees with the recommended option
+Which option would you like, or would you prefer a different approach?
+```
 
-**BAD: Dismissing the user's preference**
+### Decision Point Snippets
 
-> **User:** I prefer option 2 over your recommendation.
->
-> **Claude:** Option 2 isn't ideal because it adds complexity. Option 3 is cleaner and follows best practices better. I recommend we go with option 3.
+**Catching yourself skipping assessment:**
+> "The user said 'just fix the description' — I notice I'm about to jump straight to editing. Stopping. Even 'simple' fixes need assessment to verify the description is actually the problem."
 
-**Why it's bad:** Claude dismissed the user's preference without understanding why they preferred it. The user owns the skill — Claude's job is to inform, not override.
+**Catching yourself presenting one option:**
+> "I have a clear recommendation. But one option isn't a decision — it's a directive. Generating alternatives: What if we removed it instead? What if the weakness is actually fine?"
 
-**GOOD: Engaging with the user's preference**
+**Catching yourself bundling:**
+> "These three weaknesses feel related. I want to present them together. But bundling hides trade-offs. One at a time. The user can see connections; I shouldn't force them."
 
-> **User:** I prefer option 2 over your recommendation.
->
-> **Claude:** I'd like to understand your thinking. What draws you to option 2?
->
-> **User:** The added complexity is fine for my use case — I need the flexibility it provides.
->
-> **Claude:** That makes sense. The flexibility trade-off is worth it if you need it. Let me note: option 2 will require updating the examples section to show the new flexibility in action. Does that work for you?
->
-> **User:** Yes, that's fine.
->
-> **Claude:** You'd like to go with option 2, which adds flexibility at the cost of some complexity, and we'll update examples accordingly. Correct?
->
-> **User:** Correct.
->
-> **Claude:** Here's the current version of the section we're changing:
->
-> [Shows current version]
->
-> Here's the proposed change:
->
-> [Shows change]
->
-> This adds [specific flexibility] while [specific complexity cost]. Ready to implement?
+**Catching yourself proceeding without confirmation:**
+> "The user said 'sounds good' — I notice I'm about to edit. But 'sounds good' isn't explicit approval. Asking: 'You'd like to proceed with option 2. Correct?'"
 
-**Why it's good:** Claude asked for reasoning, learned context it didn't have, noted implications, confirmed understanding, and presented the change for approval.
+### Evidence Quality Examples
 
----
+**High confidence (specific citation):**
+> "Description lacks trigger phrases (High confidence — SKILL.md:3 says 'Analyzes data' but skills-guide.md:179-185 requires 'when to use' + trigger phrases)"
 
-### Scenario: Assessment reveals skill needs a rewrite
+**Medium confidence (general reference):**
+> "Examples may be insufficient (Medium confidence — skills-guide.md recommends examples for technique skills, but I haven't verified if these examples cover the key use cases)"
 
-**BAD: Patching a broken foundation**
-
-> **Claude:** I've identified several weaknesses across the entire skill. Let me present options for each...
->
-> [Proceeds with extensive dialogue about incremental fixes to nearly every section]
-
-**Why it's bad:** When weaknesses span most of the skill, incremental fixes create a patchwork. The hand-off check was skipped.
-
-**GOOD: Recognizing when to hand off**
-
-> **Claude:** I've completed the assessment. I found weaknesses in most sections of the skill — the frontmatter, the core instructions, and the examples all have significant issues. Before we proceed, I need to check if this skill should be improved or rebuilt.
->
-> - Is less than ~20% worth preserving? **Checking...** The structure is sound, but the instructions are mostly outdated. Maybe 30% is solid.
-> - Was the core purpose wrong? **Checking...** The purpose is valid, but the approach doesn't match current standards.
-> - Does the existing skill confuse more than help? **Checking...** The outdated instructions could lead Claude astray. Yes, this is a concern.
->
-> My assessment: This skill is on the boundary. We could improve it incrementally, but starting fresh with creating-skills might produce a better result faster.
->
-> Options:
-> 1. **Improve incrementally** — Address the most critical weaknesses. The skill will be better but still imperfect.
-> 2. **Hand off to creating-skills** — Start fresh, using this skill's purpose and working elements as input.
->
-> I lean toward option 2 because the rewrites would touch nearly every section. What would you prefer?
-
-**Why it's good:** Claude recognized the pattern (weaknesses across most sections), completed the hand-off check explicitly, presented the boundary case honestly, and gave the user the decision.
-
----
-
-### Scenario: User proposes their own approach
-
-**BAD: Evaluating superficially and proceeding**
-
-> **User:** What if instead we just removed that whole section?
->
-> **Claude:** That could work. Let me remove it.
->
-> [Makes the edit]
-
-**Why it's bad:** Claude didn't evaluate the user's proposal against the same criteria (trade-offs, risks) as the generated options. No approval was sought before editing.
-
-**GOOD: Treating user proposals seriously**
-
-> **User:** What if instead we just removed that whole section?
->
-> **Claude:** Let me evaluate that against the same criteria:
->
-> **Removal approach:**
-> - Gains: Simplifies the skill; eliminates the problem entirely
-> - Costs: Loses the functionality that section provided — specifically [X]
-> - Risk: If users expect that functionality, they'll be confused when it's missing
->
-> Before we proceed — is the functionality in that section something you actually use? Or is it vestigial?
->
-> **User:** It's vestigial. We haven't used it in months.
->
-> **Claude:** In that case, removal is cleaner than fixing it. Here's what we'd remove:
->
-> [Shows the section]
->
-> This eliminates [X functionality]. You've confirmed this is unused. Ready to proceed?
->
-> **User:** Yes.
->
-> **Claude:** [Makes the edit]
-
-**Why it's good:** Claude evaluated the user's proposal rigorously, asked a clarifying question that changed the risk assessment, and got explicit approval before editing.
+**Low confidence (no direct evidence):**
+> "This section feels verbose (Low confidence — no specific standard violated; this is my impression, not assessment)"
 
 ---
 
@@ -828,22 +580,6 @@ These behaviors signal you're about to shortcut the process. If you notice any o
 
 ---
 
-### Skill Seems Too Broken to Assess
-
-**Symptom:** The skill is so problematic that structured assessment feels pointless.
-
-**Cause:** The skill may need a complete rewrite rather than improvement.
-
-**Fix:**
-1. Complete the hand-off check explicitly:
-   - Is less than ~20% worth preserving?
-   - Was the core purpose wrong?
-   - Does the existing skill confuse more than help?
-2. If yes to any, recommend hand-off: "This skill has fundamental issues that improvement can't address. I recommend switching to creating-skills to rebuild from the problem statement. Would you like to do that?"
-3. If the user wants to improve anyway, respect that — but set expectations: "We can make improvements, but the skill will still have structural limitations."
-
----
-
 ### User Is Impatient with the Process
 
 **Symptom:** User says "just fix it" or "this is taking too long" or "skip the options, just do what you think is best."
@@ -855,38 +591,6 @@ These behaviors signal you're about to shortcut the process. If you notice any o
 2. Offer compression, not shortcuts: "I can present options more briefly. Would that help?"
 3. If they insist on skipping: "I can proceed with my recommendation, but I want to note: [brief trade-off]. Is that acceptable?"
 4. Do not skip the approval gate for edits — even impatient users deserve to see what's changing before it changes.
-
----
-
-### Changes Break Something During Implementation
-
-**Symptom:** While implementing an approved change, you realize it breaks something else.
-
-**Cause:** The change has dependencies you didn't anticipate.
-
-**Fix:**
-1. Stop immediately — do not try to fix it silently
-2. Surface the problem: "While implementing [change], I noticed it breaks [X]"
-3. Present options:
-   - Adjust the change to avoid the break
-   - Accept the break as a trade-off
-   - Revert to a different option
-   - Skip this change entirely
-4. Get user decision before proceeding
-
----
-
-### Can't Determine the Skill Type
-
-**Symptom:** The skill doesn't clearly fit discipline, technique, pattern, or reference.
-
-**Cause:** Most skills blend types. The skill may also be poorly defined.
-
-**Fix:**
-1. Identify the dominant behavior: What does the skill primarily do?
-2. Use the skills-guide.md decision table: Which row best describes the skill's core purpose?
-3. If genuinely ambiguous, name the blend: "This skill is primarily [X] with [Y] elements"
-4. Assess against standards for the dominant type, borrowing from secondary types as relevant
 
 ---
 
