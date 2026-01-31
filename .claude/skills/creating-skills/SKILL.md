@@ -161,6 +161,19 @@ You don't need complete certainty — drafting often clarifies remaining questio
 
 **YOU MUST read [skills-guide.md](skills-guide.md) before writing any skill content.** Do not rely on memory — read it fresh. The guide contains authoritative requirements for frontmatter, descriptions, and structure that are easy to misremember.
 
+### What Earns Inclusion
+
+As you draft each section, challenge every piece of content:
+
+**Ask: "Does Claude need this?"**
+If Claude already knows something from training, don't explain it. Focus on what's unique to this skill — the specific workflow, the particular failure modes, the domain knowledge Claude lacks.
+
+**Challenge preemptive content**
+Before adding an anti-pattern or example, ask: "Have I witnessed this failure mode?" Hypothetical failures add noise. Include anti-patterns that address real, observed problems — not things that sound plausible but don't actually happen.
+
+**Defer to supporting files**
+If content exists in a supporting file (skills-guide.md, a reference doc, examples file, etc.), link to it rather than inlining. The skill mandates reading these files; trust that they're read. Duplication creates maintenance burden and bloats the skill.
+
 ### Announce the Transition
 
 Before presenting the draft, summarize your understanding and confirm:
