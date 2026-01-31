@@ -5,7 +5,7 @@ description: Use when creating a new skill, significantly redesigning an existin
 
 # Creating Skills
 
-Create effective skills through collaborative dialogue. This skill guides the conversation from problem to working SKILL.md — surfacing the real need, exploring approaches, and drafting incrementally.
+Create effective Skills through collaborative dialogue. This Skill guides the conversation from idea to working SKILL.md — surfacing the real need, exploring approaches, and drafting incrementally.
 
 ## Before You Start
 
@@ -16,7 +16,17 @@ Read [skills-guide.md](skills-guide.md) before drafting any skill content. The g
 - Writing effective skills
 - Quality checklist
 
-Do not rely on memory of the guide — **ALWAYS** read it fresh for each skill you create.
+Do not rely on memory of the guide — read it fresh for each skill you create.
+
+### Center Claude's Actual Needs
+
+Skills exist to help Claude succeed where Claude needs help. Throughout the process, ask:
+
+- What does Claude need to know or understand to succeed at this task?
+- What would be genuinely valuable to Claude?
+- What does Claude already handle well without guidance?
+
+Content earns inclusion by providing value Claude wouldn't have otherwise. Anti-patterns earn inclusion by addressing failures Claude actually exhibits — not hypothetical ones.
 
 ## The Dialogue
 
@@ -24,23 +34,38 @@ Guide the conversation through collaborative questioning. Understanding, classif
 
 ### One Question at a Time
 
-**YOU MUST ask a single question per message.**
+Ask a single question per message.
 
-**YOU MUST** break complex topics into multiple questions. This creates space for the user to think and for you to respond to what they actually said rather than what you assumed.
+Break complex topics into multiple questions. This creates space for the user to think and for you to respond to what they actually said rather than what you assumed.
 
-**ALWAYS** prefer multiple choice; only ask open-ended questions when truly necessary. Multiple choice reduces cognitive load and surfaces options the user might not have considered. Open-ended questions work better when the space is too large to enumerate.
+Prefer multiple choice; only ask open-ended questions when truly necessary. Multiple choice reduces cognitive load and surfaces options the user might not have considered. Open-ended questions work better when the space is too large to enumerate.
 
 When tempted to ask multiple questions "for efficiency" — don't. Bundled questions get shallow answers and miss follow-up opportunities.
+
+**Assumption traps** — when tempted to skip asking because:
+
+- The answer seems "obvious" — this is when assumptions are most dangerous
+- The pattern looks familiar — this case may differ in ways not yet visible
+- The user seems impatient — rushing creates rework
+- The issue seems minor — small assumptions compound
+- A coherent interpretation comes quickly — first interpretation isn't always right
+- User already answered a similar question — the answer may not transfer to this context
+- The Skill resembles one Claude knows — importing assumptions misses what's unique
+- Terminology matches something familiar — Claude's definition may differ from user's meaning
+- User seems confident about their approach — unexamined confidence creates blind spots
+
+If any of these apply, ask.
 
 **Exploring approaches:**
 
 - Propose 3-4 different approaches with trade-offs
 - Present options conversationally with your recommendation and reasoning
 - Lead with your recommended option and explain why
+- **Surface non-obvious possibilities**
 
 ### Peer Posture
 
-You are a collaborator, not a cheerleader. Your job is to help create an effective skill. **ALWAYS** challenge weak ideas before they become weak implementations.
+You are a collaborator, not a cheerleader. Your job is to help create an effective skill. Challenge weak ideas before they become weak implementations.
 
 #### What This Looks Like
 
@@ -96,6 +121,7 @@ These concerns surface through dialogue, not in a fixed order:
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Problem**            | What's broken or missing? What prompted this?                                                                                                               |
 | **Success**            | What should happen instead? How will you know it's working?                                                                                                 |
+| **Claude's needs**     | What does Claude need to know here? What would Claude handle poorly without this skill? What does Claude already do well?                                   |
 | **Use cases**          | What are 2-3 concrete scenarios? (Trigger → steps → result)                                                                                                 |
 | **Triggers**           | What should activate this skill? What phrases might users say?                                                                                              |
 | **Scope**              | What's in bounds? What's explicitly out?                                                                                                                    |
@@ -117,68 +143,9 @@ Not every concern applies to every skill. Some emerge early, some late, some not
 
 ## Working with Skill Types
 
-Skill type emerges from the problem — recognize it, don't assign it. Most skills blend types but lean toward one. Knowing the dominant type guides how you write the skill.
+Skill type emerges from the problem — recognize it, don't assign it. Don't ask the user "What type should this be?" — infer it from what they're describing.
 
-### The Four Types
-
-| Type           | Core Question                                        | Key Indicator                                              |
-| -------------- | ---------------------------------------------------- | ---------------------------------------------------------- |
-| **Discipline** | "How do we prevent Claude from skipping steps?"      | Claude tends to shortcut this workflow                     |
-| **Technique**  | "How do we teach a structured method?"               | Activity has a learnable approach that beats improvisation |
-| **Pattern**    | "How do we encode reusable structure?"               | Task recurs with variations                                |
-| **Reference**  | "How do we surface information Claude doesn't have?" | Info exists but isn't in Claude's training data            |
-
-### What Type Implies for Writing
-
-**Discipline skills MUST HAVE**:
-
-- Rigid phase structure with gates between stages
-- Blocking language ("MUST", "NEVER", "before ANY")
-- Evidence requirements before transitions
-- Rationalization tables that preempt excuses
-- Red flags that signal shortcut thinking
-
-**Technique skills MUST HAVE**:
-
-- Step-by-step workflows with clear inputs/outputs
-- Decision trees for variations
-- Worked examples showing the technique applied
-- Quality criteria for evaluating outputs
-- Guidance on when to iterate
-
-**Pattern skills MUST HAVE**:
-
-- Template structures (file layouts, component hierarchies)
-- Before/after examples
-- Variation catalogs showing how the pattern adapts
-- Anti-patterns showing what to avoid
-
-**Reference skills MUST HAVE**:
-
-- Integration with search tools or documentation
-- Quick-reference tables for common lookups
-- Links to authoritative sources
-- Guidance on when information might be stale
-
-### Blended Types
-
-Many skills blend types. A skill might teach a technique (how to debug) while enforcing discipline (must reproduce before fixing). When types blend:
-
-1. Identify the dominant type — this shapes the overall structure
-2. Borrow techniques from secondary types where they add value
-3. Don't force-fit every technique from every type
-
-Example: A "code review" skill might be primarily **Technique** (teaching how to review) with **Discipline** elements (must check X before approving) and **Pattern** elements (common review comment templates).
-
-### Type Is Not Rigid
-
-If you're unsure of the type mid-dialogue, that's fine. Keep exploring. The type often becomes clear once you understand:
-
-- What problem the skill solves
-- What failure looks like without the skill
-- What behavior needs to change
-
-Don't ask the user "What type should this be?" — infer it from the problem they're describing.
+Most skills blend types but lean toward one. The skills-guide.md [Skill Type Decision Table](skills-guide.md#skill-type-decision-table) and [Common Skill Types](skills-guide.md#common-skill-types) sections cover type identification and what each type requires. Pay particular attention to the "key techniques" lists when drafting.
 
 ## Drafting
 
@@ -204,6 +171,19 @@ You don't need complete certainty — drafting often clarifies remaining questio
 ### Before You Draft
 
 **YOU MUST read [skills-guide.md](skills-guide.md) before writing any skill content.** Do not rely on memory — read it fresh. The guide contains authoritative requirements for frontmatter, descriptions, and structure that are easy to misremember.
+
+### What Earns Inclusion
+
+As you draft each section, challenge every piece of content:
+
+**Ask: "What value does this provide Claude?"**
+Every piece of content should help Claude succeed at something it would otherwise struggle with. If Claude already knows something from training, don't explain it. If Claude doesn't actually exhibit a failure mode, don't include an anti-pattern for it. Focus on what's genuinely valuable — the specific workflow, the particular failure modes Claude exhibits, the domain knowledge Claude lacks.
+
+**Challenge preemptive content**
+Before adding an anti-pattern or example, ask: "Have I witnessed this failure mode?" Hypothetical failures add noise. Include anti-patterns that address real, observed problems — not things that sound plausible but don't actually happen.
+
+**Defer to supporting files**
+If content exists in a supporting file (skills-guide.md, a reference doc, examples file, etc.), link to it rather than inlining. The skill mandates reading these files; trust that they're read. Duplication creates maintenance burden and bloats the skill.
 
 ### Announce the Transition
 
@@ -234,7 +214,7 @@ Draft one section at a time:
 
 After each section, ask: "Does this look right?" or "Does this capture what you meant by X?"
 
-**YOU MUST NOT dump the entire skill at once.** Incremental presentation catches errors early. A misunderstanding in the overview compounds through every later section.
+Don't dump the entire skill at once. Incremental presentation catches errors early. A misunderstanding in the overview compounds through every later section.
 
 ### When to Loop Back
 
@@ -257,156 +237,13 @@ Adjust and continue when:
 
 The distinction: **redirect → loop back**, **refine → adjust and continue**.
 
-### Structure and Format
-
-Follow the guidance in [skills-guide.md](skills-guide.md) for:
-
-- YAML frontmatter requirements (name, description fields)
-- Writing effective descriptions (trigger conditions, key phrases)
-- Skill design principles (progressive disclosure, composability, conciseness)
-- Setting appropriate degrees of freedom
-- SKILL.md length (~500 lines guideline)
-- Supporting files (when and how to split content out)
-- Quality checklist (verify before considering complete)
-- Bulletproofing against rationalization (for discipline skills)
-
-The guide's template is a starting point. Include sections that serve the skill; omit sections that don't. A reference skill doesn't need a rationalization table. A discipline skill probably does.
-
 ## Examples
 
-### Scenario: User wants a skill for writing commit messages
+### Feedback during drafting reveals misunderstanding
 
-**BAD: Cheerleading and rushing to draft**
+*This is the **Patching Instead of Looping Back** anti-pattern.*
 
-> **User:** I want a skill for writing commit messages.
->
-> **Claude:** Great idea! Commit messages are important. Let me draft a skill that helps write better commit messages using conventional commits format...
->
-> [Proceeds to draft without understanding the actual problem]
-
-**Why it's bad:** Claude assumed the problem (format) without asking. The user might have a different issue — maybe messages are too vague, or they want to enforce linking to issues, or their team uses a different convention. The draft will address a generic problem, not the user's problem.
-
-**GOOD: Peer posture with focused questions**
-
-> **User:** I want a skill for writing commit messages.
->
-> **Claude:** What's prompting this? Is there something specific about commit messages that isn't working well right now?
->
-> **User:** They're inconsistent across the team. Some people write novels, others write "fix bug".
->
-> **Claude:** Is the goal consistency in format, consistency in level of detail, or both?
->
-> **User:** Mostly detail. I want enough context that someone can understand the change without reading the diff.
->
-> **Claude:** That sounds like a discipline skill — enforcing a standard when Claude might otherwise accept a terse message. Do you need strict enforcement, or is guidance enough?
-
-**Why it's good:** Claude surfaces the actual problem (inconsistent detail, not format), confirms the goal, and identifies the skill type through dialogue. The eventual draft will address what the user actually needs.
-
----
-
-### Scenario: User provides vague requirements
-
-**BAD: Accepting vagueness and proceeding**
-
-> **User:** I need a skill that makes code reviews better.
->
-> **Claude:** I understand. Here's my plan for a code review skill:
->
-> - Overview of code review best practices
-> - Checklist of things to look for
-> - Examples of good review comments
->
-> Does this work?
-
-**Why it's bad:** "Better" is undefined. Claude proposed a solution without understanding what "better" means to this user. The checklist might miss their actual concerns.
-
-**GOOD: Probing for specifics**
-
-> **User:** I need a skill that makes code reviews better.
->
-> **Claude:** What does "better" mean in your context? Are reviews missing issues, taking too long, creating friction, or something else?
->
-> **User:** They miss issues. We keep finding bugs in production that should have been caught in review.
->
-> **Claude:** What kinds of bugs? Logic errors, edge cases, security issues, or a mix?
->
-> **User:** Mostly edge cases. Reviewers check the happy path but not what happens when inputs are weird.
->
-> **Claude:** So the skill should push reviewers to explicitly consider edge cases. That's a discipline skill — the behavior exists (checking happy path) but needs to be expanded. Would it help to require reviewers to list edge cases they checked, or is that too heavy?
-
-**Why it's good:** Claude drilled into what "better" means, identified the specific failure mode (missing edge cases), and started exploring the enforcement mechanism.
-
----
-
-### Scenario: User has a clear idea
-
-**BAD: Contrarian for its own sake**
-
-> **User:** I want a discipline skill that requires tests before implementation code.
->
-> **Claude:** Are you sure you need a discipline skill? That might be too heavy. What about a lighter technique skill instead?
->
-> **User:** No, I specifically want enforcement. Claude keeps skipping the test-first step.
->
-> **Claude:** But strict enforcement can feel rigid. Have you considered a more flexible approach?
->
-> **User:** I already said I want enforcement.
->
-> **Claude:** I just want to make sure you've thought through the trade-offs...
-
-**Why it's bad:** The user has clear requirements and good reasons. Claude is challenging to seem rigorous, not because there's a genuine issue. This wastes time and creates friction.
-
-**GOOD: Accept good answers and build**
-
-> **User:** I want a discipline skill that requires tests before implementation code.
->
-> **Claude:** That makes sense — Claude does tend to jump to implementation. What should happen if Claude writes code before tests? Should it delete the code and start over, or is there a recovery path?
->
-> **User:** Delete and start over. No "adapting" the code while writing tests.
->
-> **Claude:** Strong stance. I'll make sure the skill explicitly closes that loophole. What about cases where the test requires scaffolding code — like setting up a test fixture?
-
-**Why it's good:** Claude accepted the user's clear requirement, then asked productive questions about implementation details (what happens on violation, edge cases). The challenges are genuine, not performative.
-
----
-
-### Scenario: Spotting a real issue
-
-**BAD: Performing skepticism with fake concerns**
-
-> **User:** I need a skill for database migrations.
->
-> **Claude:** Hmm, are you sure about this? Database migrations can be risky.
->
-> **User:** Yes, that's why I want a skill for them.
->
-> **Claude:** But what if something goes wrong? Have you considered the implications?
->
-> **User:** That's... why I'm building a skill. To make them safer.
->
-> **Claude:** I just want to make sure you've thought about the risks...
-
-**Why it's bad:** Claude is raising vague concerns without substance. "Database migrations can be risky" isn't a useful challenge — it's obvious, and it doesn't help shape the skill. This is skepticism theater.
-
-**GOOD: Raising genuine concerns with specifics**
-
-> **User:** I need a skill for database migrations.
->
-> **Claude:** Makes sense. What's the current pain point — migrations failing, data loss, or something else?
->
-> **User:** Mostly inconsistency. Sometimes people forget to test the rollback path.
->
-> **Claude:** So the skill should enforce rollback testing. That's discipline territory. One concern: rollback testing on production-like data can be slow. Should the skill require it every time, or only for certain migration types?
->
-> **User:** Good point. Only for migrations that modify existing data, not for adding new columns.
-
-**Why it's good:** Claude asked about the actual problem, then raised a genuine concern (rollback testing is slow) with a specific question (when to require it). The challenge led to a useful design decision.
-
----
-
-### Scenario: Feedback during drafting reveals misunderstanding
-
-**BAD: Patching instead of looping back**
+**BAD:**
 
 > **Claude:** Here's the overview section:
 >
@@ -420,7 +257,7 @@ The guide's template is a starting point. Include sections that serve the skill;
 
 **Why it's bad:** The misunderstanding might go deeper than one word. If Claude assumed conventional commits, other parts of the skill (examples, validation rules) might also be wrong. Patching one section and continuing propagates the error.
 
-**GOOD: Looping back to dialogue**
+**GOOD:**
 
 > **Claude:** Here's the overview section:
 >
@@ -432,111 +269,7 @@ The guide's template is a starting point. Include sections that serve the skill;
 
 **Why it's good:** Claude recognizes the misunderstanding might be structural and returns to dialogue rather than patching. The follow-up question clarifies whether the format exists or needs to be created.
 
----
-
-### Scenario: User asks multiple things at once
-
-**BAD: Answering everything at once**
-
-> **User:** I want a skill for API documentation. Should it be a pattern skill or a reference skill? And should it enforce a specific format or just provide guidance? Also, should it integrate with our OpenAPI specs?
->
-> **Claude:** Great questions! I'd recommend a pattern skill since you want reusable structure. It should enforce a specific format for consistency. And yes, integrating with OpenAPI specs would be valuable — you could auto-generate documentation stubs. Here's how the skill could work...
-
-**Why it's bad:** The user asked multiple questions, possibly because they're uncertain. Claude answered all of them without exploring any deeply. The recommendations might be wrong because each answer was surface-level.
-
-**GOOD: Taking one question at a time**
-
-> **User:** I want a skill for API documentation. Should it be a pattern skill or a reference skill? And should it enforce a specific format or just provide guidance? Also, should it integrate with our OpenAPI specs?
->
-> **Claude:** Let's take these one at a time. First — what's the main problem you're trying to solve? Is it that documentation is missing, inconsistent, or out of date?
->
-> **User:** Inconsistent. Every endpoint is documented differently.
->
-> **Claude:** That points toward a pattern skill — encoding a reusable structure. Does your team have an existing format that people should follow, or would we be defining one?
-
-**Why it's good:** Claude slowed down to understand the problem before answering the type question. The user's answer (inconsistency) confirmed the pattern skill hypothesis with reasoning, rather than Claude guessing.
-
 ## Anti-Patterns
-
-### Cheerleading
-
-**Pattern:** Validating everything the user says. "Great idea!" "That makes sense!" "Perfect!"
-
-**Why it fails:** The user came for collaboration, not affirmation. Cheerleading skips the hard work of challenging assumptions and surfacing problems. The resulting skill reflects the user's first idea, not their best idea.
-
-**Fix:** Engage as a peer. Ask hard questions. If something seems off, say so. Validation is appropriate when ideas are genuinely good — not as a default posture.
-
----
-
-### Bundling Questions
-
-**Pattern:** Asking multiple questions in one message to "be efficient."
-
-**Why it fails:** Users give shallow answers to bundled questions. Follow-up questions based on answers become impossible. Context gets lost as the conversation jumps between topics.
-
-**Fix:** One question per message. Yes, it takes more turns. The depth is worth it.
-
----
-
-### Dumping the Draft
-
-**Pattern:** Writing the entire SKILL.md at once and presenting it for review.
-
-**Why it fails:** Misunderstandings in early sections compound through later sections. By the time the user spots a problem, it's woven throughout the draft. Feedback becomes "start over" instead of "adjust this part."
-
-**Fix:** Present sections incrementally. Confirm each section before moving to the next. Catch errors while they're local.
-
----
-
-### Patching Instead of Looping Back
-
-**Pattern:** When feedback reveals a misunderstanding, updating the current section and continuing.
-
-**Why it fails:** Surface fixes don't address root causes. If you misunderstood the problem, the misunderstanding affects more than one section. Patches create inconsistent drafts.
-
-**Fix:** When feedback reveals misunderstanding, return to dialogue. Ask clarifying questions. Then redraft from a corrected foundation.
-
----
-
-### Performing Skepticism
-
-**Pattern:** Raising challenges you don't actually have, or asking questions you already know the answer to, to seem rigorous.
-
-**Why it fails:** Users recognize fake skepticism. It wastes time and erodes trust. The challenges don't improve the skill because they're not grounded in real concerns.
-
-**Fix:** Only raise concerns you genuinely have. If everything looks sound, say so and move forward. Rigor comes from real engagement, not theatrical doubt.
-
----
-
-### Contrarian Persistence
-
-**Pattern:** Continuing to challenge after the user has given good answers, because peer posture means "always push back."
-
-**Why it fails:** Peer posture means asking hard questions, not refusing to be convinced. If the user has good answers, accept them. Persistent challenging becomes obstruction.
-
-**Fix:** When the user addresses your concern, acknowledge it and move forward. Challenge → response → resolution is the pattern. Challenge → response → more challenge → frustration is not.
-
----
-
-### Rigid Phase-Following
-
-**Pattern:** Treating the dialogue as discrete phases (understand → classify → design → draft) that must complete in order.
-
-**Why it fails:** Real conversations don't follow rigid phases. Understanding and design interleave. Classification emerges rather than being assigned. Forcing phases creates awkward transitions and missed opportunities.
-
-**Fix:** Think of concerns to address, not phases to complete. Move fluidly based on what the conversation needs.
-
----
-
-### Skipping the Guide
-
-**Pattern:** Drafting from memory instead of reading skills-guide.md.
-
-**Why it fails:** The guide contains authoritative requirements that are easy to misremember. Small errors (wrong description format, missing frontmatter fields) undermine otherwise good skills.
-
-**Fix:** Read skills-guide.md before drafting. Every time. It's faster to read than to fix mistakes.
-
----
 
 ### Assuming Familiar Patterns Transfer
 
@@ -548,23 +281,23 @@ The guide's template is a starting point. Include sections that serve the skill;
 
 ---
 
+### Importing Structure from Remembered Skills
+
+**Pattern:** User describes a skill, and you copy the structure from a similar skill you've seen — same sections, same flow, same format.
+
+**Why it fails:** Structure should emerge from this skill's needs, not from familiarity. A skill for code review doesn't need the same sections as a skill for commit messages just because both involve git.
+
+**Fix:** Start from the problem, not from a template. What does *this* skill need to accomplish? Let that drive structure.
+
+---
+
 ### Asking the User to Choose the Type
 
 **Pattern:** "What type of skill do you want — discipline, technique, pattern, or reference?"
 
-**Why it fails:** Users don't know the type taxonomy, and they shouldn't need to. The type emerges from the problem. Asking them to choose puts the burden in the wrong place and often produces wrong answers.
+**Why it fails:** Users don't know the type taxonomy, and they shouldn't need to. The type emerges from the problem. Asking them to choose puts the burden in the wrong place.
 
 **Fix:** Infer the type from the problem they're describing. If genuinely ambiguous, offer your read: "This sounds like a discipline skill because X. Does that match your sense?"
-
----
-
-### Over-Engineering
-
-**Pattern:** Building a comprehensive skill when a simple one would work. Adding sections "just in case." Including features the user didn't ask for.
-
-**Why it fails:** Complex skills are harder to understand, harder to maintain, and more likely to have bugs. YAGNI applies to skills too. The user asked for X; don't give them X plus Y plus Z.
-
-**Fix:** Start with the minimum that solves the problem. Add complexity only when the user identifies a gap. Ask: "Would a simpler version achieve 80% of the value?"
 
 ---
 
@@ -572,83 +305,83 @@ The guide's template is a starting point. Include sections that serve the skill;
 
 **Pattern:** Taking the user's description of the problem at face value without probing deeper.
 
-**Why it fails:** Users often describe symptoms, not root causes. "I need a skill for better error messages" might actually mean "I need a skill that enforces error handling" or "I need a skill that provides error message templates." The framing shapes the solution.
+**Why it fails:** Users often describe symptoms, not root causes. "I need a skill for better error messages" might actually mean "I need a skill that enforces error handling" or "I need a skill that provides error message templates."
 
 **Fix:** Probe beneath the initial framing. "What's prompting this?" and "What does 'better' mean here?" often reveal the real problem.
 
 ---
 
-### Premature Drafting
+### Scope Creep Accommodation
 
-**Pattern:** Starting to draft before understanding enough, hoping to course-correct with feedback.
+**Pattern:** Every user answer reveals new requirements, and you accommodate all of them instead of helping focus.
 
-**Why it fails:** Drafting from incomplete understanding produces fundamentally flawed drafts. Feedback becomes "this is wrong" rather than "adjust this part." You end up restarting rather than refining.
+**Why it fails:** Skills that try to do everything do nothing well. Expanding scope during dialogue produces bloated, unfocused skills. The user keeps adding because you keep accepting.
 
-**Fix:** Honor the "When to Draft" criteria. If you can't state the problem in one sentence, you're not ready. If you can't describe use cases, you're not ready. Patience in dialogue saves time overall.
+**Fix:** Name the pattern: "We've added several requirements. What's the one thing this skill must do?" Propose splitting if needed: "This might work better as two skills."
+
+---
+
+### Writing Verbose Skills
+
+**Pattern:** The dialogue was focused, but the resulting SKILL.md is bloated — long explanations, redundant sections, content Claude already knows.
+
+**Why it fails:** A good dialogue doesn't automatically produce a good skill. You understood the problem but didn't apply "Concise Is Key" to the output.
+
+**Fix:** Before writing each section, ask: "Does Claude need this?" Challenge every paragraph. Reference skills-guide.md for length guidance (~500 lines).
 
 ## Troubleshooting
 
-### User gives one-word answers
+### User says "this isn't right" but can't articulate why
 
-**Symptom:** Responses like "yes," "no," "fine," "whatever."
+**Symptom:** Negative feedback without specifics. "That's not what I meant." "This feels off."
 
-**Cause:** Questions may be too broad, or the user may not understand what you're asking for. Alternatively, the user may be impatient or uncertain.
+**Cause:** The user recognizes a mismatch but can't pinpoint it. Often indicates a deeper misunderstanding than a surface-level fix would address.
 
-**Fix:** Offer concrete options instead of open-ended questions. Instead of "What should happen when X?" try "When X happens, should the skill A, B, or C?" If impatience is the issue, acknowledge it: "I know this feels slow — a few more questions will help me get the skill right."
-
----
-
-### Dialogue isn't converging
-
-**Symptom:** New information keeps emerging. Every question reveals more requirements. You don't feel closer to drafting.
-
-**Cause:** Scope may be expanding, or the user may be discovering requirements as they talk. The problem might be too large for a single skill.
-
-**Fix:** Pause and summarize: "We've covered X, Y, and Z. Is this the core problem, or is there more?" Consider proposing to split into multiple skills: "This might work better as two skills — one for A and one for B. Would that help?"
+**Fix:** Don't guess at what's wrong. Probe systematically: "Is it the scope? The approach? The type of skill?" Offer concrete alternatives: "Should this be more strict, or more flexible?" Return to dialogue rather than patching.
 
 ---
 
-### User gets impatient
+### Requirements contradict each other
 
-**Symptom:** "Just write something." "Stop asking questions." "This is taking too long."
+**Symptom:** User wants X and Y, but X and Y conflict. "It should be strict but also flexible." "Enforce this rule, but allow exceptions."
 
-**Cause:** The user wants to see progress. Dialogue feels like delay.
+**Cause:** The user hasn't confronted the trade-off yet. Both requirements feel important in isolation.
 
-**Fix:** Acknowledge the impatience, then show progress: "I hear you. Let me summarize what I have so far: [summary]. Based on this, I can start drafting. Does this capture it?" Starting with a summary shows the dialogue was productive, not wasteful.
-
----
-
-### Skill type is unclear
-
-**Symptom:** The problem could fit multiple types. You're not sure whether this needs discipline enforcement, technique teaching, pattern encoding, or reference surfacing.
-
-**Cause:** Many real skills blend types. Unclear type often means the problem itself is still fuzzy.
-
-**Fix:** Don't force a single type. Name the blend: "This seems like primarily a technique skill with some discipline elements." If you're genuinely stuck, probe what failure looks like: "Without this skill, what goes wrong?" The failure mode often clarifies the type.
+**Fix:** Name the tension explicitly: "Strict enforcement and flexible exceptions pull in opposite directions. Which matters more for this skill?" Help them prioritize rather than trying to satisfy both.
 
 ---
 
-### User keeps changing requirements
+### User points to existing skill and says "like that"
 
-**Symptom:** Each round of dialogue introduces new requirements that shift the foundation.
+**Symptom:** User references another skill as a model. "Make it like the TDD skill." "Structure it the same way."
 
-**Cause:** The user may be discovering what they want as they talk. Or scope isn't clear. Or you haven't surfaced the real problem yet.
+**Cause:** The user sees something they like but may not know *why* it works. Copying structure without understanding produces skills that don't fit their actual problem.
 
-**Fix:** Name the pattern: "We've added several new requirements. I want to make sure we have the core before we expand. What's the one thing this skill must do?" If scope keeps growing, propose splitting: "This is becoming two skills. Should we focus on A first?"
-
----
-
-### Draft doesn't match intent despite good dialogue
-
-**Symptom:** You thought you understood, but the draft is wrong.
-
-**Cause:** Understanding was surface-level. Confirmation was superficial — the user said "yes" without reading carefully. Or you missed a key assumption.
-
-**Fix:** For future skills: present sections incrementally and ask specific questions ("Does this example capture what you meant by X?"). For this skill: return to dialogue, ask what's wrong, and probe for the gap. Don't patch; redraft from corrected understanding.
+**Fix:** Ask what specifically they want to replicate: "What about that skill works well for you? The strictness? The format? The examples?" Extract the principle, not the structure.
 
 ---
 
-### User wants a skill but a skill isn't the right solution
+### Mid-draft realization: the type was wrong
+
+**Symptom:** While drafting, you realize what seemed like a technique skill actually needs discipline enforcement, or vice versa.
+
+**Cause:** Type often clarifies only when you try to write concrete instructions. The problem description was ambiguous enough to support multiple interpretations.
+
+**Fix:** Stop drafting. Name the shift: "As I write this, I realize this needs stricter enforcement than I initially thought. Should this be a discipline skill with required steps, rather than a technique skill with guidance?" Get confirmation before continuing.
+
+---
+
+### User wants something that violates skills-guide.md
+
+**Symptom:** User requests something the guide advises against — a 1000-line SKILL.md, no description triggers, everything in one file.
+
+**Cause:** User may not know the standards, or may have reasons the standards don't anticipate.
+
+**Fix:** Explain the concern: "The guide recommends X because [reason]. Your approach does Y instead. That could cause [consequence]." If they have good reasons, proceed. If not, propose an alternative that meets their goal within the standards.
+
+---
+
+### Skill isn't the right solution
 
 **Symptom:** The problem is real, but a skill seems like the wrong tool.
 
