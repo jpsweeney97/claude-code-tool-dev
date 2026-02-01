@@ -132,11 +132,11 @@ Omit needless words. If a word does not advance meaning, remove it.
 
 State what _is_, not what _is not_. Use active voice.
 
-| Avoid | Prefer |
-|-------|--------|
-| "Do not fail to include..." | "Include..." |
+| Avoid                                    | Prefer                    |
+| ---------------------------------------- | ------------------------- |
+| "Do not fail to include..."              | "Include..."              |
 | "Errors should be logged by the handler" | "The handler logs errors" |
-| "It is not uncommon for..." | "Often..." |
+| "It is not uncommon for..."              | "Often..."                |
 
 **3. Concrete Specificity**
 
