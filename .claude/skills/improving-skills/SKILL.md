@@ -422,6 +422,8 @@ After all weaknesses are addressed, summarize:
 
 After the user confirms the change set, implement changes.
 
+**IMPORTANT: Edit skills in `.claude/` (dev repo), not `~/.claude/` (production).** Skills are developed and tested in the repo's `.claude/` directory, then promoted to production via `uv run scripts/promote`. Never edit production skills directly — this prevents untested changes from affecting live workflows.
+
 ### Implement Incrementally
 
 For each change:
@@ -484,6 +486,7 @@ These are excuses to skip steps. **All of them are wrong.**
 | "I can fix this while implementing" | Stop. Surface the problem. Return to dialogue. Silent fixes erode trust. |
 | "This is what the user really wants" | You don't know what the user wants until they tell you. Ask, don't assume. |
 | "The skill is too broken to assess properly" | If it's that broken, hand off to creating-skills. Don't use broken as an excuse to skip rigor. |
+| "I completed the change" | Did you complete ALL parts? Multi-step actions (consolidate, replace, move) require verifying both removal and addition. |
 
 **If you catch yourself thinking any of these: STOP.** Return to the process. No shortcuts.
 
