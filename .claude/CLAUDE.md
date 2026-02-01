@@ -1,38 +1,60 @@
 # CLAUDE.md
 
+## Project Overview
+
 Monorepo for developing Claude Code extensions: skills, commands, agents, hooks, plugins, and MCP servers.
+
+- Important specific guidance lives in `.claude/rules/`.
 
 ## How This Repo Works
 
-Extensions are developed in `.claude/` and `packages/`, tested locally, then promoted to `~/.claude/` for production use. Important specific guidance lives in `.claude/rules/`.
+- Extensions are developed in `.claude/` and `packages/`
+- When extensions are ready, they are then promoted to `~/.claude/` for production use.
+- The most common extensions that are developed in this repo are **Skills** and **Subagents**
 
 ## Directory Structure
 
 ```
 .claude/
-├── skills/       # Skill definitions (SKILL.md required)
-├── hooks/        # Python event hooks
-├── commands/     # Slash command definitions
-├── agents/       # Subagent definitions
-└── rules/        # Extension and methodology guidance — READ BEFORE CREATING
+├── skills/       # Skills (SKILL.md required)
+├── hooks/        # Hooks
+├── commands/     # Slash commands
+├── agents/       # Subagents
+└── rules/        # Extension and methodology guidance
 
 packages/
-├── plugins/      # Plugin packages (marketplace: tool-dev)
-└── mcp-servers/  # TypeScript MCP servers
+├── plugins/      # Plugin packages
+└── mcp-servers/  # MCP servers
 
-scripts/          # Utility scripts (inventory, migrate, promote, sync-settings)
+scripts/          # Utility scripts
 docs/
 ├── frameworks/   # Full methodology frameworks (thoroughness, decision-making, verification)
 ├── references/   # Skill patterns, guides, task-list guidance
-├── plans/        # Implementation plans
+├── plans/        # Implementation plans and design documents
 └── audits/       # Quality audits
 ```
 
-## Workflow
+### Extensions
 
-```
-CREATE in .claude/ or packages/  →  TEST locally  →  PROMOTE to ~/.claude/
-```
+Detailed guidance for each extension type lives in `.claude/rules/`. **YOU MUST read the relevant rule before starting work on a new extension**:
+
+| Working on... | Read first                     |
+| ------------- | ------------------------------ |
+| Skills        | `.claude/rules/skills.md`      |
+| Hooks         | `.claude/rules/hooks.md`       |
+| Subagents     | `.claude/rules/subagents.md`   |
+| Plugins       | `.claude/rules/plugins.md`     |
+| MCP Servers   | `.claude/rules/mcp-servers.md` |
+| Configuration | `.claude/rules/settings.md`    |
+
+- Before creating or editing any `SKILL.md` file, read `.claude/rules/skills.md`
+- Before creating or editing a Hook, read `.claude/rules/hooks.md`
+- Before creating or editing a Subagent, read `.claude/rules/subagents.md`
+- Before creating or editing a Plugin or a Marketplace, read `.claude/rules/plugins.md`
+- Before creating or editing an MCP Server, read `.claude/rules/mcp-servers.md`
+- Before any work involving configuring Claude Code, read `.claude/rules/settings.md`
+
+## Workflow
 
 ### Creating Extensions
 
@@ -71,26 +93,13 @@ Read `.claude/rules/methodology/frameworks.md` for guidance on when to use which
 A hook blocks Edit/Write on `main`, `master`, `develop`. Create a working branch first.
 
 **Exceptions (edits allowed on protected branches):**
+
 - `docs/plans/*.md`, `docs/audits/*.md`
 - `CHANGELOG.md`, `README.md`, `settings.json`
 - `*/.claude/handoffs/*`, `*/.claude/notes/*`
 - Gitignored paths (no commit anyway)
 
 Full details: `.claude/rules/workflow/git.md`
-
-### Extensions
-
-Detailed guidance for each extension type lives in `.claude/rules/`. **Read the relevant rule before starting work on a new extension**:
-
-| Working on... | Read first                       |
-| ------------- | -------------------------------- |
-| Skills        | `.claude/rules/skills.md`        |
-| Hooks         | `.claude/rules/hooks.md`         |
-| Commands      | `.claude/rules/commands.md`      |
-| Subagents     | `.claude/rules/subagents.md`     |
-| Plugins       | `.claude/rules/plugins.md`       |
-| MCP Servers   | `.claude/rules/mcp-servers.md`   |
-| Settings      | `.claude/rules/settings.md`      |
 
 ### Scripts
 
