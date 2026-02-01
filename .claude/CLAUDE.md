@@ -26,33 +26,32 @@ packages/
 ├── plugins/      # Plugin packages
 └── mcp-servers/  # MCP servers
 
-scripts/          # Utility scripts
+scripts/          # Utility scripts (run with uv run scripts/<name>)
 docs/
-├── frameworks/   # Full methodology frameworks (thoroughness, decision-making, verification)
+├── frameworks/   # Methodology frameworks (thoroughness, decision-making, verification)
 ├── references/   # Skill patterns, guides, task-list guidance
 ├── plans/        # Implementation plans and design documents
-└── audits/       # Quality audits
+├── audits/       # Quality audits
+└── claude-code-documentation/  # Official Claude Code docs (reference)
 ```
 
-### Extensions
+### Extension Rules (Blocking)
 
-Detailed guidance for each extension type lives in `.claude/rules/`. **YOU MUST read the relevant rule before starting work on a new extension**:
+Before creating or editing any extension, you MUST:
 
-| Working on... | Read first                     |
-| ------------- | ------------------------------ |
-| Skills        | `.claude/rules/skills.md`      |
-| Hooks         | `.claude/rules/hooks.md`       |
-| Subagents     | `.claude/rules/subagents.md`   |
-| Plugins       | `.claude/rules/plugins.md`     |
-| MCP Servers   | `.claude/rules/mcp-servers.md` |
-| Configuration | `.claude/rules/settings.md`    |
+1. Read the relevant rules file from the table below
+2. Confirm you have read it before proceeding
 
-- Before creating or editing any `SKILL.md` file, read `.claude/rules/skills.md`
-- Before creating or editing a Hook, read `.claude/rules/hooks.md`
-- Before creating or editing a Subagent, read `.claude/rules/subagents.md`
-- Before creating or editing a Plugin or a Marketplace, read `.claude/rules/plugins.md`
-- Before creating or editing an MCP Server, read `.claude/rules/mcp-servers.md`
-- Before any work involving configuring Claude Code, read `.claude/rules/settings.md`
+| Extension  | Rules File                     |
+| ---------- | ------------------------------ |
+| Skill      | `.claude/rules/skills.md`      |
+| Hook       | `.claude/rules/hooks.md`       |
+| Subagent   | `.claude/rules/subagents.md`   |
+| Plugin     | `.claude/rules/plugins.md`     |
+| MCP Server | `.claude/rules/mcp-servers.md` |
+| Settings   | `.claude/rules/settings.md`    |
+
+Do not proceed with edits until you have read the file. This is non-negotiable.
 
 ## Workflow
 
@@ -104,3 +103,62 @@ Full details: `.claude/rules/workflow/git.md`
 ### Scripts
 
 Run with `uv run scripts/<name>`: `inventory`, `migrate`, `promote`, `sync-settings`
+
+## Gotchas
+
+- **Dev vs production**: Edit extensions in `.claude/` (this repo), not `~/.claude/` (production). Promote when ready.
+- **Sync after hook changes**: Run `uv run scripts/sync-settings` after modifying hooks — Claude Code reads from `settings.json`, not hook files directly.
+
+## Writing Extensions
+
+These principles apply to files Claude reads as instructions:
+
+- **Skills**: `.claude/skills/*/SKILL.md` and supporting files
+- **Subagents**: `.claude/agents/*.md`
+
+Claude is the audience. Optimize for machine parsing, not human onboarding.
+
+### Principles
+
+**1. Economy (Signal-to-Noise)**
+
+Omit needless words. If a word does not advance meaning, remove it.
+
+- Delete fillers: "please," "it is important to note," "actually"
+- Remove redundant qualifiers: "completely finished" → "finished"
+- Goal: Maximum density
+
+**2. Affirmative Direction**
+
+State what _is_, not what _is not_. Use active voice.
+
+| Avoid | Prefer |
+|-------|--------|
+| "Do not fail to include..." | "Include..." |
+| "Errors should be logged by the handler" | "The handler logs errors" |
+| "It is not uncommon for..." | "Often..." |
+
+**3. Concrete Specificity**
+
+Ambiguity is failure. Prefer specific nouns and verbs to abstract generalizations.
+
+- Replace vague pronouns ("it," "this") with their antecedents
+- Replace weak verbs with strong: "went quickly" → "sprinted"
+- Name exact files, commands, and values — not "the config file" but `.claude/settings.json`
+
+**4. Logical Proximity**
+
+Physical distance on the page reflects logical distance in thought.
+
+- Keep modifiers next to words they modify
+- Group related instructions (bullets, tables for parallel ideas)
+- Don't separate a condition from its consequence
+
+**5. Contextual Priming**
+
+Structure for rapid parsing.
+
+- Place reference data _before_ instructions that use it
+- Start paragraphs with topic sentences
+- Use headers to signal shifts in logic
+- Front-load the most important information
