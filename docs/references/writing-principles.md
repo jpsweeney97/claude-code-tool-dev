@@ -4,6 +4,45 @@ This guide applies to Claude Code authoring instruction documents. The principle
 
 This guide does not apply to user-facing documentation, conversational responses, code comments, or creative writing (see Limitations).
 
+## Table of Contents
+
+- [Execution Algorithm (Canonical)](#execution-algorithm-canonical)
+- [Applying This Document](#applying-this-document)
+  - [Boundaries (#5)](#boundaries-5)
+  - [Failure Modes (#6)](#failure-modes-6)
+  - [Defaults (#7)](#defaults-7)
+    - [Tie-Breaker: “Preserves More Information”](#tie-breaker-preserves-more-information)
+- [Calibration](#calibration)
+  - [Document Risk Assessment](#document-risk-assessment)
+  - [Rigor Levels](#rigor-levels)
+  - [Authoring vs. Review](#authoring-vs-review)
+- [Quick Reference](#quick-reference)
+- [When Principles Conflict](#when-principles-conflict)
+  - [Priority Hierarchy](#priority-hierarchy)
+  - [Irreconcilable Conflicts](#irreconcilable-conflicts)
+  - [Missing Context](#missing-context)
+  - [Conflicting Instructions in Target Document](#conflicting-instructions-in-target-document)
+- [Principles](#principles)
+  - [1. Be Specific](#1-be-specific)
+  - [2. Define Terms](#2-define-terms)
+  - [3. Show Examples](#3-show-examples)
+  - [4. Verify Interpretation](#4-verify-interpretation)
+  - [5. State Boundaries](#5-state-boundaries)
+  - [6. Specify Failure Modes](#6-specify-failure-modes)
+  - [7. Specify Defaults](#7-specify-defaults)
+  - [8. Declare Preconditions](#8-declare-preconditions)
+  - [9. Close Loopholes](#9-close-loopholes)
+  - [10. Front-Load](#10-front-load)
+  - [11. Group Related](#11-group-related)
+  - [12. Keep Parallel](#12-keep-parallel)
+  - [13. Specify Outcomes](#13-specify-outcomes)
+  - [14. Economy](#14-economy)
+- [Grading Scale](#grading-scale)
+- [Document-Type Notes](#document-type-notes)
+- [Self-Check Procedure](#self-check-procedure)
+- [Limitations](#limitations)
+- [Appendix: Failure Mode Index](#appendix-failure-mode-index)
+
 > **Intended audience:** Claude, not humans. This document teaches Claude to author instruction documents that Claude will interpret. Humans may read this document to understand or modify Claude's instruction-writing behavior, but the principles optimize for machine parsing—deterministic interpretation, unambiguous scope, explicit failure handling—rather than human readability conventions.
 
 Instruction documents are Markdown files Claude interprets as behavioral directives:
