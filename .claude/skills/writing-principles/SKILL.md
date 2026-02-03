@@ -21,7 +21,9 @@ This skill applies when you write, review, or edit:
 2. **Calibrate** — Assess document risk level (Low/Medium/High)
 3. **Apply** — Use principles while writing or editing
 4. **Verify** — Run self-check passes appropriate to risk level
+   - **Gate:** Do not claim work complete until self-check passes run at calibrated rigor level
 5. **Report** — List violations found and ask for guidance before fixing
+   - **Gate:** Do not fix violations until user provides direction
 
 ## Risk Calibration
 

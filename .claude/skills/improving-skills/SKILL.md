@@ -86,7 +86,7 @@ As you read, note:
 ### Step 3: Identify Strengths and Weaknesses
 
 Create two lists. Each item MUST have:
-- **Specific evidence** — quote the section or cite file:line
+- **Specific evidence** — quote complete sentences or paragraphs, not fragments. Before citing, read 2-3 lines before and after to verify the quote isn't missing clarifying context.
 - **Confidence level** — High / Medium / Low
 
 | Confidence | Meaning | Evidence Required |
@@ -149,8 +149,11 @@ For every weakness, answer:
 - Is there context I'm missing? (Supporting files, related skills, user's workflow)
 - What would make this actually a strength? (Different perspective, different use case)
 - Is this preemptive? (Addresses a failure Claude doesn't actually exhibit)
+- **Is this a real failure Claude exhibits, or a hypothetical gap?**
 
-**If you cannot articulate why the weakness survives scrutiny, remove it.**
+**Gate:** For each weakness, document why it survives disconfirmation. If you cannot articulate a specific survival reason, remove the weakness before proceeding. Vague justifications ("it seems like a problem") do not count.
+
+**Finding zero weaknesses is acceptable.** A skill that meets standards doesn't need invented problems. If disconfirmation removes all weaknesses, report that the skill is sound.
 
 This step prevents:
 - Confirmation bias (seeing what you expected)
