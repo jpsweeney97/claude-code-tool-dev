@@ -36,7 +36,9 @@ Pattern: **/{CLAUDE.md,.claude.md,.claude.local.md}
 
 ### Phase 2: Quality Assessment
 
-For each CLAUDE.md file, evaluate against quality criteria. See [references/quality-criteria.md](references/quality-criteria.md) for detailed rubrics.
+For each CLAUDE.md file, evaluate against:
+- **Content criteria**: [references/quality-criteria.md](references/quality-criteria.md)
+- **Language principles**: [references/language-principles.md](references/language-principles.md)
 
 **Quick Assessment Checklist:**
 
@@ -77,7 +79,7 @@ Format:
 ### File-by-File Assessment
 
 #### 1. ./CLAUDE.md (Project Root)
-**Score: XX/100 (Grade: X)**
+**Content: XX/100 (Grade: X) | Language: X**
 
 | Criterion | Score | Notes |
 |-----------|-------|-------|
@@ -89,8 +91,11 @@ Format:
 | Currency | X/15 | ... |
 | Actionability | X/15 | ... |
 
-**Issues:**
-- [List specific problems]
+**Content Issues:**
+- [List specific content problems]
+
+**Language Issues:**
+- [List principle violations with location, e.g., "Economy: filler in line 12"]
 
 **Recommended additions:**
 - [List what should be added]
@@ -182,7 +187,9 @@ After outputting the quality report (and dialoguing about preferences if request
    - One-off fixes unlikely to recur
    - Verbose explanations when a one-liner suffices
 
-3. **Show diffs** - For each change, show:
+3. **Apply language principles** - When drafting updates, follow [references/language-principles.md](references/language-principles.md). Show before/after when improving existing text.
+
+4. **Show diffs** - For each change, show:
    - Which CLAUDE.md file to update
    - The specific addition (as a diff or quoted block)
    - Brief explanation of why this helps future sessions

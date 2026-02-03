@@ -132,3 +132,9 @@
 - Generic advice not specific to the project
 - "TODO" items never completed
 - Duplicate info across multiple CLAUDE.md files
+
+## Language Quality
+
+Content quality (this rubric) measures *what* is included. Language quality measures *how* it's expressed.
+
+See [language-principles.md](language-principles.md) for the language assessment rubric. Both dimensions are reported separately in the quality report.
