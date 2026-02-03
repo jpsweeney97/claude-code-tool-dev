@@ -44,3 +44,6 @@ packages/plugins/plugin-dev/.claude/
 
 # temporary
 .tmp/
+
+# Other AI tools
+.codex/
