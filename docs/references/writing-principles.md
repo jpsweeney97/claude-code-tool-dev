@@ -1,8 +1,8 @@
 # Writing Principles for Instruction Documents
 
-This guide is for Claude authoring instruction documents. The principles optimize for deterministic behavior, efficient parsing, and correct interpretation.
+This guide applies to Claude Code authoring instruction documents. The principles optimize for deterministic behavior, efficient parsing, and correct interpretation.
 
-This guide applies to Claude Code authoring instruction documents. It does not apply to user-facing documentation, conversational responses, code comments, or creative writing (see Limitations).
+This guide does not apply to user-facing documentation, conversational responses, code comments, or creative writing (see Limitations).
 
 Instruction documents are Markdown files Claude interprets as behavioral directives:
 
@@ -89,6 +89,42 @@ This section applies the execution-context principles to this document itself.
 
 ---
 
+## Calibration
+
+This section determines how much of this document to apply.
+
+### Document Risk Assessment
+
+| Factor | Low | Medium | High |
+|--------|-----|--------|------|
+| Scope | Personal preferences | Project defaults | Multi-agent workflows |
+| Reversibility | Easy to change | Requires coordination | Affects downstream systems |
+| Ambiguity tolerance | High (preferences) | Medium (conventions) | Low (procedures) |
+| Typical length | <50 lines | 50-150 lines | >150 lines |
+
+**Risk level = highest factor.** A 30-line file with irreversible effects is High, not Low.
+
+### Rigor Levels
+
+| Risk | Read through | Self-Check | Iteration limit |
+|------|--------------|------------|-----------------|
+| Low | Quick Reference only | Passes 1-3 (items 1-15), single pass | 1 |
+| Medium | Quick Reference + When Principles Conflict | Passes 1-7 (items 1-27), up to 2 passes | 2 |
+| High | Full document | All passes (items 1-52), up to 5 iterations | 5 |
+
+**Trade-off (Low risk):** Low-risk documents accept loophole risk (Pass 5) as a trade-off for reduced ceremony. A preferences file with a loophole is annoying; a project default with a loophole causes repeated problems.
+
+**Default if uncertain:** Medium.
+
+### Authoring vs. Review
+
+| Mode | Approach |
+|------|----------|
+| Authoring | Draft freely using internalized principles, then apply Self-Check at calibrated rigor |
+| Review | Apply Self-Check at calibrated rigor; reference principle sections only for violations found |
+
+---
+
 ## Quick Reference
 
 | # | Principle | Core Rule | Red Flag |
@@ -125,6 +161,8 @@ This section applies the execution-context principles to this document itself.
 | 4 | Front-Load (#11), Group Related (#12), Keep Parallel (#13) | Parsing errors cascade |
 | 5 | Specify Outcomes (#14) | Verification gaps are recoverable |
 | 6 | Economy (#15) | Trim only after all else assured |
+
+**Within-tier ordering:** Principles within the same priority tier are co-equal. If two same-tier principles appear to conflict, first check whether both can be satisfied (they usually can—Priority 1 principles are complementary). If genuinely irreconcilable, choose the resolution that preserves more information.
 
 When in doubt: if cutting a word creates ambiguity or removes important context, keep the word.
 
