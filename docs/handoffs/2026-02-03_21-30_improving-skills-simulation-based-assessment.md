@@ -1,7 +1,7 @@
 ---
 date: 2026-02-03
-time: "21:30"
-created_at: "2026-02-04T02:30:10Z"
+time: '21:30'
+created_at: '2026-02-04T02:30:10Z'
 session_id: 0f10972e-0dc8-4340-a39e-3840f096d5d2
 project: claude-code-tool-dev
 branch: main
@@ -17,7 +17,7 @@ files:
 
 ## Goal
 
-Root cause analysis of why the `improving-skills` skill fails to achieve its primary objective, and design of a simulation-based assessment approach to fix it.
+Root cause analysis of why the `improving-skills` skill fails to achieve its primary objective, and discussion of a simulation-based assessment approach to establish the foundation for a new skill to replace the existing `improving-skills` skill.
 
 ## Decisions
 
@@ -53,23 +53,18 @@ Root cause analysis of why the `improving-skills` skill fails to achieve its pri
 
 - **Theoretical assessment alone:** Doesn't work — this is the documented failure mode we're trying to fix.
 
-## Next Steps
-
-User was presented with options; no selection made yet:
-
-1. **Design phase:** Architect the new skill structure incorporating simulation-based assessment
-2. **Prototype:** Build a minimal version to test the approach
-3. **Scenario design:** Develop specific test scenarios for improving-skills itself
-
 ## Artifacts
 
 Full discussion captured in:
-- `docs/discussions/improving-skills-failure-modes-and-simulation-based-assessment.md`
+
+- @docs/discussions/improving-skills-failure-modes-and-simulation-based-assessment.md
 
 Contains: complete root cause analysis, proposed solution mechanism, worked conclusions for all 4 design questions (scenario count, overfitting avoidance, hard-to-test skills, cost/benefit), key insights summary.
+
+**YOU MUST READ `docs/discussions/improving-skills-failure-modes-and-simulation-based-assessment.md` FOR CONTEXT**
 
 ## Open Questions
 
 - How should the new skill architecture be structured?
-- What specific scenarios should test improving-skills itself?
+- How should we approach designing scenarios?
 - What threshold defines "good enough" improvement?
