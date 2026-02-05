@@ -341,6 +341,69 @@ agent: assessment-runner  # Which subagent to use
 
 ---
 
+## Phase 11: Implementation Begin (2026-02-04, Session 2)
+
+### Session Context
+New session starting from ADR and discussion map. Goal: begin implementation.
+
+### Assessment-Runner Subagent: False Start
+
+Initial implementation over-engineered the subagent with extensive behavioral instructions:
+- Scope section (in/out, mutable/read-only)
+- Preconditions section (Requires/Check/If not met)
+- Default Behavior section
+- Detailed Constraints (Do/Do Not with rationale)
+- Structured Output Format (5 defined sections)
+
+**The problem:** This was driven by applying `writing-principles` skill mechanically. The skill flagged "missing scope", "missing preconditions", "missing defaults" — and Claude dutifully added them.
+
+**Why this was wrong:**
+
+| What writing-principles assumes | What assessment-runner needs |
+|--------------------------------|------------------------------|
+| Document should guide behavior | Document should be neutral |
+| More explicit = better | Less instruction = less bias |
+| Add sections to close gaps | Gaps are intentional |
+
+The subagent is an **execution environment**, not a behavioral specification. Adding discipline instructions (scope, constraints, defaults) biases the baseline toward "good" behavior — which is exactly what the *skill being tested* should provide.
+
+### Correction: Return to ADR Design
+
+Reverted to the minimal ADR design:
+
+```markdown
+---
+name: assessment-runner
+description: Executes assessment scenarios with full tool access
+model: inherit
+permissionMode: acceptEdits
+---
+You are an assessment executor. Execute the task provided in full.
+
+Report your complete process including:
+- Each tool you used and why
+- Decisions you made
+- Your reasoning at each step
+- Final output
+
+Do not summarize or abbreviate. The full process trace is needed for evaluation.
+```
+
+**Why this works:**
+- Observability instructions ("report process", "don't summarize") are symmetric — apply to both baseline and test
+- No behavioral constraints that would mask skill effects
+- Minimal enough that the skill-under-test is the primary behavioral influence
+
+### Lesson Learned
+
+**Writing-principles is context-dependent.** It optimizes for instruction documents that *should* guide behavior. The assessment-runner is deliberately minimal — applying writing-principles fully was counterproductive.
+
+**Heuristic:** Before applying a discipline skill, ask: "Does the document's purpose align with what this skill optimizes for?"
+
+**Note:** Subagent available after session restart (subagents don't hot-reload).
+
+---
+
 ## Key Insights (Synthesized)
 
 | # | Insight | Source |
@@ -357,6 +420,8 @@ agent: assessment-runner  # Which subagent to use
 | 10 | Framework pushes oracle problem up a level, doesn't solve it | Turn 22 |
 | 11 | Skills hot-reload; subagents don't | Spike |
 | 12 | `context: fork` enables mid-session dynamic assessment | Spike |
+| 13 | Discipline skills are context-dependent; applying them mechanically can be counterproductive | Impl |
+| 14 | Execution environments should be minimal; behavioral bias contaminates A/B comparisons | Impl |
 
 ---
 
@@ -372,6 +437,8 @@ agent: assessment-runner  # Which subagent to use
 | 31 | Create comprehensive spec | Self-contained reference document |
 | 37 | Add preamble | Make document truly self-contained |
 | Spike | Use `context: fork` architecture | Only approach that works mid-session |
+| Impl | Omit `tools` field in assessment-runner | Inherit all tools — skill needs unknown |
+| Impl | Revert to minimal ADR design | Over-engineering biased baseline; execution environment ≠ behavioral spec |
 
 ---
 
@@ -383,15 +450,16 @@ agent: assessment-runner  # Which subagent to use
 | Consolidated Discussion Summary | `docs/discussions/CONSOLIDATED-simulation-based-assessment-discussions.md` |
 | Feasibility Spike Results | `docs/spikes/simulation-feasibility-spike_2026-02-04.md` |
 | Architecture Decision Record | `docs/adrs/0001-simulation-based-skill-assessment-architecture.md` |
+| Assessment-Runner Subagent | `.claude/agents/assessment-runner.md` |
 | This Discussion Map | `docs/discussions/DISCUSSION-MAP-simulation-based-assessment.md` |
 
 ---
 
-## Open Items (After Spike)
+## Open Items
 
 | Item | Priority | Status |
 |------|----------|--------|
-| Create `assessment-runner` subagent | High | Not started |
+| Create `assessment-runner` subagent | High | ✅ Complete |
 | Design skill file templates | High | Not started |
 | Implement scenario generation | High | Not started |
 | Create worked example | Medium | Not started |
@@ -410,6 +478,6 @@ agent: assessment-runner  # Which subagent to use
 
 ---
 
-*Last updated: 2026-02-04*
-*Total discussion turns: 48 (38 + 10)*
+*Last updated: 2026-02-04 (Session 2)*
+*Total discussion turns: 48 (38 + 10) + implementation session*
 *Key pivot: Discovery that skills hot-reload but subagents don't*
