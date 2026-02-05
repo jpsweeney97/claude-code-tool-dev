@@ -374,6 +374,73 @@ Validated the complete A/B testing workflow using a simple "three options" disci
 
 This confirms the core hypothesis: skill injection via `context: fork` produces measurable behavioral change that can be compared against baseline.
 
+### Edge Case Testing (2026-02-04)
+
+Tested three edge cases to refine framework understanding.
+
+**Methodology refinement:** Initial skill names included "test" and "baseline" which could bias subagent behavior (observer effect). Renamed to neutral identifiers (e.g., `scenario-typescript-9m`, `scenario-typescript-2p`) with meaningless suffixes.
+
+#### Test 1: Partial Compliance
+
+**Hypothesis:** A skill with 3 distinct requirements might be partially followed.
+
+**Skill requirements:**
+1. Start with "ANALYSIS:" header
+2. Include exactly 2 code examples
+3. End with "VERDICT:" section
+
+**Result:** Full compliance (3/3 requirements met). The skill was clear enough that all requirements were followed.
+
+**Finding:** Well-designed skills with unambiguous, countable requirements tend to achieve full compliance. To observe partial compliance, we'd need ambiguous or conflicting requirements.
+
+#### Test 2: Baseline Similarity
+
+**Hypothesis:** Some scenarios produce "natural" behavior that matches what a skill would request, resulting in zero delta.
+
+**Skill:** "Use bullet points to organize benefits"
+**Scenario:** "What are the benefits of TypeScript?"
+
+**Result:** Clear delta observed. Without skill: numbered headers with code examples. With skill: concise bullet points.
+
+**Finding:** Don't assume what "natural" behavior looks like. The hypothesis that Claude naturally uses bullet points for "benefits" questions was wrong. Always run the baseline.
+
+#### Test 3: Negative Delta
+
+**Hypothesis:** A harmful skill (15-word limit on complex architecture question) produces detectably worse output.
+
+**Result:** Confirmed.
+- Without skill: ~2,000 words with diagrams, phases, trade-offs
+- With skill: Exactly 15 words ("Use event-driven design, API gateway, service mesh...")
+
+**Finding:** Negative delta is detectable. The framework can identify skills that harm response quality.
+
+#### Variance Analysis
+
+**Question raised:** Is one baseline run sufficient to establish "natural" behavior?
+
+**Test:** Ran `scenario-typescript-2p` 5 times to measure variance.
+
+**Results:**
+
+| Dimension | Variance |
+|-----------|----------|
+| Structure (numbered headers, code examples, trade-offs section) | **0%** — all 5 runs identical |
+| Content (specific points, wording, examples) | Moderate variation |
+
+**Conclusion:** Variance is dimension-dependent.
+- **Format comparisons:** Low variance for constrained scenarios; 1 run may suffice
+- **Content comparisons:** Higher variance; multiple runs needed
+- **Recommendation:** Specify what dimension is being compared and choose run count accordingly
+
+#### Edge Case Summary
+
+| Test | Hypothesis | Result | Insight |
+|------|------------|--------|---------|
+| Partial compliance | Skill partially followed | ❌ Full compliance | Clear skills get full compliance |
+| Baseline similarity | No delta | ❌ Clear delta | Don't assume natural behavior |
+| Negative delta | Skill hurts quality | ✅ Confirmed | Harmful skills are detectable |
+| Variance | N=1 insufficient | ⚠️ Depends | Variance is dimension-dependent |
+
 ---
 
 ## Implementation Path
@@ -382,11 +449,12 @@ This confirms the core hypothesis: skill injection via `context: fork` produces 
 
 1. ✅ **Create assessment-runner subagent** — Minimal design (16 lines), checked into repo
 2. ✅ **Validate architecture** — End-to-end test with "three options" skill
-3. **Implement skill file generation** — Templates for baseline and test skills
-4. **Implement skill content extraction** — Read target skill, strip frontmatter
-5. **Implement 8-step scenario generation** — From framework spec
-6. **Implement skill invocation** — Use Skill tool for forked execution
-7. **Implement cleanup** — Remove temporary skill directories
+3. ✅ **Edge case testing** — Partial compliance, baseline similarity, negative delta, variance
+4. **Implement skill file generation** — Templates for baseline and test skills
+5. **Implement skill content extraction** — Read target skill, strip frontmatter
+6. **Implement 8-step scenario generation** — From framework spec
+7. **Implement skill invocation** — Use Skill tool for forked execution
+8. **Implement cleanup** — Remove temporary skill directories
 
 ### Open Design Questions
 
@@ -396,6 +464,8 @@ This confirms the core hypothesis: skill injection via `context: fork` produces 
 | Skill directory location | `.claude/skills/assessment-*/` vs. temp directory | `.claude/skills/` for hot-reload; cleanup after |
 | Scenario ID format | UUID vs. incrementing vs. hash | Short hash of scenario content for reproducibility |
 | Cleanup timing | After each scenario vs. after full assessment | After full assessment (enables debugging) |
+| Runs per scenario | 1 vs. 3-5 vs. 10+ | Depends on comparison dimension: format (1-3), content (5+) |
+| Skill naming | Descriptive vs. neutral IDs | Neutral IDs (e.g., `scenario-xyz-7x`) to prevent observer effect |
 
 ---
 
@@ -465,3 +535,4 @@ This confirms the core hypothesis: skill injection via `context: fork` produces 
 |------|--------|
 | 2026-02-04 | Initial ADR created from spike findings |
 | 2026-02-04 | Added end-to-end validation test results; updated implementation path |
+| 2026-02-04 | Added edge case testing results (partial compliance, baseline similarity, negative delta, variance); added observer effect mitigation guidance |

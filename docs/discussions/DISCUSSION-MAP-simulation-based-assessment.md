@@ -474,6 +474,112 @@ Both invoked via Skill tool, executed in forked assessment-runner context.
 
 ---
 
+## Phase 13: Edge Case Testing (2026-02-04, Session 3 continued)
+
+### Session Context
+
+Refining the framework by testing edge cases that could affect assessment reliability.
+
+### Observer Effect Discovery
+
+Initial skill names included "test" and "baseline" (e.g., `edge-test-partial-compliance`). User identified this could bias subagent behavior — knowing it's being "tested" might change how it responds.
+
+**Solution:** Renamed to neutral identifiers with meaningless suffixes:
+- `scenario-async-7x` (with skill) / `scenario-async-3k` (without skill)
+- `scenario-typescript-9m` (with skill) / `scenario-typescript-2p` (without skill)
+- `scenario-microservices-4f` (with skill) / `scenario-microservices-8w` (without skill)
+
+### Test 1: Partial Compliance
+
+**Hypothesis:** A skill with 3 distinct requirements might be partially followed.
+
+**Skill:** "Structured Response Format"
+1. Start with "ANALYSIS:" header
+2. Include exactly 2 code examples
+3. End with "VERDICT:" section
+
+**Scenario:** "Should I use async/await or callbacks in Node.js?"
+
+**Results:**
+
+| Condition | ANALYSIS: | 2 Code Examples | VERDICT: |
+|-----------|-----------|-----------------|----------|
+| Without skill (3k) | ❌ | ~2-3 snippets | ❌ |
+| With skill (7x) | ✅ | ✅ Exactly 2 | ✅ |
+
+**Finding:** Full compliance (3/3). The skill was clear enough that all requirements were followed. To observe partial compliance, we'd need ambiguous or conflicting requirements.
+
+### Test 2: Baseline Similarity
+
+**Hypothesis:** Some scenarios produce "natural" behavior matching the skill, resulting in zero delta.
+
+**Skill:** "Bullet Point Organization" — use bullets for listing benefits
+
+**Scenario:** "What are the benefits of TypeScript over JavaScript?"
+
+**Results:**
+
+| Condition | Format | Code Examples |
+|-----------|--------|---------------|
+| Without skill (2p) | Numbered headers (1., 2., 3...) | Yes (3+ snippets) |
+| With skill (9m) | Bullet points | No |
+
+**Finding:** Clear delta observed. The hypothesis that Claude naturally uses bullet points for "benefits" questions was **wrong**. Don't assume natural behavior — always run the baseline.
+
+### Test 3: Negative Delta
+
+**Hypothesis:** A harmful skill produces detectably worse output.
+
+**Skill:** "Strict Brevity" — respond in exactly 15 words regardless of complexity
+
+**Scenario:** "How should I structure a microservices architecture for an e-commerce platform with high availability requirements?"
+
+**Results:**
+
+| Condition | Word Count | Diagrams | Actionable |
+|-----------|------------|----------|------------|
+| Without skill (8w) | ~2,000+ | Multiple | Yes |
+| With skill (4f) | **15** | None | Buzzwords only |
+
+**With skill output:** "Use event-driven design, API gateway, service mesh, distributed database, container orchestration, circuit breakers, redundant deployments."
+
+**Finding:** Negative delta is clearly detectable. The framework can identify skills that harm response quality.
+
+### Variance Analysis
+
+**Question raised:** Is one baseline run sufficient to establish "natural" behavior?
+
+**Test:** Ran `scenario-typescript-2p` 5 times.
+
+**Results:**
+
+| Run | Format | Headers | Code Examples | Trade-offs Section |
+|-----|--------|---------|---------------|-------------------|
+| 1 | Numbered | ✅ | ✅ | ✅ |
+| 2 | Numbered | ✅ | ✅ | ✅ |
+| 3 | Numbered | ✅ | ✅ | ✅ |
+| 4 | Numbered | ✅ | ✅ | ✅ |
+| 5 | Numbered | ✅ | ✅ | ✅ |
+
+**Structural variance:** 0% — all 5 runs used identical format.
+**Content variance:** Moderate — specific points and wording differed.
+
+**Conclusion:** Variance is dimension-dependent.
+- Format comparisons: Low variance; 1 run may suffice
+- Content comparisons: Higher variance; multiple runs needed
+- Recommendation: Specify what's being compared, choose run count accordingly
+
+### Edge Case Summary
+
+| Test | Hypothesis | Result | Insight |
+|------|------------|--------|---------|
+| Partial compliance | Skill partially followed | ❌ Full compliance | Clear skills get full compliance |
+| Baseline similarity | No delta | ❌ Clear delta | Don't assume natural behavior |
+| Negative delta | Skill hurts quality | ✅ Confirmed | Harmful skills detectable |
+| Variance | N=1 insufficient | ⚠️ Depends | Variance is dimension-dependent |
+
+---
+
 ## Key Insights (Synthesized)
 
 | # | Insight | Source |
@@ -493,6 +599,11 @@ Both invoked via Skill tool, executed in forked assessment-runner context.
 | 13 | Discipline skills are context-dependent; applying them mechanically can be counterproductive | Impl |
 | 14 | Execution environments should be minimal; behavioral bias contaminates A/B comparisons | Impl |
 | 15 | Countable, unambiguous success criteria make delta evaluation conclusive | Validation |
+| 16 | Observer effect: skill names like "test/baseline" can bias subagent behavior | Edge Cases |
+| 17 | Clear skills with unambiguous requirements tend to achieve full compliance | Edge Cases |
+| 18 | Don't assume natural behavior — always run the baseline to see what actually happens | Edge Cases |
+| 19 | Negative delta (harmful skills) is clearly detectable through A/B comparison | Edge Cases |
+| 20 | Variance is dimension-dependent: format (low variance) vs content (higher variance) | Edge Cases |
 
 ---
 
@@ -510,6 +621,8 @@ Both invoked via Skill tool, executed in forked assessment-runner context.
 | Spike | Use `context: fork` architecture | Only approach that works mid-session |
 | Impl | Omit `tools` field in assessment-runner | Inherit all tools — skill needs unknown |
 | Impl | Revert to minimal ADR design | Over-engineering biased baseline; execution environment ≠ behavioral spec |
+| Edge | Use neutral skill naming | Prevents observer effect; "test/baseline" in names could bias behavior |
+| Edge | Variance depends on comparison dimension | Format comparisons need fewer runs than content comparisons |
 
 ---
 
@@ -533,10 +646,13 @@ Both invoked via Skill tool, executed in forked assessment-runner context.
 | Create `assessment-runner` subagent | High | ✅ Complete |
 | Validate architecture end-to-end | High | ✅ Complete (Phase 12) |
 | Design skill file templates | High | ✅ Validated (baseline + test templates work) |
+| Edge case testing | High | ✅ Complete (Phase 13) |
+| Define run count guidelines | Medium | ✅ Complete (dimension-dependent) |
 | Implement scenario generation | High | Not started |
-| Create worked example | Medium | Partially complete (three-options test) |
+| Create worked example | Medium | Partially complete (edge case tests) |
 | Implement cleanup mechanism | Medium | Not started |
 | Oracle mitigation strategy | Medium | Not started |
+| Test partial compliance scenarios | Low | Not started (needs ambiguous skill design) |
 
 ---
 
@@ -551,6 +667,7 @@ Both invoked via Skill tool, executed in forked assessment-runner context.
 ---
 
 *Last updated: 2026-02-04 (Session 3)*
-*Total discussion turns: 48 (38 + 10) + implementation session + validation session*
+*Total discussion turns: 48 (38 + 10) + implementation session + validation session + edge case testing*
 *Key pivot: Discovery that skills hot-reload but subagents don't*
 *Architecture validated: End-to-end A/B testing confirmed with "three options" skill*
+*Edge cases tested: Partial compliance, baseline similarity, negative delta, variance analysis*

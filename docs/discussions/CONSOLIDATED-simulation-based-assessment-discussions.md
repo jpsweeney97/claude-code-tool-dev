@@ -230,17 +230,29 @@ The framework makes these decisions explicit, traceable, and auditable — not e
 11. **Irreducible judgment** — Structure it, don't try to eliminate it
 12. **Difficulty is diagnostic** — If framework struggles, Claude will too
 13. **Countable success criteria** — Unambiguous metrics (0 options vs 3) make delta evaluation conclusive
+14. **Observer effect** — Skill names like "test/baseline" can bias subagent behavior; use neutral naming
+15. **Don't assume natural behavior** — Always run the baseline to see what actually happens
+16. **Variance is dimension-dependent** — Format comparisons (low variance) vs content comparisons (higher variance)
 
 ---
 
 ## Quick Reference: What To Do Next
 
-**Architecture validated.** End-to-end A/B test confirms skill injection works. Proceed to Phase 4.
+**Edge cases tested.** Framework refined with variance and observer effect guidance. Proceed to scenario generation.
 
 **Completed:**
 - ✅ assessment-runner subagent (minimal, 16 lines)
 - ✅ Skill file templates (baseline + test validated)
 - ✅ Architecture validation ("three options" test conclusive)
+- ✅ Edge case testing (partial compliance, baseline similarity, negative delta)
+- ✅ Variance analysis (dimension-dependent: format vs content)
+
+**Key Methodological Findings:**
+- Use neutral skill naming (no "test/baseline" to avoid observer effect)
+- Don't assume natural behavior — always run the baseline
+- Format comparisons: low variance, 1-3 runs may suffice
+- Content comparisons: higher variance, 5+ runs recommended
+- Negative delta (harmful skills) is clearly detectable
 
 **Phase 4: Scenario Generation (Next)**
 1. Implement 8-step scenario generation framework
@@ -265,8 +277,9 @@ The framework makes these decisions explicit, traceable, and auditable — not e
 
 ---
 
-*Last updated: 2026-02-04 (architecture validated with end-to-end test)*
+*Last updated: 2026-02-04 (edge case testing complete)*
 *Source discussions: 7 files, ~4,500 lines total*
 *Spike results: `docs/spikes/simulation-feasibility-spike_2026-02-04.md`*
 *Key finding: Skills hot-reload, subagents don't — use `context: fork` for dynamic assessment*
 *Architecture validated: "Three options" test shows 0→3 options delta between baseline and test*
+*Edge cases tested: Observer effect, variance analysis, negative delta detection*
