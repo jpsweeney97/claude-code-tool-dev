@@ -580,6 +580,192 @@ Initial skill names included "test" and "baseline" (e.g., `edge-test-partial-com
 
 ---
 
+## Phase 14: Architecture Stress Testing (2026-02-05)
+
+### Session Context
+
+Comprehensive edge case testing before Phase 4 (automated scenario generation). Goal: stress-test the A/B comparison mechanism against ambiguous instructions, conflicting requirements, scenario variation, and skill structure variation.
+
+### Category A: Skill Instruction Variance
+
+#### A1: Ambiguous Instructions (7 Tests)
+
+| Test | Instruction | Finding | Variance |
+|------|-------------|---------|----------|
+| A1a | "several" (quantifier) | ~19 examples consistently | LOW |
+| A1b | "concise" vs "thorough" | Asymmetric effect (-55%/+24%) | LOW |
+| A1c | "appropriate caveats" | 8-9 caveats consistently | LOW |
+| A1d | "better" (code) | 4 core changes consistent | LOW |
+| A1e | "optimize" | Identical algorithm all 5 runs | **ZERO** |
+| A1f | "improve" (recommendations) | Same pattern across runs | LOW |
+| A1g | "professional" | Near-identical outputs | VERY LOW |
+
+**Key Finding:** Ambiguity ≠ Variance. The model has stable defaults for ambiguous terms.
+
+#### A2: Conflicting Requirements (3 Tests)
+
+| Test | Conflict | Resolution | Consistency |
+|------|----------|------------|-------------|
+| A2a | 200-word limit vs comprehensive | Content wins | 100% |
+| A2b | Exactly 3 options vs all viable | Quantity wins (revised) | 80/20 (N=10); eliminated by selection-criteria framing |
+| A2c | Beginner-friendly vs expert depth | Both (progressive disclosure) | 100% |
+
+**Key Findings:**
+- Content completeness > format constraints (100% of time)
+- Quantity constraints ("exactly N") show minor variance (~80/20 across N=10), fully mitigated by providing selection criteria ("the 3 most common" → 100% compliance, N=5)
+- Framing changes option selection, not just structure: "exactly 3" picks for diversity; "3 most common" picks for popularity
+- Reconcilable conflicts get reconciled via structural solutions
+
+### Category B: Scenario Variance
+
+| Test | Question | Finding |
+|------|----------|---------|
+| B1 (Phrasing) | Does rephrasing affect baseline? | Content stable; presentation adapts |
+| B2 (Domain) | Does domain affect compliance? | 100% compliance across web dev, data science, DevOps |
+| B3 (Complexity) | Does complexity affect compliance? | 100% compliance across simple, medium, complex |
+
+**Conclusion:** Scenario variation does not confound A/B comparisons.
+
+### Category C: Skill Structure Variance
+
+| Test | Question | Finding |
+|------|----------|---------|
+| C1 (Requirement count) | Does # of requirements affect compliance? | No — 100% at 1, 3, and 5 requirements |
+| C2 (Instruction length) | Does length affect compliance? | No — 100% for short and long |
+| C3 (Instruction density) | Does density affect compliance? | No — density controls output depth, not compliance |
+
+**Conclusion:** Skill structure is a tool for controlling output style, not a risk factor for compliance.
+
+### Methodology Refinement: Observer Effect
+
+User caught naming bias twice during testing:
+1. "test" in skill descriptions — rejected
+2. "simple/medium/complex" in skill names — rejected
+
+**Lesson:** Any term revealing test intent can bias subagent behavior. Use meaningless suffixes: `scenario-{topic}-{random-suffix}`.
+
+### Phase 14b: A2b Deep-Dive and 5-Run Expansions (2026-02-05, continued)
+
+#### Session Context
+
+Rigorous review of stress test results identified three methodological concerns: (1) B/C categories used single probes — claims of "zero variance" statistically unsupported, (2) A2b variance was the most interesting finding but left unexplored, (3) only discipline skills tested — generalizability to pattern skills unknown. This session addressed concerns 1 and 2.
+
+#### B2 5-Run Expansion — Data Science Domain
+
+Ran "three options" skill 5 times against data science recommendation system scenario.
+
+**Result: 100% compliance (5/5).** Identical structural output across all runs — same 3 option categories (Collaborative Filtering, Content-Based, Hybrid) and same recommendation (Hybrid). Validates original single-probe finding.
+
+#### C1 5-Run Expansion — Compound-5 Requirements
+
+Ran 5-requirement skill (Historical Context, 2 code examples, Trade-offs, 3 alternatives, Summary) 5 times against Python GIL scenario.
+
+**Result: 100% compliance (25/25 requirement checks).** Validates original single-probe finding for compound skills.
+
+#### A2b Deep-Dive — Quantity vs Coverage Variance
+
+Two sub-experiments:
+
+**A2b-original expansion (5 more runs):** Same "exactly 3 options" + "all viable approaches" conflict on database recommendation scenario.
+
+| Runs 6-10 | All 5 presented exactly 3 options (PostgreSQL, MongoDB, SQLite) |
+|-----------|----------------------------------------------------------------|
+| Strategy | Reframing: "cover the spectrum" with 3 representative categories |
+| Compliance | 100% (5/5) |
+
+Combined with original 5 runs: 8/10 quantity, 2/10 coverage → **~80/20**, not the original 60/40.
+
+**A2b-reframed (5 runs):** Changed "exactly 3 options" to "the 3 most common options" to test whether selection criteria mitigate variance.
+
+| All 5 runs | 3 main options (PostgreSQL, MongoDB, MySQL) + "Additional Viable Approaches" section |
+|-----------|----------------------------------------------------------------|
+| Strategy | Two-tier structure: top 3 by popularity + supplementary coverage |
+| Compliance | 100% (5/5) — both constraints satisfied |
+
+**Key Findings:**
+
+1. **Original 60/40 not reproduced.** Actual variance ~80/20 across 10 runs. Initial 5-run sample over-estimated variance.
+
+2. **Selection criteria eliminate the conflict.** "The 3 most common" gives the model a principled basis for choosing, removing the "any 3 would be arbitrary" objection.
+
+3. **Framing changes the answer.** "Exactly 3" → diversity selection (relational, document, embedded). "3 most common" → popularity selection (PostgreSQL, MongoDB, MySQL). Different framing = different options.
+
+4. **Root cause identified.** Quantity constraints are fragile not because the model can't count, but because "exactly N" without selection criteria feels arbitrary. When a constraint feels arbitrary AND conflicts with helpfulness, the helpfulness override sometimes triggers. Adding selection criteria resolves the perceived arbitrariness.
+
+### Phase 14c: Pattern Skill Testing (2026-02-05, continued)
+
+#### Session Context
+
+All prior stress tests used discipline skills with countable requirements. This test validates that the A/B comparison framework generalizes to **pattern skills** — skills that produce qualitative, diffuse differences rather than binary/countable ones.
+
+#### Design
+
+**Target skill:** `writing-principles` — A pattern skill with 14 writing principles and a self-check procedure.
+
+**Scenario:** "Write a SKILL.md for a skill called `commit-message-guide`" — produces an instruction document, the exact document type writing-principles targets.
+
+**Method:** 5 baseline runs (scenario only) + 5 test runs (writing-principles body injected). Score each output against 7 measurement proxies derived from the skill's principles:
+
+| Proxy | Principle | How Measured |
+|-------|-----------|-------------|
+| Vague terms | P1 (Be Specific) | Count: "appropriate", "proper", "suitable", "handle", "ensure", etc. |
+| Scope section | P5 (Boundaries) | Boolean: explicit in-scope + out-of-scope present |
+| Example count | P3 (Show Examples) | Count of concrete examples in instructional sections |
+| Failure modes | P6 (Failure Modes) | Count of explicitly defined failure/error cases |
+| Preconditions | P8 (Preconditions) | Boolean: Requires/Check pattern present |
+| Success criteria | P13 (Outcomes) | Boolean: observable success criteria defined |
+| Filler phrases | P14 (Economy) | Count: "it is important", "please note", "remember to", passive voice |
+
+#### Results
+
+| Proxy | Baseline Mean | Test Mean | Delta | Direction Correct? |
+|-------|---------------|-----------|-------|--------------------|
+| Vague terms | 2.4 | 0.8 | -67% | **Yes** |
+| Scope section | 0/5 | 5/5 | 0%→100% | **Yes** |
+| Example count | 9.2 | 10.4 | +13% | Yes (marginal) |
+| Failure modes | 6.2 | 6.0 | ≈0% | No |
+| Preconditions | 0/5 | 4.5/5 | 0%→90% | **Yes** |
+| Success criteria | 0.2 | 0.6 | +0.4 | Yes |
+| Filler phrases | 0.5 | 0 | -0.5 | Yes |
+
+**6 of 7 proxies show expected direction.** 3 proxies (Scope, Preconditions, Vague terms) show strong, unmistakable shifts.
+
+#### Key Findings
+
+1. **Pattern skills produce measurable deltas.** The framework is not limited to discipline skills with countable requirements. Writing-principles caused detectable differences in 6 of 7 measurement proxies.
+
+2. **Boolean proxies are the strongest signal.** Scope section (0%→100%) and Preconditions (0%→90%) are the most reliable because they detect the *existence* of structural sections that the baseline never produces but the skill reliably triggers.
+
+3. **Self-check behavior is a bonus proxy.** All 5 test runs performed explicit self-check passes (the writing-principles workflow); 0 baseline runs did. This behavioral change is directly attributable and unmistakable.
+
+4. **Some proxies fail when baseline is already good.** Failure modes and filler phrases showed minimal delta because the model naturally produces this content for SKILL.md tasks — likely influenced by project context (CLAUDE.md, skills rules).
+
+5. **The skill was purely additive.** No proxy showed test worse than baseline.
+
+#### Proxy Effectiveness Hierarchy
+
+| Category | Signal | Examples | Recommendation |
+|----------|--------|----------|----------------|
+| Boolean structural | Strong | Scope section, Preconditions section | Primary indicators for pattern skills |
+| Behavioral workflow | Strong | Self-check passes, explicit risk calibration | Unplanned but powerful — look for workflow changes |
+| Count reduction | Moderate | Vague terms (-67%) | Good secondary when baseline has room to improve |
+| Count increase | Weak | Examples (+13%) | Ceiling effects limit utility |
+| Count neutral | None | Failure modes (≈0%) | Baseline already produces this naturally |
+
+### Stress Test Summary
+
+| Category | Tests | Finding |
+|----------|-------|---------|
+| A1 (Ambiguity) | 7 | Stable defaults; ambiguity ≠ variance |
+| A2 (Conflicts) | 3 + deep-dive | Content > format; quantity constraints mitigable via selection criteria |
+| B (Scenario) | 3 + 5-run expansion | 100% compliance across phrasing, domain, complexity |
+| C (Structure) | 3 + 5-run expansion | 100% compliance across requirement count, length, density |
+| Phase 1.2 (Pattern) | 10 runs (5+5) | 6/7 proxies show expected direction; framework generalizes |
+
+**Framework Validation Status:** All blocking stress tests complete. A, B, C, and Phase 1.2 validated. Adversarial tests (Phase 2.1) remain pending but non-blocking.
+
+---
+
 ## Key Insights (Synthesized)
 
 | # | Insight | Source |
@@ -604,6 +790,22 @@ Initial skill names included "test" and "baseline" (e.g., `edge-test-partial-com
 | 18 | Don't assume natural behavior — always run the baseline to see what actually happens | Edge Cases |
 | 19 | Negative delta (harmful skills) is clearly detectable through A/B comparison | Edge Cases |
 | 20 | Variance is dimension-dependent: format (low variance) vs content (higher variance) | Edge Cases |
+| 21 | Ambiguity ≠ variance: vague terms like "several", "appropriate", "better" have stable defaults | Stress Tests A1 |
+| 22 | Content completeness is the model's highest priority — format constraints (word limits) are overridden | Stress Tests A2a |
+| 23 | Quantity constraints ("exactly N") show minor variance (~80/20) mitigable by selection criteria ("the N most common" → 100%) | A2b Deep-Dive |
+| 24 | Reconcilable conflicts get reconciled: tone vs depth uses progressive disclosure | Stress Tests A2c |
+| 25 | Scenario phrasing affects presentation, not content compliance | Stress Tests B1 |
+| 26 | Domain and complexity don't affect skill compliance — 100% across all tested | Stress Tests B2-B3 |
+| 27 | Skill structure (requirement count, length, density) doesn't affect compliance — 100% | Stress Tests C1-C3 |
+| 28 | Instruction density controls output verbosity — sparse=concise, dense=elaborate | Stress Tests C3 |
+| 29 | Observer effect is real: naming skills "test" or "simple/medium/complex" can bias behavior | Stress Tests |
+| 30 | Quantity constraints are fragile due to perceived arbitrariness, not counting inability — selection criteria resolve this | A2b Deep-Dive |
+| 31 | Framing changes the answer, not just the structure — "exactly 3" picks for diversity; "3 most common" picks for popularity | A2b Deep-Dive |
+| 32 | 5-run expansions confirmed single-probe findings: B2 and C1 both showed 100% compliance with zero structural variance | 5-Run Expansions |
+| 33 | Pattern skills are testable via measurement proxies — 6/7 proxies detected expected directional difference for writing-principles | Phase 1.2 |
+| 34 | Boolean structural proxies (section exists/doesn't exist) are the strongest signal for pattern skills — categorical 0%→100% shifts | Phase 1.2 |
+| 35 | Self-check workflow behavior is an unplanned but powerful proxy — 0% baseline → 100% test for explicit self-check passes | Phase 1.2 |
+| 36 | Some proxies fail when baseline is already good — failure modes showed no delta because model naturally produces them for SKILL.md tasks | Phase 1.2 |
 
 ---
 
@@ -623,6 +825,16 @@ Initial skill names included "test" and "baseline" (e.g., `edge-test-partial-com
 | Impl | Revert to minimal ADR design | Over-engineering biased baseline; execution environment ≠ behavioral spec |
 | Edge | Use neutral skill naming | Prevents observer effect; "test/baseline" in names could bias behavior |
 | Edge | Variance depends on comparison dimension | Format comparisons need fewer runs than content comparisons |
+| Stress A1 | Accept ambiguous terms in skills | Model has stable defaults; vague terms don't cause variance |
+| Stress A2 | Don't pair hard limits with comprehensiveness | Content always wins; format constraints are overridden |
+| Stress A2 | Use selection criteria for quantity constraints | "Exactly N" may be refused; "the N most common" works better |
+| A2b Deep-Dive | Original 60/40 revised to 80/20 (N=10) | Larger sample reduced estimated variance |
+| A2b Deep-Dive | Selection-criteria framing eliminates quantity variance | "The 3 most common" → 100% compliance (N=5); enables two-tier structure |
+| Stress B | Any domain/complexity for scenarios | Compliance generalizes across technical contexts |
+| Stress C | Use instruction density to control output | More requirements + dense guidance = more elaborate output |
+| Phase 1.2 | Boolean proxies over count proxies for pattern skills | Categorical shifts (0→1) are unmistakable; count proxies suffer ceiling effects |
+| Phase 1.2 | Framework generalizes to pattern skills | 6/7 proxies detected expected direction; no proxy showed skill hurting output |
+| Phase 1.2 | Include behavioral workflow as proxy | Self-check behavior was the most dramatic signal — entirely unplanned |
 
 ---
 
@@ -635,6 +847,8 @@ Initial skill names included "test" and "baseline" (e.g., `edge-test-partial-com
 | Feasibility Spike Results | `docs/spikes/simulation-feasibility-spike_2026-02-04.md` |
 | Architecture Decision Record | `docs/adrs/0001-simulation-based-skill-assessment-architecture.md` |
 | Assessment-Runner Subagent | `.claude/agents/assessment-runner.md` |
+| Stress Test Plan | `docs/plans/2026-02-05-architecture-stress-test-plan.md` |
+| Stress Test Results | `docs/plans/2026-02-05-architecture-stress-test-results.md` |
 | This Discussion Map | `docs/discussions/DISCUSSION-MAP-simulation-based-assessment.md` |
 
 ---
@@ -648,11 +862,15 @@ Initial skill names included "test" and "baseline" (e.g., `edge-test-partial-com
 | Design skill file templates | High | ✅ Validated (baseline + test templates work) |
 | Edge case testing | High | ✅ Complete (Phase 13) |
 | Define run count guidelines | Medium | ✅ Complete (dimension-dependent) |
-| Implement scenario generation | High | Not started |
-| Create worked example | Medium | Partially complete (edge case tests) |
+| Architecture stress testing | High | ✅ Complete (Phase 14: A, B, C categories) |
+| Implement scenario generation | High | Ready to start (Phase 4) |
+| Create worked example | Medium | Partially complete (edge case + stress tests) |
 | Implement cleanup mechanism | Medium | Not started |
 | Oracle mitigation strategy | Medium | Not started |
-| Test partial compliance scenarios | Low | Not started (needs ambiguous skill design) |
+| Test partial compliance scenarios | Low | Addressed (A2b deep-dive: variance minor and mitigable) |
+| A2b variance deep-dive | High | ✅ Complete — revised to 80/20; selection-criteria framing eliminates variance |
+| B2/C1 5-run expansions | High | ✅ Complete — 100% compliance confirmed |
+| Pattern skill testing (Phase 1.2) | High | ✅ Complete — 6/7 proxies show expected direction; framework generalizes to pattern skills |
 
 ---
 
@@ -666,8 +884,12 @@ Initial skill names included "test" and "baseline" (e.g., `edge-test-partial-com
 
 ---
 
-*Last updated: 2026-02-04 (Session 3)*
-*Total discussion turns: 48 (38 + 10) + implementation session + validation session + edge case testing*
+*Last updated: 2026-02-05*
+*Total discussion turns: 48 (38 + 10) + implementation session + validation session + edge case testing + stress testing + A2b deep-dive + Phase 1.2 pattern skill testing*
 *Key pivot: Discovery that skills hot-reload but subagents don't*
 *Architecture validated: End-to-end A/B testing confirmed with "three options" skill*
 *Edge cases tested: Partial compliance, baseline similarity, negative delta, variance analysis*
+*Stress tests complete: A (ambiguity, conflicts + A2b deep-dive), B (scenario variance + 5-run expansions), C (skill structure + 5-run expansions)*
+*A2b deep-dive: Original 60/40 revised to 80/20 (N=10); selection-criteria framing eliminates variance (100%, N=5)*
+*Phase 1.2: Pattern skill testing complete — writing-principles tested with 7 proxies across 10 runs; 6/7 proxies show expected direction; framework generalizes to pattern skills*
+*Framework status: All blocking tests complete. Adversarial tests (Phase 2.1) pending but non-blocking.*

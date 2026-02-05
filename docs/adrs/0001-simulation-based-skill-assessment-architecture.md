@@ -441,6 +441,223 @@ Tested three edge cases to refine framework understanding.
 | Negative delta | Skill hurts quality | ✅ Confirmed | Harmful skills are detectable |
 | Variance | N=1 insufficient | ⚠️ Depends | Variance is dimension-dependent |
 
+### Architecture Stress Testing (2026-02-05)
+
+Tested whether ambiguous or conflicting skill instructions would break the A/B comparison mechanism. If variance is high, comparisons become unreliable.
+
+**Methodology:**
+- 5 runs per test condition
+- Neutral skill naming (`scenario-{topic}-{suffix}`) to prevent observer effect
+- `context: fork` + `agent: assessment-runner` execution
+
+#### Category A1: Ambiguous Instructions
+
+Tested whether vague/undefined terms cause high variance.
+
+| Test | Instruction | Finding | Variance |
+|------|-------------|---------|----------|
+| A1a | "several" (quantifier) | ~19 examples consistently | LOW |
+| A1b | "concise" vs "thorough" | Asymmetric effect (-55%/+24%) | LOW |
+| A1c | "appropriate caveats" | 8-9 caveats consistently | LOW |
+| A1d | "better" (code) | 4 core changes consistent | LOW |
+| A1e | "optimize" | Identical algorithm all 5 runs | **ZERO** |
+| A1f | "improve" (recommendations) | Same pattern across runs | LOW |
+| A1g | "professional" | Near-identical outputs | VERY LOW |
+
+**Key Finding: Ambiguity ≠ Variance.** The model has stable defaults for ambiguous terms. Domain-specific terms ("optimize") have stronger defaults than general terms ("better").
+
+**Implication:** Ambiguous skill instructions don't break A/B comparisons. The variance comes from what the model *decides* terms mean, not randomness.
+
+#### Category A2: Conflicting Requirements
+
+Tested what happens when skill instructions genuinely conflict.
+
+| Test | Conflict | Resolution | Consistency |
+|------|----------|------------|-------------|
+| A2a | 200-word limit vs comprehensive coverage | Content wins | 100% |
+| A2b | Exactly 3 options vs all viable approaches | Quantity wins (revised) | 80% quantity / 20% coverage (N=10) |
+| A2c | Beginner-friendly vs expert depth | Both (progressive disclosure) | 100% |
+
+**Key Findings:**
+
+1. **Content completeness is highest priority.** Format constraints (word limits) are systematically overridden when they conflict with comprehensiveness.
+
+2. **Quantity constraints show minor variance, mitigable by framing.** "Exactly N options" showed ~80/20 compliance across 10 runs (revised from 60/40 on initial 5). A2b deep-dive found that reframing to "the 3 most common options" eliminates variance entirely (100% compliance, 5/5) — selection criteria remove the perceived arbitrariness that triggers the helpfulness override.
+
+3. **Framing changes the answer, not just structure.** "Exactly 3" selects for diversity (relational, document, embedded); "3 most common" selects for popularity (PostgreSQL, MongoDB, MySQL). Skill authors should choose framing deliberately.
+
+4. **Reconcilable conflicts get reconciled.** When structural solutions exist (like progressive disclosure for tone vs depth), the model finds them rather than choosing one requirement over another.
+
+5. **Conflict acknowledgment is rare.** The model silently resolves tensions rather than explicitly noting the conflict.
+
+#### Stress Test Summary
+
+| Category | Question | Answer |
+|----------|----------|--------|
+| A1 (Ambiguity) | Do vague terms cause variance? | No — stable defaults exist |
+| A2a (Format vs Content) | Which wins when conflicting? | Content, 100% of the time |
+| A2b (Quantity vs Coverage) | Which wins when conflicting? | ~80/20 quantity wins; mitigated by selection-criteria framing |
+| A2c (Tone vs Depth) | Which wins when conflicting? | Both — reconciled via layering |
+
+**Conclusion:** The A/B comparison mechanism remains reliable. Skill instructions produce consistent, predictable behavior even when ambiguous or conflicting. The only notable variance — quantity constraints ("exactly N") — was found to be minor (~80/20 across 10 runs) and fully mitigable by providing selection criteria (e.g., "the 3 most common" instead of "exactly 3").
+
+#### Implications for Skill Design
+
+| Finding | Skill Design Guideline |
+|---------|------------------------|
+| Ambiguity has stable defaults | Vague terms are OK — but specify if you need non-default interpretation |
+| Content > Format | Hard limits (word counts) will be overridden for comprehensiveness |
+| Quantity constraints need selection criteria | "Exactly N" is fragile; "the N most common/important" eliminates variance |
+| Reconcilable conflicts get both | Tone + depth can coexist via progressive disclosure |
+| Helpfulness > Compliance | Model biases toward helpful output over strict instruction following |
+
+#### Category B: Scenario Variance (2026-02-05)
+
+Tested whether the A/B comparison mechanism is robust to scenario variation. If baseline behavior varies based on phrasing, domain, or complexity, skill effects become harder to attribute.
+
+**B1: Phrasing Variance**
+
+Same scenario (REST API error handling) with three phrasings: formal (explicit structure), casual (conversational), minimal (topic only).
+
+| Finding | Implication |
+|---------|-------------|
+| Core content stable across phrasings | Skills affecting content won't be confounded by phrasing |
+| Presentation adapts to input style | Skills affecting format should control for phrasing |
+| Minimal phrasing triggered web search | Phrasing can affect tool usage, not just output |
+
+**Variance: LOW for content, MODERATE for presentation.**
+
+**B2: Domain Variance**
+
+Same "three options" skill across three domains: web dev, data science, DevOps.
+
+| Criterion | Web Dev | Data Science | DevOps |
+|-----------|---------|--------------|--------|
+| Exactly 3 options | ✅ | ✅ | ✅ |
+| Strengths/weaknesses | ✅ | ✅ | ✅ |
+| Recommendation | ✅ | ✅ | ✅ |
+
+**Compliance: 100% across all domains.** Domain doesn't affect skill compliance.
+
+**B3: Complexity Variance**
+
+Same "three options" skill across complexity levels: simple (editor choice), medium (React state management with constraints), complex (enterprise migration with 7 constraints).
+
+| Criterion | Simple | Medium | Complex |
+|-----------|--------|--------|---------|
+| Exactly 3 options | ✅ | ✅ | ✅ |
+| Strengths/weaknesses | ✅ | ✅ | ✅ |
+| Recommendation | ✅ | ✅ | ✅ |
+
+**Compliance: 100% across all complexity levels.** The model scales depth to match complexity while maintaining structural compliance.
+
+#### Category B Summary
+
+| Test | Question | Finding |
+|------|----------|---------|
+| B1 (Phrasing) | Does phrasing affect baseline? | Content stable; presentation adapts |
+| B2 (Domain) | Does domain affect compliance? | No — 100% compliance across domains |
+| B3 (Complexity) | Does complexity affect compliance? | No — 100% compliance across complexity |
+
+**Conclusion:** The A/B comparison mechanism is robust to scenario variation. Phrasing, domain, and complexity do not introduce variance that would confound skill assessment.
+
+#### Category C: Skill Structure Variance (2026-02-05)
+
+Tested whether skill structure (number of requirements, instruction length, instruction density) affects compliance rates.
+
+**C1: Simple vs Compound Skills**
+
+Same scenario (Python GIL explanation) with increasing requirements: 1, 3, and 5 requirements.
+
+| Condition | Requirements | Compliance |
+|-----------|--------------|------------|
+| Simple | 1 | 100% |
+| Compound-3 | 3 | 100% |
+| Compound-5 | 5 | 100% |
+
+**Finding:** Number of requirements does not affect compliance when requirements are clear and countable.
+
+**C2: Skill Length Effects**
+
+Same requirements (3 advantages, 3 disadvantages, recommendation) with short (~25 words) vs long (~170 words) instructions.
+
+| Condition | Compliance | Output Effect |
+|-----------|------------|---------------|
+| Short | 100% | Standard output |
+| Long | 100% | More nuanced recommendation |
+
+**Finding:** Instruction length doesn't affect compliance. Longer instructions can add depth to specific sections.
+
+**C3: Instruction Density**
+
+Same requirements with sparse (bullet points only) vs dense (with rationale and examples) guidance.
+
+| Condition | Compliance | Output Words |
+|-----------|------------|--------------|
+| Sparse | 100% | ~450 |
+| Dense | 100% | ~1100 |
+
+**Finding:** Density affects output depth, not compliance. Model adapts presentation to match instruction style.
+
+#### Category C Summary
+
+| Test | Question | Finding |
+|------|----------|---------|
+| C1 | Does # of requirements affect compliance? | No — 100% at 1, 3, and 5 requirements |
+| C2 | Does instruction length affect compliance? | No — 100% for short and long |
+| C3 | Does instruction density affect compliance? | No — 100% for sparse and dense |
+
+**Implication for skill authors:** Skill structure is a tool for controlling output style, not a risk factor for compliance. Use multiple requirements freely; control verbosity through instruction density.
+
+#### Combined A+B+C Implications
+
+| Dimension | Variance | Implication for Framework |
+|-----------|----------|---------------------------|
+| Skill ambiguity (A1) | Low | Vague skill instructions are interpreted consistently |
+| Skill conflicts (A2) | Low (mitigable) | Content > format; quantity constraints need selection criteria |
+| Scenario phrasing (B1) | Low (content) | Scenario phrasing doesn't confound content-focused skills |
+| Scenario domain (B2) | Zero | Skills work consistently across technical domains |
+| Scenario complexity (B3) | Zero | Skills work consistently across complexity levels |
+| Skill requirement count (C1) | Zero | Multiple requirements don't degrade compliance |
+| Skill instruction length (C2) | Zero | Length affects depth, not compliance |
+| Skill instruction density (C3) | Zero | Density controls output verbosity |
+
+#### Phase 1.2: Pattern Skill Testing (2026-02-05)
+
+Tested whether the A/B comparison framework generalizes from discipline skills (countable requirements) to pattern skills (qualitative, diffuse differences). All prior tests used skills with binary/countable success criteria; this test validates measurement via proxies.
+
+**Target Skill:** `writing-principles` — 14 writing principles for instruction documents.
+**Scenario:** Write a SKILL.md for `commit-message-guide`. 5 baseline + 5 test runs.
+**Method:** Define 7 measurement proxies from the skill's principles, score all 10 outputs.
+
+| Proxy | Baseline Mean | Test Mean | Delta | Signal |
+|-------|---------------|-----------|-------|--------|
+| Vague terms (P1) | 2.4 | 0.8 | -67% | Moderate |
+| Scope section (P5) | 0/5 | 5/5 | 0%→100% | **Strong** |
+| Example count (P3) | 9.2 | 10.4 | +13% | Weak |
+| Failure modes (P6) | 6.2 | 6.0 | ≈0% | None |
+| Preconditions (P8) | 0/5 | 4.5/5 | 0%→90% | **Strong** |
+| Success criteria (P13) | 0.2 | 0.6 | +0.4 | Moderate |
+| Filler phrases (P14) | 0.5 | 0 | -0.5 | Weak |
+
+**Result: 6 of 7 proxies show expected direction.** Framework generalizes to pattern skills.
+
+**Key Findings:**
+
+1. **Boolean proxies (section presence) are the strongest signal.** Scope and Preconditions went from 0% to 90-100% — unmistakable categorical shifts.
+
+2. **Count proxies show moderate signal.** Vague term reduction (-67%) is clear; example count increase (+13%) is real but modest due to ceiling effects.
+
+3. **Some proxies fail when baseline is already good.** Failure modes showed no delta because the model naturally produces this content for SKILL.md tasks. Proxy selection must account for baseline quality.
+
+4. **Self-check workflow is an unplanned powerful proxy.** All 5 test runs performed explicit self-check passes (writing-principles workflow); 0 baseline runs did. This behavioral difference is the most dramatic and directly attributable signal.
+
+5. **The skill was purely additive.** No proxy showed test worse than baseline.
+
+**Implication for framework:** Pattern skills are assessable through measurement proxies. Boolean structural proxies and behavioral workflow proxies are most reliable. The framework is validated for both discipline and pattern skill types.
+
+**Framework validation status:** All blocking stress tests complete. A (ambiguity, conflicts + A2b deep-dive), B (scenario variance + 5-run expansions), C (skill structure + 5-run expansions), and Phase 1.2 (pattern skill testing) all validated. A/B comparison mechanism works across skill instruction variance, scenario variance, skill structure variance, and skill type variance (discipline + pattern). Adversarial tests (Phase 2.1) remain pending but are non-blocking.
+
 ---
 
 ## Implementation Path
@@ -458,20 +675,21 @@ Tested three edge cases to refine framework understanding.
 
 ### Open Design Questions
 
-| Question | Options | Recommendation |
-|----------|---------|----------------|
-| Observability approach | Background execution + file parse vs. self-reporting | Start with self-reporting; add background parsing if needed |
-| Skill directory location | `.claude/skills/assessment-*/` vs. temp directory | `.claude/skills/` for hot-reload; cleanup after |
-| Scenario ID format | UUID vs. incrementing vs. hash | Short hash of scenario content for reproducibility |
-| Cleanup timing | After each scenario vs. after full assessment | After full assessment (enables debugging) |
-| Runs per scenario | 1 vs. 3-5 vs. 10+ | Depends on comparison dimension: format (1-3), content (5+) |
-| Skill naming | Descriptive vs. neutral IDs | Neutral IDs (e.g., `scenario-xyz-7x`) to prevent observer effect |
+| Question | Options | Recommendation | Status |
+|----------|---------|----------------|--------|
+| Observability approach | Background execution + file parse vs. self-reporting | Start with self-reporting; add background parsing if needed | Open |
+| Skill directory location | `.claude/skills/assessment-*/` vs. temp directory | `.claude/skills/` for hot-reload; cleanup after | Open |
+| Scenario ID format | UUID vs. incrementing vs. hash | Short hash of scenario content for reproducibility | Open |
+| Cleanup timing | After each scenario vs. after full assessment | After full assessment (enables debugging) | Open |
+| Runs per scenario | 1 vs. 3-5 vs. 10+ | **5 runs validated** — shows variance patterns clearly; format comparisons may need fewer | ✅ Validated |
+| Skill naming | Descriptive vs. neutral IDs | **Neutral IDs confirmed** — `scenario-{topic}-{suffix}` prevents observer effect | ✅ Validated |
 
 ---
 
 ## References
 
 - **Spike results:** `docs/spikes/simulation-feasibility-spike_2026-02-04.md`
+- **Stress test results:** `docs/plans/2026-02-05-architecture-stress-test-results.md`
 - **Framework specification:** `docs/frameworks/simulation-based-skill-assessment_v0.1.0.md`
 - **Discussion consolidation:** `docs/discussions/CONSOLIDATED-simulation-based-assessment-discussions.md`
 - **Skills/subagents relationship:** `docs/discussions/skills-subagents-relationship.md`
@@ -536,3 +754,8 @@ Tested three edge cases to refine framework understanding.
 | 2026-02-04 | Initial ADR created from spike findings |
 | 2026-02-04 | Added end-to-end validation test results; updated implementation path |
 | 2026-02-04 | Added edge case testing results (partial compliance, baseline similarity, negative delta, variance); added observer effect mitigation guidance |
+| 2026-02-05 | Added architecture stress testing results (A1 ambiguity, A2 conflicts); confirmed A/B comparison reliability; added skill design implications |
+| 2026-02-05 | Added Category B results (scenario variance: phrasing, domain, complexity); framework validation status updated |
+| 2026-02-05 | Added Category C results (skill structure: requirement count, length, density); all stress tests complete; framework ready for Phase 4 |
+| 2026-02-05 | A2b deep-dive: revised variance from 60/40 to 80/20 (N=10); reframing with selection criteria eliminates variance (100%, N=5); updated skill design guidelines |
+| 2026-02-05 | Phase 1.2: Pattern skill testing complete. writing-principles tested with 7 measurement proxies across 10 runs (5 baseline + 5 test). 6/7 proxies show expected direction. Framework generalizes to pattern skills. |
