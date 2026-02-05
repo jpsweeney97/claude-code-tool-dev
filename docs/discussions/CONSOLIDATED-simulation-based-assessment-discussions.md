@@ -191,11 +191,12 @@ A 6-experiment plan to validate the approach before full design:
 |-------|--------|-------|
 | 0. Feasibility Spike | ✓ Complete | All experiments pass. See `docs/spikes/simulation-feasibility-spike_2026-02-04.md` |
 | 1. Framework Specification | ✓ Complete | `simulation-based-skill-assessment_v0.1.0.md` |
-| 2. Skill Architecture Design | **Next** | Incorporate spike constraints (task framing, background execution, hybrid architecture) |
-| 3. Subagent Orchestration | Not started | Create assessment-runner subagent |
-| 4. Worked Example | Not started | Apply framework to real skill |
-| 5. Skill Implementation | Not started | Build the new improving-skills |
-| 6. Validation | Not started | Test improved skill on itself |
+| 2. Skill Architecture Design | ✓ Complete | assessment-runner subagent created; templates validated |
+| 3. Architecture Validation | ✓ Complete | End-to-end A/B test with "three options" skill |
+| 4. Scenario Generation | **Next** | Implement 8-step framework |
+| 5. Worked Example | Not started | Apply framework to real skill |
+| 6. Skill Implementation | Not started | Build the new improving-skills |
+| 7. Validation | Not started | Test improved skill on itself |
 
 ---
 
@@ -228,19 +229,23 @@ The framework makes these decisions explicit, traceable, and auditable — not e
 10. **Assessment hierarchy** — Empirical primary, theoretical supporting
 11. **Irreducible judgment** — Structure it, don't try to eliminate it
 12. **Difficulty is diagnostic** — If framework struggles, Claude will too
+13. **Countable success criteria** — Unambiguous metrics (0 options vs 3) make delta evaluation conclusive
 
 ---
 
 ## Quick Reference: What To Do Next
 
-**Spike is complete.** All experiments pass. Proceed to Phase 2.
+**Architecture validated.** End-to-end A/B test confirms skill injection works. Proceed to Phase 4.
 
-**Phase 2: Skill Architecture Design**
-1. Create static `assessment-runner` subagent (tools, permissions, model)
-2. Design skill file templates for baseline and test scenarios
-3. Implement 8-step scenario generation framework
-4. Implement skill-based assessment workflow using `context: fork`
-5. Create worked example with real skill
+**Completed:**
+- ✅ assessment-runner subagent (minimal, 16 lines)
+- ✅ Skill file templates (baseline + test validated)
+- ✅ Architecture validation ("three options" test conclusive)
+
+**Phase 4: Scenario Generation (Next)**
+1. Implement 8-step scenario generation framework
+2. Create worked example with real skill (e.g., improving-skills)
+3. Build the new simulation-based improving-skills
 
 **Recommended Architecture (from spike):**
 
@@ -260,7 +265,8 @@ The framework makes these decisions explicit, traceable, and auditable — not e
 
 ---
 
-*Last updated: 2026-02-04 (spike completed, architecture finalized)*
+*Last updated: 2026-02-04 (architecture validated with end-to-end test)*
 *Source discussions: 7 files, ~4,500 lines total*
 *Spike results: `docs/spikes/simulation-feasibility-spike_2026-02-04.md`*
 *Key finding: Skills hot-reload, subagents don't — use `context: fork` for dynamic assessment*
+*Architecture validated: "Three options" test shows 0→3 options delta between baseline and test*

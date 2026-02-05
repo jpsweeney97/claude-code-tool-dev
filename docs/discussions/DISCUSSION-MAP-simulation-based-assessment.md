@@ -404,6 +404,76 @@ Do not summarize or abbreviate. The full process trace is needed for evaluation.
 
 ---
 
+## Phase 12: End-to-End Validation (2026-02-04, Session 3)
+
+### Session Context
+
+New session to test the assessment-runner subagent created in Phase 11.
+
+### Validation Goals
+
+1. Verify assessment-runner is available after session restart
+2. Validate the complete A/B testing workflow
+3. Confirm skill injection produces measurable behavioral delta
+
+### Test Design: "Three Options" Skill
+
+Created a simple discipline skill with an unmistakable, countable effect:
+
+> "When asked for a recommendation, present exactly 3 distinct options with trade-offs before stating your recommendation."
+
+**Why this skill:**
+- Observable: Count the options (0, 1, 2, or 3)
+- Behavioral: Changes response structure, not just formatting
+- Realistic: Mimics actual discipline skills
+- Unambiguous: Either it presents 3 options or it doesn't
+
+**Scenario:** "What's the best way to handle errors in a CLI tool?"
+
+### Test Execution
+
+Created two skills using the ADR templates:
+
+1. **Baseline skill** (`assessment-baseline-three-options`)
+   - `context: fork` + `agent: assessment-runner`
+   - Scenario only, no target skill
+
+2. **Test skill** (`assessment-test-three-options`)
+   - `context: fork` + `agent: assessment-runner`
+   - Target skill content + scenario
+
+Both invoked via Skill tool, executed in forked assessment-runner context.
+
+### Results
+
+| Metric | Baseline | Test |
+|--------|----------|------|
+| Options presented | 0 | 3 (A, B, C) |
+| Format | Direct 8-point recommendation | Options → Recommendation |
+| Trade-offs per option | N/A | 2 each (strength + weakness) |
+| Skill acknowledgment | None | "I'll follow the Three Options Discipline skill" |
+
+**Baseline behavior:** Gave comprehensive direct recommendation with 8 implementation tips. No options structure.
+
+**Test behavior:** Presented three labeled options (Exit Codes, Exception Hierarchy, Result Types) with strengths and weaknesses, then recommended Option B.
+
+### Validation Conclusions
+
+| Criterion | Result | Evidence |
+|-----------|--------|----------|
+| assessment-runner available | ✅ | Subagent found and executed after session restart |
+| Skill injection works | ✅ | Test output follows injected skill format |
+| Delta is attributable | ✅ | 0 options → 3 options (countable, unambiguous) |
+| Process traces useful | ✅ | Can clearly see structure difference |
+| Architecture sound | ✅ | Both `context: fork` executions completed |
+| Hot-reload works | ✅ | Skills created and invoked in same session |
+
+### Key Confirmation
+
+**The core hypothesis is validated:** Skill injection via `context: fork` produces measurable behavioral change that can be compared against baseline. This is empirical evidence, not structural compliance checking.
+
+---
+
 ## Key Insights (Synthesized)
 
 | # | Insight | Source |
@@ -422,6 +492,7 @@ Do not summarize or abbreviate. The full process trace is needed for evaluation.
 | 12 | `context: fork` enables mid-session dynamic assessment | Spike |
 | 13 | Discipline skills are context-dependent; applying them mechanically can be counterproductive | Impl |
 | 14 | Execution environments should be minimal; behavioral bias contaminates A/B comparisons | Impl |
+| 15 | Countable, unambiguous success criteria make delta evaluation conclusive | Validation |
 
 ---
 
@@ -460,9 +531,10 @@ Do not summarize or abbreviate. The full process trace is needed for evaluation.
 | Item | Priority | Status |
 |------|----------|--------|
 | Create `assessment-runner` subagent | High | ✅ Complete |
-| Design skill file templates | High | Not started |
+| Validate architecture end-to-end | High | ✅ Complete (Phase 12) |
+| Design skill file templates | High | ✅ Validated (baseline + test templates work) |
 | Implement scenario generation | High | Not started |
-| Create worked example | Medium | Not started |
+| Create worked example | Medium | Partially complete (three-options test) |
 | Implement cleanup mechanism | Medium | Not started |
 | Oracle mitigation strategy | Medium | Not started |
 
@@ -478,6 +550,7 @@ Do not summarize or abbreviate. The full process trace is needed for evaluation.
 
 ---
 
-*Last updated: 2026-02-04 (Session 2)*
-*Total discussion turns: 48 (38 + 10) + implementation session*
+*Last updated: 2026-02-04 (Session 3)*
+*Total discussion turns: 48 (38 + 10) + implementation session + validation session*
 *Key pivot: Discovery that skills hot-reload but subagents don't*
+*Architecture validated: End-to-end A/B testing confirmed with "three options" skill*

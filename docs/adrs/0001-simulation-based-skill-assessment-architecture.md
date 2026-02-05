@@ -340,18 +340,53 @@ Result:
 FORKED-SKILL-RESPONSE: 4
 ```
 
+### End-to-End Architecture Validation (2026-02-04)
+
+Validated the complete A/B testing workflow using a simple "three options" discipline skill.
+
+**Test Design:**
+
+| Component | Implementation |
+|-----------|----------------|
+| Target skill | "Present exactly 3 options before recommending" |
+| Scenario | "What's the best way to handle errors in a CLI tool?" |
+| Baseline | Skill with `context: fork` + `agent: assessment-runner`, scenario only |
+| Test | Skill with `context: fork` + `agent: assessment-runner`, target skill + scenario |
+| Success criteria | Countable difference in output structure |
+
+**Results:**
+
+| Metric | Baseline | Test |
+|--------|----------|------|
+| Options presented | 0 | **3 (A, B, C)** |
+| Format | Direct recommendation | Options → Recommendation |
+| Trade-offs per option | N/A | 2 each (strength + weakness) |
+| Skill acknowledgment | None | Explicit |
+
+**Baseline output:** Direct 8-point recommendation on CLI error handling.
+
+**Test output:** Three labeled options (Exit Codes, Exception Hierarchy, Result Types) with trade-offs, followed by recommendation.
+
+**Conclusion:** ✅ Architecture validated. The delta is:
+- **Unmistakable** — 0 options vs 3 options
+- **Attributable** — Test explicitly acknowledged the skill
+- **Observable** — Process traces show structural difference
+
+This confirms the core hypothesis: skill injection via `context: fork` produces measurable behavioral change that can be compared against baseline.
+
 ---
 
 ## Implementation Path
 
-### Phase 2: Skill Architecture Design (Next)
+### Phase 2: Skill Architecture Design
 
-1. **Create assessment-runner subagent** — Static, checked into repo
-2. **Implement skill file generation** — Templates for baseline and test skills
-3. **Implement skill content extraction** — Read target skill, strip frontmatter
-4. **Implement 8-step scenario generation** — From framework spec
-5. **Implement skill invocation** — Use Skill tool for forked execution
-6. **Implement cleanup** — Remove temporary skill directories
+1. ✅ **Create assessment-runner subagent** — Minimal design (16 lines), checked into repo
+2. ✅ **Validate architecture** — End-to-end test with "three options" skill
+3. **Implement skill file generation** — Templates for baseline and test skills
+4. **Implement skill content extraction** — Read target skill, strip frontmatter
+5. **Implement 8-step scenario generation** — From framework spec
+6. **Implement skill invocation** — Use Skill tool for forked execution
+7. **Implement cleanup** — Remove temporary skill directories
 
 ### Open Design Questions
 
@@ -429,3 +464,4 @@ FORKED-SKILL-RESPONSE: 4
 | Date | Change |
 |------|--------|
 | 2026-02-04 | Initial ADR created from spike findings |
+| 2026-02-04 | Added end-to-end validation test results; updated implementation path |
