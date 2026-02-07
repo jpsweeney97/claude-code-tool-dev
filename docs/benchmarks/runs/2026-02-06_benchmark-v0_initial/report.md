@@ -3,7 +3,7 @@
 **Run ID:** 2026-02-06_benchmark-v0_initial
 **Framework:** `docs/frameworks/simulation-effectiveness-benchmark_v0.1.0.md`
 **Suite matrix:** `docs/benchmarks/suites/benchmark-v0_v0.1.0.md`
-**Verdict:** TBD (anchor scenarios complete; rubric scenarios not yet executed)
+**Verdict:** TBD (anchor scenarios complete; rubric scenarios partially executed)
 
 ---
 
@@ -20,17 +20,17 @@
 
 ### Rubric Scenarios (rubric_blinded oracle)
 
-Run record stubs have been scaffolded for all 5 rubric scenarios, but **no rubric runs have been executed**. All rubric run-record files contain only placeholder templates (empty Output, Tool Trace, and Oracle Results sections).
+Rubric scenario execution is in progress. Some rubric run records were previously scaffolded as stubs, but rubric execution has now begun.
 
 | scenario_id | Planned (per suite matrix) | Stubs Scaffolded | Runs Executed | Status |
 |---|---|--:|--:|---|
-| v0-rubric-scenario-spec-004 | baseline×3, placebo×1, harmful_brevity×1, proxy_gaming×1 | 9 (incl. 3 target stubs marked "no TARGET per suite") | 0 | **not started** |
+| v0-rubric-scenario-spec-004 | baseline×3, placebo×1, harmful_brevity×1, proxy_gaming×1 | 9 (incl. 3 target stubs marked "no TARGET per suite") | 6 | COMPLETE |
 | v0-rubric-report-005 | baseline×3, target×3, proxy_gaming×1 | 7 | 0 | **not started** |
 | v0-rubric-controls-006 | baseline×3, harmful_brevity×1 | 7 (incl. 3 target stubs marked "no TARGET per suite") | 0 | **not started** |
 | v0-rubric-exact-three-options-007 | baseline×3, target×3 | 6 | 0 | **not started** |
 | v0-rubric-reference-008 | baseline×3, target×3 | 6 | 0 | **not started** |
 
-**Executed runs total: 22 (anchor only). Rubric runs: 0 executed, 35 stubs scaffolded.**
+**Executed runs total: 28. Rubric runs: 6 executed (v0-rubric-scenario-spec-004), remainder pending.**
 
 ---
 
@@ -195,7 +195,7 @@ Placebo (tested on vitest-001) was indistinguishable from baseline — expected.
 | oracle_type | Scenarios | Runs Executed | Baseline-Target Delta | Controls Validated |
 |---|--:|--:|---|---|
 | objective_tests | 3 | 22 | 0 (all PASS) | harmful_no_tools 2/2 FAIL; placebo/irrelevant neutral |
-| rubric_blinded | 5 | 0 (stubs only) | **not executed** | **not executed** |
+| rubric_blinded | 5 | 6 (1 scenario: spec-004) | — (scoring deferred) | 1 of 5 scenarios executed; blinded scoring pending |
 
 ### By skill_type (anchor only)
 
@@ -236,9 +236,26 @@ Placebo (tested on vitest-001) was indistinguishable from baseline — expected.
 
 ---
 
+## Rubric Execution Progress
+
+### v0-rubric-scenario-spec-004 — Execution Complete (Rubric-Blinded)
+
+Rubric scoring is deferred (blinded evaluation required), but scenario execution for `v0-rubric-scenario-spec-004` is now complete for all scheduled conditions:
+- baseline: run-1/run-2/run-3
+- placebo: run-1
+- proxy_gaming: run-1
+- harmful_brevity_60w: run-1
+
+Notable qualitative signals recorded in run records (no self-scoring):
+- **Proxy gaming structural pressure:** partial compliance with required headings and explicit verification claim.
+- **Harmful brevity mismatch:** the 60-word constraint was violated by necessity of the YAML artifact; the record flags task-control incompatibility as a confounder.
+- **Attractor break:** harmful_brevity_60w diverged from the dominant `error-messages.ts` target seen in baseline/placebo/proxy_gaming, selecting a different task framing (new MCP tool).
+
+---
+
 ## Final Verdict + Justification
 
-**Verdict for anchor scenarios: INCONCLUSIVE (pending rubric scenarios)**
+**Verdict for anchor scenarios: INCONCLUSIVE (pending remaining rubric scenarios)**
 
 **What the anchor data supports:**
 1. **Architecture validity (mechanical):** YES — 22/22 runs executed without infrastructure failure. Skill injection, oracle execution, and cleanup all work reliably.
@@ -247,11 +264,11 @@ Placebo (tested on vitest-001) was indistinguishable from baseline — expected.
 
 **Why INCONCLUSIVE rather than NO:**
 - The binary oracle's inability to detect target improvement is a known limitation of anchor scenarios with ceiling effects, not necessarily a failure of the architecture.
-- Rubric scenarios (5 planned, 0 executed) are designed to test the architecture's ability to detect subtler quality differences using blinded evaluation — precisely the case where binary oracles plateau.
+- Rubric scenarios (5 planned, 1 executed) are designed to test the architecture's ability to detect subtler quality differences using blinded evaluation — precisely the case where binary oracles plateau.
 - The framework's decision threshold (Section 9.3 of `docs/frameworks/simulation-effectiveness-benchmark_v0.1.0.md`) requires target improvement on ≥70% of scenarios — this cannot be assessed until rubric runs are executed and scored.
 
 **Blocking items for final verdict:**
-1. Execute all 5 rubric scenarios (run record stubs are scaffolded; no runs completed yet)
+1. Execute remaining rubric scenarios (4 left after `v0-rubric-scenario-spec-004`)
 2. Blinded evaluation and rubric scoring for all rubric runs
 3. Rubric scores added to `scores.md`
 4. Re-evaluation against Section 9.3 thresholds with full data

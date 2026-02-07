@@ -88,13 +88,60 @@ Use **ONLY** these for mapping and citations:
 
 ## Immediate Next Action
 
-Proceed to scoring + report updates for `2026-02-06_benchmark-v0_initial`.
+All scheduled conditions for `v0-rubric-scenario-spec-004` are complete (baseline ×3, placebo ×1, proxy_gaming ×1, harmful_brevity_60w ×1). Next step: scoring/report updates for the benchmark run.
+
+Execute exactly one run:
+
+- N/A (scenario execution phase complete)
 
 Write run record:
 
 - No new run record. Next updates typically go to:
   - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/scores.md`
   - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/report.md`
+
+## Next Claude Prompt (Copy/Paste)
+
+```text
+Proceed to scoring/report updates for the benchmark run:
+
+- benchmark_run_id: 2026-02-06_benchmark-v0_initial
+- scenario_id: v0-rubric-scenario-spec-004
+
+Repo:
+- /Users/jp/Projects/active/claude-code-tool-dev
+
+Authoritative docs (ONLY these six for mapping/citations):
+1) /Users/jp/Projects/active/claude-code-tool-dev/docs/simulation-assessment-context-official.md
+2) /Users/jp/Projects/active/claude-code-tool-dev/docs/frameworks/simulation-effectiveness-benchmark_v0.1.0.md
+3) /Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/suites/benchmark-v0_v0.1.0.md
+4) /Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/target-skills_v0.1.0.md
+5) /Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/control-bodies_v0.1.0.md
+6) /Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/bench-skill-bodies_v0.1.0.md
+
+Hard invariants:
+- Never use rm; use trash.
+- Citations must use ONLY the six canonical docs above.
+- Do not self-score any rubric-blinded runs.
+
+Scoring/report requirements:
+1) Do NOT retroactively change any run record content except to repair invariant violations.
+2) Update `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/scores.md` with run completion + scoring placeholders (no rubric self-scores).
+3) Update `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/report.md` with a concise narrative of observed effects across conditions.
+4) Include a completion table for `v0-rubric-scenario-spec-004` (baseline run-1/2/3, placebo run-1, proxy_gaming run-1, harmful_brevity_60w run-1).
+5) Summarize notable confounders/signals: proxy-gaming heading partial compliance; harmful brevity 60-word violation; attractor break (error-messages.ts vs new tool).
+
+Final response format:
+- First line: COMPLETED or BLOCKED: <reason>
+- Then 5–10 concise bullets summarizing what happened (no full-file paste).
+```
+
+## Repo State Notes
+
+- Benchmark artifacts under `docs/benchmarks/` are now tracked in git (use `git diff` for verification).
+- Two unrelated plan docs remain untracked:
+  - `docs/plans/codex-tool-dev-repo-skeleton.md`
+  - `docs/plans/codex-tool-dev-repo-spec.md`
 
 Response format:
 
