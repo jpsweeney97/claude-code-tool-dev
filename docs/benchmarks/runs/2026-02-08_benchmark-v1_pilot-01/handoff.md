@@ -72,19 +72,27 @@ All 6 runs COMPLETED. Blinded evaluation materials READY.
 - `blinded_eval/blinded_eval_packet.md` — READY FOR EVALUATION
 - `blinded_eval/blinded_eval_mapping_private.md` — POPULATED
 
+## Orchestrator Verification Status
+
+Run records must be verified and marked **ACCEPTED** by the orchestrator (Codex) before blinded scoring/gate computation.
+
+| tuple_id | acceptance_status |
+|---|---|
+| `v1-rubric-constraint-ledger-101__baseline__run-1` | **ACCEPTED** |
+| `v1-rubric-constraint-ledger-101__target__run-1` | **ACCEPTED** |
+| `v1-rubric-evidence-ledger-102__baseline__run-1` | **ACCEPTED** |
+| `v1-rubric-evidence-ledger-102__target__run-1` | **ACCEPTED** |
+| `v1-rubric-verdict-gating-103__baseline__run-1` | **ACCEPTED** |
+| `v1-rubric-verdict-gating-103__target__run-1` | **ACCEPTED** |
+
 ## Run-Record Directory
 
 - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-08_benchmark-v1_pilot-01/run-records/`
 
 ## Immediate Next Action
 
-All execution complete. Next step: **blinded evaluation in a separate session**.
+All execution complete. Blinded scoring + unmasking complete.
 
-The evaluator session should:
-1. Read `blinded_eval/blinded_eval_packet.md`
-2. Score each CANDIDATE_A and CANDIDATE_B per scenario using the 0-4 rubric
-3. Record scores in a new evaluation results file
-4. Only after scoring is complete: read `blinded_eval/blinded_eval_mapping_private.md` to unmask
-5. Compute pilot gate per Section 5 of `benchmark-v1-draft_v0.1.0.md`
+Pilot gate decision (per `scores.md`): **FAIL**
 
-**Critical:** The evaluator must NOT read the run records (which contain condition labels) before scoring.
+Next step: revise Scenario 101 discriminability/rubric coupling and re-run a new pilot (new `RUN_ID`) before attempting full replication.

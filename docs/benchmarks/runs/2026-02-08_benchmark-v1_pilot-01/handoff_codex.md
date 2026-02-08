@@ -75,19 +75,31 @@ All execution complete:
 - run records: 6/6 COMPLETED
 - blinded packet: READY FOR EVALUATION
 - private mapping: POPULATED (with randomized A/B assignments)
-- blinded scores: pending evaluator session
-- scores/report: pending evaluator session
+- blinded scores: COMPLETE
+- scores/report: COMPLETE
+
+## Tuple Acceptance Ledger (Orchestrator)
+
+Acceptance statuses are recorded by Codex after verifying the on-disk run record against the checklist above.
+
+| tuple_id | execution_status | acceptance_status | notes |
+|---|---|---|---|
+| `v1-rubric-constraint-ledger-101__baseline__run-1` | COMPLETED | **ACCEPTED** | Verified from run record on 2026-02-08 |
+| `v1-rubric-constraint-ledger-101__target__run-1` | COMPLETED | **ACCEPTED** | Injected body token matches canonical mapping; run record references canonical body source |
+| `v1-rubric-evidence-ledger-102__baseline__run-1` | COMPLETED | **ACCEPTED** | Verified from run record on 2026-02-08 |
+| `v1-rubric-evidence-ledger-102__target__run-1` | COMPLETED | **ACCEPTED** | Injected body token matches canonical mapping; run record references canonical body source |
+| `v1-rubric-verdict-gating-103__baseline__run-1` | COMPLETED | **ACCEPTED** | Verified from run record on 2026-02-08 |
+| `v1-rubric-verdict-gating-103__target__run-1` | COMPLETED | **ACCEPTED** | Injected body token matches canonical mapping; run record references canonical body source |
 
 ## Immediate Next Action
 
-All tuples executed. Next phase: **blinded evaluation in a separate session**.
+All tuples **ACCEPTED**. Evaluator phase complete.
 
-Evaluator session must:
-1. Score from `blinded_eval/blinded_eval_packet.md` only
-2. NOT read run records before scoring (they contain condition labels)
-3. Record scores in `blinded_scores.md`
-4. Unmask from `blinded_eval/blinded_eval_mapping_private.md` after scoring
-5. Compute pilot gate per `benchmark-v1-draft_v0.1.0.md` Section 5
+Pilot gate decision (per `scores.md`): **FAIL**
+
+Next action:
+1. Revise Scenario 101 discriminability + rubric coupling
+2. Re-run a new pilot (new `RUN_ID`) before authorizing full replication
 
 ## Claim Boundary (Orchestrator)
 
