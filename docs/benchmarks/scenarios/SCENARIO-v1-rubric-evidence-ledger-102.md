@@ -52,4 +52,24 @@ inputs:
 notes:
   - This scenario directly targets v0 reference/report ceiling effects by forcing conflict-aware calibration.
   - Confidence downgrade behavior is required, not optional.
+discriminability:
+  estimate: high
+  criteria_analysis:
+    - criterion: "Output includes exactly 5 claims in a claims ledger"
+      baseline_likelihood: uncertain
+      evidence: "Baseline frequently follows requested structure, but exact-count compliance degrades when combined with evidence typing, confidence scoring, and counter-evidence fields."
+    - criterion: "Each claim is labeled Observation or Inference"
+      baseline_likelihood: uncertain
+      evidence: "Baseline can label claim types, but consistent per-row labeling is less stable in table-heavy outputs."
+    - criterion: "Each claim cites at least one provided path/snippet"
+      baseline_likelihood: likely
+      evidence: "Citation behavior improves when sources are supplied directly in-prompt; baseline generally includes evidence references when prompted."
+    - criterion: "Conflicting evidence triggers confidence downgrade (<=0.6) with explanation"
+      baseline_likelihood: unlikely
+      evidence: "Overconfidence under conflicting evidence was observed in v0 reference/report behavior; explicit downgrade mechanics are not baseline-default."
+    - criterion: "Final section includes exactly 3 next checks"
+      baseline_likelihood: unlikely
+      evidence: "Baseline often proposes follow-up checks but commonly over/under-shoots exact cardinality when multiple formatting constraints are active."
+  redesign_needed: false
+  redesign_notes: null
 ```

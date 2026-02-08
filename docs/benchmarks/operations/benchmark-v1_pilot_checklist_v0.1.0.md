@@ -47,7 +47,7 @@ mkdir -p "$RUN_ROOT/run-records" "$RUN_ROOT/blinded_eval"
 
 ---
 
-## 3) Target Injection Mapping (pilot draft)
+## 3) Target Injection Mapping (canonical)
 
 Use these target bodies for `condition=target`:
 
@@ -59,7 +59,10 @@ Use these target bodies for `condition=target`:
 
 For `condition=baseline`, use no injected benchmark body.
 
-If canonical v1 body definitions do not yet exist, use the temporary definitions in Appendix A.
+Canonical source of truth:
+- `docs/benchmarks/bench-skill-bodies_v1.0.0.md`
+
+If target text deviates from canonical bodies above, mark results as `SMOKE_ONLY` and do not use for effectiveness conclusions.
 
 ---
 
@@ -166,7 +169,17 @@ Global pilot gate (from v1 suite draft):
 - No scenario has target regression >=2 points.
 - Blinding contamination checks clean.
 
-If all true: proceed to full v1 replication (`N=3` baseline + `N=3` target).  
+Deterministic interpretation rules:
+- `+1` total delta is neutral (not an improvement signal).
+- `+2` total delta without critical-dimension lift is neutral.
+- Pilot `PASS` is a replication authorization only (not a claim of general skill effectiveness).
+
+Examples:
+- PASS example: deltas `+3`, `+2`, `+1` with critical-dimension lift on first two -> signals `1,1,0`.
+- FAIL example: deltas `+3`, `+1`, `+1` -> signals `1,0,0`.
+- FAIL example: deltas `+4`, `+2`, `-2` -> regression criterion violated.
+
+If all gate criteria pass: proceed to full v1 replication (`N=3` baseline + `N=3` target).  
 Else: revise scenarios/rubric before full execution.
 
 ---
@@ -182,46 +195,11 @@ Else: revise scenarios/rubric before full execution.
 
 ---
 
-## Appendix A — Temporary v1 Target Bodies (if canonical bodies are not yet authored)
+## 9) Claim Boundary
 
-These temporary bodies are only for pilot execution and should be replaced by canonical v1 body definitions before full v1.
+This pilot is a directional discriminability check at `N=1` per condition.
 
-### `BENCH_DISCIPLINE_CONSTRAINT_LEDGER_v1.0.0` (temporary)
+- Allowed claim: "pilot gate PASS/FAIL under predefined deterministic rules."
+- Disallowed claim: "general effectiveness proven" from pilot alone.
 
-```md
----
-Follow output constraints exactly.
-
-You must provide exactly 3 options, each with:
-- 2 strengths
-- 2 weaknesses
-- risk level (low/med/high)
-
-Then provide a weighted score table whose weights sum to 100, followed by one recommendation that is consistent with the table.
-Do not include extra options or honorable mentions.
----
-```
-
-### `BENCH_REFERENCE_EVIDENCE_CALIBRATION_v1.0.0` (temporary)
-
-```md
----
-When evidence is mixed, separate Observation vs Inference explicitly.
-Every claim must cite provided evidence.
-If evidence conflicts, downgrade confidence and explain why.
-Do not make unsupported assertions.
----
-```
-
-### `BENCH_PATTERN_VERDICT_GATING_v1.0.0` (temporary)
-
-```md
----
-When producing benchmark verdicts:
-1) Compute metrics explicitly.
-2) Apply threshold logic before concluding.
-3) Separate Evidence and Interpretation structurally.
-4) If confounders exist, downgrade confidence explicitly.
-5) State concrete decision triggers for changing verdict.
----
-```
+General effectiveness claims require full replication phase and report synthesis.

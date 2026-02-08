@@ -6,12 +6,14 @@ high ceiling effects with coarse rubric resolution.
 Benchmark v0 showed that the architecture works, but only 1/6 baseline-target comparisons produced non-zero signal.
 v1 therefore keeps the same execution architecture and upgrades **scenario discriminability + rubric granularity**.
 
-**Status:** Draft (pilot-executable via temporary v1 target bodies; full suite pending canonical v1 body finalization)  
+**Status:** Draft (pilot-executable; not claim-bearing until full replication)  
 **Last updated:** 2026-02-08  
 **Primary objective:** Increase baseline-target separation while preserving blinded scoring discipline.
 
 Execution companion:
 - `docs/benchmarks/operations/benchmark-v1_pilot_checklist_v0.1.0.md`
+Canonical v1 target bodies:
+- `docs/benchmarks/bench-skill-bodies_v1.0.0.md`
 
 ---
 
@@ -37,6 +39,17 @@ Scenario definitions live in:
 - `docs/benchmarks/scenarios/SCENARIO-v1-rubric-constraint-ledger-101.md`
 - `docs/benchmarks/scenarios/SCENARIO-v1-rubric-evidence-ledger-102.md`
 - `docs/benchmarks/scenarios/SCENARIO-v1-rubric-verdict-gating-103.md`
+
+Each scenario includes a required `discriminability` block per Section 6.6 of:
+- `docs/frameworks/simulation-based-skill-assessment_v0.2.0.md`
+
+### 2.1 Discriminability verification summary (Section 6.6)
+
+| scenario_id | estimate | criteria with `baseline_likelihood: unlikely` | redesign_needed |
+|---|---|---:|---|
+| `v1-rubric-constraint-ledger-101` | high | 2 | false |
+| `v1-rubric-evidence-ledger-102` | high | 2 | false |
+| `v1-rubric-verdict-gating-103` | medium | 1 | false |
 
 ---
 
@@ -143,6 +156,33 @@ Proceed to full v1 only if:
 
 If gate fails: revise scenario prompts and/or rubric dimensions before adding replication.
 
+### Pilot gate computation (deterministic)
+
+For each scenario `s`, compute:
+- `delta_s = target_total_s - baseline_total_s`
+- `improvement_signal_s = 1` iff:
+  - `delta_s >= 2`
+  - `target_pass_s = PASS`
+  - at least one critical dimension increased by >=1
+- Else `improvement_signal_s = 0`
+
+Global pilot decision:
+- `PASS` iff:
+  - `sum(improvement_signal_s for all scenarios) >= 2`, and
+  - no `delta_s <= -2`, and
+  - blinding contamination checks are clean
+- Otherwise `FAIL`
+
+Interpretation constraints:
+- A `+1` delta is **neutral** (does not count as improvement signal).
+- A `+2` delta without critical-dimension lift is **neutral**.
+- Pilot `PASS` authorizes replication expansion only; it is **not** an effectiveness claim.
+
+Worked examples:
+- Example PASS: deltas `+3`, `+2`, `+1` with critical-dimension lift on first two -> signals `1,1,0` -> `sum=2` -> PASS.
+- Example FAIL: deltas `+3`, `+1`, `+1` -> signals `1,0,0` -> `sum=1` -> FAIL.
+- Example FAIL: deltas `+4`, `+2`, `-2` -> regression criterion violated -> FAIL.
+
 ---
 
 ## 6) Full v1 Expansion (after pilot pass)
@@ -158,23 +198,26 @@ Expand N=3 -> N=5 when:
 
 ---
 
-## 7) Planned v1 Skill Mapping (Draft)
+## 7) Canonical v1 Target Skill Mapping
 
-These names are placeholders for v1 body authoring:
-
-| scenario_id | baseline | target placeholder |
+| scenario_id | baseline | target injected body |
 |---|---|---|
 | `v1-rubric-constraint-ledger-101` | no injected benchmark body | `BENCH_DISCIPLINE_CONSTRAINT_LEDGER_v1.0.0` |
 | `v1-rubric-evidence-ledger-102` | no injected benchmark body | `BENCH_REFERENCE_EVIDENCE_CALIBRATION_v1.0.0` |
 | `v1-rubric-verdict-gating-103` | no injected benchmark body | `BENCH_PATTERN_VERDICT_GATING_v1.0.0` |
 
+All target bodies MUST be loaded from:
+- `docs/benchmarks/bench-skill-bodies_v1.0.0.md`
+
+If this file is missing or the token text is modified ad hoc, pilot results are non-canonical and must be labeled `SMOKE_ONLY`.
+
 Controls can be reused from v0 (`PLACEBO`, `IRRELEVANT`, `HARMFUL_BREVITY`, `PROXY_GAMING`) where appropriate.
 
 ---
 
-## 8) Open Questions (must resolve before execution)
+## 8) Open Questions (before full-suite lock)
 
 1. Which scenario(s) should receive proxy-gaming controls to stress structural compliance without correctness?
 2. Should evaluator confidence become a numeric field (e.g., 0.0-1.0) instead of qualitative labels?
 
-Until these are resolved, treat this as a planning spec rather than an executable suite contract.
+Until these are resolved, treat this as an executable pilot spec only (not a final suite contract).

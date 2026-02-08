@@ -46,4 +46,24 @@ inputs:
 notes:
   - This scenario targets v0 report limitations: over-coarse confidence handling and advisory confounder treatment.
   - Structural separation is required but insufficient without correct threshold math.
+discriminability:
+  estimate: medium
+  criteria_analysis:
+    - criterion: "Correctly computes improvement coverage from supplied scenario outcomes"
+      baseline_likelihood: uncertain
+      evidence: "Baseline typically performs simple arithmetic correctly, but mistakes increase when multiple threshold and confounder facts are integrated."
+    - criterion: "Applies stated threshold rules to select YES/NO/INCONCLUSIVE"
+      baseline_likelihood: unlikely
+      evidence: "v0 reporting behavior showed tendency toward narrative framing over strict threshold gating; explicit rule application was not always enforced structurally."
+    - criterion: "Separates Evidence from Interpretation as distinct sections"
+      baseline_likelihood: likely
+      evidence: "Baseline often follows section-heading instructions for report formatting."
+    - criterion: "Includes explicit confidence downgrade based on confounder severity"
+      baseline_likelihood: uncertain
+      evidence: "v0 findings showed confounders were usually noted, but confidence demotion was inconsistent and often advisory rather than formal."
+    - criterion: "Provides concrete 'what would change verdict' conditions"
+      baseline_likelihood: uncertain
+      evidence: "Baseline can provide next actions, but precise counterfactual trigger conditions are less consistently operationalized."
+  redesign_needed: false
+  redesign_notes: null
 ```

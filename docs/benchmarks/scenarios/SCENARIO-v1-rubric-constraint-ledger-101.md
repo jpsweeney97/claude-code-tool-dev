@@ -49,4 +49,21 @@ inputs:
 notes:
   - This is a broader successor to v0 exact-three-options-007.
   - It preserves count discipline while adding quantitative coherence checks.
+discriminability:
+  estimate: high
+  criteria_analysis:
+    - criterion: "Output contains exactly 3 options (no more, no less)"
+      baseline_likelihood: unlikely
+      evidence: "Benchmark v0 exact-three-options-007 baseline runs converged on 4 options (3/3 runs), indicating natural expansion drift without explicit discipline support."
+    - criterion: "Each option includes at least 2 strengths and 2 weaknesses"
+      baseline_likelihood: likely
+      evidence: "Baseline Claude usually provides multi-point pros/cons when prompted for option trade-offs; this is generic quality behavior rather than skill-specific."
+    - criterion: "Includes a weighted score table with weights summing to 100"
+      baseline_likelihood: uncertain
+      evidence: "Baseline often provides weighted tables, but exact arithmetic and consistency are error-prone under multi-constraint prompts."
+    - criterion: "Recommendation is consistent with the stated scoring and constraints"
+      baseline_likelihood: unlikely
+      evidence: "Recommendation/score-table mismatch is a common failure mode when long-form option analysis and explicit constraints are combined."
+  redesign_needed: false
+  redesign_notes: null
 ```
