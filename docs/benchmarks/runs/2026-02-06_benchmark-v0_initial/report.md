@@ -3,7 +3,7 @@
 **Run ID:** 2026-02-06_benchmark-v0_initial
 **Framework:** `docs/frameworks/simulation-effectiveness-benchmark_v0.1.0.md`
 **Suite matrix:** `docs/benchmarks/suites/benchmark-v0_v0.1.0.md`
-**Verdict:** TBD (anchor scenarios complete; rubric scenarios partially executed)
+**Verdict:** INCONCLUSIVE — architecture validated; improvement detected in 1/6 baseline-target scenarios (below 70% threshold). All 51 runs executed; blinded scoring complete.
 
 ---
 
@@ -20,17 +20,20 @@
 
 ### Rubric Scenarios (rubric_blinded oracle)
 
-Rubric scenario execution is in progress. Some rubric run records were previously scaffolded as stubs, but rubric execution has now begun.
+Rubric scenario scoring uses a separate blinded evaluator artifact:
+`docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/blinded_scores.md`.
 
-| scenario_id | Planned (per suite matrix) | Stubs Scaffolded | Runs Executed | Status |
-|---|---|--:|--:|---|
-| v0-rubric-scenario-spec-004 | baseline×3, placebo×1, harmful_brevity×1, proxy_gaming×1 | 9 (incl. 3 target stubs marked "no TARGET per suite") | 6 | COMPLETE |
-| v0-rubric-report-005 | baseline×3, target×3, proxy_gaming×1 | 7 | 0 | **not started** |
-| v0-rubric-controls-006 | baseline×3, harmful_brevity×1 | 7 (incl. 3 target stubs marked "no TARGET per suite") | 0 | **not started** |
-| v0-rubric-exact-three-options-007 | baseline×3, target×3 | 6 | 0 | **not started** |
-| v0-rubric-reference-008 | baseline×3, target×3 | 6 | 0 | **not started** |
+| scenario_id | Conditions Run | Runs Executed | Status |
+|---|---|--:|---|
+| v0-rubric-scenario-spec-004 | baseline×3, placebo×1, harmful_brevity×1, proxy_gaming×1 | 6 | COMPLETE |
+| v0-rubric-report-005 | baseline×3, target×3, proxy_gaming×1 | 7 | COMPLETE |
+| v0-rubric-controls-006 | baseline×3, harmful_brevity×1 | 4 | COMPLETE |
+| v0-rubric-exact-three-options-007 | baseline×3, target×3 | 6 | COMPLETE |
+| v0-rubric-reference-008 | baseline×3, target×3 | 6 | COMPLETE |
 
-**Executed runs total: 28. Rubric runs: 6 executed (v0-rubric-scenario-spec-004), remainder pending.**
+**Executed runs total:** 22 anchor + 29 rubric = **51**.
+
+**Rubric scoring provenance:** All 29 rubric candidates were scored by a blinded evaluator (scoring date: 2026-02-08) using condition-free hex IDs. See `blinded_scores.md` for raw scores and `blinded_eval/blinded_eval_mapping_private.md` for the unblinding key.
 
 ---
 
@@ -118,28 +121,53 @@ The `BENCH_TECHNIQUE_RUN_TESTS_AND_MIN_DIFF_v0.1.0` skill instructs "smallest ch
 **Query string near-duplication within the `skills` attractor:**
 - baseline run-1: `'creating SKILL.md .claude/skills directory'`
 - baseline run-2: `'creating SKILL.md in skills directory'`
-- target run-3: `'creating SKILL.md file directory'`
 
-These are essentially the same query with minor token variation. The convergence is stronger than frontmatter-002's (which at least varied the field name).
+---
 
-#### Confounders
+## Rubric Scenarios — Blinded Evaluation Summary (Unblinded)
 
-**Baseline run-3 anti-convergence steering** (recorded in `…golden-queries-003__baseline__run-3.md`):
-- After baseline runs 1–2 converged on identical category (`skills`) with near-identical queries, the orchestrator added "Do not target the 'skills' category" to run-3's prompt.
-- This produced a `troubleshooting` selection, breaking convergence and providing variance data.
-- The run is tagged with `prompt_deviation` confounder. It is valid for task execution quality but **not** for inferring "what baseline would independently choose." Strictly, the unsteered baseline distribution is 2/2 `skills` (100%), not 2/3 `skills` + 1/3 `troubleshooting`.
+Scores from blinded evaluator artifact (`blinded_scores.md`, scoring date 2026-02-08), unblinded using `blinded_eval/blinded_eval_mapping_private.md`. Full per-run scores in `scores.md`.
 
-**No other confounders recorded** across the 6 runs. No web usage detected in any run (consistent with `no_web` expectation per `docs/benchmarks/target-skills_v0.1.0.md`).
+### v0-rubric-scenario-spec-004
 
-#### Ceiling Effect
+- **29 candidates scored across 5 scenarios.** All 6 runs executed and scored.
+- Baseline: 12/12 × 3 (avg 12.0). Controls: placebo 12/12, proxy_gaming 12/12, harmful_brevity 7/12.
+- **harmful_brevity degradation:** Missing fields, fewer criteria, non-standard field names, broader task scope. Brevity constraint suppressed rationale.
+- No target condition per suite matrix; no baseline-target delta available.
 
-This is the clearest ceiling effect in the benchmark. Every run across both conditions:
-- Added exactly 1 line (1 array entry)
-- Changed 0 production code files
-- Changed 0 mock corpus content
-- Passed all 254 tests
+### v0-rubric-report-005
 
-The `BENCH_TECHNIQUE_RUN_TESTS_AND_MIN_DIFF_v0.1.0` skill's guidance ("identify the smallest change," "keep the diff minimal") describes exactly what the task already requires. There is no opportunity for the skill to produce a measurably different outcome.
+- All 7 runs executed and scored. Baseline: 12/12 × 3. Target: 12/12 × 3. proxy_gaming: 8/12.
+- **Baseline-target delta: 0.** Ceiling effect — both conditions produce structurally complete templates.
+- **proxy_gaming degradation (8/12):** Advisory rather than structural enforcement of evidence/interpretation separation, confounder tracking, and blinding prompts.
+
+### v0-rubric-controls-006
+
+- All 4 runs executed and scored. Baseline: 12/12 × 3. harmful_brevity: 10/12.
+- **harmful_brevity degradation (10/12):** Weaker irrelevance category (formatting vs domain-orthogonal) and reduced definitional clarity.
+- No target condition per suite matrix.
+
+### v0-rubric-exact-three-options-007
+
+- All 6 runs executed and scored. Baseline: 8/12 × 3 (avg 8.0). Target: 12/12 × 3 (avg 12.0).
+- **Baseline-target delta: +4.0 — the only non-zero delta in the benchmark.**
+- All 3 baseline runs produced 4 options (failing "exactly 3" count discipline); all 3 target runs produced exactly 3. The target skill's explicit count instruction was perfectly effective.
+- The evaluator noted this as "the most binary signal across all scenarios."
+
+### v0-rubric-reference-008
+
+- All 6 runs executed and scored. Baseline: 12/12 × 3. Target: 12/12 × 3.
+- **Baseline-target delta: 0.** Ceiling effect — all criteria are binary-checkable and all candidates met every one.
+- Qualitative differences exist (target run-3 showed strongest observation/inference discipline) but do not resolve at 0-2 granularity.
+
+---
+
+## Limitations / Confounders
+
+- **Ceiling effects on 5 of 6 baseline-target scenarios:** Baseline and target both achieved maximum or near-maximum scores on all scenarios except exact-three-options-007. Only that scenario showed discriminative power, limiting the benchmark's ability to broadly assess target skill effectiveness.
+- **Rubric granularity (0-2 scale):** The blinded evaluator noted qualitative differences among 12/12 candidates in reference-008 and report-005 that do not resolve at 0-2 granularity. A finer scale (0-3 or 0-4) would increase discrimination.
+- **Scenario 008 environment confound:** The reference task asks about benchmark infrastructure while running inside benchmark infrastructure. The always-loaded execution environment can restate benchmark templates/structure, creating a derivative-source confound. The suite's citation policy mitigates this by treating canonical docs as the only evidentiary authority.
+- **Convergence attractors in anchor scenarios:** All three anchor scenarios exhibit convergence attractors (dominant solutions the model gravitates toward regardless of condition), reducing discriminability between baseline and target.
 
 ---
 
@@ -195,7 +223,22 @@ Placebo (tested on vitest-001) was indistinguishable from baseline — expected.
 | oracle_type | Scenarios | Runs Executed | Baseline-Target Delta | Controls Validated |
 |---|--:|--:|---|---|
 | objective_tests | 3 | 22 | 0 (all PASS) | harmful_no_tools 2/2 FAIL; placebo/irrelevant neutral |
-| rubric_blinded | 5 | 6 (1 scenario: spec-004) | — (scoring deferred) | 1 of 5 scenarios executed; blinded scoring pending |
+| rubric_blinded | 5 | 29 | +4.0 on 007; 0 on 005, 008 | harmful_brevity degrades; proxy_gaming mixed; placebo neutral |
+
+**Total runs:** 51 (22 anchor + 29 rubric). All planned runs complete.
+
+### Baseline vs Target Deltas (all scenarios with both conditions)
+
+| Scenario | Baseline | Target | Delta |
+|---|---|---|--:|
+| v0-anchor-vitest-001 | PASS (3/3) | PASS (3/3) | 0 |
+| v0-anchor-frontmatter-002 | PASS (3/3) | PASS (3/3) | 0 |
+| v0-anchor-golden-queries-003 | PASS (3/3) | PASS (3/3) | 0 |
+| v0-rubric-report-005 | 12.0/12 | 12.0/12 | 0 |
+| v0-rubric-exact-three-options-007 | 8.0/12 | 12.0/12 | **+4.0** |
+| v0-rubric-reference-008 | 12.0/12 | 12.0/12 | 0 |
+
+**Improvement rate:** 1/6 scenarios (16.7%). Below Section 9.3 threshold of ≥70%.
 
 ### By skill_type (anchor only)
 
@@ -213,13 +256,23 @@ Placebo (tested on vitest-001) was indistinguishable from baseline — expected.
 
 ## Controls Outcomes
 
+### Anchor Controls
+
 | Control | Expected Behavior | Observed | Assessment |
 |---|---|---|---|
 | placebo | Neutral delta (no effect) | PASS, indistinguishable from baseline | Confirmed (1 scenario) |
 | irrelevant | Neutral delta (ignored or no effect) | PASS, skill non-compliance (formatting instructions overridden by task) | Confirmed via different mechanism than expected (1 scenario) |
 | harmful_no_tools | Negative delta (task degradation) | No-op, task_completion FAIL | **Confirmed — strongest signal** (2 scenarios) |
 
-**Did any control "win" unexpectedly?** No. Placebo and irrelevant did not outperform baseline. harmful_no_tools performed strictly worse. No expansion to N=3 required for controls.
+### Rubric Controls
+
+| Control | Expected Behavior | Observed | Assessment |
+|---|---|---|---|
+| placebo | Neutral delta | 12/12 (spec-004) | Confirmed (1 scenario) |
+| proxy_gaming | Process gaming, possible degradation | 12/12 (spec-004), 8/12 (report-005) | **Task-dependent**: no effect on constrained tasks, degradation on enforcement-heavy tasks |
+| harmful_brevity_60w | Degradation from brevity constraint | 7/12 (spec-004), 10/12 (controls-006) | **Confirmed — consistent degradation** across both scenarios |
+
+**Did any control "win" unexpectedly?** No. Placebo neutral across all contexts. harmful_no_tools (anchor) and harmful_brevity_60w (rubric) performed strictly worse. proxy_gaming shows task-dependent degradation — expected for a process-wrapper that pressures structural enforcement.
 
 ---
 
@@ -236,39 +289,44 @@ Placebo (tested on vitest-001) was indistinguishable from baseline — expected.
 
 ---
 
-## Rubric Execution Progress
+## Rubric Scoring Status
 
-### v0-rubric-scenario-spec-004 — Execution Complete (Rubric-Blinded)
+All 5 rubric scenarios are **COMPLETE** — 29 runs executed and scored by blinded evaluator.
 
-Rubric scoring is deferred (blinded evaluation required), but scenario execution for `v0-rubric-scenario-spec-004` is now complete for all scheduled conditions:
-- baseline: run-1/run-2/run-3
-- placebo: run-1
-- proxy_gaming: run-1
-- harmful_brevity_60w: run-1
+### Key Rubric Findings
 
-Notable qualitative signals recorded in run records (no self-scoring):
-- **Proxy gaming structural pressure:** partial compliance with required headings and explicit verification claim.
-- **Harmful brevity mismatch:** the 60-word constraint was violated by necessity of the YAML artifact; the record flags task-control incompatibility as a confounder.
-- **Attractor break:** harmful_brevity_60w diverged from the dominant `error-messages.ts` target seen in baseline/placebo/proxy_gaming, selecting a different task framing (new MCP tool).
+1. **exact-three-options-007 is the only scenario with discriminative power.** Baseline avg 8.0/12 vs target avg 12.0/12 (+4.0 delta). The target skill's "exactly 3 options" instruction was perfectly effective — 3/3 compliance vs 0/3 baseline compliance on count discipline.
+
+2. **Ceiling effects dominate.** 5 of 6 baseline-target comparisons show zero delta. Baseline already achieves maximum rubric scores on 4 of 5 rubric scenarios. The 0-2 rubric granularity and well-defined task constraints leave no room for the target skill to demonstrate improvement.
+
+3. **Controls validate the architecture's sensitivity.** harmful_brevity_60w degrades scores in both scenarios tested (7/12 and 10/12 vs baseline 12.0). proxy_gaming degrades on enforcement-heavy tasks (8/12 on report-005). The architecture detects degradation reliably.
+
+4. **Convergence attractors in spec-004.** 5 of 6 candidates converged on `error-messages.ts` module, reducing between-candidate variance and potentially masking condition effects.
 
 ---
 
 ## Final Verdict + Justification
 
-**Verdict for anchor scenarios: INCONCLUSIVE (pending remaining rubric scenarios)**
+**Verdict: INCONCLUSIVE**
 
-**What the anchor data supports:**
-1. **Architecture validity (mechanical):** YES — 22/22 runs executed without infrastructure failure. Skill injection, oracle execution, and cleanup all work reliably.
-2. **Degradation detection:** YES — harmful_no_tools control produces reliable, detectable task failures (2/2).
-3. **Improvement detection (target vs baseline):** **NOT DEMONSTRATED** — zero delta across all 3 anchor scenarios, 9 baseline runs, 9 target runs. The binary oracle + task completion oracle cannot distinguish target from baseline.
+All 51 runs (22 anchor + 29 rubric) executed. Blinded evaluation scored all 29 rubric candidates. The data is complete.
+
+**What the data supports:**
+1. **Architecture validity (mechanical):** YES — 51/51 runs executed without infrastructure failure. Skill injection, oracle execution, blinded scoring, and cleanup all work reliably.
+2. **Degradation detection:** YES — harmful_no_tools (anchor), harmful_brevity_60w (rubric), and proxy_gaming (rubric, task-dependent) all produce detectable score reductions.
+3. **Improvement detection (target vs baseline):** **DEMONSTRATED ON 1 OF 6 SCENARIOS** — exact-three-options-007 shows +4.0 delta (8.0 → 12.0). The remaining 5 scenarios show zero delta due to ceiling effects.
+
+**Why INCONCLUSIVE rather than YES:**
+- The Section 9.3 decision threshold requires target improvement on ≥70% of scenarios. Only 1/6 (16.7%) shows improvement — well below threshold.
+- The single positive signal (007) is strong and clean (3/3 baseline fail, 3/3 target pass on count discipline), but one scenario is insufficient for a YES verdict.
 
 **Why INCONCLUSIVE rather than NO:**
-- The binary oracle's inability to detect target improvement is a known limitation of anchor scenarios with ceiling effects, not necessarily a failure of the architecture.
-- Rubric scenarios (5 planned, 1 executed) are designed to test the architecture's ability to detect subtler quality differences using blinded evaluation — precisely the case where binary oracles plateau.
-- The framework's decision threshold (Section 9.3 of `docs/frameworks/simulation-effectiveness-benchmark_v0.1.0.md`) requires target improvement on ≥70% of scenarios — this cannot be assessed until rubric runs are executed and scored.
+- The architecture demonstrably *can* detect improvement when the scenario has discriminative power (007 proves this).
+- The 5 zero-delta scenarios are explained by ceiling effects and rubric granularity, not architecture failure.
+- The benchmark's scenario design (narrow tasks, coarse rubrics) is the limiting factor, not the measurement architecture.
 
-**Blocking items for final verdict:**
-1. Execute remaining rubric scenarios (4 left after `v0-rubric-scenario-spec-004`)
-2. Blinded evaluation and rubric scoring for all rubric runs
-3. Rubric scores added to `scores.md`
-4. Re-evaluation against Section 9.3 thresholds with full data
+**Recommendations for v1:**
+1. Increase rubric granularity to 0-3 or 0-4 scale to resolve qualitative differences among high-performing candidates.
+2. Design scenarios with broader solution spaces to reduce ceiling effects and convergence attractors.
+3. Add more scenarios where the target skill addresses a specific, measurable behavioral gap (as 007 did with count discipline).
+4. Consider scenario-specific rubric dimensions tuned to the target skill's intended behavioral change.

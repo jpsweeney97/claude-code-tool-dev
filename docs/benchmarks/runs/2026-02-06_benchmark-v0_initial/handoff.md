@@ -1,6 +1,7 @@
 # Rolling Handoff Packet — Benchmark v0
 
 This file is a standardized resume packet for starting a *fresh* Claude session when context limits require a reset.
+Executor-facing document only. Orchestrator actions belong in `handoff_codex.md`.
 
 ## Repo
 
@@ -16,6 +17,7 @@ Run Benchmark v0 (Simulation Effectiveness Benchmark) with Claude Code executor 
 2) Use canonical mappings only; do not infer.
 3) Write specified run-record file.
 4) Return status + concise bullets (NO full-file paste; main session reads run record from disk).
+5) Do NOT select the next run or run orchestration/resume scripts (that is orchestrator-only).
 
 ## Canonical Docs (Authoritative)
 
@@ -45,6 +47,12 @@ Use **ONLY** these for mapping and citations:
 - Replicate must be recorded as string `run-1`/`run-2`/`run-3` (NOT numeric).
 - Citation rule:
   - use the six canonical docs only (do not cite `docs/benchmarks/scenarios/SCENARIO-*`).
+- Rubric scenarios (`rubric_blinded`):
+  - no self-scoring
+  - no rubric score table (even empty/em-dash scaffold tables)
+- Leakage rule (strict, orchestrator-enforced):
+  - do NOT read `scores.md`, `report.md`, or other run records for the same run_id.
+  - any disallowed read => run is **REPAIR required** (not acceptable for baseline/condition accounting).
 
 ## Current Benchmark Run ID
 
@@ -66,74 +74,70 @@ Use **ONLY** these for mapping and citations:
   - target run-2 COMPLETE
   - target run-3 COMPLETE
 
+- `v0-rubric-scenario-spec-004`: COMPLETE (6/6)
+  - baseline run-1/run-2/run-3 COMPLETE
+  - placebo run-1 COMPLETE
+  - proxy_gaming run-1 COMPLETE
+  - harmful_brevity_60w run-1 COMPLETE
+
+- `v0-rubric-report-005`: COMPLETE (7/7)
+  - baseline run-1/run-2/run-3 COMPLETE (run-3 accepted via REPAIR re-execution)
+  - target run-1/run-2/run-3 COMPLETE
+  - proxy_gaming run-1 COMPLETE
+
+- `v0-rubric-controls-006`: COMPLETE (4/4)
+  - baseline run-1/run-2/run-3 COMPLETE
+  - harmful_brevity_60w run-1 COMPLETE
+
+- `v0-rubric-exact-three-options-007`: COMPLETE (6/6)
+  - baseline run-1/run-2/run-3 COMPLETE
+  - target run-1/run-2/run-3 COMPLETE
+
+- `v0-rubric-reference-008`: COMPLETE (6/6)
+  - baseline run-1/run-2/run-3 COMPLETE
+  - target run-1/run-2/run-3 COMPLETE
+
 ## Run-Record Directory
 
 - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/run-records/`
 
 ## Most Recent Run Record Touched
 
-- `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/run-records/v0-anchor-golden-queries-003__baseline__run-1.md`
-  - Repaired: `replicate` format normalized to `run-1`
-  - Added: `## Canonical Mapping Citations`
- - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/run-records/v0-anchor-golden-queries-003__baseline__run-2.md`
-   - Strong convergence with run-1 on `skills` + “Creating skills” subsection (near-identical query strings)
- - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/run-records/v0-anchor-golden-queries-003__baseline__run-3.md`
-   - Anti-convergence succeeded by targeting `troubleshooting` instead of `skills`
- - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/run-records/v0-anchor-golden-queries-003__target__run-1.md`
-   - Target also chose `troubleshooting` (suggests secondary attractor beyond `skills`)
- - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/run-records/v0-anchor-golden-queries-003__target__run-2.md`
-   - Target diverged to `security` (permission boundaries subsection)
- - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/run-records/v0-anchor-golden-queries-003__target__run-3.md`
-   - Converged back to `skills` (“Creating skills”) confirming dominant attractor
+This section distinguishes:
+- **Most recently modified on disk:** the run-record file(s) most recently edited in the repo (including repairs).
+- **Most recently accepted run:** the last run record that passed invariant validation (i.e., accepted as a completed benchmark run record).
+
+- **Most recently modified on disk:**
+  - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/run-records/v0-rubric-exact-three-options-007__baseline__run-3.md`
+
+- **Most recently accepted run:**
+  - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/run-records/v0-rubric-exact-three-options-007__baseline__run-3.md`
+    - Accepted; strict leakage gate satisfied, plus rubric_blinded + zero-mention invariants verified.
 
 ## Immediate Next Action
 
-All scheduled conditions for `v0-rubric-scenario-spec-004` are complete (baseline ×3, placebo ×1, proxy_gaming ×1, harmful_brevity_60w ×1). Next step: scoring/report updates for the benchmark run.
+Benchmark v0 run execution is COMPLETE (`planned_runs=51`, `executed_runs=51`).
 
-Execute exactly one run:
+Blinded evaluator scoring is COMPLETE:
+- `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/blinded_scores.md`
 
-- N/A (scenario execution phase complete)
+Post-eval refresh is COMPLETE:
+- `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/scores.md`
+- `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/report.md`
 
-Write run record:
+Blinding gate status:
+- `rg` checks on `blinded_scores.md` for condition labels and injected-body tokens returned empty (clean).
 
-- No new run record. Next updates typically go to:
-  - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/scores.md`
-  - `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/report.md`
+Benchmark v0 status:
+- **COMPLETE** (execution + blinded scoring + score/report refresh)
+- Final verdict in report: **INCONCLUSIVE** (16.7% scenario improvement vs 70% threshold)
+- No remaining run tuples.
 
 ## Next Claude Prompt (Copy/Paste)
 
 ```text
-Proceed to scoring/report updates for the benchmark run:
-
-- benchmark_run_id: 2026-02-06_benchmark-v0_initial
-- scenario_id: v0-rubric-scenario-spec-004
-
-Repo:
-- /Users/jp/Projects/active/claude-code-tool-dev
-
-Authoritative docs (ONLY these six for mapping/citations):
-1) /Users/jp/Projects/active/claude-code-tool-dev/docs/simulation-assessment-context-official.md
-2) /Users/jp/Projects/active/claude-code-tool-dev/docs/frameworks/simulation-effectiveness-benchmark_v0.1.0.md
-3) /Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/suites/benchmark-v0_v0.1.0.md
-4) /Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/target-skills_v0.1.0.md
-5) /Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/control-bodies_v0.1.0.md
-6) /Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/bench-skill-bodies_v0.1.0.md
-
-Hard invariants:
-- Never use rm; use trash.
-- Citations must use ONLY the six canonical docs above.
-- Do not self-score any rubric-blinded runs.
-
-Scoring/report requirements:
-1) Do NOT retroactively change any run record content except to repair invariant violations.
-2) Update `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/scores.md` with run completion + scoring placeholders (no rubric self-scores).
-3) Update `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-06_benchmark-v0_initial/report.md` with a concise narrative of observed effects across conditions.
-4) Include a completion table for `v0-rubric-scenario-spec-004` (baseline run-1/2/3, placebo run-1, proxy_gaming run-1, harmful_brevity_60w run-1).
-5) Summarize notable confounders/signals: proxy-gaming heading partial compliance; harmful brevity 60-word violation; attractor break (error-messages.ts vs new tool).
-
-Final response format:
-- First line: COMPLETED or BLOCKED: <reason>
-- Then 5–10 concise bullets summarizing what happened (no full-file paste).
+N/A — Benchmark v0 loop is complete.
+No further executor/evaluator prompt is required for this run_id.
 ```
 
 ## Repo State Notes
@@ -146,4 +150,4 @@ Final response format:
 Response format:
 
 - First line: `COMPLETED` or `BLOCKED: <reason>`
-- Then 5–10 concise bullets with mapping/body, clean-start, change, oracle result, `task_completion_verdict`, cleanup/final diff.
+- Then 5–10 concise bullets with final artifact pointers and any proposed follow-up.
