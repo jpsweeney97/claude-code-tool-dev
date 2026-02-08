@@ -1,0 +1,90 @@
+# Rolling Handoff Packet — Benchmark v1 Pilot
+
+Executor-facing packet for fresh Claude sessions.
+Orchestrator procedure belongs in `handoff_codex.md`.
+
+## Repo
+
+- `/Users/jp/Projects/active/claude-code-tool-dev`
+
+## Goal
+
+Execute Benchmark v1 pilot run_id `2026-02-08_benchmark-v1_pilot-01`:
+- rubric-only pilot
+- 3 scenarios
+- baseline + target
+- 1 replicate each (6 total runs)
+
+## Authoritative Docs
+
+1. `/Users/jp/Projects/active/claude-code-tool-dev/docs/simulation-assessment-context-official.md`
+2. `/Users/jp/Projects/active/claude-code-tool-dev/docs/frameworks/simulation-effectiveness-benchmark_v0.1.0.md`
+3. `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/suites/benchmark-v1-draft_v0.1.0.md`
+4. `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/operations/benchmark-v1_pilot_checklist_v0.1.0.md`
+5. `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/bench-skill-bodies_v1.0.0.md`
+6. `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/scenarios/SCENARIO-v1-rubric-constraint-ledger-101.md`
+7. `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/scenarios/SCENARIO-v1-rubric-evidence-ledger-102.md`
+8. `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/scenarios/SCENARIO-v1-rubric-verdict-gating-103.md`
+
+## Loop Contract
+
+1) Execute exactly one run tuple at a time.
+2) Write/complete only the specified run-record file for that tuple.
+3) Do not choose the next run tuple (orchestrator-only).
+4) Return concise completion status (no full file paste).
+5) For `rubric_blinded`, do not self-score.
+
+## Hard Invariants (Every Run)
+
+- Never use `rm`; use `trash`.
+- Do not run `git checkout -- .`.
+- Verify clean start:
+  - `git diff -- packages/mcp-servers/claude-code-docs/` must be empty before execution.
+- Cleanup after run:
+  - remove temporary skill dir via `trash`
+  - revert package code changes via scoped checkout
+  - verify `git diff -- packages/mcp-servers/claude-code-docs/` is empty.
+- Replicate must be `run-1` (string).
+- `oracle_type` is `rubric_blinded`; no score tables in run records.
+- Keep tooling expectation aligned to scenario: `no_web`.
+- For target condition runs, injected body text must come from canonical `bench-skill-bodies_v1.0.0.md`.
+
+## Claim Boundary
+
+- This pilot is a discriminability gate at N=1.
+- Pilot PASS/FAIL is valid.
+- General effectiveness claims are not valid until post-pilot replication.
+
+## Pilot Run ID
+
+- `2026-02-08_benchmark-v1_pilot-01`
+
+## Current Progress Snapshot
+
+All 6 runs COMPLETED. Blinded evaluation materials READY.
+
+- `v1-rubric-constraint-ledger-101__baseline__run-1.md` — COMPLETED
+- `v1-rubric-constraint-ledger-101__target__run-1.md` — COMPLETED
+- `v1-rubric-evidence-ledger-102__baseline__run-1.md` — COMPLETED
+- `v1-rubric-evidence-ledger-102__target__run-1.md` — COMPLETED
+- `v1-rubric-verdict-gating-103__baseline__run-1.md` — COMPLETED
+- `v1-rubric-verdict-gating-103__target__run-1.md` — COMPLETED
+- `blinded_eval/blinded_eval_packet.md` — READY FOR EVALUATION
+- `blinded_eval/blinded_eval_mapping_private.md` — POPULATED
+
+## Run-Record Directory
+
+- `/Users/jp/Projects/active/claude-code-tool-dev/docs/benchmarks/runs/2026-02-08_benchmark-v1_pilot-01/run-records/`
+
+## Immediate Next Action
+
+All execution complete. Next step: **blinded evaluation in a separate session**.
+
+The evaluator session should:
+1. Read `blinded_eval/blinded_eval_packet.md`
+2. Score each CANDIDATE_A and CANDIDATE_B per scenario using the 0-4 rubric
+3. Record scores in a new evaluation results file
+4. Only after scoring is complete: read `blinded_eval/blinded_eval_mapping_private.md` to unmask
+5. Compute pilot gate per Section 5 of `benchmark-v1-draft_v0.1.0.md`
+
+**Critical:** The evaluator must NOT read the run records (which contain condition labels) before scoring.
