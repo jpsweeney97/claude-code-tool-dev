@@ -7,7 +7,7 @@
 - `simulation-based-assessment-framework-discussion-part-*.md` — Framework design (38 turns)
 - `continuation-of-simulation-based-skill-assessment-framework-discussion.md` — Gap analysis and feasibility spike
 
-**Primary Artifact:** `docs/frameworks/simulation-based-skill-assessment_v0.1.0.md`
+**Primary Artifact:** `docs/frameworks/simulation-based-skill-assessment_v0.2.0.md`
 
 ---
 
@@ -190,7 +190,7 @@ A 6-experiment plan to validate the approach before full design:
 | Phase | Status | Notes |
 |-------|--------|-------|
 | 0. Feasibility Spike | ✓ Complete | All experiments pass. See `docs/spikes/simulation-feasibility-spike_2026-02-04.md` |
-| 1. Framework Specification | ✓ Complete | `simulation-based-skill-assessment_v0.1.0.md` |
+| 1. Framework Specification | ✓ Complete | `simulation-based-skill-assessment_v0.2.0.md` |
 | 2. Skill Architecture Design | ✓ Complete | assessment-runner subagent created; templates validated |
 | 3. Architecture Validation | ✓ Complete | End-to-end A/B test with "three options" skill |
 | 4. Scenario Generation | **Next** | Implement 8-step framework |

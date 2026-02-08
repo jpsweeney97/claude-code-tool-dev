@@ -206,7 +206,7 @@ Framework mitigates but doesn't eliminate the original problem — pushes it up 
 ## Phase 7: Framework Specification (Turns 27-38)
 
 ### Checkpoint Document Created
-`docs/frameworks/simulation-based-skill-assessment_v0.1.0.md` — 2,300+ lines
+`docs/frameworks/simulation-based-skill-assessment_v0.2.0.md` — 2,300+ lines
 
 ### Completeness Review Findings
 - 92% complete
@@ -238,7 +238,7 @@ Addresses all gaps with:
 ## Phase 8: Gap Analysis (Continuation Discussion, Turns 1-6)
 
 ### Fresh Review of Framework
-New session with only `simulation-based-skill-assessment_v0.1.0.md` as context.
+New session with only `simulation-based-skill-assessment_v0.2.0.md` as context.
 
 ### 10 Significant Gaps Identified
 
@@ -842,7 +842,7 @@ All prior stress tests used discipline skills with countable requirements. This 
 
 | Artifact | Location |
 |----------|----------|
-| Framework Specification v0.1.0 | `docs/frameworks/simulation-based-skill-assessment_v0.1.0.md` |
+| Framework Specification v0.1.0 | `docs/frameworks/simulation-based-skill-assessment_v0.2.0.md` |
 | Consolidated Discussion Summary | `docs/discussions/CONSOLIDATED-simulation-based-assessment-discussions.md` |
 | Feasibility Spike Results | `docs/spikes/simulation-feasibility-spike_2026-02-04.md` |
 | Architecture Decision Record | `docs/adrs/0001-simulation-based-skill-assessment-architecture.md` |
@@ -877,7 +877,7 @@ All prior stress tests used discipline skills with countable requirements. This 
 ## Reading Order for New Context
 
 1. **Quick overview:** This document
-2. **Full specification:** `simulation-based-skill-assessment_v0.1.0.md`
+2. **Full specification:** `simulation-based-skill-assessment_v0.2.0.md`
 3. **Architecture decision:** `0001-simulation-based-skill-assessment-architecture.md`
 4. **Implementation constraints:** `simulation-feasibility-spike_2026-02-04.md`
 5. **Deep context (optional):** Original discussion files
