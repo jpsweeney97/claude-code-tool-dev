@@ -12,7 +12,7 @@ This file is the **execution spec** for Benchmark v0. It removes ambiguity by de
 **Control bodies:** `docs/benchmarks/control-bodies_v0.1.0.md`  
 **Synthetic BENCH bodies:** `docs/benchmarks/bench-skill-bodies_v0.1.0.md`
 
-**Last updated:** 2026-02-06
+**Last updated:** 2026-02-07
 
 ---
 
@@ -137,6 +137,50 @@ Every rubric scenario run MUST record:
 - Who evaluated (human / separate session / separate agent)
 - How A/B was randomized
 - When unmasking occurred (must be after scoring)
+
+---
+
+## Citation Policy (required for run records)
+
+Run records must cite only the **six canonical docs** as evidentiary authority:
+
+1. `docs/simulation-assessment-context-official.md`
+2. `docs/frameworks/simulation-effectiveness-benchmark_v0.1.0.md`
+3. `docs/benchmarks/suites/benchmark-v0_v0.1.0.md`
+4. `docs/benchmarks/target-skills_v0.1.0.md`
+5. `docs/benchmarks/control-bodies_v0.1.0.md`
+6. `docs/benchmarks/bench-skill-bodies_v0.1.0.md`
+
+### `.claude/` path rules
+
+| Path pattern | Allowed | Rationale |
+|---|---|---|
+| `.claude/skills/...` | Yes | Procedural provenance (cleanup, invocation metadata) |
+| `.claude/rules/...` | **No** | Methodology scaffolding; derivative of canonical docs; citing it is a precision failure, not a depth improvement |
+| `.claude/agents/...` | **No** | Execution infrastructure, not task evidence |
+| Any other `.claude/...` | **No** | Not part of the benchmark evidence base |
+
+**Enforcement (machine-checkable):** Grep run records for `.claude/`. Matches under `.claude/skills/` are allowed; all others are violations.
+
+### Non-canonical source handling
+
+If the runner relied on non-canonical sources (always-loaded rules, system instructions, etc.):
+- Note generically in Confounders (e.g., "always-loaded rules file") **without paths or quotes**.
+- Do not use as authority for any claim in the run record.
+
+**Rationale:** For scenarios like `v0-rubric-reference-008` that ask about benchmark infrastructure, the rules file is a derivative source that restates canonical content. Citing it conflates "defined in" with "mentioned in," which degrades citation precision — the opposite of what a reference skill should improve.
+
+---
+
+## Operations Manual (canonical workflow reference)
+
+For the canonical, end-to-end workflows for:
+- Orchestrator/Verifier (Codex)
+- Executor (Claude)
+- Fully blinded rubric evaluation (alias packet)
+
+See:
+- `docs/benchmarks/operations/benchmark-v0_ops_v0.1.0.md`
 
 ---
 
