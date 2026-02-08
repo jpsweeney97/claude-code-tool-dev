@@ -1,4 +1,4 @@
-# Simulation-Based Skill Assessment Framework v0.1.0
+# Simulation-Based Skill Assessment Framework v0.2.0
 
 A comprehensive framework for assessing and improving Claude Code skills through empirical observation rather than structural compliance checking.
 
@@ -14,7 +14,7 @@ This document is a **specification for rebuilding the `improving-skills` skill**
 
 - **Not the skill itself.** This is a framework specification. The actual skill that implements this framework will be a separate file (`SKILL.md`) that references this document for detailed procedures.
 - **Not a manual process.** This framework is designed to be executed by Claude as part of the `improving-skills` skill, not by humans following steps manually.
-- **Not complete.** Version 0.1.0 focuses on scenario generation. Skill architecture design and subagent orchestration are noted as open items.
+- **Not complete.** Version 0.2.0 covers scenario generation, execution architecture (including controls), and evaluation design (discriminability, rubric design). Skill architecture design and subagent orchestration are noted as open items.
 
 ### Who Executes This Framework
 
@@ -44,7 +44,7 @@ The framework is written as instructions for Claude, not as documentation for hu
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  THIS DOCUMENT                                                   │
-│  simulation-based-skill-assessment_v0.1.0.md                     │
+│  simulation-based-skill-assessment_v0.2.0.md                     │
 │                                                                  │
 │  - Complete methodology specification                            │
 │  - Detailed procedures for each step                             │
@@ -87,6 +87,9 @@ Key design decisions and their rationale:
 | **P0/P1/P2 priorities** | Standard priority tiers. P0 = must pass (core purpose), P1 = should pass (important behaviors), P2 = nice to pass (edge cases). Thresholds (≥10 for P0) set to produce ~20% P0, ~50% P1, ~30% P2 distribution. |
 | **3 iteration limit** | Prevents infinite loops. If skill isn't improving after 3 iterations, the problem likely requires human review rather than more automated attempts. |
 | **Empirical over theoretical** | Core insight: theoretical assessment (comparing to guidelines) produces the failure mode we're trying to fix. Empirical assessment (observing actual behavior) is the solution. |
+| **Control conditions** | Benchmark v0 showed neutral deltas in 5/6 comparisons. Without controls, "no effect" is indistinguishable from "can't measure effects." Harmful controls validate sensitivity; placebo controls rule out contamination. |
+| **Discriminability verification** | Benchmark v0 ceiling effects: baseline already passed all criteria in most scenarios. Pre-execution discriminability estimation prevents wasting runs on scenarios that can't detect skill impact. |
+| **Rubric design guidance** | Benchmark v0 rubric-scored scenarios discriminated only when dimensions targeted specific skill instructions (007: "exactly 3 options" → D1=exact count). Generic quality dimensions hit ceilings. Structural dimensions derived from skill instructions are the primary discriminators. |
 
 ### Project Context
 
@@ -100,7 +103,7 @@ claude-code-tool-dev/
 │           └── SKILL.md
 ├── docs/
 │   ├── frameworks/               ← THIS DOCUMENT
-│   │   └── simulation-based-skill-assessment_v0.1.0.md
+│   │   └── simulation-based-skill-assessment_v0.2.0.md
 │   ├── discussions/              ← Source discussion
 │   └── references/
 │       └── skills-guide.md       ← Skill type definitions
@@ -184,6 +187,8 @@ Full automation requires completing Phases 2-3 (skill architecture and subagent 
   - [4.2 Baseline Measurement](#42-baseline-measurement)
   - [4.3 Skill-Assisted Measurement](#43-skill-assisted-measurement)
   - [4.4 Delta Evaluation](#44-delta-evaluation)
+  - [4.5 Control Conditions](#45-control-conditions)
+  - [4.6 Control Interpretation](#46-control-interpretation)
 - [5. Gap Analysis and Improvement](#5-gap-analysis-and-improvement)
   - [5.1 Gap Identification](#51-gap-identification)
   - [5.2 Root Cause Classification](#52-root-cause-classification)
@@ -195,6 +200,8 @@ Full automation requires completing Phases 2-3 (skill architecture and subagent 
   - [6.3 Overfitting Prevention](#63-overfitting-prevention)
   - [6.4 Hard-to-Test Skills](#64-hard-to-test-skills)
   - [6.5 Cost Calibration](#65-cost-calibration)
+  - [6.6 Discriminability Verification](#66-discriminability-verification)
+  - [6.7 Evaluation Rubric Design](#67-evaluation-rubric-design)
 - [7. Reference Tables](#7-reference-tables)
   - [7.1 Skill Type Indicators](#71-skill-type-indicators)
   - [7.2 Subjective Term Proxies](#72-subjective-term-proxies)
@@ -409,6 +416,12 @@ If 4 scenarios show one pattern and 1 shows another, that's signal, not noise. T
 | Emergent behaviors | Combinatorial explosion of skill combinations |
 | Production-specific failures | Test environment differs from real usage |
 | Long-term behavioral drift | Single-session testing only |
+
+#### Ceiling Effects
+
+Baseline Claude is highly capable. For many tasks and success criteria, baseline behavior already satisfies what the skill intends. This creates ceiling effects where baseline-target comparisons show zero delta — not because the skill has no value, but because the scenario can't detect the difference.
+
+**Mitigation:** Section 6.6 (Discriminability Verification) provides a pre-execution estimation procedure to identify and redesign low-discriminability scenarios before committing assessment budget.
 
 #### Irreducible Judgment Points
 
@@ -1514,6 +1527,7 @@ STEP 6: Document rationale
 | P1 scenarios | ≥2 | Must test important behaviors |
 | Happy path | ≥1 | Must test normal operation |
 | Adversarial | ≥1 | Must test edge cases |
+| Discriminable scenarios | ≥2 | Must detect skill absence (see Section 6.6) |
 | **Total** | 5-7 | Balance coverage and cost |
 
 #### Calibration
@@ -1526,6 +1540,7 @@ After initial selection, review distribution:
 | <10% scenarios are P0 | Threshold may be too high | Review P0 criteria |
 | All scenarios are happy path | Adversarial generation may have failed | Add adversarial scenarios |
 | All scenarios are adversarial | Use case extraction may have failed | Add happy path scenarios |
+| 0 discriminable scenarios | Suite cannot detect skill impact | Redesign criteria or broaden solution spaces (see Section 6.6) |
 
 Target distribution: ~20% P0, ~50% P1, ~30% P2
 
@@ -1735,6 +1750,125 @@ delta_evaluation:
         direction: improved | worsened | neutral
         evidence: "[how we know]"
     overall_assessment: "[summary of skill impact]"
+```
+
+### 4.5 Control Conditions
+
+Control conditions validate that the measurement architecture can detect behavioral differences. Without controls, a neutral baseline-target delta is ambiguous: it could mean "the skill has no effect" or "the measurement can't detect effects."
+
+#### Why Controls Are Necessary
+
+| Purpose | Question Answered |
+|---------|-------------------|
+| **Sensitivity validation** | Can this measurement detect ANY behavioral difference? |
+| **Contamination ruling** | Does the measurement process itself bias results? |
+| **Genuine impact verification** | Is the observed delta a real skill effect or an artifact? |
+
+#### Control Taxonomy
+
+| Control Type | Purpose | Configuration | Expected Profile |
+|--------------|---------|---------------|------------------|
+| **Placebo** | Contamination check | Generic "be careful" instruction (no specific method) | Neutral delta vs baseline; wins indicate measurement bias |
+| **Harmful** | Sensitivity check | Instruction that degrades task capability | Negative delta vs baseline; failure to degrade indicates oracle insensitivity |
+| **Irrelevant** | Discrimination check | Valid-looking instruction orthogonal to task | Neutral delta vs baseline; wins indicate superficial measurement |
+
+#### Control Configuration
+
+Control subagents are configured identically to baseline and test (Section 4.1), with the control body replacing the target skill:
+
+```yaml
+control_subagent:
+  purpose: Validate measurement [contamination | sensitivity | discrimination]
+
+  system_prompt:
+    base: "[standard Claude behavior]"
+    additions:
+      - "[scenario context]"
+      - "[task instructions]"
+      - "[CONTROL BODY - replaces target skill]"
+    exclusions:
+      - "[target skill content - explicitly absent]"
+
+  tools: "[identical to baseline and test]"
+```
+
+#### Controlled Factors
+
+| Factor | Requirement |
+|--------|-------------|
+| Tools | Identical across baseline, test, and control |
+| Permissions | Identical across baseline, test, and control |
+| Context | Identical across baseline, test, and control |
+| Task | Identical phrasing |
+| Injected content | ONLY difference between conditions (skill vs control body vs nothing) |
+
+#### Minimum Control Requirements
+
+| Scope | Requirement | Rationale |
+|-------|-------------|-----------|
+| Per assessment | ≥1 harmful control | Validates measurement sensitivity |
+| Recommended | 1 placebo + 1 harmful | Also validates measurement neutrality |
+| Full validation | Placebo + harmful + irrelevant | Complete measurement architecture validation |
+
+#### Control Body Design Principles
+
+1. **Short** (1-5 sentences) — controls test architecture, not content
+2. **Single disruption** — each body disrupts exactly ONE dimension (tool access, response length, task framing)
+3. **Safe and non-destructive** — no harmful instructions to Claude itself
+4. **Reusable** — bodies should work across assessments
+
+#### Assignment Guidance
+
+- Don't apply all controls to all scenarios — sparse coverage is sufficient
+- Apply harmful to ≥1 scenario per oracle type (objective, rubric)
+- Apply placebo to ≥1 scenario total
+- Control runs are additional runs, not replacements for baseline or test runs
+
+### 4.6 Control Interpretation
+
+#### Interpretation Table
+
+| Control Result | Interpretation | Action |
+|----------------|----------------|--------|
+| Harmful degrades as expected | Measurement has sensitivity ✓ | Proceed with baseline-target comparison |
+| Harmful does NOT degrade | Oracle insensitive or task too easy | Redesign oracle or increase task difficulty |
+| Placebo indistinguishable from baseline | No measurement contamination ✓ | Proceed |
+| Placebo outperforms baseline | Measurement contaminated | Investigate and fix measurement bias |
+| Irrelevant indistinguishable from baseline | Measurement targets real substance ✓ | Proceed |
+| Irrelevant outperforms baseline | Measurement rewards surface features | Redesign evaluation criteria |
+
+#### Control Results Schema
+
+Extends the `delta_evaluation` output (Section 4.4):
+
+```yaml
+control_results:
+  - control_type: placebo | harmful | irrelevant
+    scenario_id: "[scenario]"
+    control_body: "[the control instruction used]"
+    expected_profile: "[expected delta direction]"
+    observed_profile: "[actual delta direction]"
+    assessment: confirmed | violated | ambiguous
+    implication: "[what this means for measurement validity]"
+```
+
+#### Sensitivity Gate
+
+**If harmful control does NOT degrade → STOP.**
+
+Do not interpret baseline-target deltas until measurement sensitivity is confirmed. A measurement that cannot detect a known-bad instruction cannot be trusted to detect skill impact.
+
+```
+PROCEDURE: Sensitivity gate check
+
+1. Run harmful control on ≥1 scenario
+2. Evaluate harmful control delta vs baseline:
+   - Negative delta (degraded)? → Sensitivity confirmed. Proceed.
+   - Neutral delta (no change)? → Sensitivity NOT confirmed.
+     → Diagnose: Is oracle too coarse? Is task too easy? Is harmful body too weak?
+     → Fix measurement before proceeding with baseline-target analysis.
+   - Positive delta (improved)? → Measurement is broken.
+     → Re-examine oracle, scoring, and evaluation procedure entirely.
 ```
 
 ---
@@ -2062,6 +2196,7 @@ Simulation-based assessment is expensive. Calibrate investment to stakes:
 | Scenario generation | Framework execution (once per assessment) |
 | Baseline runs | One subagent per scenario |
 | Test runs | One subagent per scenario |
+| Control runs | One subagent per control × assigned scenarios (see Section 4.5) |
 | Evaluation | Analysis of each run |
 | Iterations | Multiplies all above costs |
 
@@ -2082,6 +2217,173 @@ For single improvement cycle:
 ```
 
 The discussion document argues this is worthwhile: "expensive-but-works beats cheap-but-broken."
+
+### 6.6 Discriminability Verification
+
+Discriminability is the degree to which a scenario can detect the presence or absence of a skill's effect. A scenario with low discriminability produces the same result whether the skill is present or not — a ceiling effect.
+
+| Term | Definition |
+|------|------------|
+| **Discriminability** | A scenario's ability to produce different outcomes with vs. without the skill |
+| **Ceiling effect** | When baseline already satisfies all success criteria, leaving no room for the skill to show improvement |
+| **Discriminability anchor** | A success criterion that baseline is expected to fail on, creating measurable headroom for the skill |
+
+#### Why Discriminability Matters
+
+Benchmark v0 (51 runs, 8 scenarios) found that 5 of 6 baseline-target comparisons showed zero delta. Root cause: baseline Claude already satisfied the success criteria without the skill. The scenarios couldn't distinguish "skill present" from "skill absent" because both conditions passed.
+
+A suite where all scenarios have low discriminability will always produce neutral deltas, regardless of the skill's actual effectiveness. This wastes assessment budget and produces no actionable signal.
+
+#### Estimation Procedure
+
+```
+PROCEDURE: Estimate scenario discriminability
+
+STEP 1: For each scenario, enumerate success criteria
+  - List all must_do items from expected_behavior
+  - List all must_not_do items
+  - List any rubric dimensions (if rubric-scored)
+
+STEP 2: For each criterion, estimate baseline likelihood
+  Ask: "Would Claude satisfy this WITHOUT the skill?"
+  - likely (>70%): Claude's default behavior naturally satisfies this
+  - uncertain (30-70%): Claude might or might not satisfy this
+  - unlikely (<30%): Claude's default behavior would not produce this
+
+  Evidence: What makes you think baseline would/wouldn't do this?
+  (Prior benchmark data, known Claude tendencies, task analysis)
+
+STEP 3: Compute discriminability estimate
+  - All criteria likely → LOW discriminability (ceiling effect expected)
+  - ≥1 criterion unlikely → MEDIUM discriminability
+  - ≥2 criteria unlikely AND those criteria map to specific skill instructions
+    → HIGH discriminability
+
+STEP 4: Flag and redesign low-discriminability scenarios
+  - Scenarios with LOW estimate need redesign before inclusion
+  - See redesign strategies below
+```
+
+#### Redesign Strategies
+
+| Problem | Strategy | Example |
+|---------|----------|---------|
+| Baseline already passes all criteria | Add skill-specific criterion that baseline wouldn't naturally satisfy | "exactly 3 options" for a count-discipline skill |
+| Success criteria too generic | Make criteria structural/countable | "includes N sections" instead of "is well-organized" |
+| Solution space too narrow | Broaden task so multiple valid approaches exist | Open-ended design task instead of single-path fix |
+| Task is trivially satisfiable | Increase task complexity or add constraints | Multi-file task instead of single-file |
+| All criteria test quality, not process | Add process-observable criteria | "reads file before editing" instead of "edits correctly" |
+
+#### Suite-Level Minimum
+
+- ≥2 scenarios with MEDIUM or HIGH discriminability
+- If fewer than 2: redesign scenarios before proceeding to execution (Step 8 gate)
+- If harmful control also fails to degrade (Section 4.6), the problem may be oracle insensitivity, not scenario design
+
+#### Schema Addition
+
+Extends the scenario schema (Section 6.1):
+
+```yaml
+discriminability:
+  estimate: high | medium | low
+  criteria_analysis:
+    - criterion: "[success criterion text]"
+      baseline_likelihood: likely | uncertain | unlikely
+      evidence: "[why you expect this baseline behavior]"
+  redesign_needed: boolean
+  redesign_notes: string | null
+```
+
+### 6.7 Evaluation Rubric Design
+
+Rubric-scored evaluation is needed when binary oracles (tests pass, build succeeds) have insufficient discriminative power and output quality is the primary measure. This section provides guidance for designing rubrics that actually discriminate between baseline and skill-assisted behavior.
+
+#### When Rubrics Are Needed
+
+| Situation | Oracle Type | Rubric Needed? |
+|-----------|-------------|----------------|
+| Task has automated tests | Objective (binary) | No — use test results |
+| Task has countable structural requirements | Objective (count) | No — use counts |
+| Output quality is the primary measure | Rubric | Yes |
+| Binary oracle passes for both baseline and test | Rubric (supplement) | Yes — binary oracle has ceiling |
+| Subjective success criteria | Rubric | Yes |
+
+#### The Skill-Dimension Alignment Principle
+
+Rubric dimensions discriminate when they measure the specific behavioral change the skill intends. Dimensions that measure generic quality (clarity, reasoning depth, thoroughness) hit ceiling effects because baseline Claude is already competent at these.
+
+**Key finding from Benchmark v0:** Rubric-scored scenarios discriminated only when dimensions targeted specific skill instructions (e.g., "exactly 3 options" → D1=exact count). Generic quality dimensions produced identical scores across conditions.
+
+#### Dimension Classification
+
+| Type | Definition | Discriminative? | Example |
+|------|------------|-----------------|---------|
+| **Structural** | Countable, algorithmic assessment | Usually yes | "Exactly 3 options," "All required sections present," "N citations included" |
+| **Behavioral** | Specific observable action taken or avoided | Often yes | "Cites exact file paths," "Distinguishes observation from inference," "Reads before editing" |
+| **Qualitative** | Judgment-based quality assessment | Usually no (ceiling) | "Analysis quality," "Well-articulated," "Substantive reasoning" |
+
+#### Rubric Design Procedure
+
+```
+PROCEDURE: Design evaluation rubric
+
+STEP 1: Identify the skill's key instructions
+  - Use the instruction→behavior mapping from Step 5 (Section 3.6)
+  - Focus on instructions that produce observable output differences
+
+STEP 2: For each key instruction, derive a rubric dimension
+  - What observable output would indicate the instruction was followed?
+  - Can this be scored mechanically (counting, checking presence)?
+    → YES: structural dimension
+    → NO: qualitative dimension
+
+STEP 3: Ensure ≥1 dimension is structural AND maps to a specific skill instruction
+  - This is the "discriminability anchor" — the dimension most likely to show a delta
+  - Cross-reference with discriminability analysis (Section 6.6):
+    the anchor should target a criterion where baseline likelihood is "unlikely"
+
+STEP 4: Add generic quality dimensions as needed
+  - These may not discriminate but catch catastrophic failures
+  - Examples: overall coherence, task completion, factual accuracy
+
+STEP 5: Set scale per dimension
+  - Structural dimensions: 0-2 scale (absent / partial / full) is sufficient
+  - Behavioral dimensions: 0-2 or 0-3 depending on observability
+  - Qualitative dimensions: 0-3 or 0-4 scale (finer granularity for subtle differences)
+  - Target total range ≥8 points for meaningful spread
+```
+
+#### The Discriminability Anchor
+
+Every rubric MUST include ≥1 dimension where:
+
+1. The dimension maps directly to a specific skill instruction
+2. Baseline is expected to naturally fail on it (from Section 6.6 analysis)
+3. The dimension is structural or behavioral (not purely qualitative)
+
+If baseline and target both score full marks on the anchor dimension, the rubric has failed to capture the skill's effect. This is the primary diagnostic for rubric insensitivity.
+
+#### Rubric Validation Checklist
+
+```
+[ ] ≥1 structural dimension maps to a specific skill instruction
+[ ] ≥1 dimension targets a behavior baseline is likely to fail at (discriminability anchor)
+[ ] Each dimension can be scored independently (no inter-dimension dependencies)
+[ ] Scale granularity matches dimension type (0-2 for structural, 0-3+ for qualitative)
+[ ] Total score range allows meaningful spread (≥8 points)
+[ ] No dimension double-counts another dimension's signal
+```
+
+#### Anti-Patterns
+
+| Anti-Pattern | Problem | Fix |
+|--------------|---------|-----|
+| All qualitative dimensions | Ceiling effect on everything | Add ≥1 structural dimension derived from skill instructions |
+| Dimensions don't map to skill | Measuring generic quality, not skill impact | Derive dimensions from the skill's instruction→behavior mapping |
+| Binary dimensions only (0/2) | Loses partial-credit signal | Add intermediate levels for nuanced dimensions |
+| Overlapping dimensions | Double-counting inflates apparent skill effect | Ensure each dimension measures an independent aspect |
+| No discriminability anchor | No dimension specifically targets skill-induced change | Add ≥1 dimension where baseline is expected to score low |
 
 ---
 
@@ -2292,16 +2594,18 @@ The framework doesn't eliminate judgment; it structures it. Judgment points are 
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1.0 |
+| Version | 0.2.0 |
 | Status | Draft |
 | Created | 2026-02-04 |
-| Based on | Discussion: Improving-Skills Failure Modes and Simulation-Based Assessment |
+| Updated | 2026-02-08 |
+| Based on | Discussion: Improving-Skills Failure Modes and Simulation-Based Assessment; Benchmark v0 results (51 runs, 8 scenarios) |
 
 ### Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
 | 0.1.0 | 2026-02-04 | Initial comprehensive framework |
+| 0.2.0 | 2026-02-08 | Added control conditions (4.5-4.6), discriminability verification (6.6), evaluation rubric design (6.7). Empirically motivated by Benchmark v0 ceiling effects and measurement sensitivity gaps. |
 
 ### Open Items
 
@@ -2309,7 +2613,7 @@ The framework doesn't eliminate judgment; it structures it. Judgment points are 
 |----------|------|--------|
 | High | Skill architecture design | Not started |
 | High | Subagent orchestration design | Not started |
-| High | "Good enough" threshold definition | Partial |
+| High | "Good enough" threshold definition | Partially addressed — discriminability verification (6.6) defines suite-level minimums; rubric design (6.7) defines dimension-level validation. Full threshold calibration requires more empirical data. |
 | Medium | Step failure protocols | Not started |
 | Medium | Step dependency graph | Implicit only |
 | Medium | Worked example | Not started |

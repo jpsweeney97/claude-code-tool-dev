@@ -14,7 +14,7 @@ This document is the *consolidated* view. Use the links below as the canonical "
 
 - ADR (architecture + decision rationale): `docs/adrs/0001-simulation-based-skill-assessment-architecture.md`
 - Discussion Map (design evolution + threads): `docs/discussions/DISCUSSION-MAP-simulation-based-assessment.md`
-- Framework Spec (full 8-step framework): `docs/frameworks/simulation-based-skill-assessment_v0.1.0.md`
+- Framework Spec (full 8-step framework): `docs/frameworks/simulation-based-skill-assessment_v0.2.0.md`
 
 ### Execution Artifacts (what was actually run)
 
@@ -605,7 +605,7 @@ These prior tests covered some adversarial territory:
 |----------|----------|---------|
 | ADR | `docs/adrs/0001-simulation-based-skill-assessment-architecture.md` | Architectural decisions and full stress test data |
 | Discussion Map | `docs/discussions/DISCUSSION-MAP-simulation-based-assessment.md` | Evolution narrative, 48+ turns of design |
-| Framework Spec | `docs/frameworks/simulation-based-skill-assessment_v0.1.0.md` | Full 2,300-line spec (8-step framework, scenario generation) |
+| Framework Spec | `docs/frameworks/simulation-based-skill-assessment_v0.2.0.md` | Full 2,300-line spec (8-step framework, scenario generation) |
 | Stress Test Plan | `docs/plans/2026-02-05-architecture-stress-test-plan.md` | Test design for A, B, C categories |
 | Stress Test Results | `docs/plans/2026-02-05-architecture-stress-test-results.md` | Detailed per-run results and meta-insights |
 | Feasibility Spike | `docs/spikes/simulation-feasibility-spike_2026-02-04.md` | 6 experiments validating architecture |

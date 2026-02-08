@@ -690,7 +690,7 @@ Tested whether the A/B comparison framework generalizes from discipline skills (
 
 - **Spike results:** `docs/spikes/simulation-feasibility-spike_2026-02-04.md`
 - **Stress test results:** `docs/plans/2026-02-05-architecture-stress-test-results.md`
-- **Framework specification:** `docs/frameworks/simulation-based-skill-assessment_v0.1.0.md`
+- **Framework specification:** `docs/frameworks/simulation-based-skill-assessment_v0.2.0.md`
 - **Discussion consolidation:** `docs/discussions/CONSOLIDATED-simulation-based-assessment-discussions.md`
 - **Skills/subagents relationship:** `docs/discussions/skills-subagents-relationship.md`
 

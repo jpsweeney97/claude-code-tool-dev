@@ -268,7 +268,7 @@ Use this section when you need full raw results, rationale, or long-form evoluti
 - Discussion Map (design evolution + forks): `docs/discussions/DISCUSSION-MAP-simulation-based-assessment.md`
 - Stress test results (per-run outputs + metrics): `docs/plans/2026-02-05-architecture-stress-test-results.md`
 - Feasibility spike (6 experiments validating constraints): `docs/spikes/simulation-feasibility-spike_2026-02-04.md`
-- Framework spec (scenario generation framework; older assumptions may drift): `docs/frameworks/simulation-based-skill-assessment_v0.1.0.md`
+- Framework spec (scenario generation framework; older assumptions may drift): `docs/frameworks/simulation-based-skill-assessment_v0.2.0.md`
 - Assessment runner (execution environment): `.claude/agents/assessment-runner.md`
 
 ### Where to look (common questions → best source)
