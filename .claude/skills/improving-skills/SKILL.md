@@ -18,15 +18,19 @@ Read [skills-guide.md](skills-guide.md) before proposing any changes. The guide 
 - Address symptoms instead of root causes
 - Miss the actual problem entirely
 
-## Center Claude's Actual Needs
+## Functional Analysis
 
-When assessing a skill, evaluate content through Claude's perspective:
+Before assessing structure, determine whether the skill works. Answer these 5 questions during Step 3 of the assessment:
 
-- Does this content help Claude succeed at something it would otherwise struggle with?
-- Does Claude actually exhibit the failure modes these anti-patterns address?
-- Is this explaining something Claude already knows from training?
+1. **User job** — What user job is Claude helping with?
+2. **Behavior change** — What observable behavior change should this skill induce?
+3. **Transcript markers** — What transcript markers prove that change happened?
+4. **Anti-markers** — What anti-markers indicate no effect (or harm)?
+5. **Counterfactual** — What does Claude likely do without this skill?
 
-Content that doesn't provide genuine value to Claude is noise, regardless of how reasonable it sounds. Preemptive anti-patterns — addressing failures Claude doesn't actually exhibit — add bulk without benefit.
+If you cannot answer questions 2-3 with specifics, the skill's purpose is unclear — flag this as the primary weakness before examining structure.
+
+Structural compliance without functional effectiveness → recommend rewrite.
 
 ## When to Hand Off to creating-skills
 
@@ -97,17 +101,29 @@ Create two lists. Each item MUST have:
 
 **Rule: Confidence cannot exceed evidence.** An uncited finding is Low confidence. No exceptions.
 
+**Functional findings (from the 5 questions in Functional Analysis):**
+- Can you name specific transcript markers the skill should produce?
+- Does the skill address behaviors Claude actually exhibits without it (counterfactual)?
+- Do anti-patterns address real failure modes, or hypothetical ones?
+
+Functional findings take priority over structural findings. A skill that changes behavior but has imperfect structure is better than one with perfect structure that changes nothing.
+
 **Strengths** — What's working:
 - Elements that follow skills-guide.md recommendations
 - Effective techniques for the skill's type
 - Clear, actionable instructions
 - Well-crafted examples
+- Induces observable behavior change (transcript markers identifiable)
+- Addresses real Claude failure modes (counterfactual shows gap)
 
 **Weaknesses** — What's not working:
 - Deviations from skills-guide.md standards
 - Missing elements for the skill's type
 - Vague or unactionable instructions
 - Gaps in coverage
+- No observable behavior change expected (skill is noise)
+- Addresses hypothetical failures Claude doesn't exhibit
+- Structural compliance without functional purpose
 
 For each potential weakness, also ask:
 - Does this content provide genuine value to Claude, or is it noise?
@@ -159,6 +175,8 @@ This step prevents:
 - Confirmation bias (seeing what you expected)
 - Anchoring (over-weighting first impressions)
 - Projection (assuming your preferences are requirements)
+
+**Functional override:** If the skill passes structural assessment but the functional analysis (questions 2-5) shows no expected behavior change, the primary recommendation must be rewrite or removal — not structural polish.
 
 ### Step 6: Validate Assumptions and Check for Hand-Off
 
