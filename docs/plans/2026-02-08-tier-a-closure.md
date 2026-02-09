@@ -72,9 +72,13 @@ The original Tier A plan (`docs/plans/2026-02-08-skill-evidence-tiers-decision.m
 
 ## What This Closes
 
-- **The measurement project.** 60+ runs across 4 phases (v0, v1 pilot, discriminability, behavioral markers) converged on a clear finding: skills change process, not outcomes at this difficulty. Behavioral markers detect the process change. The measurement question is answered.
-- **The "do skills work?" question** is reframed with precision: skills induce behavioral compliance when they add orthogonal instructions. Whether that compliance is valuable is a design judgment, not a benchmark finding.
+- **The measurement project's current phase.** 60+ runs across 4 phases (v0, v1 pilot, discriminability, behavioral markers) established that behavioral markers can detect skill-induced process changes. The measurement infrastructure works.
+- **The "do skills work?" question** is partially answered: skills induce behavioral compliance when they add orthogonal instructions. Whether that compliance improves outcomes is **untested** — all experimental tasks were within Claude's baseline capability range, producing ceiling effects that made outcome differences undetectable by design.
 - **Tier A as the default evidence bar.** For future skills, Tier A means: define expected behavioral artifacts, verify they appear in target and not in baseline. No rubric scoring, no blinded evaluation, no elaborate infrastructure needed.
+
+## What This Does NOT Close
+
+- **Whether skills improve outcomes.** The experiments never included tasks where baseline Claude makes observable errors. The finding "no outcome difference" is a consequence of easy-task selection, not evidence that skills are outcome-neutral in general. Testing outcome effects requires Tier B with difficulty-calibrated tasks — that question is open, not answered.
 
 ## What Remains Open
 
@@ -88,5 +92,7 @@ The original Tier A plan (`docs/plans/2026-02-08-skill-evidence-tiers-decision.m
 |-------|:----:|----------|--------|
 | v0 | 51 | Rubric scoring, automated | INCONCLUSIVE (ceiling, confounders) |
 | v1 pilot | 6 | Rubric scoring, blinded human eval | FAIL (0/3 improvement) |
-| Discriminability | 6 | Rubric scoring, blinded isolated eval | CAN'T DETECT (delta ≈ 0) |
+| Discriminability | 6 | Rubric scoring, blinded isolated eval | CAN'T DETECT (delta ≈ 0 at ceiling) |
 | Behavioral markers | 0 new | Binary detection on existing outputs | **CLOSED — markers separate on 2/3 scenarios (within-sample for 102; exploratory for 101; principled non-finding for 103)** |
+
+**Limitation acknowledged across all phases:** Every experimental task was within Claude's baseline capability range. Outcome-quality findings (INCONCLUSIVE, FAIL, CAN'T DETECT) reflect easy-task ceiling effects, not evidence that skills are outcome-neutral in general. The outcome question requires harder tasks and remains open.

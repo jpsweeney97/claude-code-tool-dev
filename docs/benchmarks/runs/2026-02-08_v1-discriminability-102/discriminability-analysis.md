@@ -112,9 +112,9 @@ Both conditions satisfy every rubric criterion at the maximum level. The rubric 
 
 ### Why behavioral differences don't produce score differences
 
-The skill adds process structure (explicit counting, verification sections, confidence downgrade summaries). The rubric measures outcome correctness (are labels right? are citations accurate? are confidences calibrated?). Claude produces correct outcomes with or without the process structure. The skill changes *how* Claude arrives at answers, not *whether* it gets them right — and the rubric only measures the latter.
+The skill adds process structure (explicit counting, verification sections, confidence downgrade summaries). The rubric measures outcome correctness (are labels right? are citations accurate? are confidences calibrated?). On this task — within Claude's baseline capability range — Claude produces correct outcomes with or without the process structure. The skill changes *how* Claude arrives at answers, and on easy tasks *whether* it gets them right is not in question. The rubric only measures the latter, and the task isn't hard enough to create variance in it.
 
-This is not a rubric design flaw in the narrow sense (the rubric accurately measures what it claims to measure). It's a measurement-target mismatch: rubric scoring measures output quality, but skill effects manifest as process changes that don't affect output quality on tasks within Claude's capability range.
+This is not a rubric design flaw in the narrow sense (the rubric accurately measures what it claims to measure). It's a task-difficulty problem: the tasks are easy enough that both conditions produce correct outputs, leaving no room for process structure to demonstrate outcome value. On harder tasks — where baseline Claude makes errors that structured process might prevent — outcome differences may emerge. That question is untested.
 
 ### Falsifier
 
@@ -126,7 +126,7 @@ The ceiling-effect diagnosis predicts: if we introduce a harder evidence set wit
 
 2. **Behavioral markers can detect skill effects.** The evaluator's own rationale text proves that target-specific behaviors (counting verification, confidence downgrade summaries) are consistently present in target runs and absent from baselines. A measurement approach that detects presence/absence of these behaviors will have discriminating power.
 
-3. **The benchmark question needs reframing.** "Do skills improve output quality?" → not measurably at this task difficulty, because Claude's baseline quality is already high. "Do skills change Claude's process in consistent, verifiable ways?" → yes, demonstrably. Whether process changes have value beyond these scenarios (e.g., on harder tasks where process structure prevents errors, or for reliability/consistency) is a separate question.
+3. **The benchmark question needs reframing.** "Do skills improve output quality?" → untestable at this task difficulty, because Claude's baseline quality is already at ceiling. The absence of outcome differences is a consequence of easy-task selection, not evidence that skills don't help. "Do skills change Claude's process in consistent, verifiable ways?" → yes, demonstrably. Whether process changes improve outcomes on harder tasks (where process structure might prevent errors baseline Claude makes) is an open question requiring difficulty-calibrated experiments.
 
 ## Recommendation
 

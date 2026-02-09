@@ -1,7 +1,7 @@
 # Decision: Two-Tier Evidence Bar for Skill Validation
 
 **Date:** 2026-02-08
-**Context:** After 60+ benchmark runs across three cycles (v0, v1 pilot, discriminability experiment), the evidence is clear: skills reliably change Claude's process but don't measurably improve output quality at the current task difficulty. General rubric-based quality benchmarking has hit a ceiling effect. Need to decide what "sufficient evidence of skill value" means going forward.
+**Context:** After 60+ benchmark runs across three cycles (v0, v1 pilot, discriminability experiment), the evidence shows: skills reliably change Claude's process, and outcome differences are undetectable on the tasks tested. However, all tasks were within Claude's baseline capability range (both conditions hit ceiling scores), so the absence of outcome differences is a consequence of task-difficulty selection, not evidence that skills don't affect outcomes in general. General rubric-based quality benchmarking has hit a ceiling effect. Need to decide what "sufficient evidence of skill value" means going forward.
 **Prior decisions:** `docs/plans/2026-02-08-benchmark-next-steps-decision.md`, `docs/plans/2026-02-08-behavioral-markers-pivot.md`
 
 ## Decision
@@ -52,7 +52,7 @@ Move to Tier B if any of these become true:
 ## What This Closes
 
 - **The general rubric-based quality benchmark project** is parked as a default path. The discriminability experiment showed that correctness-focused rubrics hit ceiling effects on tasks within Claude's capability range. Rubric infrastructure is archived, not deleted — it can be revived for Tier B if a specific hypothesis needs it.
-- **The "do skills improve quality?" question** is reframed: the answer is "not measurably at this task difficulty" and the measurement project's contribution was proving that rigorously.
+- **The "do skills improve quality?" question** is unanswered, not answered negatively. The experiments showed no outcome difference, but all tasks were easy enough that baseline Claude already scored at ceiling. The measurement project's contribution was establishing that the question requires harder tasks to test — not that the answer is "no."
 
 ## What Remains (Tier A Completion)
 

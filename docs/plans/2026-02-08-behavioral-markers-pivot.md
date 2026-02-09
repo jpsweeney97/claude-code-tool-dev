@@ -6,7 +6,7 @@
 
 ## Why Rubric Scoring Failed
 
-Rubric scoring measures **outcome correctness** (are labels right? citations accurate? confidences calibrated?). Skills change **process** (explicit counting, verification sections, structured confidence downgrades). Claude produces correct outcomes with or without process structure on tasks within its capability range. The rubric hits a ceiling at 20/20 for both conditions.
+Rubric scoring measures **outcome correctness** (are labels right? citations accurate? confidences calibrated?). Skills change **process** (explicit counting, verification sections, structured confidence downgrades). On the tasks tested — all within Claude's baseline capability range — Claude produces correct outcomes with or without process structure, so the rubric hits a ceiling at 20/20 for both conditions. This is a task-difficulty problem, not evidence that process changes never affect outcomes.
 
 The evaluator saw the behavioral differences — described them in rationale text — but had no rubric mechanism to score them differently. Both conditions satisfy every criterion at the maximum level.
 
@@ -132,7 +132,7 @@ If naive text scans (e.g., `rg "baseline|target"`) are used to detect blinding l
 |-------|----------|--------|----------|
 | v0 (51 runs, 8 scenarios) | Rubric scoring, automated | INCONCLUSIVE | Ceiling effects, tool-usage confounders |
 | v1 pilot (6 runs, 3 scenarios) | Rubric scoring, blinded human eval | FAIL (0/3 improvement) | Dimension coupling (101), ceiling (102/103) |
-| Discriminability (6 runs, 1 scenario) | Rubric scoring, blinded isolated eval | CAN'T DETECT (mean delta +0.33) | Rubric measures outcomes; skills change process |
+| Discriminability (6 runs, 1 scenario) | Rubric scoring, blinded isolated eval | CAN'T DETECT (mean delta +0.33) | Rubric can't detect differences at ceiling; task difficulty too low for outcome measurement |
 | **Behavioral markers (this)** | **Binary/count detection, automated** | **Pending** | **Expected: perfect separation on 102** |
 
-The progression shows a convergent diagnosis: skills change process, not outcomes (at this task difficulty). Behavioral markers measure what actually changes.
+The progression shows: skills change process detectably, and outcome differences are undetectable on easy tasks. Whether process changes affect outcomes on harder tasks (where baseline Claude makes errors) is an open question — the experiments never tested it. Behavioral markers measure the process change that does occur.
