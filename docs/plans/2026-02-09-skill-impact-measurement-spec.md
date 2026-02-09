@@ -171,7 +171,9 @@ This rubric was validated in stress test Phase 1.2: the structural/behavioral di
 
 ### 4.2 Minimum Suite Size
 
-**17 tasks per skill** (9 Tier 1, 5 Tier 2, 3 Tier 3).
+**17 tasks per suite** (9 Tier 1, 5 Tier 2, 3 Tier 3).
+
+**Confirmatory holdout (recommended):** Build two independent suites (A = main, B = held-out confirmatory) during suite construction. Only execute suite B if suite A is suggestive (see §6.5).
 
 Rationale: With up to 17 paired comparisons (N_eff = 17 when there are no ties; ties excluded per §6.1), a one-tailed sign test detects meaningful effects:
 - 13+ wins out of 17 → p = 0.025 (significant at 0.05)
@@ -210,11 +212,15 @@ FOR EACH task T:
   FOR i IN 1..3:
     baseline_i = execute(scenario=T, skill=none)
     test_i     = execute(scenario=T, skill=target)
+    IF include_placebo:
+      placebo_i  = execute(scenario=T, skill=placebo)
 ```
+
+`include_placebo` (and the resulting `primary_comparator`) is determined by the instruction-sensitivity check in §5.2.
 
 Each `execute()` creates a dynamic skill file with `context: fork` + `agent: assessment-runner`, invokes it via the Skill tool, and captures the output.
 
-**Why 3 runs, not 1:** Stress tests showed format/structural variance is near-zero but content variance exists. 3 runs per condition captures the variance while keeping cost bounded. Majority-vote on rubric scores.
+**Why 3 runs, not 1:** Stress tests showed format/structural variance is near-zero but content variance exists. 3 runs per condition captures the variance while keeping cost bounded. Aggregate to a task-level win/loss via majority vote across run-level comparisons (§5.3).
 
 **Why not 5:** The stress tests used 5 runs to characterize variance distributions. For measurement (not characterization), 3 runs is sufficient — the variance is already known to be low.
 
@@ -225,30 +231,35 @@ Run controls **before** the full assessment as a calibration gate.
 | Control | Body | Expected Result |
 |---|---|---|
 | **Harmful** | Instruction that degrades task capability (e.g., "Respond in exactly 15 words") | Negative delta vs baseline. If neutral → measurement is broken. |
-| **Placebo** | Generic non-specific instruction (e.g., "Be careful and do your best work") | Neutral delta vs baseline. If positive → measurement invalid (contamination bias). |
+| **Placebo** | Generic non-specific instruction (e.g., "Be careful and do your best work") | Ideally neutral vs baseline. If positive → **instruction-presence effect**; use placebo as the primary comparator (see instruction-sensitivity check below). |
 
 **Control execution:**
-- Select 2 representative Tier 1 tasks for controls
+- Select 2 representative Tier 1 tasks for controls (**calibration set; not part of the 17-task suite**)
 - Run each control type × each task × 3 replications (same as test/baseline)
 - Total: 2 control types × 2 tasks × 3 runs = 12 additional runs
 - Run controls first, before committing to the full 17-task suite
 
 **Sensitivity gate:** If the harmful control does NOT produce a negative delta on at least 1 of 2 tasks, stop. The rubric cannot detect known-bad behavior, so it cannot be trusted to detect skill impact. Diagnose and fix before proceeding.
 
-**Contamination gate:** If the placebo control outperforms baseline on either task, stop and mark the measurement invalid. Possible causes: the rubric rewards any instruction presence, or the placebo body inadvertently helps. Re-derive the rubric before running the full suite.
+**Instruction-sensitivity check (placebo):** If the placebo control outperforms baseline on either calibration task, do **not** mark the measurement invalid. Instead:
+- Mark the evaluation as **instruction-sensitive**
+- Include a placebo condition in the full 17-task suite
+- Treat **test vs placebo** as the **primary** sign test (baseline becomes descriptive context)
+
+If placebo is neutral vs baseline on both calibration tasks, skip the placebo condition for the full suite and keep **test vs baseline** as the primary comparison.
 
 Reference: Simulation framework §4.5-4.6 for control taxonomy, configuration, and interpretation.
 
 ### 5.3 Evaluation
 
-For each task, score all outputs (baseline and test, all runs) using the per-skill rubric (§3.2).
+For each task, score all outputs (baseline and test, and placebo if included; all runs) using the per-skill rubric (§3.2).
 
 **Who scores:** The orchestrating Claude instance scores outputs using the rubric. This keeps evaluation in-session where process traces and tool usage are visible, not just final output.
 
 **Blinding protocol:** To reduce confirmation bias, anonymize outputs before scoring:
 
-1. Assign each output a random ID (e.g., `output-7k`, `output-3m`). Do not use IDs that reveal condition (no `baseline-1`, `test-2`).
-2. Randomize presentation order: for each run pair, flip which output is scored first. Record the order.
+1. Assign each output a random ID (e.g., `output-7k`, `output-3m`). Do not use IDs that reveal condition (no `baseline-1`, `test-2`, `placebo-3`).
+2. Randomize presentation order within each task (shuffle outputs). Record the order.
 3. Score each output independently against the rubric. Do not score them side-by-side.
 4. After all outputs for a task are scored, de-anonymize and compute the winner.
 
@@ -256,7 +267,7 @@ For each task, score all outputs (baseline and test, all runs) using the per-ski
 
 ```
 FOR EACH task T:
-  outputs = collect_and_anonymize(baseline_runs + test_runs)
+  outputs = collect_and_anonymize(baseline_runs + test_runs + (placebo_runs if include_placebo else []))
   shuffle(outputs)
 
   FOR EACH output in outputs:
@@ -264,8 +275,10 @@ FOR EACH task T:
 
   de_anonymize(scores)
 
-  FOR EACH run pair (baseline_i, test_i):
-    winner_i = compare(scores[baseline_i], scores[test_i])
+  comparator_runs = (placebo_runs if primary_comparator == "placebo" else baseline_runs)
+
+  FOR EACH run pair (comparator_i, test_i):
+    winner_i = compare(scores[comparator_i], scores[test_i])
 
   task_winner = majority_vote(winner_1, winner_2, winner_3)
   # Ties: see §6.1
@@ -281,9 +294,13 @@ FOR EACH task T:
 win_rate = (tasks won by treatment) / (tasks won + tasks lost)
 ```
 
-A task is "won" when the treatment's majority-vote rubric score exceeds the baseline's. A task is "lost" when baseline exceeds treatment.
+For the **primary** win rate and sign test, define the comparator as:
+- **Baseline** by default
+- **Placebo** if the instruction-sensitivity check (§5.2) detects an instruction-presence effect
 
-**Tie handling:** When treatment and baseline have equal majority-vote scores, the task is a **tie**. Ties are excluded from both numerator and denominator. The effective sample size N_eff = (wins + losses) is used for all statistical tests.
+A task is "won" when the treatment's majority-vote rubric score exceeds the **primary comparator's**. A task is "lost" when the primary comparator exceeds treatment.
+
+**Tie handling:** When treatment and the primary comparator have equal majority-vote scores, the task is a **tie**. Ties are excluded from both numerator and denominator. The effective sample size N_eff = (wins + losses) is used for all statistical tests.
 
 Report ties separately: a high tie rate (>30%) indicates the rubric lacks discriminative power — revisit dimension design (§3.2).
 
@@ -296,13 +313,26 @@ Report ties separately: a high tie rate (>30%) indicates the rubric lacks discri
 | 11/15 wins, 2 ties | 73.3% | [48.0%, 89.1%] |
 | 9/15 wins, 2 ties | 60.0% | [35.7%, 80.2%] |
 
-### 6.2 Statistical Test: Sign Test (One-Tailed)
+### 6.2 Statistical Test: Sign Test (Directional)
 
-Non-parametric test on paired outcomes. Under null hypothesis (no effect), wins ~ Binomial(N_eff, 0.5). All p-values are **one-tailed** (testing for positive effect).
+Non-parametric test on paired outcomes. Under null hypothesis (no effect), wins ~ Binomial(N_eff, 0.5).
+
+Report both tails:
+- **p_help:** one-tailed p-value for treatment beating the primary comparator
+- **p_harm:** one-tailed p-value for treatment being worse than the primary comparator (safety signal)
+
+If you need a single two-sided p-value ("effect in either direction"), report:
+```
+p_two_sided = min(1, 2 * min(p_help, p_harm))
+```
+
+**Threshold note:** If you intend to make symmetric statistical claims in either direction ("clearly helps" *or* "harmful"), use **p_two_sided < 0.05** (equivalently p_help < 0.025 or p_harm < 0.025). This spec treats **p_help** as the primary shipping signal; **p_harm** is a safety signal.
+
+The tables below show **p_help** thresholds for the positive direction.
 
 For N_eff = 17 (no ties):
 
-| Wins | Win Rate | p-value | Interpretation |
+| Wins | Win Rate | p_help | Interpretation |
 |---|---|---|---|
 | 13+ | 76.5% | 0.025 | Significant (p < 0.05) |
 | 12 | 70.6% | 0.072 | Suggestive |
@@ -310,7 +340,7 @@ For N_eff = 17 (no ties):
 
 For N_eff = 15 (2 ties excluded):
 
-| Wins | Win Rate | p-value | Interpretation |
+| Wins | Win Rate | p_help | Interpretation |
 |---|---|---|---|
 | 12+ | 80.0% | 0.018 | Significant (p < 0.05) |
 | 11 | 73.3% | 0.059 | Suggestive |
@@ -318,7 +348,7 @@ For N_eff = 15 (2 ties excluded):
 
 For N_eff = 13 (4 ties excluded):
 
-| Wins | Win Rate | p-value | Interpretation |
+| Wins | Win Rate | p_help | Interpretation |
 |---|---|---|---|
 | 10+ | 76.9% | 0.046 | Significant (p < 0.05) |
 | 9 | 69.2% | 0.133 | Not significant |
@@ -327,7 +357,7 @@ For N_eff = 13 (4 ties excluded):
 
 ### 6.3 Secondary Metrics
 
-**Per-dimension deltas:** For each rubric dimension, compute mean score difference (test - baseline) across all tasks. This diagnoses *what* the skill is doing.
+**Per-dimension deltas:** For each rubric dimension, compute mean score difference (test - baseline) across all tasks. If the placebo condition is included (§5.2), also compute (test - placebo). This diagnoses *what* the skill is doing.
 
 Example output:
 ```
@@ -351,7 +381,7 @@ Task completion:  +0.0  (2.8 baseline → 2.8 test)  ← no difference (expected
 
 ### 6.4 Failure Mode Categorization
 
-For every task the skill lost (treatment scored lower than baseline), manually inspect and categorize:
+For every task the skill lost (treatment scored lower than the **primary comparator**), manually inspect and categorize:
 
 | Category | Description | Example |
 |---|---|---|
@@ -362,6 +392,21 @@ For every task the skill lost (treatment scored lower than baseline), manually i
 | **Misinterpreted** | Skill instruction followed incorrectly | "Be specific" interpreted as "add more words" |
 
 Track failure mode frequency across the suite. If one mode dominates, the skill has a systematic problem addressable through the simulation framework's gap analysis (§5).
+
+### 6.5 Confirmatory Runs (Avoid Optional Stopping)
+
+If you decide to spend more compute based on observed p-values, **do not** simply add more tasks and re-run the same p-value threshold on the pooled dataset. That creates an optional-stopping problem and inflates false positives.
+
+**Recommended approach: screen → confirm using a held-out task suite**
+
+1. During task suite construction (§4), generate **two** independent 17-task suites (A = main, B = holdout) with the same tier proportions and rubric anchoring.
+2. Run suite A and compute the primary sign test (vs the primary comparator from §5.2).
+3. If suite A is **suggestive** (0.05 ≤ p_help < 0.10) *and* calibration gates pass, run suite B.
+4. Make the ship/no-ship call based on suite B **alone** at p_help < 0.05 (same analysis and decision rules). Suite A is reported as screening context.
+
+To control cost, suite B only needs the **primary comparison** conditions (test + primary comparator). Running baseline in suite B is optional descriptive context, not required for the confirmatory decision.
+
+**Rule:** If suite A is "inconclusive — too many ties" (N_eff < 12), do not run suite B; redesign the rubric and tasks first.
 
 ---
 
@@ -374,23 +419,25 @@ Track failure mode frequency across the suite. If one mode dominates, the skill 
 
 ## Summary
 - Win rate: X% (Y wins / Z non-tied tasks), Wilson 95% CI: [lo%, hi%]
+- Primary comparison: test vs {baseline|placebo}
 - Ties: T/17 tasks (tie rate: T%)
-- Sign test (one-tailed): p = {value} ({significant|suggestive|not significant|inconclusive})
+- Sign test: p_help = {value} ({significant|suggestive|not significant|inconclusive}); p_harm = {value} (optional)
+- Holdout (if run): win rate = X%; p_help = {value}; p_harm = {value} (optional); verdict = {clearly helps | no incremental value | no effect | harmful | inconclusive}
 - Tier 1: X/9 | Tier 2: X/5 | Tier 3: X/3
-- Verdict: {clearly helps | suggestive | no effect | harmful | measurement invalid | inconclusive}
+- Verdict: {clearly helps | suggestive | no incremental value | no effect | harmful | measurement invalid | inconclusive}
 
 ## Rubric
 {Per-skill rubric with dimensions, types, scales — from §3.2}
 
 ## Per-Dimension Deltas
-{Table of mean score differences per dimension}
+{Table of mean score differences per dimension (test - baseline; and test - placebo if applicable)}
 
 ## Per-Tier Breakdown
 {Win rates by tier with task-level detail}
 
 ## Control Results
 - Harmful control: {degraded as expected | DID NOT DEGRADE — results unreliable}
-- Placebo control: {neutral as expected | outperformed baseline — contamination detected}
+- Placebo control: {neutral as expected | improved baseline — instruction-sensitivity detected}
 
 ## Failure Analysis
 {For each task lost: which task, which tier, failure mode category, brief explanation}
@@ -408,14 +455,32 @@ The sign test is the **primary criterion**. Win rate is descriptive context. Thi
 
 | Verdict | Primary Criterion | Supporting Evidence | Action |
 |---|---|---|---|
-| **Clearly helps** | Sign test p < 0.05, controls pass | Win rate typically >75% | Ship the skill |
-| **Suggestive** | Sign test 0.05 ≤ p < 0.10 | Win rate typically 65-75% | Run additional tasks to increase N_eff, or accept with caveats |
-| **No effect** | Sign test p ≥ 0.10 | Win rate typically 50-65% | Diagnose via failure analysis. Fix or retire. |
-| **Harmful** | Sign test p < 0.05 in the *negative* direction (baseline wins) | Win rate < 40% | Do not ship. Diagnose and fix via simulation framework §5. |
-| **Measurement invalid** | Harmful control didn't degrade OR placebo outperformed | N/A | Re-derive rubric. Current results are uninterpretable. |
+| **Clearly helps** | Sign test p_help < 0.05 vs the primary comparator; sensitivity gate passes | Win rate typically >75% | Ship the skill |
+| **Suggestive** | Sign test 0.05 ≤ p_help < 0.10 vs the primary comparator; sensitivity gate passes | Win rate typically 65-75% | Run a confirmatory held-out suite (§6.5). Do not ship as "clearly helps" until confirmed. |
+| **No incremental value** | Primary comparator = placebo, and sign test p_help ≥ 0.10 vs placebo | Treatment may still beat baseline (instruction-presence effect) | Do not ship as a skill improvement; either accept placebo/generic guidance or redesign the skill for incremental impact. |
+| **No effect** | Primary comparator = baseline, and sign test p_help ≥ 0.10 vs baseline | Win rate typically 50-65% | Diagnose via failure analysis. Fix or retire. |
+| **Harmful** | Sign test p_harm < 0.05 vs the primary comparator | Win rate < 40% | Do not ship. Diagnose and fix via simulation framework §5. |
+| **Measurement invalid** | Harmful control didn't degrade (sensitivity gate failed) | N/A | Re-derive rubric. Current results are uninterpretable. |
 | **Inconclusive** | N_eff < 12 (too many ties) | Tie rate >30% | Redesign rubric for better discriminative power. |
 
 **Tier-3 harm check (qualitative, not statistical):** With 3 Tier-3 tasks, quantitative thresholds are underpowered. Instead: **any Tier-3 loss requires manual inspection.** Categorize each loss using the failure mode taxonomy (§6.4). If any loss is categorized as "over-applied" or "hallucinated structure," the skill has a scoping problem that must be addressed before shipping — even if the overall verdict is "clearly helps."
+
+### 7.3 Reproducibility Helper
+
+Use `scripts/skill_impact_stats` to compute report-ready statistics from `{wins, losses, ties}`:
+
+```bash
+scripts/skill_impact_stats --wins 13 --losses 4 --ties 0
+scripts/skill_impact_stats --wins 12 --losses 3 --ties 2 --format json
+scripts/skill_impact_stats --wins 13 --losses 4 --ties 0 --report-lines --primary-comparison baseline --tier1-result 8/9 --tier2-result 4/5 --tier3-result 2/3
+```
+
+The helper outputs:
+- `p_help`, `p_harm`, and `p_two_sided`
+- Win rate and Wilson confidence interval
+- N_eff-derived sign-test thresholds for significant/suggestive help and harm
+- Warning when `N_eff < 12` (inconclusive risk)
+- Optional paste-ready `## Summary` bullet lines via `--report-lines` (including comparator, tiers, and inferred verdict)
 
 ---
 
@@ -434,6 +499,10 @@ The sign test is the **primary criterion**. Win rate is descriptive context. Thi
 
 ADR-0001 estimated ~675K tokens for a full assessment. This spec's 3-runs-per-condition design with expanded controls roughly doubles that.
 
+**Optional add-ons (calibration-triggered):**
+- If the instruction-sensitivity check triggers (§5.2), add full-suite placebo runs: 17 tasks × 3 placebo runs = 51 additional runs (~+510K tokens, plus scoring overhead).
+- If you run a confirmatory held-out suite (§6.5), budget an additional 17-task execution of the **primary comparison** (test + primary comparator), plus scoring (~+1M tokens order of magnitude).
+
 ### Time
 
 At ~30 seconds per forked skill execution, 120 runs ≈ 60 minutes of execution time. Parallelizable to ~20 minutes using 6 concurrent background runs (Task tool with `run_in_background: true`).
@@ -447,17 +516,18 @@ Control calibration runs first (~3 minutes parallelized). If controls fail, the 
 | Step | Description | Depends On |
 |---|---|---|
 | 1 | **Rubric derivation** — Given a target skill, produce a per-skill rubric | Target skill exists |
-| 2 | **Task suite construction** — 17 tasks across 3 tiers with rubric anchoring | Rubric (step 1), simulation framework §3 for generation |
+| 2 | **Task suite construction** — Two independent 17-task suites (A=main, B=held-out confirmatory) across 3 tiers with rubric anchoring | Rubric (step 1), simulation framework §3 for generation |
 | 3 | **Discriminability verification** — Estimate and gate on discriminability | Task suite (step 2) |
-| 4 | **Control calibration** — Run harmful + placebo controls on 2 tasks; gate on sensitivity | Rubric (step 1), architecture from ADR-0001 |
-| 5 | **Execution** — Run baseline and test conditions for all 17 tasks | Controls passed (step 4) |
+| 4 | **Control calibration** — Run harmful + placebo controls on 2 calibration tasks; gate on sensitivity and decide the primary comparator | Rubric (step 1), architecture from ADR-0001 |
+| 5 | **Execution** — Run baseline and test for all 17 tasks (and placebo if instruction-sensitive) | Calibration gates passed (step 4) |
 | 6 | **Scoring** — Apply rubric to all outputs with blinding protocol | Rubric (step 1), outputs (step 5) |
 | 7 | **Analysis** — Compute win rate, Wilson CI, sign test, per-dimension deltas, failure modes | Scores (step 6) |
-| 8 | **Report** — Produce assessment report with verdict | Analysis (step 7) |
+| 8 | **Confirmatory holdout (optional)** — If suite A is suggestive, run held-out suite B for the **primary comparison** (test + primary comparator) per §6.5, then score and analyze | Suggestive result (step 7), holdout suite exists (step 2) |
+| 9 | **Report** — Produce assessment report with verdict | Analysis (step 7) and (if run) confirmatory results (step 8) |
 
-Steps 1-3 are pre-flight (no runs consumed). Step 4 is calibration (~18 runs). Steps 5-8 are full execution and analysis (~102 runs). If step 4 fails, steps 5-8 are skipped.
+Steps 1-3 are pre-flight (no runs consumed). Step 4 is calibration (~18 runs). Steps 5-7 are the main execution and analysis (~102 runs; +51 if placebo is included). Step 8 is optional confirmatory execution (order-of-magnitude +~102 runs). If step 4 fails, steps 5-8 are skipped and the report verdict is "measurement invalid."
 
-Steps 1-3 could be automated as a skill. Steps 4-8 could be orchestrated by the `improving-skills` skill or a dedicated `measure-skill` skill.
+Steps 1-3 could be automated as a skill. Steps 4-9 could be orchestrated by the `improving-skills` skill or a dedicated `measure-skill` skill.
 
 ---
 
@@ -511,3 +581,6 @@ This spec does NOT supersede any of the above. It adds a statistical measurement
 |---|---|
 | 2026-02-09 | Initial draft — synthesizes proposed evaluation framework with existing simulation architecture, stress test findings, and ADR-0001 |
 | 2026-02-09 | Revision: fixed sign-test math (one-tailed throughout); added tie policy and effective N; added Wilson 95% CI; bumped suite from 15→17 tasks (Tier 3: 2→3); made sign test primary verdict criterion to close threshold gap; strengthened controls (3× replication, 2 tasks each, run-first calibration gate); added blinding protocol for scoring; made Tier-3 harm check qualitative |
+| 2026-02-09 | Revision: reframed placebo as an instruction-sensitivity signal and (when triggered) the primary comparator; clarified p_help/p_harm reporting and two-sided mapping; replaced "add more tasks" with a held-out confirmatory suite to avoid optional stopping; updated reporting/cost/sequence accordingly |
+| 2026-02-09 | Revision: added `scripts/skill_impact_stats` helper and report integration for reproducible p-values, Wilson CI, and N_eff-specific thresholds from `{wins, losses, ties}` |
+| 2026-02-09 | Revision: added `--report-lines` summary mode to `scripts/skill_impact_stats` for paste-ready `## Summary` bullets with comparator, tiers, optional holdout, and inferred verdict |
