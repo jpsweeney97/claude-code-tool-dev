@@ -22,8 +22,8 @@ Parse optional flags from `$ARGUMENTS`. Remaining text after flags = PROMPT.
 | Flag | MCP Parameter | Default |
 |------|---------------|---------|
 | `-m <model>` | `model` | Codex's default model |
-| `-s {read-only\|workspace-write}` | `sandbox` | `read-only` |
-| `-a {untrusted\|on-failure\|on-request\|never}` | `approval-policy` | `never` if read-only, `on-failure` if workspace-write |
+| `-s {read-only\|workspace-write\|danger-full-access}` | `sandbox` | `read-only` |
+| `-a {untrusted\|on-failure\|on-request\|never}` | `approval-policy` | `never` if read-only, `on-failure` if workspace-write or danger-full-access |
 | `-t {minimal\|low\|medium\|high\|xhigh}` | `config` → `{"model_reasoning_effort": "<value>"}` | `high` |
 
 Only `prompt` is required when calling `mcp__codex__codex`. Other parameters are optional — include them only when overriding Codex's defaults.
