@@ -70,5 +70,5 @@ After these steps, Tier A infrastructure is complete and the measurement project
 | v0 benchmark (51 runs) | Do skills improve rubric scores? | Inconclusive (ceiling effects, confounders) | Closed |
 | v1 pilot (6 runs) | Do skills improve rubric scores on better scenarios? | No (0/3 improvement) | Closed |
 | Discriminability (6 runs) | Can rubrics detect skill effects at all? | No (delta ≈ 0 at ceiling) | Closed |
-| Behavioral markers pivot | Do skills change behavior detectably? | Yes (perfect separation on 102) | **Active — completing Tier A** |
+| Behavioral markers pivot | Do skills change behavior detectably? | Yes (perfect separation on 102, exploratory on 101, non-finding on 103) | **Closed — see `docs/plans/2026-02-08-tier-a-closure.md`** |
 | Tier B | Do skills improve quality on hard tasks? | Not yet tested | **Parked — trigger-gated** |
