@@ -79,9 +79,11 @@ For subagent delegation:
 
 ## Step 3: Invoke Codex
 
+Authentication is handled by the Codex CLI from cached login state. Never pass tokens, API keys, or credentials in prompts or tool parameters.
+
 ### New conversation
 
-Call `mcp__codex__codex` with all parameters:
+Call `mcp__codex__codex`:
 
 | Parameter | Value |
 |-----------|-------|
