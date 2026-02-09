@@ -1,3 +1,5 @@
+> **Status: CLOSED** — Benchmark-specific. Tier A closed.
+
 # Decision Record: Orchestrator Session Reset Strategy
 
 **Date:** 2026-02-08

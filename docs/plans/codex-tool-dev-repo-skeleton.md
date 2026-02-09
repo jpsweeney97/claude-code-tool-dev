@@ -1,3 +1,5 @@
+> **Status: PARKED** — Codex repo not created. Revisit if Codex extension development begins.
+
 # Codex Tool Dev Repo — Skeleton File List (v1)
 
 This document enumerates the concrete files to create in the new repo `codex-tool-dev` to implement the spec in `docs/plans/codex-tool-dev-repo-spec.md`.

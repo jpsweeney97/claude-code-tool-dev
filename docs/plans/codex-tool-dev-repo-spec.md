@@ -1,3 +1,5 @@
+> **Status: PARKED** — Codex repo not created. Revisit if Codex extension development begins.
+
 # Codex Tool Dev Repo — Comprehensive Specification
 
 ## Summary

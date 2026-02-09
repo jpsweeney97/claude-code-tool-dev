@@ -1,3 +1,5 @@
+> **Status: CLOSED** — Tests complete. See results companion.
+
 # Architecture Stress Test Plan
 
 **Date:** 2026-02-05

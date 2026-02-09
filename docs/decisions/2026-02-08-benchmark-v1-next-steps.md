@@ -1,3 +1,5 @@
+> **Status: CLOSED** — Benchmark Tier A closed. See docs/plans/2026-02-08-tier-a-closure.md
+
 # Decision Record: Benchmark v1 Next Steps
 
 **Date:** 2026-02-08

@@ -1,3 +1,5 @@
+> **Status: CLOSED** — Discriminability experiment completed. Tier A closed.
+
 # How to proceed after Benchmark v1 pilot FAIL
 
 ## Context
