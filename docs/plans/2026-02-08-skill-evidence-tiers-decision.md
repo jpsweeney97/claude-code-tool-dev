@@ -15,9 +15,9 @@ Behavioral compliance **plus strict internal-consistency checks** is sufficient 
 > "This skill reliably induces its intended workflow behaviors."
 
 **What Tier A requires:**
-- Behavioral markers with pre-registered definitions (per the protocol in `docs/plans/2026-02-08-behavioral-markers-pivot.md`)
+- Behavioral markers with definitions that are **pre-registered when feasible** (per the protocol in `docs/plans/2026-02-08-behavioral-markers-pivot.md`). If pre-registration is impossible due to contamination (outputs already read), label findings as **exploratory** and require fresh-run confirmation before treating them as generalizable.
 - Perfect or near-perfect separation between skill-present and skill-absent conditions
-- Strict marker variants pass (counts match parsed structures, threshold checks reference correct items, verification sections are internally consistent)
+- Strict marker variants (internal-consistency checks) pass **when used**, or limitations are explicitly documented. Automation is optional at very small N; it becomes important when scaling detection or integrating into CI.
 
 **What Tier A does NOT claim:**
 - That the skill improves output quality
@@ -56,12 +56,13 @@ Move to Tier B if any of these become true:
 
 ## What Remains (Tier A Completion)
 
+**Update (2026-02-08): CLOSED / SUPERSEDED.** Tier A closure for this project is recorded in `docs/plans/2026-02-08-tier-a-closure.md`. The checklist below is kept as the original intent, but it is **superseded** for this run due to known pre-registration contamination on 101/103 and the small scale of the dataset.
+
+Original Tier A completion checklist (superseded):
 1. Pre-register markers for scenarios 101 and 103 (the derivation set is scenario 102 only)
 2. Test pre-registered markers on existing pilot data for 101/103
 3. Build detection scripts with strict variants
 4. Validate on all existing data (10 outputs across 3 scenarios)
-
-After these steps, Tier A infrastructure is complete and the measurement project concludes.
 
 ## Relationship to Prior Work
 

@@ -7,11 +7,15 @@
 
 ## Verdict
 
-**Tier A is closed.** Skills reliably induce intended behavioral artifacts when the skill adds instructions orthogonal to the prompt. The measurement infrastructure (behavioral markers with binary detection) works. The general benchmark project concludes.
+**Tier A is closed for this project.** The evidence supports a narrower, method-honest claim:
+
+> In the observed runs, skills can induce their intended behavioral artifacts when they add procedural requirements not already enforced by the prompt.
+
+This closure is primarily a **measurement-instrument conclusion** (binary behavioral marker detection can separate conditions in some scenarios). It is **not** an outcome-quality claim.
 
 ## Evidence Summary
 
-### Scenario 102 (Reference Evidence Calibration) — Validated
+### Scenario 102 (Reference Evidence Calibration) — Demonstrated (within-sample)
 
 3 markers, all with perfect separation on N=3 pairs (post-hoc derivation, same data):
 
@@ -22,6 +26,8 @@
 | M3: Confidence downgrade summary | 3/3 present | 0/3 present |
 
 Source: `docs/plans/2026-02-08-behavioral-markers-pivot.md`
+
+**Interpretation note:** This is strong evidence that the marker approach works at this prompt difficulty, but it is not pre-registered or held-out validation.
 
 ### Scenario 101 (Constraint Ledger) — Exploratory
 
@@ -41,7 +47,9 @@ Source: same analysis document, "Prompt–skill overlap" table.
 
 ## Cross-Scenario Finding
 
-Marker separation correlates with **prompt–skill orthogonality**: skills that add procedural requirements not in the prompt produce detectable artifacts; skills that reinforce prompt-specified structure do not. This is a measurement-instrument property, not a skill-quality judgment.
+Marker separation correlates with **prompt–skill orthogonality**: skills that add procedural requirements not in the prompt produce detectable artifacts; skills that reinforce prompt-specified structure do not.
+
+This is a **post-hoc pattern** from 3 scenarios. Treat it as a design heuristic, not a law. It is also a measurement-instrument property, not a skill-quality judgment.
 
 | Scenario | Orthogonality | Markers | Separation |
 |----------|:-------------:|:-------:|:----------:|
@@ -55,7 +63,7 @@ The original Tier A plan (`docs/plans/2026-02-08-skill-evidence-tiers-decision.m
 
 | Item | Status | Notes |
 |------|:------:|-------|
-| Pre-register markers for 101/103 | Replaced | Prior sessions read outputs, so true pre-registration was impossible. Labeled exploratory instead. |
+| Pre-register markers for 101/103 | Superseded | Prior sessions read outputs, so true pre-registration on existing 101/103 pilot outputs was impossible. Labeled exploratory instead. |
 | Test markers on 101/103 pilot data | Done | M101-1 found for 101; 103 non-finding documented with causal explanation. |
 | Build detection scripts with strict variants | Not done | Manual inspection sufficient at current scale (10 outputs). Scripts are warranted if marker detection is needed at higher N or for CI integration. |
 | Validate on all existing data | Partially done | All 102 data (6 outputs) validated for M1–M3. 101 data (2 outputs) inspected for M101-1. 103 data (2 outputs) inspected, no markers found. |
@@ -81,4 +89,4 @@ The original Tier A plan (`docs/plans/2026-02-08-skill-evidence-tiers-decision.m
 | v0 | 51 | Rubric scoring, automated | INCONCLUSIVE (ceiling, confounders) |
 | v1 pilot | 6 | Rubric scoring, blinded human eval | FAIL (0/3 improvement) |
 | Discriminability | 6 | Rubric scoring, blinded isolated eval | CAN'T DETECT (delta ≈ 0) |
-| Behavioral markers | 0 new | Binary detection on existing outputs | **CLOSED — markers work on 2/3 scenarios** |
+| Behavioral markers | 0 new | Binary detection on existing outputs | **CLOSED — markers separate on 2/3 scenarios (within-sample for 102; exploratory for 101; principled non-finding for 103)** |
