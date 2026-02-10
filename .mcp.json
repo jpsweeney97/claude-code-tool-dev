@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "codex": {
+      "type": "stdio",
+      "command": "codex",
+      "args": ["mcp-server"],
+      "env": {
+        "CODEX_SANDBOX": "${CODEX_SANDBOX:-seatbelt}",
+        "PATH": "${PATH:-/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}:/opt/homebrew/bin"
+      }
+    }
+  }
+}

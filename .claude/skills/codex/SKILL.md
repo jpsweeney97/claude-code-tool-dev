@@ -15,6 +15,28 @@ Two MCP tools available:
 - `mcp__codex__codex` — start a new conversation
 - `mcp__codex__codex-reply` — continue an existing conversation
 
+## Setup (required)
+
+This skill assumes Claude Code can see an MCP server named `codex` that runs the Codex CLI MCP server (`codex mcp-server`).
+
+**Project scope (recommended):** this repo includes a `.mcp.json` at the project root that registers:
+
+```json
+{
+  "mcpServers": {
+    "codex": {
+      "type": "stdio",
+      "command": "codex",
+      "args": ["mcp-server"]
+    }
+  }
+}
+```
+
+**macOS stability note:** some spawn environments may start `codex mcp-server` without the full user environment. If the Codex CLI panics at startup (for example, `Attempted to create a NULL object.`), ensure the MCP server process receives `CODEX_SANDBOX=seatbelt`. This repo’s `.mcp.json` sets `CODEX_SANDBOX` by default.
+
+**Auth prerequisite:** ensure the `codex` CLI is installed and authenticated (interactive `codex login` or `OPENAI_API_KEY`). Never paste tokens into prompts or logs.
+
 ## Arguments
 
 Parse optional flags from `$ARGUMENTS`. Remaining text after flags = PROMPT.
@@ -67,6 +89,13 @@ Structure:
 
 ## Question
 [What we want Codex's input on]
+```
+
+Always include **all three** top-level sections (`## Context`, `## Material`, `## Question`) exactly once per briefing. If there is no relevant material for a simple question, keep `## Material` but make it explicit:
+
+```
+## Material
+- (none)
 ```
 
 **Calibrate depth to the question.** A quick "what do you think of this approach?" needs a paragraph of context. A debugging session needs file contents, error output, and a list of failed approaches. Do not inline entire repositories or large file trees — summarize or reference paths. Briefing assembly should be linear in input size.
@@ -140,7 +169,7 @@ If normalized `threadId` is invalid/expired upstream, start a new conversation a
 After a successful Codex tool call:
 - Treat `structuredContent.threadId` as the canonical continuity source.
 - Treat `content` as compatibility output only.
-- Persist canonical `threadId` for follow-up turns.
+- Persist canonical `threadId` for follow-up turns. If `structuredContent.threadId` is missing, fall back to the top-level `threadId` field (when present).
 
 ## Step 4: Relay Response
 
