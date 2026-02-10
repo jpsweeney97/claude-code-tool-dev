@@ -116,8 +116,12 @@ If you are implementing the server layer described in this repository, treat `..
 
 **Required input:**
 
-- `threadId`
 - `prompt`
+
+**Identifier requirement (at least one):**
+
+- `threadId` (canonical)
+- `conversationId` (deprecated compatibility alias)
 
 Compatibility note:
 
@@ -129,7 +133,7 @@ Outputs generally include:
 
 - assistant text/content
 - `structuredContent`
-- `threadId` (for follow-ups)
+- `structuredContent.threadId` (canonical continuity identifier for follow-ups; compatibility alias requests normalize to this)
 
 ---
 

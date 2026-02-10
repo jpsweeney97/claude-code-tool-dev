@@ -35,7 +35,7 @@ After this module, you should be able to:
 1. MCP client connects to `codex mcp-server` over stdio.
 2. Client invokes `codex` with prompt and optional runtime controls.
 3. Server executes Codex call and returns output + `threadId`.
-4. Client invokes `codex-reply` with `threadId` for follow-up.
+4. Client invokes `codex-reply` with a conversation identifier (`threadId` canonical; deprecated `conversationId` alias supported) for follow-up.
 5. Repeat until task is complete.
 
 ---
@@ -77,7 +77,7 @@ Use defaults unless there is a clear reason to override.
 | Misconception | Correction |
 |---|---|
 | “`codex mcp-server` and `codex mcp add` are the same thing.” | One runs a server; the other manages servers Codex consumes. |
-| “I can continue a conversation without `threadId`.” | `codex-reply` requires `threadId`; otherwise start a new thread. |
+| “I can continue a conversation without `threadId`.” | `codex-reply` requires a conversation identifier (`threadId` canonical; `conversationId` deprecated alias). If missing, start a new thread. |
 | “Read-only means no file visibility.” | Read-only blocks writes, not reads. |
 | “Danger-full-access is just faster workspace-write.” | It removes sandbox protections and needs explicit governance. |
 
@@ -91,4 +91,3 @@ Use defaults unless there is a clear reason to override.
 - Can you list at least three sensitive fields that must never appear in logs?
 
 If any answer is “no,” review this module before moving forward.
-

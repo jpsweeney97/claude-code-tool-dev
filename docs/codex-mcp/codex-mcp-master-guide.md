@@ -31,7 +31,7 @@ There are two different command families:
 Tool semantics:
 
 - `codex` = start new consultation thread
-- `codex-reply` = continue existing thread using `threadId`
+- `codex-reply` = continue existing thread using a conversation identifier (`threadId` canonical; `conversationId` deprecated alias)
 
 ---
 
@@ -145,10 +145,14 @@ Required:
 
 Optional:
 
-- `model`
-- `sandbox`
 - `approval-policy`
-- `config` (reasoning effort via `model_reasoning_effort`)
+- `base-instructions`
+- `config` (open object; commonly includes `model_reasoning_effort`)
+- `cwd`
+- `include-plan-tool`
+- `model`
+- `profile`
+- `sandbox`
 
 Recommended defaults:
 
@@ -163,8 +167,17 @@ Note: while these fields are optional in the tool schema, this repository’s co
 
 Required:
 
-- `threadId`
 - `prompt`
+
+Identifier requirement:
+
+- `threadId` (canonical)
+- `conversationId` (deprecated compatibility alias)
+
+Normalization behavior:
+
+- If only `conversationId` is provided, map it to canonical `threadId`.
+- If both are provided and unequal, reject with deterministic `INVALID_ARGUMENT`.
 
 ---
 
