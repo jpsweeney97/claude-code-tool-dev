@@ -26,12 +26,24 @@ Parse optional flags from `$ARGUMENTS`. Remaining text after flags = PROMPT.
 | `-a {untrusted\|on-failure\|on-request\|never}` | `approval-policy` | `never` if read-only, `on-failure` if workspace-write or danger-full-access |
 | `-t {minimal\|low\|medium\|high\|xhigh}` | `config` → `{"model_reasoning_effort": "<value>"}` | `high` |
 
-Only `prompt` is required by the MCP tool schema for `mcp__codex__codex`. For deterministic, least-privilege behavior, this skill should always pass resolved execution controls (`sandbox`, `approval-policy`, and `config.model_reasoning_effort`) rather than relying on upstream defaults. Only include `model` when overriding Codex's default model.
+Only `prompt` is required by the MCP tool schema for `mcp__codex__codex`. For deterministic, least-privilege behavior, always pass resolved execution controls (`sandbox`, `approval-policy`, and `config.model_reasoning_effort`) rather than relying on upstream defaults. Only include `model` when overriding Codex's default model. If the user explicitly sets `-a`, that value always overrides the sandbox-coupled default.
 
 Examples:
 - `/codex review the plan in docs/plans/auth-redesign.md` → all defaults, PROMPT = "review the plan..."
 - `/codex -t xhigh why is the auth middleware failing?` → reasoning xhigh, rest defaults
 - `/codex -s workspace-write fix the flaky test in auth.test.ts` → workspace-write sandbox, approval on-failure
+
+### Argument validation (deterministic)
+
+Validation behavior:
+1. Reject unknown flags.
+2. Reject missing values after flags that require values.
+3. Reject invalid enum values.
+4. Preserve all remaining text after flags as prompt, including punctuation.
+5. Trim outer whitespace from prompt.
+
+Error format:
+`argument parsing failed: {reason}. Got: {input!r:.100}`
 
 ## Step 1: Build Context Briefing
 
@@ -57,7 +69,7 @@ Structure:
 [What we want Codex's input on]
 ```
 
-**Calibrate depth to the question.** A quick "what do you think of this approach?" needs a paragraph of context. A debugging session needs file contents, error output, and a list of failed approaches.
+**Calibrate depth to the question.** A quick "what do you think of this approach?" needs a paragraph of context. A debugging session needs file contents, error output, and a list of failed approaches. Do not inline entire repositories or large file trees — summarize or reference paths. Briefing assembly should be linear in input size.
 
 ## Step 2: Choose Invocation Strategy
 
@@ -71,6 +83,8 @@ Structure:
 - Topic is self-contained — main conversation context isn't needed turn-by-turn
 - A summary of the outcome is sufficient
 
+If uncertain whether to use direct or delegated, default to direct invocation.
+
 For subagent delegation:
 1. Spawn a `general-purpose` subagent
 2. Pass the enriched briefing and instruct it to manage the Codex conversation
@@ -79,7 +93,14 @@ For subagent delegation:
 
 ## Step 3: Invoke Codex
 
-Authentication is handled by the Codex CLI from cached login state. Never pass tokens, API keys, or credentials in prompts or tool parameters.
+Authentication is handled by the Codex CLI from cached login state.
+
+### Token safety (hard rules)
+
+1. Never read or parse `auth.json` during normal consultation flow.
+2. Never include `id_token`, `access_token`, `refresh_token`, `account_id`, bearer tokens, or API keys (`sk-...`) in prompts, tool parameters, logs, or user-visible output.
+3. Before sending a briefing, scan for secret-like text. If detected, replace with `[REDACTED: sensitive credential material]` and note the redaction to the user.
+4. If redaction cannot be confirmed, do not send the briefing (fail-closed).
 
 ### New conversation
 
@@ -96,8 +117,30 @@ Call `mcp__codex__codex`:
 ### Continue conversation
 
 Call `mcp__codex__codex-reply` with:
-- `threadId`: from previous Codex response
 - `prompt`: follow-up message (enrich with any new context since last turn)
+- at least one continuity identifier:
+  - `threadId` (canonical)
+  - `conversationId` (deprecated compatibility alias)
+
+Normalization and deterministic validation:
+1. Normalize `threadId` and `conversationId` by trimming outer whitespace; treat empty strings as absent.
+2. If both are absent, return:
+   - code: `MISSING_REQUIRED_FIELD`
+   - message format: `"validation failed: missing conversation identifier. Got: {input!r:.100}"`
+3. If both are present and values are unequal, return:
+   - code: `INVALID_ARGUMENT`
+   - message format: `"validation failed: threadId and conversationId mismatch. Got: {input!r:.100}"`
+4. If `threadId` is present, use it as canonical continuity identifier.
+5. Else map `conversationId` to canonical `threadId` before upstream dispatch.
+
+If normalized `threadId` is invalid/expired upstream, start a new conversation and rebuild a full briefing.
+
+### Continuity state (canonical)
+
+After a successful Codex tool call:
+- Treat `structuredContent.threadId` as the canonical continuity source.
+- Treat `content` as compatibility output only.
+- Persist canonical `threadId` for follow-up turns.
 
 ## Step 4: Relay Response
 
@@ -107,6 +150,48 @@ Present Codex's response to the user with your own assessment:
 - Recommended next steps
 
 Do not just parrot Codex's response. Add value as the primary agent.
+
+## Failure Handling
+
+All failure messages use this format:
+`"{operation} failed: {reason}. Got: {input!r:.100}"`
+
+| Condition | Detection | Required Behavior |
+|---|---|---|
+| Invalid flag | Parser enum mismatch | Return parse error with allowed values |
+| Missing prompt | Empty prompt on new call | Ask the user for a specific question |
+| MCP tool unavailable | Tool call failure | Return troubleshooting steps + fallback guidance |
+| Thread invalid/expired | Reply error from upstream | Start new `codex` call with rebuilt full briefing |
+| Timeout | Tool timeout | Do not auto-retry. Warn that upstream may have processed the request and retry could create duplicates. Let the user opt into retry |
+| Auth missing | Login/API key unavailable | Return auth remediation steps (see Troubleshooting) |
+| Secret in briefing material | Redaction detector hit | Redact with marker and continue; note the redaction to the user |
+| Policy mismatch | Disallowed sandbox or approval combination | Return error with allowed values |
+
+Retry policy:
+- No automatic retries for failures where upstream execution is uncertain (timeout, connection drop after dispatch).
+- No retries for deterministic validation errors.
+
+## Diagnostics
+
+After each Codex consultation, capture these non-secret diagnostics:
+- Timestamp
+- Strategy chosen (direct or delegated)
+- Resolved flags and defaults
+- New or continued conversation
+- `threadId` present (boolean only — do not log the full ID)
+- Tool call success or failure
+- Error code (if any)
+
+Do not log prompt bodies or Codex response text by default. Prompt/log retention is debug-gated opt-in only.
+
+## Governance (Decision-Locked)
+
+These rules are non-negotiable:
+1. **Prompt/log retention:** debug-gated opt-in only. Never log prompts or responses by default.
+2. **Redaction failures are fail-closed:** if redaction cannot be confirmed, do not send the briefing. Err on the side of blocking.
+3. **Dangerous mode never auto-escalates:** never upgrade sandbox from `read-only` to `workspace-write` or `danger-full-access` without explicit user flag (`-s`).
+4. **Strategy default:** when uncertain, use direct invocation.
+5. **Reply continuity:** `threadId` is canonical; `conversationId` is a deprecated compatibility alias.
 
 ## Troubleshooting
 
