@@ -5,12 +5,16 @@
 # timeout: 5
 # ///
 """
-Enforce GitFlow branching workflow before editing files.
+Enforce branch protection before editing files.
+
+Blocks edits on protected branches (main, master by default) to ensure work
+happens on feature branches. Supports GitHub Flow (main + feature branches)
+and conventional branch naming patterns.
 
 Behavior:
-  - BLOCK on protected branches (main, master, develop)
+  - BLOCK on protected branches (main, master)
   - BLOCK/WARN based on git operation state (rebase, merge, cherry-pick, bisect, stash-apply)
-  - ALLOW on valid GitFlow working branches (feature/*, release/*, etc.)
+  - ALLOW on valid working branches (feature/*, fix/*, etc.)
   - WARN but ALLOW on non-standard branch names (permissive mode)
   - ALLOW bare repositories (no working tree)
 
@@ -23,7 +27,7 @@ Git operation handling:
   - detached:    WARN  — user explicitly checked out a commit
 
 Configuration (environment variables):
-  PROTECTED_BRANCHES    Comma-separated protected branches (default: main,master,develop)
+  PROTECTED_BRANCHES    Comma-separated protected branches (default: main,master)
   GITFLOW_STRICT        Set to "1" to block non-standard branch names (default: permissive)
   GITFLOW_BYPASS        Set to "1" to bypass all checks (emergency use only)
   GITFLOW_DEBUG         Set to "1" for debug output to stderr and log file
@@ -151,7 +155,7 @@ VALID_REGEXES = [re.compile(pattern, re.IGNORECASE) for pattern in VALID_PATTERN
 
 def get_protected_branches() -> set[str]:
     """Get protected branch names from environment or defaults."""
-    env_value = os.environ.get("PROTECTED_BRANCHES", "main,master,develop")
+    env_value = os.environ.get("PROTECTED_BRANCHES", "main,master")
     return {b.strip().lower() for b in env_value.split(",") if b.strip()}
 
 
@@ -180,29 +184,13 @@ def matches_valid_pattern(branch: str) -> bool:
     return any(regex.match(branch) for regex in VALID_REGEXES)
 
 
-BLOCK_MESSAGE_MAIN = """Cannot edit {file} on '{branch}' — this is the production branch.
+BLOCK_MESSAGE_MAIN = """Cannot edit {file} on '{branch}' — this is a protected branch.
 
-GitFlow requires working branches:
+Create a working branch first:
 
-  For new features (branch from develop):
-    git checkout develop
-    git checkout -b feature/<name>
-
-  For emergency fixes (branch from main):
-    git checkout -b hotfix/<name>"""
-
-BLOCK_MESSAGE_DEVELOP = """Cannot edit {file} on '{branch}' — this is the integration branch.
-
-GitFlow requires working branches:
-
-  For new features:
-    git checkout -b feature/<name>
-
-  For release preparation:
-    git checkout -b release/<version>
-
-  For bug fixes:
-    git checkout -b fix/<name>"""
+  git checkout -b feature/<name>    # new functionality
+  git checkout -b fix/<name>        # bug fix
+  git checkout -b chore/<name>      # maintenance"""
 
 # Operation-specific messages
 BLOCK_MESSAGE_REBASE = """Cannot edit files during rebase.
@@ -461,12 +449,7 @@ def evaluate_gitflow_rules(
 
     if branch_lower in protected:
         file_context = get_file_context({"file_path": file_path})
-        if branch_lower in {"main", "master"}:
-            msg = BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context)
-        elif branch_lower == "develop":
-            msg = BLOCK_MESSAGE_DEVELOP.format(branch=branch, file=file_context)
-        else:
-            msg = BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context)
+        msg = BLOCK_MESSAGE_MAIN.format(branch=branch, file=file_context)
         return HookDecision(Decision.BLOCK, msg, exit_code=2)
 
     if matches_valid_pattern(branch):

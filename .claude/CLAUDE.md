@@ -87,7 +87,7 @@ Read `.claude/rules/methodology/frameworks.md` for guidance on when to use which
 
 ### Branch Protection
 
-A hook blocks Edit/Write on `main`, `master`, `develop`. Create a working branch first.
+A hook blocks Edit/Write on `main` and `master`. Create a working branch first.
 
 **Exceptions (edits allowed on protected branches):**
 
