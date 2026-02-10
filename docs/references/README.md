@@ -1,0 +1,35 @@
+# References Index
+
+**Purpose:** Curated reference docs for skills, patterns, and evaluation.
+
+## Codex MCP
+
+1. `../codex-mcp/README.md`
+   - Canonical index for all Codex MCP documentation in this repo.
+
+2. `../codex-mcp/codex-mcp-master-guide.md`
+   - Consolidated guide (concepts → first success → build → security → operations).
+
+3. `../codex-mcp/specs/README.md`
+   - Normative build specs (server + client/skill).
+
+4. `../codex-mcp/references/codex-mcp-server-beginner-to-expert.md`
+   - Deep dive on running/integrating `codex mcp-server` safely and reliably.
+
+## Skills & Patterns
+
+1. `./skills-guide.md`
+   - Core patterns and practices for building and evolving skills.
+2. `./skill-patterns.md`
+   - Reusable pattern catalog for skill behavior and structure.
+3. `./The-Complete-Guide-to-Building-Skill-for-Claude.md`
+   - Deep dive reference on skill construction and operationalization.
+
+## Evaluation & Quality
+
+1. `./baseline-quality-by-domain.md`
+   - Baseline expectations by domain for calibration and comparison.
+2. `./task-list-guide.md`
+   - Task-list design guidance for structured execution and assessment.
+3. `./writing-principles.md`
+   - Writing-quality principles used across planning/spec/report artifacts.

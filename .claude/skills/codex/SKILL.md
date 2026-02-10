@@ -26,7 +26,7 @@ Parse optional flags from `$ARGUMENTS`. Remaining text after flags = PROMPT.
 | `-a {untrusted\|on-failure\|on-request\|never}` | `approval-policy` | `never` if read-only, `on-failure` if workspace-write or danger-full-access |
 | `-t {minimal\|low\|medium\|high\|xhigh}` | `config` → `{"model_reasoning_effort": "<value>"}` | `high` |
 
-Only `prompt` is required when calling `mcp__codex__codex`. Other parameters are optional — include them only when overriding Codex's defaults.
+Only `prompt` is required by the MCP tool schema for `mcp__codex__codex`. For deterministic, least-privilege behavior, this skill should always pass resolved execution controls (`sandbox`, `approval-policy`, and `config.model_reasoning_effort`) rather than relying on upstream defaults. Only include `model` when overriding Codex's default model.
 
 Examples:
 - `/codex review the plan in docs/plans/auth-redesign.md` → all defaults, PROMPT = "review the plan..."
