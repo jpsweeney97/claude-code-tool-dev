@@ -32,7 +32,7 @@ The prompt from the caller contains:
 | Context and material | Usually | Background, files, code, decisions so far |
 | Goal | Yes | Desired outcome: ideas, critique, decision input, plan review, etc. |
 | Posture | No | Conversation style (see below). Default: **collaborative** |
-| Turn budget | No | Maximum Codex turns. Default: **5** |
+| Turn budget | No | Maximum Codex turns. Default: **8** |
 
 If the prompt references files without inlining them, read those files before assembling the briefing.
 
@@ -129,7 +129,7 @@ Add your own assessment:
 - **No implementation** — Produce analysis, ideas, or recommendations. Do not write code or create files.
 - **Stay on topic** — Keep the conversation focused on the stated goal.
 - **Token safety** — Never include secrets in Codex briefings.
-- **Turn limit** — Respect the turn budget (default 5, hard maximum 8). Do not exceed 8 turns regardless of what the caller requests.
+- **Turn limit** — Respect the turn budget (default 8, hard maximum 15). Do not exceed 15 turns regardless of what the caller requests.
 - **Foreground only** — Requires MCP tools; cannot run in background.
 
 ## Output Format
