@@ -3,13 +3,14 @@ name: codex
 description: Consult OpenAI Codex for second opinions on architecture, debugging, code review, plans, and decisions.
 argument-hint: "[-m <model>] [-s {read-only|workspace-write|danger-full-access}] [-a {untrusted|on-failure|on-request|never}] [-t {minimal|low|medium|high|xhigh}] [PROMPT]"
 user-invocable: true
-disable-model-invocation: true
 allowed-tools: mcp__codex__codex, mcp__codex__codex-reply
 ---
 
 # Codex Consultation Protocol
 
 Consult OpenAI Codex via its MCP server for second opinions. Claude remains the primary agent — Codex is a consultant.
+
+**Auto-invocation rule:** Only invoke when the user explicitly requests a second opinion or Codex consultation. Do not call Codex proactively — wait for user intent.
 
 Two MCP tools available:
 - `mcp__codex__codex` — start a new conversation
@@ -115,9 +116,9 @@ Always include **all three** top-level sections (`## Context`, `## Material`, `#
 If uncertain whether to use direct or delegated, default to direct invocation.
 
 For subagent delegation:
-1. Spawn a `general-purpose` subagent
-2. Pass the enriched briefing and instruct it to manage the Codex conversation
-3. Instruct it to return: a summary of findings + the Codex `threadId`
+1. Spawn a `codex-dialogue` subagent (purpose-built for multi-turn Codex conversations)
+2. Pass the enriched briefing, goal, and optionally a posture (adversarial, collaborative, exploratory, evaluative) and turn budget
+3. The subagent manages the conversation, detects convergence, and returns a synthesis + the Codex `threadId`
 4. To continue later, resume the subagent via its `agentId` (preserves richer context than raw `threadId`)
 
 ## Step 3: Invoke Codex
@@ -207,7 +208,7 @@ After each Codex consultation, capture these non-secret diagnostics:
 - Strategy chosen (direct or delegated)
 - Resolved flags and defaults
 - New or continued conversation
-- `threadId` present (boolean only — do not log the full ID)
+- `threadId` present (boolean only — do not log the full ID in conversation output; full IDs are permitted in audit artifacts for traceability)
 - Tool call success or failure
 - Error code (if any)
 
