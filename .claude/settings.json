@@ -1,2 +1,16 @@
 {
+  "hooks": {
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/nudge-codex-consultation.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
 }
