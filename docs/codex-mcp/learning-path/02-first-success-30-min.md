@@ -7,88 +7,23 @@
 
 ## Success Criteria
 
-You are done when all are true:
+Use the canonical walkthrough and command set, then verify outcomes:
 
-1. MCP inspector successfully spawns `codex mcp-server`.
-2. MCP inspector shows `codex` and `codex-reply`.
-3. First `codex` call returns response + `threadId`.
-4. Follow-up `codex-reply` call succeeds using same `threadId`.
-
----
-
-## Prerequisites
-
-- Codex installed (`codex --version` works).
-- Auth completed (`codex login status` returns authenticated state).
-- Network access allowed for Codex runtime.
+1. Follow `../codex-mcp-master-guide.md#canonical-quickstart`.
+2. Run commands from `../codex-mcp-master-guide.md#canonical-command-reference`.
+3. Confirm tool discovery (`codex`, `codex-reply`) and thread continuity via `threadId`.
 
 ---
 
-## Step-by-Step
+## Canonical Procedure Pointers
 
-### Step 1: Verify install and auth
-
-```bash
-codex --version
-codex mcp-server --help
-codex login status
-```
-
-If not logged in:
-
-```bash
-codex login
-```
-
-### Step 2: Inspect tools (recommended)
-
-```bash
-npx @modelcontextprotocol/inspector codex mcp-server
-```
-
-This command starts `codex mcp-server` for you. Do not run `codex mcp-server` separately for the inspector flow.
-
-### Step 3: Confirm tool discovery
-
-Confirm tool list contains:
-
-- `codex`
-- `codex-reply`
-
-### Step 4: Run first tool call (`codex`)
-
-Use input:
-
-```json
-{
-  "prompt": "Give me a pragmatic code review checklist for a TypeScript service."
-}
-```
-
-Capture and save returned `threadId`.
-
-### Step 5: Run follow-up call (`codex-reply`)
-
-Use input:
-
-```json
-{
-  "threadId": "<thread-from-step-4>",
-  "prompt": "Now rewrite that checklist for high-risk production migrations."
-}
-```
-
-### Step 6: Run server standalone (debugging only)
-
-You can run the server directly to observe startup behavior, but because transport is stdio, a client typically spawns the server process. Do not expect to “attach” from another terminal like you would with an HTTP server.
-
-```bash
-codex mcp-server
-```
+- Quickstart owner: `../codex-mcp-master-guide.md#canonical-quickstart`
+- Command owner: `../codex-mcp-master-guide.md#canonical-command-reference`
+- Tool contract details: `../specs/2026-02-09-codex-mcp-server-build-spec.md`
 
 ---
 
-## Expected Results
+## Expected Results (After Canonical Procedure)
 
 - Clear textual response from both calls.
 - Same thread lineage via `threadId`.
@@ -100,9 +35,9 @@ codex mcp-server
 
 | Symptom | Most Likely Cause | Fix |
 |---|---|---|
-| No tools visible | stdio connection issue | Re-run inspector and ensure direct process launch |
-| Auth error | not logged in/expired login | `codex login` then retry |
-| Reply fails with invalid thread | stale or incorrect `threadId` | restart with new `codex` call |
+| No tools visible | stdio connection issue | Use `../codex-mcp-master-guide.md#canonical-command-reference` exactly |
+| Auth error | not logged in/expired login | Run auth flow from canonical command reference, then retry |
+| Reply fails with invalid thread | stale or incorrect identifier | Start a new `codex` request and persist the new canonical `threadId` |
 
 ---
 

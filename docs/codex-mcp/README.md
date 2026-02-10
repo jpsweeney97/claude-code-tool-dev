@@ -6,6 +6,10 @@
 
 1. `./codex-mcp-master-guide.md`
    - Single end-to-end guide (concepts → setup → build → security → operations).
+2. `./codex-mcp-master-guide.md#canonical-quickstart`
+   - Canonical quickstart procedure (all other docs point here).
+3. `./codex-mcp-master-guide.md#canonical-command-reference`
+   - Canonical command block (includes pinned inspector version).
 
 ## Key sections
 
@@ -22,3 +26,13 @@
 
 - **Server layer:** `./specs/2026-02-09-codex-mcp-server-build-spec.md` defines the MCP server that exposes `codex` and `codex-reply`, including validation, policy, error envelopes, and observability.
 - **Skill/client layer:** `./specs/2026-02-09-codex-consultation-skill-implementation-spec.md` defines the `/codex` skill workflow: argument parsing, briefing assembly, tool invocation, failure handling, and assessed relay.
+
+## Validate docs
+
+Run:
+
+```bash
+bash docs/codex-mcp/checks/validate-docs.sh
+```
+
+Checks covered: `DOC001` through `DOC008`.

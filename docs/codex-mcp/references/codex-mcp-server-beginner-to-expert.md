@@ -1,10 +1,10 @@
 # Codex `mcp-server` — Beginner to Expert Guide
 
-**Last updated:** 2026-02-09  
+**Last updated:** 2026-02-10  
 **Validated against local CLI:** `codex-cli 0.93.0`  
 **Audience:** Engineers integrating OpenAI Codex into MCP-capable clients (Claude Desktop, custom orchestrators, internal agents)
 
-> **Navigation note:** This guide remains valid, but `/Users/jp/Projects/active/claude-code-tool-dev/docs/codex-mcp/codex-mcp-master-guide.md` is now the primary entry point for end-to-end learning. Use this document when you want deeper detail specifically on `codex mcp-server` integration patterns.
+> **Navigation note:** This guide remains valid, but `../codex-mcp-master-guide.md` is the primary entry point for end-to-end learning. Use `../codex-mcp-master-guide.md#canonical-quickstart` and `../codex-mcp-master-guide.md#canonical-command-reference` for canonical procedures and copy/paste commands.
 
 ---
 
@@ -69,61 +69,19 @@ printenv OPENAI_API_KEY | codex login --with-api-key
 
 ---
 
-## 4) Beginner Quickstart (10 Minutes)
+## 4) Beginner Quickstart (Canonical Pointer)
 
-There are two common ways to do a first-success test:
+Canonical quickstart owner:
 
-1. **Inspector-driven (recommended):** the inspector spawns `codex mcp-server` as a child process (no separate terminal needed).
-2. **Standalone server (debugging only):** you run `codex mcp-server` directly to observe startup behavior, then use a custom MCP client to talk to it over stdio.
+- `../codex-mcp-master-guide.md#canonical-quickstart`
 
-### Step A: Inspect with MCP Inspector (recommended)
+Canonical command owner:
 
-```bash
-npx @modelcontextprotocol/inspector codex mcp-server
-```
+- `../codex-mcp-master-guide.md#canonical-command-reference`
 
-This command starts `codex mcp-server` for you. Do not run `codex mcp-server` separately for the inspector flow.
+Keep this reference guide for architecture decisions, policy guidance, and operating patterns.
 
-You should see at least two tools:
-
-- `codex`
-- `codex-reply`
-
-### Step B: Test first call
-
-Invoke `codex` with:
-
-```json
-{
-  "prompt": "Give me a high-level architecture review checklist for a Python API."
-}
-```
-
-Expected behavior:
-
-- Response includes natural-language output.
-- Response includes a `threadId` for continuation.
-
-### Step C: Continue same thread
-
-Invoke `codex-reply` with:
-
-```json
-{
-  "threadId": "thread_...",
-  "prompt": "Now focus only on auth and database migration risks."
-}
-```
-
-### Step D: Run server standalone (debugging only)
-
-You can run the server directly to observe startup behavior, but because transport is stdio, a client normally spawns the server process. Do not expect to “attach” from another terminal like you would with an HTTP server.
-
-```bash
-codex mcp-server
-```
-
-### Step E: Understand process lifecycle
+### Understand process lifecycle
 
 `codex mcp-server` is a stdio MCP process. In practice:
 
@@ -137,7 +95,7 @@ codex mcp-server
 
 This section describes the **upstream** `codex mcp-server` tool surface as a practical integration reference.
 
-If you are implementing the server layer described in this repository, treat `/Users/jp/Projects/active/claude-code-tool-dev/docs/codex-mcp/specs/2026-02-09-codex-mcp-server-build-spec.md` as the normative contract (including which keys are accepted/rejected).
+If you are implementing the server layer described in this repository, treat `../specs/2026-02-09-codex-mcp-server-build-spec.md` as the normative contract (including which keys are accepted/rejected).
 
 ### `codex` (new conversation)
 
@@ -221,13 +179,13 @@ Practical rule:
 Useful MCP-related config keys (especially when Codex consumes other MCP servers):
 
 - `mcp_servers`
-- `mcp_server_startup_timeout_sec`
-- `mcp_tool_timeout_sec`
+- `mcp_servers.<id>.startup_timeout_sec`
+- `mcp_servers.<id>.tool_timeout_sec`
 - `experimental_use_mcp_client`
 - `mcp_oauth_callback_port`
 - `mcp_oauth_callback_hostname`
 - `mcp_oauth_open_browser`
-- `mcp_oauth_client_store`
+- `mcp_oauth_credentials_store`
 
 ---
 
@@ -327,7 +285,7 @@ codex mcp add <name> --url <https://...>
 codex mcp login <name>
 ```
 
-Config keys like `mcp_servers`, `mcp_server_startup_timeout_sec`, and OAuth callback options are relevant when Codex consumes other MCP servers.
+Config keys like `mcp_servers.<id>.startup_timeout_sec`, `mcp_servers.<id>.tool_timeout_sec`, and OAuth callback options are relevant when Codex consumes other MCP servers.
 
 ### 9.4 Reliability model
 
@@ -454,39 +412,18 @@ No. Use interactive login or environment-based key management. Never embed secre
 
 ---
 
-## 14) Reference Commands (Copy/Paste)
+## 14) Reference Commands (Canonical Pointer)
 
-```bash
-# Install
-npm install -g @openai/codex
+Use the canonical command block in:
 
-# Verify
-codex --version
-codex mcp-server --help
-
-# Auth
-codex login
-codex login status
-printenv OPENAI_API_KEY | codex login --with-api-key
-
-# Run server
-codex mcp-server
-
-# Inspector (this spawns `codex mcp-server`; do not run it separately for inspector)
-npx @modelcontextprotocol/inspector codex mcp-server
-
-# Codex as MCP client (managing other servers)
-codex mcp list
-codex mcp add myserver --url https://example.com/mcp
-codex mcp login myserver
-```
+- `../codex-mcp-master-guide.md#canonical-command-reference`
 
 ---
 
 ## 15) Official Documentation Links
 
-- [Codex MCP Server](https://developers.openai.com/codex/mcp-server)
+- [Codex MCP](https://developers.openai.com/codex/mcp)
 - [Codex CLI](https://developers.openai.com/codex/cli)
-- [Codex Command-Line Options](https://developers.openai.com/codex/cli#command-line-options)
+- [Codex CLI Reference](https://developers.openai.com/codex/cli/reference)
 - [Codex Config Reference](https://developers.openai.com/codex/config-reference)
 - [Codex Authentication](https://developers.openai.com/codex/auth)

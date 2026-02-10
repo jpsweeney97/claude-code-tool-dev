@@ -1,6 +1,6 @@
 # Codex MCP Master Guide (Clueless → Expert)
 
-**Last updated:** 2026-02-09  
+**Last updated:** 2026-02-10  
 **Purpose:** One consolidated document for understanding, integrating, building, operating, and mastering Codex MCP in this repository.
 
 ---
@@ -60,6 +60,7 @@ Tool semantics:
 
 ---
 
+<a id="canonical-quickstart"></a>
 ## 4) 30-Minute First Success
 
 Two common ways to run this flow:
@@ -83,11 +84,9 @@ codex login
 
 ### Step 2 — Inspect tools (recommended)
 
-```bash
-npx @modelcontextprotocol/inspector codex mcp-server
-```
+Use the pinned inspector command in the [Canonical Command Reference](#canonical-command-reference).
 
-This command starts `codex mcp-server` for you. Do not run `codex mcp-server` separately for the inspector flow.
+That command starts `codex mcp-server` for you. Do not run `codex mcp-server` separately for the inspector flow.
 
 Expected tools:
 
@@ -344,6 +343,7 @@ Read in this exact order:
 
 ---
 
+<a id="canonical-command-reference"></a>
 ## 13) Consolidated Command Reference
 
 ```bash
@@ -358,7 +358,7 @@ codex login status
 printenv OPENAI_API_KEY | codex login --with-api-key
 
 # Inspect tools (this spawns `codex mcp-server`)
-npx @modelcontextprotocol/inspector codex mcp-server
+npx @modelcontextprotocol/inspector@0.20.0 codex mcp-server
 
 # Run Codex as MCP server (debugging only; normally spawned by a client)
 codex mcp-server
@@ -388,8 +388,8 @@ codex mcp login myserver
 
 ## 15) Official Documentation
 
-- [Codex MCP Server](https://developers.openai.com/codex/mcp-server)
+- [Codex MCP](https://developers.openai.com/codex/mcp)
 - [Codex CLI](https://developers.openai.com/codex/cli)
-- [Codex Command-Line Options](https://developers.openai.com/codex/cli#command-line-options)
+- [Codex CLI Reference](https://developers.openai.com/codex/cli/reference)
 - [Codex Config Reference](https://developers.openai.com/codex/config-reference)
 - [Codex Authentication](https://developers.openai.com/codex/auth)

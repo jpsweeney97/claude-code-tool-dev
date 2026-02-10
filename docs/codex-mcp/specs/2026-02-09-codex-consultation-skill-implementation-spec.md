@@ -1,11 +1,11 @@
 # Codex Consultation Skill — Implementation Specification
 
 **Date:** 2026-02-09  
-**Status:** Draft (implementation-ready)  
+**Status:** Approved (decision-locked)  
 **Scope:** Defines what must be built for the `/codex` skill workflow described in `.claude/skills/codex/SKILL.md`  
 **Primary outcome:** A deterministic, testable implementation contract for consulting OpenAI Codex as a secondary reviewer
 
-> **Navigation note:** For consolidated onboarding and implementation context, start with `/Users/jp/Projects/active/claude-code-tool-dev/docs/codex-mcp/codex-mcp-master-guide.md`. Use this document as the normative client/skill build contract.
+> **Navigation note:** For consolidated onboarding and implementation context, start with `../codex-mcp-master-guide.md`. Use this document as the normative client/skill build contract.
 
 ---
 
@@ -49,7 +49,7 @@ This spec closes those gaps.
 2. Build a structured Codex briefing.
 3. Select invocation strategy (direct vs delegated).
 4. Invoke Codex tools with validated parameters and defaults.
-5. Continue conversations by `threadId`.
+5. Continue conversations by canonical `threadId` (with compatibility alias handling).
 6. Relay consultant output with primary-agent judgment.
 7. Handle errors deterministically.
 8. Enforce auth/token safety requirements.
@@ -161,9 +161,9 @@ If uncertain, default to direct invocation.
 For `mcp__codex__codex`, the call payload must contain:
 
 - `prompt`: briefing (required)
+- `approval-policy`: resolved value
 - `model`: only when user set `-m`
 - `sandbox`: resolved value
-- `approval-policy`: resolved value
 - `config`: `{ "model_reasoning_effort": "<resolved reasoning>" }`
 
 Rationale: while the upstream tool may apply defaults if these fields are omitted, the client MUST pass resolved execution controls explicitly to enforce least-privilege defaults and deterministic behavior even if upstream defaults change.
@@ -174,10 +174,24 @@ No credentials, tokens, or auth file contents may be included.
 
 For `mcp__codex__codex-reply`, payload must contain:
 
-- `threadId` from prior Codex response
 - `prompt` follow-up enriched with new context since last turn
+- at least one continuity identifier:
+  - `threadId` (canonical)
+  - `conversationId` (deprecated compatibility alias)
 
-If `threadId` missing/invalid, start a new conversation and rebuild full briefing.
+Normalization and deterministic validation:
+
+1. Normalize `threadId` and `conversationId` by trimming outer whitespace; treat empty strings as absent.
+2. If both are absent, return:
+   - code: `MISSING_REQUIRED_FIELD`
+   - message format: `"validation failed: missing conversation identifier. Got: {input!r:.100}"`
+3. If both are present and values are unequal, return:
+   - code: `INVALID_ARGUMENT`
+   - message format: `"validation failed: threadId and conversationId mismatch. Got: {input!r:.100}"`
+4. If `threadId` is present, use it as canonical continuity identifier.
+5. Else map `conversationId` to canonical `threadId` before upstream dispatch.
+
+If normalized `threadId` is invalid/expired upstream, start a new conversation and rebuild full briefing.
 
 ### FR-7: Response Relay Contract
 
@@ -190,6 +204,11 @@ Primary agent relay must include:
 3. Concrete next actions.
 
 Disallowed: blind copy/paste without analysis.
+
+Continuity output contract:
+
+- `structuredContent.threadId` is canonical continuity state.
+- `content` is compatibility output only.
 
 ### FR-8: Authentication Behavior
 
@@ -245,6 +264,16 @@ Capture non-secret diagnostics per consultation:
 - error class
 
 Do not log prompt bodies by default unless explicit debug mode is enabled.
+
+### FR-12: Decision-Locked Governance
+
+The implementation must enforce these resolved decisions:
+
+1. Prompt/log retention is debug-gated opt-in only.
+2. Redaction failures are fail-closed.
+3. Dangerous mode never auto-escalates.
+4. Strategy default is direct invocation when uncertain.
+5. Reply continuity is `threadId` canonical with `conversationId` as compatibility alias.
 
 ---
 
@@ -302,10 +331,74 @@ type CodexNewCall = {
 
 ```ts
 type CodexReplyCall = {
-  threadId: string;
   prompt: string;
+  threadId?: string;
+  conversationId?: string;
 };
 ```
+
+### 8.4 Normative MCP Input Schemas (must match server spec exactly)
+
+`codex` input schema:
+
+```json
+{
+  "type": "object",
+  "required": ["prompt"],
+  "additionalProperties": false,
+  "properties": {
+    "prompt": { "type": "string", "minLength": 1 },
+    "approval-policy": {
+      "type": "string",
+      "enum": ["untrusted", "on-failure", "on-request", "never"]
+    },
+    "base-instructions": { "type": "string", "minLength": 1 },
+    "config": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "cwd": { "type": "string", "minLength": 1 },
+    "include-plan-tool": { "type": "boolean" },
+    "model": { "type": "string", "minLength": 1 },
+    "profile": { "type": "string", "minLength": 1 },
+    "sandbox": {
+      "type": "string",
+      "enum": ["read-only", "workspace-write", "danger-full-access"]
+    }
+  }
+}
+```
+
+`codex-reply` input schema:
+
+```json
+{
+  "type": "object",
+  "required": ["prompt"],
+  "additionalProperties": false,
+  "properties": {
+    "prompt": { "type": "string", "minLength": 1 },
+    "threadId": { "type": "string", "minLength": 1 },
+    "conversationId": { "type": "string", "minLength": 1 }
+  },
+  "anyOf": [
+    { "required": ["threadId"] },
+    { "required": ["conversationId"] }
+  ]
+}
+```
+
+Identifier normalization algorithm:
+
+1. Normalize `threadId` and `conversationId` by trimming outer whitespace; treat empty strings as absent.
+2. If both are absent, return:
+   - code: `MISSING_REQUIRED_FIELD`
+   - message format: `"validation failed: missing conversation identifier. Got: {input!r:.100}"`
+3. If both are present and values are unequal, return:
+   - code: `INVALID_ARGUMENT`
+   - message format: `"validation failed: threadId and conversationId mismatch. Got: {input!r:.100}"`
+4. If `threadId` is present, use it as canonical continuity identifier.
+5. Else map `conversationId` to canonical `threadId` before upstream dispatch.
 
 ---
 
@@ -385,9 +478,11 @@ Use mocked MCP tools.
 
 1. New conversation payload shape.
 2. Reply payload shape with `threadId`.
-3. Invalid `threadId` fallback to new conversation.
-4. Timeout does not trigger an automatic retry.
-5. Relay contains assessment + next actions.
+3. Reply payload shape with `conversationId`-only compatibility request.
+4. Mismatched `threadId` and `conversationId` is deterministically rejected with `INVALID_ARGUMENT`.
+5. Invalid normalized `threadId` fallback to new conversation.
+6. Timeout does not trigger an automatic retry.
+7. Relay contains assessment + next actions.
 
 ### 12.3 End-to-End Manual Validation (Should)
 
@@ -395,7 +490,8 @@ Use mocked MCP tools.
 2. `/codex -s workspace-write -a on-failure ...`.
 3. `/codex -t xhigh ...`.
 4. Follow-up with same `threadId`.
-5. Auth missing scenario (logged out state).
+5. Follow-up with `conversationId` only (normalized path).
+6. Auth missing scenario (logged out state).
 
 ---
 
@@ -403,11 +499,11 @@ Use mocked MCP tools.
 
 Implementation is done when all are true:
 
-1. All FR-1 through FR-11 pass.
+1. All FR-1 through FR-12 pass.
 2. All required unit + integration tests pass.
 3. No secret leakage in logs/prompts/user responses across test suite.
 4. Strategy choice and defaults are deterministic.
-5. `threadId` continuation works and gracefully recovers when invalid.
+5. `threadId` continuation works, `conversationId` alias normalizes correctly, and mismatches reject deterministically.
 6. User relay includes explicit primary-agent assessment, not only Codex output.
 
 ---
@@ -433,12 +529,13 @@ Implementation is done when all are true:
 
 ---
 
-## 15) Open Decisions (Need Product/Owner Confirmation)
+## 15) Resolved Decisions
 
-1. Should prompt/log retention be opt-in only or configurable per workspace?
-2. Should delegated strategy be automatic at 3+ turns or explicitly user-confirmed?
-3. Should failed redaction block invocation or warn-and-continue?
-4. Should manual override exist for approval defaults in dangerous modes?
+1. Prompt/log retention is debug-gated opt-in only.
+2. Redaction failures are fail-closed.
+3. Dangerous mode never auto-escalates.
+4. Strategy default is direct invocation when uncertain.
+5. Reply continuity is `threadId` canonical with `conversationId` as compatibility alias.
 
 ---
 
@@ -473,5 +570,14 @@ Implementation is done when all are true:
 {
   "threadId": "thread_abc123",
   "prompt": "New benchmark results attached. Re-evaluate your recommendation given this evidence."
+}
+```
+
+## 19) Appendix: Example Compatibility Reply Payload
+
+```json
+{
+  "conversationId": "thread_abc123",
+  "prompt": "Continue using compatibility identifier only, then normalize to canonical threadId."
 }
 ```

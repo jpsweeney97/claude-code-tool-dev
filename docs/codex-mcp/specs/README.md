@@ -2,19 +2,26 @@
 
 **Purpose:** Quick navigation for Codex consultation architecture specs.
 
-> **Navigation note:** Use `/Users/jp/Projects/active/claude-code-tool-dev/docs/codex-mcp/codex-mcp-master-guide.md` for consolidated onboarding and implementation context. Use this specs index when you need normative build requirements and acceptance criteria.
+> **Navigation note:** Use `../codex-mcp-master-guide.md` for consolidated onboarding and implementation context. Use this specs index when you need normative build requirements and acceptance criteria.
 
 ## Codex Consultation Specs
 
 1. **Client/Skill integration spec**  
-   `/Users/jp/Projects/active/claude-code-tool-dev/docs/codex-mcp/specs/2026-02-09-codex-consultation-skill-implementation-spec.md`
+   `./2026-02-09-codex-consultation-skill-implementation-spec.md`
    - Defines behavior for the `/codex` skill workflow.
    - Covers parsing, briefing assembly, invocation strategy, relay behavior, safety rules, and acceptance tests.
+   - Includes decision-locked `codex` / `codex-reply` schema parity and compatibility normalization.
 
 2. **MCP server build spec**  
-   `/Users/jp/Projects/active/claude-code-tool-dev/docs/codex-mcp/specs/2026-02-09-codex-mcp-server-build-spec.md`
+   `./2026-02-09-codex-mcp-server-build-spec.md`
    - Defines how to build the MCP server layer itself.
    - Covers tool schemas/contracts, server architecture, error taxonomy, auth/security boundaries, observability, and conformance testing.
+   - Locks `structuredContent.threadId` as canonical continuity source and `conversationId` as compatibility alias.
+
+## Governance Status
+
+- Both specs are **Approved (decision-locked)**.
+- “Open Decisions” has been replaced with “Resolved Decisions” in both documents.
 
 ## Boundary Clarification
 
@@ -24,7 +31,7 @@
 
 ## Recommended Build Order
 
-1. Build MCP server core first (tool schemas, validation, defaults, error taxonomy) using `/Users/jp/Projects/active/claude-code-tool-dev/docs/codex-mcp/specs/2026-02-09-codex-mcp-server-build-spec.md`.
+1. Build MCP server core first (tool schemas, validation, defaults, error taxonomy) using `./2026-02-09-codex-mcp-server-build-spec.md`.
 2. Add server reliability/security layers (timeouts, retry policy, policy guards, redaction, observability) and pass server conformance tests.
-3. Implement client/skill integration flow (argument parsing, briefing assembly, invocation strategy, response relay) using `/Users/jp/Projects/active/claude-code-tool-dev/docs/codex-mcp/specs/2026-02-09-codex-consultation-skill-implementation-spec.md`.
+3. Implement client/skill integration flow (argument parsing, briefing assembly, invocation strategy, response relay) using `./2026-02-09-codex-consultation-skill-implementation-spec.md`.
 4. Run end-to-end validation across both layers, then lock acceptance criteria and operational runbooks.

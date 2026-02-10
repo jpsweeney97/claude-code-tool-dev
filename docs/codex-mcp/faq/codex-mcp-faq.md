@@ -4,6 +4,15 @@
 
 ---
 
+## Canonical Procedure Pointers
+
+- Quickstart owner: `../codex-mcp-master-guide.md#canonical-quickstart`
+- Command owner: `../codex-mcp-master-guide.md#canonical-command-reference`
+
+This FAQ intentionally avoids duplicating full setup procedures and command blocks.
+
+---
+
 ## Basics
 
 ### 1) What is `codex mcp-server`?
@@ -104,7 +113,7 @@ Not by default. Use strict debug gates and redaction if ever enabled.
 
 ### 20) Where should a beginner start?
 
-`docs/codex-mcp/learning-path/01-codex-mcp-concepts.md`, then the first-success tutorial.
+Start with `../codex-mcp-master-guide.md#canonical-quickstart`, then continue with `../learning-path/01-codex-mcp-concepts.md`.
 
 ### 21) What defines “expert” here?
 
@@ -112,7 +121,7 @@ Reliable operations, secure defaults, incident handling, and ability to teach/im
 
 ### 22) How do I assess progress objectively?
 
-Use `docs/codex-mcp/assessments/codex-mcp-skill-maturity-model.md` and collect required evidence.
+Use `../assessments/codex-mcp-skill-maturity-model.md` and collect required evidence.
 
 ---
 

@@ -1,11 +1,11 @@
 # Codex MCP Server — Build Specification
 
 **Date:** 2026-02-09  
-**Status:** Draft (implementation-ready)  
+**Status:** Approved (decision-locked)  
 **Scope:** Build requirements for an MCP server that exposes Codex consultation tools to the primary agent framework  
 **Related spec:** `docs/codex-mcp/specs/2026-02-09-codex-consultation-skill-implementation-spec.md`
 
-> **Navigation note:** For consolidated onboarding and implementation context, start with `/Users/jp/Projects/active/claude-code-tool-dev/docs/codex-mcp/codex-mcp-master-guide.md`. Use this document as the normative MCP server build contract.
+> **Navigation note:** For consolidated onboarding and implementation context, start with `../codex-mcp-master-guide.md`. Use this document as the normative MCP server build contract.
 
 ---
 
@@ -118,10 +118,14 @@ Required:
 
 Optional:
 
-- `model: string`
-- `sandbox: "read-only" | "workspace-write" | "danger-full-access"`
 - `approval-policy: "untrusted" | "on-failure" | "on-request" | "never"`
-- `config.model_reasoning_effort: "minimal" | "low" | "medium" | "high" | "xhigh"`
+- `base-instructions: string`
+- `config: object` (open object; `additionalProperties: true`)
+- `cwd: string`
+- `include-plan-tool: boolean`
+- `model: string`
+- `profile: string`
+- `sandbox: "read-only" | "workspace-write" | "danger-full-access"`
 
 Defaults:
 
@@ -137,14 +141,20 @@ Purpose: append a follow-up turn to existing thread.
 
 Required:
 
-- `threadId: string`
 - `prompt: string`
 
 Optional:
 
-- same optional execution overrides as `codex` MAY be accepted, but if accepted must be documented and tested.
+- `threadId: string`
+- `conversationId: string` (compatibility alias; deprecated)
 
-Server recommendation: keep `codex-reply` minimal (`threadId` + `prompt`) for deterministic continuity.
+Validation and normalization:
+
+- At least one identifier is required (`threadId` or `conversationId`).
+- If `threadId` exists, it is canonical and must be used.
+- If only `conversationId` is provided, map it to canonical `threadId`.
+- If both are present and unequal, return deterministic `INVALID_ARGUMENT`.
+- If both are absent/empty, return deterministic `MISSING_REQUIRED_FIELD`.
 
 ---
 
@@ -159,24 +169,22 @@ Server recommendation: keep `codex-reply` minimal (`threadId` + `prompt`) for de
   "additionalProperties": false,
   "properties": {
     "prompt": { "type": "string", "minLength": 1 },
-    "model": { "type": "string", "minLength": 1 },
-    "sandbox": {
-      "type": "string",
-      "enum": ["read-only", "workspace-write", "danger-full-access"]
-    },
     "approval-policy": {
       "type": "string",
       "enum": ["untrusted", "on-failure", "on-request", "never"]
     },
+    "base-instructions": { "type": "string", "minLength": 1 },
     "config": {
       "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "model_reasoning_effort": {
-          "type": "string",
-          "enum": ["minimal", "low", "medium", "high", "xhigh"]
-        }
-      }
+      "additionalProperties": true
+    },
+    "cwd": { "type": "string", "minLength": 1 },
+    "include-plan-tool": { "type": "boolean" },
+    "model": { "type": "string", "minLength": 1 },
+    "profile": { "type": "string", "minLength": 1 },
+    "sandbox": {
+      "type": "string",
+      "enum": ["read-only", "workspace-write", "danger-full-access"]
     }
   }
 }
@@ -187,14 +195,31 @@ Server recommendation: keep `codex-reply` minimal (`threadId` + `prompt`) for de
 ```json
 {
   "type": "object",
-  "required": ["threadId", "prompt"],
+  "required": ["prompt"],
   "additionalProperties": false,
   "properties": {
+    "prompt": { "type": "string", "minLength": 1 },
     "threadId": { "type": "string", "minLength": 1 },
-    "prompt": { "type": "string", "minLength": 1 }
-  }
+    "conversationId": { "type": "string", "minLength": 1 }
+  },
+  "anyOf": [
+    { "required": ["threadId"] },
+    { "required": ["conversationId"] }
+  ]
 }
 ```
+
+### 7.3 `codex-reply` identifier normalization algorithm (normative)
+
+1. Normalize `threadId` and `conversationId` by trimming outer whitespace; treat empty strings as absent.
+2. If both are absent, return:
+   - code: `MISSING_REQUIRED_FIELD`
+   - message format: `"validation failed: missing conversation identifier. Got: {input!r:.100}"`
+3. If both are present and values are unequal, return:
+   - code: `INVALID_ARGUMENT`
+   - message format: `"validation failed: threadId and conversationId mismatch. Got: {input!r:.100}"`
+4. If `threadId` is present, use it as canonical continuity identifier.
+5. Else map `conversationId` to canonical `threadId` before upstream dispatch.
 
 ---
 
@@ -207,6 +232,13 @@ Server recommendation: keep `codex-reply` minimal (`threadId` + `prompt`) for de
   "ok": true,
   "threadId": "thread_xxx",
   "outputText": "...",
+  "structuredContent": {
+    "threadId": "thread_xxx",
+    "outputText": "..."
+  },
+  "content": [
+    { "type": "text", "text": "..." }
+  ],
   "metadata": {
     "model": "o3",
     "sandbox": "read-only",
@@ -234,7 +266,13 @@ Minimum required keys: `ok`, `threadId`, `outputText`.
 
 Server must return stable error codes and avoid stack traces in user-facing fields.
 
-### 8.3 Tool Errors vs MCP/JSON-RPC Errors (Normative)
+### 8.3 Continuity output contract (normative)
+
+- `structuredContent.threadId` is the canonical continuity source.
+- `content` remains compatibility output only and must not be treated as canonical continuity state.
+- `threadId` at the envelope top level should mirror canonical `structuredContent.threadId`.
+
+### 8.4 Tool Errors vs MCP/JSON-RPC Errors (Normative)
 
 The server must distinguish:
 
@@ -317,7 +355,7 @@ On violation: return `POLICY_VIOLATION`.
 ### 12.1 Thread Identity
 
 - `codex` returns a new `threadId`.
-- `codex-reply` requires an existing `threadId`.
+- `codex-reply` requires an existing conversation identifier and normalizes to canonical `threadId`.
 
 ### 12.2 State Model
 
@@ -520,13 +558,13 @@ Document these procedures before production:
 
 ---
 
-## 21) Open Decisions
+## 21) Resolved Decisions
 
-1. Should `codex-reply` allow runtime overrides (`model`, `sandbox`, etc.) or stay strict?
-2. Should prompt logging be completely disabled or debug-gated per environment?
-3. What concurrency ceiling is safe for the hosting environment?
-4. Should policy deny `danger-full-access` by default in production?
-5. Should request idempotency keys be required for retries?
+1. Prompt/log retention is debug-gated opt-in only.
+2. Redaction failures are fail-closed.
+3. Dangerous mode never auto-escalates.
+4. Strategy default is direct invocation when uncertain.
+5. Reply continuity is `threadId` canonical with `conversationId` as compatibility alias.
 
 ---
 
@@ -541,12 +579,26 @@ Document these procedures before production:
   "inputSchema": {
     "type": "object",
     "required": ["prompt"],
+    "additionalProperties": false,
     "properties": {
-      "prompt": { "type": "string" },
-      "model": { "type": "string" },
-      "sandbox": { "type": "string" },
-      "approval-policy": { "type": "string" },
-      "config": { "type": "object" }
+      "prompt": { "type": "string", "minLength": 1 },
+      "approval-policy": {
+        "type": "string",
+        "enum": ["untrusted", "on-failure", "on-request", "never"]
+      },
+      "base-instructions": { "type": "string", "minLength": 1 },
+      "config": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "cwd": { "type": "string", "minLength": 1 },
+      "include-plan-tool": { "type": "boolean" },
+      "model": { "type": "string", "minLength": 1 },
+      "profile": { "type": "string", "minLength": 1 },
+      "sandbox": {
+        "type": "string",
+        "enum": ["read-only", "workspace-write", "danger-full-access"]
+      }
     }
   }
 }
@@ -560,11 +612,17 @@ Document these procedures before production:
   "description": "Continue a Codex consultation thread",
   "inputSchema": {
     "type": "object",
-    "required": ["threadId", "prompt"],
+    "required": ["prompt"],
+    "additionalProperties": false,
     "properties": {
-      "threadId": { "type": "string" },
-      "prompt": { "type": "string" }
-    }
+      "prompt": { "type": "string", "minLength": 1 },
+      "threadId": { "type": "string", "minLength": 1 },
+      "conversationId": { "type": "string", "minLength": 1 }
+    },
+    "anyOf": [
+      { "required": ["threadId"] },
+      { "required": ["conversationId"] }
+    ]
   }
 }
 ```

@@ -3,7 +3,7 @@
 **Purpose:** A structured progression from zero familiarity to production-ready proficiency with Codex MCP.  
 **Audience:** Engineers, technical PMs, platform owners, and AI tool builders.
 
-> **Navigation note:** Start with `/Users/jp/Projects/active/claude-code-tool-dev/docs/codex-mcp/codex-mcp-master-guide.md` if you want a single-document path. Use this learning path when you prefer staged modules, checkpoints, and guided progression.
+> **Navigation note:** Start with `../codex-mcp-master-guide.md` if you want a single-document path. Canonical quickstart and command procedures live at `../codex-mcp-master-guide.md#canonical-quickstart` and `../codex-mcp-master-guide.md#canonical-command-reference`.
 
 ---
 
@@ -32,7 +32,7 @@ By the end of this path, a learner can:
 | Stage | Target Skill Level | Required Module(s) | Time Estimate |
 |---|---|---|---|
 | 0 | Conceptual orientation | `01-codex-mcp-concepts.md` | 45–60 min |
-| 1 | First working integration | `02-first-success-30-min.md` | 30–45 min |
+| 1 | First working integration | `02-first-success-30-min.md` (pointer to canonical quickstart) | 30–45 min |
 | 2 | Failure recovery confidence | `03-common-failures-lab.md` | 60–90 min |
 | 3 | Applied implementation patterns | `../cookbooks/client-integration-recipes.md`, `../cookbooks/prompt-briefing-patterns.md` | 90–150 min |
 | 4 | Operations + security readiness | `../runbooks/codex-mcp-operations.md`, `../security/codex-mcp-threat-model.md` | 90–120 min |
@@ -43,7 +43,7 @@ By the end of this path, a learner can:
 ## Suggested Sequence
 
 1. Read concepts doc once without taking notes.
-2. Complete first-success tutorial exactly as written.
+2. Complete `../codex-mcp-master-guide.md#canonical-quickstart` exactly as written.
 3. Run all failure labs and record evidence.
 4. Implement one cookbook recipe in your own environment.
 5. Review runbook + threat model before broader rollout.
