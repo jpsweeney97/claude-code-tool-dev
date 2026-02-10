@@ -357,14 +357,16 @@ class GitContext:
     git_dir: Optional[str] = None
     branch: Optional[str] = None
     is_detached: bool = False
+    repo_root: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not self.is_repo:
-            if self.has_commits or self.git_dir or self.branch or self.is_detached or self.is_bare:
+            if self.has_commits or self.git_dir or self.branch or self.is_detached or self.is_bare or self.repo_root:
                 raise ValueError(
                     f"GitContext invariant violated: is_repo=False but other fields set: "
                     f"has_commits={self.has_commits}, git_dir={self.git_dir!r}, "
-                    f"branch={self.branch!r}, is_detached={self.is_detached}, is_bare={self.is_bare}"
+                    f"branch={self.branch!r}, is_detached={self.is_detached}, "
+                    f"is_bare={self.is_bare}, repo_root={self.repo_root!r}"
                 )
         elif self.git_dir is None:
             raise ValueError("GitContext invariant violated: is_repo=True but git_dir is None")
@@ -422,6 +424,13 @@ def evaluate_gitflow_rules(
     # File allowlist check
     if is_file_allowed(file_path):
         return HookDecision(Decision.ALLOW)
+
+    # File outside repo — branch protection only applies to files in the working tree.
+    # Only check absolute paths (Claude Code always provides absolute paths to Edit/Write).
+    if ctx.repo_root and file_path and os.path.isabs(file_path):
+        norm_file = os.path.normpath(file_path)
+        if not norm_file.startswith(ctx.repo_root + os.sep) and norm_file != ctx.repo_root:
+            return HookDecision(Decision.ALLOW)
 
     # Operation checks
     if operation == "rebase":
@@ -506,6 +515,10 @@ def get_git_context() -> GitContext:
     if is_bare:
         return GitContext(is_repo=True, is_bare=True, git_dir=resolved_git_dir)
 
+    # Get repo root for out-of-repo file detection
+    _, toplevel = run_git("rev-parse", "--show-toplevel")
+    repo_root = os.path.normpath(toplevel.strip()) if toplevel else None
+
     # Call 2: Check for commits and get branch name
     # First check if commits exist (needed to distinguish new repo from detached HEAD)
     commits_exist, _ = run_git("rev-parse", "--verify", "HEAD")
@@ -522,6 +535,7 @@ def get_git_context() -> GitContext:
             has_commits=commits_exist,
             branch=branch_output.strip(),
             is_detached=False,
+            repo_root=repo_root,
         )
     else:
         # Detached HEAD (only if commits exist; otherwise it's just a new repo)
@@ -531,6 +545,7 @@ def get_git_context() -> GitContext:
             has_commits=commits_exist,
             branch=None,
             is_detached=commits_exist,
+            repo_root=repo_root,
         )
 
 
