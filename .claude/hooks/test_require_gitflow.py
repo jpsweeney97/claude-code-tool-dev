@@ -224,7 +224,7 @@ class TestGetProtectedBranches:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("PROTECTED_BRANCHES", None)
             result = get_protected_branches()
-            assert result == {"main", "master", "develop"}
+            assert result == {"main", "master"}
 
     def test_custom_branches(self):
         with patch.dict(os.environ, {"PROTECTED_BRANCHES": "main,staging"}):
@@ -485,8 +485,8 @@ class TestProtectedBranchUnification:
         assert result.returncode == 2
         assert "Cannot edit" in result.stderr
 
-    def test_develop_in_custom_protected_not_duplicate_check(self, temp_git_repo, monkeypatch):
-        """Adding develop to PROTECTED_BRANCHES shouldn't cause double-blocking."""
+    def test_develop_in_custom_protected_blocks(self, temp_git_repo, monkeypatch):
+        """Adding develop to PROTECTED_BRANCHES should block it."""
         monkeypatch.chdir(temp_git_repo)
         monkeypatch.setenv("PROTECTED_BRANCHES", "main,develop")
 
@@ -494,25 +494,26 @@ class TestProtectedBranchUnification:
         result = run_hook(temp_git_repo)
 
         assert result.returncode == 2
-        # Should only hit the check once (develop-specific message)
-        assert "integration branch" in result.stderr
+        assert "protected branch" in result.stderr
 
     def test_main_protected_message_shows(self, temp_git_repo, monkeypatch):
-        """Main branch should show main-specific message."""
+        """Main branch should show protected branch message."""
         monkeypatch.chdir(temp_git_repo)
         result = run_hook(temp_git_repo)
 
         assert result.returncode == 2
-        assert "production branch" in result.stderr
+        assert "protected branch" in result.stderr
 
-    def test_develop_protected_message_shows(self, temp_git_repo, monkeypatch):
-        """Develop branch should show develop-specific message."""
+    def test_develop_not_protected_by_default(self, temp_git_repo, monkeypatch):
+        """Develop branch should NOT be protected by default."""
         monkeypatch.chdir(temp_git_repo)
+        monkeypatch.delenv("PROTECTED_BRANCHES", raising=False)
+        monkeypatch.delenv("GITFLOW_STRICT", raising=False)
         subprocess.run(["git", "checkout", "-b", "develop"], cwd=temp_git_repo, capture_output=True, check=True)
         result = run_hook(temp_git_repo)
 
-        assert result.returncode == 2
-        assert "integration branch" in result.stderr
+        # develop is not a recognized pattern, so it warns in permissive mode but allows
+        assert result.returncode == 0
 
 
 class TestResolveGitDir:
@@ -933,13 +934,15 @@ class TestEvaluateGitflowRules:
         assert decision.decision == require_gitflow.Decision.BLOCK
         assert decision.exit_code == 2
 
-    def test_develop_branch_blocks_with_correct_message(self):
-        """Develop branch should block with integration branch message."""
+    def test_develop_branch_not_protected_by_default(self, monkeypatch):
+        """Develop branch should not be blocked when not in PROTECTED_BRANCHES."""
+        monkeypatch.delenv("PROTECTED_BRANCHES", raising=False)
+        monkeypatch.delenv("GITFLOW_STRICT", raising=False)
         GitContext = require_gitflow.GitContext
         ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="develop")
         decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
-        assert decision.decision == require_gitflow.Decision.BLOCK
-        assert "integration" in decision.message.lower()
+        # develop is not a recognized pattern, so it warns in permissive mode
+        assert decision.decision == require_gitflow.Decision.WARN
 
     def test_null_branch_allows(self):
         """None branch (unexpected state) should allow."""

@@ -1,52 +1,34 @@
-# GitFlow Branching
+# Branch Protection
 
-This project enforces GitFlow branching via a `PreToolUse` hook that blocks edits on protected branches.
+This project enforces branch protection via a `PreToolUse` hook that blocks edits on protected branches. Work happens on feature branches; merge to `main` when done.
 
 ## Protected Branches
 
 | Branch | Purpose | Edits Allowed |
 |--------|---------|---------------|
-| `main` / `master` | Production | No — create hotfix branch |
-| `develop` | Integration | No — create feature branch |
+| `main` / `master` | Production | No — create a working branch |
 
 ## Working Branches
 
-Create branches from the appropriate base:
+All working branches are based on `main`:
 
-| Branch Pattern | Base | Purpose |
-|----------------|------|---------|
-| `feature/*` | develop | New functionality |
-| `feat/*` | develop | New functionality (alias) |
-| `fix/*` | develop | Bug fixes |
-| `hotfix/*` | main | Emergency production fixes |
-| `release/*` | develop | Release preparation |
+| Branch Pattern | Purpose |
+|----------------|---------|
+| `feature/*` | New functionality |
+| `feat/*` | New functionality (alias) |
+| `fix/*` | Bug fixes |
+| `hotfix/*` | Emergency production fixes |
+| `chore/*` | Maintenance, cleanup |
 
-Additional recognized patterns: `docs/*`, `style/*`, `refactor/*`, `perf/*`, `test/*`, `build/*`, `ci/*`, `chore/*`, `spike/*`, `experiment/*`, `poc/*`
+Additional recognized patterns: `docs/*`, `style/*`, `refactor/*`, `perf/*`, `test/*`, `build/*`, `ci/*`, `release/*`, `spike/*`, `experiment/*`, `poc/*`
 
 ## Workflow
 
-**New feature:**
-```bash
-git checkout develop
-git checkout -b feature/<name>
-# ... work ...
-# PR to develop
-```
-
-**Production hotfix:**
 ```bash
 git checkout main
-git checkout -b hotfix/<description>
-# ... fix ...
-# PR to main AND develop
-```
-
-**Release:**
-```bash
-git checkout develop
-git checkout -b release/<version>
-# ... stabilize ...
-# PR to main AND develop
+git checkout -b feature/<name>
+# ... work ...
+# merge to main when done
 ```
 
 ## Hook Behavior
@@ -70,10 +52,15 @@ Set via environment variables:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PROTECTED_BRANCHES` | `main,master,develop` | Comma-separated protected branches |
+| `PROTECTED_BRANCHES` | `main,master` | Comma-separated protected branches |
 | `GITFLOW_STRICT` | (unset) | Set to `1` to block non-standard branch names |
 | `GITFLOW_BYPASS` | (unset) | Set to `1` to bypass all checks (emergency) |
 | `GITFLOW_ALLOW_FILES` | (unset) | Glob patterns for files allowed on protected branches |
+
+To add `develop` as a protected branch (for repos using GitFlow):
+```bash
+PROTECTED_BRANCHES=main,master,develop claude
+```
 
 ## When Blocked
 
@@ -93,10 +80,10 @@ For working on multiple features simultaneously without stashing:
 git worktree add ../project-feature-x feature/x
 
 # Or create worktree with new branch
-git worktree add -b feature/new-thing ../project-new-thing develop
+git worktree add -b feature/new-thing ../project-new-thing main
 ```
 
-Each worktree has its own working directory and checked-out branch. The GitFlow hook enforces branch rules in all worktrees.
+Each worktree has its own working directory and checked-out branch. The hook enforces branch rules in all worktrees.
 
 **When worktrees help:**
 - Running tests on `main` while developing on a feature branch
