@@ -199,6 +199,12 @@ Apply these lenses with genuine adversarial intent. Objections must cause discom
 | **Hidden complexity** | Where is complexity being underestimated? |
 | **Motivated reasoning** | Am I rationalizing a preferred approach? |
 
+**Codex Delta (cross-model adversarial check):**
+
+If `stakes >= rigorous` and Codex MCP is available, run Codex Delta once at the first pass where a stable frontrunner emerges — single consultation, two-phase reveal (blind scan, then adversarial challenge after revealing frontrunner). Use the output to add/refresh material objections and cheapest disconfirming tests; disposition each objection before claiming convergence. If Codex MCP is unavailable or skipped, continue with local lenses above — do not block on Codex availability.
+
+Full invocation spec: [Codex Delta reference](references/codex-delta.md)
+
 **Check perspectives (I10):**
 - How does this look from each stakeholder's view?
 - Would any stakeholder strongly object?
@@ -253,8 +259,8 @@ Did inner loop EXIT with a decision?
 | Level | Requirements |
 |-------|--------------|
 | **Adequate** | Frontrunner stable 1 pass, trade-offs stated, criteria defined |
-| **Rigorous** | Frontrunner stable 2 passes, objections resolved, all perspectives checked |
-| **Exhaustive** | Frontrunner stable 2+ passes, disconfirmation yielded nothing new, sensitivity shows robustness |
+| **Rigorous** | Frontrunner stable 2 passes, objections resolved (including Codex Delta objections when run), all perspectives checked |
+| **Exhaustive** | Frontrunner stable 2+ passes, disconfirmation yielded nothing new (including Codex Delta), sensitivity shows robustness |
 
 ### Iteration Log
 
@@ -578,3 +584,9 @@ After completing a recommendation, verify:
 **Custom Decision Record locations:**
 - Default: `docs/decisions/YYYY-MM-DD-<slug>.md`
 - Projects can override via CLAUDE.md if a different convention exists
+
+**Codex Delta (cross-model adversarial check):**
+- Triggered during I8-I9 adversarial phase at `stakes >= rigorous` when a stable frontrunner first emerges
+- Uses `codex-dialogue` subagent with two-phase reveal: blind scan (criteria + options without frontrunner) then adversarial challenge (reveal frontrunner)
+- Output: material challenges, cheapest disconfirming tests, decision updates, disposition per objection
+- Full spec: [references/codex-delta.md](references/codex-delta.md)
