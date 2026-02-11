@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// hook
 # event: PreToolUse
-# matcher: Edit|Write
+# matcher: Edit|Write|MultiEdit
 # timeout: 5
 # ///
 """
@@ -41,6 +41,7 @@ Exit codes:
   1 - Error (non-blocking)
   2 - Block (protected branch, rebase, or bisect)
 """
+import fnmatch as fnmatch_module
 import json
 import os
 import re
@@ -54,6 +55,7 @@ from typing import Optional
 
 MAX_PATH_DISPLAY_LEN = 50
 BYPASS_ENV = "GITFLOW_BYPASS"
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit"}
 
 DEBUG = os.environ.get("GITFLOW_DEBUG", "") == "1"
 
@@ -99,15 +101,27 @@ def check_bypass() -> bool:
     """Check if bypass is enabled. Returns True if should skip all checks."""
     bypass = os.environ.get(BYPASS_ENV, "").strip()
     if bypass == "1":
-        output = {
-            "systemMessage": (
-                f"Warning: GitFlow enforcement bypassed via {BYPASS_ENV}=1\n"
-                "All branch protection checks are disabled for this session."
-            )
-        }
-        print(json.dumps(output))
+        print(json.dumps(context_output(
+            f"Warning: GitFlow enforcement bypassed via {BYPASS_ENV}=1\n"
+            "All branch protection checks are disabled for this session."
+        )))
         return True
     return False
+
+
+def extract_file_path(tool_input: dict) -> str:
+    """Extract file path from tool input, handling Edit, Write, and MultiEdit formats.
+
+    Edit/Write provide file_path directly. MultiEdit provides an edits array
+    where each entry has its own file_path (all targeting the same file).
+    """
+    file_path = tool_input.get("file_path", "")
+    if file_path:
+        return file_path
+    edits = tool_input.get("edits", [])
+    if edits:
+        return edits[0].get("file_path", "")
+    return ""
 
 
 def get_file_context(tool_input: dict) -> str:
@@ -166,12 +180,22 @@ def get_allowed_file_patterns() -> list[str]:
 
 
 def is_file_allowed(file_path: str) -> bool:
-    """Check if file matches any allowlist pattern."""
+    """Check if file matches any allowlist pattern.
+
+    Uses fnmatch for patterns containing ** (recursive glob across directories)
+    and Path.match for simple patterns (matches from the right by path component).
+    """
     patterns = get_allowed_file_patterns()
     if not patterns:
         return False
     path = Path(file_path)
-    return any(path.match(pattern) for pattern in patterns)
+    for pattern in patterns:
+        if "**" in pattern:
+            if fnmatch_module.fnmatch(file_path, pattern):
+                return True
+        elif path.match(pattern):
+            return True
+    return False
 
 
 def is_strict_mode() -> bool:
@@ -283,6 +307,21 @@ Create a valid branch:
 
 Or rename current branch:
   git branch -m {suggested}"""
+
+
+def context_output(message: str) -> dict:
+    """Build JSON output with dual visibility for user and Claude.
+
+    Uses systemMessage (shown to user) and hookSpecificOutput.additionalContext
+    (context for Claude) so both are aware of the git state.
+    """
+    return {
+        "systemMessage": message,
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": message,
+        },
+    }
 
 
 def suggest_branch_name(branch: str) -> str:
@@ -416,9 +455,9 @@ def evaluate_gitflow_rules(
     if not ctx.has_commits:
         return HookDecision(
             Decision.ALLOW,
-            output_json={
-                "systemMessage": "Note: This repository has no commits yet. GitFlow checks are bypassed during initial setup."
-            },
+            output_json=context_output(
+                "Note: This repository has no commits yet. GitFlow checks are bypassed during initial setup."
+            ),
         )
 
     # File allowlist check
@@ -438,15 +477,15 @@ def evaluate_gitflow_rules(
     if operation == "bisect":
         return HookDecision(Decision.BLOCK, BLOCK_MESSAGE_BISECT, exit_code=2)
     if operation == "merge":
-        return HookDecision(Decision.WARN, output_json={"systemMessage": WARN_MESSAGE_MERGE})
+        return HookDecision(Decision.WARN, output_json=context_output(WARN_MESSAGE_MERGE))
     if operation == "cherry-pick":
-        return HookDecision(Decision.WARN, output_json={"systemMessage": WARN_MESSAGE_CHERRY_PICK})
+        return HookDecision(Decision.WARN, output_json=context_output(WARN_MESSAGE_CHERRY_PICK))
     if operation == "stash-apply":
-        return HookDecision(Decision.WARN, output_json={"systemMessage": WARN_MESSAGE_STASH})
+        return HookDecision(Decision.WARN, output_json=context_output(WARN_MESSAGE_STASH))
 
     # Detached HEAD
     if ctx.is_detached:
-        return HookDecision(Decision.WARN, output_json={"systemMessage": WARN_MESSAGE_DETACHED})
+        return HookDecision(Decision.WARN, output_json=context_output(WARN_MESSAGE_DETACHED))
 
     # Branch checks
     branch = ctx.branch
@@ -475,9 +514,9 @@ def evaluate_gitflow_rules(
 
     return HookDecision(
         Decision.WARN,
-        output_json={
-            "systemMessage": WARN_MESSAGE_NONSTANDARD.format(branch=branch, suggested=suggested)
-        },
+        output_json=context_output(
+            WARN_MESSAGE_NONSTANDARD.format(branch=branch, suggested=suggested)
+        ),
     )
 
 
@@ -591,13 +630,14 @@ def get_git_operation_state(git_dir: str | None) -> str | None:
 
 
 def main():
+    data = None
     try:
         data = json.load(sys.stdin)
         tool_name = data.get("tool_name", "")
         tool_input = data.get("tool_input", {})
 
-        # Only check Edit and Write tools
-        if tool_name not in ("Edit", "Write"):
+        # Only check file-editing tools
+        if tool_name not in EDIT_TOOLS:
             sys.exit(0)
 
         log("DEBUG", f"Hook invoked: tool={tool_name}")
@@ -608,7 +648,7 @@ def main():
 
         # Gather git context
         ctx = get_git_context()
-        file_path = tool_input.get("file_path", "")
+        file_path = extract_file_path(tool_input)
         operation = get_git_operation_state(ctx.git_dir) if ctx.is_repo else None
 
         log("DEBUG", f"Checking edit to: {file_path}")
@@ -647,9 +687,10 @@ def main():
     except Exception as e:
         import traceback
 
-        tool_info = (
-            f"tool={data.get('tool_name', 'unknown')}" if "data" in dir() else "before parsing"
-        )
+        if data is not None:
+            tool_info = f"tool={data.get('tool_name', 'unknown')}"
+        else:
+            tool_info = "before parsing"
         log("ERROR", f"Unexpected error ({tool_info}): {type(e).__name__}: {e}")
         if DEBUG:
             traceback.print_exc(file=sys.stderr)

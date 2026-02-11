@@ -1011,3 +1011,177 @@ class TestFileAllowlist:
         monkeypatch.setenv("GITFLOW_ALLOW_FILES", "*.lock")
         result = run_hook(temp_git_repo, tool_input={"file_path": "src/main.py"})
         assert result.returncode == 2
+
+
+class TestRecursiveGlobPatterns:
+    """Tests for ** glob patterns using fnmatch in is_file_allowed."""
+
+    def test_double_star_matches_nested_docs(self, monkeypatch):
+        """**/docs/** should match files at any depth under docs/."""
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "**/docs/**")
+        assert require_gitflow.is_file_allowed("/a/docs/plans/foo.md") is True
+        assert require_gitflow.is_file_allowed("/a/docs/file.md") is True
+        assert require_gitflow.is_file_allowed("/a/docs/deep/nested/file.md") is True
+
+    def test_double_star_rejects_non_matching(self, monkeypatch):
+        """**/docs/** should not match files outside docs/."""
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "**/docs/**")
+        assert require_gitflow.is_file_allowed("/a/src/main.py") is False
+
+    def test_double_star_handoffs(self, monkeypatch):
+        """**/.claude/handoffs/** should match nested handoff files."""
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "**/.claude/handoffs/**")
+        assert require_gitflow.is_file_allowed("/Users/jp/.claude/handoffs/proj/file.md") is True
+        assert require_gitflow.is_file_allowed("/Users/jp/.claude/settings.json") is False
+
+    def test_mixed_patterns(self, monkeypatch):
+        """Mix of ** and simple patterns should work together."""
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "**/docs/**,CHANGELOG.md,settings.json")
+        # ** pattern via fnmatch
+        assert require_gitflow.is_file_allowed("/a/docs/plans/foo.md") is True
+        # Simple pattern via Path.match (from right)
+        assert require_gitflow.is_file_allowed("/a/b/CHANGELOG.md") is True
+        assert require_gitflow.is_file_allowed("/a/.claude/settings.json") is True
+        # Non-matching
+        assert require_gitflow.is_file_allowed("/a/src/main.py") is False
+
+    def test_double_star_on_protected_branch(self, temp_git_repo, monkeypatch):
+        """** patterns should allow edits on protected branches."""
+        monkeypatch.chdir(temp_git_repo)
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "**/docs/**")
+        abs_path = str(temp_git_repo / "docs" / "plans" / "foo.md")
+        result = run_hook(temp_git_repo, tool_input={"file_path": abs_path})
+        assert result.returncode == 0
+
+
+class TestExtractFilePath:
+    """Tests for extract_file_path() handling Edit, Write, and MultiEdit formats."""
+
+    def test_edit_write_format(self):
+        """Edit/Write tools provide file_path directly."""
+        extract = require_gitflow.extract_file_path
+        assert extract({"file_path": "src/main.py"}) == "src/main.py"
+
+    def test_multiedit_format(self):
+        """MultiEdit provides edits array with file_path in each entry."""
+        extract = require_gitflow.extract_file_path
+        tool_input = {
+            "edits": [
+                {"file_path": "src/main.py", "old_string": "a", "new_string": "b"},
+                {"file_path": "src/main.py", "old_string": "c", "new_string": "d"},
+            ]
+        }
+        assert extract(tool_input) == "src/main.py"
+
+    def test_empty_edits_array(self):
+        """Empty edits array returns empty string."""
+        extract = require_gitflow.extract_file_path
+        assert extract({"edits": []}) == ""
+
+    def test_no_file_path_at_all(self):
+        """Missing file_path in all formats returns empty string."""
+        extract = require_gitflow.extract_file_path
+        assert extract({}) == ""
+
+    def test_file_path_takes_precedence(self):
+        """Direct file_path takes precedence over edits array."""
+        extract = require_gitflow.extract_file_path
+        tool_input = {
+            "file_path": "direct.py",
+            "edits": [{"file_path": "from-edits.py"}],
+        }
+        assert extract(tool_input) == "direct.py"
+
+
+class TestMultiEditSupport:
+    """Integration tests for MultiEdit tool support."""
+
+    def test_multiedit_blocked_on_main(self, temp_git_repo, monkeypatch):
+        """MultiEdit on protected branch should be blocked."""
+        monkeypatch.chdir(temp_git_repo)
+        tool_input = {
+            "edits": [
+                {"file_path": "src/main.py", "old_string": "a", "new_string": "b"},
+            ]
+        }
+        result = run_hook(temp_git_repo, tool_name="MultiEdit", tool_input=tool_input)
+        assert result.returncode == 2
+        assert "Cannot edit" in result.stderr
+
+    def test_multiedit_allowed_on_feature(self, temp_git_repo, monkeypatch):
+        """MultiEdit on feature branch should be allowed."""
+        monkeypatch.chdir(temp_git_repo)
+        subprocess.run(["git", "checkout", "-b", "feature/test"], cwd=temp_git_repo, capture_output=True)
+        tool_input = {
+            "edits": [
+                {"file_path": "src/main.py", "old_string": "a", "new_string": "b"},
+            ]
+        }
+        result = run_hook(temp_git_repo, tool_name="MultiEdit", tool_input=tool_input)
+        assert result.returncode == 0
+
+    def test_multiedit_file_path_in_block_message(self, temp_git_repo, monkeypatch):
+        """Block message should reference the file from MultiEdit input."""
+        monkeypatch.chdir(temp_git_repo)
+        tool_input = {
+            "edits": [
+                {"file_path": "src/auth/login.py", "old_string": "a", "new_string": "b"},
+            ]
+        }
+        result = run_hook(temp_git_repo, tool_name="MultiEdit", tool_input=tool_input)
+        assert result.returncode == 2
+        assert "'src/auth/login.py'" in result.stderr
+
+
+class TestContextOutput:
+    """Tests for context_output() dual-visibility JSON format."""
+
+    def test_context_output_has_system_message(self):
+        """context_output should include systemMessage for user visibility."""
+        output = require_gitflow.context_output("test message")
+        assert output["systemMessage"] == "test message"
+
+    def test_context_output_has_additional_context(self):
+        """context_output should include additionalContext for Claude visibility."""
+        output = require_gitflow.context_output("test message")
+        hook_output = output["hookSpecificOutput"]
+        assert hook_output["hookEventName"] == "PreToolUse"
+        assert hook_output["additionalContext"] == "test message"
+
+    def test_warn_decisions_include_additional_context(self):
+        """WARN decisions should include hookSpecificOutput.additionalContext."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, branch="feature/x")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", "merge")
+        assert decision.output_json is not None
+        assert "hookSpecificOutput" in decision.output_json
+        assert "additionalContext" in decision.output_json["hookSpecificOutput"]
+        assert "merge" in decision.output_json["hookSpecificOutput"]["additionalContext"].lower()
+
+    def test_detached_head_includes_additional_context(self):
+        """Detached HEAD warning should include additionalContext."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=True, is_detached=True)
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        assert decision.output_json is not None
+        assert "hookSpecificOutput" in decision.output_json
+        assert "detached" in decision.output_json["hookSpecificOutput"]["additionalContext"].lower()
+
+    def test_no_commits_includes_additional_context(self):
+        """No-commits message should include additionalContext."""
+        GitContext = require_gitflow.GitContext
+        ctx = GitContext(is_repo=True, git_dir="/path", has_commits=False, branch="main")
+        decision = require_gitflow.evaluate_gitflow_rules(ctx, "test.py", None)
+        assert decision.output_json is not None
+        assert "hookSpecificOutput" in decision.output_json
+        assert "no commits" in decision.output_json["hookSpecificOutput"]["additionalContext"].lower()
+
+    def test_bypass_includes_additional_context(self, temp_git_repo, monkeypatch):
+        """Bypass warning should include additionalContext."""
+        monkeypatch.chdir(temp_git_repo)
+        monkeypatch.setenv("GITFLOW_BYPASS", "1")
+        result = run_hook(temp_git_repo)
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert "hookSpecificOutput" in output
+        assert "bypassed" in output["hookSpecificOutput"]["additionalContext"].lower()

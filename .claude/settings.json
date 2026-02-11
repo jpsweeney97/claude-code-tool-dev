@@ -1,4 +1,7 @@
 {
+  "env": {
+    "GITFLOW_ALLOW_FILES": "**/docs/**,CHANGELOG.md,README.md,settings.json,**/.claude/handoffs/**,**/.claude/notes/**"
+  },
   "hooks": {
     "PostToolUseFailure": [
       {
