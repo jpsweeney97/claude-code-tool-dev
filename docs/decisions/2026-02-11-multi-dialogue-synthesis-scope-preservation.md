@@ -135,18 +135,60 @@ When performing synthesis, Claude should consult this record for the process. If
 
 ## Confidence
 
-- **Confidence:** Medium
-- **Evidence level:** E1 (single failure instance + Codex adversarial review)
+- **Confidence:** High
+- **Evidence level:** E2 (original failure instance + controlled dual-path evaluation)
+- **Upgraded from:** Medium / E1 (2026-02-11, after first controlled test — see Evaluation section)
 - **What would change this:**
-  - If the bullet extraction step consistently takes >15 minutes, simplify (drop `key` field, use dialogue-level scope only)
-  - If contradictions still slip through after adoption, upgrade to full IR (Option D) with automated scope linting
+  - If the bullet extraction step consistently takes >15 minutes across multiple syntheses, simplify (drop `key` field, use dialogue-level scope only)
+  - If contradictions slip through after adoption despite `key` matching, upgrade to full IR (Option D) with automated scope linting
   - If synthesis volume increases significantly, invest in automation
+  - If key naming inconsistency becomes a recurring issue (see Process Improvement below), add a stem-matching deduplication sub-step
 
 ## Next Actions
 
-1. **Apply on next synthesis.** Use the 6-step process during the next multi-dialogue consolidation. The context injection design document is already consolidated — do not retroactively reprocess it.
-2. **Evaluate overhead.** After 2-3 applications, check whether the bullet extraction step (Step 2) takes <15 minutes. If it consistently exceeds that, simplify per the Confidence section.
-3. **Decide on process extraction.** If the process proves stable after ~5 applications, consider extracting it into a standalone reference or synthesis checklist.
+1. ~~**Apply on next synthesis.**~~ Done — see Evaluation section. First controlled test passed all criteria.
+2. **Evaluate overhead (1 of 2-3 data points).** First application: ~8 min for Step 2 (24 bullets from 2 dialogues). Need 1-2 more data points before concluding.
+3. **Decide on process extraction.** If the process proves stable after ~5 applications, consider extracting it into a standalone reference or synthesis checklist. (1 of 5 applications complete.)
+4. **Consider key deduplication sub-step.** During the first test, one conflict (confidence classification vs. confidence model) was missed by `key` matching because different key names were used for the same concept. A stem-matching scan after Step 2 would catch this. Add if the pattern recurs.
+
+## Evaluation (2026-02-11)
+
+First controlled test of the 6-step process. Full details in `docs/plans/2026-02-11-synthesis-process-test-case.md`.
+
+### Test Design
+
+Two Codex dialogues on a shared topic ("should codex-reviewer get structural upgrades?") with controlled scope constraints:
+
+| Dialogue | Scope | Posture | Turns | Thread ID |
+|----------|-------|---------|-------|-----------|
+| D1 | `mvp` — minimum viable upgrade | Evaluative | 6/6 | `019c4dcb-c0f8-7092-bcc3-4f0b81ecb621` |
+| D2 | `full_design` — full redesign | Exploratory | 8/8 | `019c4dd4-8243-7ad1-9c02-99a105c10eb7` |
+
+Dual-path comparison: naive topic-organized outline (control) vs. 6-step process, evaluated against predicted conflict zones and a scoring rubric.
+
+### Results
+
+| Criterion | Result |
+|-----------|--------|
+| Finding density | D1: 10, D2: 14 (24 total) — sufficient |
+| Predicted conflicts materialized | 5 of 6 zones — sufficient |
+| Conflicts caught by process but missed by naive | 7 (4 hard + 2 partial + 1 sweep-only) — **exceeds threshold** |
+| Conflicts caught by naive | 0 — naive blended all scopes without distinction |
+| False alarms | 0 of 8 flags — **0% false alarm rate** |
+| Step 2 overhead | ~8 min for 24 bullets — **under 15-min threshold** |
+| `key` field utility | 6 shared keys detected mechanically; 1 missed due to inconsistent naming |
+
+### Verdict
+
+**Process passed all success criteria.** Confidence upgraded from Medium/E1 to High/E2.
+
+### Process Improvement Identified
+
+Key naming during Step 2 is a judgment call. One conflict (`confidence_classification` vs. `confidence_model`) was missed by key matching because different key names were used for what was conceptually the same feature. Caught by the reconciliation sweep (Step 5), confirming the sweep's value as a safety net. A stem-matching deduplication scan after Step 2 would catch this class of error mechanically.
+
+### Naive Failure Mode Confirmed
+
+The naive outline reproduced the exact failure mode from the original context injection consolidation: D2's richer, more detailed content dominated the merge in every conflict zone. D1's scope constraints (keep 2 turns, defer ledger, defer follow-up strategy) were absorbed into D2's broader descriptions without distinction. The resulting document would have read as if the full_design scope was the only recommendation.
 
 ## Provenance
 
