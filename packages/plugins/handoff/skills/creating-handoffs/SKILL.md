@@ -7,7 +7,7 @@ description: Used when user says "wrap this up", "new session", or "handoff"; wh
 
 # Creating Handoffs
 
-Capture session context at stopping points.
+Create comprehensive session reports that preserve the full context future-Claude needs to continue without re-exploration.
 
 **Core Promise:** One action to save (`/handoff`).
 
@@ -29,7 +29,7 @@ Capture session context at stopping points.
 **Non-goals (this skill does NOT):**
 - Resume from handoffs (that's the `resuming-handoffs` skill)
 - Replace proper documentation (handoffs are ephemeral, docs are permanent)
-- Capture every detail (focus on decisions and next steps, not transcript)
+- Reproduce the raw conversation transcript — but decisions, reasoning chains, codebase knowledge, and user preferences should be captured with enough depth and evidence to be fully actionable
 - Work across different machines (handoffs are local to `~/.claude/`)
 
 **STOP:** If unclear whether session has meaningful content, ask: "Should I create a handoff? This session seems light on decisions/changes."
@@ -66,8 +66,13 @@ Capture session context at stopping points.
 | File exists at expected path | `ls ~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_*.md` returns file |
 | Frontmatter parses as valid YAML | No YAML syntax errors |
 | Required fields present | `date`, `time`, `created_at`, `project`, `title` all have values |
-| At least one body section | File contains at least one H2 section with content |
-| Content is resumable | Reading the handoff provides enough context to continue work |
+| Body line count | >=300 for simple sessions, >=500 for complex |
+| Decision depth | Every decision has all 8 elements (choice, driver, alternatives, rejection reasons, trade-offs, confidence, reversibility, change triggers) |
+| Evidence density | Every factual claim has file:line, quote, or output reference |
+| Codebase knowledge | All files explored are listed with patterns, architecture, and key locations |
+| Session narrative | Exploration arc told chronologically with pivots and triggers |
+| User preferences | Captured with verbatim quotes; corrections and pushback included |
+| Resumption readiness | Future-Claude could continue without re-reading any file explored this session |
 
 **Quick check:** After writing, verify file exists and contains the title. If missing, check write permissions and path.
 
@@ -123,6 +128,13 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
    - If no sections have content, **STOP** and ask: "I don't see anything to hand off. What should I capture?"
    - Omit empty sections from output
    - **Calibration:** Distinguish verified facts (explicitly discussed) from inferred conclusions (reasonable next steps) from assumed context (background not verified this session)
+
+5b. **Depth check before writing:**
+   - Verify minimum 6 body sections with content (most sessions should populate 8+)
+   - Verify each Decision entry has all 8 elements from the synthesis prompts
+   - Estimate body line count — target 300-700 depending on session complexity
+   - If estimate is under 300, you are almost certainly undercapturing. Re-examine: implicit decisions, codebase knowledge gained, conversation dynamics, exploration arc, files read that produced understanding.
+   - **Default to inclusion.** If you're unsure whether something belongs, include it.
 
 6. **Determine output path:**
    - If `~/.claude/handoffs/<project>/` is not writable, **STOP** and ask for alternative path
@@ -192,10 +204,21 @@ After creating handoff, verify:
 | Avoid | Why | Instead |
 |-------|-----|---------|
 | Handoff for trivial sessions | Noise accumulation | Skip if no meaningful decisions/progress |
-| Including every file touched | Information overload | Focus on key artifacts with purpose |
+| Listing files without purpose or detail | Future-Claude can't act on bare filenames | Each file gets purpose, approach, and key implementation details |
+| Single-sentence decisions | Missing reasoning makes decisions non-actionable | Every decision needs: choice, driver, alternatives, trade-offs, confidence, implications |
+| Handoffs under 300 lines | Indicates significant information loss | Re-examine session for undercapture — implicit decisions, codebase knowledge, conversation dynamics |
+| Paraphrasing user preferences | Paraphrase loses nuance that makes preferences actionable | Use verbatim quotes for every user preference and correction |
 | Missing decisions/rationale | Just listing changes isn't useful | Always capture at least one "why" |
 | Re-prompting after user declines | Annoying, ignores user intent | Respect "no" and move on |
 | Guessing when uncertain | May create useless handoff | Ask user if handoff is needed |
+
+## Quality Calibration
+
+| Complexity | Target Lines | Required Sections |
+|------------|-------------|-------------------|
+| Simple (pure execution of known plan) | 300+ | Goal, Decisions, Changes, Codebase Knowledge, Session Narrative, Next Steps |
+| Moderate (decisions, exploration) | 400-500 | Above + Context, Learnings, Conversation Highlights, User Preferences |
+| Complex (pivots, design work, discovery) | 500-700+ | All sections fully populated, including Rejected Approaches, Open Questions, Risks, References |
 
 ## Related Skills
 
