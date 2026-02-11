@@ -147,9 +147,9 @@ When performing synthesis, Claude should consult this record for the process. If
 ## Next Actions
 
 1. ~~**Apply on next synthesis.**~~ Done — see Evaluation section. First controlled test passed all criteria.
-2. **Evaluate overhead (1 of 2-3 data points).** First application: ~8 min for Step 2 (24 bullets from 2 dialogues). Need 1-2 more data points before concluding.
-3. **Decide on process extraction.** If the process proves stable after ~5 applications, consider extracting it into a standalone reference or synthesis checklist. (1 of 5 applications complete.)
-4. **Consider key deduplication sub-step.** During the first test, one conflict (confidence classification vs. confidence model) was missed by `key` matching because different key names were used for the same concept. A stem-matching scan after Step 2 would catch this. Add if the pattern recurs.
+2. **Evaluate overhead (2 of 2-3 data points).** First: ~8 min / 24 bullets. Second: ~10 min / 27 bullets. Proportional (~0.37 min/bullet). Need 1 more data point to confirm.
+3. **Decide on process extraction.** If the process proves stable after ~5 applications, consider extracting it into a standalone reference or synthesis checklist. (2 of 5 applications complete.)
+4. **Consider key deduplication sub-step.** First test: one miss due to inconsistent naming. Second application: no naming inconsistency issues — pattern did not recur. Keep deferred; add only if seen again.
 
 ## Evaluation (2026-02-11)
 
@@ -189,6 +189,45 @@ Key naming during Step 2 is a judgment call. One conflict (`confidence_classific
 ### Naive Failure Mode Confirmed
 
 The naive outline reproduced the exact failure mode from the original context injection consolidation: D2's richer, more detailed content dominated the merge in every conflict zone. D1's scope constraints (keep 2 turns, defer ledger, defer follow-up strategy) were absorbed into D2's broader descriptions without distinction. The resulting document would have read as if the full_design scope was the only recommendation.
+
+## Application 2: Context Injection Open Questions (2026-02-11)
+
+First real-world application (not a designed test). Two Codex dialogues resolving high-priority open questions from the context injection plan.
+
+### Setup
+
+| Dialogue | Scope | Posture | Turns | Thread |
+|----------|-------|---------|-------|--------|
+| D1 (Safety & boundaries) | `mvp` | Evaluative | 6/6 | `019c4e2f-8bc4-7c70-af6a-5af2ada22f07` |
+| D2 (Sizing & strategy) | `calibration` | Exploratory | 7/8 | `019c4e2f-d5c2-71a3-8d77-567ae559a7c4` |
+
+### Results
+
+| Metric | Value | vs. Application 1 |
+|--------|-------|-------------------|
+| Finding density | D1: 15, D2: 12 (27 total) | 24 total |
+| Step 2 extraction time | ~10 min | ~8 min (proportional: 0.37 min/bullet vs. 0.33 min/bullet) |
+| Shared keys at routing (Step 4) | 1 (`risk_signals`) | 6 shared keys |
+| Hard conflicts | 0 | 4 hard + 2 partial |
+| Integration points (Step 5) | 3 | 1 sweep-only catch |
+| False alarms | 0 | 0 |
+| Key naming inconsistency | Not observed | 1 instance |
+
+### Observations
+
+**Low conflict surface from well-separated question groupings.** The deliberate split (safety questions vs. sizing questions) meant the dialogues produced complementary findings, not competing ones. Only 1 shared key (`risk_signals`) appeared, and it was a compatible extension rather than a conflict. This contrasts with Application 1 where overlapping features with different scope constraints produced 6 shared keys and 7 conflicts.
+
+**Process value was primarily routing, not conflict detection.** The 6-step process still provided structure: the skeleton with scope zones ensured safety findings and sizing findings were cleanly separated in the plan update. The reconciliation sweep caught 3 integration points (git ls-files gating interacting with file_name resolution, scope anchoring interacting with focus-affinity pacing, risk signals needing a shorter excerpt cap). These are cross-cutting concerns that would be easy to miss in a straight merge.
+
+**Overhead remains proportional.** ~10 min for 27 bullets is consistent with ~8 min for 24 bullets. No friction points in the process itself — steps 1-5 were straightforward.
+
+**Key deduplication issue did not recur.** No naming inconsistencies in Step 2.
+
+### Process Fitness Observation
+
+The 6-step process is designed for the high-conflict case (multiple dialogues discussing the same features at different scopes). When question groupings are orthogonal, the process degrades gracefully to a structured routing exercise. It doesn't add unnecessary overhead — extraction takes proportional time, and the reconciliation sweep is quick when there are few shared keys. But its primary value proposition (catching scope conflicts mechanically) doesn't activate.
+
+**Implication for process extraction:** If the process is extracted into a checklist, consider a fast-path for low-overlap syntheses: Steps 1-2-3-6 only (tag, extract, skeleton, write prose), with Steps 4-5 (routing + reconciliation) triggered only when Step 2 produces ≥3 shared keys.
 
 ## Provenance
 
