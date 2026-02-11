@@ -85,9 +85,10 @@ Call `mcp__codex__codex` with:
 | Parameter | Value |
 |-----------|-------|
 | `prompt` | Assembled briefing from Step 2 |
+| `model` | `"gpt-5.2"` |
 | `sandbox` | `read-only` |
 | `approval-policy` | `never` |
-| `config` | `{"model_reasoning_effort": "high"}` |
+| `config` | `{"model_reasoning_effort": "xhigh"}` |
 
 After receiving Codex's response:
 - If high-severity issues need clarification, send **one** follow-up via `mcp__codex__codex-reply` using `threadId` from the response
