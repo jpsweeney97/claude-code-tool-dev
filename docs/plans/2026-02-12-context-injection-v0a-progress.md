@@ -54,6 +54,7 @@ _(none yet — populated during implementation)_
 - `packages/context-injection/tests/__init__.py`
 - `packages/context-injection/tests/conftest.py`
 - `packages/context-injection/tests/test_enums.py`
+- `packages/context-injection/uv.lock`
 
 ---
 
@@ -145,6 +146,7 @@ If blocked: isolate the failing union, write a minimal reproduction, and check P
 - Symlink policy explicit in paths.py (resolve-and-contain via realpath, or document alternative)
 - Risk-signal path detection tested (`*secret*`, `*token*`, `*credential*` patterns) — Codex review gap
 - `uv run pytest tests/test_canonical.py tests/test_paths.py -v` — all pass, zero skips
+- `uv run pytest tests/ -v` — full regression check, all prior tests still pass
 - One commit per task
 
 **Risks:** Medium. Canonical serialization edge cases (float precision, unicode normalization). Path checking false positives/negatives on edge cases.
@@ -164,6 +166,14 @@ If blocked: isolate the failing union, write a minimal reproduction, and check P
 **Entry criteria:**
 - S4 complete (canonical.py and paths.py tested)
 - `canonical.py` available (state.py uses canonical keys for dedup store)
+
+**Reference sections (read before implementing):**
+- Contract `docs/references/context-injection-contract.md`:
+  - HMAC Token Specification: lines 434–487 (Task 7: generation, verification, payload, key management)
+  - Focus Bundle Structure: lines 57–103 (Task 9: extraction sources — focus.claims, focus.unresolved, context_claims)
+  - Entity Type enum + Disambiguation Rules: lines 709–739 (Task 9: type precedence, pattern matching)
+  - Confidence enum: lines 741–747 (Task 9: scout eligibility by confidence level)
+  - Entity field definitions: lines 317–326 (Task 9: Entity object structure)
 
 **Work:**
 - Task 7: `state.py` — HMAC token generation/verification, TurnRequest store (bounded OrderedDict with oldest-eviction), `AppContext` dataclass wiring HMAC key + store + entity counter
@@ -200,6 +210,7 @@ Entity extraction is limited to 4 categories for v0a:
 - Backticked entities → `high` confidence; unquoted path-like → `medium` confidence
 - Span tracking prevents overlapping extractions
 - `uv run pytest tests/test_state.py tests/test_entities.py -v` — all pass, zero skips
+- `uv run pytest tests/ -v` — full regression check, all prior tests still pass
 - One commit per task
 
 **Risks:** High. Task 9 is the biggest creative risk in the entire plan — no concrete patterns provided. The MVP scope and hard-stop signals above convert this from open-ended creative work into a bounded task. If extraction quality is insufficient within the timebox, document limitations in Open Issues and move on — refinement can happen post-v0a.
@@ -220,6 +231,20 @@ Entity extraction is limited to 4 categories for v0a:
 - S5 complete (state.py and entities.py tested)
 - All upstream modules available: types, enums, canonical, paths, state, entities
 
+**Reference sections (read before implementing):**
+- Contract `docs/references/context-injection-contract.md`:
+  - Template matching and ranking: lines 337–345 (anchor type ordering, confidence, ambiguity)
+  - TemplateId enum: lines 774–782 (4 MVP templates, required entity types)
+  - Scout option fields: lines 372–403 (ReadOption and GrepOption conditional fields)
+  - DedupRecord semantics: lines 282–289, 359–364 (resolved-key dedupe, not identity-key)
+  - Budget rules: lines 830–841 (per-turn, per-excerpt, per-conversation caps)
+  - TurnPacket success response: lines 146–291 (full response structure)
+  - Call 1 flow: lines 13–49 (protocol overview)
+- Design plan `docs/plans/2026-02-11-conversation-aware-context-injection.md`:
+  - Template decision tree (3 steps): lines 71–81 (hard gates, prefer closers, best anchor)
+  - Budget computation: lines 370–420 (MVP caps, risk-signal halving)
+  - Dedup strategy: lines 411–420 (per-entity, per-template)
+
 **Work:**
 - Task 10: `templates.py` — template matching against extracted entities, scout option synthesis with HMAC-bound tokens, dedup filtering. **Plan is structural only.**
 - Task 11: `pipeline.py` — compose all modules into the Call 1 pipeline: `TurnRequest` → entity extraction → path checking → template matching → budget calculation → `TurnPacket` assembly.
@@ -235,7 +260,9 @@ Entity extraction is limited to 4 categories for v0a:
 - Budget floor invariant tested: `evidence_history.length` is the floor even if evidence evicted from store — Codex review gap
 - Pipeline composes all stages: `process_turn(turn_request, app_context) -> TurnPacket`
 - Pipeline tests verify end-to-end data flow (not just individual stages)
+- Pipeline integration test: `process_turn()` with realistic TurnRequest produces valid TurnPacket with entities, path decisions, template candidates, and budget
 - `uv run pytest tests/test_templates.py tests/test_pipeline.py -v` — all pass, zero skips
+- `uv run pytest tests/ -v` — full regression check, all prior tests still pass
 - One commit per task
 
 **Risks:** Medium. Template matching semantics are under-specified in the plan. Resolved-key dedupe (Codex-identified gap) must be addressed here. Budget calculation floor invariant needs explicit testing.
