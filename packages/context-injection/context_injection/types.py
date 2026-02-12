@@ -14,10 +14,10 @@ from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_val
 
 from context_injection.enums import ClaimStatus, Posture, TemplateId
 
-SCHEMA_VERSION: str = "0.1.0"
-"""Single-point version control. 0.x uses exact-match semantics."""
-
 SchemaVersionLiteral = Literal["0.1.0"]
+
+SCHEMA_VERSION: SchemaVersionLiteral = "0.1.0"
+"""Single-point version control. 0.x uses exact-match semantics."""
 
 
 class ProtocolModel(BaseModel):

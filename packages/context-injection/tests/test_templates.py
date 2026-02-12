@@ -208,7 +208,7 @@ class TestFocusAffinityGate:
         )
         req = _make_turn_request()
 
-        candidates, deduped = match_templates([entity], [pd], [], req, ctx)
+        candidates, deduped, _ = match_templates([entity], [pd], [], req, ctx)
         probe_candidates = [
             c for c in candidates if c.template_id == "probe.file_repo_fact"
         ]
@@ -225,7 +225,7 @@ class TestFocusAffinityGate:
         )
         req = _make_turn_request()
 
-        candidates, deduped = match_templates([entity], [pd], [], req, ctx)
+        candidates, deduped, _ = match_templates([entity], [pd], [], req, ctx)
         probe_candidates = [
             c for c in candidates if c.template_id == "probe.file_repo_fact"
         ]
@@ -247,7 +247,7 @@ class TestFocusAffinityGate:
         )
         req = _make_turn_request()
 
-        candidates, deduped = match_templates([entity], [pd], [], req, ctx)
+        candidates, deduped, _ = match_templates([entity], [pd], [], req, ctx)
         probe_candidates = [c for c in candidates if c.template_id.startswith("probe.")]
         assert len(probe_candidates) == 0
 
@@ -268,7 +268,7 @@ class TestFocusAffinityGate:
         pd = _make_path_decision(entity_id="e_001", status="allowed")
         req = _make_turn_request()
 
-        candidates, deduped = match_templates([entity], [pd], [], req, ctx)
+        candidates, deduped, _ = match_templates([entity], [pd], [], req, ctx)
         assert len(candidates) == 0
 
 
@@ -307,7 +307,7 @@ class TestAnchorTypeRanking:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates(
+        candidates, _, _ = match_templates(
             [e_loc, e_path], [pd_loc, pd_path], [], req, ctx
         )
         probe_candidates = [c for c in candidates if c.template_id.startswith("probe.")]
@@ -339,7 +339,7 @@ class TestAnchorTypeRanking:
         # symbol doesn't need a path decision for matching, but we provide one for completeness
         req = _make_turn_request()
 
-        candidates, _ = match_templates([e_path, e_sym], [pd_path], [], req, ctx)
+        candidates, _, _ = match_templates([e_path, e_sym], [pd_path], [], req, ctx)
         probe_candidates = [c for c in candidates if c.template_id.startswith("probe.")]
         assert len(probe_candidates) == 2
         path_candidate = next(c for c in probe_candidates if c.entity_id == "e_001")
@@ -386,7 +386,7 @@ class TestAnchorTypeRanking:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates(
+        candidates, _, _ = match_templates(
             [e_path, e_name, e_resolved, e_sym],
             [pd_path, pd_name],
             [],
@@ -424,7 +424,7 @@ class TestClarifierTemplates:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [], [], req, ctx)
         assert len(candidates) == 1
         assert candidates[0].template_id == "clarify.file_path"
         assert candidates[0].clarifier is not None
@@ -445,7 +445,7 @@ class TestClarifierTemplates:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [], [], req, ctx)
         assert len(candidates) == 1
         assert candidates[0].template_id == "clarify.symbol"
         assert candidates[0].clarifier is not None
@@ -467,7 +467,7 @@ class TestClarifierTemplates:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [], [], req, ctx)
         assert len(candidates) == 1
         assert candidates[0].template_id == "clarify.file_path"
         assert candidates[0].focus_affinity is False
@@ -495,7 +495,7 @@ class TestClarifierTemplates:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         assert len(candidates) == 1
         assert candidates[0].template_id == "clarify.file_path"
         assert candidates[0].clarifier is not None
@@ -537,7 +537,7 @@ class TestDedupe:
         ]
         req = _make_turn_request(evidence_history=history)
 
-        candidates, deduped = match_templates([entity], [pd], history, req, ctx)
+        candidates, deduped, _ = match_templates([entity], [pd], history, req, ctx)
         # No probe candidates for this entity
         probe_candidates = [
             c
@@ -592,7 +592,7 @@ class TestDedupe:
         ]
         req = _make_turn_request(evidence_history=history)
 
-        candidates, deduped = match_templates(
+        candidates, deduped, _ = match_templates(
             [e_name, e_resolved], [pd], history, req, ctx
         )
         # The file_name entity should be deduped via resolved key
@@ -630,7 +630,7 @@ class TestDedupe:
         ]
         req = _make_turn_request(evidence_history=history)
 
-        candidates, deduped = match_templates([entity], [], history, req, ctx)
+        candidates, deduped, _ = match_templates([entity], [], history, req, ctx)
         sym_probes = [
             c
             for c in candidates
@@ -668,7 +668,7 @@ class TestScoutOptionSynthesis:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         probe = next(c for c in candidates if c.template_id == "probe.file_repo_fact")
         assert len(probe.scout_options) == 1
         opt = probe.scout_options[0]
@@ -696,7 +696,7 @@ class TestScoutOptionSynthesis:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         probe = next(c for c in candidates if c.template_id == "probe.file_repo_fact")
         assert len(probe.scout_options) == 1
         opt = probe.scout_options[0]
@@ -721,7 +721,7 @@ class TestScoutOptionSynthesis:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         probe = next(c for c in candidates if c.template_id == "probe.file_repo_fact")
         opt = probe.scout_options[0]
         assert opt.center_line == 99
@@ -738,7 +738,7 @@ class TestScoutOptionSynthesis:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [], [], req, ctx)
         probe = next(c for c in candidates if c.template_id == "probe.symbol_repo_fact")
         assert len(probe.scout_options) == 1
         opt = probe.scout_options[0]
@@ -766,7 +766,7 @@ class TestScoutOptionSynthesis:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         probe = next(c for c in candidates if c.template_id == "probe.file_repo_fact")
         opt = probe.scout_options[0]
 
@@ -802,7 +802,7 @@ class TestScoutOptionSynthesis:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         probe = next(c for c in candidates if c.template_id == "probe.file_repo_fact")
         opt = probe.scout_options[0]
         assert re.match(r"so_\d{3}", opt.id)
@@ -822,7 +822,7 @@ class TestScoutOptionSynthesis:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         assert len(candidates) >= 1
         assert re.match(r"tc_\d{3}", candidates[0].id)
 
@@ -855,7 +855,7 @@ class TestScoutOptionSynthesis:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([e_name, e_resolved], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([e_name, e_resolved], [pd], [], req, ctx)
         name_probes = [
             c
             for c in candidates
@@ -895,7 +895,7 @@ class TestRiskSignalCapHalving:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         probe = next(c for c in candidates if c.template_id == "probe.file_repo_fact")
         opt = probe.scout_options[0]
         assert isinstance(opt, ReadOption)
@@ -921,7 +921,7 @@ class TestRiskSignalCapHalving:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         probe = next(c for c in candidates if c.template_id == "probe.file_repo_fact")
         opt = probe.scout_options[0]
         assert isinstance(opt, ReadOption)
@@ -963,7 +963,7 @@ class TestBudgetExhausted:
         ]
         req = _make_turn_request(evidence_history=history)
 
-        candidates, _ = match_templates([entity], [pd], history, req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], history, req, ctx)
         probe_candidates = [c for c in candidates if c.template_id.startswith("probe.")]
         assert len(probe_candidates) == 0
 
@@ -990,7 +990,7 @@ class TestBudgetExhausted:
         ]
         req = _make_turn_request(evidence_history=history)
 
-        candidates, _ = match_templates([entity], [], history, req, ctx)
+        candidates, _, _ = match_templates([entity], [], history, req, ctx)
         assert len(candidates) == 1
         assert candidates[0].template_id == "clarify.file_path"
 
@@ -1022,7 +1022,7 @@ class TestPathDecisionGating:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         probe_candidates = [c for c in candidates if c.template_id.startswith("probe.")]
         assert len(probe_candidates) == 0
 
@@ -1042,7 +1042,7 @@ class TestPathDecisionGating:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         probe_candidates = [c for c in candidates if c.template_id.startswith("probe.")]
         assert len(probe_candidates) == 0
 
@@ -1058,7 +1058,7 @@ class TestEdgeCases:
 
         ctx = _make_ctx()
         req = _make_turn_request()
-        candidates, deduped = match_templates([], [], [], req, ctx)
+        candidates, deduped, _ = match_templates([], [], [], req, ctx)
         assert candidates == []
         assert deduped == []
 
@@ -1078,7 +1078,7 @@ class TestEdgeCases:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([e1, e2], [pd1], [], req, ctx)
+        candidates, _, _ = match_templates([e1, e2], [pd1], [], req, ctx)
         tc_ids = [c.id for c in candidates]
         assert len(tc_ids) == len(set(tc_ids)), "Template candidate IDs must be unique"
 
@@ -1103,7 +1103,7 @@ class TestEdgeCases:
         )
         req = _make_turn_request()
 
-        candidates, _ = match_templates([entity], [pd], [], req, ctx)
+        candidates, _, _ = match_templates([entity], [pd], [], req, ctx)
         assert len(candidates) >= 1
         # rank_factors should be a non-empty string
         assert isinstance(candidates[0].rank_factors, str)

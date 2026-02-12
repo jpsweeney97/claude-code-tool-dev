@@ -241,8 +241,12 @@ def _make_read_option(
     ctx: AppContext,
     entities_by_id: dict[str, Entity],
     so_counter: list[int],
+    spec_registry: dict[str, tuple[ReadSpec | GrepSpec, str]],
 ) -> ReadOption:
-    """Create a ReadOption with HMAC token for a file entity."""
+    """Create a ReadOption with HMAC token for a file entity.
+
+    Side effect: registers (spec, token) in spec_registry for Call 2 validation.
+    """
     risk = pd.risk_signal
     max_lines = MAX_LINES_RISK if risk else MAX_LINES_NORMAL
     max_chars = MAX_CHARS_RISK if risk else MAX_CHARS_NORMAL
@@ -279,6 +283,8 @@ def _make_read_option(
     )
     token = generate_token(ctx.hmac_key, payload)
 
+    spec_registry[so_id] = (spec, token)
+
     return ReadOption(
         id=so_id,
         scout_token=token,
@@ -297,8 +303,12 @@ def _make_grep_option(
     turn_request: TurnRequest,
     ctx: AppContext,
     so_counter: list[int],
+    spec_registry: dict[str, tuple[ReadSpec | GrepSpec, str]],
 ) -> GrepOption:
-    """Create a GrepOption with HMAC token for a symbol entity."""
+    """Create a GrepOption with HMAC token for a symbol entity.
+
+    Side effect: registers (spec, token) in spec_registry for Call 2 validation.
+    """
     so_counter[0] += 1
     so_id = f"so_{so_counter[0]:03d}"
 
@@ -319,6 +329,8 @@ def _make_grep_option(
         spec=spec,
     )
     token = generate_token(ctx.hmac_key, payload)
+
+    spec_registry[so_id] = (spec, token)
 
     return GrepOption(
         id=so_id,
@@ -377,10 +389,17 @@ def match_templates(
     evidence_history: list[EvidenceRecord],
     turn_request: TurnRequest,
     ctx: AppContext,
-) -> tuple[list[TemplateCandidate], list[DedupRecord]]:
+) -> tuple[
+    list[TemplateCandidate],
+    list[DedupRecord],
+    dict[str, tuple[ReadSpec | GrepSpec, str]],
+]:
     """Match entities to templates, rank, synthesize scout options.
 
-    Returns (template_candidates, dedup_records).
+    Returns (template_candidates, dedup_records, spec_registry).
+
+    spec_registry maps scout_option_id -> (frozen ScoutSpec, HMAC token).
+    Used by pipeline.py to populate TurnRequestRecord.scout_options for Call 2.
 
     Decision tree:
     1. Clarifier routing: Tier 2 entities and unresolved file_name → clarify templates
@@ -392,13 +411,14 @@ def match_templates(
     7. Scout option synthesis: Create ReadOption/GrepOption with HMAC tokens
     """
     if not entities:
-        return [], []
+        return [], [], {}
 
     budget = compute_budget(evidence_history)
     entities_by_id: dict[str, Entity] = {e.id: e for e in entities}
 
     tc_counter = 0
     so_counter = [0]  # Mutable for nested function access
+    spec_registry: dict[str, tuple[ReadSpec | GrepSpec, str]] = {}
     candidates: list[TemplateCandidate] = []
     dedup_records: list[DedupRecord] = []
 
@@ -506,7 +526,9 @@ def match_templates(
     for rank_idx, (entity, pd) in enumerate(eligible, start=1):
         if entity.type == "symbol":
             template_id = "probe.symbol_repo_fact"
-            scout_option = _make_grep_option(entity, turn_request, ctx, so_counter)
+            scout_option = _make_grep_option(
+                entity, turn_request, ctx, so_counter, spec_registry
+            )
             scout_options: list[ReadOption | GrepOption] = [scout_option]
         else:
             template_id = "probe.file_repo_fact"
@@ -518,6 +540,7 @@ def match_templates(
                 ctx,
                 entities_by_id,
                 so_counter,
+                spec_registry,
             )
             scout_options = [scout_option]
 
@@ -574,4 +597,4 @@ def match_templates(
             )
         )
 
-    return final_candidates, dedup_records
+    return final_candidates, dedup_records, spec_registry
