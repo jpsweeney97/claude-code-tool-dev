@@ -5,10 +5,16 @@ from pydantic import ValidationError
 
 from context_injection.types import (
     SCHEMA_VERSION,
+    Budget,
     Claim,
+    Clarifier,
+    DedupRecord,
+    Entity,
     EvidenceRecord,
     Focus,
+    PathDecision,
     ProtocolModel,
+    TemplateCandidate,
     TurnRequest,
     Unresolved,
 )
@@ -137,3 +143,103 @@ class TestTurnRequest:
         }
         req = TurnRequest.model_validate(data)
         assert req.context_claims == []
+
+
+class TestEntity:
+    def test_parse_file_path_entity(self) -> None:
+        e = Entity(
+            id="e_005",
+            type="file_path",
+            tier=1,
+            raw="src/config/settings.yaml",
+            canonical="src/config/settings.yaml",
+            confidence="high",
+            source_type="claim",
+            in_focus=True,
+            resolved_to=None,
+        )
+        assert e.type == "file_path"
+        assert e.in_focus is True
+        assert e.resolved_to is None
+
+    def test_parse_file_name_with_resolution(self) -> None:
+        e = Entity(
+            id="e_006",
+            type="file_name",
+            tier=1,
+            raw="config.yaml",
+            canonical="config.yaml",
+            confidence="high",
+            source_type="unresolved",
+            in_focus=True,
+            resolved_to="e_008",
+        )
+        assert e.resolved_to == "e_008"
+
+
+class TestPathDecision:
+    def test_allowed_path(self) -> None:
+        pd = PathDecision(
+            entity_id="e_005",
+            status="allowed",
+            user_rel="src/config/settings.yaml",
+            resolved_rel="src/config/settings.yaml",
+            risk_signal=False,
+            deny_reason=None,
+            candidates=None,
+            unresolved_reason=None,
+        )
+        assert pd.status == "allowed"
+        assert pd.resolved_rel == "src/config/settings.yaml"
+
+    def test_unresolved_with_candidates(self) -> None:
+        pd = PathDecision(
+            entity_id="e_010",
+            status="unresolved",
+            user_rel="config.yaml",
+            resolved_rel=None,
+            risk_signal=False,
+            deny_reason=None,
+            candidates=["src/config.yaml", "lib/config.yaml"],
+            unresolved_reason="multiple_candidates",
+        )
+        assert pd.candidates == ["src/config.yaml", "lib/config.yaml"]
+        assert pd.unresolved_reason == "multiple_candidates"
+
+
+class TestBudget:
+    def test_budget(self) -> None:
+        b = Budget(evidence_count=1, evidence_remaining=4, scout_available=True)
+        assert b.evidence_remaining == 4
+
+
+class TestTemplateCandidate:
+    def test_probe_candidate_with_scout_option(self) -> None:
+        tc = TemplateCandidate(
+            id="tc_001",
+            template_id="probe.file_repo_fact",
+            entity_id="e_005",
+            focus_affinity=True,
+            rank=1,
+            rank_factors="file_path > file_name; high confidence",
+            scout_options=[],  # Scout options tested separately in Task 5
+            clarifier=None,
+        )
+        assert tc.rank == 1
+
+    def test_clarifier_candidate(self) -> None:
+        tc = TemplateCandidate(
+            id="tc_003",
+            template_id="clarify.file_path",
+            entity_id="e_007",
+            focus_affinity=False,
+            rank=3,
+            rank_factors="Tier 2 entity",
+            scout_options=[],
+            clarifier=Clarifier(
+                question="Which file is 'the auth module'?",
+                choices=["src/auth/middleware.py", "src/auth/handler.py"],
+            ),
+        )
+        assert tc.clarifier is not None
+        assert len(tc.clarifier.choices) == 2
