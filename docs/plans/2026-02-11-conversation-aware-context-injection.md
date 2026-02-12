@@ -505,9 +505,77 @@ If MVP doesn't reduce wasted turns materially, invest in better initial briefing
 
 ## 11. Implementation Notes
 
-### First Build Target
+### Helper Architecture: MCP Server
 
-A pure turn pipeline function with mocked scout results, tested against a fixture of realistic Codex output. This validates the entity extraction → template selection → planning update → rendering pipeline without requiring live Codex interaction.
+The helper runs as a **long-running MCP server** (stdio transport), not a CLI tool. The two-call protocol requires cross-call state (stored TurnRequest for token validation, HMAC key, file_name resolution cache). A CLI would exit after each call, requiring disk persistence or protocol changes. The MCP server keeps state in memory naturally.
+
+**Two MCP tools:**
+
+| Tool | Protocol call | Input | Output |
+|------|--------------|-------|--------|
+| `process_turn` | Call 1 | TurnRequest JSON | TurnPacket JSON |
+| `execute_scout` | Call 2 | ScoutRequest JSON | ScoutResult JSON |
+
+**Registration** (`.mcp.json` at repo root):
+```json
+{
+  "mcpServers": {
+    "context-injection": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--directory", "packages/context-injection", "python", "-m", "context_injection.server"]
+    }
+  }
+}
+```
+
+**Lifespan context** (initialized once at server startup):
+
+| State | Lifetime | Purpose |
+|-------|----------|---------|
+| HMAC key | Per-process | 32-byte random key for scout token generation |
+| TurnRequest store | Per-process | Dict keyed by `conversation_id:turn_number` for Call 2 validation |
+| file_name resolution cache | Per-process | Memoized `basename → [repo-relative paths]` from `git ls-files` |
+| git file list | Per-process | Pre-loaded tracked file list for resolution and `not_tracked` gating |
+
+Helper restart regenerates all state. Outstanding tokens become invalid (returns `invalid_request` — acceptable per contract).
+
+### Package Location and Layout
+
+**Location:** `packages/context-injection/`
+
+**Module layout** (flat, ~7 source files for v0a):
+
+| Module | Responsibility |
+|--------|---------------|
+| `types.py` | Pydantic models for TurnRequest, TurnPacket, ScoutRequest, ScoutResult, and all enums. Error types. |
+| `validation.py` | Schema version gating, TurnRequest validation, field-level checks |
+| `entities.py` | Entity extraction (regex), type disambiguation, normalization (`canon()`), confidence assignment |
+| `paths.py` | Path canonicalization, denylist check, `git ls-files` gating, `file_name` resolution |
+| `templates.py` | Template matching, ranking, scout option synthesis, focus-affinity gate, dedupe |
+| `state.py` | Server state (TurnRequest store, HMAC key, file_name cache), token generation and validation |
+| `pipeline.py` | `process_turn()` composition: validation → extraction → paths → templates → TurnPacket |
+| `server.py` | MCP server adapter: lifespan context, tool registration, entry point |
+
+**Build order:** types → state → entities → paths → templates → pipeline → server
+
+### Schema Validation: Pydantic
+
+The Python MCP SDK (`mcp` package) requires **Pydantic >= 2.12.0** as a core dependency. Since Pydantic is already in the dependency tree, it is used for all protocol schema types:
+
+- **TurnRequest / TurnPacket / ScoutRequest / ScoutResult** as Pydantic `BaseModel` subclasses
+- **Field validators** for schema version exact-match (`schema_version` must equal `"0.1.0"`)
+- **Discriminated unions** for conditional field presence (`read_result` vs. `grep_result` by `action`)
+- **Enums** as Python `StrEnum` or Pydantic-compatible enums
+- **Automatic JSON schema generation** for documentation
+
+This replaces the earlier recommendation of "stdlib-only, no Pydantic" — that recommendation assumed Pydantic would be an added dependency. Since it's free via the MCP SDK, using it provides type safety, validation, and serialization with no additional cost.
+
+### First Build Target (v0a)
+
+The v0a build target implements Call 1 only (no file content I/O). Tested with pytest against fixtures of realistic Codex output. Validates the full pipeline: TurnRequest parsing → entity extraction → path checking → template matching → scout option synthesis → TurnPacket response.
+
+**Note:** `file_name` resolution calls `git ls-files` (subprocess I/O for file listing), which is distinct from file content I/O (Read/Grep). This is intentional — resolution is part of Call 1's path checking, not Call 2's scout execution. For testing, the file list provider is injected (fixture provides a static file list).
 
 ### Agent Definition Size
 
@@ -545,11 +613,17 @@ All six original high-priority questions resolved via two Codex dialogues (2026-
 
 | Question | Priority | Resolution method |
 |----------|----------|-----------------|
+| ~~HMAC token binding spec~~ | **Resolved** | Pure opaque HMAC tag, single per-process key, one-shot used-bit. Full spec in contract (Section: HMAC Token Specification). |
+| ~~Helper invocation model~~ | **Resolved** | MCP server (stdio transport), two tools: `process_turn` (Call 1), `execute_scout` (Call 2). See Section 11. |
+| ~~Package structure and dependencies~~ | **Resolved** | `packages/context-injection/`, Pydantic (free via MCP SDK), flat module layout. See Section 11. |
 | Risk-signal excerpt cap value | Medium | Start with `max_lines / 2`; adjust based on false-positive rate of risk-signal path matching |
 | Submodule handling under `git ls-files` gating | Medium | `git ls-files` blocks submodule reads by default; accept for MVP or add submodule-aware mode? |
 | Entropy-based detection timing | Low | Add when false-negative data from Layers A-C in real usage warrants it |
 | Evidence header format (resolved path vs. "via original") | Low | UX decision; defer to implementation |
 | Scope anchoring vs. taint tracking interaction details | Medium | Define exact rules for when taint tracking adds value beyond scope anchoring |
+| macOS case normalization for paths in HMAC spec | Low | `realpath` on case-insensitive filesystems doesn't normalize case. Causes false HMAC rejection (safe failure), not false acceptance. |
+| Grep execution flags beyond MVP | Low | If grep adds regex/literal mode, case sensitivity, or file type filters, these must be bound in the execution spec |
+| Entity extraction regex patterns | Medium | Organizational structure decided (ordered extractor list), but actual patterns not yet authored |
 
 ### Medium Priority (Calibrate During Use)
 
@@ -613,3 +687,19 @@ Resolved three high-priority open questions: evidence excerpt cap (40 lines / 2,
 ### Synthesis (Dialogues 3-4)
 
 Consolidated using the 6-step multi-dialogue synthesis process (see `docs/decisions/2026-02-11-multi-dialogue-synthesis-scope-preservation.md`). 27 findings extracted, 1 shared key flagged at routing, 0 hard conflicts, 3 integration points identified in reconciliation sweep. Low conflict surface reflects well-separated question groupings (safety vs. sizing).
+
+### Dialogue 5: v0a Implementation Architecture
+
+**Posture:** Exploratory | **Turns:** 8/8 | **Converged:** Yes | **Thread:** `019c4fc8-9f5c-7252-9d86-bf54f79d1523`
+
+Resolved implementation architecture for the v0a helper. Key outcomes: MCP server over CLI (cross-call state persistence requirement), single package at `packages/context-injection/`, flat module layout (~7-10 files), stdlib-only initially recommended (revised — see Dialogue 6 follow-up). Codex initially proposed CLI via stdin/stdout; conceded when challenged that CLI exits after each call but Call 2 requires stored TurnRequest state. Also produced: dataclass-based types, ordered extractor pipeline for entity extraction, resolved_key concept for probe dedupe (not in original contract — entities deduped by effective probed target, not identity key).
+
+### Dialogue 6: HMAC Token Binding Specification
+
+**Posture:** Adversarial | **Turns:** 6/6 | **Converged:** Yes | **Thread:** `019c4fc8-5cb3-7533-bf3d-81aab2906eab`
+
+Resolved the HMAC token open question from the contract design session. Key outcomes: pure opaque HMAC tag (not JWT), payload binds turn identity + full canonical execution spec, single per-process random key (hierarchical derivation challenged and dropped), one-shot used-bit (TTL/nonce challenged as redundant and dropped), 16-byte truncated tag. Eliminated three proposed mechanisms (spec_hash, hierarchical keys, tool_instance_id) through adversarial challenge. Produced the key design principle: "MAC the executor input, not the UI option" — the token commits to the fully compiled execution parameters, not the display-facing scout option.
+
+### Post-Dialogue Investigation: Python MCP SDK
+
+Investigated the Python MCP SDK (`mcp` package on PyPI) to validate the MCP server architecture from Dialogue 5. Key finding: the SDK requires **Pydantic >= 2.12.0** as a core dependency, which reverses Dialogue 5's "no Pydantic" recommendation. Since Pydantic is free via the SDK, it is used for all protocol schema types (TurnRequest, TurnPacket, ScoutRequest, ScoutResult). Also confirmed: `MCPServer` class with `@mcp.tool()` decorator, stdio transport via `mcp.run()` (default), lifespan context for state management, both sync and async handlers supported.

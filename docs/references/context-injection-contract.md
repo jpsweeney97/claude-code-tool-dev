@@ -1,7 +1,7 @@
 # Context Injection Contract
 
 **Version:** 0.1.0-draft
-**Status:** Draft — two Codex reviews complete, all fixes applied
+**Status:** Draft — two Codex reviews complete, all fixes applied; implementation architecture resolved via two additional Codex dialogues (2026-02-11)
 **Purpose:** Define the JSON protocol between the codex-dialogue agent (Claude subagent) and the context injection Python helper. Both sides reference this document as the single source of truth for field names, types, enums, and semantics.
 
 **Schema versioning:** For 0.x versions, the helper requires an exact match on `schema_version`. No semver compatibility — any version mismatch is rejected. This simplifies pre-1.0 iteration.
@@ -33,6 +33,8 @@ Agent                              Python Helper
   |  <── ScoutResult ─────────────      |  Apply redaction pipeline
   |     (excerpt, status, budget)       |  Enforce budget caps
 ```
+
+**Helper invocation model:** The helper runs as a long-running MCP server process (stdio transport). The agent invokes Call 1 and Call 2 as MCP tool calls (`process_turn` and `execute_scout`). In-memory state (TurnRequest store, HMAC key, file_name resolution cache) persists across calls within the same server process. Helper restart loses all in-memory state; Call 2 returns `invalid_request` (acceptable — see Error Handling).
 
 **Call 1 (TurnRequest → TurnPacket):** Agent sends focus-scoped ledger data. Helper extracts entities, checks paths, ranks templates, synthesizes scout options. Returns everything the agent needs to choose.
 
@@ -354,10 +356,12 @@ Python → Agent. Contains everything the agent needs to select a template and s
 | `budget.evidence_remaining` | `int` | Yes | `max_evidence_items - evidence_count`. |
 | `budget.scout_available` | `bool` | Yes | False if budget exhausted or per-turn cap reached. |
 | `deduped` | `DedupRecord[]` | On success | Entities/templates filtered by dedupe. Informational. May be empty. |
-| `deduped[].entity_key` | `string` | Yes | Deterministic key of the deduped entity. |
+| `deduped[].entity_key` | `string` | Yes | Deterministic key of the deduped entity. For probe templates, this is the **resolved key** (effective probed target), not the original entity_key. See dedupe semantics below. |
 | `deduped[].template_id` | `TemplateId` | On `template_already_used` | Which template was already used against this entity. |
 | `deduped[].reason` | `string` | Yes | `"entity_already_scouted"` or `"template_already_used"`. |
 | `deduped[].prior_turn` | `int` | Yes | Turn when the original scout occurred. |
+
+**Dedupe semantics — resolved_key vs. entity_key:** For probe templates, dedupe operates on the *effective probed target*, not the entity's identity key. If `file_name:config.yaml` resolves to `file_path:src/config.yaml`, and `src/config.yaml` was already scouted via a direct `file_path` reference, the resolved `file_name` entity is deduped — the same file would be read twice. The `deduped[].entity_key` reports the resolved key (`file_path:src/config.yaml`). For clarifier templates, dedupe uses the original entity_key (the specific mention, not what it might resolve to).
 
 ---
 
@@ -426,6 +430,61 @@ Agent → Python. Sent after the agent selects a template candidate and scout op
 | `turn_request_ref` | `string` | Yes | `{conversation_id}:{turn_number}`. Helper uses this to look up the original TurnRequest. |
 
 **Safety invariant:** The helper validates `scout_token` against the stored TurnRequest data. It recomputes the full scout spec from internal state — the `scout_option_id` is for logging only, not for spec lookup. If the token is invalid, the ref doesn't match, or the stored TurnRequest is missing (e.g., helper restarted), return a ScoutResult with `status: "invalid_request"`.
+
+### HMAC Token Specification
+
+The scout token is a **pure opaque HMAC tag** (not a JWT or data-bearing token). The helper holds authoritative state server-side; the token is verification, not data transport.
+
+**Principle:** MAC the executor input, not the UI option. The token commits to what will actually happen (resolved paths, adjusted caps), not what was shown to the agent.
+
+**Payload composition:**
+
+```json
+{
+  "v": 1,
+  "conversation_id": "conv_abc123",
+  "turn_number": 3,
+  "scout_option_id": "so_005",
+  "spec": {
+    "action": "read",
+    "resolved_path": "src/config/settings.yaml",
+    "strategy": "first_n",
+    "max_lines": 40,
+    "max_chars": 2000
+  }
+}
+```
+
+The `spec` object is the **fully compiled execution spec** — executor-ready parameters derived during Call 1. It contains resolved paths (not display paths), adjusted caps (already halved for risk-signal), and all parameters needed to execute the scout. The agent never sees `spec` contents; they are internal to the helper.
+
+| Spec field (read) | Description |
+|---|---|
+| `action` | `"read"` |
+| `resolved_path` | Repo-relative realpath output |
+| `strategy` | `"first_n"` or `"centered"` |
+| `max_lines` | Adjusted line cap (halved for risk-signal) |
+| `max_chars` | Adjusted char cap (halved for risk-signal) |
+| `center_line` | Present only for `"centered"` strategy |
+
+| Spec field (grep) | Description |
+|---|---|
+| `action` | `"grep"` |
+| `pattern` | Derived grep pattern from symbol canonical form |
+| `strategy` | `"match_context"` |
+| `max_lines` | Global cap across all matches |
+| `max_chars` | Global cap across all matches |
+| `context_lines` | Lines around each match |
+| `max_ranges` | Maximum match ranges |
+
+**Canonicalization rule:** `json.dumps(payload, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8")`. Type constraints: ints only (no floats), no None values, NFC-normalized Unicode for paths. Enforced via builders, not serializer post-processing.
+
+**Key management:** Single per-process random key (32 bytes via `os.urandom`). Generated once at server startup. Helper restart generates a new key, invalidating all outstanding tokens (acceptable — returns `invalid_request`). No hierarchical key derivation — the attacker model (prompt injection via Codex) never has access to keys, so key compartmentalization adds complexity without security gain.
+
+**Tag format:** `base64url(HMAC-SHA256(K, canonical_bytes))`, truncated to 16 bytes (128 bits). `TAG_LEN` is configurable for future adjustment. 128-bit is far beyond feasible online guessing for a local helper.
+
+**Replay prevention:** One-shot used-bit on the TurnRequest record, keyed by `turn_request_ref` (`conversation_id:turn_number`). After Call 2 executes, the record is marked used. Subsequent attempts with the same token return `invalid_request`. No TTL or nonce — synchronous single-threaded execution and helper restart invalidation make them redundant.
+
+**Security boundary:** HMAC prevents parameter tampering between Call 1 and Call 2 but cannot prevent Call 1 from minting tokens for dangerous scout options. The real security boundary is the Call 1 option generation policy: denylist, `git ls-files` gating, scope anchoring, path canonicalization, and focus-affinity gate.
 
 ---
 
