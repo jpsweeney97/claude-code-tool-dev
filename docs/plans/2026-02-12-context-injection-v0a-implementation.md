@@ -83,7 +83,7 @@ from context_injection.server import main
 main()
 ```
 
-Note: `server.py` doesn't exist yet. This file will error until Task 10. That's fine — scaffolding is ahead of implementation.
+Note: `server.py` doesn't exist yet. This file will error until Task 12. That's fine — scaffolding is ahead of implementation.
 
 **Step 5: Write `tests/__init__.py`** (empty) and `tests/conftest.py`**
 
@@ -115,7 +115,7 @@ git commit -m "feat(context-injection): scaffold Python MCP server package"
 - Create: `packages/context-injection/context_injection/enums.py`
 - Create: `packages/context-injection/tests/test_enums.py`
 
-**Context:** The contract defines 13 enum types. Use `StrEnum` (Python 3.11+ or `enum.StrEnum` backport via `__str__`). Each enum has specific values from the contract's Enums section.
+**Context:** The contract defines 12 enum types. Use `StrEnum` (Python 3.11+ or `enum.StrEnum` backport via `__str__`). Each enum has specific values from the contract's Enums section.
 
 **Step 1: Write the failing test**
 
