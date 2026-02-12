@@ -20,7 +20,7 @@ _(none yet — populated during implementation)_
 | S4 | 6, 8 | Parallel utilities (canonical + paths) | Complete | `5230968`, `170bf22` |
 | S5 | 7, 9 | State + entity extraction | Complete | `03fb8eb`, `2600fea` |
 | S6 | 10, 11 | Templates + pipeline | Complete | `c53d848` (Task 10), `cf7253d` (Task 11) |
-| S7 | 12, 13, 14 | Server + integration + cleanup | Pending | — |
+| S7 | 12, 13, 14 | Server + integration + cleanup | In Progress | `180a3a3` (Task 12), `53115ab` (Task 13) — Task 14 pending |
 
 ## Session Definitions
 
@@ -327,8 +327,8 @@ Entity extraction is limited to 4 categories for v0a:
 | 9 | entities.py | Complete | 148 pass | `2600fea` — 4 MVP categories, ReDoS mitigation, traversal filtering, 59 entity tests |
 | 10 | templates.py | Complete | 184 pass | `c53d848` — template matching, ranking, scout synthesis, dedupe, resolved-key, risk-signal halving, budget floor |
 | 11 | pipeline.py | Complete | 210 pass | `cf7253d` — process_turn pipeline composing all v0a modules |
-| 12 | server.py | Pending | — | SDK smoke test (Step 0) + full wiring |
-| 13 | Integration test | Pending | — | Full Call 1 pipeline end-to-end |
+| 12 | server.py | Complete | 214 pass | `180a3a3` — FastMCP server with process_turn tool, lifespan, stdio entry |
+| 13 | Integration test | Complete | 215 pass | `53115ab` — full Call 1 pipeline end-to-end with contract example |
 | 14 | Cleanup | Pending | — | Lint, type-check, final polish |
 
 ## Dependency Graph
