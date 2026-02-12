@@ -14,12 +14,12 @@ _(none yet — populated during implementation)_
 
 | Session | Tasks | Theme | Status | Commit |
 |---------|-------|-------|--------|--------|
-| S1 | 1, 2 | Foundation (scaffolding + enums) | Pending | — |
-| S2 | 3, 4 | Type definitions (base, input, output) | Pending | — |
-| S3 | 5 | Discriminated unions (highest risk) | Pending | — |
-| S4 | 6, 8 | Parallel utilities (canonical + paths) | Pending | — |
-| S5 | 7, 9 | State + entity extraction | Pending | — |
-| S6 | 10, 11 | Templates + pipeline | Pending | — |
+| S1 | 1, 2 | Foundation (scaffolding + enums) | Complete | `b01180a`, `2cd3689` |
+| S2 | 3, 4 | Type definitions (base, input, output) | Complete | `a271f80`, `5aac493` |
+| S3 | 5 | Discriminated unions (highest risk) | Complete | `f1e1c3e` |
+| S4 | 6, 8 | Parallel utilities (canonical + paths) | Complete | `5230968`, `170bf22` |
+| S5 | 7, 9 | State + entity extraction | Complete | `03fb8eb`, `2600fea` |
+| S6 | 10, 11 | Templates + pipeline | Complete | `c53d848` (Task 10), `cf7253d` (Task 11) |
 | S7 | 12, 13, 14 | Server + integration + cleanup | Pending | — |
 
 ## Session Definitions
@@ -316,17 +316,17 @@ Entity extraction is limited to 4 categories for v0a:
 
 | Task | Module | Status | Tests | Notes |
 |------|--------|--------|-------|-------|
-| 1 | Scaffolding | Pending | — | |
-| 2 | enums.py | Pending | — | |
-| 3 | types.py (base + input) | Pending | — | |
-| 4 | types.py (output) | Pending | — | |
-| 5 | types.py (unions) | Pending | — | Highest risk: callable discriminator, strict mode |
-| 6 | canonical.py | Pending | — | Parallel with Task 8 |
-| 7 | state.py | Pending | — | HMAC, store, AppContext |
-| 8 | paths.py | Pending | — | Parallel with Task 6 |
-| 9 | entities.py | Pending | — | High risk: no concrete regex patterns in plan |
-| 10 | templates.py | Pending | — | Structural plan only |
-| 11 | pipeline.py | Pending | — | Structural plan only |
+| 1 | Scaffolding | Complete | — | `b01180a` |
+| 2 | enums.py | Complete | 15 pass | `2cd3689` |
+| 3 | types.py (base + input) | Complete | 10 pass | `a271f80` |
+| 4 | types.py (output) | Complete | 17 pass | `5aac493` |
+| 5 | types.py (unions) | Complete | 48 pass | `f1e1c3e` — 14 models, 4 unions, callable discriminator, DedupRecord validator |
+| 6 | canonical.py | Complete | 57 pass | `5230968` — ScoutTokenPayload, canonical_json_bytes, wire_dump, entity keys |
+| 7 | state.py | Complete | 89 pass | `03fb8eb` — HMAC tokens, bounded store, AppContext, spec review fixed plan's no-op duplicate test |
+| 8 | paths.py | Complete | 79 pass | `170bf22` — normalize, denylist, compile-time/runtime checks, risk signals |
+| 9 | entities.py | Complete | 148 pass | `2600fea` — 4 MVP categories, ReDoS mitigation, traversal filtering, 59 entity tests |
+| 10 | templates.py | Complete | 184 pass | `c53d848` — template matching, ranking, scout synthesis, dedupe, resolved-key, risk-signal halving, budget floor |
+| 11 | pipeline.py | Complete | 210 pass | `cf7253d` — process_turn pipeline composing all v0a modules |
 | 12 | server.py | Pending | — | SDK smoke test (Step 0) + full wiring |
 | 13 | Integration test | Pending | — | Full Call 1 pipeline end-to-end |
 | 14 | Cleanup | Pending | — | Lint, type-check, final polish |
@@ -368,7 +368,7 @@ Record any implementation decisions that diverge from the plan. Every row must e
 
 | Session | Task | Deviation | Reason | Affected Tasks |
 |---------|------|-----------|--------|----------------|
-| — | — | — | — | — |
+| S6 | 10 | `match_templates` takes `turn_request` instead of `budget` | Budget computed internally for consistency with evidence_history used for dedupe; turn_request needed for HMAC payload | Task 11: use actual signature `match_templates(entities, path_decisions, evidence_history, turn_request, ctx)` |
 
 ## Open Issues
 

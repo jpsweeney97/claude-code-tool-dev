@@ -127,9 +127,18 @@ class TestTruncationReason:
 def test_all_enums_are_str_subclass() -> None:
     """Every enum member must serialize to its string value."""
     for enum_cls in [
-        EntityType, Confidence, ClaimStatus, Posture, PathStatus,
-        UnresolvedReason, TemplateId, ScoutAction, ExcerptStrategy,
-        ScoutStatus, ErrorCode, TruncationReason,
+        EntityType,
+        Confidence,
+        ClaimStatus,
+        Posture,
+        PathStatus,
+        UnresolvedReason,
+        TemplateId,
+        ScoutAction,
+        ExcerptStrategy,
+        ScoutStatus,
+        ErrorCode,
+        TruncationReason,
     ]:
         for member in enum_cls:
             assert isinstance(member, str)
