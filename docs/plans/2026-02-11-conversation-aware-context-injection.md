@@ -3,7 +3,7 @@
 **Date:** 2026-02-11
 **Status:** Design Complete
 **Purpose:** Upgrade the codex-dialogue agent with mid-conversation file reading and evidence injection, so factual claims about the codebase can be verified during dialogue rather than relying entirely on the initial briefing.
-**Derived from:** Two Codex dialogue sessions (adversarial stress test + exploratory scouting design) and one Claude review.
+**Derived from:** Ten Codex dialogues (D1-D10) across five sessions, plus one Claude review and one Python MCP SDK investigation.
 **Depends on:** codex-dialogue agent v2 (ledger + depth tracking, committed `abb29cf`)
 
 ---
@@ -544,32 +544,157 @@ Helper restart regenerates all state. Outstanding tokens become invalid (returns
 
 **Location:** `packages/context-injection/`
 
-**Module layout** (flat, ~7 source files for v0a):
+**Module layout** (flat, ~9 source files for v0a):
 
 | Module | Responsibility |
 |--------|---------------|
-| `types.py` | Pydantic models for TurnRequest, TurnPacket, ScoutRequest, ScoutResult, and all enums. Error types. |
+| `enums.py` | All 13 StrEnum types (EntityType, Confidence, ClaimStatus, Posture, PathStatus, etc.) |
+| `types.py` | Pydantic models for TurnRequest, TurnPacket, ScoutRequest, ScoutResult. ProtocolModel base class. Discriminated union variants. |
+| `canonical.py` | `canonical_json_bytes()` for HMAC serialization, `wire_dump()` for protocol output, `make_entity_key()`/`parse_entity_key()` |
 | `validation.py` | Schema version gating, TurnRequest validation, field-level checks |
 | `entities.py` | Entity extraction (regex), type disambiguation, normalization (`canon()`), confidence assignment |
-| `paths.py` | Path canonicalization, denylist check, `git ls-files` gating, `file_name` resolution |
+| `paths.py` | Path canonicalization, denylist check, `git ls-files` gating, `file_name` resolution. Exports both compile-time and runtime path checks. |
 | `templates.py` | Template matching, ranking, scout option synthesis, focus-affinity gate, dedupe |
-| `state.py` | Server state (TurnRequest store, HMAC key, file_name cache), token generation and validation |
+| `state.py` | Server state (TurnRequest store, HMAC key, file_name cache), token generation and verification |
 | `pipeline.py` | `process_turn()` composition: validation → extraction → paths → templates → TurnPacket |
-| `server.py` | MCP server adapter: lifespan context, tool registration, entry point |
+| `server.py` | FastMCP server: lifespan context, tool registration with native Pydantic params/returns, entry point |
 
-**Build order:** types → state → entities → paths → templates → pipeline → server
+**Build order:** enums → types → canonical → state → entities → paths → templates → pipeline → server
 
-### Schema Validation: Pydantic
+### Pydantic Model Architecture
 
-The Python MCP SDK (`mcp` package) requires **Pydantic >= 2.12.0** as a core dependency. Since Pydantic is already in the dependency tree, it is used for all protocol schema types:
+The Python MCP SDK (`mcp` package) requires **Pydantic >= 2.12.0** as a core dependency. Since Pydantic is already in the dependency tree, it is used for all protocol schema types. This replaces the earlier recommendation of "stdlib-only, no Pydantic" — that recommendation assumed Pydantic would be an added dependency.
 
-- **TurnRequest / TurnPacket / ScoutRequest / ScoutResult** as Pydantic `BaseModel` subclasses
-- **Field validators** for schema version exact-match (`schema_version` must equal `"0.1.0"`)
-- **Discriminated unions** for conditional field presence (`read_result` vs. `grep_result` by `action`)
-- **Enums** as Python `StrEnum` or Pydantic-compatible enums
-- **Automatic JSON schema generation** for documentation
+**ProtocolModel base class:**
 
-This replaces the earlier recommendation of "stdlib-only, no Pydantic" — that recommendation assumed Pydantic would be an added dependency. Since it's free via the MCP SDK, using it provides type safety, validation, and serialization with no additional cost.
+All protocol types inherit from a shared base with `ConfigDict(extra="forbid", strict=True, frozen=True)`:
+- `extra="forbid"` — rejects unknown fields (catches contract drift)
+- `strict=True` — no type coercion (safe because the MCP SDK handles JSON parsing; numbers arrive as native Python ints)
+- `frozen=True` — immutable after construction (security-critical for HMAC-signed types)
+
+**Discriminated union patterns:**
+
+| Message type | Discriminator | Variants |
+|---|---|---|
+| TurnPacket | `status` | Success, Error |
+| ScoutResult | `status` | Success, terminal failure (multi-value Literal), InvalidRequest |
+| ScoutOption | `action` | ReadOption, GrepOption |
+| ScoutSpec | `action` | ReadSpec, GrepSpec |
+
+Use raw `Literal["..."]` values on discriminator fields (not StrEnum) to avoid Pydantic v2's "conflicting reports" issues with enum-typed discriminators. Use `StrEnum` for all non-discriminator contexts (validation, documentation, iteration).
+
+**ScoutResultSuccess** uses `@model_validator(mode="after")` to enforce that exactly one of `read_result` / `grep_result` is present, based on `action`. Both are typed as `T | None = None`. The wire format is fixed (no wrapper key), so a nested discriminated union is not viable.
+
+**ScoutSpec as discriminated union** (ReadSpec | GrepSpec):
+
+ScoutSpec is the object cryptographically committed by the HMAC token. Invalid states must be structurally impossible, not validated at runtime. `ReadSpec` carries `resolved_path`, `strategy: Literal["first_n", "centered"]`, optional `center_line`. `GrepSpec` carries `pattern`, `strategy: Literal["match_context"]`, `context_lines`, `max_ranges`. Shared cap fields (`max_lines`, `max_chars`) are duplicated in both variants rather than extracted to a base — the overlap is small and validation is trivial.
+
+**Two-phase construction:**
+
+Frozen models cannot be built incrementally. The pipeline uses mutable intermediates (dataclasses) during processing, then constructs frozen Pydantic models at boundaries:
+
+1. Pipeline computes execution parameters → all params known
+2. Freeze `ScoutSpec` (ReadSpec or GrepSpec)
+3. Compute HMAC token from ScoutSpec (via ScoutTokenPayload)
+4. Construct frozen `ScoutOption` with token + display fields
+
+The mutable builder (`CompiledScoutOptionBuilder`) holds a frozen `ScoutSpec` plus display-only fields (`target_display`, `risk_signal`, `scout_option_id`). Methods: `to_token_payload()` and `to_wire_option(token)`.
+
+**Entity key functions:**
+
+`entity_key` (`{entity_type}:{canonical_form}`) is computed by standalone functions `make_entity_key()` / `parse_entity_key()` in `canonical.py`, not as a `computed_field` on the Entity model. Computed fields risk leaking into serialization.
+
+**SCHEMA_VERSION constant:**
+
+Single module constant `SCHEMA_VERSION = "0.1.0"` with `Literal[SCHEMA_VERSION]` type alias used on all `schema_version` fields. Clean single-point version control for the 0.x exact-match semantics.
+
+### Handler Integration (FastMCP)
+
+The MCP SDK's FastMCP layer handles Pydantic model parameters natively. Tool handlers accept typed Pydantic model parameters and return Pydantic model instances — the SDK handles validation and serialization at both ends.
+
+**Handler signatures:**
+
+```python
+@mcp.tool()
+def process_turn(request: TurnRequest, ctx: Context[AppContext]) -> TurnPacket:
+    ...
+
+@mcp.tool()
+def execute_scout(request: ScoutRequest, ctx: Context[AppContext]) -> ScoutResult:
+    ...
+```
+
+**SDK data flow** (verified by source inspection of `mcp/server/fastmcp/`):
+
+1. Raw JSON arrives on stdin → SDK parses to dict
+2. `pre_parse_json()` handles stringified-JSON quirk (Claude Desktop sends nested objects as strings)
+3. Dynamic `ArgModelBase` validates against handler parameter types → nested Pydantic model validation runs with our `strict=True` config
+4. `model_dump_one_level()` passes actual Pydantic instances (not dicts) to handler
+5. Return value validated via `output_model.model_validate(result)` → produces structured + text output
+
+**The wrapper key `request` is a stable protocol element.** Clients send `arguments={"request": {...}}` — the key matches the parameter name. Renaming the parameter is a breaking change to the tool's input schema.
+
+**Schema generation:** The SDK auto-generates `inputSchema` and `outputSchema` from handler type hints via Pydantic's `model_json_schema()`. Our `extra="forbid"` produces `additionalProperties: false` in the generated schema.
+
+### Serialization Policy
+
+Two named serialization functions with opposite `exclude_none` behavior:
+
+| Function | Context | `exclude_none` | Rationale |
+|---|---|---|---|
+| `wire_dump()` | Protocol output (TurnPacket, ScoutResult → agent) | No — include `null` | Contract examples show explicit `null` (`"resolved_to": null`) |
+| `canonical_json_bytes()` | HMAC payload (ScoutTokenPayload → signing) | Yes — exclude `None` | Contract mandates "no None values" in canonical payload |
+
+Centralize in `canonical.py`. Never call `model_dump()` ad hoc. `exclude_none=True` propagates recursively through nested Pydantic v2 models.
+
+**NFC normalization timing:** Unicode NFC normalization must happen BEFORE Pydantic model construction, not after. Pydantic does not normalize. `paths.py` NFC-normalizes all path strings before they enter any model.
+
+### HMAC Verification Flow
+
+At Call 2, verification uses stored token comparison (mandatory) with optional recomputation (diagnostic):
+
+1. Look up `TurnRequestRecord` by `turn_request_ref`
+2. If not found → `invalid_request` (helper may have restarted or record evicted)
+3. Check `used` flag → if True, `invalid_request`
+4. Find stored `(ScoutSpec, token)` pair by `scout_option_id`
+5. Constant-time compare stored token to agent-provided token via `hmac.compare_digest` on decoded bytes
+6. (Diagnostic) Recompute HMAC from stored ScoutSpec; assert matches stored token. Catches miswired token maps and serialization nondeterminism. Log `SCOUT_TOKEN_INVARIANT_MISMATCH` at ERROR if mismatch. Not on the security-critical path — the stored (spec, token) pair is constructed atomically at Call 1.
+7. Set `used = True` (before any `await` point — see concurrency note)
+8. Run execution-time path re-check (see below)
+9. Execute scout using stored ScoutSpec
+
+**Used-bit policy:** NOT set on verification failure (steps 2-5). Failed verification does not consume the attempt. Set only after successful verification, before execution.
+
+**Error handling:** Both internal consistency failures and external auth failures return `invalid_request` to the agent (identical behavioral response). Internal failures log at ERROR (`SCOUT_TOKEN_INVARIANT_MISMATCH`); external failures log at WARN (`SCOUT_TOKEN_INVALID`).
+
+**Concurrency:** The Python MCP SDK's stdio transport processes requests sequentially. Setting `used = True` before any `await` point eliminates interleaving. No lock needed for v0. **Document this assumption** — it lives in the transport layer, not in `state.py`.
+
+### TurnRequest Store Design
+
+`TurnRequestRecord` stored in an `OrderedDict` keyed by `turn_request_ref` (`{conversation_id}:{turn_number}`):
+
+| Field | Type | Description |
+|---|---|---|
+| `turn_request` | `TurnRequest` | Original parsed request (frozen) |
+| `scout_options` | `dict[str, tuple[ScoutSpec, str]]` | `option_id → (frozen spec, HMAC token)` — stored as atomic pairs |
+| `used` | `bool` | One-shot used-bit, initially `False` |
+
+**Bounded capacity:** `MAX_TURN_RECORDS = 200` with oldest-eviction via `OrderedDict.popitem(last=False)`. Eviction yields `invalid_request` (same as helper restart). Normal usage: ~8 records per conversation.
+
+**Duplicate rejection:** If a Call 1 arrives with a `turn_request_ref` that already exists in the store, reject with `internal_error` — don't overwrite. Overwriting silently invalidates outstanding tokens from the first request.
+
+### Execution-Time Path Re-Check
+
+The two-call protocol creates a TOCTOU gap on filesystem state between Call 1 (path checked) and Call 2 (path read). HMAC prevents agent tampering but not filesystem changes (symlink creation, file replacement, branch checkout).
+
+`paths.py` exports two path check functions:
+
+| Function | Called at | Checks |
+|---|---|---|
+| `check_path_compile_time()` | Call 1 | Full pipeline: normalize, canonicalize, NFC, denylist, `git ls-files` gate, repo containment |
+| `check_path_runtime()` | Call 2 | Lightweight: `realpath` + repo-root containment + regular-file check |
+
+The runtime check uses the `resolved_path` from the stored ScoutSpec. If `realpath` output escapes the repo root (e.g., file replaced by symlink pointing outside), return `denied`.
 
 ### First Build Target (v0a)
 
@@ -609,13 +734,20 @@ All six original high-priority questions resolved via two Codex dialogues (2026-
 | ~~Denylist contents~~ | **Resolved** | Location/format-based globs (Section 7: Denylist Specification) |
 | ~~`file_name` resolution cost~~ | **Resolved** | Bounded search with memoization (Section 7: `file_name` Resolution) |
 
-### New Questions (From Resolution Dialogues)
+### New Questions (From Resolution and Architecture Dialogues)
 
 | Question | Priority | Resolution method |
 |----------|----------|-----------------|
 | ~~HMAC token binding spec~~ | **Resolved** | Pure opaque HMAC tag, single per-process key, one-shot used-bit. Full spec in contract (Section: HMAC Token Specification). |
 | ~~Helper invocation model~~ | **Resolved** | MCP server (stdio transport), two tools: `process_turn` (Call 1), `execute_scout` (Call 2). See Section 11. |
 | ~~Package structure and dependencies~~ | **Resolved** | `packages/context-injection/`, Pydantic (free via MCP SDK), flat module layout. See Section 11. |
+| ~~Pydantic model architecture~~ | **Resolved** | ProtocolModel base (`extra="forbid"`, `strict=True`, `frozen=True`), discriminated unions with `Literal` discriminators, two-phase construction, ScoutSpec as ReadSpec/GrepSpec union. See Section 11. |
+| ~~Handler integration pattern~~ | **Resolved** | FastMCP natively handles Pydantic model params and returns. Handler signature: `def process_turn(request: TurnRequest, ctx: Context) -> TurnPacket`. Verified by SDK source inspection. See Section 11. |
+| ~~HMAC verification flow~~ | **Resolved** | Stored token comparison (mandatory) + recompute (diagnostic). Used-bit not set on verification failure. Internal/external failures both return `invalid_request`, differentiate via logging. See Section 11. |
+| ~~TurnRequest store design~~ | **Resolved** | `OrderedDict`, `MAX_TURN_RECORDS=200`, oldest-eviction, reject duplicate `turn_request_ref`. See Section 11. |
+| ~~Builder pattern~~ | **Resolved** | Freeze ScoutSpec early, thin mutable builder with display fields, `to_token_payload()` and `to_wire_option(token)` methods. See Section 11. |
+| ~~Serialization policy~~ | **Resolved** | Dual policy: `wire_dump()` includes `null`, `canonical_json_bytes()` excludes `None`. Centralized in `canonical.py`. See Section 11. |
+| ~~Execution-time path re-check~~ | **Resolved** | `paths.py` exports compile-time and runtime check functions. Runtime check at Call 2: `realpath` + containment + regular-file. See Section 11. |
 | Risk-signal excerpt cap value | Medium | Start with `max_lines / 2`; adjust based on false-positive rate of risk-signal path matching |
 | Submodule handling under `git ls-files` gating | Medium | `git ls-files` blocks submodule reads by default; accept for MVP or add submodule-aware mode? |
 | Entropy-based detection timing | Low | Add when false-negative data from Layers A-C in real usage warrants it |
@@ -624,6 +756,11 @@ All six original high-priority questions resolved via two Codex dialogues (2026-
 | macOS case normalization for paths in HMAC spec | Low | `realpath` on case-insensitive filesystems doesn't normalize case. Causes false HMAC rejection (safe failure), not false acceptance. |
 | Grep execution flags beyond MVP | Low | If grep adds regex/literal mode, case sensitivity, or file type filters, these must be bound in the execution spec |
 | Entity extraction regex patterns | Medium | Organizational structure decided (ordered extractor list), but actual patterns not yet authored |
+| Symlink policy for path resolution | Medium | Forbid symlinks entirely, or resolve-and-contain? Contract mentions `realpath` but doesn't specify symlink handling. Decide before implementing executor. |
+| `ScoutTokenPayload.v` versioning policy | Low | When does `v` increment? Rule proposed: "any new non-None field requires v bump." Codify during implementation. |
+| `git ls-files` failure mode at startup | Medium | Fail closed (refuse to start) or start with empty file list? If tracked-only gating is a security boundary, fail closed is correct. |
+| Float-for-int emission by MCP clients | Low | Do Claude Code or Claude Desktop ever emit `3.0` for integer fields? Would trigger `strict=True` validation failures. Verify with compatibility test. |
+| Tuples vs. lists in frozen models | Low | Interior mutability (`list` inside frozen model) can bypass `frozen=True`. Use `tuple` for list-typed fields in `ScoutOption`? |
 
 ### Medium Priority (Calibrate During Use)
 
@@ -703,3 +840,27 @@ Resolved the HMAC token open question from the contract design session. Key outc
 ### Post-Dialogue Investigation: Python MCP SDK
 
 Investigated the Python MCP SDK (`mcp` package on PyPI) to validate the MCP server architecture from Dialogue 5. Key finding: the SDK requires **Pydantic >= 2.12.0** as a core dependency, which reverses Dialogue 5's "no Pydantic" recommendation. Since Pydantic is free via the SDK, it is used for all protocol schema types (TurnRequest, TurnPacket, ScoutRequest, ScoutResult). Also confirmed: `MCPServer` class with `@mcp.tool()` decorator, stdio transport via `mcp.run()` (default), lifespan context for state management, both sync and async handlers supported.
+
+### Dialogue 7: Pydantic Model Architecture
+
+**Posture:** Exploratory | **Turns:** 8/8 | **Converged:** Yes | **Thread:** `019c502c-d7dc-7002-997b-521cb6b29d38`
+
+Resolved Pydantic v2 model architecture for all protocol types. Key outcomes: `ProtocolModel` base class with `extra="forbid"`, `strict=True`, `frozen=True` (each independently justified); discriminated unions as the primary pattern for all variant types (TurnPacket, ScoutResult, ScoutOption); raw `Literal["..."]` for discriminator fields to avoid Pydantic v2 "conflicting reports" issues with enum discriminators; two-phase construction (mutable builders → frozen models at boundaries); separate `ScoutTokenPayload` model with fail-closed `canonical_json_bytes()` for HMAC signing; `ScoutResultSuccess` with `model_validator` for read/grep split; entity key as standalone functions not computed fields.
+
+### Dialogue 8: State Management and HMAC Lifecycle
+
+**Posture:** Adversarial | **Turns:** 6/6 | **Converged:** Yes | **Thread:** `019c502d-7178-72f1-9cc3-1deb3e7a6804`
+
+Stress-tested HMAC implementation, canonicalization, and store lifecycle. Key outcomes: HMAC verification should recompute from stored spec (catches miswire, post-sign mutation, serialization nondeterminism — later refined by Dialogue 10 to diagnostic-only); bounded `TurnRequest` store (`MAX_TURN_RECORDS=200`, oldest-eviction, reject duplicate refs); used-bit race condition not real for stdio transport (document sequential-dispatch assumption); file cache staleness is availability not security (no filesystem fallback); key rotation not v0-critical; `ScoutSpec` must be immutable (frozen). Emergent finding: execution-time `realpath` re-check needed at Call 2 — the two-call protocol creates a TOCTOU gap on filesystem state that HMAC cannot close.
+
+### Dialogue 9: MCP SDK Tool Integration
+
+**Posture:** Exploratory | **Turns:** 6/6 | **Converged:** Yes | **Thread:** `019c5039-56a8-7ae2-aead-399c1dd30b3c`
+
+Resolved MCP SDK integration patterns via SDK source code inspection. Key outcomes: FastMCP handles Pydantic model parameters natively (handler receives actual model instances, not dicts); `strict=True` on inner models works correctly (SDK's `ArgModelBase` is not strict, but nested validation uses inner model config); SDK auto-generates `inputSchema` and `outputSchema` from handler type hints; structured output is automatic for `BaseModel` return types; wrapper key `request` is a stable protocol element (renaming is breaking). Handler signature: `def process_turn(request: TurnRequest, ctx: Context[AppContext]) -> TurnPacket`.
+
+### Dialogue 10: Builder Boundaries and Error Handling
+
+**Posture:** Collaborative | **Turns:** 6/6 | **Converged:** Yes | **Thread:** `019c5039-e937-7d21-9a8b-aacb5af6279e`
+
+Resolved builder-to-model field mapping, serialization policy, and HMAC verification error handling. Key outcomes: freeze `ScoutSpec` early (thin mutable builder wraps frozen spec + display fields); ScoutSpec as discriminated union (`ReadSpec | GrepSpec` — "invalid states unrepresentable matters more when the object is cryptographically committed"); dual serialization policy is correct (include `null` for wire output, exclude `None` for HMAC — centralize in two named functions); simplified verification flow (stored token comparison is sufficient for security; recomputation is diagnostic, not security-critical — refines Dialogue 8's recommendation); both internal/external verification failures return `invalid_request` (differentiate via logging level and structured error codes); used-bit not set on verification failure. Emergent insight: NFC normalization must happen before Pydantic model construction, not after.
