@@ -5,6 +5,7 @@ import pytest
 from context_injection.paths import (
     CompileTimeResult,
     check_path_compile_time,
+    check_path_runtime,
     is_risk_signal_path,
     normalize_input_path,
 )
@@ -27,6 +28,18 @@ class TestNormalizeInputPath:
         path, line = normalize_input_path("src/app.py#L42", split_anchor=True)
         assert path == "src/app.py"
         assert line == 42
+
+    def test_default_mode_preserves_anchor_in_path(self) -> None:
+        """Without split_anchor, colon anchor stays in the path string."""
+        result = normalize_input_path("src/app.py:42")
+        assert result == "src/app.py:42"
+        assert isinstance(result, str)  # not a tuple
+
+    def test_default_mode_preserves_github_anchor(self) -> None:
+        """Without split_anchor, #L anchor stays in the path string."""
+        result = normalize_input_path("src/app.py#L42")
+        assert result == "src/app.py#L42"
+        assert isinstance(result, str)
 
     def test_backslash_to_forward(self) -> None:
         assert normalize_input_path("src\\api\\auth.py") == "src/api/auth.py"
@@ -145,3 +158,53 @@ class TestCompileTimeResult:
         assert result.user_rel == "src/app.py"
         assert result.resolved_rel is not None
         assert result.risk_signal is False
+
+
+class TestCheckPathRuntime:
+    """Tests for check_path_runtime() — Call 2 lightweight re-check."""
+
+    def test_existing_file_allowed(self, tmp_path) -> None:
+        """A regular file under repo_root is allowed."""
+        f = tmp_path / "src" / "app.py"
+        f.parent.mkdir(parents=True)
+        f.write_text("print('hello')")
+        result = check_path_runtime(str(f), repo_root=str(tmp_path))
+        assert result.status == "allowed"
+        assert result.resolved_abs is not None
+
+    def test_nonexistent_file_not_found(self, tmp_path) -> None:
+        """A non-existent path returns not_found."""
+        result = check_path_runtime(
+            str(tmp_path / "missing.py"), repo_root=str(tmp_path)
+        )
+        assert result.status == "not_found"
+
+    def test_directory_not_found(self, tmp_path) -> None:
+        """A directory (not a regular file) returns not_found."""
+        d = tmp_path / "subdir"
+        d.mkdir()
+        result = check_path_runtime(str(d), repo_root=str(tmp_path))
+        assert result.status == "not_found"
+
+    def test_path_escaping_repo_root_denied(self, tmp_path) -> None:
+        """A path outside repo_root is denied."""
+        outside = tmp_path / ".." / "outside.py"
+        # Create the file so it exists
+        real_outside = tmp_path.parent / "outside.py"
+        real_outside.write_text("secret")
+        result = check_path_runtime(str(outside), repo_root=str(tmp_path))
+        assert result.status == "denied"
+        assert result.deny_reason is not None
+        # Cleanup
+        real_outside.unlink()
+
+    def test_symlink_to_outside_denied(self, tmp_path) -> None:
+        """A symlink pointing outside repo_root is denied."""
+        outside = tmp_path.parent / "secret.txt"
+        outside.write_text("secret")
+        link = tmp_path / "link.txt"
+        link.symlink_to(outside)
+        result = check_path_runtime(str(link), repo_root=str(tmp_path))
+        assert result.status == "denied"
+        # Cleanup
+        outside.unlink()

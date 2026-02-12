@@ -102,6 +102,25 @@ class TestTokenGeneration:
         )
         assert not verify_token(ctx.hmac_key, modified_payload, token)
 
+    def test_token_is_base64url_encoded(self) -> None:
+        """Token is base64url-encoded, length matches TAG_LEN."""
+        import base64
+        from context_injection.state import TAG_LEN
+
+        ctx = AppContext.create(repo_root="/tmp/repo")
+        spec = _make_read_spec()
+        payload = ScoutTokenPayload(
+            v=1,
+            conversation_id="conv_1",
+            turn_number=1,
+            scout_option_id="so_001",
+            spec=spec,
+        )
+        token = generate_token(ctx.hmac_key, payload)
+        # Decode should succeed (valid base64url)
+        decoded = base64.urlsafe_b64decode(token)
+        assert len(decoded) == TAG_LEN
+
 
 class TestTurnRequestStore:
     def test_store_and_retrieve(self) -> None:

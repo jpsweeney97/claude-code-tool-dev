@@ -1,7 +1,7 @@
 """Tests for the Call 1 pipeline: process_turn().
 
 Tests cover:
-1. Schema version validation (wrong version → TurnPacketError)
+1. Schema version validation (correct version succeeds, wrong version → TurnPacketError)
 2. Entity extraction from focus.claims, focus.unresolved, context_claims
 3. Path decisions for file entities (file_loc, file_path, file_name), not symbol
 4. Template matching produces candidates for eligible entities
@@ -60,17 +60,30 @@ def _make_ctx(git_files: set[str] | None = None) -> AppContext:
 
 
 class TestSchemaValidation:
-    def test_wrong_schema_version_returns_error(self) -> None:
-        """Mismatched schema version → TurnPacketError with invalid_schema_version."""
+    def test_correct_schema_version_succeeds(self) -> None:
+        """Correct schema version → TurnPacketSuccess (guard against future version bumps)."""
         ctx = _make_ctx()
         req = _make_turn_request(schema_version="0.1.0")
-        # Temporarily construct with wrong version — we need to bypass Pydantic's
-        # literal validation, so we test via the pipeline's string comparison.
-        # Since TurnRequest enforces SchemaVersionLiteral, we can only pass "0.1.0".
-        # The pipeline check is a guard against future version bumps.
-        # For now, verify that the correct version succeeds.
+        # Guard: if SCHEMA_VERSION changes, this test will catch the mismatch.
         result = process_turn(req, ctx)
         assert isinstance(result, TurnPacketSuccess)
+
+    def test_schema_version_mismatch_returns_error(self) -> None:
+        """Bypassed Pydantic validation with wrong version → TurnPacketError."""
+        ctx = _make_ctx()
+        # Use model_construct to bypass Pydantic's Literal validation
+        req = TurnRequest.model_construct(
+            schema_version="99.0.0",
+            turn_number=1,
+            conversation_id="conv_test",
+            focus=Focus(text="test", claims=[], unresolved=[]),
+            context_claims=[],
+            evidence_history=[],
+            posture="exploratory",
+        )
+        result = process_turn(req, ctx)
+        assert isinstance(result, TurnPacketError)
+        assert result.error.code == "invalid_schema_version"
 
     def test_schema_version_mismatch_detected(self) -> None:
         """When request has a different schema_version, error returned.

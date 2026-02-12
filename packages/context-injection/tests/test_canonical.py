@@ -100,6 +100,31 @@ class TestCanonicalJsonBytes:
         )
         assert canonical_json_bytes(payload) == canonical_json_bytes(payload)
 
+    def test_different_inputs_produce_different_bytes(self) -> None:
+        """Different payloads produce different canonical bytes (independence)."""
+        spec = ReadSpec(
+            action="read",
+            resolved_path="a.py",
+            strategy="first_n",
+            max_lines=40,
+            max_chars=2000,
+        )
+        payload_a = ScoutTokenPayload(
+            v=1,
+            conversation_id="conv_a",
+            turn_number=1,
+            scout_option_id="so_001",
+            spec=spec,
+        )
+        payload_b = ScoutTokenPayload(
+            v=1,
+            conversation_id="conv_b",
+            turn_number=1,
+            scout_option_id="so_001",
+            spec=spec,
+        )
+        assert canonical_json_bytes(payload_a) != canonical_json_bytes(payload_b)
+
 
 class TestWireDump:
     def test_includes_null_for_none(self) -> None:
