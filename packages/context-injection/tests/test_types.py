@@ -1,7 +1,7 @@
 """Tests for protocol Pydantic models."""
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from context_injection.types import (
     SCHEMA_VERSION,
@@ -10,11 +10,21 @@ from context_injection.types import (
     Clarifier,
     DedupRecord,
     Entity,
-    EvidenceRecord,
     Focus,
+    GrepOption,
+    GrepSpec,
     PathDecision,
-    ProtocolModel,
+    ReadOption,
+    ReadSpec,
+    ScoutResult,
+    ScoutResultFailure,
+    ScoutResultInvalid,
+    ScoutResultSuccess,
+    ScoutSpec,
     TemplateCandidate,
+    TurnPacket,
+    TurnPacketError,
+    TurnPacketSuccess,
     TurnRequest,
     Unresolved,
 )
@@ -243,3 +253,245 @@ class TestTemplateCandidate:
         )
         assert tc.clarifier is not None
         assert len(tc.clarifier.choices) == 2
+
+
+# --- Discriminated union tests (Task 5) ---
+
+
+class TestScoutSpec:
+    def test_read_spec_first_n(self) -> None:
+        spec = ReadSpec(
+            action="read",
+            resolved_path="src/config/settings.yaml",
+            strategy="first_n",
+            max_lines=40,
+            max_chars=2000,
+        )
+        assert spec.action == "read"
+        assert spec.strategy == "first_n"
+        assert spec.center_line is None
+
+    def test_read_spec_centered(self) -> None:
+        spec = ReadSpec(
+            action="read",
+            resolved_path="src/config/settings.yaml",
+            strategy="centered",
+            max_lines=40,
+            max_chars=2000,
+            center_line=42,
+        )
+        assert spec.center_line == 42
+
+    def test_grep_spec(self) -> None:
+        spec = GrepSpec(
+            action="grep",
+            pattern="load_config",
+            strategy="match_context",
+            max_lines=40,
+            max_chars=2000,
+            context_lines=2,
+            max_ranges=5,
+        )
+        assert spec.action == "grep"
+        assert spec.context_lines == 2
+
+    def test_discriminated_union_parses_read(self) -> None:
+        data = {
+            "action": "read",
+            "resolved_path": "src/app.py",
+            "strategy": "first_n",
+            "max_lines": 40,
+            "max_chars": 2000,
+        }
+        adapter = TypeAdapter(ScoutSpec)
+        spec = adapter.validate_python(data)
+        assert isinstance(spec, ReadSpec)
+
+    def test_discriminated_union_parses_grep(self) -> None:
+        data = {
+            "action": "grep",
+            "pattern": "main",
+            "strategy": "match_context",
+            "max_lines": 40,
+            "max_chars": 2000,
+            "context_lines": 2,
+            "max_ranges": 5,
+        }
+        adapter = TypeAdapter(ScoutSpec)
+        spec = adapter.validate_python(data)
+        assert isinstance(spec, GrepSpec)
+
+
+class TestScoutOption:
+    def test_read_option(self) -> None:
+        opt = ReadOption(
+            id="so_005",
+            scout_token="hmac_a1b2c3d4e5f6",
+            action="read",
+            target_display="src/config/settings.yaml",
+            strategy="first_n",
+            max_lines=40,
+            max_chars=2000,
+            risk_signal=False,
+        )
+        assert opt.action == "read"
+        assert opt.center_line is None
+
+    def test_grep_option(self) -> None:
+        opt = GrepOption(
+            id="so_006",
+            scout_token="hmac_f6e5d4c3b2a1",
+            action="grep",
+            target_display="load_config",
+            strategy="match_context",
+            max_lines=40,
+            max_chars=2000,
+            context_lines=2,
+            max_ranges=5,
+        )
+        assert opt.action == "grep"
+        assert opt.context_lines == 2
+
+
+class TestTurnPacket:
+    def test_success_packet(self) -> None:
+        data = {
+            "schema_version": "0.1.0",
+            "status": "success",
+            "entities": [],
+            "path_decisions": [],
+            "template_candidates": [],
+            "budget": {
+                "evidence_count": 0,
+                "evidence_remaining": 5,
+                "scout_available": True,
+            },
+            "deduped": [],
+        }
+        adapter = TypeAdapter(TurnPacket)
+        packet = adapter.validate_python(data)
+        assert isinstance(packet, TurnPacketSuccess)
+
+    def test_error_packet(self) -> None:
+        data = {
+            "schema_version": "0.1.0",
+            "status": "error",
+            "error": {
+                "code": "invalid_schema_version",
+                "message": "Unsupported schema version",
+                "details": None,
+            },
+        }
+        adapter = TypeAdapter(TurnPacket)
+        packet = adapter.validate_python(data)
+        assert isinstance(packet, TurnPacketError)
+
+
+class TestScoutResult:
+    def test_success_read_result(self) -> None:
+        data = {
+            "schema_version": "0.1.0",
+            "scout_option_id": "so_005",
+            "status": "success",
+            "template_id": "probe.file_repo_fact",
+            "entity_id": "e_005",
+            "entity_key": "file_path:src/config/settings.yaml",
+            "action": "read",
+            "read_result": {
+                "path_display": "src/config/settings.yaml",
+                "excerpt": "port: 8080\nhost: 0.0.0.0",
+                "excerpt_range": [1, 7],
+                "total_lines": 42,
+            },
+            "grep_result": None,
+            "truncated": False,
+            "truncation_reason": None,
+            "redactions_applied": 0,
+            "risk_signal": False,
+            "evidence_wrapper": "From `src/config/settings.yaml:1-7`",
+            "budget": {
+                "evidence_count": 2,
+                "evidence_remaining": 3,
+                "scout_available": False,
+            },
+        }
+        adapter = TypeAdapter(ScoutResult)
+        result = adapter.validate_python(data)
+        assert isinstance(result, ScoutResultSuccess)
+        assert result.read_result is not None
+        assert result.grep_result is None
+
+    def test_failure_not_found(self) -> None:
+        data = {
+            "schema_version": "0.1.0",
+            "scout_option_id": "so_005",
+            "status": "not_found",
+            "template_id": "probe.file_repo_fact",
+            "entity_id": "e_005",
+            "entity_key": "file_path:src/config/settings.yaml",
+            "action": "read",
+            "error_message": "File not found",
+            "budget": {
+                "evidence_count": 1,
+                "evidence_remaining": 4,
+                "scout_available": False,
+            },
+        }
+        adapter = TypeAdapter(ScoutResult)
+        result = adapter.validate_python(data)
+        assert isinstance(result, ScoutResultFailure)
+
+    def test_invalid_request(self) -> None:
+        data = {
+            "schema_version": "0.1.0",
+            "scout_option_id": "so_005",
+            "status": "invalid_request",
+            "error_message": "Scout token invalid",
+            "budget": None,
+        }
+        adapter = TypeAdapter(ScoutResult)
+        result = adapter.validate_python(data)
+        assert isinstance(result, ScoutResultInvalid)
+        assert result.budget is None
+
+
+class TestDedupRecordInvariant:
+    def test_template_already_used_requires_template_id(self) -> None:
+        with pytest.raises(
+            ValidationError, match="template_already_used requires template_id"
+        ):
+            DedupRecord(
+                entity_key="file_path:src/app.py",
+                template_id=None,
+                reason="template_already_used",
+                prior_turn=1,
+            )
+
+    def test_entity_already_scouted_forbids_template_id(self) -> None:
+        with pytest.raises(
+            ValidationError, match="entity_already_scouted must not have template_id"
+        ):
+            DedupRecord(
+                entity_key="file_path:src/app.py",
+                template_id="probe.file_repo_fact",
+                reason="entity_already_scouted",
+                prior_turn=1,
+            )
+
+    def test_valid_entity_already_scouted(self) -> None:
+        d = DedupRecord(
+            entity_key="file_path:src/app.py",
+            template_id=None,
+            reason="entity_already_scouted",
+            prior_turn=1,
+        )
+        assert d.reason == "entity_already_scouted"
+
+    def test_valid_template_already_used(self) -> None:
+        d = DedupRecord(
+            entity_key="file_path:src/app.py",
+            template_id="probe.file_repo_fact",
+            reason="template_already_used",
+            prior_turn=1,
+        )
+        assert d.template_id == "probe.file_repo_fact"
