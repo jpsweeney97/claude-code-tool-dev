@@ -66,22 +66,6 @@ KNOWN_EXTENSIONS: frozenset[str] = frozenset(
 
 # --- Extraction result (internal, before Entity construction) ---
 
-EntityTypeLiteral = Literal[
-    "file_loc",
-    "file_path",
-    "file_name",
-    "symbol",
-    "dir_path",
-    "env_var",
-    "config_key",
-    "cli_flag",
-    "command",
-    "package_name",
-    "file_hint",
-    "symbol_hint",
-    "config_hint",
-]
-
 TIER_MAP: dict[str, int] = {
     "file_loc": 1,
     "file_path": 1,

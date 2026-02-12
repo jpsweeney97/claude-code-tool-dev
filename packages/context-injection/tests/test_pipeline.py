@@ -11,6 +11,7 @@ Tests cover:
 8. End-to-end: realistic TurnRequest → full TurnPacketSuccess
 """
 
+from typing import Any
 from unittest.mock import patch
 
 from context_injection.pipeline import process_turn
@@ -30,9 +31,9 @@ from context_injection.types import (
 # --- Test helpers ---
 
 
-def _make_turn_request(**overrides: object) -> TurnRequest:
+def _make_turn_request(**overrides: Any) -> TurnRequest:
     """Convenience TurnRequest constructor with sensible defaults."""
-    defaults: dict[str, object] = {
+    defaults: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "turn_number": 1,
         "conversation_id": "conv_test",

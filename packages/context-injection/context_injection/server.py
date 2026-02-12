@@ -44,8 +44,8 @@ def _load_git_files(repo_root: str) -> set[str]:
         return set()
 
 
-def create_server(repo_root: str | None = None) -> FastMCP:
-    """Create the FastMCP instance (useful for testing without running)."""
+def create_server() -> FastMCP:
+    """Create the FastMCP instance. Useful for testing without starting stdio."""
     mcp = FastMCP(
         "context-injection",
         lifespan=app_lifespan,
@@ -59,6 +59,9 @@ def create_server(repo_root: str | None = None) -> FastMCP:
         """Process a TurnRequest (Call 1) and return a TurnPacket."""
         app_ctx: AppContext = ctx.request_context.lifespan_context
         result = process_turn(request, app_ctx)
+        # Return dict to avoid FastMCP double-serialization of discriminated unions.
+        # TurnPacket uses Annotated[Union[...], Discriminator(...)] which the SDK's
+        # serializer may not handle correctly.
         return result.model_dump(mode="json")
 
     return mcp

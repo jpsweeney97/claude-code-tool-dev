@@ -16,14 +16,19 @@ from context_injection.types import Focus, ReadSpec, TurnRequest, SCHEMA_VERSION
 
 def _make_read_spec(**overrides) -> ReadSpec:
     defaults = dict(
-        action="read", resolved_path="src/app.py", strategy="first_n",
-        max_lines=40, max_chars=2000,
+        action="read",
+        resolved_path="src/app.py",
+        strategy="first_n",
+        max_lines=40,
+        max_chars=2000,
     )
     defaults.update(overrides)
     return ReadSpec(**defaults)
 
 
-def _make_turn_request(conversation_id: str = "conv_1", turn_number: int = 1) -> TurnRequest:
+def _make_turn_request(
+    conversation_id: str = "conv_1", turn_number: int = 1
+) -> TurnRequest:
     return TurnRequest(
         schema_version=SCHEMA_VERSION,
         turn_number=turn_number,
@@ -51,8 +56,11 @@ class TestTokenGeneration:
         ctx = AppContext.create(repo_root="/tmp/repo")
         spec = _make_read_spec()
         payload = ScoutTokenPayload(
-            v=1, conversation_id="conv_1", turn_number=1,
-            scout_option_id="so_001", spec=spec,
+            v=1,
+            conversation_id="conv_1",
+            turn_number=1,
+            scout_option_id="so_001",
+            spec=spec,
         )
         token = generate_token(ctx.hmac_key, payload)
         assert isinstance(token, str)
@@ -63,8 +71,11 @@ class TestTokenGeneration:
         ctx2 = AppContext.create(repo_root="/tmp/repo")
         spec = _make_read_spec()
         payload = ScoutTokenPayload(
-            v=1, conversation_id="conv_1", turn_number=1,
-            scout_option_id="so_001", spec=spec,
+            v=1,
+            conversation_id="conv_1",
+            turn_number=1,
+            scout_option_id="so_001",
+            spec=spec,
         )
         token = generate_token(ctx1.hmac_key, payload)
         assert not verify_token(ctx2.hmac_key, payload, token)
@@ -73,15 +84,21 @@ class TestTokenGeneration:
         ctx = AppContext.create(repo_root="/tmp/repo")
         spec = _make_read_spec()
         payload = ScoutTokenPayload(
-            v=1, conversation_id="conv_1", turn_number=1,
-            scout_option_id="so_001", spec=spec,
+            v=1,
+            conversation_id="conv_1",
+            turn_number=1,
+            scout_option_id="so_001",
+            spec=spec,
         )
         token = generate_token(ctx.hmac_key, payload)
         # Different spec
         modified_spec = _make_read_spec(resolved_path="src/evil.py")
         modified_payload = ScoutTokenPayload(
-            v=1, conversation_id="conv_1", turn_number=1,
-            scout_option_id="so_001", spec=modified_spec,
+            v=1,
+            conversation_id="conv_1",
+            turn_number=1,
+            scout_option_id="so_001",
+            spec=modified_spec,
         )
         assert not verify_token(ctx.hmac_key, modified_payload, token)
 

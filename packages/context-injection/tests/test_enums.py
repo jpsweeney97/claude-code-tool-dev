@@ -1,7 +1,5 @@
 """Tests for protocol enums."""
 
-import pytest
-
 from context_injection.enums import (
     ClaimStatus,
     Confidence,

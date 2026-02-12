@@ -62,7 +62,7 @@ class AppContext:
         )
 
     def next_entity_id(self) -> str:
-        """Generate the next entity ID (e_NNN format)."""
+        """Generate the next entity ID (e_NNN format, monotonic per process)."""
         self.entity_counter += 1
         return f"e_{self.entity_counter:03d}"
 

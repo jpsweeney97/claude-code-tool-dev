@@ -97,7 +97,7 @@ _(none yet — populated during implementation)_
 - All output model types available for union composition
 
 **Work:**
-- Task 5: `types.py` part 3 — `ScoutSpec` union (Read/Grep/Ls/Stat), `ScoutOption`, `TurnPacket`, `ScoutResult` union (with callable discriminator). Uncomment `DedupRecord.model_validator`. Add 4 invariant tests for DedupRecord.
+- Task 5: `types.py` part 3 — `ScoutSpec` union (Read/Grep), `ScoutOption`, `TurnPacket`, `ScoutResult` union (with callable discriminator). Uncomment `DedupRecord.model_validator`. Add 4 invariant tests for DedupRecord.
 
 **Subagent strategy:** Sequential. Single high-risk task — needs focused attention, not parallelization.
 

@@ -14,7 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from context_injection.types import ProtocolModel, ReadSpec, GrepSpec, ScoutSpec
+from context_injection.types import ProtocolModel, ReadSpec, GrepSpec
 
 
 class ScoutTokenPayload(ProtocolModel):

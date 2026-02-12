@@ -165,6 +165,9 @@ def _process_turn_inner(
     )
 
     # --- Step 5: Budget computation ---
+    # Note: match_templates() also calls compute_budget() internally for ranking.
+    # This second call is intentional — the pipeline needs the budget object for
+    # the TurnPacket response, and compute_budget() is a pure function (<1us).
     budget = compute_budget(request.evidence_history)
 
     # --- Step 6: Store TurnRequest for Call 2 ---

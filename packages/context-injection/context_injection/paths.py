@@ -11,7 +11,7 @@ traversal attacks (../), NUL injection, and untracked files.
 import os
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from fnmatch import fnmatch
 from typing import Literal, overload
 
@@ -32,7 +32,12 @@ DENYLIST_DIRS: tuple[str, ...] = (
     ".hg",
     ".hg/*",
 )
-"""Glob patterns for denied directory prefixes. Matched against path components."""
+"""Glob patterns for denied directory prefixes.
+
+Each directory has two entries: bare name (denies the directory itself) and
+name/* (denies any file within it). Both are needed because fnmatch matches
+against individual path components, not the full path.
+"""
 
 DENYLIST_FILES: tuple[str, ...] = (
     ".env",
@@ -62,9 +67,9 @@ ENV_EXCEPTIONS: frozenset[str] = frozenset(
 """Env-like files that are safe to read (no secrets)."""
 
 _RISK_SIGNAL_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"secret", re.IGNORECASE),
-    re.compile(r"token", re.IGNORECASE),
-    re.compile(r"credential", re.IGNORECASE),
+    re.compile(r"secret"),
+    re.compile(r"token"),
+    re.compile(r"credential"),
 )
 """Substrings in path that indicate potential secret content."""
 
@@ -75,6 +80,9 @@ _RISK_SIGNAL_PATTERNS: tuple[re.Pattern[str], ...] = (
 @dataclass(frozen=True, slots=True)
 class CompileTimeResult:
     """Result of check_path_compile_time().
+
+    Maps to PathDecision (types.py) in the pipeline via field-by-field copy
+    in pipeline.py:145-156. Both types use the same status values.
 
     status values align with PathStatus enum:
     - "allowed": safe to scout
@@ -88,7 +96,7 @@ class CompileTimeResult:
     resolved_rel: str | None = None
     risk_signal: bool = False
     deny_reason: str | None = None
-    candidates: list[str] | None = field(default=None)
+    candidates: list[str] | None = None
     unresolved_reason: (
         Literal["zero_candidates", "multiple_candidates", "timeout"] | None
     ) = None
@@ -212,6 +220,9 @@ def _split_anchor(path: str) -> tuple[str, int | None]:
 
 def _is_denied_dir(path: str) -> str | None:
     """Check if any path component matches a denied directory pattern.
+
+    For simple patterns (no /): fnmatch against individual components.
+    For patterns with / (e.g., ".git/*"): fnmatch against accumulated path prefix.
 
     Returns deny reason or None.
     """

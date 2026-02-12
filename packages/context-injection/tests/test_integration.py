@@ -83,17 +83,13 @@ def test_contract_example_produces_valid_turn_packet() -> None:
     assert len(context_entities) >= 1  # packages/ from context_claims
 
     # Backticked entities should be high confidence
-    settings_entities = [
-        e for e in result.entities if "settings.yaml" in e.canonical
-    ]
+    settings_entities = [e for e in result.entities if "settings.yaml" in e.canonical]
     assert len(settings_entities) == 1
     assert settings_entities[0].confidence == "high"
     assert settings_entities[0].type == "file_path"
     assert settings_entities[0].canonical == "src/config/settings.yaml"
 
-    config_entities = [
-        e for e in result.entities if e.canonical == "config.yaml"
-    ]
+    config_entities = [e for e in result.entities if e.canonical == "config.yaml"]
     assert len(config_entities) == 1
     assert config_entities[0].confidence == "high"
     assert config_entities[0].type == "file_name"
@@ -103,9 +99,7 @@ def test_contract_example_produces_valid_turn_packet() -> None:
     # src/config/settings.yaml -> allowed (in git_files)
     # config.yaml -> allowed (in git_files)
     # packages/ -> not_tracked (not in git_files as a file)
-    allowed_decisions = [
-        pd for pd in result.path_decisions if pd.status == "allowed"
-    ]
+    allowed_decisions = [pd for pd in result.path_decisions if pd.status == "allowed"]
     assert len(allowed_decisions) >= 2  # settings.yaml + config.yaml
 
     # --- Budget ---

@@ -2,7 +2,6 @@
 
 import json
 
-import pytest
 
 from context_injection.canonical import (
     ScoutTokenPayload,
@@ -74,8 +73,11 @@ class TestCanonicalJsonBytes:
             max_chars=2000,
         )
         payload = ScoutTokenPayload(
-            v=1, conversation_id="c", turn_number=1,
-            scout_option_id="so", spec=spec,
+            v=1,
+            conversation_id="c",
+            turn_number=1,
+            scout_option_id="so",
+            spec=spec,
         )
         result = canonical_json_bytes(payload)
         assert "caf\u00e9".encode("utf-8") in result
@@ -83,12 +85,18 @@ class TestCanonicalJsonBytes:
     def test_deterministic_output(self) -> None:
         """Same input produces identical bytes."""
         spec = ReadSpec(
-            action="read", resolved_path="a.py", strategy="first_n",
-            max_lines=40, max_chars=2000,
+            action="read",
+            resolved_path="a.py",
+            strategy="first_n",
+            max_lines=40,
+            max_chars=2000,
         )
         payload = ScoutTokenPayload(
-            v=1, conversation_id="c", turn_number=1,
-            scout_option_id="so", spec=spec,
+            v=1,
+            conversation_id="c",
+            turn_number=1,
+            scout_option_id="so",
+            spec=spec,
         )
         assert canonical_json_bytes(payload) == canonical_json_bytes(payload)
 
@@ -97,10 +105,17 @@ class TestWireDump:
     def test_includes_null_for_none(self) -> None:
         """Wire format includes explicit null for None values."""
         from context_injection.types import Entity
+
         e = Entity(
-            id="e_001", type="file_path", tier=1, raw="a.py",
-            canonical="a.py", confidence="high", source_type="claim",
-            in_focus=True, resolved_to=None,
+            id="e_001",
+            type="file_path",
+            tier=1,
+            raw="a.py",
+            canonical="a.py",
+            confidence="high",
+            source_type="claim",
+            in_focus=True,
+            resolved_to=None,
         )
         dumped = wire_dump(e)
         assert dumped["resolved_to"] is None
@@ -109,7 +124,11 @@ class TestWireDump:
     def test_budget_wire_dump(self) -> None:
         b = Budget(evidence_count=1, evidence_remaining=4, scout_available=True)
         dumped = wire_dump(b)
-        assert dumped == {"evidence_count": 1, "evidence_remaining": 4, "scout_available": True}
+        assert dumped == {
+            "evidence_count": 1,
+            "evidence_remaining": 4,
+            "scout_available": True,
+        }
 
 
 class TestEntityKey:

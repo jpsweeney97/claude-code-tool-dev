@@ -12,7 +12,6 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
 
-from context_injection.enums import ClaimStatus, Posture, TemplateId
 
 SchemaVersionLiteral = Literal["0.1.0"]
 
