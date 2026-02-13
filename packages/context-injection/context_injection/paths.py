@@ -9,6 +9,7 @@ traversal attacks (../), NUL injection, and untracked files.
 """
 
 import os
+import posixpath
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -137,15 +138,17 @@ def normalize_input_path(
 
     Steps:
     1. Strip surrounding backticks, single quotes, double quotes
-    2. Reject NUL bytes
-    3. Replace backslashes with forward slashes
-    4. NFC-normalize Unicode
-    5. Reject absolute paths
-    6. Reject directory traversal (..)
-    7. Optionally split line-number anchor (:N or #LN)
+    2. Reject empty/whitespace-only input
+    3. Reject NUL bytes
+    4. Replace backslashes with forward slashes
+    5. NFC-normalize Unicode
+    6. Reject absolute paths
+    7. Reject directory traversal (..)
+    8. Canonicalize: collapse //, remove . segments, strip trailing /
+    9. Optionally split line-number anchor (:N or #LN)
 
     Raises:
-        ValueError: On NUL bytes, absolute paths, or traversal attempts.
+        ValueError: On empty input, NUL bytes, absolute paths, or traversal attempts.
     """
     # Strip surrounding quotes/backticks
     path = raw.strip()
@@ -156,6 +159,12 @@ def normalize_input_path(
             path = path[1:-1]
         elif path[0] == "'" and path[-1] == "'":
             path = path[1:-1]
+
+    # Reject empty/whitespace-only input
+    if not path:
+        raise ValueError(
+            f"normalize_input_path failed: empty path. Got: {raw!r:.100}"
+        )
 
     # Reject NUL bytes
     if "\x00" in path:
@@ -180,6 +189,22 @@ def normalize_input_path(
     if ".." in parts:
         raise ValueError(
             f"normalize_input_path failed: directory traversal not allowed. Got: {raw!r:.100}"
+        )
+
+    # Canonicalize: collapse //, remove . segments, strip trailing /
+    # Use posixpath (not os.path) for explicit POSIX semantics on repo-relative paths.
+    path = posixpath.normpath(path)
+
+    # posixpath.normpath can produce '..' from edge cases — re-check
+    if ".." in path.split("/"):
+        raise ValueError(
+            f"normalize_input_path failed: directory traversal not allowed. Got: {raw!r:.100}"
+        )
+
+    # normpath('.') → '.' for bare-directory inputs like '.' or './' — reject
+    if path == ".":
+        raise ValueError(
+            f"normalize_input_path failed: empty path. Got: {raw!r:.100}"
         )
 
     # Split anchor if requested

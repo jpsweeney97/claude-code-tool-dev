@@ -64,6 +64,87 @@ class TestNormalizeInputPath:
         assert normalize_input_path(nfd) == nfc
 
 
+class TestNormalizeInputPathCanonicalization:
+    """Tests for canonical path form: collapsing separators, dots, trailing slashes."""
+
+    def test_collapses_double_slashes(self) -> None:
+        assert normalize_input_path("a//b/c.py") == "a/b/c.py"
+
+    def test_collapses_triple_slashes(self) -> None:
+        assert normalize_input_path("a///b/c.py") == "a/b/c.py"
+
+    def test_removes_dot_segments(self) -> None:
+        assert normalize_input_path("./a/./b/c.py") == "a/b/c.py"
+
+    def test_removes_leading_dot_slash(self) -> None:
+        assert normalize_input_path("./src/app.py") == "src/app.py"
+
+    def test_strips_trailing_slash(self) -> None:
+        assert normalize_input_path("a/b/") == "a/b"
+
+    def test_rejects_empty_input(self) -> None:
+        with pytest.raises(ValueError, match="empty"):
+            normalize_input_path("")
+
+    def test_rejects_whitespace_only(self) -> None:
+        with pytest.raises(ValueError, match="empty"):
+            normalize_input_path("   ")
+
+    def test_rejects_dot_only(self) -> None:
+        """posixpath.normpath('.') returns '.', which is a bare directory — reject."""
+        with pytest.raises(ValueError, match="empty"):
+            normalize_input_path(".")
+
+    def test_rejects_quoted_empty(self) -> None:
+        """Quoted empty string after stripping quotes."""
+        with pytest.raises(ValueError, match="empty"):
+            normalize_input_path("''")
+
+    def test_combined_normalization(self) -> None:
+        assert normalize_input_path("./a/./b//c/") == "a/b/c"
+
+    def test_anchor_preserved_through_normpath(self) -> None:
+        """Colon anchor survives normpath (treated as filename char)."""
+        assert normalize_input_path("./src/app.py:42") == "src/app.py:42"
+
+    def test_anchor_split_after_normpath(self) -> None:
+        """Anchor splitting works correctly on normalized path."""
+        path, line = normalize_input_path("./src/app.py:42", split_anchor=True)
+        assert path == "src/app.py"
+        assert line == 42
+
+
+class TestNormalizedPathDedupe:
+    """Verify that non-canonical inputs produce the same normalized form
+    for consistent git-files lookup and denylist matching."""
+
+    def test_double_slash_matches_git_files(self) -> None:
+        result = check_path_compile_time(
+            "src//app.py",
+            repo_root="/tmp/repo",
+            git_files={"src/app.py"},
+        )
+        assert result.status == "allowed"
+        assert result.user_rel == "src/app.py"
+
+    def test_dot_segment_matches_git_files(self) -> None:
+        result = check_path_compile_time(
+            "./src/./app.py",
+            repo_root="/tmp/repo",
+            git_files={"src/app.py"},
+        )
+        assert result.status == "allowed"
+        assert result.user_rel == "src/app.py"
+
+    def test_trailing_slash_matches_git_files(self) -> None:
+        result = check_path_compile_time(
+            "src/app.py",
+            repo_root="/tmp/repo",
+            git_files={"src/app.py"},
+        )
+        assert result.status == "allowed"
+
+
 class TestDenylist:
     def test_git_dir_denied(self) -> None:
         result = check_path_compile_time(
