@@ -105,7 +105,8 @@ class _RawMatch:
 
 # --- Regex patterns ---
 
-# URL: starts with http:// or https://
+# URL: HTTP/HTTPS only. FTP, SSH, and other schemes are intentionally excluded —
+# they aren't local file references and would need scheme-specific path handling.
 _URL_RE = re.compile(
     r"https?://[^\s`\"\')>\]]+",
 )
@@ -229,7 +230,11 @@ def _confidence(
 
 
 def _overlaps(spans: list[tuple[int, int]], start: int, end: int) -> bool:
-    """Check if (start, end) overlaps with any existing span."""
+    """Check if (start, end) overlaps with any existing span.
+
+    O(n) scan per call, O(n**2) total for n entities. Acceptable for MVP —
+    MAX_TEXT_LEN=2000 bounds entity count to ~20 in practice.
+    """
     for s, e in spans:
         if start < e and end > s:
             return True
@@ -242,6 +247,7 @@ def _overlaps(spans: list[tuple[int, int]], start: int, end: int) -> bool:
 def _find_backtick_spans(text: str) -> list[tuple[int, int, str]]:
     """Find all backtick-delimited spans in text.
 
+    Supports both single (`) and double (``) backtick delimiters.
     Returns list of (content_start, content_end, content) tuples.
     content_start/end are indices into the original text of the content
     (not including the backticks themselves).
@@ -250,15 +256,21 @@ def _find_backtick_spans(text: str) -> list[tuple[int, int, str]]:
     i = 0
     while i < len(text):
         if text[i] == "`":
-            # Find closing backtick
-            j = text.find("`", i + 1)
-            if j != -1:
-                content = text[i + 1 : j]
-                if content:  # Skip empty backtick pairs
-                    spans.append((i + 1, j, content))
-                i = j + 1
+            # Count consecutive backticks to determine delimiter width
+            width = 1
+            while i + width < len(text) and text[i + width] == "`":
+                width += 1
+            delimiter = "`" * width
+            # Find matching closing delimiter
+            content_start = i + width
+            close_idx = text.find(delimiter, content_start)
+            if close_idx != -1:
+                content = text[content_start:close_idx]
+                if content.strip():  # Skip empty/whitespace-only
+                    spans.append((content_start, close_idx, content.strip()))
+                i = close_idx + width
             else:
-                break
+                i += width  # No closing delimiter found, skip
         else:
             i += 1
     return spans
@@ -332,9 +344,12 @@ def _extract_file_paths(
     for m in _FILE_PATH_RE.finditer(text):
         start, end = m.start(), m.end()
         raw = m.group()
-        # Skip traversal paths — they always fail downstream path checking.
-        # Claim the span so downstream extractors don't match substrings.
-        if ".." in raw:
+        # Skip traversal paths (../ or /.. segments) — they always fail
+        # downstream path checking. Claim the span so downstream extractors
+        # don't match substrings. Uses path-segment check, not substring
+        # match, to avoid rejecting filenames with consecutive dots.
+        parts = raw.split("/")
+        if ".." in parts:
             spans.append((start, end))
             continue
         if _overlaps(spans, start, end):
@@ -433,6 +448,11 @@ def extract_entities(
     # Cap input length to bound worst-case regex execution (ReDoS mitigation)
     if len(text) > MAX_TEXT_LEN:
         text = text[:MAX_TEXT_LEN]
+
+    # Note: text is NOT NFC-normalized before regex matching. Normalizing here
+    # would shift character positions and break span tracking. Instead, canon()
+    # normalizes per-entity after extraction. NFD combining characters spanning
+    # regex boundaries are theoretically possible but not observed in practice.
 
     # Pre-compute backtick spans for confidence detection
     bt_spans = _find_backtick_spans(text)

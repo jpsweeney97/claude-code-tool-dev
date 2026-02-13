@@ -13,6 +13,7 @@ Also tests:
 - Entity construction (correct fields, IDs, types)
 """
 
+from context_injection.entities import extract_entities
 from context_injection.state import AppContext
 from context_injection.types import Entity
 
@@ -236,6 +237,19 @@ class TestConfidenceAssignment:
         e = _extract_one("`ValueError: bad input`")
         assert e.confidence == "high"
 
+    def test_double_backtick_entity_gets_high_confidence(self) -> None:
+        """Entity within double backticks gets high confidence."""
+        ctx = AppContext.create(repo_root="/tmp/repo", git_files=set())
+        entities = extract_entities(
+            "Check ``src/config.yaml`` for settings",
+            source_type="claim",
+            in_focus=True,
+            ctx=ctx,
+        )
+        file_entities = [e for e in entities if e.canonical == "src/config.yaml"]
+        assert len(file_entities) == 1
+        assert file_entities[0].confidence == "high"
+
 
 # ============================================================
 # Source type and in_focus flags
@@ -456,6 +470,18 @@ class TestNoMatch:
     def test_double_traversal_not_extracted(self) -> None:
         entities = _extract("At `../../etc/passwd`")
         assert entities == []
+
+    def test_filename_with_double_dots_not_rejected(self) -> None:
+        """A file like 'utils..helpers.py' should not be rejected as traversal."""
+        ctx = AppContext.create(repo_root="/tmp/repo", git_files=set())
+        entities = extract_entities(
+            "Check `src/utils..helpers.py` for the fix",
+            source_type="claim",
+            in_focus=True,
+            ctx=ctx,
+        )
+        file_entities = [e for e in entities if "utils..helpers" in e.raw]
+        assert len(file_entities) == 1
 
 
 # ============================================================
