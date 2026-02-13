@@ -1,6 +1,9 @@
 # Old repos (archived reference, not part of this project)
 old-repos/
 
+# SDK reference clones (used during development, not part of this project)
+python-sdk-git/
+
 # macOS
 .DS_Store
 
