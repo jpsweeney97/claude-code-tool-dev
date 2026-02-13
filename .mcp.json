@@ -8,6 +8,14 @@
         "CODEX_SANDBOX": "${CODEX_SANDBOX:-seatbelt}",
         "PATH": "${PATH:-/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}:/opt/homebrew/bin"
       }
+    },
+    "context-injection": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--directory", "packages/context-injection", "python", "-m", "context_injection"],
+      "env": {
+        "REPO_ROOT": "${PWD}"
+      }
     }
   }
 }
