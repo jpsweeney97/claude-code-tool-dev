@@ -26,6 +26,11 @@ DENYLIST_DIRS: tuple[str, ...] = (
     "node_modules",
     ".svn",
     ".hg",
+    ".aws",
+    ".gnupg",
+    ".docker",
+    ".kube",
+    ".terraform",
 )
 """Denied directory names (bare names only).
 
@@ -40,20 +45,33 @@ against the full accumulated prefix which includes parent segments.
 """
 
 DENYLIST_FILES: tuple[str, ...] = (
+    # Environment files
     ".env",
     ".env.*",
+    # Private keys and certificates
     "*.pem",
     "*.key",
     "*.p12",
     "*.pfx",
     "*.jks",
     "*.keystore",
+    # SSH keys
     "id_rsa",
     "id_rsa.*",
     "id_ed25519",
     "id_ed25519.*",
     "id_dsa",
     "id_ecdsa",
+    # Package registry credentials
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    # Cloud/service credentials
+    "credentials.json",
+    "service-account*.json",  # intentionally broad — catches service-account-*.json variants
+    # Terraform state (contains cloud credentials and resource IDs)
+    "*.tfstate",
+    "*.tfstate.backup",
 )
 """Glob patterns for denied file basenames."""
 

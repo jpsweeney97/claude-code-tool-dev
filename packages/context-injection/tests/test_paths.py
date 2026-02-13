@@ -250,6 +250,80 @@ class TestDenylistDirsInvariant:
         assert all("/" not in p for p in DENYLIST_DIRS)
 
 
+class TestDenylistSecretLocations:
+    """Verify newly added secret directories and files are denied."""
+
+    @pytest.mark.parametrize(
+        "dirname",
+        [".aws", ".gnupg", ".docker", ".kube", ".terraform"],
+    )
+    def test_secret_dirs_denied(self, dirname: str) -> None:
+        result = check_path_compile_time(
+            f"{dirname}/credentials",
+            repo_root="/tmp/repo",
+            git_files={f"{dirname}/credentials"},
+        )
+        assert result.status == "denied"
+        assert dirname in (result.deny_reason or "")
+
+    @pytest.mark.parametrize(
+        "dirname",
+        [".aws", ".gnupg", ".docker", ".kube", ".terraform"],
+    )
+    def test_secret_dirs_denied_at_depth(self, dirname: str) -> None:
+        result = check_path_compile_time(
+            f"subdir/{dirname}/config",
+            repo_root="/tmp/repo",
+            git_files={f"subdir/{dirname}/config"},
+        )
+        assert result.status == "denied"
+
+    @pytest.mark.parametrize(
+        "filename",
+        [".npmrc", ".pypirc", ".netrc", "credentials.json"],
+    )
+    def test_secret_files_denied(self, filename: str) -> None:
+        result = check_path_compile_time(
+            filename,
+            repo_root="/tmp/repo",
+            git_files={filename},
+        )
+        assert result.status == "denied"
+
+    def test_service_account_json_denied(self) -> None:
+        result = check_path_compile_time(
+            "service-account-prod.json",
+            repo_root="/tmp/repo",
+            git_files={"service-account-prod.json"},
+        )
+        assert result.status == "denied"
+
+    def test_tfstate_denied(self) -> None:
+        result = check_path_compile_time(
+            "terraform.tfstate",
+            repo_root="/tmp/repo",
+            git_files={"terraform.tfstate"},
+        )
+        assert result.status == "denied"
+
+    def test_tfstate_backup_denied(self) -> None:
+        result = check_path_compile_time(
+            "terraform.tfstate.backup",
+            repo_root="/tmp/repo",
+            git_files={"terraform.tfstate.backup"},
+        )
+        assert result.status == "denied"
+
+    def test_normal_json_not_denied(self) -> None:
+        """Regular JSON files should NOT be caught by service-account pattern."""
+        result = check_path_compile_time(
+            "config.json",
+            repo_root="/tmp/repo",
+            git_files={"config.json"},
+        )
+        assert result.status == "allowed"
+
+
 class TestGitLsFilesGating:
     def test_tracked_file_allowed(self) -> None:
         result = check_path_compile_time(
