@@ -298,7 +298,7 @@ def check_path_compile_time(
     1. Normalize input path
     2. Resolve to absolute via repo_root (logical join if file doesn't exist)
     3. Containment check (resolved path must be under repo_root)
-    4. Denylist check (dirs + files)
+    4. Denylist check (dirs + files, on both normalized and resolved paths)
     5. Git ls-files gating (must be in tracked set)
     6. Risk signal detection
 
@@ -344,8 +344,12 @@ def check_path_compile_time(
     # Normalize separators to forward slash for cross-platform consistency
     resolved_rel = resolved_rel.replace(os.sep, "/")
 
-    # Step 4: Denylist check
+    # Step 4: Denylist check — both normalized and resolved paths
+    # A symlink like docs/readme.md -> .env must be caught even though
+    # the link name passes the denylist. Check both surfaces.
     deny_reason = _check_denylist(normalized)
+    if not deny_reason and resolved_rel != normalized:
+        deny_reason = _check_denylist(resolved_rel)
     if deny_reason:
         return CompileTimeResult(
             status="denied",
@@ -386,15 +390,17 @@ def check_path_runtime(
     Checks:
     1. Realpath resolution (follows symlinks)
     2. Containment under repo_root
-    3. Regular file existence
+    3. Denylist re-check on resolved path (defense in depth)
+    4. Regular file existence
 
     This re-validates at execution time. The compile-time check already
-    verified denylist and git tracking; runtime re-checks containment
-    and file existence (which may have changed between Call 1 and Call 2).
+    verified denylist and git tracking; runtime re-checks containment,
+    denylist (on the resolved path), and file existence — all of which
+    may have changed between Call 1 and Call 2.
 
     TOCTOU note: A symlink could be swapped between this check and the
     subsequent file read. Accepted for v0a — the agent is the consumer,
-    and the denylist re-check at Call 2 time provides defense in depth.
+    and the denylist + containment re-checks provide defense in depth.
     """
     # Resolve realpath
     real = os.path.realpath(resolved_path)
@@ -407,6 +413,17 @@ def check_path_runtime(
         return RuntimeResult(
             status="denied",
             deny_reason="resolved path escapes repository root",
+        )
+
+    # Denylist re-check on resolved path (defense in depth against
+    # symlinks swapped between compile-time and runtime)
+    resolved_rel = os.path.relpath(real, repo_root_normalized).replace(os.sep, "/")
+    deny_reason = _check_denylist(resolved_rel)
+    if deny_reason:
+        return RuntimeResult(
+            status="denied",
+            resolved_abs=real,
+            deny_reason=deny_reason,
         )
 
     # Regular file check

@@ -160,6 +160,51 @@ class TestCompileTimeResult:
         assert result.risk_signal is False
 
 
+class TestSymlinkDenylistBypass:
+    """Symlinks to denylisted files must be denied even if the link name is safe."""
+
+    def test_compile_time_symlink_to_env_denied(self, tmp_path) -> None:
+        """A tracked symlink docs/readme.md -> .env is denied at compile time."""
+        target = tmp_path / ".env"
+        target.write_text("SECRET=hunter2")
+        link = tmp_path / "docs" / "readme.md"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(target)
+        result = check_path_compile_time(
+            "docs/readme.md",
+            repo_root=str(tmp_path),
+            git_files={"docs/readme.md"},
+        )
+        assert result.status == "denied"
+        assert "denylist" in (result.deny_reason or "")
+
+    def test_compile_time_symlink_to_pem_denied(self, tmp_path) -> None:
+        """A tracked symlink public.txt -> certs/server.pem is denied."""
+        certs = tmp_path / "certs"
+        certs.mkdir()
+        target = certs / "server.pem"
+        target.write_text("-----BEGIN RSA PRIVATE KEY-----")
+        link = tmp_path / "public.txt"
+        link.symlink_to(target)
+        result = check_path_compile_time(
+            "public.txt",
+            repo_root=str(tmp_path),
+            git_files={"public.txt"},
+        )
+        assert result.status == "denied"
+
+    def test_runtime_symlink_to_env_denied(self, tmp_path) -> None:
+        """A symlink resolving to .env is denied at runtime."""
+        target = tmp_path / ".env"
+        target.write_text("SECRET=hunter2")
+        link = tmp_path / "docs" / "readme.md"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(target)
+        result = check_path_runtime(str(link), repo_root=str(tmp_path))
+        assert result.status == "denied"
+        assert "denylist" in (result.deny_reason or "")
+
+
 class TestCheckPathRuntime:
     """Tests for check_path_runtime() — Call 2 lightweight re-check."""
 
