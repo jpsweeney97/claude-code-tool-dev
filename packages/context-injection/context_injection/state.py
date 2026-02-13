@@ -89,7 +89,7 @@ def make_turn_request_ref(req: TurnRequest) -> str:
 def generate_token(key: bytes, payload: ScoutTokenPayload) -> str:
     """Generate base64url-encoded HMAC-SHA256 token, truncated to TAG_LEN bytes.
 
-    Contract: base64url(HMAC-SHA256(K, canonical_bytes))[:TAG_LEN]
+    Contract: base64url(HMAC-SHA256(K, canonical_bytes)[:TAG_LEN])
 
     Padding convention: standard base64url with '=' padding (Python default).
     Both generate and verify use the same function, so padding is consistent.

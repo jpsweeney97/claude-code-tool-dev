@@ -9,6 +9,7 @@ traversal attacks (../), NUL injection, and untracked files.
 """
 
 import os
+import posixpath
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -20,40 +21,57 @@ from typing import Literal, overload
 
 DENYLIST_DIRS: tuple[str, ...] = (
     ".git",
-    ".git/*",
     ".ssh",
-    ".ssh/*",
     "__pycache__",
-    "__pycache__/*",
     "node_modules",
-    "node_modules/*",
     ".svn",
-    ".svn/*",
     ".hg",
-    ".hg/*",
+    ".aws",
+    ".gnupg",
+    ".docker",
+    ".kube",
+    ".terraform",
 )
-"""Glob patterns for denied directory prefixes.
+"""Denied directory names (bare names only).
 
-Each directory has two entries: bare name (denies the directory itself) and
-name/* (denies any file within it). Both are needed because fnmatch matches
-against individual path components, not the full path.
+Matching is per-component: each path component is checked independently via
+fnmatch. A match at any position denies the entire path. This makes bare-name
+matching inherently recursive — `.git` denies `.git/config`,
+`src/.git/hooks/pre-commit`, etc. at any depth.
+
+Do NOT add slash-containing patterns (e.g., `name/*`). Per-component matching
+splits on `/` before calling fnmatch, so no component ever contains a slash.
+Patterns like `name/*` would never match any individual component.
 """
 
 DENYLIST_FILES: tuple[str, ...] = (
+    # Environment files
     ".env",
     ".env.*",
+    # Private keys and certificates
     "*.pem",
     "*.key",
     "*.p12",
     "*.pfx",
     "*.jks",
     "*.keystore",
+    # SSH keys
     "id_rsa",
     "id_rsa.*",
     "id_ed25519",
     "id_ed25519.*",
     "id_dsa",
     "id_ecdsa",
+    # Package registry credentials
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    # Cloud/service credentials
+    "credentials.json",
+    "service-account*.json",  # intentionally broad — catches service-account-*.json variants
+    # Terraform state (contains cloud credentials and resource IDs)
+    "*.tfstate",
+    "*.tfstate.backup",
 )
 """Glob patterns for denied file basenames."""
 
@@ -137,15 +155,19 @@ def normalize_input_path(
 
     Steps:
     1. Strip surrounding backticks, single quotes, double quotes
-    2. Reject NUL bytes
-    3. Replace backslashes with forward slashes
-    4. NFC-normalize Unicode
-    5. Reject absolute paths
-    6. Reject directory traversal (..)
-    7. Optionally split line-number anchor (:N or #LN)
+    2. Reject empty/whitespace-only input
+    3. Reject NUL bytes
+    4. Replace backslashes with forward slashes
+    5. NFC-normalize Unicode
+    6. Reject absolute paths
+    7. Reject directory traversal (..)
+    8. Canonicalize: collapse //, remove . segments, strip trailing /
+       Post-normpath re-validation rejects any `..` reintroduced by normpath
+       and bare `.` (from inputs like `./` or `.`).
+    9. Optionally split line-number anchor (:N or #LN)
 
     Raises:
-        ValueError: On NUL bytes, absolute paths, or traversal attempts.
+        ValueError: On empty input, NUL bytes, absolute paths, or traversal attempts.
     """
     # Strip surrounding quotes/backticks
     path = raw.strip()
@@ -156,6 +178,10 @@ def normalize_input_path(
             path = path[1:-1]
         elif path[0] == "'" and path[-1] == "'":
             path = path[1:-1]
+
+    # Reject empty/whitespace-only input
+    if not path:
+        raise ValueError(f"normalize_input_path failed: empty path. Got: {raw!r:.100}")
 
     # Reject NUL bytes
     if "\x00" in path:
@@ -182,10 +208,28 @@ def normalize_input_path(
             f"normalize_input_path failed: directory traversal not allowed. Got: {raw!r:.100}"
         )
 
+    # Canonicalize: collapse //, remove . segments, strip trailing /
+    # Use posixpath (not os.path) for explicit POSIX semantics on repo-relative paths.
+    path = posixpath.normpath(path)
+
+    # posixpath.normpath can produce '..' from edge cases — re-check
+    if ".." in path.split("/"):
+        raise ValueError(
+            f"normalize_input_path failed: directory traversal not allowed. Got: {raw!r:.100}"
+        )
+
+    # normpath('.') → '.' for bare-directory inputs like '.' or './' — reject
+    if path == ".":
+        raise ValueError(f"normalize_input_path failed: empty path. Got: {raw!r:.100}")
+
     # Split anchor if requested
     line: int | None = None
     if split_anchor:
         path, line = _split_anchor(path)
+        if not path or path == ".":
+            raise ValueError(
+                f"normalize_input_path failed: empty path after anchor split. Got: {raw!r:.100}"
+            )
 
     if split_anchor:
         return path, line
@@ -221,24 +265,17 @@ def _split_anchor(path: str) -> tuple[str, int | None]:
 def _is_denied_dir(path: str) -> str | None:
     """Check if any path component matches a denied directory pattern.
 
-    For simple patterns (no /): fnmatch against individual components.
-    For patterns with / (e.g., ".git/*"): fnmatch against accumulated path prefix.
+    Each component is matched independently via fnmatch. A match at any
+    position denies the entire path — this provides recursive denial at
+    any depth without needing explicit glob patterns like `name/*`.
 
     Returns deny reason or None.
     """
     parts = path.split("/")
-    # Check each prefix segment against dir patterns
-    for i, part in enumerate(parts):
+    for part in parts:
         for pattern in DENYLIST_DIRS:
-            # For patterns without /, match against individual component
-            if "/" not in pattern:
-                if fnmatch(part, pattern):
-                    return f"directory matches denylist pattern: {pattern}"
-            else:
-                # For patterns with /, match against the relative path from start
-                rel_prefix = "/".join(parts[: i + 2]) if i + 1 < len(parts) else None
-                if rel_prefix and fnmatch(rel_prefix, pattern):
-                    return f"path matches denylist pattern: {pattern}"
+            if fnmatch(part, pattern):
+                return f"directory matches denylist pattern: {pattern}"
     return None
 
 
@@ -327,7 +364,7 @@ def check_path_compile_time(
     # Step 3: Containment check
     repo_root_normalized = os.path.normpath(repo_root)
     # Ensure resolved path is under repo root
-    # Use os.path.commonpath to avoid prefix false positives
+    # Use startswith(root + os.sep) to avoid prefix false positives
     # (e.g., /tmp/repo-evil shouldn't match /tmp/repo)
     if not (
         resolved_abs == repo_root_normalized
