@@ -8,7 +8,7 @@ from context_injection.redact_formats import (
     FormatSuppressed,
     redact_env,
 )
-from tests.redaction_harness import assert_redact_result, assert_suppressed
+from tests.redaction_harness import assert_redact_result
 
 
 # --- Type tests ---
