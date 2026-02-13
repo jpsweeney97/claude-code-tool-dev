@@ -480,7 +480,7 @@ The `spec` object is the **fully compiled execution spec** — executor-ready pa
 
 **Key management:** Single per-process random key (32 bytes via `os.urandom`). Generated once at server startup. Helper restart generates a new key, invalidating all outstanding tokens (acceptable — returns `invalid_request`). No hierarchical key derivation — the attacker model (prompt injection via Codex) never has access to keys, so key compartmentalization adds complexity without security gain.
 
-**Tag format:** `base64url(HMAC-SHA256(K, canonical_bytes))`, truncated to 16 bytes (128 bits). `TAG_LEN` is configurable for future adjustment. 128-bit is far beyond feasible online guessing for a local helper.
+**Tag format:** `base64url(HMAC-SHA256(K, canonical_bytes)[:16])` — 128 bits. Truncation is on raw HMAC bytes before base64 encoding. `TAG_LEN` is configurable for future adjustment. 128-bit is far beyond feasible online guessing for a local helper.
 
 **Replay prevention:** One-shot used-bit on the TurnRequest record, keyed by `turn_request_ref` (`conversation_id:turn_number`). After Call 2 executes, the record is marked used. Subsequent attempts with the same token return `invalid_request`. No TTL or nonce — synchronous single-threaded execution and helper restart invalidation make them redundant.
 
