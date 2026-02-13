@@ -26,7 +26,11 @@ class FileKind(StrEnum):
 
     @property
     def is_config(self) -> bool:
-        """True for all CONFIG_* variants."""
+        """True for all CONFIG_* variants.
+
+        Gates format-specific parsing only. Generic token redaction
+        must run for ALL FileKinds unconditionally.
+        """
         return self.value.startswith("config_")
 
 

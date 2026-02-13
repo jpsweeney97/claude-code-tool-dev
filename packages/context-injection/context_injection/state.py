@@ -37,6 +37,8 @@ class ScoutOptionRecord:
     Bundles everything needed to produce a protocol-compliant ScoutResult
     at execution time. Created during Call 1 (template synthesis).
     Consumed during Call 2 via consume_scout().
+
+    Invariant: ``action`` must equal ``spec.action``. Enforced by __post_init__.
     """
 
     spec: ReadSpec | GrepSpec
@@ -47,6 +49,13 @@ class ScoutOptionRecord:
     risk_signal: bool
     path_display: str
     action: Literal["read", "grep"]
+
+    def __post_init__(self) -> None:
+        if self.action != self.spec.action:
+            raise ValueError(
+                f"ScoutOptionRecord action/spec mismatch: "
+                f"action={self.action!r}, spec.action={self.spec.action!r}"
+            )
 
 
 ScoutOptionRegistry = dict[str, ScoutOptionRecord]
@@ -60,7 +69,11 @@ class TurnRequestRecord:
     turn_request: TurnRequest
     scout_options: ScoutOptionRegistry
     used: bool = False
-    """One-shot used-bit. Set only after successful verification, before execution."""
+    """One-shot used-bit. Set only after successful verification, before execution.
+
+    Correctness assumes single in-flight request per server process/connection.
+    If multiplexing is enabled, protect ``used`` with a lock.
+    """
 
 
 @dataclass
@@ -108,6 +121,10 @@ class AppContext:
         the same turn are blocked. This enforces the Budget Computation
         Rule: "scout_available = false, 1 scout per turn, just consumed."
         See test_different_option_after_used_raises for verification.
+
+        Concurrency: correctness assumes single in-flight request per
+        server process (FastMCP stdio transport). If multiplexing is
+        added, the read-check-write on ``record.used`` must be atomic.
         """
         # 1. Look up turn request record
         record = self.store.get(turn_request_ref)

@@ -7,6 +7,10 @@ Each redactor returns FormatRedactOutcome:
 All redactors replace config values with [REDACTED:value] markers.
 One marker = one redaction in the count.
 
+``redactions_applied == 0`` does NOT imply the text is safe to emit
+without further processing. Generic token redaction must still run
+unconditionally on all emitted text regardless of this count.
+
 D1 delivers: redact_env, redact_ini
 D3 delivers: redact_json, redact_yaml, redact_toml
 """
@@ -32,6 +36,10 @@ class FormatSuppressed:
     reason is debug-only (e.g., "json_scanner_desync").
     Orchestration layer (redact_text) maps ALL FormatSuppressed
     to SuppressedText(reason=FORMAT_DESYNC).
+
+    Callers must NOT emit the original text when suppressed. Suppressed
+    means no repo-derived text should be returned; callers must still
+    apply generic token redaction to any strings they do emit.
     """
 
     reason: str
