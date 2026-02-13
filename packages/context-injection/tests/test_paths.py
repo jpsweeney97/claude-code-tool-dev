@@ -114,6 +114,15 @@ class TestNormalizeInputPathCanonicalization:
         assert path == "src/app.py"
         assert line == 42
 
+    def test_trailing_dot_segment(self) -> None:
+        """a/b/c/. normalizes to a/b/c via posixpath.normpath."""
+        assert normalize_input_path("a/b/c/.") == "a/b/c"
+
+    def test_dot_slash_only_rejected(self) -> None:
+        """./ normalizes to . — rejected as bare directory."""
+        with pytest.raises(ValueError, match="empty"):
+            normalize_input_path("./")
+
 
 class TestNormalizeInputPathAnchorOnly:
     """Anchor-only inputs must be rejected when split_anchor=True."""
@@ -132,6 +141,11 @@ class TestNormalizeInputPathAnchorOnly:
         """./:42 normalizes to '.' then anchor splits to '' — should raise."""
         with pytest.raises(ValueError, match="empty"):
             normalize_input_path("./:42", split_anchor=True)
+
+    def test_rejects_dot_colon_anchor(self) -> None:
+        """.:42 normpath leaves '.:42', anchor split produces ('.', 42) — should raise."""
+        with pytest.raises(ValueError, match="empty"):
+            normalize_input_path(".:42", split_anchor=True)
 
 
 class TestNormalizedPathDedupe:
@@ -465,6 +479,72 @@ class TestDenylistOnResolvedPath:
         )
         assert result.status == "allowed"
         assert result.resolved_rel == result.user_rel
+
+
+class TestDenylistAfterNormpath:
+    """Pipeline integration: non-canonical inputs must still hit denylist after normpath."""
+
+    def test_dot_slash_git_denied(self) -> None:
+        """./.git/config normalizes to .git/config — still denied."""
+        result = check_path_compile_time(
+            "./.git/config",
+            repo_root="/tmp/repo",
+            git_files={".git/config"},
+        )
+        assert result.status == "denied"
+        assert ".git" in (result.deny_reason or "")
+
+    def test_double_slash_git_denied(self) -> None:
+        """.git//config normalizes to .git/config — still denied."""
+        result = check_path_compile_time(
+            ".git//config",
+            repo_root="/tmp/repo",
+            git_files={".git/config"},
+        )
+        assert result.status == "denied"
+        assert ".git" in (result.deny_reason or "")
+
+    def test_dot_segments_in_denied_path(self) -> None:
+        """src/./node_modules/./lodash/index.js normalizes — node_modules still denied."""
+        result = check_path_compile_time(
+            "src/./node_modules/./lodash/index.js",
+            repo_root="/tmp/repo",
+            git_files={"src/node_modules/lodash/index.js"},
+        )
+        assert result.status == "denied"
+        assert "node_modules" in (result.deny_reason or "")
+
+    def test_trailing_slash_on_denied_component(self) -> None:
+        """.aws/credentials/ (trailing slash) normalizes — .aws still denied."""
+        result = check_path_compile_time(
+            ".aws/credentials/",
+            repo_root="/tmp/repo",
+            git_files={".aws/credentials"},
+        )
+        assert result.status == "denied"
+        assert ".aws" in (result.deny_reason or "")
+
+
+class TestDenylistNegativeCases:
+    """Verify paths that look similar to denylist entries are NOT denied."""
+
+    @pytest.mark.parametrize(
+        ("path", "description"),
+        [
+            ("terraform/main.tf", "terraform (no dot) != .terraform"),
+            ("aws-sdk/lib.py", "aws-sdk != .aws"),
+            ("docker-compose.yml", "docker-compose != .docker"),
+            ("kube-system/config.yaml", "kube-system != .kube"),
+            ("gnupg-utils/helper.py", "gnupg-utils != .gnupg"),
+        ],
+    )
+    def test_similar_names_not_denied(self, path: str, description: str) -> None:
+        result = check_path_compile_time(
+            path,
+            repo_root="/tmp/repo",
+            git_files={path},
+        )
+        assert result.status == "allowed", f"False positive: {description}"
 
 
 class TestCheckPathRuntime:
