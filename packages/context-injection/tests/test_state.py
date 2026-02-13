@@ -245,3 +245,144 @@ class TestScoutOptionRecord:
         )
         assert record.action == "grep"
         assert record.entity_key == "symbol:MyClass"
+
+
+def _setup_consume_test(
+    ctx: AppContext | None = None,
+) -> tuple[AppContext, str, str, str, ScoutOptionRecord]:
+    """Set up a valid consume_scout scenario.
+
+    Returns (ctx, turn_request_ref, scout_option_id, token, expected_record).
+    """
+    if ctx is None:
+        ctx = AppContext.create(repo_root="/tmp/repo")
+    req = _make_turn_request()
+    ref = make_turn_request_ref(req)
+
+    spec = _make_read_spec()
+    so_id = "so_001"
+    payload = ScoutTokenPayload(
+        v=1,
+        conversation_id=req.conversation_id,
+        turn_number=req.turn_number,
+        scout_option_id=so_id,
+        spec=spec,
+    )
+    token = generate_token(ctx.hmac_key, payload)
+
+    option = ScoutOptionRecord(
+        spec=spec,
+        token=token,
+        template_id="probe.file_repo_fact",
+        entity_id="e_001",
+        entity_key="file_path:src/app.py",
+        risk_signal=False,
+        path_display="src/app.py",
+        action="read",
+    )
+    record = TurnRequestRecord(
+        turn_request=req,
+        scout_options={so_id: option},
+    )
+    ctx.store_record(ref, record)
+
+    return ctx, ref, so_id, token, option
+
+
+class TestConsumeScout:
+    def test_valid_consume_returns_record(self) -> None:
+        ctx, ref, so_id, token, expected = _setup_consume_test()
+        result = ctx.consume_scout(ref, so_id, token)
+        assert result is expected
+
+    def test_marks_record_used(self) -> None:
+        ctx, ref, so_id, token, _ = _setup_consume_test()
+        assert ctx.store[ref].used is False
+        ctx.consume_scout(ref, so_id, token)
+        assert ctx.store[ref].used is True
+
+    def test_returns_all_metadata_fields(self) -> None:
+        ctx, ref, so_id, token, _ = _setup_consume_test()
+        result = ctx.consume_scout(ref, so_id, token)
+        assert result.template_id == "probe.file_repo_fact"
+        assert result.entity_id == "e_001"
+        assert result.entity_key == "file_path:src/app.py"
+        assert result.risk_signal is False
+        assert result.path_display == "src/app.py"
+        assert result.action == "read"
+
+    def test_unknown_ref_raises(self) -> None:
+        ctx, _, so_id, token, _ = _setup_consume_test()
+        with pytest.raises(ValueError, match="turn_request_ref not found"):
+            ctx.consume_scout("nonexistent:1", so_id, token)
+
+    def test_unknown_option_id_raises(self) -> None:
+        ctx, ref, _, token, _ = _setup_consume_test()
+        with pytest.raises(ValueError, match="scout_option_id not found"):
+            ctx.consume_scout(ref, "so_999", token)
+
+    def test_bad_token_raises(self) -> None:
+        ctx, ref, so_id, _, _ = _setup_consume_test()
+        with pytest.raises(ValueError, match="token verification failed"):
+            ctx.consume_scout(ref, so_id, "AAAAAAAAAAAAAAAAAAAAAA==")
+
+    def test_replay_raises(self) -> None:
+        ctx, ref, so_id, token, _ = _setup_consume_test()
+        ctx.consume_scout(ref, so_id, token)  # First use
+        with pytest.raises(ValueError, match="already used"):
+            ctx.consume_scout(ref, so_id, token)
+
+    def test_bad_token_does_not_set_used(self) -> None:
+        """Used-bit not set on verification failure (D10 design decision)."""
+        ctx, ref, so_id, _, _ = _setup_consume_test()
+        with pytest.raises(ValueError, match="token verification failed"):
+            ctx.consume_scout(ref, so_id, "AAAAAAAAAAAAAAAAAAAAAA==")
+        assert ctx.store[ref].used is False
+
+    def test_different_option_after_used_raises(self) -> None:
+        """One scout per turn: consuming any option after used=True fails.
+
+        Protocol guarantees scout_available=false after one consumption.
+        The used bit is per-record, not per-option.
+        """
+        ctx = AppContext.create(repo_root="/tmp/repo")
+        req = _make_turn_request()
+        ref = make_turn_request_ref(req)
+        spec1 = _make_read_spec()
+        spec2 = _make_read_spec(resolved_path="src/other.py")
+        payload1 = ScoutTokenPayload(
+            v=1,
+            conversation_id=req.conversation_id,
+            turn_number=req.turn_number,
+            scout_option_id="so_001",
+            spec=spec1,
+        )
+        payload2 = ScoutTokenPayload(
+            v=1,
+            conversation_id=req.conversation_id,
+            turn_number=req.turn_number,
+            scout_option_id="so_002",
+            spec=spec2,
+        )
+        token1 = generate_token(ctx.hmac_key, payload1)
+        token2 = generate_token(ctx.hmac_key, payload2)
+        option1 = ScoutOptionRecord(
+            spec=spec1, token=token1,
+            template_id="probe.file_repo_fact", entity_id="e_001",
+            entity_key="file_path:src/app.py", risk_signal=False,
+            path_display="src/app.py", action="read",
+        )
+        option2 = ScoutOptionRecord(
+            spec=spec2, token=token2,
+            template_id="probe.file_repo_fact", entity_id="e_002",
+            entity_key="file_path:src/other.py", risk_signal=False,
+            path_display="src/other.py", action="read",
+        )
+        record = TurnRequestRecord(
+            turn_request=req,
+            scout_options={"so_001": option1, "so_002": option2},
+        )
+        ctx.store_record(ref, record)
+        ctx.consume_scout(ref, "so_001", token1)
+        with pytest.raises(ValueError, match="already used"):
+            ctx.consume_scout(ref, "so_002", token2)

@@ -89,6 +89,68 @@ class AppContext:
         self.entity_counter += 1
         return f"e_{self.entity_counter:03d}"
 
+    def consume_scout(
+        self,
+        turn_request_ref: str,
+        scout_option_id: str,
+        scout_token: str,
+    ) -> ScoutOptionRecord:
+        """Atomic verify-and-consume for Call 2.
+
+        Validates HMAC token, checks replay, marks used, returns record.
+        All failures raise ValueError -> maps to ScoutResultInvalid.
+
+        Check order: ref lookup -> option lookup -> HMAC verify -> replay check -> mark used.
+        Used-bit NOT set on verification failure (D10 design decision).
+
+        INVARIANT: One scout per turn. The used bit is per-record (not
+        per-option). After ANY option is consumed, ALL other options on
+        the same turn are blocked. This enforces the Budget Computation
+        Rule: "scout_available = false, 1 scout per turn, just consumed."
+        See test_different_option_after_used_raises for verification.
+        """
+        # 1. Look up turn request record
+        record = self.store.get(turn_request_ref)
+        if record is None:
+            raise ValueError(
+                f"consume_scout failed: turn_request_ref not found. "
+                f"Got: {turn_request_ref!r:.100}"
+            )
+
+        # 2. Look up scout option
+        option = record.scout_options.get(scout_option_id)
+        if option is None:
+            raise ValueError(
+                f"consume_scout failed: scout_option_id not found. "
+                f"Got: {scout_option_id!r:.100}"
+            )
+
+        # 3. Verify HMAC token
+        payload = ScoutTokenPayload(
+            v=1,
+            conversation_id=record.turn_request.conversation_id,
+            turn_number=record.turn_request.turn_number,
+            scout_option_id=scout_option_id,
+            spec=option.spec,
+        )
+        if not verify_token(self.hmac_key, payload, scout_token):
+            raise ValueError(
+                f"consume_scout failed: token verification failed "
+                f"for {scout_option_id!r}"
+            )
+
+        # 4. Replay check (AFTER token verification — don't leak used state)
+        if record.used:
+            raise ValueError(
+                f"consume_scout failed: record already used "
+                f"for {turn_request_ref!r}"
+            )
+
+        # 5. Mark used
+        record.used = True
+
+        return option
+
     def store_record(self, ref: str, record: TurnRequestRecord) -> None:
         """Store a TurnRequestRecord with bounded eviction.
 
