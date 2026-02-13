@@ -110,3 +110,112 @@ def redact_env(text: str) -> FormatRedactOutcome:
         redacted += "\n"
 
     return FormatRedactResult(text=redacted, redactions_applied=redactions)
+
+
+# --- INI redactor ---
+
+
+def redact_ini(text: str, *, properties_mode: bool = False) -> FormatRedactOutcome:
+    """Redact values in INI/.properties format.
+
+    Handles: key=value, key:value, key = value, [section] headers,
+    comments (; and # for INI, # and ! for .properties).
+
+    Properties mode: backslash continuation (strict: line must end with
+    unescaped backslash). Excerpt-start-mid-continuation is an accepted
+    limitation mitigated by generic token pass (D2a).
+    """
+    if not text.strip():
+        return FormatRedactResult(text=text, redactions_applied=0)
+
+    lines = text.splitlines()
+    result: list[str] = []
+    redactions = 0
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Empty line
+        if not stripped:
+            result.append(line)
+            i += 1
+            continue
+
+        # Comment detection
+        if _is_ini_comment(stripped, properties_mode=properties_mode):
+            result.append(line)
+            i += 1
+            continue
+
+        # Section header [section]
+        if stripped.startswith("[") and stripped.endswith("]"):
+            result.append(line)
+            i += 1
+            continue
+
+        # Key-value pair
+        kv = _split_ini_kv(stripped)
+        if kv is not None:
+            prefix, _ = kv
+            result.append(f"{prefix}{_REDACTED_VALUE}")
+            redactions += 1
+
+            # Properties mode: skip continuation lines
+            if properties_mode:
+                while _has_line_continuation(lines[i]) and i + 1 < len(lines):
+                    i += 1
+        else:
+            # No separator found — preserve line as-is
+            result.append(line)
+
+        i += 1
+
+    redacted = "\n".join(result)
+    if text.endswith("\n"):
+        redacted += "\n"
+
+    return FormatRedactResult(text=redacted, redactions_applied=redactions)
+
+
+def _is_ini_comment(stripped: str, *, properties_mode: bool) -> bool:
+    """Check if a stripped line is a comment."""
+    if stripped.startswith("#") or stripped.startswith(";"):
+        return True
+    if properties_mode and stripped.startswith("!"):
+        return True
+    return False
+
+
+def _split_ini_kv(line: str) -> tuple[str, str] | None:
+    """Split INI key-value line into (prefix, value).
+
+    prefix includes key, separator, and all original whitespace:
+    'key = value' -> ('key = ', 'value')
+    'key:value' -> ('key:', 'value')
+    'key =  value' -> ('key =  ', 'value')
+
+    Uses first separator found (min position of = and :).
+    """
+    eq_idx = line.find("=")
+    colon_idx = line.find(":")
+
+    if eq_idx < 0 and colon_idx < 0:
+        return None
+
+    if eq_idx < 0:
+        idx = colon_idx
+    elif colon_idx < 0:
+        idx = eq_idx
+    else:
+        idx = min(eq_idx, colon_idx)
+
+    prefix = line[: idx + 1]
+    rest = line[idx + 1 :]
+    # Preserve all whitespace between separator and value start
+    stripped_rest = rest.lstrip()
+    whitespace = rest[: len(rest) - len(stripped_rest)]
+    prefix += whitespace
+
+    return prefix, stripped_rest
