@@ -3,6 +3,7 @@
 import pytest
 
 from context_injection.paths import (
+    DENYLIST_DIRS,
     CompileTimeResult,
     check_path_compile_time,
     check_path_runtime,
@@ -193,6 +194,60 @@ class TestDenylist:
             git_files=set(),
         )
         assert result.status == "denied"
+
+
+class TestDenylistAtDepth:
+    """Verify denylist catches denied directories at arbitrary nesting depth."""
+
+    def test_git_at_depth_1(self) -> None:
+        result = check_path_compile_time(
+            "src/.git/config",
+            repo_root="/tmp/repo",
+            git_files={"src/.git/config"},
+        )
+        assert result.status == "denied"
+        assert ".git" in (result.deny_reason or "")
+
+    def test_git_at_depth_3(self) -> None:
+        result = check_path_compile_time(
+            "deeply/nested/path/.git/refs/heads/main",
+            repo_root="/tmp/repo",
+            git_files={"deeply/nested/path/.git/refs/heads/main"},
+        )
+        assert result.status == "denied"
+
+    def test_ssh_at_depth_2(self) -> None:
+        result = check_path_compile_time(
+            "home/user/.ssh/id_rsa",
+            repo_root="/tmp/repo",
+            git_files={"home/user/.ssh/id_rsa"},
+        )
+        assert result.status == "denied"
+
+    def test_pycache_at_depth_1(self) -> None:
+        result = check_path_compile_time(
+            "src/__pycache__/module.cpython-311.pyc",
+            repo_root="/tmp/repo",
+            git_files={"src/__pycache__/module.cpython-311.pyc"},
+        )
+        assert result.status == "denied"
+
+    def test_node_modules_at_depth_1(self) -> None:
+        result = check_path_compile_time(
+            "packages/node_modules/lodash/index.js",
+            repo_root="/tmp/repo",
+            git_files={"packages/node_modules/lodash/index.js"},
+        )
+        assert result.status == "denied"
+
+
+class TestDenylistDirsInvariant:
+    """Structural invariant: DENYLIST_DIRS must contain only bare names."""
+
+    def test_no_slash_patterns(self) -> None:
+        """Bare-name patterns match per-component at any depth.
+        Slash patterns (e.g., name/*) silently fail for nested paths."""
+        assert all("/" not in p for p in DENYLIST_DIRS)
 
 
 class TestGitLsFilesGating:

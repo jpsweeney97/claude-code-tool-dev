@@ -21,23 +21,22 @@ from typing import Literal, overload
 
 DENYLIST_DIRS: tuple[str, ...] = (
     ".git",
-    ".git/*",
     ".ssh",
-    ".ssh/*",
     "__pycache__",
-    "__pycache__/*",
     "node_modules",
-    "node_modules/*",
     ".svn",
-    ".svn/*",
     ".hg",
-    ".hg/*",
 )
-"""Glob patterns for denied directory prefixes.
+"""Denied directory names (bare names only).
 
-Each directory has two entries: bare name (denies the directory itself) and
-name/* (denies any file within it). Both are needed because fnmatch matches
-against individual path components, not the full path.
+Matching is per-component: each path component is checked independently via
+fnmatch. A match at any position denies the entire path. This makes bare-name
+matching inherently recursive — `.git` denies `.git/config`,
+`src/.git/hooks/pre-commit`, etc. at any depth.
+
+Do NOT add slash-containing patterns (e.g., `name/*`). They silently fail for
+paths where the denied directory appears at depth > 0, because fnmatch compares
+against the full accumulated prefix which includes parent segments.
 """
 
 DENYLIST_FILES: tuple[str, ...] = (
@@ -246,24 +245,17 @@ def _split_anchor(path: str) -> tuple[str, int | None]:
 def _is_denied_dir(path: str) -> str | None:
     """Check if any path component matches a denied directory pattern.
 
-    For simple patterns (no /): fnmatch against individual components.
-    For patterns with / (e.g., ".git/*"): fnmatch against accumulated path prefix.
+    Each component is matched independently via fnmatch. A match at any
+    position denies the entire path — this provides recursive denial at
+    any depth without needing explicit glob patterns like `name/*`.
 
     Returns deny reason or None.
     """
     parts = path.split("/")
-    # Check each prefix segment against dir patterns
-    for i, part in enumerate(parts):
+    for part in parts:
         for pattern in DENYLIST_DIRS:
-            # For patterns without /, match against individual component
-            if "/" not in pattern:
-                if fnmatch(part, pattern):
-                    return f"directory matches denylist pattern: {pattern}"
-            else:
-                # For patterns with /, match against the relative path from start
-                rel_prefix = "/".join(parts[: i + 2]) if i + 1 < len(parts) else None
-                if rel_prefix and fnmatch(rel_prefix, pattern):
-                    return f"path matches denylist pattern: {pattern}"
+            if fnmatch(part, pattern):
+                return f"directory matches denylist pattern: {pattern}"
     return None
 
 
