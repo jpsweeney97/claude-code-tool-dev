@@ -1,6 +1,6 @@
 ---
 name: creating-handoffs
-description: Used when user says "wrap this up", "new session", or "handoff"; when stopping work with context to preserve.
+description: Used when user says "wrap this up", "new session", "almost out of context", "next session", or "handoff"; when stopping work with context to preserve.
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
@@ -71,7 +71,7 @@ Create comprehensive session reports that preserve the full context future-Claud
 | Evidence density | Every factual claim has file:line, quote, or output reference |
 | Codebase knowledge | All files explored are listed with patterns, architecture, and key locations |
 | Session narrative | Exploration arc told chronologically with pivots and triggers |
-| User preferences | Captured with verbatim quotes; corrections and pushback included |
+| User preferences | Captured with verbatim quotes; corrections and push-back included |
 | Resumption readiness | Future-Claude could continue without re-reading any file explored this session |
 
 **Quick check:** After writing, verify file exists and contains the title. If missing, check write permissions and path.
@@ -133,7 +133,7 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
    - Verify minimum 6 body sections with content (most sessions should populate 8+)
    - Verify each Decision entry has all 8 elements from the synthesis prompts
    - Estimate body line count — target 300-700 depending on session complexity
-   - If estimate is under 300, you are almost certainly undercapturing. Re-examine: implicit decisions, codebase knowledge gained, conversation dynamics, exploration arc, files read that produced understanding.
+   - If estimate is under 300, you are almost certainly under-capturing. Re-examine: implicit decisions, codebase knowledge gained, conversation dynamics, exploration arc, files read that produced understanding.
    - **Default to inclusion.** If you're unsure whether something belongs, include it.
 
 6. **Determine output path:**
@@ -148,7 +148,7 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
 
 8. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
 
-9. **Clean up state file** (delete `~/.claude/.session-state/handoff-<session_id>` if exists)
+9. **Clean up state file** (use `trash` to remove `~/.claude/.session-state/handoff-<session_id>` if exists)
 
 10. **Verify and confirm (brief summary only):**
     - Check file exists and frontmatter is valid
@@ -206,7 +206,7 @@ After creating handoff, verify:
 | Handoff for trivial sessions | Noise accumulation | Skip if no meaningful decisions/progress |
 | Listing files without purpose or detail | Future-Claude can't act on bare filenames | Each file gets purpose, approach, and key implementation details |
 | Single-sentence decisions | Missing reasoning makes decisions non-actionable | Every decision needs: choice, driver, alternatives, trade-offs, confidence, implications |
-| Handoffs under 300 lines | Indicates significant information loss | Re-examine session for undercapture — implicit decisions, codebase knowledge, conversation dynamics |
+| Handoffs under 300 lines | Indicates significant information loss | Re-examine session for under-capture — implicit decisions, codebase knowledge, conversation dynamics |
 | Paraphrasing user preferences | Paraphrase loses nuance that makes preferences actionable | Use verbatim quotes for every user preference and correction |
 | Missing decisions/rationale | Just listing changes isn't useful | Always capture at least one "why" |
 | Re-prompting after user declines | Annoying, ignores user intent | Respect "no" and move on |
