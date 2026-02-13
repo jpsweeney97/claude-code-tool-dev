@@ -23,7 +23,7 @@ from context_injection.canonical import (
     ScoutTokenPayload,
     make_entity_key,
 )
-from context_injection.state import AppContext, ScoutOptionRegistry, generate_token
+from context_injection.state import AppContext, ScoutOptionRecord, ScoutOptionRegistry, generate_token
 from context_injection.types import (
     Budget,
     Clarifier,
@@ -242,10 +242,11 @@ def _make_read_option(
     entities_by_id: dict[str, Entity],
     so_counter: list[int],
     spec_registry: ScoutOptionRegistry,
+    template_id: str,
 ) -> ReadOption:
     """Create a ReadOption with HMAC token for a file entity.
 
-    Side effect: registers (spec, token) in spec_registry for Call 2 validation.
+    Side effect: registers ScoutOptionRecord in spec_registry for Call 2 validation.
     """
     risk = pd.risk_signal
     max_lines = MAX_LINES_RISK if risk else MAX_LINES_NORMAL
@@ -283,7 +284,17 @@ def _make_read_option(
     )
     token = generate_token(ctx.hmac_key, payload)
 
-    spec_registry[so_id] = (spec, token)
+    entity_key = _compute_effective_key(entity, entities_by_id)
+    spec_registry[so_id] = ScoutOptionRecord(
+        spec=spec,
+        token=token,
+        template_id=template_id,
+        entity_id=entity.id,
+        entity_key=entity_key,
+        risk_signal=risk,
+        path_display=target_display,
+        action="read",
+    )
 
     return ReadOption(
         id=so_id,
@@ -304,10 +315,12 @@ def _make_grep_option(
     ctx: AppContext,
     so_counter: list[int],
     spec_registry: ScoutOptionRegistry,
+    template_id: str,
+    entities_by_id: dict[str, Entity],
 ) -> GrepOption:
     """Create a GrepOption with HMAC token for a symbol entity.
 
-    Side effect: registers (spec, token) in spec_registry for Call 2 validation.
+    Side effect: registers ScoutOptionRecord in spec_registry for Call 2 validation.
     """
     so_counter[0] += 1
     so_id = f"so_{so_counter[0]:03d}"
@@ -330,7 +343,17 @@ def _make_grep_option(
     )
     token = generate_token(ctx.hmac_key, payload)
 
-    spec_registry[so_id] = (spec, token)
+    entity_key = _compute_effective_key(entity, entities_by_id)
+    spec_registry[so_id] = ScoutOptionRecord(
+        spec=spec,
+        token=token,
+        template_id=template_id,
+        entity_id=entity.id,
+        entity_key=entity_key,
+        risk_signal=False,
+        path_display=entity.canonical,
+        action="grep",
+    )
 
     return GrepOption(
         id=so_id,
@@ -398,7 +421,7 @@ def match_templates(
 
     Returns (template_candidates, dedup_records, spec_registry).
 
-    spec_registry maps scout_option_id -> (frozen ScoutSpec, HMAC token).
+    spec_registry maps scout_option_id -> ScoutOptionRecord.
     Used by pipeline.py to populate TurnRequestRecord.scout_options for Call 2.
 
     Decision tree:
@@ -527,7 +550,8 @@ def match_templates(
         if entity.type == "symbol":
             template_id = "probe.symbol_repo_fact"
             scout_option = _make_grep_option(
-                entity, turn_request, ctx, so_counter, spec_registry
+                entity, turn_request, ctx, so_counter, spec_registry,
+                template_id=template_id, entities_by_id=entities_by_id,
             )
             scout_options: list[ReadOption | GrepOption] = [scout_option]
         else:
@@ -541,6 +565,7 @@ def match_templates(
                 entities_by_id,
                 so_counter,
                 spec_registry,
+                template_id=template_id,
             )
             scout_options = [scout_option]
 

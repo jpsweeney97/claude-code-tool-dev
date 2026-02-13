@@ -15,7 +15,7 @@ from typing import Any
 from unittest.mock import patch
 
 from context_injection.pipeline import process_turn
-from context_injection.state import AppContext
+from context_injection.state import AppContext, ScoutOptionRecord
 from context_injection.types import (
     Claim,
     EvidenceRecord,
@@ -511,10 +511,11 @@ class TestStoreRecord:
         ]
         if probe_candidates:
             assert len(record.scout_options) > 0
-            for so_id, (spec, token) in record.scout_options.items():
+            for so_id, option in record.scout_options.items():
                 assert so_id.startswith("so_")
-                assert isinstance(token, str)
-                assert len(token) > 0
+                assert isinstance(option, ScoutOptionRecord)
+                assert isinstance(option.token, str)
+                assert len(option.token) > 0
 
     def test_duplicate_ref_raises_on_second_call(self) -> None:
         """Same conversation_id + turn_number twice → ValueError from store_record."""

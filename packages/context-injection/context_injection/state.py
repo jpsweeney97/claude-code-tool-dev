@@ -28,8 +28,28 @@ MAX_TURN_RECORDS: int = 200
 TAG_LEN: int = 16
 """HMAC tag length in bytes (128 bits). Truncated from SHA-256 output."""
 
-ScoutOptionRegistry = dict[str, tuple[ReadSpec | GrepSpec, str]]
-"""scout_option_id -> (frozen ScoutSpec, HMAC token). Atomic pairs for Call 2."""
+
+@dataclass(frozen=True)
+class ScoutOptionRecord:
+    """Stored metadata for a single scout option.
+
+    Bundles everything needed to produce a protocol-compliant ScoutResult
+    at execution time. Created during Call 1 (template synthesis).
+    Consumed during Call 2 via consume_scout().
+    """
+
+    spec: ReadSpec | GrepSpec
+    token: str
+    template_id: str
+    entity_id: str
+    entity_key: str
+    risk_signal: bool
+    path_display: str
+    action: str
+
+
+ScoutOptionRegistry = dict[str, ScoutOptionRecord]
+"""scout_option_id -> ScoutOptionRecord. Full metadata for Call 2."""
 
 
 @dataclass

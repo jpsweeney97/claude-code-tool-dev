@@ -6,12 +6,13 @@ from context_injection.canonical import ScoutTokenPayload
 from context_injection.state import (
     MAX_TURN_RECORDS,
     AppContext,
+    ScoutOptionRecord,
     TurnRequestRecord,
     generate_token,
     make_turn_request_ref,
     verify_token,
 )
-from context_injection.types import Focus, ReadSpec, TurnRequest, SCHEMA_VERSION
+from context_injection.types import Focus, GrepSpec, ReadSpec, TurnRequest, SCHEMA_VERSION
 
 
 def _make_read_spec(**overrides) -> ReadSpec:
@@ -129,13 +130,23 @@ class TestTurnRequestStore:
         ref = make_turn_request_ref(req)
         spec = _make_read_spec()
         token = "token_123"
+        option = ScoutOptionRecord(
+            spec=spec,
+            token=token,
+            template_id="probe.file_repo_fact",
+            entity_id="e_001",
+            entity_key="file_path:src/app.py",
+            risk_signal=False,
+            path_display="src/app.py",
+            action="read",
+        )
         record = TurnRequestRecord(
             turn_request=req,
-            scout_options={"so_001": (spec, token)},
+            scout_options={"so_001": option},
         )
         ctx.store_record(ref, record)
         assert ref in ctx.store
-        assert ctx.store[ref].scout_options["so_001"] == (spec, token)
+        assert ctx.store[ref].scout_options["so_001"] is option
 
     def test_duplicate_ref_rejected(self) -> None:
         ctx = AppContext.create(repo_root="/tmp/repo")
@@ -174,3 +185,63 @@ class TestMakeTurnRequestRef:
     def test_format(self) -> None:
         req = _make_turn_request(conversation_id="conv_abc", turn_number=3)
         assert make_turn_request_ref(req) == "conv_abc:3"
+
+
+class TestScoutOptionRecord:
+    def test_construction_and_fields(self) -> None:
+        spec = _make_read_spec()
+        record = ScoutOptionRecord(
+            spec=spec,
+            token="tok_abc",
+            template_id="probe.file_repo_fact",
+            entity_id="e_001",
+            entity_key="file_path:src/app.py",
+            risk_signal=False,
+            path_display="src/app.py",
+            action="read",
+        )
+        assert record.spec is spec
+        assert record.token == "tok_abc"
+        assert record.template_id == "probe.file_repo_fact"
+        assert record.entity_id == "e_001"
+        assert record.entity_key == "file_path:src/app.py"
+        assert record.risk_signal is False
+        assert record.path_display == "src/app.py"
+        assert record.action == "read"
+
+    def test_frozen(self) -> None:
+        record = ScoutOptionRecord(
+            spec=_make_read_spec(),
+            token="tok_abc",
+            template_id="probe.file_repo_fact",
+            entity_id="e_001",
+            entity_key="file_path:src/app.py",
+            risk_signal=False,
+            path_display="src/app.py",
+            action="read",
+        )
+        with pytest.raises(AttributeError):
+            record.token = "different"
+
+    def test_grep_action(self) -> None:
+        spec = GrepSpec(
+            action="grep",
+            pattern="MyClass",
+            strategy="match_context",
+            max_lines=40,
+            max_chars=2000,
+            context_lines=2,
+            max_ranges=5,
+        )
+        record = ScoutOptionRecord(
+            spec=spec,
+            token="tok_xyz",
+            template_id="probe.symbol_repo_fact",
+            entity_id="e_002",
+            entity_key="symbol:MyClass",
+            risk_signal=False,
+            path_display="MyClass",
+            action="grep",
+        )
+        assert record.action == "grep"
+        assert record.entity_key == "symbol:MyClass"
