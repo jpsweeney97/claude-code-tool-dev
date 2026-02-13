@@ -23,7 +23,7 @@ from context_injection.canonical import (
     ScoutTokenPayload,
     make_entity_key,
 )
-from context_injection.state import AppContext, generate_token
+from context_injection.state import AppContext, ScoutOptionRegistry, generate_token
 from context_injection.types import (
     Budget,
     Clarifier,
@@ -241,7 +241,7 @@ def _make_read_option(
     ctx: AppContext,
     entities_by_id: dict[str, Entity],
     so_counter: list[int],
-    spec_registry: dict[str, tuple[ReadSpec | GrepSpec, str]],
+    spec_registry: ScoutOptionRegistry,
 ) -> ReadOption:
     """Create a ReadOption with HMAC token for a file entity.
 
@@ -303,7 +303,7 @@ def _make_grep_option(
     turn_request: TurnRequest,
     ctx: AppContext,
     so_counter: list[int],
-    spec_registry: dict[str, tuple[ReadSpec | GrepSpec, str]],
+    spec_registry: ScoutOptionRegistry,
 ) -> GrepOption:
     """Create a GrepOption with HMAC token for a symbol entity.
 
@@ -392,7 +392,7 @@ def match_templates(
 ) -> tuple[
     list[TemplateCandidate],
     list[DedupRecord],
-    dict[str, tuple[ReadSpec | GrepSpec, str]],
+    ScoutOptionRegistry,
 ]:
     """Match entities to templates, rank, synthesize scout options.
 
@@ -418,7 +418,7 @@ def match_templates(
 
     tc_counter = 0
     so_counter = [0]  # Mutable for nested function access
-    spec_registry: dict[str, tuple[ReadSpec | GrepSpec, str]] = {}
+    spec_registry: ScoutOptionRegistry = {}
     candidates: list[TemplateCandidate] = []
     dedup_records: list[DedupRecord] = []
 

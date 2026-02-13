@@ -2,6 +2,7 @@
 
 import json
 
+import pytest
 
 from context_injection.canonical import (
     ScoutTokenPayload,
@@ -174,3 +175,13 @@ class TestEntityKey:
         entity_type, canonical = parse_entity_key(key)
         assert entity_type == "file_loc"
         assert canonical == "config.py:42"
+
+    def test_parse_empty_string_raises(self) -> None:
+        """Empty string input raises ValueError."""
+        with pytest.raises(ValueError, match="empty"):
+            parse_entity_key("")
+
+    def test_parse_no_colon_raises(self) -> None:
+        """String without colon raises ValueError."""
+        with pytest.raises(ValueError, match="no colon"):
+            parse_entity_key("file_path_only")

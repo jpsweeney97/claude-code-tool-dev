@@ -28,14 +28,16 @@ MAX_TURN_RECORDS: int = 200
 TAG_LEN: int = 16
 """HMAC tag length in bytes (128 bits). Truncated from SHA-256 output."""
 
+ScoutOptionRegistry = dict[str, tuple[ReadSpec | GrepSpec, str]]
+"""scout_option_id -> (frozen ScoutSpec, HMAC token). Atomic pairs for Call 2."""
+
 
 @dataclass
 class TurnRequestRecord:
     """Stored record for Call 2 validation."""
 
     turn_request: TurnRequest
-    scout_options: dict[str, tuple[ReadSpec | GrepSpec, str]]
-    """scout_option_id -> (frozen ScoutSpec, HMAC token) -- atomic pairs."""
+    scout_options: ScoutOptionRegistry
     used: bool = False
     """One-shot used-bit. Set only after successful verification, before execution."""
 

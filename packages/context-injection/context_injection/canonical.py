@@ -70,6 +70,15 @@ def parse_entity_key(key: str) -> tuple[str, str]:
     """Parse entity key back to (entity_type, canonical_form).
 
     Handles values containing colons (e.g., file_loc:config.py:42).
+
+    Raises:
+        ValueError: If key is empty or contains no colon separator.
     """
-    entity_type, _, canonical_form = key.partition(":")
+    if not key:
+        raise ValueError("parse_entity_key failed: empty key")
+    entity_type, sep, canonical_form = key.partition(":")
+    if not sep:
+        raise ValueError(
+            f"parse_entity_key failed: no colon separator. Got: {key!r:.100}"
+        )
     return entity_type, canonical_form

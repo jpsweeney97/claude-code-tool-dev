@@ -391,6 +391,10 @@ def check_path_runtime(
     This re-validates at execution time. The compile-time check already
     verified denylist and git tracking; runtime re-checks containment
     and file existence (which may have changed between Call 1 and Call 2).
+
+    TOCTOU note: A symlink could be swapped between this check and the
+    subsequent file read. Accepted for v0a — the agent is the consumer,
+    and the denylist re-check at Call 2 time provides defense in depth.
     """
     # Resolve realpath
     real = os.path.realpath(resolved_path)
