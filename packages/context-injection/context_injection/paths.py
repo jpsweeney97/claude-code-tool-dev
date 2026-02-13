@@ -179,9 +179,7 @@ def normalize_input_path(
 
     # Reject empty/whitespace-only input
     if not path:
-        raise ValueError(
-            f"normalize_input_path failed: empty path. Got: {raw!r:.100}"
-        )
+        raise ValueError(f"normalize_input_path failed: empty path. Got: {raw!r:.100}")
 
     # Reject NUL bytes
     if "\x00" in path:
@@ -220,9 +218,7 @@ def normalize_input_path(
 
     # normpath('.') → '.' for bare-directory inputs like '.' or './' — reject
     if path == ".":
-        raise ValueError(
-            f"normalize_input_path failed: empty path. Got: {raw!r:.100}"
-        )
+        raise ValueError(f"normalize_input_path failed: empty path. Got: {raw!r:.100}")
 
     # Split anchor if requested
     line: int | None = None
@@ -362,7 +358,7 @@ def check_path_compile_time(
     # Step 3: Containment check
     repo_root_normalized = os.path.normpath(repo_root)
     # Ensure resolved path is under repo root
-    # Use os.path.commonpath to avoid prefix false positives
+    # Use startswith(root + os.sep) to avoid prefix false positives
     # (e.g., /tmp/repo-evil shouldn't match /tmp/repo)
     if not (
         resolved_abs == repo_root_normalized

@@ -415,6 +415,39 @@ class TestSymlinkDenylistBypass:
         assert "denylist" in (result.deny_reason or "")
 
 
+class TestDenylistOnResolvedPath:
+    """Verify denylist is checked on resolved_rel, not just normalized."""
+
+    def test_symlink_to_git_dir_denied(self, tmp_path) -> None:
+        """A symlink resolving into .git/ is denied via resolved_rel check."""
+        git_dir = tmp_path / ".git"
+        git_dir.mkdir()
+        target = git_dir / "config"
+        target.write_text("[core]")
+
+        link = tmp_path / "docs" / "config.txt"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(target)
+
+        result = check_path_compile_time(
+            "docs/config.txt",
+            repo_root=str(tmp_path),
+            git_files={"docs/config.txt"},
+        )
+        assert result.status == "denied"
+        assert ".git" in (result.deny_reason or "")
+
+    def test_non_symlink_resolved_rel_equals_user_rel(self) -> None:
+        """For non-symlink paths, resolved_rel matches user_rel."""
+        result = check_path_compile_time(
+            "src/app.py",
+            repo_root="/tmp/repo",
+            git_files={"src/app.py"},
+        )
+        assert result.status == "allowed"
+        assert result.resolved_rel == result.user_rel
+
+
 class TestCheckPathRuntime:
     """Tests for check_path_runtime() — Call 2 lightweight re-check."""
 
