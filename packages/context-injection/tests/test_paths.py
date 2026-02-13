@@ -115,6 +115,25 @@ class TestNormalizeInputPathCanonicalization:
         assert line == 42
 
 
+class TestNormalizeInputPathAnchorOnly:
+    """Anchor-only inputs must be rejected when split_anchor=True."""
+
+    def test_rejects_colon_anchor_only(self) -> None:
+        """':42' has no path component — should raise, not return ('', 42)."""
+        with pytest.raises(ValueError, match="empty path"):
+            normalize_input_path(":42", split_anchor=True)
+
+    def test_rejects_github_anchor_only(self) -> None:
+        """'#L42' has no path component — should raise, not return ('', 42)."""
+        with pytest.raises(ValueError, match="empty path"):
+            normalize_input_path("#L42", split_anchor=True)
+
+    def test_rejects_dot_slash_anchor(self) -> None:
+        """./:42 normalizes to '.' then anchor splits to '' — should raise."""
+        with pytest.raises(ValueError, match="empty"):
+            normalize_input_path("./:42", split_anchor=True)
+
+
 class TestNormalizedPathDedupe:
     """Verify that non-canonical inputs produce the same normalized form
     for consistent git-files lookup and denylist matching."""

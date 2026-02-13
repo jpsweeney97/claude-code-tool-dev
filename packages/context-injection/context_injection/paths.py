@@ -226,6 +226,10 @@ def normalize_input_path(
     line: int | None = None
     if split_anchor:
         path, line = _split_anchor(path)
+        if not path or path == ".":
+            raise ValueError(
+                f"normalize_input_path failed: empty path after anchor split. Got: {raw!r:.100}"
+            )
 
     if split_anchor:
         return path, line
