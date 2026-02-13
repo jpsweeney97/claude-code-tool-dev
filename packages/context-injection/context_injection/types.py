@@ -323,8 +323,8 @@ class ReadResult(ProtocolModel):
 
     path_display: str
     excerpt: str
-    excerpt_range: Annotated[list[int], Field(min_length=2, max_length=2)]
-    """[start_line, end_line]. Uses list (not tuple) because strict=True blocks list->tuple coercion from JSON arrays."""
+    excerpt_range: Annotated[list[int], Field(min_length=2, max_length=2)] | None
+    """[start_line, end_line] or None for PEM suppression / zero-content. Uses list (not tuple) because strict=True blocks list->tuple coercion from JSON arrays."""
     total_lines: int
 
 

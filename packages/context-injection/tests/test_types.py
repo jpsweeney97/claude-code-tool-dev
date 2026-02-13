@@ -15,6 +15,7 @@ from context_injection.types import (
     GrepSpec,
     PathDecision,
     ReadOption,
+    ReadResult,
     ReadSpec,
     ScoutResult,
     ScoutResultFailure,
@@ -495,3 +496,52 @@ class TestDedupRecordInvariant:
             prior_turn=1,
         )
         assert d.template_id == "probe.file_repo_fact"
+
+
+class TestReadResultExcerptRangeNullable:
+    def test_nullable_excerpt_range_accepts_none(self) -> None:
+        """PEM suppression and zero-content scenarios need excerpt_range=None."""
+        result = ReadResult(
+            path_display="src/app.py",
+            excerpt="[REDACTED:key_block]",
+            excerpt_range=None,
+            total_lines=100,
+        )
+        assert result.excerpt_range is None
+
+    def test_non_null_excerpt_range_still_validates(self) -> None:
+        result = ReadResult(
+            path_display="src/app.py",
+            excerpt="content here",
+            excerpt_range=[1, 40],
+            total_lines=100,
+        )
+        assert result.excerpt_range == [1, 40]
+
+    def test_excerpt_range_rejects_wrong_length_when_not_none(self) -> None:
+        with pytest.raises(Exception):
+            ReadResult(
+                path_display="src/app.py",
+                excerpt="content",
+                excerpt_range=[1],
+                total_lines=100,
+            )
+
+    def test_excerpt_range_rejects_too_long(self) -> None:
+        with pytest.raises(Exception):
+            ReadResult(
+                path_display="src/app.py",
+                excerpt="content",
+                excerpt_range=[1, 40, 80],
+                total_lines=100,
+            )
+
+    def test_excerpt_range_rejects_wrong_item_type(self) -> None:
+        """Strict mode rejects string items in list[int] field."""
+        with pytest.raises(Exception):
+            ReadResult(
+                path_display="src/app.py",
+                excerpt="content",
+                excerpt_range=["1", "40"],
+                total_lines=100,
+            )
