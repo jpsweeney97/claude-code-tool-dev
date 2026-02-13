@@ -18,6 +18,7 @@ import hmac
 import os
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from typing import Literal
 
 from context_injection.canonical import ScoutTokenPayload, canonical_json_bytes
 from context_injection.types import ReadSpec, GrepSpec, TurnRequest
@@ -45,7 +46,7 @@ class ScoutOptionRecord:
     entity_key: str
     risk_signal: bool
     path_display: str
-    action: str
+    action: Literal["read", "grep"]
 
 
 ScoutOptionRegistry = dict[str, ScoutOptionRecord]
