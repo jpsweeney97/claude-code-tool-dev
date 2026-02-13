@@ -22,7 +22,8 @@ Monorepo for developing Claude Code extensions: skills, commands, agents, hooks,
 
 packages/
 ├── plugins/      # Plugin packages
-└── mcp-servers/  # MCP servers
+├── mcp-servers/  # MCP servers
+└── context-injection/  # Context injection MCP server (v0a on main)
 
 scripts/          # Utility scripts (run with uv run scripts/<name>)
 docs/
@@ -32,6 +33,14 @@ docs/
 ├── audits/       # Quality audits
 └── claude-code-documentation/  # Official Claude Code docs (reference)
 ```
+
+### Context Injection Package
+
+| Resource | Location |
+|----------|----------|
+| Package | `packages/context-injection/` |
+| Protocol contract | `docs/references/context-injection-contract.md` |
+| Design spec | `docs/plans/2026-02-11-conversation-aware-context-injection.md` |
 
 ### Extension Rules (Blocking)
 
@@ -106,6 +115,7 @@ Run with `uv run scripts/<name>`: `inventory`, `migrate`, `promote`, `sync-setti
 
 - **Dev vs production**: Edit extensions in `.claude/` (this repo), not `~/.claude/` (production). Promote when ready.
 - **Sync after hook changes**: Run `uv run scripts/sync-settings` after modifying hooks — Claude Code reads from `settings.json`, not hook files directly.
+- **Package-local testing**: Packages under `packages/` have their own `pyproject.toml` and venv. Run tests from the package directory: `cd packages/<name> && uv run pytest`.
 
 ## Writing Extensions
 
