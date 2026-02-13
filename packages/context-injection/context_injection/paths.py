@@ -39,9 +39,9 @@ fnmatch. A match at any position denies the entire path. This makes bare-name
 matching inherently recursive — `.git` denies `.git/config`,
 `src/.git/hooks/pre-commit`, etc. at any depth.
 
-Do NOT add slash-containing patterns (e.g., `name/*`). They silently fail for
-paths where the denied directory appears at depth > 0, because fnmatch compares
-against the full accumulated prefix which includes parent segments.
+Do NOT add slash-containing patterns (e.g., `name/*`). Per-component matching
+splits on `/` before calling fnmatch, so no component ever contains a slash.
+Patterns like `name/*` would never match any individual component.
 """
 
 DENYLIST_FILES: tuple[str, ...] = (
@@ -162,6 +162,8 @@ def normalize_input_path(
     6. Reject absolute paths
     7. Reject directory traversal (..)
     8. Canonicalize: collapse //, remove . segments, strip trailing /
+       Post-normpath re-validation rejects any `..` reintroduced by normpath
+       and bare `.` (from inputs like `./` or `.`).
     9. Optionally split line-number anchor (:N or #LN)
 
     Raises:
