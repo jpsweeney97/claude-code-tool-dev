@@ -595,3 +595,21 @@ class TestCheckPathRuntime:
         assert result.status == "denied"
         # Cleanup
         outside.unlink()
+
+    def test_relative_path_resolves_against_repo_root(self, tmp_path, monkeypatch) -> None:
+        """Repo-relative path resolves against repo_root, not CWD."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        src = repo / "src"
+        src.mkdir()
+        f = src / "app.py"
+        f.write_text("x = 1\n")
+
+        # Set CWD to a DIFFERENT directory than repo_root
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        result = check_path_runtime("src/app.py", repo_root=str(repo))
+        assert result.status == "allowed"
+        assert result.resolved_abs == str(f.resolve())

@@ -440,7 +440,7 @@ def check_path_runtime(
     and the denylist + containment re-checks provide defense in depth.
     """
     # Resolve realpath
-    real = os.path.realpath(resolved_path)
+    real = os.path.realpath(os.path.join(repo_root, resolved_path))
 
     # Containment check
     repo_root_normalized = os.path.normpath(repo_root)
