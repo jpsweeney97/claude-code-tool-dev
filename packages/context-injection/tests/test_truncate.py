@@ -224,6 +224,15 @@ class TestTruncateBlocks:
         assert len(result.blocks) == 1
         assert result.reason == TruncationReason.MAX_LINES
 
+    def test_max_chars_below_indicator(self) -> None:
+        """max_chars < indicator length drops all blocks immediately."""
+        blocks = [self._block("ab\n")]
+        result = truncate_blocks(blocks=blocks, max_ranges=10, max_chars=5, max_lines=100)
+        assert len(result.blocks) == 0
+        assert result.truncated is True
+        assert result.reason == TruncationReason.MAX_CHARS
+        assert result.dropped_blocks == 1
+
     def test_dropped_blocks_count(self) -> None:
         blocks = [self._block("a\n")] * 5
         result = truncate_blocks(blocks=blocks, max_ranges=2, max_chars=1000, max_lines=100)

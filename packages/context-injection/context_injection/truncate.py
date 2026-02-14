@@ -148,6 +148,13 @@ def truncate_blocks(
     if not blocks:
         return TruncateBlocksResult(blocks=(), truncated=False, reason=None, dropped_blocks=0)
 
+    # Budget too small for even the indicator — drop everything immediately.
+    if max_chars < _INDICATOR_LEN:
+        return TruncateBlocksResult(
+            blocks=(), truncated=True, reason=TruncationReason.MAX_CHARS,
+            dropped_blocks=len(blocks),
+        )
+
     # Quick check: does everything fit? Reserve indicator space in char budget.
     char_budget = max_chars - _INDICATOR_LEN
     total_lines = sum(len(b.text.splitlines()) for b in blocks)
