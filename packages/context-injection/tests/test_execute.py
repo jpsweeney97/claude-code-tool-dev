@@ -6,6 +6,7 @@ import os
 
 import pytest
 
+from context_injection.canonical import ScoutTokenPayload
 from context_injection.execute import (
     BinaryFileError,
     ReadExcerpt,
@@ -13,14 +14,27 @@ from context_injection.execute import (
     build_read_evidence_wrapper,
     compute_budget,
     execute_read,
+    execute_scout,
     read_file_excerpt,
 )
-from context_injection.state import ScoutOptionRecord
+from context_injection.server import _check_git_available, _check_posix
+from context_injection.state import (
+    AppContext,
+    ScoutOptionRecord,
+    TurnRequestRecord,
+    generate_token,
+    make_turn_request_ref,
+)
 from context_injection.types import (
-    ReadResult,
+    EvidenceRecord,
+    Focus,
+    GrepSpec,
     ReadSpec,
+    ScoutRequest,
     ScoutResultFailure,
+    ScoutResultInvalid,
     ScoutResultSuccess,
+    TurnRequest,
     SCHEMA_VERSION,
 )
 
@@ -401,3 +415,201 @@ class TestExecuteRead:
         # INI format redacts value (1), generic catches GHP token in redacted text or not
         # At minimum: format_redactions >= 1
         assert result.redactions_applied >= 1
+
+
+# --- execute_scout helpers ---
+
+
+def _setup_execute_scout_test(
+    tmp_path,
+    *,
+    file_content: str = "x = 1\n",
+    file_name: str = "app.py",
+    evidence_history: list | None = None,
+    action: str = "read",
+) -> tuple[AppContext, ScoutRequest]:
+    """Set up a full execute_scout scenario with a real file.
+
+    Creates AppContext, stores a TurnRequestRecord with a valid HMAC token,
+    and returns (ctx, scout_request).
+    """
+    ctx = AppContext.create(repo_root=str(tmp_path))
+
+    f = tmp_path / file_name
+    f.write_text(file_content)
+
+    if evidence_history is None:
+        evidence_history = []
+
+    req = TurnRequest(
+        schema_version=SCHEMA_VERSION,
+        turn_number=1,
+        conversation_id="conv_1",
+        focus=Focus(text="test", claims=[], unresolved=[]),
+        evidence_history=evidence_history,
+        posture="exploratory",
+    )
+    ref = make_turn_request_ref(req)
+    so_id = "so_001"
+
+    if action == "read":
+        spec = ReadSpec(
+            action="read",
+            resolved_path=str(f),
+            strategy="first_n",
+            max_lines=40,
+            max_chars=2000,
+        )
+    else:
+        spec = GrepSpec(
+            action="grep",
+            pattern="MyClass",
+            strategy="match_context",
+            max_lines=40,
+            max_chars=2000,
+            context_lines=2,
+            max_ranges=5,
+        )
+
+    payload = ScoutTokenPayload(
+        v=1,
+        conversation_id=req.conversation_id,
+        turn_number=req.turn_number,
+        scout_option_id=so_id,
+        spec=spec,
+    )
+    token = generate_token(ctx.hmac_key, payload)
+
+    option = ScoutOptionRecord(
+        spec=spec,
+        token=token,
+        template_id="probe.file_repo_fact",
+        entity_id="e_001",
+        entity_key=f"file_path:{file_name}",
+        risk_signal=False,
+        path_display=file_name,
+        action=action,
+    )
+    record = TurnRequestRecord(
+        turn_request=req,
+        scout_options={so_id: option},
+    )
+    ctx.store_record(ref, record)
+
+    scout_request = ScoutRequest(
+        schema_version=SCHEMA_VERSION,
+        scout_option_id=so_id,
+        scout_token=token,
+        turn_request_ref=ref,
+    )
+    return ctx, scout_request
+
+
+# --- execute_scout ---
+
+
+class TestExecuteScout:
+    def test_valid_read_returns_success(self, tmp_path) -> None:
+        ctx, req = _setup_execute_scout_test(tmp_path)
+        result = execute_scout(ctx, req)
+        assert isinstance(result, ScoutResultSuccess)
+        assert result.status == "success"
+        assert result.scout_option_id == "so_001"
+        assert "x = 1" in result.read_result.excerpt
+
+    def test_invalid_token_returns_invalid(self, tmp_path) -> None:
+        ctx, req = _setup_execute_scout_test(tmp_path)
+        bad_req = ScoutRequest(
+            schema_version=SCHEMA_VERSION,
+            scout_option_id=req.scout_option_id,
+            scout_token="AAAAAAAAAAAAAAAAAAAAAA==",
+            turn_request_ref=req.turn_request_ref,
+        )
+        result = execute_scout(ctx, bad_req)
+        assert isinstance(result, ScoutResultInvalid)
+        assert result.status == "invalid_request"
+        assert result.budget is None
+
+    def test_already_used_returns_invalid(self, tmp_path) -> None:
+        ctx, req = _setup_execute_scout_test(tmp_path)
+        execute_scout(ctx, req)  # First use
+        result = execute_scout(ctx, req)  # Replay
+        assert isinstance(result, ScoutResultInvalid)
+        assert result.status == "invalid_request"
+        assert "already used" in result.error_message
+
+    def test_grep_stub_returns_timeout(self, tmp_path) -> None:
+        ctx, req = _setup_execute_scout_test(tmp_path, action="grep")
+        result = execute_scout(ctx, req)
+        assert isinstance(result, ScoutResultFailure)
+        assert result.status == "timeout"
+        assert "grep not yet implemented" in result.error_message
+
+    def test_budget_with_evidence_history(self, tmp_path) -> None:
+        history = [
+            EvidenceRecord(
+                entity_key="file_path:other.py",
+                template_id="probe.file_repo_fact",
+                turn=1,
+            ),
+        ]
+        ctx, req = _setup_execute_scout_test(
+            tmp_path, evidence_history=history,
+        )
+        result = execute_scout(ctx, req)
+        assert isinstance(result, ScoutResultSuccess)
+        assert result.budget.evidence_count == 2  # 1 prior + 1 current
+        assert result.budget.evidence_remaining == 3
+
+    def test_all_success_fields_from_option_record(self, tmp_path) -> None:
+        """Every ScoutResultSuccess field is populated from ScoutOptionRecord."""
+        ctx, req = _setup_execute_scout_test(tmp_path)
+        result = execute_scout(ctx, req)
+        assert isinstance(result, ScoutResultSuccess)
+        assert result.schema_version == SCHEMA_VERSION
+        assert result.template_id == "probe.file_repo_fact"
+        assert result.entity_id == "e_001"
+        assert result.entity_key == "file_path:app.py"
+        assert result.action == "read"
+        assert result.risk_signal is False
+        assert result.evidence_wrapper is not None
+        assert result.budget is not None
+
+    def test_unknown_ref_returns_invalid(self, tmp_path) -> None:
+        ctx, req = _setup_execute_scout_test(tmp_path)
+        bad_req = ScoutRequest(
+            schema_version=SCHEMA_VERSION,
+            scout_option_id=req.scout_option_id,
+            scout_token=req.scout_token,
+            turn_request_ref="nonexistent:99",
+        )
+        result = execute_scout(ctx, bad_req)
+        assert isinstance(result, ScoutResultInvalid)
+        assert "not found" in result.error_message
+
+
+# --- Startup gates ---
+
+
+class TestStartupGates:
+    def test_posix_gate_rejects_non_posix(self, monkeypatch) -> None:
+        monkeypatch.setattr(os, "name", "nt")
+        with pytest.raises(RuntimeError, match="requires POSIX"):
+            _check_posix()
+
+    def test_posix_gate_accepts_posix(self, monkeypatch) -> None:
+        monkeypatch.setattr(os, "name", "posix")
+        _check_posix()  # Should not raise
+
+    def test_git_gate_rejects_missing_git(self, monkeypatch) -> None:
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _name: None)
+        with pytest.raises(RuntimeError, match="requires git"):
+            _check_git_available()
+
+    def test_git_gate_accepts_git(self, monkeypatch) -> None:
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/git")
+        _check_git_available()  # Should not raise

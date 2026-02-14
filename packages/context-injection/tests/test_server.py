@@ -2,7 +2,10 @@
 
 import os
 
-from context_injection.server import _load_git_files, create_server
+from context_injection.server import (
+    _load_git_files,
+    create_server,
+)
 
 
 def test_server_has_name() -> None:
@@ -15,7 +18,14 @@ def test_server_has_process_turn_tool() -> None:
     # _tool_manager is private API; no public tool listing method in FastMCP v1.26.0.
     tools = server._tool_manager.list_tools()
     tool_names = [t.name for t in tools]
-    assert "process_turn_tool" in tool_names
+    assert "process_turn" in tool_names
+
+
+def test_server_has_execute_scout_tool() -> None:
+    server = create_server()
+    tools = server._tool_manager.list_tools()
+    tool_names = [t.name for t in tools]
+    assert "execute_scout" in tool_names
 
 
 def test_load_git_files_returns_set() -> None:

@@ -10,7 +10,6 @@ Build order:
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 from context_injection.classify import classify_path
@@ -21,14 +20,16 @@ from context_injection.redact import (
     SuppressionReason,
     redact_text,
 )
-from context_injection.state import ScoutOptionRecord
+from context_injection.state import AppContext, ScoutOptionRecord
 from context_injection.templates import MAX_EVIDENCE_ITEMS
 from context_injection.truncate import truncate_excerpt
 from context_injection.types import (
     Budget,
     ReadResult,
     ReadSpec,
+    ScoutRequest,
     ScoutResultFailure,
+    ScoutResultInvalid,
     ScoutResultSuccess,
     SCHEMA_VERSION,
 )
@@ -324,4 +325,57 @@ def execute_read(
             option.path_display, excerpt.excerpt_range, suppressed=False,
         ),
         budget=compute_budget(evidence_history_len, success=True),
+    )
+
+
+# --- Top-level dispatch (Task 4) ---
+
+
+def execute_scout(
+    ctx: AppContext,
+    req: ScoutRequest,
+) -> ScoutResultSuccess | ScoutResultFailure | ScoutResultInvalid:
+    """Top-level Call 2 entrypoint.
+
+    Validates HMAC token via consume_scout(), dispatches to read or grep
+    executor, returns protocol-compliant ScoutResult.
+    ValueError from consume_scout() -> ScoutResultInvalid(budget=None).
+    Read action -> execute_read().
+    Grep action -> stub returning ScoutResultFailure(timeout) until D4.
+    """
+    # Step 1: Consume scout (validates HMAC, marks used)
+    try:
+        option = ctx.consume_scout(
+            req.turn_request_ref, req.scout_option_id, req.scout_token,
+        )
+    except ValueError as e:
+        return ScoutResultInvalid(
+            schema_version=SCHEMA_VERSION,
+            scout_option_id=req.scout_option_id,
+            status="invalid_request",
+            error_message=str(e),
+            budget=None,
+        )
+
+    # Get evidence history length from stored TurnRequest
+    record = ctx.store[req.turn_request_ref]
+    evidence_history_len = len(record.turn_request.evidence_history)
+
+    # Step 2: Dispatch by action
+    if option.action == "read":
+        return execute_read(
+            req.scout_option_id, option, ctx.repo_root, evidence_history_len,
+        )
+
+    # Grep stub -- D4 will replace with real grep execution
+    return ScoutResultFailure(
+        schema_version=SCHEMA_VERSION,
+        scout_option_id=req.scout_option_id,
+        status="timeout",
+        template_id=option.template_id,
+        entity_id=option.entity_id,
+        entity_key=option.entity_key,
+        action="grep",
+        error_message="grep not yet implemented",
+        budget=compute_budget(evidence_history_len, success=False),
     )
