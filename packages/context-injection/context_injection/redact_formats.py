@@ -556,3 +556,103 @@ def _yaml_bracket_depth(text: str) -> int:
             depth -= 1
         i += 1
     return depth
+
+
+# --- TOML redactor ---
+
+
+_TOML_TABLE_RE = re.compile(r"^\s*\[")
+
+
+def redact_toml(text: str) -> FormatRedactOutcome:
+    """Redact values in TOML format.
+
+    Line-oriented ``key = value`` matching with multi-line string awareness.
+    Tracks triple-quote delimiters (``\"\"\"``, ``'''``) across lines.
+    Table headers and comments preserved. Orphaned closing triple-quote
+    without opener treated as excerpt boundary artifact (skip and continue
+    processing) — not desync. Prior lines already processed by earlier
+    pattern branches; subsequent lines processed normally.
+
+    EOF inside multi-line string is normal (excerpt window tolerance).
+    """
+    if not text.strip():
+        return FormatRedactResult(text=text, redactions_applied=0)
+
+    lines = text.splitlines()
+    result: list[str] = []
+    redactions = 0
+
+    in_multiline: str | None = None  # '"""' or "'''" when active
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Multi-line string continuation
+        if in_multiline is not None:
+            if in_multiline in stripped:
+                in_multiline = None
+            continue
+
+        # Empty line
+        if not stripped:
+            result.append(line)
+            continue
+
+        # Comment
+        if stripped.startswith("#"):
+            result.append(line)
+            continue
+
+        # Table header ([table] or [[array]])
+        if _TOML_TABLE_RE.match(line):
+            result.append(line)
+            continue
+
+        # Key-value pair: first = is the separator
+        eq_idx = stripped.find("=")
+        if eq_idx > 0:
+            key_part_stripped = stripped[:eq_idx]
+            if key_part_stripped.rstrip():  # non-empty key
+                # Map back to original line indentation
+                orig_indent = len(line) - len(line.lstrip())
+                abs_eq_idx = orig_indent + eq_idx
+
+                key_part = line[: abs_eq_idx + 1]  # includes =
+                value_part = line[abs_eq_idx + 1 :]
+                value_stripped = value_part.strip()
+
+                # Check for multi-line string opening
+                for delim in ('"""', "'''"):
+                    if delim in value_stripped:
+                        after_open = value_stripped[value_stripped.index(delim) + 3 :]
+                        if delim not in after_open:
+                            in_multiline = delim
+                        break
+
+                # Preserve whitespace between = and value
+                ws = value_part[: len(value_part) - len(value_part.lstrip())]
+                result.append(f"{key_part}{ws}{_REDACTED_VALUE}")
+                redactions += 1
+                continue
+
+        # Orphaned closing triple-quote (mid-excerpt boundary artifact)
+        # Excerpt started inside a multi-line string. Prior lines were
+        # already processed (some redacted, some preserved for backstop).
+        # Skip the closing delimiter and continue processing normally.
+        orphaned = False
+        for delim in ('"""', "'''"):
+            if delim in stripped:
+                orphaned = True
+                break
+        if orphaned:
+            continue
+
+        # Unrecognized line — preserve (lenient for partial docs)
+        result.append(line)
+
+    redacted = "\n".join(result)
+    if text.endswith("\n"):
+        redacted += "\n"
+
+    return FormatRedactResult(text=redacted, redactions_applied=redactions)

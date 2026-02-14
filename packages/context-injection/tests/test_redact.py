@@ -297,15 +297,17 @@ class TestRedactText:
         assert isinstance(result, SuppressedText)
         assert result.reason == SuppressionReason.PEM_PRIVATE_KEY_DETECTED
 
-    # --- Fail-closed gating ---
+    # --- All config formats handled ---
 
-    @pytest.mark.parametrize("kind", [
-        FileKind.CONFIG_TOML,
-    ])
-    def test_unsupported_config_suppressed(self, kind: FileKind) -> None:
-        result = redact_text(text="key = value", classification=kind)
-        assert isinstance(result, SuppressedText)
-        assert result.reason == SuppressionReason.UNSUPPORTED_CONFIG_FORMAT
+    def test_all_config_kinds_dispatched(self) -> None:
+        """No config kind triggers UNSUPPORTED_CONFIG_FORMAT suppression."""
+        for kind in FileKind:
+            if kind.is_config:
+                result = redact_text(text="key = value\n", classification=kind)
+                if isinstance(result, SuppressedText):
+                    assert result.reason != SuppressionReason.UNSUPPORTED_CONFIG_FORMAT, (
+                        f"{kind} still triggers UNSUPPORTED_CONFIG_FORMAT"
+                    )
 
     # --- Format dispatch ---
 
@@ -345,6 +347,20 @@ class TestRedactText:
         assert isinstance(result, RedactedText)
         assert "secret_host" not in result.text
         assert result.stats.format_redactions == 1
+
+    def test_toml_dispatch(self) -> None:
+        result = redact_text(text='key = "secret"\n', classification=FileKind.CONFIG_TOML)
+        assert isinstance(result, RedactedText)
+        assert "secret" not in result.text
+        assert result.stats.format_redactions == 1
+
+    def test_toml_orphaned_close_still_redacts(self) -> None:
+        """Orphaned triple-quote is an excerpt boundary artifact, not desync."""
+        result = redact_text(
+            text='orphaned\n"""\nkey = "secret"\n', classification=FileKind.CONFIG_TOML,
+        )
+        assert isinstance(result, RedactedText)
+        assert "secret" not in result.text
 
     # --- Two-stage pipeline ---
 
