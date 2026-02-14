@@ -368,3 +368,191 @@ def redact_json(text: str) -> FormatRedactOutcome:
         return FormatSuppressed(reason="json_scanner_desync")
 
     return FormatRedactResult(text="".join(out), redactions_applied=redactions)
+
+
+# --- YAML redactor ---
+
+
+_YAML_KEY_RE = re.compile(
+    r"^(\s*(?:-\s+)?)"  # Group 1: indent + optional sequence indicator
+    r"([A-Za-z0-9_.-]+)"  # Group 2: unquoted key
+    r"(\s*:(?:\s|$))"  # Group 3: colon + (space or EOL)
+)
+
+_BLOCK_SCALAR_RE = re.compile(r"^[|>][+-]?[0-9]?$")
+
+
+def redact_yaml(text: str) -> FormatRedactOutcome:
+    """Redact values in YAML format.
+
+    Line-oriented processor with block-scalar tracking and flow-collection
+    depth counting. Uses ``find_mapping_colon()`` (regex) for key detection
+    with strict key charset ``[A-Za-z0-9_.-]+``.
+
+    State check ordering (load-bearing): block-scalar → flow → mapping → sequence.
+    """
+    if not text.strip():
+        return FormatRedactResult(text=text, redactions_applied=0)
+
+    lines = text.splitlines()
+    result: list[str] = []
+    redactions = 0
+
+    in_block_scalar = False
+    block_scalar_indent = -1
+    block_content_emitted = False
+
+    flow_depth = 0
+
+    for line in lines:
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip()) if stripped else 0
+
+        # --- State 1: Block scalar ---
+        if in_block_scalar:
+            if stripped and indent <= block_scalar_indent:
+                # Dedent on non-empty line: exit block scalar
+                in_block_scalar = False
+                block_content_emitted = False
+                # Fall through to process this line normally
+            else:
+                # Content line or empty line within block scalar
+                if not block_content_emitted and stripped:
+                    result.append(f"{' ' * indent}{_REDACTED_VALUE}")
+                    redactions += 1
+                    block_content_emitted = True
+                elif not stripped:
+                    pass  # consume empty line
+                # else: subsequent content line, skip
+                continue
+
+        # --- State 2: Flow collection ---
+        if flow_depth > 0:
+            depth_change = _yaml_bracket_depth(stripped)
+            flow_depth += depth_change
+            if flow_depth <= 0:
+                flow_depth = 0
+            continue
+
+        # --- Comment ---
+        if stripped.startswith("#"):
+            result.append(line)
+            continue
+
+        # --- Document markers ---
+        if stripped in ("---", "..."):
+            result.append(line)
+            continue
+
+        # --- Mapping detection ---
+        m = _YAML_KEY_RE.match(line)
+        if m:
+            key_end = m.end()
+            key_prefix = line[:key_end]
+            value_part = line[key_end:]
+            value_stripped = value_part.strip()
+
+            # Block scalar indicator?
+            if value_stripped and _BLOCK_SCALAR_RE.match(value_stripped):
+                in_block_scalar = True
+                block_scalar_indent = indent
+                block_content_emitted = False
+                result.append(line)
+                continue
+
+            # Flow collection start?
+            if value_stripped and value_stripped[0] in "{[":
+                depth = _yaml_bracket_depth(value_stripped)
+                if depth > 0:
+                    flow_depth = depth
+                result.append(f"{key_prefix}{_REDACTED_VALUE}")
+                redactions += 1
+                continue
+
+            # Anchor?
+            if value_stripped.startswith("&"):
+                parts = value_stripped.split(None, 1)
+                anchor = parts[0]
+                if len(parts) > 1:
+                    result.append(f"{key_prefix}{anchor} {_REDACTED_VALUE}")
+                    redactions += 1
+                else:
+                    result.append(line)  # Anchor with no inline value
+                continue
+
+            # Alias?
+            if value_stripped.startswith("*"):
+                result.append(line)
+                continue
+
+            # Regular value
+            if value_stripped:
+                result.append(f"{key_prefix}{_REDACTED_VALUE}")
+                redactions += 1
+            else:
+                result.append(line)  # Key with no value (sub-keys below)
+            continue
+
+        # --- Sequence item ---
+        seq_match = re.match(r"^(\s*-\s+)(.*)", line)
+        if seq_match:
+            prefix, value = seq_match.groups()
+            value_stripped = value.strip()
+            if value_stripped:
+                if value_stripped.startswith("*"):
+                    result.append(line)  # Alias in sequence
+                elif value_stripped[0] in "{[":
+                    depth = _yaml_bracket_depth(value_stripped)
+                    if depth > 0:
+                        flow_depth = depth
+                    result.append(f"{prefix}{_REDACTED_VALUE}")
+                    redactions += 1
+                else:
+                    result.append(f"{prefix}{_REDACTED_VALUE}")
+                    redactions += 1
+            else:
+                result.append(line)  # Bare sequence marker
+            continue
+
+        # --- Unrecognized line ---
+        result.append(line)
+
+    redacted = "\n".join(result)
+    if text.endswith("\n"):
+        redacted += "\n"
+
+    return FormatRedactResult(text=redacted, redactions_applied=redactions)
+
+
+def _yaml_bracket_depth(text: str) -> int:
+    """Count net bracket depth change, respecting quotes and comments.
+
+    5 lexical guard states: in_single_quote, in_double_quote, double_escape,
+    in_line_comment (# to EOL), in_block_scalar (outer state, not tracked here).
+    """
+    depth = 0
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if in_single:
+            if ch == "'":
+                in_single = False
+        elif in_double:
+            if ch == "\\":
+                i += 1  # skip escaped char (double_escape guard)
+            elif ch == '"':
+                in_double = False
+        elif ch == "#" and (i == 0 or text[i - 1] in " \t"):
+            break  # in_line_comment guard: # is comment only after whitespace/BOL
+        elif ch == "'":
+            in_single = True
+        elif ch == '"':
+            in_double = True
+        elif ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+        i += 1
+    return depth

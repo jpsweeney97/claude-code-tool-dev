@@ -17,6 +17,7 @@ from context_injection.redact_formats import (
     redact_env,
     redact_ini,
     redact_json,
+    redact_yaml,
 )
 
 
@@ -162,7 +163,9 @@ def _dispatch_format(
         return redact_ini(text, properties_mode=properties_mode)
     if classification == FileKind.CONFIG_JSON:
         return redact_json(text)
-    # CONFIG_YAML, CONFIG_TOML — no D3 redactor yet
+    if classification == FileKind.CONFIG_YAML:
+        return redact_yaml(text)
+    # CONFIG_TOML — no D3 redactor yet
     return None
 
 
