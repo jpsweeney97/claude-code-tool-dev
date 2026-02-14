@@ -10,6 +10,14 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
+from context_injection.classify import FileKind
+from context_injection.redact_formats import (
+    FormatRedactOutcome,
+    FormatSuppressed,
+    redact_env,
+    redact_ini,
+)
+
 
 class SuppressionReason(StrEnum):
     """Why text was suppressed instead of redacted."""
@@ -134,3 +142,74 @@ def redact_known_secrets(text: str) -> tuple[str, int]:
     text = _CREDENTIAL_RE.sub(_replace_credential, text)
 
     return text, count
+
+
+# --- Orchestration ---
+
+
+def _dispatch_format(
+    text: str, classification: FileKind, path: str | None,
+) -> FormatRedactOutcome | None:
+    """Dispatch to format-specific redactor. Returns None if no redactor registered.
+
+    None triggers fail-closed gating in redact_text().
+    """
+    if classification == FileKind.CONFIG_ENV:
+        return redact_env(text)
+    if classification == FileKind.CONFIG_INI:
+        properties_mode = path is not None and path.endswith(".properties")
+        return redact_ini(text, properties_mode=properties_mode)
+    # CONFIG_JSON, CONFIG_YAML, CONFIG_TOML — no D2a redactor yet
+    return None
+
+
+def redact_text(
+    *, text: str, classification: FileKind, path: str | None = None,
+) -> RedactOutcome:
+    """Two-stage redaction: format-specific then generic tokens.
+
+    Both stages run for any text that is emitted. Suppression (PEM detected,
+    unsupported config format, format desync) exits before either stage
+    produces output — no text is emitted, so no redaction is needed.
+
+    Classification authority: classification from classify_path() is
+    authoritative for fail-closed gating. No secondary path-based heuristics.
+
+    Pipeline order: redact_text() runs before truncate_*(). PEM detection
+    therefore always operates on full, untruncated text.
+
+    Callers must pass ALL sensitive text — redact_text() processes whatever
+    it receives. Field selection is the caller's responsibility (D2b).
+    """
+    # Stage 0: PEM short-circuit
+    if contains_pem_private_key(text):
+        return SuppressedText(reason=SuppressionReason.PEM_PRIVATE_KEY_DETECTED)
+
+    format_redactions = 0
+
+    if classification.is_config:
+        # Format-specific dispatch
+        outcome = _dispatch_format(text, classification, path)
+
+        if outcome is None:
+            # No registered redactor -> fail-closed
+            return SuppressedText(reason=SuppressionReason.UNSUPPORTED_CONFIG_FORMAT)
+
+        if isinstance(outcome, FormatSuppressed):
+            # Scanner desync -> suppress (internal reason not surfaced)
+            return SuppressedText(reason=SuppressionReason.FORMAT_DESYNC)
+
+        # FormatRedactResult — continue with format-redacted text
+        text = outcome.text
+        format_redactions = outcome.redactions_applied
+
+    # Generic token pass (ALL files — config and non-config)
+    text, token_redactions = redact_known_secrets(text)
+
+    return RedactedText(
+        text=text,
+        stats=RedactionStats(
+            format_redactions=format_redactions,
+            token_redactions=token_redactions,
+        ),
+    )

@@ -1,9 +1,12 @@
-"""Tests for redaction types, PEM detection, and generic token scanner."""
+"""Tests for redaction types, PEM detection, generic token scanner, and orchestration."""
 
 from __future__ import annotations
 
 import pytest
 
+import context_injection.redact as redact_mod
+from context_injection.classify import FileKind
+from context_injection.redact_formats import FormatSuppressed
 from context_injection.redact import (
     RedactedText,
     RedactionStats,
@@ -12,6 +15,7 @@ from context_injection.redact import (
     SuppressionReason,
     contains_pem_private_key,
     redact_known_secrets,
+    redact_text,
 )
 
 
@@ -260,3 +264,125 @@ class TestRedactKnownSecrets:
         assert "mysecretpassword123" not in result
         assert "abcdefghijklmnop" not in result
         assert "ghp_abcdefghij1234567890" not in result
+
+
+# --- Orchestration ---
+
+
+class TestRedactText:
+    # --- PEM short-circuit ---
+
+    def test_pem_short_circuit_code(self) -> None:
+        text = "val=1\n-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n"
+        result = redact_text(text=text, classification=FileKind.CODE)
+        assert isinstance(result, SuppressedText)
+        assert result.reason == SuppressionReason.PEM_PRIVATE_KEY_DETECTED
+
+    def test_pem_short_circuit_config(self) -> None:
+        """PEM detection runs before format dispatch."""
+        text = "KEY=val\n-----BEGIN EC PRIVATE KEY-----\ndata"
+        result = redact_text(text=text, classification=FileKind.CONFIG_ENV)
+        assert isinstance(result, SuppressedText)
+        assert result.reason == SuppressionReason.PEM_PRIVATE_KEY_DETECTED
+
+    # --- Fail-closed gating ---
+
+    @pytest.mark.parametrize("kind", [
+        FileKind.CONFIG_JSON, FileKind.CONFIG_YAML, FileKind.CONFIG_TOML,
+    ])
+    def test_unsupported_config_suppressed(self, kind: FileKind) -> None:
+        result = redact_text(text="key = value", classification=kind)
+        assert isinstance(result, SuppressedText)
+        assert result.reason == SuppressionReason.UNSUPPORTED_CONFIG_FORMAT
+
+    # --- Format dispatch ---
+
+    def test_env_dispatch(self) -> None:
+        result = redact_text(text="DB_PASS=secret123456\n", classification=FileKind.CONFIG_ENV)
+        assert isinstance(result, RedactedText)
+        assert "secret123456" not in result.text
+        assert result.stats.format_redactions == 1
+
+    def test_ini_dispatch(self) -> None:
+        result = redact_text(text="[db]\npass = secret123456\n", classification=FileKind.CONFIG_INI)
+        assert isinstance(result, RedactedText)
+        assert "secret123456" not in result.text
+
+    def test_ini_properties_mode(self) -> None:
+        """path ending .properties triggers properties_mode=True."""
+        text = "db.pass=secret123456\\\n  continued\n"
+        result = redact_text(
+            text=text, classification=FileKind.CONFIG_INI, path="/app/db.properties",
+        )
+        assert isinstance(result, RedactedText)
+        assert "continued" not in result.text
+
+    # --- Two-stage pipeline ---
+
+    def test_code_generic_only(self) -> None:
+        result = redact_text(text="tok=ghp_1234567890abcdefgh\n", classification=FileKind.CODE)
+        assert isinstance(result, RedactedText)
+        assert "ghp_1234567890abcdefgh" not in result.text
+        assert result.stats.format_redactions == 0
+        assert result.stats.token_redactions >= 1
+
+    def test_unknown_generic_only(self) -> None:
+        result = redact_text(text="password=supersecret123\n", classification=FileKind.UNKNOWN)
+        assert isinstance(result, RedactedText)
+        assert "supersecret123" not in result.text
+        assert result.stats.format_redactions == 0
+
+    # --- 4 footgun pattern tests (D1 Codex review carry-forward) ---
+
+    def test_footgun_suppressed_early_return(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """FOOTGUN 1: FormatSuppressed -> SuppressedText, NOT original text with generic scan."""
+        monkeypatch.setattr(
+            redact_mod, "redact_env",
+            lambda text: FormatSuppressed(reason="test_desync"),
+        )
+        result = redact_text(text="SECRET=hunter2\n", classification=FileKind.CONFIG_ENV)
+        assert isinstance(result, SuppressedText)
+        assert result.reason == SuppressionReason.FORMAT_DESYNC
+
+    def test_footgun_zero_redactions_still_scans(self) -> None:
+        """FOOTGUN 2: redactions_applied=0 must NOT skip generic scan."""
+        text = "# Bearer abcdefghijklmnop123456\n"
+        result = redact_text(text=text, classification=FileKind.CONFIG_ENV)
+        assert isinstance(result, RedactedText)
+        assert result.stats.format_redactions == 0
+        assert result.stats.token_redactions >= 1
+
+    def test_footgun_generic_runs_for_config(self) -> None:
+        """FOOTGUN 3a: generic scan runs for is_config=True."""
+        text = "KEY=val\n# ghp_1234567890abcdefgh\n"
+        result = redact_text(text=text, classification=FileKind.CONFIG_ENV)
+        assert isinstance(result, RedactedText)
+        assert "ghp_1234567890abcdefgh" not in result.text
+
+    def test_footgun_generic_runs_for_non_config(self) -> None:
+        """FOOTGUN 3b: generic scan runs for is_config=False."""
+        result = redact_text(text="tok=ghp_1234567890abcdefgh", classification=FileKind.CODE)
+        assert isinstance(result, RedactedText)
+        assert "ghp_1234567890abcdefgh" not in result.text
+
+    # --- 3 backstop docstring coverage tests ---
+
+    def test_backstop_generic_unconditional(self) -> None:
+        """Generic scan runs even when format catches everything."""
+        text = "SECRET=ghp_1234567890abcdefgh\n"
+        result = redact_text(text=text, classification=FileKind.CONFIG_ENV)
+        assert isinstance(result, RedactedText)
+
+    def test_backstop_suppressed_no_text(self) -> None:
+        """SuppressedText has no text field — impossible to leak original."""
+        result = redact_text(text="sensitive", classification=FileKind.CONFIG_JSON)
+        assert isinstance(result, SuppressedText)
+        assert not isinstance(result, RedactedText)
+
+    def test_backstop_is_config_gates_format_only(self) -> None:
+        """is_config gates format parsing, NOT generic redaction."""
+        result = redact_text(text="password=supersecret123", classification=FileKind.CODE)
+        assert isinstance(result, RedactedText)
+        assert "supersecret123" not in result.text
+        assert result.stats.format_redactions == 0
+        assert result.stats.token_redactions >= 1
