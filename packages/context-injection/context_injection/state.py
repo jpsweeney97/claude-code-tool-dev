@@ -71,8 +71,9 @@ class TurnRequestRecord:
     used: bool = False
     """One-shot used-bit. Set only after successful verification, before execution.
 
-    Correctness assumes single in-flight request per server process/connection.
-    If multiplexing is enabled, protect ``used`` with a lock.
+    Correctness assumes single in-flight request (client sends one tool call,
+    waits for response). Server can dispatch concurrently; safety relies on
+    client behavior. If client pipelines or multiplexes, protect with a lock.
     """
 
 
@@ -122,9 +123,13 @@ class AppContext:
         Rule: "scout_available = false, 1 scout per turn, just consumed."
         See test_different_option_after_used_raises for verification.
 
-        Concurrency: correctness assumes single in-flight request per
-        server process (FastMCP stdio transport). If multiplexing is
-        added, the read-check-write on ``record.used`` must be atomic.
+        CONCURRENCY: Safe without asyncio.Lock under stdio transport with
+        a single-flight client (Claude Code). Note: Server.run() dispatches
+        messages concurrently via tg.start_soon(); the sequential guarantee
+        comes from the client sending one request at a time, NOT from the
+        transport itself. If the client pipelines requests, or if SSE/WebSocket
+        transports are added, add asyncio.Lock around the read-check-write
+        on ``record.used``. Verified: D2a Task 10.
         """
         # 1. Look up turn request record
         record = self.store.get(turn_request_ref)

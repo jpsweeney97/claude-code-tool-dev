@@ -56,8 +56,13 @@ def truncate_excerpt(
 
     Appends '[truncated]\\n' if truncated. Indicator doesn't count against
     max_lines but DOES count against max_chars (reserve _INDICATOR_LEN chars).
+    Indicator space is always reserved from max_chars, even on the no-truncation
+    fast path, so callers can rely on room for the indicator if they later
+    need to append one.
     Precedence: max_lines then max_chars. Reports first cap that removes content.
     Line counting: str.splitlines() — trailing newlines do not consume budget.
+    Line endings: splitlines()/join normalizes \\r\\n to \\n in truncated output.
+    Non-truncated text is returned verbatim.
     """
     if not text:
         return TruncateResult(
