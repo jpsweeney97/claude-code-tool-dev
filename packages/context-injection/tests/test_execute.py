@@ -313,14 +313,15 @@ class TestExecuteRead:
         assert result.truncated is False
         assert "[content redacted]" in result.evidence_wrapper
 
-    def test_unsupported_config_suppression(self, tmp_path) -> None:
-        """JSON file (no D3 redactor yet) -> suppression marker."""
+    def test_json_config_redaction(self, tmp_path) -> None:
+        """JSON file -> format redaction preserves keys, redacts values."""
         f = tmp_path / "data.json"
-        f.write_text('{"key": "value"}\n')
+        f.write_text('{"key": "secret"}\n')
         option = _make_read_option(str(f), path_display="data.json")
         result = execute_read("so_001", option, str(tmp_path), 0)
         assert isinstance(result, ScoutResultSuccess)
-        assert result.read_result.excerpt == "[REDACTED:unsupported_config_format]"
+        assert '"key"' in result.read_result.excerpt
+        assert "secret" not in result.read_result.excerpt
         assert result.redactions_applied == 1
 
     def test_binary_file(self, tmp_path) -> None:

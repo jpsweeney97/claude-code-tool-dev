@@ -300,7 +300,7 @@ class TestRedactText:
     # --- Fail-closed gating ---
 
     @pytest.mark.parametrize("kind", [
-        FileKind.CONFIG_JSON, FileKind.CONFIG_YAML, FileKind.CONFIG_TOML,
+        FileKind.CONFIG_YAML, FileKind.CONFIG_TOML,
     ])
     def test_unsupported_config_suppressed(self, kind: FileKind) -> None:
         result = redact_text(text="key = value", classification=kind)
@@ -328,6 +328,17 @@ class TestRedactText:
         )
         assert isinstance(result, RedactedText)
         assert "continued" not in result.text
+
+    def test_json_dispatch(self) -> None:
+        result = redact_text(text='{"key": "secret"}', classification=FileKind.CONFIG_JSON)
+        assert isinstance(result, RedactedText)
+        assert "secret" not in result.text
+        assert result.stats.format_redactions == 1
+
+    def test_json_desync_suppresses(self) -> None:
+        result = redact_text(text="{key: value}", classification=FileKind.CONFIG_JSON)
+        assert isinstance(result, SuppressedText)
+        assert result.reason == SuppressionReason.FORMAT_DESYNC
 
     # --- Two-stage pipeline ---
 

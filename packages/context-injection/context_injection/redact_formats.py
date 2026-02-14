@@ -227,3 +227,144 @@ def _split_ini_kv(line: str) -> tuple[str, str] | None:
     prefix += whitespace
 
     return prefix, stripped_rest
+
+
+# --- JSON/JSONC redactor ---
+
+
+def redact_json(text: str) -> FormatRedactOutcome:
+    """Redact values in JSON/JSONC format.
+
+    Streaming token scanner: preserves object keys, redacts all value tokens
+    (strings, numbers, booleans, null). Handles JSONC extensions (// line
+    comments, /* block comments). Tolerates partial documents at both
+    boundaries (excerpt windows).
+
+    Key detection: after reading a string, skip whitespace and check if next
+    char is ``:``. If yes -> key (preserve). If no -> value (redact).
+
+    On unrecoverable scanner state: FormatSuppressed(reason="json_scanner_desync").
+    """
+    if not text.strip():
+        return FormatRedactResult(text=text, redactions_applied=0)
+
+    out: list[str] = []
+    redactions = 0
+    i = 0
+    n = len(text)
+
+    while i < n:
+        ch = text[i]
+
+        # Whitespace — preserve
+        if ch in " \t\n\r":
+            out.append(ch)
+            i += 1
+            continue
+
+        # JSONC line comment: //
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            j = i + 2
+            while j < n and text[j] != "\n":
+                j += 1
+            out.append(text[i:j])
+            i = j
+            continue
+
+        # JSONC block comment: /* ... */
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            j = i + 2
+            while j < n and not (text[j] == "*" and j + 1 < n and text[j + 1] == "/"):
+                j += 1
+            if j < n:
+                j += 2  # consume */
+            else:
+                j = n  # unterminated — partial doc tolerance
+            out.append(text[i:j])
+            i = j
+            continue
+
+        # String literal
+        if ch == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                if text[j] == "\\":
+                    j += 2  # skip escape sequence
+                else:
+                    j += 1
+            if j < n:
+                j += 1  # consume closing quote
+            # j now past string (or at EOF if unterminated)
+            string_text = text[i:j]
+
+            # Lookahead: is next non-whitespace a colon? -> key
+            k = j
+            while k < n and text[k] in " \t\n\r":
+                k += 1
+
+            if k < n and text[k] == ":":
+                out.append(string_text)  # Preserve key
+            else:
+                out.append(_REDACTED_VALUE)
+                redactions += 1
+
+            i = j
+            continue
+
+        # Structural characters
+        if ch in "{}[],:":
+            out.append(ch)
+            i += 1
+            continue
+
+        # Number literal (optional -, digits, optional .digits, optional eE[+-]digits)
+        if ch == "-" or ch.isdigit():
+            j = i
+            if text[j] == "-":
+                j += 1
+                if j >= n or not text[j].isdigit():
+                    return FormatSuppressed(reason="json_scanner_desync")
+            while j < n and text[j].isdigit():
+                j += 1
+            if j < n and text[j] == ".":
+                j += 1
+                while j < n and text[j].isdigit():
+                    j += 1
+            if j < n and text[j] in "eE":
+                j += 1
+                if j < n and text[j] in "+-":
+                    j += 1
+                while j < n and text[j].isdigit():
+                    j += 1
+            out.append(_REDACTED_VALUE)
+            redactions += 1
+            i = j
+            continue
+
+        # Keyword (true, false, null)
+        if ch in "tfn":
+            matched_kw = False
+            for kw in ("true", "false", "null"):
+                if text[i : i + len(kw)] == kw:
+                    out.append(_REDACTED_VALUE)
+                    redactions += 1
+                    i += len(kw)
+                    matched_kw = True
+                    break
+            if matched_kw:
+                continue
+            # Partial keyword at EOF — tolerate
+            j = i
+            while j < n and text[j].isalpha():
+                j += 1
+            if j == n:
+                out.append(_REDACTED_VALUE)
+                redactions += 1
+                i = j
+                continue
+            return FormatSuppressed(reason="json_scanner_desync")
+
+        # Unrecognized character — desync
+        return FormatSuppressed(reason="json_scanner_desync")
+
+    return FormatRedactResult(text="".join(out), redactions_applied=redactions)
