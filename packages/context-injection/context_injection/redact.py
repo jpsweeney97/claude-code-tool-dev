@@ -93,7 +93,7 @@ _URL_USERINFO_RE = re.compile(
 )
 
 _CREDENTIAL_RE = re.compile(
-    r"(?i)\b((?:password|passwd|secret|api_key|apikey|access_token|auth_token|"
+    r"(?i)((?:password|passwd|secret|api_key|apikey|access_token|auth_token|"
     r"private_key|credential|api_secret|client_secret|"
     r"secret_key|encryption_key|signing_key)"
     r"\s*[=:]\s*)"

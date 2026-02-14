@@ -161,6 +161,7 @@ class TestRedactKnownSecrets:
         "glpat-1234567890abcdef",
         "xoxb-1234567890abcdefgh",
         "xoxp-1234567890abcdefgh",
+        "xoxs-1234567890abcdefgh",
         "AKIAIOSFODNN7EXAMPLE",
     ])
     def test_api_key_prefixes(self, key: str) -> None:
@@ -208,7 +209,7 @@ class TestRedactKnownSecrets:
         assert "short" in result
 
     def test_credential_non_secret_key(self) -> None:
-        """password_policy not matched (word boundary prevents)."""
+        """password_policy not matched — suffix _policy puts '_' before '=', not whitespace."""
         result, count = redact_known_secrets("password_policy=require_strong")
         assert count == 0
         assert "require_strong" in result
@@ -217,6 +218,17 @@ class TestRedactKnownSecrets:
         result, count = redact_known_secrets("PASSWORD=mysecretvalue123")
         assert count == 1
         assert "mysecretvalue123" not in result
+
+    @pytest.mark.parametrize("line", [
+        "DB_PASSWORD=secret123456",
+        "MYSQL_PASSWORD=secret123456",
+        "POSTGRES_PASSWORD=secret123456",
+    ])
+    def test_credential_prefixed_names(self, line: str) -> None:
+        """Prefixed credentials like DB_PASSWORD= are caught by substring match."""
+        result, count = redact_known_secrets(line)
+        assert count == 1
+        assert "secret123456" not in result
 
     # URL userinfo
     def test_url_userinfo(self) -> None:
