@@ -120,6 +120,7 @@ Run with `uv run scripts/<name>`: `inventory`, `migrate`, `promote`, `sync-setti
 - **Dev vs production**: Edit extensions in `.claude/` (this repo), not `~/.claude/` (production). Promote when ready.
 - **Sync after hook changes**: Run `uv run scripts/sync-settings` after modifying hooks — Claude Code reads from `settings.json`, not hook files directly.
 - **Package-local testing**: Packages under `packages/` have their own `pyproject.toml` and venv. Run tests from the package directory: `cd packages/<name> && uv run pytest`.
+- **Rules file size**: `.claude/rules/` files auto-load into every session. Keep them minimal — move reference material to `docs/` and link to it.
 
 ## Writing Extensions
 
