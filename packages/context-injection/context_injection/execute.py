@@ -280,10 +280,28 @@ def execute_read(
     )
 
     # Step 6: Build success result
+    #
+    # Truncation can happen at two stages:
+    # 1. Read stage: read_file_excerpt selects max_lines from a larger file
+    # 2. Post-redaction stage: truncate_excerpt re-caps after redaction may expand text
+    # Both are "max_lines" truncation. Read-stage truncation is detected by
+    # comparing excerpt line count against total_lines.
     redactions = (
         redact_outcome.stats.format_redactions
         + redact_outcome.stats.token_redactions
     )
+    read_truncated = (
+        excerpt.excerpt_range is not None
+        and excerpt.excerpt_range[1] - excerpt.excerpt_range[0] + 1 < excerpt.total_lines
+    )
+    truncated = trunc.truncated or read_truncated
+    if trunc.reason is not None:
+        truncation_reason = trunc.reason.value
+    elif read_truncated:
+        truncation_reason = "max_lines"
+    else:
+        truncation_reason = None
+
     return ScoutResultSuccess(
         schema_version=SCHEMA_VERSION,
         scout_option_id=scout_option_id,
@@ -298,8 +316,8 @@ def execute_read(
             excerpt_range=excerpt.excerpt_range,
             total_lines=excerpt.total_lines,
         ),
-        truncated=trunc.truncated,
-        truncation_reason=trunc.reason.value if trunc.reason else None,
+        truncated=truncated,
+        truncation_reason=truncation_reason,
         redactions_applied=redactions,
         risk_signal=option.risk_signal,
         evidence_wrapper=build_read_evidence_wrapper(
