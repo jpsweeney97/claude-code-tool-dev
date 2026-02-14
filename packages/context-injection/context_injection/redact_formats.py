@@ -389,7 +389,7 @@ _BLOCK_SCALAR_RE = re.compile(r"^[|>][+-]?[0-9]?$")
 
 
 def _find_yaml_mapping_colon(line: str) -> int | None:
-    """Find index of first unquoted colon followed by space or EOL.
+    """Find index of first unquoted colon followed by whitespace or EOL.
 
     Scans left-to-right tracking single/double quote state with escape
     handling. Returns colon index or None.
@@ -445,7 +445,8 @@ def redact_yaml(text: str) -> FormatRedactOutcome:
     depth counting. Uses ``_find_yaml_mapping_colon()`` (state machine) for
     key detection — handles quoted keys, special-char keys, and bare colons.
 
-    State check ordering (load-bearing): block-scalar → flow → mapping → sequence.
+    State check ordering (load-bearing):
+    block-scalar → flow → comment → document-marker → mapping → sequence.
     """
     if not text.strip():
         return FormatRedactResult(text=text, redactions_applied=0)

@@ -402,11 +402,17 @@ class TestRedactText:
         assert result.stats.token_redactions >= 1
 
     def test_footgun_generic_runs_for_config(self) -> None:
-        """FOOTGUN 3a: generic scan runs for is_config=True."""
-        text = "KEY=val\n# ghp_1234567890abcdefgh\n"
+        """FOOTGUN 3a: generic scan runs for is_config=True.
+
+        Uses a bare line (no key=, no # prefix) so the ENV format redactor
+        passes it through with 1 value redaction, then the generic token
+        scanner catches the ghp token on the bare line.
+        """
+        text = "KEY=val\nghp_1234567890abcdefgh\n"
         result = redact_text(text=text, classification=FileKind.CONFIG_ENV)
         assert isinstance(result, RedactedText)
         assert "ghp_1234567890abcdefgh" not in result.text
+        assert result.stats.token_redactions >= 1
 
     def test_footgun_generic_runs_for_non_config(self) -> None:
         """FOOTGUN 3b: generic scan runs for is_config=False."""

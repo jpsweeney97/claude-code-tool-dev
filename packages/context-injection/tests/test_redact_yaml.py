@@ -375,6 +375,10 @@ class TestFindYamlMappingColon:
     def test_tab_after_colon(self) -> None:
         assert _find_yaml_mapping_colon("key:\tvalue") == 3
 
+    def test_doubled_single_quote_escape(self) -> None:
+        """YAML '' escape in single-quoted key: exits/re-enters quote state."""
+        assert _find_yaml_mapping_colon("'it''s': value") == 7
+
     def test_unterminated_double_quote_returns_none(self) -> None:
         """Unterminated quote: colon hidden inside quote, returns None.
 

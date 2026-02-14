@@ -64,7 +64,7 @@ class TestRedactEnv:
         assert r.text == "KEY=[REDACTED:value]\n"
         assert r.redactions_applied == 1
 
-    def test_comments_preserved(self) -> None:
+    def test_comment_body_redacted(self) -> None:
         text = "# Database config\nDB_HOST=localhost\n# End\n"
         r = assert_redact_result(redact_env(text))
         assert "# [REDACTED:comment]" in r.text
