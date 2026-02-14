@@ -193,6 +193,16 @@ class TestReadFileExcerpt:
         assert result.text == "a\nb\n"
         assert result.excerpt_range == [1, 2]
 
+    def test_read_path_overrides_spec(self, tmp_path) -> None:
+        """read_path parameter takes precedence over spec.resolved_path."""
+        real_file = tmp_path / "real.py"
+        real_file.write_text("real content\n")
+        # spec points to a non-existent path; read_path overrides
+        spec = _read_spec("/nonexistent/bogus.py", max_lines=10)
+        result = read_file_excerpt(spec, read_path=str(real_file))
+        assert result.text == "real content\n"
+        assert result.total_lines == 1
+
 
 # --- Evidence wrapper builders ---
 
@@ -415,6 +425,32 @@ class TestExecuteRead:
         # INI format redacts value (1), generic catches GHP token in redacted text or not
         # At minimum: format_redactions >= 1
         assert result.redactions_applied >= 1
+
+    def test_cwd_independent_read(self, tmp_path, monkeypatch) -> None:
+        """execute_read succeeds even when CWD differs from repo_root.
+
+        Regression test for path identity chain: read_file_excerpt must use
+        the realpath from check_path_runtime, not spec.resolved_path relative
+        to CWD.
+        """
+        # Set up repo with a file
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        f = repo / "app.py"
+        f.write_text("x = 1\n")
+
+        # CWD is NOT repo_root
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        # Use relative resolved_path (as production would)
+        option = _make_read_option(
+            "app.py", path_display="app.py", entity_key="file_path:app.py",
+        )
+        result = execute_read("so_001", option, str(repo), 0)
+        assert isinstance(result, ScoutResultSuccess)
+        assert "x = 1" in result.read_result.excerpt
 
 
 # --- execute_scout helpers ---

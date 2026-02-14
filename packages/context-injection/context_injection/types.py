@@ -382,12 +382,16 @@ class ScoutResultSuccess(ProtocolModel):
         return self
 
 
+ScoutFailureStatus = Literal["not_found", "denied", "binary", "decode_error", "timeout"]
+"""Valid status values for ScoutResultFailure."""
+
+
 class ScoutResultFailure(ProtocolModel):
     """Non-evidence failure (not_found, denied, binary, decode_error, timeout)."""
 
     schema_version: SchemaVersionLiteral
     scout_option_id: str
-    status: Literal["not_found", "denied", "binary", "decode_error", "timeout"]
+    status: ScoutFailureStatus
     template_id: Literal[
         "clarify.file_path",
         "clarify.symbol",

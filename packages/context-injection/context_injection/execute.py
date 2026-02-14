@@ -27,6 +27,7 @@ from context_injection.types import (
     Budget,
     ReadResult,
     ReadSpec,
+    ScoutFailureStatus,
     ScoutRequest,
     ScoutResultFailure,
     ScoutResultInvalid,
@@ -56,7 +57,9 @@ class ReadExcerpt:
     excerpt_range: list[int] | None
 
 
-def read_file_excerpt(spec: ReadSpec) -> ReadExcerpt:
+def read_file_excerpt(
+    spec: ReadSpec, *, read_path: str | None = None,
+) -> ReadExcerpt:
     """Read a file and select an excerpt based on strategy.
 
     Binary detection: NUL byte in first 8192 bytes -> BinaryFileError.
@@ -64,12 +67,19 @@ def read_file_excerpt(spec: ReadSpec) -> ReadExcerpt:
     Excerpt strategies: first_n (first N lines), centered (window around center_line).
     Line joining: selected lines joined with '\\n' + trailing '\\n'.
 
+    Args:
+        spec: Read specification with strategy and limits.
+        read_path: Absolute path to open. When called from execute_read, this
+            is the realpath from check_path_runtime — ensuring the opened file
+            matches the checked file regardless of CWD. Falls back to
+            spec.resolved_path for direct callers (tests).
+
     Raises:
         FileNotFoundError: file does not exist
         BinaryFileError: NUL byte in first 8192 bytes
         UnicodeDecodeError: file is not valid UTF-8
     """
-    path = spec.resolved_path
+    path = read_path if read_path is not None else spec.resolved_path
 
     # Binary detection (before full read to avoid decoding binary data)
     with open(path, "rb") as f:
@@ -202,7 +212,7 @@ def execute_read(
     spec = option.spec
     assert isinstance(spec, ReadSpec)
 
-    def _fail(status: str, error_message: str) -> ScoutResultFailure:
+    def _fail(status: ScoutFailureStatus, error_message: str) -> ScoutResultFailure:
         return ScoutResultFailure(
             schema_version=SCHEMA_VERSION,
             scout_option_id=scout_option_id,
@@ -225,9 +235,9 @@ def execute_read(
     realpath = runtime.resolved_abs
     assert realpath is not None  # guaranteed when status == "allowed"
 
-    # Step 2: Read file
+    # Step 2: Read file (use realpath so opened file == checked file)
     try:
-        excerpt = read_file_excerpt(spec)
+        excerpt = read_file_excerpt(spec, read_path=realpath)
     except BinaryFileError:
         return _fail("binary", f"Binary file: {spec.resolved_path}")
     except FileNotFoundError:
