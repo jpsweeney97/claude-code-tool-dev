@@ -191,6 +191,17 @@ class TestRedactYaml:
         assert "age:" in r.text
         assert r.redactions_applied == 2
 
+    def test_sequence_item_with_inline_comment_colon(self) -> None:
+        """Sequence scalar with inline comment containing colon.
+
+        Must go through sequence handler (redacting SECRET), not mapping
+        handler which would treat ``# note:`` as a mapping colon and
+        preserve SECRET as part of the key prefix.
+        """
+        r = assert_redact_result(redact_yaml("- SECRET # note: rotate\n"))
+        assert "SECRET" not in r.text
+        assert r.redactions_applied == 1
+
     def test_bare_sequence_marker(self) -> None:
         """Bare '- ' with no value -- preserved."""
         r = assert_redact_result(redact_yaml("items:\n  - \n"))
@@ -378,6 +389,22 @@ class TestFindYamlMappingColon:
     def test_doubled_single_quote_escape(self) -> None:
         """YAML '' escape in single-quoted key: exits/re-enters quote state."""
         assert _find_yaml_mapping_colon("'it''s': value") == 7
+
+    def test_inline_comment_colon_ignored(self) -> None:
+        """Unquoted # preceded by whitespace terminates scan."""
+        assert _find_yaml_mapping_colon("- SECRET # note: rotate") is None
+
+    def test_hash_without_preceding_space_not_comment(self) -> None:
+        """# without preceding whitespace is not a YAML comment."""
+        assert _find_yaml_mapping_colon("tag#name: value") == 8
+
+    def test_colon_before_inline_comment(self) -> None:
+        """Mapping colon found before inline comment is still returned."""
+        assert _find_yaml_mapping_colon("key: value # note: info") == 3
+
+    def test_hash_inside_double_quotes_not_comment(self) -> None:
+        """# inside quotes is not a comment delimiter."""
+        assert _find_yaml_mapping_colon('"key # hash": value') == 12
 
     def test_unterminated_double_quote_returns_none(self) -> None:
         """Unterminated quote: colon hidden inside quote, returns None.

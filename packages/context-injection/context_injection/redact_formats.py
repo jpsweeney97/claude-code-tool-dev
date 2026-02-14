@@ -397,6 +397,10 @@ def _find_yaml_mapping_colon(line: str) -> int | None:
     Handles: unquoted keys, quoted keys ("key", 'key'), special-char keys,
     bare colon (: value), colons-in-keys (server:port: 8080).
     Does NOT match: colon without trailing space/EOL (host:8080).
+    Stops at: unquoted ``#`` preceded by whitespace (YAML inline comment).
+    Colons inside comments are ignored to prevent sequence items with
+    inline comments (``- SECRET # note: rotate``) from being misclassified
+    as mappings.
 
     Limitations:
     - Unterminated quotes: returns None (line falls through to generic
@@ -428,6 +432,11 @@ def _find_yaml_mapping_colon(line: str) -> int | None:
             in_double = True
         elif ch == "'":
             in_single = True
+        elif ch == "#":
+            # YAML comment: # preceded by whitespace or at position 0
+            # terminates scannable content — no mapping colon found.
+            if i == 0 or line[i - 1] in " \t":
+                return None
         elif ch == ":":
             # Mapping colon: must be followed by space, tab, or EOL
             if i + 1 >= n or line[i + 1] in " \t":
