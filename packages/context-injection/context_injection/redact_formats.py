@@ -5,7 +5,8 @@ Each redactor returns FormatRedactOutcome:
 - FormatSuppressed: scanner desync or unparseable input
 
 All redactors replace config values with [REDACTED:value] markers.
-One marker = one redaction in the count.
+One marker = one redaction in the count. Comment bodies are replaced
+with [REDACTED:comment] markers (not counted in ``redactions_applied``).
 
 ``redactions_applied == 0`` does NOT imply the text is safe to emit
 without further processing. Generic token redaction must still run
@@ -48,6 +49,7 @@ class FormatSuppressed:
 FormatRedactOutcome = FormatRedactResult | FormatSuppressed
 
 _REDACTED_VALUE = "[REDACTED:value]"
+_REDACTED_COMMENT = "[REDACTED:comment]"
 
 
 # --- Shared helpers ---
@@ -87,9 +89,16 @@ def redact_env(text: str) -> FormatRedactOutcome:
         line = lines[i]
         stripped = line.strip()
 
-        # Empty or comment
-        if not stripped or stripped.startswith("#"):
+        # Empty line
+        if not stripped:
             result.append(line)
+            i += 1
+            continue
+
+        # Comment — redact body, preserve marker and indentation
+        if stripped.startswith("#"):
+            indent_ws = line[: len(line) - len(line.lstrip())]
+            result.append(f"{indent_ws}# {_REDACTED_COMMENT}")
             i += 1
             continue
 
@@ -151,9 +160,11 @@ def redact_ini(text: str, *, properties_mode: bool = False) -> FormatRedactOutco
             i += 1
             continue
 
-        # Comment detection
+        # Comment — redact body, preserve marker char and indentation
         if _is_ini_comment(stripped, properties_mode=properties_mode):
-            result.append(line)
+            indent_ws = line[: len(line) - len(line.lstrip())]
+            marker = stripped[0]
+            result.append(f"{indent_ws}{marker} {_REDACTED_COMMENT}")
             i += 1
             continue
 
@@ -267,7 +278,7 @@ def redact_json(text: str) -> FormatRedactOutcome:
             j = i + 2
             while j < n and text[j] != "\n":
                 j += 1
-            out.append(text[i:j])
+            out.append(f"// {_REDACTED_COMMENT}")
             i = j
             continue
 
@@ -278,9 +289,10 @@ def redact_json(text: str) -> FormatRedactOutcome:
                 j += 1
             if j < n:
                 j += 2  # consume */
+                out.append(f"/* {_REDACTED_COMMENT} */")
             else:
                 j = n  # unterminated — partial doc tolerance
-            out.append(text[i:j])
+                out.append(f"/* {_REDACTED_COMMENT}")
             i = j
             continue
 
@@ -436,7 +448,8 @@ def redact_yaml(text: str) -> FormatRedactOutcome:
 
         # --- Comment ---
         if stripped.startswith("#"):
-            result.append(line)
+            indent_ws = line[: len(line) - len(line.lstrip())]
+            result.append(f"{indent_ws}# {_REDACTED_COMMENT}")
             continue
 
         # --- Document markers ---
@@ -599,9 +612,10 @@ def redact_toml(text: str) -> FormatRedactOutcome:
             result.append(line)
             continue
 
-        # Comment
+        # Comment — redact body, preserve marker and indentation
         if stripped.startswith("#"):
-            result.append(line)
+            indent_ws = line[: len(line) - len(line.lstrip())]
+            result.append(f"{indent_ws}# {_REDACTED_COMMENT}")
             continue
 
         # Table header ([table] or [[array]])

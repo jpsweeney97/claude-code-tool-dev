@@ -115,16 +115,41 @@ class TestRedactJson:
     def test_jsonc_line_comment(self) -> None:
         text = '{\n  "key": "secret" // comment\n}'
         r = assert_redact_result(redact_json(text))
-        assert "// comment" in r.text
+        assert "// [REDACTED:comment]" in r.text
+        assert "comment" not in r.text.replace("[REDACTED:comment]", "")
         assert "secret" not in r.text
         assert r.redactions_applied == 1
 
     def test_jsonc_block_comment(self) -> None:
         text = '{"key": /* inline */ "secret"}'
         r = assert_redact_result(redact_json(text))
-        assert "/* inline */" in r.text
+        assert "/* [REDACTED:comment] */" in r.text
+        assert "inline" not in r.text
         assert "secret" not in r.text
         assert r.redactions_applied == 1
+
+    def test_jsonc_unterminated_block_comment_redacted(self) -> None:
+        """P2 fix: unterminated /* at EOF is redacted without closing */."""
+        text = '{"key": "val"} /* secret note'
+        r = assert_redact_result(redact_json(text))
+        assert "/* [REDACTED:comment]" in r.text
+        assert "*/" not in r.text
+        assert "secret" not in r.text
+
+    def test_jsonc_line_comment_standalone(self) -> None:
+        """Standalone // comment on its own line is redacted."""
+        text = '{\n  // secret config note\n  "key": "val"\n}'
+        r = assert_redact_result(redact_json(text))
+        assert "// [REDACTED:comment]" in r.text
+        assert "secret" not in r.text
+
+    def test_jsonc_block_comment_multiline(self) -> None:
+        """Multi-line /* */ block comment collapsed to single redaction marker."""
+        text = '{\n  /* line one\n     line two */\n  "key": "val"\n}'
+        r = assert_redact_result(redact_json(text))
+        assert "/* [REDACTED:comment] */" in r.text
+        assert "line one" not in r.text
+        assert "line two" not in r.text
 
     # --- Partial document tolerance ---
 

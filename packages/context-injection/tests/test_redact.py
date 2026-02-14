@@ -390,8 +390,12 @@ class TestRedactText:
         assert result.reason == SuppressionReason.FORMAT_DESYNC
 
     def test_footgun_zero_redactions_still_scans(self) -> None:
-        """FOOTGUN 2: redactions_applied=0 must NOT skip generic scan."""
-        text = "# Bearer abcdefghijklmnop123456\n"
+        """FOOTGUN 2: redactions_applied=0 must NOT skip generic scan.
+
+        Uses a bare line (no key=) so the ENV format redactor passes it through
+        with 0 redactions, then the generic token scanner catches the token.
+        """
+        text = "Bearer abcdefghijklmnop123456\n"
         result = redact_text(text=text, classification=FileKind.CONFIG_ENV)
         assert isinstance(result, RedactedText)
         assert result.stats.format_redactions == 0

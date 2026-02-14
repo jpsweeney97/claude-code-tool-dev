@@ -58,11 +58,38 @@ class TestRedactYaml:
         assert "host:8080" not in r.text
         assert r.redactions_applied == 1
 
-    def test_comment_with_colon_preserved(self) -> None:
+    def test_comment_body_redacted(self) -> None:
         text = "# server: old_host\nserver: new_host\n"
         r = assert_redact_result(redact_yaml(text))
-        assert "# server: old_host" in r.text
+        assert "# [REDACTED:comment]" in r.text
+        assert "old_host" not in r.text
         assert "new_host" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_comment_only_document(self) -> None:
+        """All-comment document: bodies redacted, 0 value redactions."""
+        text = "# first comment\n# second comment\n"
+        r = assert_redact_result(redact_yaml(text))
+        assert "# [REDACTED:comment]" in r.text
+        assert "first comment" not in r.text
+        assert "second comment" not in r.text
+        assert r.redactions_applied == 0
+
+    def test_indented_comment_redacted(self) -> None:
+        """Indentation preserved, comment body redacted."""
+        text = "database:\n  # connection settings\n  host: localhost\n"
+        r = assert_redact_result(redact_yaml(text))
+        assert "  # [REDACTED:comment]" in r.text
+        assert "connection settings" not in r.text
+        assert r.redactions_applied == 1  # only host value
+
+    def test_inline_comment_after_value_consumed(self) -> None:
+        """Inline # after value is consumed by value redaction (existing behavior)."""
+        text = "host: localhost  # production server\n"
+        r = assert_redact_result(redact_yaml(text))
+        assert "host:" in r.text
+        assert "localhost" not in r.text
+        assert "production server" not in r.text
         assert r.redactions_applied == 1
 
     # --- Block scalars ---

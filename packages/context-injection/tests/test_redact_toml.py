@@ -62,10 +62,20 @@ class TestRedactToml:
         assert "[[servers]]" in r.text
         assert r.redactions_applied == 1
 
-    def test_comment_preserved(self) -> None:
+    def test_comment_body_redacted(self) -> None:
         text = '# Database config\nhost = "localhost"\n'
         r = assert_redact_result(redact_toml(text))
-        assert "# Database config" in r.text
+        assert "# [REDACTED:comment]" in r.text
+        assert "Database config" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_inline_comment_after_value_consumed(self) -> None:
+        """Inline # after value is consumed by value redaction (existing behavior)."""
+        text = 'host = "localhost"  # production server\n'
+        r = assert_redact_result(redact_toml(text))
+        assert "host =" in r.text
+        assert "localhost" not in r.text
+        assert "production server" not in r.text
         assert r.redactions_applied == 1
 
     # --- Multi-line strings ---
