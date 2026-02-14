@@ -47,7 +47,7 @@ Parse optional flags from `$ARGUMENTS`. Remaining text after flags = PROMPT.
 | `-m <model>` | `model` | Codex's default model |
 | `-s {read-only\|workspace-write\|danger-full-access}` | `sandbox` | `read-only` |
 | `-a {untrusted\|on-failure\|on-request\|never}` | `approval-policy` | `never` if read-only, `on-failure` if workspace-write or danger-full-access |
-| `-t {minimal\|low\|medium\|high\|xhigh}` | `config` → `{"model_reasoning_effort": "<value>"}` | `high` |
+| `-t {minimal\|low\|medium\|high\|xhigh}` | `config` → `{"model_reasoning_effort": "<value>"}` | `xhigh` |
 
 Only `prompt` is required by the MCP tool schema for `mcp__codex__codex`. For deterministic, least-privilege behavior, always pass resolved execution controls (`sandbox`, `approval-policy`, and `config.model_reasoning_effort`) rather than relying on upstream defaults. Only include `model` when overriding Codex's default model. If the user explicitly sets `-a`, that value always overrides the sandbox-coupled default.
 
@@ -142,7 +142,7 @@ Call `mcp__codex__codex`:
 | `model` | From `-m` flag, or omit for Codex default |
 | `sandbox` | From `-s` flag, or `read-only` |
 | `approval-policy` | From `-a` flag, or `never` (read-only) / `on-failure` (workspace-write) |
-| `config` | `{"model_reasoning_effort": "<-t flag or 'high'>"}` |
+| `config` | `{"model_reasoning_effort": "<-t flag or 'xhigh'>"}` |
 
 ### Continue conversation
 

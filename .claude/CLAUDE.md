@@ -36,11 +36,11 @@ docs/
 
 ### Context Injection Package
 
-| Resource | Location |
-|----------|----------|
-| Package | `packages/context-injection/` |
-| Protocol contract | `docs/references/context-injection-contract.md` |
-| Design spec | `docs/plans/2026-02-11-conversation-aware-context-injection.md` |
+| Resource          | Location                                                        |
+| ----------------- | --------------------------------------------------------------- |
+| Package           | `packages/context-injection/`                                   |
+| Protocol contract | `docs/references/context-injection-contract.md`                 |
+| Design spec       | `docs/plans/2026-02-11-conversation-aware-context-injection.md` |
 
 ### Extension Rules (Blocking)
 
@@ -94,6 +94,10 @@ claude plugin install <name>@tool-dev
 
 Read `.claude/rules/methodology/frameworks.md` for guidance on when to use which framework. Full frameworks with templates and worked examples live in `docs/frameworks/`.
 
+### Thoroughness over cost
+
+Always prefer rigorous, thorough approaches (parallel dialogues, exhaustive analysis) over cheap/fast shortcuts. Do not optimize for token cost or speed at the expense of quality.
+
 ### Branch Protection
 
 A hook blocks Edit/Write on `main` and `master`. Create a working branch first.
@@ -127,21 +131,21 @@ Full guidance: `docs/references/writing-principles.md`
 
 ### Quick Reference
 
-| #   | Principle             | Core Rule                                                       | Red Flag                                                  |
-| --- | --------------------- | --------------------------------------------------------------- | --------------------------------------------------------- |
-| 1   | Be Specific           | Replace vague language with concrete values                     | Vague pronouns, hedge words, unspecified quantities       |
-| 2   | Define Terms          | Explain jargon and acronyms on first use                        | Unexplained acronyms, assumed project knowledge           |
-| 3   | Show Examples         | Illustrate rules with concrete instances                        | Rules without demonstration, abstract patterns            |
-| 4   | Verify Interpretation | Include confirmation checkpoints for high-risk instructions     | No verification for ambiguous scope, irreversible actions |
-| 5   | State Boundaries      | Explicitly declare scope and mutability                         | Implicit "obvious" scope, unstated read-only              |
-| 6   | Specify Failure Modes | Define behavior when preconditions fail                         | Happy-path-only instructions, vague error handling        |
-| 7   | Specify Defaults      | State behavior when no instruction applies                      | Implicit defaults, unhandled case improvisation           |
-| 8   | Declare Preconditions | State requirements and verification before execution            | Assumed working directory, tools, or state                |
-| 9   | Close Loopholes       | Anticipate and block creative misinterpretations                | Rules without rationale, unaddressed edge cases           |
-| 10  | Front-Load            | Put critical information first                                  | Commands buried after context                             |
-| 11  | Group Related         | Keep conditions near consequences                               | Cross-references, scattered related content               |
-| 12  | Keep Parallel         | Match structure across similar content                          | Mixed voice in lists, inconsistent hierarchy              |
-| 13  | Specify Outcomes      | Define observable success criteria                              | "Ensure it works," process without verification           |
-| 14  | Economy               | Remove words that don't advance meaning; use active voice       | Filler phrases, passive voice, double negatives           |
+| #   | Principle             | Core Rule                                                   | Red Flag                                                  |
+| --- | --------------------- | ----------------------------------------------------------- | --------------------------------------------------------- |
+| 1   | Be Specific           | Replace vague language with concrete values                 | Vague pronouns, hedge words, unspecified quantities       |
+| 2   | Define Terms          | Explain jargon and acronyms on first use                    | Unexplained acronyms, assumed project knowledge           |
+| 3   | Show Examples         | Illustrate rules with concrete instances                    | Rules without demonstration, abstract patterns            |
+| 4   | Verify Interpretation | Include confirmation checkpoints for high-risk instructions | No verification for ambiguous scope, irreversible actions |
+| 5   | State Boundaries      | Explicitly declare scope and mutability                     | Implicit "obvious" scope, unstated read-only              |
+| 6   | Specify Failure Modes | Define behavior when preconditions fail                     | Happy-path-only instructions, vague error handling        |
+| 7   | Specify Defaults      | State behavior when no instruction applies                  | Implicit defaults, unhandled case improvisation           |
+| 8   | Declare Preconditions | State requirements and verification before execution        | Assumed working directory, tools, or state                |
+| 9   | Close Loopholes       | Anticipate and block creative misinterpretations            | Rules without rationale, unaddressed edge cases           |
+| 10  | Front-Load            | Put critical information first                              | Commands buried after context                             |
+| 11  | Group Related         | Keep conditions near consequences                           | Cross-references, scattered related content               |
+| 12  | Keep Parallel         | Match structure across similar content                      | Mixed voice in lists, inconsistent hierarchy              |
+| 13  | Specify Outcomes      | Define observable success criteria                          | "Ensure it works," process without verification           |
+| 14  | Economy               | Remove words that don't advance meaning; use active voice   | Filler phrases, passive voice, double negatives           |
 
 Lower numbers = higher priority in conflicts. See full document for priority hierarchy, self-check procedure, and document-type notes.
