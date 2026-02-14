@@ -1,6 +1,6 @@
 """Tests for YAML format redactor."""
 
-from context_injection.redact_formats import redact_yaml
+from context_injection.redact_formats import _find_yaml_mapping_colon, redact_yaml
 from tests.redaction_harness import assert_redact_result
 
 _RV = "[REDACTED:value]"
@@ -58,11 +58,38 @@ class TestRedactYaml:
         assert "host:8080" not in r.text
         assert r.redactions_applied == 1
 
-    def test_comment_with_colon_preserved(self) -> None:
+    def test_comment_body_redacted(self) -> None:
         text = "# server: old_host\nserver: new_host\n"
         r = assert_redact_result(redact_yaml(text))
-        assert "# server: old_host" in r.text
+        assert "# [REDACTED:comment]" in r.text
+        assert "old_host" not in r.text
         assert "new_host" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_comment_only_document(self) -> None:
+        """All-comment document: bodies redacted, 0 value redactions."""
+        text = "# first comment\n# second comment\n"
+        r = assert_redact_result(redact_yaml(text))
+        assert "# [REDACTED:comment]" in r.text
+        assert "first comment" not in r.text
+        assert "second comment" not in r.text
+        assert r.redactions_applied == 0
+
+    def test_indented_comment_redacted(self) -> None:
+        """Indentation preserved, comment body redacted."""
+        text = "database:\n  # connection settings\n  host: localhost\n"
+        r = assert_redact_result(redact_yaml(text))
+        assert "  # [REDACTED:comment]" in r.text
+        assert "connection settings" not in r.text
+        assert r.redactions_applied == 1  # only host value
+
+    def test_inline_comment_after_value_consumed(self) -> None:
+        """Inline # after value is consumed by value redaction (existing behavior)."""
+        text = "host: localhost  # production server\n"
+        r = assert_redact_result(redact_yaml(text))
+        assert "host:" in r.text
+        assert "localhost" not in r.text
+        assert "production server" not in r.text
         assert r.redactions_applied == 1
 
     # --- Block scalars ---
@@ -164,6 +191,17 @@ class TestRedactYaml:
         assert "age:" in r.text
         assert r.redactions_applied == 2
 
+    def test_sequence_item_with_inline_comment_colon(self) -> None:
+        """Sequence scalar with inline comment containing colon.
+
+        Must go through sequence handler (redacting SECRET), not mapping
+        handler which would treat ``# note:`` as a mapping colon and
+        preserve SECRET as part of the key prefix.
+        """
+        r = assert_redact_result(redact_yaml("- SECRET # note: rotate\n"))
+        assert "SECRET" not in r.text
+        assert r.redactions_applied == 1
+
     def test_bare_sequence_marker(self) -> None:
         """Bare '- ' with no value -- preserved."""
         r = assert_redact_result(redact_yaml("items:\n  - \n"))
@@ -228,3 +266,154 @@ class TestRedactYaml:
         assert "key:" in r.text
         assert "SECRET" not in r.text
         assert r.redactions_applied == 1
+
+    # --- Quoted key tests (P0) ---
+
+    def test_double_quoted_key(self) -> None:
+        r = assert_redact_result(redact_yaml('"password": secret123\n'))
+        assert '"password":' in r.text
+        assert "secret123" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_single_quoted_key(self) -> None:
+        r = assert_redact_result(redact_yaml("'api_key': sk-12345\n"))
+        assert "'api_key':" in r.text
+        assert "sk-12345" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_key_with_spaces_in_quotes(self) -> None:
+        r = assert_redact_result(redact_yaml('"my key": somevalue\n'))
+        assert '"my key":' in r.text
+        assert "somevalue" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_colon_inside_double_quoted_key(self) -> None:
+        """Colon inside double-quoted key is NOT a mapping colon."""
+        r = assert_redact_result(redact_yaml('"host:port": 8080\n'))
+        assert '"host:port":' in r.text
+        assert "8080" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_colon_inside_single_quoted_key(self) -> None:
+        """Colon inside single-quoted key is NOT a mapping colon."""
+        r = assert_redact_result(redact_yaml("'host:port': 8080\n"))
+        assert "'host:port':" in r.text
+        assert "8080" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_escaped_quote_in_key(self) -> None:
+        r = assert_redact_result(redact_yaml('"key\\"name": secret\n'))
+        assert '"key\\"name":' in r.text
+        assert "secret" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_sequence_with_quoted_key(self) -> None:
+        """Sequence item with quoted mapping key."""
+        r = assert_redact_result(redact_yaml('- "password": secret\n'))
+        assert '"password":' in r.text
+        assert "secret" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_indented_quoted_key(self) -> None:
+        text = 'db:\n  "password": hunter2\n'
+        r = assert_redact_result(redact_yaml(text))
+        assert '"password":' in r.text
+        assert "hunter2" not in r.text
+        assert r.redactions_applied == 1
+
+    # --- Special-char key tests (P4) ---
+
+    def test_key_with_special_chars(self) -> None:
+        r = assert_redact_result(redact_yaml("password/db: hunter2\n"))
+        assert "password/db:" in r.text
+        assert "hunter2" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_key_with_colon_in_key_name(self) -> None:
+        """Second colon is the mapping colon (first has no trailing space)."""
+        r = assert_redact_result(redact_yaml("server:port: 8080\n"))
+        assert "server:port:" in r.text
+        assert "8080" not in r.text
+        assert r.redactions_applied == 1
+
+    def test_key_with_embedded_colon_no_space(self) -> None:
+        """No mapping colon found — redacted as sequence value."""
+        r = assert_redact_result(redact_yaml("- server:8080\n"))
+        assert "server:8080" not in r.text
+        assert r.redactions_applied == 1
+
+    # --- Bare colon test (P1) ---
+
+    def test_bare_colon_value(self) -> None:
+        r = assert_redact_result(redact_yaml(": secret_value\n"))
+        assert "secret_value" not in r.text
+        assert r.redactions_applied == 1
+
+
+class TestFindYamlMappingColon:
+    """Unit tests for _find_yaml_mapping_colon state machine."""
+
+    def test_simple_key(self) -> None:
+        assert _find_yaml_mapping_colon("host: value") == 4
+
+    def test_double_quoted_key(self) -> None:
+        assert _find_yaml_mapping_colon('"password": value') == 10
+
+    def test_single_quoted_key(self) -> None:
+        assert _find_yaml_mapping_colon("'key': value") == 5
+
+    def test_no_colon(self) -> None:
+        assert _find_yaml_mapping_colon("just a value") is None
+
+    def test_colon_no_space(self) -> None:
+        assert _find_yaml_mapping_colon("host:8080") is None
+
+    def test_colon_at_eol(self) -> None:
+        assert _find_yaml_mapping_colon("items:") == 5
+
+    def test_colon_in_double_quotes(self) -> None:
+        assert _find_yaml_mapping_colon('"a:b": value') == 5
+
+    def test_bare_colon(self) -> None:
+        assert _find_yaml_mapping_colon(": value") == 0
+
+    def test_key_with_colon_then_mapping(self) -> None:
+        assert _find_yaml_mapping_colon("server:port: 8080") == 11
+
+    def test_sequence_prefix_with_key(self) -> None:
+        assert _find_yaml_mapping_colon("- name: John") == 6
+
+    def test_tab_after_colon(self) -> None:
+        assert _find_yaml_mapping_colon("key:\tvalue") == 3
+
+    def test_doubled_single_quote_escape(self) -> None:
+        """YAML '' escape in single-quoted key: exits/re-enters quote state."""
+        assert _find_yaml_mapping_colon("'it''s': value") == 7
+
+    def test_inline_comment_colon_ignored(self) -> None:
+        """Unquoted # preceded by whitespace terminates scan."""
+        assert _find_yaml_mapping_colon("- SECRET # note: rotate") is None
+
+    def test_hash_without_preceding_space_not_comment(self) -> None:
+        """# without preceding whitespace is not a YAML comment."""
+        assert _find_yaml_mapping_colon("tag#name: value") == 8
+
+    def test_colon_before_inline_comment(self) -> None:
+        """Mapping colon found before inline comment is still returned."""
+        assert _find_yaml_mapping_colon("key: value # note: info") == 3
+
+    def test_hash_inside_double_quotes_not_comment(self) -> None:
+        """# inside quotes is not a comment delimiter."""
+        assert _find_yaml_mapping_colon('"key # hash": value') == 12
+
+    def test_unterminated_double_quote_returns_none(self) -> None:
+        """Unterminated quote: colon hidden inside quote, returns None.
+
+        Accepted limitation — generic token backstop catches secrets
+        in lines that fall through format-specific redaction.
+        """
+        assert _find_yaml_mapping_colon('"broken_key: secret') is None
+
+    def test_unterminated_single_quote_returns_none(self) -> None:
+        """Same limitation for single quotes."""
+        assert _find_yaml_mapping_colon("'broken_key: secret") is None

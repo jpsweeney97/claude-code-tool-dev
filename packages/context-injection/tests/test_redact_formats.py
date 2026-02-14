@@ -64,11 +64,12 @@ class TestRedactEnv:
         assert r.text == "KEY=[REDACTED:value]\n"
         assert r.redactions_applied == 1
 
-    def test_comments_preserved(self) -> None:
+    def test_comment_body_redacted(self) -> None:
         text = "# Database config\nDB_HOST=localhost\n# End\n"
         r = assert_redact_result(redact_env(text))
-        assert "# Database config" in r.text
-        assert "# End" in r.text
+        assert "# [REDACTED:comment]" in r.text
+        assert "Database config" not in r.text
+        assert "End" not in r.text.replace("[REDACTED:comment]", "")
         assert r.redactions_applied == 1
 
     def test_empty_value(self) -> None:
@@ -106,6 +107,14 @@ class TestRedactEnv:
     def test_trailing_newline_preserved(self) -> None:
         r = assert_redact_result(redact_env("KEY=val\n"))
         assert r.text.endswith("\n")
+
+    def test_comment_body_redacted_not_counted(self) -> None:
+        """Comment redaction does not increment redactions_applied."""
+        text = "# secret comment\nKEY=val\n"
+        r = assert_redact_result(redact_env(text))
+        assert "# [REDACTED:comment]" in r.text
+        assert "secret comment" not in r.text
+        assert r.redactions_applied == 1  # only the key=value counts
 
     def test_bare_export_preserved(self) -> None:
         """'export KEY' without = is preserved as-is."""
@@ -174,13 +183,13 @@ class TestRedactIni:
     def test_semicolon_comment(self) -> None:
         text = "; comment\nkey = value\n"
         r = assert_redact_result(redact_ini(text))
-        assert "; comment" in r.text
+        assert "; [REDACTED:comment]" in r.text
         assert r.redactions_applied == 1
 
     def test_hash_comment(self) -> None:
         text = "# comment\nkey = value\n"
         r = assert_redact_result(redact_ini(text))
-        assert "# comment" in r.text
+        assert "# [REDACTED:comment]" in r.text
         assert r.redactions_applied == 1
 
     def test_no_value_key_preserved(self) -> None:
@@ -223,7 +232,7 @@ class TestRedactIniPropertiesMode:
     def test_exclamation_comment(self) -> None:
         text = "! comment\nkey = value\n"
         r = assert_redact_result(redact_ini(text, properties_mode=True))
-        assert "! comment" in r.text
+        assert "! [REDACTED:comment]" in r.text
         assert r.redactions_applied == 1
 
     def test_exclamation_not_comment_in_standard_mode(self) -> None:

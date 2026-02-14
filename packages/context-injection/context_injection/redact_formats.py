@@ -5,7 +5,8 @@ Each redactor returns FormatRedactOutcome:
 - FormatSuppressed: scanner desync or unparseable input
 
 All redactors replace config values with [REDACTED:value] markers.
-One marker = one redaction in the count.
+One marker = one redaction in the count. Comment bodies are replaced
+with [REDACTED:comment] markers (not counted in ``redactions_applied``).
 
 ``redactions_applied == 0`` does NOT imply the text is safe to emit
 without further processing. Generic token redaction must still run
@@ -48,6 +49,7 @@ class FormatSuppressed:
 FormatRedactOutcome = FormatRedactResult | FormatSuppressed
 
 _REDACTED_VALUE = "[REDACTED:value]"
+_REDACTED_COMMENT = "[REDACTED:comment]"
 
 
 # --- Shared helpers ---
@@ -87,9 +89,16 @@ def redact_env(text: str) -> FormatRedactOutcome:
         line = lines[i]
         stripped = line.strip()
 
-        # Empty or comment
-        if not stripped or stripped.startswith("#"):
+        # Empty line
+        if not stripped:
             result.append(line)
+            i += 1
+            continue
+
+        # Comment — redact body, preserve marker and indentation
+        if stripped.startswith("#"):
+            indent_ws = line[: len(line) - len(line.lstrip())]
+            result.append(f"{indent_ws}# {_REDACTED_COMMENT}")
             i += 1
             continue
 
@@ -151,9 +160,11 @@ def redact_ini(text: str, *, properties_mode: bool = False) -> FormatRedactOutco
             i += 1
             continue
 
-        # Comment detection
+        # Comment — redact body, preserve marker char and indentation
         if _is_ini_comment(stripped, properties_mode=properties_mode):
-            result.append(line)
+            indent_ws = line[: len(line) - len(line.lstrip())]
+            marker = stripped[0]
+            result.append(f"{indent_ws}{marker} {_REDACTED_COMMENT}")
             i += 1
             continue
 
@@ -267,7 +278,7 @@ def redact_json(text: str) -> FormatRedactOutcome:
             j = i + 2
             while j < n and text[j] != "\n":
                 j += 1
-            out.append(text[i:j])
+            out.append(f"// {_REDACTED_COMMENT}")
             i = j
             continue
 
@@ -278,9 +289,10 @@ def redact_json(text: str) -> FormatRedactOutcome:
                 j += 1
             if j < n:
                 j += 2  # consume */
+                out.append(f"/* {_REDACTED_COMMENT} */")
             else:
                 j = n  # unterminated — partial doc tolerance
-            out.append(text[i:j])
+                out.append(f"/* {_REDACTED_COMMENT}")
             i = j
             continue
 
@@ -373,23 +385,77 @@ def redact_json(text: str) -> FormatRedactOutcome:
 # --- YAML redactor ---
 
 
-_YAML_KEY_RE = re.compile(
-    r"^(\s*(?:-\s+)?)"  # Group 1: indent + optional sequence indicator
-    r"([A-Za-z0-9_.-]+)"  # Group 2: unquoted key
-    r"(\s*:(?:\s|$))"  # Group 3: colon + (space or EOL)
-)
-
 _BLOCK_SCALAR_RE = re.compile(r"^[|>][+-]?[0-9]?$")
+
+
+def _find_yaml_mapping_colon(line: str) -> int | None:
+    """Find index of first unquoted colon followed by whitespace or EOL.
+
+    Scans left-to-right tracking single/double quote state with escape
+    handling. Returns colon index or None.
+
+    Handles: unquoted keys, quoted keys ("key", 'key'), special-char keys,
+    bare colon (: value), colons-in-keys (server:port: 8080).
+    Does NOT match: colon without trailing space/EOL (host:8080).
+    Stops at: unquoted ``#`` preceded by whitespace (YAML inline comment).
+    Colons inside comments are ignored to prevent sequence items with
+    inline comments (``- SECRET # note: rotate``) from being misclassified
+    as mappings.
+
+    Limitations:
+    - Unterminated quotes: returns None (line falls through to generic
+      token backstop). Accepted limitation — same as prior regex behavior.
+    - Single-quote escaping: YAML uses '' (doubled quote), not backslash.
+      Current code exits in_single on first ', re-enters on second —
+      correct by cancellation for even counts of ''. Odd counts would
+      exit quote state early, but the failure mode is over-redaction
+      (finding a colon), which is the safe direction.
+    """
+    in_single = False
+    in_double = False
+    i = 0
+    n = len(line)
+
+    while i < n:
+        ch = line[i]
+
+        if in_double:
+            if ch == "\\":
+                i += 2  # skip escaped char; loop guard handles trailing \
+                continue
+            if ch == '"':
+                in_double = False
+        elif in_single:
+            if ch == "'":
+                in_single = False
+        elif ch == '"':
+            in_double = True
+        elif ch == "'":
+            in_single = True
+        elif ch == "#":
+            # YAML comment: # preceded by whitespace or at position 0
+            # terminates scannable content — no mapping colon found.
+            if i == 0 or line[i - 1] in " \t":
+                return None
+        elif ch == ":":
+            # Mapping colon: must be followed by space, tab, or EOL
+            if i + 1 >= n or line[i + 1] in " \t":
+                return i
+
+        i += 1
+
+    return None
 
 
 def redact_yaml(text: str) -> FormatRedactOutcome:
     """Redact values in YAML format.
 
     Line-oriented processor with block-scalar tracking and flow-collection
-    depth counting. Uses ``find_mapping_colon()`` (regex) for key detection
-    with strict key charset ``[A-Za-z0-9_.-]+``.
+    depth counting. Uses ``_find_yaml_mapping_colon()`` (state machine) for
+    key detection — handles quoted keys, special-char keys, and bare colons.
 
-    State check ordering (load-bearing): block-scalar → flow → mapping → sequence.
+    State check ordering (load-bearing):
+    block-scalar → flow → comment → document-marker → mapping → sequence.
     """
     if not text.strip():
         return FormatRedactResult(text=text, redactions_applied=0)
@@ -436,7 +502,8 @@ def redact_yaml(text: str) -> FormatRedactOutcome:
 
         # --- Comment ---
         if stripped.startswith("#"):
-            result.append(line)
+            indent_ws = line[: len(line) - len(line.lstrip())]
+            result.append(f"{indent_ws}# {_REDACTED_COMMENT}")
             continue
 
         # --- Document markers ---
@@ -445,11 +512,15 @@ def redact_yaml(text: str) -> FormatRedactOutcome:
             continue
 
         # --- Mapping detection ---
-        m = _YAML_KEY_RE.match(line)
-        if m:
-            key_end = m.end()
-            key_prefix = line[:key_end]
-            value_part = line[key_end:]
+        colon_idx = _find_yaml_mapping_colon(stripped)
+        if colon_idx is not None:
+            abs_colon = indent + colon_idx
+            # Scan past colon + trailing whitespace to find value start
+            j = abs_colon + 1
+            while j < len(line) and line[j] in " \t":
+                j += 1
+            key_prefix = line[:j]
+            value_part = line[j:]
             value_stripped = value_part.strip()
 
             # Block scalar indicator?
@@ -599,9 +670,10 @@ def redact_toml(text: str) -> FormatRedactOutcome:
             result.append(line)
             continue
 
-        # Comment
+        # Comment — redact body, preserve marker and indentation
         if stripped.startswith("#"):
-            result.append(line)
+            indent_ws = line[: len(line) - len(line.lstrip())]
+            result.append(f"{indent_ws}# {_REDACTED_COMMENT}")
             continue
 
         # Table header ([table] or [[array]])
