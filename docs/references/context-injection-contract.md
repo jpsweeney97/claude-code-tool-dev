@@ -675,7 +675,7 @@ Python → Agent. Contains the evidence excerpt (post-redaction) and updated bud
 | `read_result` | `ReadResult` | Yes | Read-specific result fields. |
 | `read_result.path_display` | `string` | Yes | Repo-relative display path. |
 | `read_result.excerpt` | `string` | Yes | Post-redaction content. Ready to include in follow-up. |
-| `read_result.excerpt_range` | `[int, int]` | Yes | `[start_line, end_line]`, 1-indexed, inclusive. |
+| `read_result.excerpt_range` | `[int, int] \| null` | Yes | `[start_line, end_line]`, 1-indexed, inclusive. Null for empty files or suppressed content. |
 | `read_result.total_lines` | `int` | Yes | Total lines in the file. Helps agent assess truncation significance. |
 
 **On success with `action: "grep"`:**
