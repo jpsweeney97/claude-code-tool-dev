@@ -34,16 +34,6 @@ docs/
 └── claude-code-documentation/  # Official Claude Code docs (reference)
 ```
 
-### Context Injection Package
-
-| Resource          | Location                                                        |
-| ----------------- | --------------------------------------------------------------- |
-| Package           | `packages/context-injection/`                                   |
-| Protocol contract | `docs/references/context-injection-contract.md`                 |
-| Design spec       | `docs/plans/2026-02-11-conversation-aware-context-injection.md` |
-
-**Security stance:** Over-redaction is always preferable to under-redaction. When adding format-specific redaction logic, verify that edge cases fail toward over-redaction (safe) not under-redaction (leak). Footgun tests (`test_footgun_*`) verify which pipeline layer catches secrets — check that they still test their stated contract after behavior changes.
-
 ### Extension Rules (Blocking)
 
 Before creating or editing any extension, you MUST:
@@ -61,6 +51,46 @@ Before creating or editing any extension, you MUST:
 | Settings   | `.claude/rules/settings.md`    |
 
 Do not proceed with edits until you have read the file. This is non-negotiable.
+
+## Systems
+
+Three systems form the cross-model collaboration stack, each building on the previous.
+
+### Codex Integration
+
+MCP server providing cross-model dialogue with OpenAI Codex. Enables Claude Code to consult an independent model for second opinions on architecture, plans, and decisions. Value: an independent model catches blind spots and challenges assumptions that a single model working alone would miss. The codex-dialogue agent was built on this integration to manage structured multi-turn conversations with a running ledger, convergence detection, and confidence-annotated synthesis.
+
+| Resource  | Location                                        |
+| --------- | ----------------------------------------------- |
+| MCP tools | `mcp__codex__codex`, `mcp__codex__codex-reply`  |
+| Agent     | `.claude/agents/codex-dialogue.md`              |
+
+**Status:** Deployed.
+
+### Context Injection
+
+Mid-conversation evidence gathering for Codex dialogues. When Codex makes a factual claim about the codebase, the agent reads the relevant file and uses the evidence to shape follow-ups — verifying claims in real-time rather than relying entirely on the initial briefing.
+
+| Resource          | Location                                                        |
+| ----------------- | --------------------------------------------------------------- |
+| MCP server        | `packages/context-injection/`                                   |
+| Protocol contract | `docs/references/context-injection-contract.md`                 |
+| Design spec       | `docs/plans/2026-02-11-conversation-aware-context-injection.md` |
+| MCP tools         | `mcp__context-injection__process_turn`, `mcp__context-injection__execute_scout` |
+
+**Security stance:** Over-redaction is always preferable to under-redaction. When adding format-specific redaction logic, verify that edge cases fail toward over-redaction (safe) not under-redaction (leak). Footgun tests (`test_footgun_*`) verify which pipeline layer catches secrets — check that they still test their stated contract after behavior changes.
+
+**Status:** MCP server complete (739 tests). Agent integration pending — the codex-dialogue agent's 3-step conversation loop needs upgrading to the 7-step scouting loop described in the design spec.
+
+### Cross-Model Learning
+
+Persistent knowledge capture across Codex conversations. Insights from Claude-Codex disagreements and resolutions are captured as learning cards — template-constrained, linted artifacts — and re-injected into future consultations as weak priors. Over time, consultations improve because the shared knowledge base grows from real resolutions.
+
+| Resource    | Location                                                       |
+| ----------- | -------------------------------------------------------------- |
+| Design spec | `docs/plans/2026-02-10-cross-model-learning-system.md`         |
+
+**Status:** Design complete. Implementation not started.
 
 ## Workflow
 
