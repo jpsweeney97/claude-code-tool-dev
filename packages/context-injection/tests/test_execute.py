@@ -650,6 +650,35 @@ class TestExecuteScout:
         assert isinstance(result, ScoutResultSuccess)
         assert result.grep_result.match_count == 0
 
+    def test_grep_truncation_recomputes_metadata(self, tmp_path) -> None:
+        """After truncation drops blocks, grep_matches and match_count reflect only surviving blocks."""
+        # Create 6 files to produce 6 blocks (exceeds max_ranges=5 in spec)
+        for i in range(6):
+            (tmp_path / f"file{i}.py").write_text(f"class MyClass{i}:\n    pass\n")
+
+        ctx, req = _setup_execute_scout_test(
+            tmp_path, action="grep",
+            file_content="class MyClass:\n",
+        )
+        ctx.git_files = {f"file{i}.py" for i in range(6)}
+
+        mock_matches = [
+            GrepRawMatch(path=f"file{i}.py", line_number=1, line_text=f"class MyClass{i}:")
+            for i in range(6)
+        ]
+        with patch("context_injection.execute.run_grep", return_value=mock_matches):
+            result = execute_scout(ctx, req)
+
+        assert isinstance(result, ScoutResultSuccess)
+        assert result.truncated is True
+        # max_ranges=5: only 5 of 6 blocks survive
+        assert len(result.grep_result.matches) == 5
+        # match_count reflects only the 5 surviving blocks
+        assert result.grep_result.match_count == 5
+        # Every surviving match has its content in the excerpt
+        for m in result.grep_result.matches:
+            assert f"# {m.path_display}:" in result.grep_result.excerpt
+
     def test_grep_budget_success(self, tmp_path) -> None:
         ctx, req = _setup_execute_scout_test(
             tmp_path, action="grep",

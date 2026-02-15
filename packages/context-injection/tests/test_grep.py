@@ -107,7 +107,11 @@ class TestRunGrep:
         assert result[0] == GrepRawMatch(path="a.py", line_number=1, line_text="class MyClass:")
         # Verify rg was called with correct args
         call_args = mock_run.call_args
-        assert call_args[0][0] == ["rg", "--json", "--fixed-strings", "-n", "--no-heading", "MyClass"]
+        assert call_args[0][0] == [
+            "rg", "--json", "--fixed-strings", "-n", "--no-heading",
+            "--hidden", "--no-ignore", "--glob=!.git/",
+            "MyClass",
+        ]
         assert call_args[1]["cwd"] == str(tmp_path)
         assert call_args[1]["capture_output"] is True
         assert call_args[1]["text"] is True
@@ -322,6 +326,7 @@ class TestBuildEvidenceBlocks:
         assert len(blocks) == 1
         assert blocks[0].path == "main.py"
         assert blocks[0].start_line == 1  # max(1, 2-2)=1
+        assert blocks[0].end_line == 4  # min(5, 2+2)=4
         assert "# main.py:1-4" in blocks[0].text
         assert "class MyClass:" in blocks[0].text
         assert match_count == 1

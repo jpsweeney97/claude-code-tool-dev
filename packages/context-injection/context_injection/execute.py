@@ -32,6 +32,7 @@ from context_injection.templates import MAX_EVIDENCE_ITEMS
 from context_injection.truncate import truncate_blocks, truncate_excerpt
 from context_injection.types import (
     Budget,
+    GrepMatch,
     GrepResult,
     GrepSpec,
     ReadResult,
@@ -418,7 +419,30 @@ def execute_grep(
         max_lines=spec.max_lines,
     )
 
-    # Step 5: Build excerpt from surviving blocks
+    # Step 5: Recompute metadata from surviving blocks after truncation
+    if trunc.truncated:
+        total_lines_by_path = {gm.path_display: gm.total_lines for gm in grep_matches}
+        surviving_by_path: dict[str, list[tuple[int, int]]] = {}
+        for block in trunc.blocks:
+            if block.path is not None and block.start_line is not None and block.end_line is not None:
+                surviving_by_path.setdefault(block.path, []).append(
+                    (block.start_line, block.end_line),
+                )
+        grep_matches = [
+            GrepMatch(
+                path_display=path,
+                total_lines=total_lines_by_path.get(path, 0),
+                ranges=[[s, e] for s, e in ranges],
+            )
+            for path, ranges in sorted(surviving_by_path.items())
+        ]
+        match_count = sum(
+            1 for path, ranges in surviving_by_path.items()
+            for line in grouped.get(path, [])
+            if any(s <= line <= e for s, e in ranges)
+        )
+
+    # Step 6: Build excerpt from surviving blocks
     excerpt = "\n".join(b.text for b in trunc.blocks)
     if trunc.truncated and excerpt:
         excerpt += "\n[truncated]\n"

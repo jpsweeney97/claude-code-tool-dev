@@ -33,6 +33,7 @@ class EvidenceBlock:
     text: str
     start_line: int | None
     path: str | None
+    end_line: int | None = None
 
 
 @dataclass(frozen=True)

@@ -100,7 +100,11 @@ def run_grep(
     """
     try:
         result = subprocess.run(
-            ["rg", "--json", "--fixed-strings", "-n", "--no-heading", pattern],
+            [
+                "rg", "--json", "--fixed-strings", "-n", "--no-heading",
+                "--hidden", "--no-ignore", "--glob=!.git/",
+                pattern,
+            ],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -289,7 +293,9 @@ def build_evidence_blocks(
             )
             block_text = f"# {path}:{start}-{end}\n{redact_outcome.text}"
             file_blocks.append(
-                EvidenceBlock(text=block_text, start_line=start, path=path),
+                EvidenceBlock(
+                    text=block_text, start_line=start, path=path, end_line=end,
+                ),
             )
             surviving_ranges.append((start, end))
 
