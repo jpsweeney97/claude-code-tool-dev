@@ -14,13 +14,13 @@ import os
 import subprocess
 from dataclasses import dataclass
 
-logger = logging.getLogger(__name__)
-
 from context_injection.classify import classify_path
 from context_injection.paths import _check_denylist
 from context_injection.redact import RedactedText, SuppressedText, redact_text
 from context_injection.truncate import EvidenceBlock
 from context_injection.types import GrepMatch, GrepSpec
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
