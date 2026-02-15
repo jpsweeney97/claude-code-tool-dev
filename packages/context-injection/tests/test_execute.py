@@ -1,8 +1,9 @@
-"""Tests for the read execution pipeline."""
+"""Tests for the read and grep execution pipelines."""
 
 from __future__ import annotations
 
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -17,6 +18,7 @@ from context_injection.execute import (
     execute_scout,
     read_file_excerpt,
 )
+from context_injection.grep import GrepRawMatch
 from context_injection.server import _check_git_available, _check_posix
 from context_injection.state import (
     AppContext,
@@ -575,12 +577,122 @@ class TestExecuteScout:
         assert result.status == "invalid_request"
         assert "already used" in result.error_message
 
-    def test_grep_stub_returns_timeout(self, tmp_path) -> None:
+    def test_grep_happy_path(self, tmp_path) -> None:
+        ctx, req = _setup_execute_scout_test(
+            tmp_path, action="grep",
+            file_content="class MyClass:\n    pass\n",
+        )
+        ctx.git_files = {"app.py"}
+        mock_matches = [
+            GrepRawMatch(path="app.py", line_number=1, line_text="class MyClass:"),
+        ]
+        with patch("context_injection.execute.run_grep", return_value=mock_matches):
+            result = execute_scout(ctx, req)
+
+        assert isinstance(result, ScoutResultSuccess)
+        assert result.status == "success"
+        assert result.action == "grep"
+        assert result.grep_result is not None
+        assert result.grep_result.match_count == 1
+        assert "class MyClass:" in result.grep_result.excerpt
+        assert "# app.py:" in result.grep_result.excerpt
+        assert result.grep_result.matches[0].path_display == "app.py"
+        assert result.evidence_wrapper.startswith("Grep for `MyClass`")
+        assert "1 matches in 1 file(s)" in result.evidence_wrapper
+
+    def test_grep_no_matches(self, tmp_path) -> None:
         ctx, req = _setup_execute_scout_test(tmp_path, action="grep")
-        result = execute_scout(ctx, req)
+        with patch("context_injection.execute.run_grep", return_value=[]):
+            result = execute_scout(ctx, req)
+
+        assert isinstance(result, ScoutResultSuccess)
+        assert result.action == "grep"
+        assert result.grep_result.match_count == 0
+        assert result.grep_result.excerpt == ""
+        assert result.grep_result.matches == []
+        assert "0 matches" in result.evidence_wrapper
+
+    def test_grep_rg_not_found(self, tmp_path) -> None:
+        from context_injection.grep import RgNotFoundError
+
+        ctx, req = _setup_execute_scout_test(tmp_path, action="grep")
+        with patch("context_injection.execute.run_grep", side_effect=RgNotFoundError("not found")):
+            result = execute_scout(ctx, req)
+
         assert isinstance(result, ScoutResultFailure)
         assert result.status == "timeout"
-        assert "grep not yet implemented" in result.error_message
+        assert "rg" in result.error_message
+
+    def test_grep_timeout(self, tmp_path) -> None:
+        from context_injection.grep import GrepTimeoutError
+
+        ctx, req = _setup_execute_scout_test(tmp_path, action="grep")
+        with patch("context_injection.execute.run_grep", side_effect=GrepTimeoutError("timed out")):
+            result = execute_scout(ctx, req)
+
+        assert isinstance(result, ScoutResultFailure)
+        assert result.status == "timeout"
+        assert "timed out" in result.error_message
+
+    def test_grep_all_files_filtered(self, tmp_path) -> None:
+        ctx, req = _setup_execute_scout_test(
+            tmp_path, action="grep",
+            file_content="class MyClass:\n",
+        )
+        # git_files is empty — all matches will be filtered
+        ctx.git_files = set()
+        mock_matches = [
+            GrepRawMatch(path="app.py", line_number=1, line_text="class MyClass:"),
+        ]
+        with patch("context_injection.execute.run_grep", return_value=mock_matches):
+            result = execute_scout(ctx, req)
+
+        assert isinstance(result, ScoutResultSuccess)
+        assert result.grep_result.match_count == 0
+
+    def test_grep_budget_success(self, tmp_path) -> None:
+        ctx, req = _setup_execute_scout_test(
+            tmp_path, action="grep",
+            file_content="class MyClass:\n    pass\n",
+            evidence_history=[
+                EvidenceRecord(
+                    entity_key="symbol:OtherClass",
+                    template_id="probe.symbol_repo_fact",
+                    turn=0,
+                ),
+            ],
+        )
+        ctx.git_files = {"app.py"}
+        mock_matches = [
+            GrepRawMatch(path="app.py", line_number=1, line_text="class MyClass:"),
+        ]
+        with patch("context_injection.execute.run_grep", return_value=mock_matches):
+            result = execute_scout(ctx, req)
+
+        assert isinstance(result, ScoutResultSuccess)
+        # 1 prior + 1 current = 2
+        assert result.budget.evidence_count == 2
+        assert result.budget.scout_available is False
+
+    def test_grep_budget_failure(self, tmp_path) -> None:
+        from context_injection.grep import RgNotFoundError
+
+        ctx, req = _setup_execute_scout_test(
+            tmp_path, action="grep",
+            evidence_history=[
+                EvidenceRecord(
+                    entity_key="symbol:OtherClass",
+                    template_id="probe.symbol_repo_fact",
+                    turn=0,
+                ),
+            ],
+        )
+        with patch("context_injection.execute.run_grep", side_effect=RgNotFoundError("not found")):
+            result = execute_scout(ctx, req)
+
+        assert isinstance(result, ScoutResultFailure)
+        # Failed scouts are free: 1 prior + 0 = 1
+        assert result.budget.evidence_count == 1
 
     def test_budget_with_evidence_history(self, tmp_path) -> None:
         history = [
