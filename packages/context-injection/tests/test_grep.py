@@ -12,6 +12,7 @@ from context_injection.grep import (
     GrepTimeoutError,
     RgNotFoundError,
     _parse_rg_json_lines,
+    build_context_ranges,
     run_grep,
 )
 
@@ -141,3 +142,59 @@ class TestRunGrep:
         with patch("context_injection.grep.subprocess.run", return_value=mock_result) as mock_run:
             run_grep("MyClass", str(tmp_path), timeout=10.0)
         assert mock_run.call_args[1]["timeout"] == 10.0
+
+
+class TestBuildContextRanges:
+    def test_single_match_with_context(self) -> None:
+        result = build_context_ranges([5], context_lines=2, total_lines=10)
+        assert result == [(3, 7)]
+
+    def test_clamps_to_file_start(self) -> None:
+        result = build_context_ranges([1], context_lines=2, total_lines=10)
+        assert result == [(1, 3)]
+
+    def test_clamps_to_file_end(self) -> None:
+        result = build_context_ranges([10], context_lines=2, total_lines=10)
+        assert result == [(8, 10)]
+
+    def test_merges_overlapping_ranges(self) -> None:
+        # [3-2, 3+2]=[1,5] and [5-2, 5+2]=[3,7] overlap -> [1, 7]
+        result = build_context_ranges([3, 5], context_lines=2, total_lines=10)
+        assert result == [(1, 7)]
+
+    def test_merges_adjacent_ranges(self) -> None:
+        # [3-2, 3+2]=[1,5] and [8-2, 8+2]=[6,10] -> adjacent (5+1==6) -> [1, 10]
+        result = build_context_ranges([3, 8], context_lines=2, total_lines=20)
+        assert result == [(1, 10)]
+
+    def test_separate_ranges(self) -> None:
+        # [3-2, 3+2]=[1,5] and [20-2, 20+2]=[18,22] -> not adjacent
+        result = build_context_ranges([3, 20], context_lines=2, total_lines=30)
+        assert result == [(1, 5), (18, 22)]
+
+    def test_duplicate_match_lines_deduped(self) -> None:
+        result = build_context_ranges([5, 5, 5], context_lines=2, total_lines=10)
+        assert result == [(3, 7)]
+
+    def test_zero_context(self) -> None:
+        result = build_context_ranges([5], context_lines=0, total_lines=10)
+        assert result == [(5, 5)]
+
+    def test_empty_match_lines(self) -> None:
+        assert build_context_ranges([], context_lines=2, total_lines=10) == []
+
+    def test_zero_total_lines(self) -> None:
+        assert build_context_ranges([1], context_lines=2, total_lines=0) == []
+
+    def test_unsorted_input_produces_sorted_output(self) -> None:
+        result = build_context_ranges([10, 3], context_lines=2, total_lines=20)
+        assert result == [(1, 5), (8, 12)]
+
+    def test_many_matches_merge_into_one(self) -> None:
+        result = build_context_ranges([1, 2, 3, 4, 5], context_lines=0, total_lines=10)
+        # Each has width 1, adjacent -> all merge into [1, 5]
+        assert result == [(1, 5)]
+
+    def test_single_line_file(self) -> None:
+        result = build_context_ranges([1], context_lines=5, total_lines=1)
+        assert result == [(1, 1)]

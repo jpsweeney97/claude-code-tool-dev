@@ -108,3 +108,44 @@ def run_grep(
         return []
 
     return _parse_rg_json_lines(result.stdout.splitlines())
+
+
+def build_context_ranges(
+    match_lines: list[int],
+    context_lines: int,
+    total_lines: int,
+) -> list[tuple[int, int]]:
+    """Build merged context ranges around match lines.
+
+    Each match gets a window of [match - context_lines, match + context_lines],
+    clamped to [1, total_lines]. Overlapping and adjacent ranges are merged.
+
+    Args:
+        match_lines: 1-indexed line numbers of matches (need not be sorted).
+        context_lines: lines of context before and after each match.
+        total_lines: total line count of the file.
+
+    Returns:
+        List of (start, end) tuples, 1-indexed, sorted by start.
+        Empty list if match_lines is empty or total_lines is 0.
+    """
+    if not match_lines or total_lines == 0:
+        return []
+
+    # Build raw windows (deduplicate and sort)
+    windows: list[tuple[int, int]] = []
+    for line in sorted(set(match_lines)):
+        start = max(1, line - context_lines)
+        end = min(total_lines, line + context_lines)
+        windows.append((start, end))
+
+    # Merge overlapping/adjacent ranges
+    merged: list[tuple[int, int]] = [windows[0]]
+    for start, end in windows[1:]:
+        prev_start, prev_end = merged[-1]
+        if start <= prev_end + 1:
+            merged[-1] = (prev_start, max(prev_end, end))
+        else:
+            merged.append((start, end))
+
+    return merged
