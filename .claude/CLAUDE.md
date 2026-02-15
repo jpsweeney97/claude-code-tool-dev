@@ -23,7 +23,7 @@ Monorepo for developing Claude Code extensions: skills, commands, agents, hooks,
 packages/
 ├── plugins/      # Plugin packages
 ├── mcp-servers/  # MCP servers
-└── context-injection/  # Context injection MCP server (v0a on main)
+└── context-injection/  # Context injection MCP server
 
 scripts/          # Utility scripts (run with uv run scripts/<name>)
 docs/
@@ -41,6 +41,8 @@ docs/
 | Package           | `packages/context-injection/`                                   |
 | Protocol contract | `docs/references/context-injection-contract.md`                 |
 | Design spec       | `docs/plans/2026-02-11-conversation-aware-context-injection.md` |
+
+**Security stance:** Over-redaction is always preferable to under-redaction. When adding format-specific redaction logic, verify that edge cases fail toward over-redaction (safe) not under-redaction (leak). Footgun tests (`test_footgun_*`) verify which pipeline layer catches secrets — check that they still test their stated contract after behavior changes.
 
 ### Extension Rules (Blocking)
 

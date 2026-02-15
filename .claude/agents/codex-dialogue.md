@@ -74,7 +74,7 @@ Call `mcp__codex__codex` with:
 | Parameter | Value |
 |-----------|-------|
 | `prompt` | Assembled briefing |
-| `model` | `"gpt-5.2"` |
+| `model` | `"gpt-5.3-codex"` |
 | `sandbox` | `read-only` |
 | `approval-policy` | `never` |
 | `config` | `{"model_reasoning_effort": "xhigh"}` |
