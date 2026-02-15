@@ -28,11 +28,33 @@ class TruncateResult:
 
 @dataclass(frozen=True)
 class EvidenceBlock:
-    """A single grep evidence block (atomic unit for truncation)."""
+    """A single grep evidence block (atomic unit for truncation).
+
+    Location fields (path, start_line, end_line) are all-or-nothing:
+    either all three are present (specific file range) or all three are None
+    (no file location). ``__post_init__`` enforces this invariant.
+    """
 
     text: str
     start_line: int | None
     path: str | None
+    end_line: int | None = None
+
+    def __post_init__(self) -> None:
+        location = (self.path, self.start_line, self.end_line)
+        present = sum(v is not None for v in location)
+        if present not in (0, 3):
+            raise ValueError(
+                f"EvidenceBlock location fields must be all-None or all-present. "
+                f"Got: path={self.path!r}, start_line={self.start_line!r}, "
+                f"end_line={self.end_line!r}"
+            )
+        if self.start_line is not None and self.end_line is not None:
+            if self.end_line < self.start_line:
+                raise ValueError(
+                    f"end_line must be >= start_line. "
+                    f"Got: start_line={self.start_line}, end_line={self.end_line}"
+                )
 
 
 @dataclass(frozen=True)

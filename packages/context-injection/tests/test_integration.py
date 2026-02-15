@@ -1,8 +1,19 @@
-"""Integration test: full Call 1 pipeline with contract example input."""
+"""Integration test: full Call 1 → Call 2 pipeline with contract example input."""
 
+import shutil
+
+import pytest
+
+from context_injection.execute import execute_scout
 from context_injection.pipeline import process_turn
 from context_injection.state import AppContext
-from context_injection.types import SCHEMA_VERSION, TurnRequest, TurnPacketSuccess
+from context_injection.types import (
+    SCHEMA_VERSION,
+    ScoutRequest,
+    ScoutResultSuccess,
+    TurnPacketSuccess,
+    TurnRequest,
+)
 
 
 def test_contract_example_produces_valid_turn_packet() -> None:
@@ -147,3 +158,204 @@ def test_contract_example_produces_valid_turn_packet() -> None:
     assert not record.used
     # spec_registry should have scout option entries
     assert len(record.scout_options) > 0
+
+
+def test_grep_call1_call2_round_trip(tmp_path) -> None:
+    """Full Call 1 -> Call 2 flow for a grep scout.
+
+    Creates a file with a searchable dotted symbol, runs process_turn
+    (Call 1) to extract the symbol entity and create a grep scout option,
+    then runs execute_scout (Call 2) to grep for the symbol and verify
+    the result contains matching evidence.
+
+    Requires ripgrep (rg) on PATH.
+    """
+    if shutil.which("rg") is None:
+        pytest.skip("ripgrep (rg) not installed")
+
+    # Setup: file containing a dotted symbol
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "loader.py").write_text(
+        "from app.config.load import get_settings\n"
+        "\n"
+        "def init():\n"
+        "    settings = app.config.load()\n"
+        "    return settings\n"
+    )
+
+    git_files = {"src/loader.py"}
+    ctx = AppContext.create(repo_root=str(tmp_path), git_files=git_files)
+
+    # Call 1: process_turn with a focus mentioning the dotted symbol
+    request = TurnRequest.model_validate(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 1,
+            "conversation_id": "conv_grep_test",
+            "focus": {
+                "text": "How does `app.config.load` initialize settings?",
+                "claims": [
+                    {
+                        "text": "`app.config.load` reads from YAML files",
+                        "status": "new",
+                        "turn": 1,
+                    },
+                ],
+                "unresolved": [],
+            },
+            "posture": "exploratory",
+        }
+    )
+
+    result = process_turn(request, ctx)
+    assert isinstance(result, TurnPacketSuccess)
+
+    # Find the grep scout option (probe.symbol_repo_fact)
+    grep_candidates = [
+        tc
+        for tc in result.template_candidates
+        if tc.template_id == "probe.symbol_repo_fact"
+    ]
+    assert len(grep_candidates) >= 1, (
+        f"Expected grep candidate but got templates: "
+        f"{[tc.template_id for tc in result.template_candidates]}"
+    )
+
+    grep_tc = grep_candidates[0]
+    assert len(grep_tc.scout_options) == 1
+    grep_option = grep_tc.scout_options[0]
+    assert grep_option.action == "grep"
+
+    # Call 2: execute_scout with the grep option
+    ref = f"{request.conversation_id}:{request.turn_number}"
+    scout_req = ScoutRequest(
+        schema_version=SCHEMA_VERSION,
+        scout_option_id=grep_option.id,
+        scout_token=grep_option.scout_token,
+        turn_request_ref=ref,
+    )
+    scout_result = execute_scout(ctx, scout_req)
+
+    assert isinstance(scout_result, ScoutResultSuccess)
+    assert scout_result.action == "grep"
+    assert scout_result.grep_result is not None
+    assert scout_result.grep_result.match_count > 0
+    assert "app.config.load" in scout_result.grep_result.excerpt
+    assert scout_result.evidence_wrapper.startswith("Grep for")
+    assert scout_result.budget.scout_available is False
+
+
+def test_grep_no_matches_returns_success(tmp_path) -> None:
+    """Grep for a non-existent symbol returns success with 0 matches.
+
+    Absence is data per design spec — the model learns the symbol
+    doesn't exist in the repo.
+    """
+    if shutil.which("rg") is None:
+        pytest.skip("ripgrep (rg) not installed")
+
+    (tmp_path / "main.py").write_text("def hello():\n    return 1\n")
+    git_files = {"main.py"}
+    ctx = AppContext.create(repo_root=str(tmp_path), git_files=git_files)
+
+    request = TurnRequest.model_validate(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 1,
+            "conversation_id": "conv_no_match",
+            "focus": {
+                "text": "How does `nonexistent.symbol.name` work?",
+                "claims": [
+                    {
+                        "text": "`nonexistent.symbol.name` is used somewhere",
+                        "status": "new",
+                        "turn": 1,
+                    },
+                ],
+                "unresolved": [],
+            },
+            "posture": "exploratory",
+        }
+    )
+
+    result = process_turn(request, ctx)
+    assert isinstance(result, TurnPacketSuccess)
+
+    grep_candidates = [
+        tc for tc in result.template_candidates
+        if tc.template_id == "probe.symbol_repo_fact"
+    ]
+    assert len(grep_candidates) >= 1
+
+    grep_option = grep_candidates[0].scout_options[0]
+    ref = f"{request.conversation_id}:{request.turn_number}"
+    scout_req = ScoutRequest(
+        schema_version=SCHEMA_VERSION,
+        scout_option_id=grep_option.id,
+        scout_token=grep_option.scout_token,
+        turn_request_ref=ref,
+    )
+    scout_result = execute_scout(ctx, scout_req)
+
+    assert isinstance(scout_result, ScoutResultSuccess)
+    assert scout_result.grep_result.match_count == 0
+    assert scout_result.grep_result.excerpt == ""
+    assert "0 matches" in scout_result.evidence_wrapper
+
+
+def test_grep_denied_file_filtered(tmp_path) -> None:
+    """Matches in denied files (.env) are excluded from grep results."""
+    if shutil.which("rg") is None:
+        pytest.skip("ripgrep (rg) not installed")
+
+    # The symbol appears ONLY in a .env file (denied)
+    (tmp_path / ".env").write_text("app.config.load=true\n")
+    git_files = {".env"}
+    ctx = AppContext.create(repo_root=str(tmp_path), git_files=git_files)
+
+    request = TurnRequest.model_validate(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 1,
+            "conversation_id": "conv_denied",
+            "focus": {
+                "text": "Where is `app.config.load` used?",
+                "claims": [
+                    {
+                        "text": "`app.config.load` is referenced in the codebase",
+                        "status": "new",
+                        "turn": 1,
+                    },
+                ],
+                "unresolved": [],
+            },
+            "posture": "exploratory",
+        }
+    )
+
+    result = process_turn(request, ctx)
+    assert isinstance(result, TurnPacketSuccess)
+
+    grep_candidates = [
+        tc for tc in result.template_candidates
+        if tc.template_id == "probe.symbol_repo_fact"
+    ]
+    assert len(grep_candidates) >= 1, (
+        f"Expected grep candidate for app.config.load but got templates: "
+        f"{[tc.template_id for tc in result.template_candidates]}"
+    )
+
+    grep_option = grep_candidates[0].scout_options[0]
+    ref = f"{request.conversation_id}:{request.turn_number}"
+    scout_req = ScoutRequest(
+        schema_version=SCHEMA_VERSION,
+        scout_option_id=grep_option.id,
+        scout_token=grep_option.scout_token,
+        turn_request_ref=ref,
+    )
+    scout_result = execute_scout(ctx, scout_req)
+
+    assert isinstance(scout_result, ScoutResultSuccess)
+    # rg may find the match, but filter_file should exclude .env
+    assert scout_result.grep_result.match_count == 0

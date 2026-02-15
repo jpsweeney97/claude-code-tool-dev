@@ -1,18 +1,27 @@
-"""Call 2 execution pipeline: read executor, evidence wrappers, integration.
+"""Call 2 execution pipeline: read executor, grep executor, top-level dispatch.
 
-Build order:
-- Task 1 (D2b): read_file_excerpt, ReadExcerpt, BinaryFileError
-- Task 2 (D2b): evidence wrapper builders, budget computation
-- Task 3 (D2b): execute_read (read -> classify -> redact -> truncate -> wrap)
-- Task 4 (D2b): execute_scout (top-level dispatch)
-- Task 13-14 (D4): grep executor, grep post-processing
+Layers:
+- File reading: read_file_excerpt, ReadExcerpt, BinaryFileError
+- Evidence wrappers: build_read_evidence_wrapper, build_grep_evidence_wrapper, compute_budget
+- Read pipeline: execute_read (path check → read → classify → redact → truncate → wrap)
+- Grep pipeline: execute_grep (rg → group → filter → read+redact → truncate → wrap)
+- Dispatch: execute_scout (HMAC validation → action routing)
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from context_injection.classify import classify_path
+from context_injection.grep import (
+    GrepTimeoutError,
+    RgExecutionError,
+    RgNotFoundError,
+    build_evidence_blocks,
+    group_matches_by_file,
+    run_grep,
+)
 from context_injection.paths import check_path_runtime
 from context_injection.redact import (
     RedactedText,
@@ -22,9 +31,12 @@ from context_injection.redact import (
 )
 from context_injection.state import AppContext, ScoutOptionRecord
 from context_injection.templates import MAX_EVIDENCE_ITEMS
-from context_injection.truncate import truncate_excerpt
+from context_injection.truncate import truncate_blocks, truncate_excerpt
 from context_injection.types import (
     Budget,
+    GrepMatch,
+    GrepResult,
+    GrepSpec,
     ReadResult,
     ReadSpec,
     ScoutFailureStatus,
@@ -34,6 +46,8 @@ from context_injection.types import (
     ScoutResultSuccess,
     SCHEMA_VERSION,
 )
+
+logger = logging.getLogger(__name__)
 
 _BINARY_CHECK_SIZE: int = 8192
 """Check first 8KB for NUL bytes to detect binary files."""
@@ -183,7 +197,7 @@ def compute_budget(evidence_history_len: int, *, success: bool) -> Budget:
     )
 
 
-# --- Read pipeline integration (Task 3) ---
+# --- Read pipeline ---
 
 
 _SUPPRESSION_MARKERS: dict[SuppressionReason, str] = {
@@ -203,6 +217,10 @@ def execute_read(
 ) -> ScoutResultSuccess | ScoutResultFailure:
     """Execute a read scout: path check -> read -> classify -> redact -> truncate -> wrap.
 
+    Takes ``repo_root`` (not ``AppContext``) because it only needs the repo root
+    for path resolution. ``execute_grep`` takes ``AppContext`` because it
+    additionally needs ``git_files`` for post-hoc file filtering.
+
     Classification uses os.path.realpath (NOT path_display) to prevent
     symlink-based classification bypass. Same realpath passed to redact_text
     for dialect dispatch (.properties).
@@ -213,6 +231,7 @@ def execute_read(
     assert isinstance(spec, ReadSpec)
 
     def _fail(status: ScoutFailureStatus, error_message: str) -> ScoutResultFailure:
+        logger.info("read scout failed: status=%s, %s", status, error_message)
         return ScoutResultFailure(
             schema_version=SCHEMA_VERSION,
             scout_option_id=scout_option_id,
@@ -338,7 +357,141 @@ def execute_read(
     )
 
 
-# --- Top-level dispatch (Task 4) ---
+# --- Grep pipeline ---
+
+
+def execute_grep(
+    scout_option_id: str,
+    option: ScoutOptionRecord,
+    ctx: AppContext,
+    evidence_history_len: int,
+) -> ScoutResultSuccess | ScoutResultFailure:
+    """Execute a grep scout: run rg -> group -> filter -> read+redact -> truncate -> wrap.
+
+    Returns ScoutResultSuccess (even for 0 matches — absence is data) or
+    ScoutResultFailure (rg not found, timeout). Never raises.
+    """
+    spec = option.spec
+    assert isinstance(spec, GrepSpec)
+
+    def _fail(status: ScoutFailureStatus, error_message: str) -> ScoutResultFailure:
+        logger.info("grep scout failed: status=%s, %s", status, error_message)
+        return ScoutResultFailure(
+            schema_version=SCHEMA_VERSION,
+            scout_option_id=scout_option_id,
+            status=status,
+            template_id=option.template_id,
+            entity_id=option.entity_id,
+            entity_key=option.entity_key,
+            action="grep",
+            error_message=error_message,
+            budget=compute_budget(evidence_history_len, success=False),
+        )
+
+    # Step 1: Run ripgrep
+    try:
+        raw_matches = run_grep(spec.pattern, ctx.repo_root)
+    except RgNotFoundError:
+        # Semantic mismatch: "timeout" is the closest available status in the
+        # protocol's ScoutFailureStatus literal (no "dependency_error" variant).
+        # A missing binary is permanent, not transient — but the model's retry
+        # logic handles "timeout" by not retrying the same scout, so the
+        # behavioral impact is acceptable. Protocol change deferred to v0c.
+        return _fail("timeout", "ripgrep (rg) not found on PATH")
+    except GrepTimeoutError:
+        return _fail("timeout", f"ripgrep timed out searching for {spec.pattern!r}")
+    except RgExecutionError as exc:
+        return _fail("timeout", f"ripgrep error: {exc}")
+
+    # Step 2: Group and build evidence blocks
+    grouped = group_matches_by_file(raw_matches) if raw_matches else {}
+    blocks, match_count, grep_matches, redactions = build_evidence_blocks(
+        grouped, spec, ctx.repo_root, ctx.git_files,
+    )
+
+    # Step 3: No surviving blocks — success with 0 matches
+    if not blocks:
+        return ScoutResultSuccess(
+            schema_version=SCHEMA_VERSION,
+            scout_option_id=scout_option_id,
+            status="success",
+            template_id=option.template_id,
+            entity_id=option.entity_id,
+            entity_key=option.entity_key,
+            action="grep",
+            grep_result=GrepResult(excerpt="", match_count=0, matches=[]),
+            truncated=False,
+            truncation_reason=None,
+            redactions_applied=0,
+            risk_signal=option.risk_signal,
+            evidence_wrapper=build_grep_evidence_wrapper(spec.pattern, 0, 0),
+            budget=compute_budget(evidence_history_len, success=True),
+        )
+
+    # Step 4: Truncate blocks
+    trunc = truncate_blocks(
+        blocks=blocks,
+        max_ranges=spec.max_ranges,
+        max_chars=spec.max_chars,
+        max_lines=spec.max_lines,
+    )
+
+    # Step 5: Recompute metadata from surviving blocks after truncation
+    if trunc.truncated:
+        total_lines_by_path = {gm.path_display: gm.total_lines for gm in grep_matches}
+        surviving_by_path: dict[str, list[tuple[int, int]]] = {}
+        for block in trunc.blocks:
+            if block.path is not None and block.start_line is not None and block.end_line is not None:
+                surviving_by_path.setdefault(block.path, []).append(
+                    (block.start_line, block.end_line),
+                )
+        grep_matches = [
+            GrepMatch(
+                path_display=path,
+                total_lines=total_lines_by_path.get(path, 0),
+                ranges=[[s, e] for s, e in ranges],
+            )
+            for path, ranges in sorted(surviving_by_path.items())
+        ]
+        match_count = sum(
+            1 for path, ranges in surviving_by_path.items()
+            for line in grouped.get(path, [])
+            if any(s <= line <= e for s, e in ranges)
+        )
+
+    # Step 6: Build excerpt from surviving blocks
+    excerpt = "\n".join(b.text for b in trunc.blocks)
+    if trunc.truncated and excerpt:
+        excerpt += "\n[truncated]\n"
+
+    truncation_reason = trunc.reason.value if trunc.reason else None
+    file_count = len(grep_matches)
+
+    return ScoutResultSuccess(
+        schema_version=SCHEMA_VERSION,
+        scout_option_id=scout_option_id,
+        status="success",
+        template_id=option.template_id,
+        entity_id=option.entity_id,
+        entity_key=option.entity_key,
+        action="grep",
+        grep_result=GrepResult(
+            excerpt=excerpt,
+            match_count=match_count,
+            matches=grep_matches,
+        ),
+        truncated=trunc.truncated,
+        truncation_reason=truncation_reason,
+        redactions_applied=redactions,
+        risk_signal=option.risk_signal,
+        evidence_wrapper=build_grep_evidence_wrapper(
+            spec.pattern, match_count, file_count,
+        ),
+        budget=compute_budget(evidence_history_len, success=True),
+    )
+
+
+# --- Top-level dispatch ---
 
 
 def execute_scout(
@@ -351,7 +504,7 @@ def execute_scout(
     executor, returns protocol-compliant ScoutResult.
     ValueError from consume_scout() -> ScoutResultInvalid(budget=None).
     Read action -> execute_read().
-    Grep action -> stub returning ScoutResultFailure(timeout) until D4.
+    Grep action -> execute_grep().
     """
     # Step 1: Consume scout (validates HMAC, marks used)
     try:
@@ -377,15 +530,6 @@ def execute_scout(
             req.scout_option_id, option, ctx.repo_root, evidence_history_len,
         )
 
-    # Grep stub -- D4 will replace with real grep execution
-    return ScoutResultFailure(
-        schema_version=SCHEMA_VERSION,
-        scout_option_id=req.scout_option_id,
-        status="timeout",
-        template_id=option.template_id,
-        entity_id=option.entity_id,
-        entity_key=option.entity_key,
-        action="grep",
-        error_message="grep not yet implemented",
-        budget=compute_budget(evidence_history_len, success=False),
+    return execute_grep(
+        req.scout_option_id, option, ctx, evidence_history_len,
     )
