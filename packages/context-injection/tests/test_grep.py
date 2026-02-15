@@ -438,6 +438,6 @@ class TestBuildEvidenceBlocks:
         )
 
         # ENV redactor should redact the API_KEY value
-        if blocks:
-            assert "[REDACTED" in blocks[0].text
-            assert redactions > 0
+        assert len(blocks) >= 1, "Expected blocks for config.env (not suppressed)"
+        assert "[REDACTED" in blocks[0].text
+        assert redactions > 0

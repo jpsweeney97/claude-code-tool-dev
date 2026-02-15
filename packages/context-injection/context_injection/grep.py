@@ -9,9 +9,12 @@ Build order:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 from context_injection.classify import classify_path
 from context_injection.paths import _check_denylist
@@ -112,6 +115,9 @@ def run_grep(
 
     # rg exit codes: 0=matches found, 1=no matches, 2+=error
     if result.returncode not in (0, 1):
+        logger.warning(
+            "rg exited with code %d: %s", result.returncode, result.stderr.strip(),
+        )
         return []
 
     return _parse_rg_json_lines(result.stdout.splitlines())
@@ -266,9 +272,9 @@ def build_evidence_blocks(
         # Build blocks per range, tracking which ranges survive redaction
         file_blocks: list[EvidenceBlock] = []
         surviving_ranges: list[tuple[int, int]] = []
+        classification = classify_path(abs_path)
         for start, end in ranges:
             range_text = "".join(all_lines[start - 1 : end])
-            classification = classify_path(abs_path)
             redact_outcome = redact_text(
                 text=range_text, classification=classification, path=abs_path,
             )
