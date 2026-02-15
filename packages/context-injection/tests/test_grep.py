@@ -10,6 +10,7 @@ import pytest
 from context_injection.grep import (
     GrepRawMatch,
     GrepTimeoutError,
+    RgExecutionError,
     RgNotFoundError,
     _parse_rg_json_lines,
     build_context_ranges,
@@ -129,12 +130,13 @@ class TestRunGrep:
             with pytest.raises(GrepTimeoutError, match="timed out"):
                 run_grep("MyClass", str(tmp_path))
 
-    def test_error_exit_code_returns_empty(self, tmp_path) -> None:
+    def test_error_exit_code_raises(self, tmp_path) -> None:
         mock_result = MagicMock()
         mock_result.returncode = 2  # rg error
+        mock_result.stderr = "regex parse error"
         with patch("context_injection.grep.subprocess.run", return_value=mock_result):
-            result = run_grep("MyClass", str(tmp_path))
-        assert result == []
+            with pytest.raises(RgExecutionError, match="exited with code 2"):
+                run_grep("MyClass", str(tmp_path))
 
     def test_no_matches_exit_code_1_returns_empty(self, tmp_path) -> None:
         mock_result = MagicMock()
@@ -445,4 +447,27 @@ class TestBuildEvidenceBlocks:
         # ENV redactor should redact the API_KEY value
         assert len(blocks) >= 1, "Expected blocks for config.env (not suppressed)"
         assert "[REDACTED" in blocks[0].text
+        assert redactions > 0
+
+    def test_symlink_classification_uses_target(self, tmp_path) -> None:
+        """Symlink .py -> .cfg: classification uses target (.cfg = CONFIG_INI).
+
+        Matches execute_read's symlink handling at execute.py:263-264.
+        INI redactor runs on .cfg content, redacting all values.
+        """
+        real_file = tmp_path / "settings.cfg"
+        real_file.write_text("[section]\nhostname = myhost.example.com\n")
+        link = tmp_path / "settings.py"
+        link.symlink_to(real_file)
+        spec = self._make_spec()
+        grouped = {"settings.py": [2]}
+        git_files = {"settings.py"}
+
+        blocks, _, _, redactions = build_evidence_blocks(
+            grouped, spec, str(tmp_path), git_files,
+        )
+
+        # CONFIG_INI redactor replaces ALL values; generic scan does NOT match 'hostname'
+        assert len(blocks) >= 1
+        assert "myhost.example.com" not in blocks[0].text
         assert redactions > 0

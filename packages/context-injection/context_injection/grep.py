@@ -39,6 +39,10 @@ class RgNotFoundError(Exception):
     """ripgrep (rg) is not installed or not on PATH."""
 
 
+class RgExecutionError(Exception):
+    """ripgrep exited with an error (exit code >= 2)."""
+
+
 class GrepTimeoutError(Exception):
     """ripgrep subprocess exceeded its timeout."""
 
@@ -88,15 +92,25 @@ def run_grep(
 ) -> list[GrepRawMatch]:
     """Run ripgrep and return parsed match results.
 
-    Runs ``rg --json --fixed-strings -n --no-heading <pattern>`` from
-    repo_root directory. Paths in output are repo-relative.
+    Runs rg from repo_root with these flags:
+    - ``--json``: structured JSON output for parsing
+    - ``--fixed-strings``: literal pattern match (no regex)
+    - ``-n --no-heading``: line numbers, no file headers
+    - ``--hidden``: search hidden directories (.github/, .husky/, etc.)
+    - ``--no-ignore``: ignore .gitignore rules (we filter post-hoc)
+    - ``--glob=!.git/``: exclude .git internals (wasteful I/O)
+
+    Post-hoc filtering rationale: ``filter_file()`` handles git-tracked +
+    denylist filtering. rg's built-in filtering is redundant and too
+    aggressive (misses hidden/ignored files the pipeline needs to see).
 
     Raises:
         RgNotFoundError: rg is not on PATH.
         GrepTimeoutError: rg exceeded timeout (not the same as "no matches").
+        RgExecutionError: rg exited with error (exit code >= 2).
 
     Returns:
-        List of GrepRawMatch. Empty on no matches or rg error.
+        List of GrepRawMatch. Empty list means no matches (exit code 1).
     """
     try:
         result = subprocess.run(
@@ -119,10 +133,9 @@ def run_grep(
 
     # rg exit codes: 0=matches found, 1=no matches, 2+=error
     if result.returncode not in (0, 1):
-        logger.warning(
-            "rg exited with code %d: %s", result.returncode, result.stderr.strip(),
+        raise RgExecutionError(
+            f"rg exited with code {result.returncode}: {result.stderr.strip()}"
         )
-        return []
 
     return _parse_rg_json_lines(result.stdout.splitlines())
 
@@ -201,17 +214,20 @@ _BINARY_CHECK_SIZE: int = 8192
 def _read_file_lines(abs_path: str) -> list[str]:
     """Read a UTF-8 text file and return lines with line endings preserved.
 
+    Single read: opens once in binary mode, checks first 8KB for NUL bytes,
+    decodes full content as UTF-8. Eliminates TOCTOU between binary check
+    and content read.
+
     Raises:
         FileNotFoundError: file does not exist.
         UnicodeDecodeError: file is not valid UTF-8.
         ValueError: binary file (NUL byte in first 8KB).
     """
     with open(abs_path, "rb") as f:
-        head = f.read(_BINARY_CHECK_SIZE)
-    if b"\x00" in head:
+        raw = f.read()
+    if b"\x00" in raw[:_BINARY_CHECK_SIZE]:
         raise ValueError(f"Binary file: {abs_path}")
-    with open(abs_path, encoding="utf-8") as f:
-        return f.readlines()
+    return raw.decode("utf-8").splitlines(keepends=True)
 
 
 def read_line_range(abs_path: str, start: int, end: int) -> str:
@@ -266,8 +282,20 @@ def build_evidence_blocks(
         # permission changed between rg run and our read)
         try:
             all_lines = _read_file_lines(abs_path)
-        except (FileNotFoundError, UnicodeDecodeError, ValueError,
-                PermissionError, IsADirectoryError):
+        except FileNotFoundError:
+            logger.debug("File vanished between rg run and read: %s", path)
+            continue
+        except UnicodeDecodeError:
+            logger.debug("UTF-8 decode failed, skipping: %s", path)
+            continue
+        except ValueError:
+            logger.debug("Binary file detected, skipping: %s", path)
+            continue
+        except PermissionError:
+            logger.info("Permission denied reading: %s", path)
+            continue
+        except IsADirectoryError:
+            logger.info("Path replaced by directory between rg run and read: %s", path)
             continue
 
         total_lines = len(all_lines)
@@ -276,11 +304,15 @@ def build_evidence_blocks(
         # Build blocks per range, tracking which ranges survive redaction
         file_blocks: list[EvidenceBlock] = []
         surviving_ranges: list[tuple[int, int]] = []
-        classification = classify_path(abs_path)
+        # Resolve symlinks before classification — prevents symlink bypass
+        # (e.g., code.py -> secret.cfg would classify as CODE, not CONFIG_INI).
+        # Matches execute_read which uses realpath at execute.py:259-260.
+        real_abs_path = os.path.realpath(abs_path)
+        classification = classify_path(real_abs_path)
         for start, end in ranges:
             range_text = "".join(all_lines[start - 1 : end])
             redact_outcome = redact_text(
-                text=range_text, classification=classification, path=abs_path,
+                text=range_text, classification=classification, path=real_abs_path,
             )
 
             if isinstance(redact_outcome, SuppressedText):

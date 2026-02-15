@@ -634,6 +634,20 @@ class TestExecuteScout:
         assert result.status == "timeout"
         assert "timed out" in result.error_message
 
+    def test_grep_rg_execution_error(self, tmp_path) -> None:
+        from context_injection.grep import RgExecutionError
+
+        ctx, req = _setup_execute_scout_test(tmp_path, action="grep")
+        with patch(
+            "context_injection.execute.run_grep",
+            side_effect=RgExecutionError("rg exited with code 2: regex parse error"),
+        ):
+            result = execute_scout(ctx, req)
+
+        assert isinstance(result, ScoutResultFailure)
+        assert result.status == "timeout"
+        assert "ripgrep error" in result.error_message
+
     def test_grep_all_files_filtered(self, tmp_path) -> None:
         ctx, req = _setup_execute_scout_test(
             tmp_path, action="grep",

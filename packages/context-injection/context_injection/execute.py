@@ -10,11 +10,13 @@ Build order:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from context_injection.classify import classify_path
 from context_injection.grep import (
     GrepTimeoutError,
+    RgExecutionError,
     RgNotFoundError,
     build_evidence_blocks,
     group_matches_by_file,
@@ -44,6 +46,8 @@ from context_injection.types import (
     ScoutResultSuccess,
     SCHEMA_VERSION,
 )
+
+logger = logging.getLogger(__name__)
 
 _BINARY_CHECK_SIZE: int = 8192
 """Check first 8KB for NUL bytes to detect binary files."""
@@ -223,6 +227,7 @@ def execute_read(
     assert isinstance(spec, ReadSpec)
 
     def _fail(status: ScoutFailureStatus, error_message: str) -> ScoutResultFailure:
+        logger.info("read scout failed: status=%s, %s", status, error_message)
         return ScoutResultFailure(
             schema_version=SCHEMA_VERSION,
             scout_option_id=scout_option_id,
@@ -366,6 +371,7 @@ def execute_grep(
     assert isinstance(spec, GrepSpec)
 
     def _fail(status: ScoutFailureStatus, error_message: str) -> ScoutResultFailure:
+        logger.info("grep scout failed: status=%s, %s", status, error_message)
         return ScoutResultFailure(
             schema_version=SCHEMA_VERSION,
             scout_option_id=scout_option_id,
@@ -382,9 +388,16 @@ def execute_grep(
     try:
         raw_matches = run_grep(spec.pattern, ctx.repo_root)
     except RgNotFoundError:
+        # Semantic mismatch: "timeout" is the closest available status in the
+        # protocol's ScoutFailureStatus literal (no "dependency_error" variant).
+        # A missing binary is permanent, not transient — but the model's retry
+        # logic handles "timeout" by not retrying the same scout, so the
+        # behavioral impact is acceptable. Protocol change deferred to v0c.
         return _fail("timeout", "ripgrep (rg) not found on PATH")
     except GrepTimeoutError:
         return _fail("timeout", f"ripgrep timed out searching for {spec.pattern!r}")
+    except RgExecutionError as exc:
+        return _fail("timeout", f"ripgrep error: {exc}")
 
     # Step 2: Group and build evidence blocks
     grouped = group_matches_by_file(raw_matches) if raw_matches else {}
