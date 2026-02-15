@@ -35,14 +35,27 @@ class TestTruncateResult:
 
 class TestEvidenceBlock:
     def test_construction(self) -> None:
-        b = EvidenceBlock(text="line1\nline2\n", start_line=10, path="src/app.py")
+        b = EvidenceBlock(text="line1\nline2\n", start_line=10, path="src/app.py", end_line=11)
         assert b.text == "line1\nline2\n"
         assert b.start_line == 10
         assert b.path == "src/app.py"
+        assert b.end_line == 11
 
     def test_nullable_fields(self) -> None:
-        b = EvidenceBlock(text="x", start_line=None, path=None)
+        b = EvidenceBlock(text="x", start_line=None, path=None, end_line=None)
         assert b.start_line is None
+
+    def test_all_or_nothing_rejects_partial(self) -> None:
+        with pytest.raises(ValueError, match="all-None or all-present"):
+            EvidenceBlock(text="x", start_line=1, path=None)
+        with pytest.raises(ValueError, match="all-None or all-present"):
+            EvidenceBlock(text="x", start_line=None, path="f.py", end_line=5)
+        with pytest.raises(ValueError, match="all-None or all-present"):
+            EvidenceBlock(text="x", start_line=1, path="f.py")
+
+    def test_end_line_gte_start_line(self) -> None:
+        with pytest.raises(ValueError, match="end_line must be >= start_line"):
+            EvidenceBlock(text="x", start_line=5, path="f.py", end_line=3)
 
 
 class TestTruncateBlocksResult:
@@ -159,8 +172,8 @@ class TestTruncateExcerpt:
 
 
 class TestTruncateBlocks:
-    def _block(self, text: str, start: int = 1, path: str = "f.py") -> EvidenceBlock:
-        return EvidenceBlock(text=text, start_line=start, path=path)
+    def _block(self, text: str, start: int = 1, path: str = "f.py", end: int = 1) -> EvidenceBlock:
+        return EvidenceBlock(text=text, start_line=start, path=path, end_line=end)
 
     def test_no_truncation(self) -> None:
         blocks = [self._block("a\n"), self._block("b\n")]

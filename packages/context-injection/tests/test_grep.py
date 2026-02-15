@@ -17,7 +17,6 @@ from context_injection.grep import (
     build_evidence_blocks,
     filter_file,
     group_matches_by_file,
-    read_line_range,
     run_grep,
 )
 from context_injection.types import GrepSpec
@@ -92,6 +91,20 @@ class TestParseRgJsonLines:
         lines = ["", "  ", '{"type":"match","data":{"path":{"text":"a.py"},"lines":{"text":"x\\n"},"line_number":1,"absolute_offset":0,"submatches":[]}}']
         result = _parse_rg_json_lines(lines)
         assert len(result) == 1
+
+
+class TestGrepRawMatch:
+    def test_rejects_zero_line_number(self) -> None:
+        with pytest.raises(ValueError, match="line_number must be >= 1"):
+            GrepRawMatch(path="a.py", line_number=0, line_text="x")
+
+    def test_rejects_negative_line_number(self) -> None:
+        with pytest.raises(ValueError, match="line_number must be >= 1"):
+            GrepRawMatch(path="a.py", line_number=-1, line_text="x")
+
+    def test_accepts_valid_line_number(self) -> None:
+        m = GrepRawMatch(path="a.py", line_number=1, line_text="x")
+        assert m.line_number == 1
 
 
 class TestRunGrep:
@@ -256,47 +269,6 @@ class TestFilterFile:
     def test_empty_git_files(self) -> None:
         assert filter_file("a.py", set()) is False
 
-
-class TestReadLineRange:
-    def test_reads_full_file(self, tmp_path) -> None:
-        f = tmp_path / "a.py"
-        f.write_text("line1\nline2\nline3\n")
-        result = read_line_range(str(f), 1, 3)
-        assert result == "line1\nline2\nline3\n"
-
-    def test_reads_middle_range(self, tmp_path) -> None:
-        f = tmp_path / "a.py"
-        f.write_text("line1\nline2\nline3\nline4\nline5\n")
-        result = read_line_range(str(f), 2, 4)
-        assert result == "line2\nline3\nline4\n"
-
-    def test_single_line(self, tmp_path) -> None:
-        f = tmp_path / "a.py"
-        f.write_text("line1\nline2\nline3\n")
-        result = read_line_range(str(f), 2, 2)
-        assert result == "line2\n"
-
-    def test_range_beyond_file_returns_available(self, tmp_path) -> None:
-        f = tmp_path / "a.py"
-        f.write_text("line1\nline2\n")
-        result = read_line_range(str(f), 1, 100)
-        assert result == "line1\nline2\n"
-
-    def test_file_not_found_raises(self, tmp_path) -> None:
-        with pytest.raises(FileNotFoundError):
-            read_line_range(str(tmp_path / "missing.py"), 1, 1)
-
-    def test_binary_file_raises(self, tmp_path) -> None:
-        f = tmp_path / "binary.bin"
-        f.write_bytes(b"hello\x00world")
-        with pytest.raises(ValueError, match="Binary file"):
-            read_line_range(str(f), 1, 1)
-
-    def test_non_utf8_raises(self, tmp_path) -> None:
-        f = tmp_path / "latin.txt"
-        f.write_bytes(b"caf\xe9\n")
-        with pytest.raises(UnicodeDecodeError):
-            read_line_range(str(f), 1, 1)
 
 
 class TestBuildEvidenceBlocks:
@@ -471,3 +443,56 @@ class TestBuildEvidenceBlocks:
         assert len(blocks) >= 1
         assert "myhost.example.com" not in blocks[0].text
         assert redactions > 0
+
+    def test_partial_suppression_mixed_ranges(self, tmp_path) -> None:
+        """One range suppressed (PEM key), another survives — in the same file.
+
+        Verifies:
+        - Only the surviving range appears in blocks
+        - match_count excludes suppressed range's match lines
+        - grep_matches[0].ranges lists only the surviving range
+        """
+        # Build a file: normal code at top (lines 1-5), PEM key at bottom (lines 20-25).
+        # With context_lines=1 and matches at lines 3 and 22, the two ranges
+        # won't overlap — range1 covers ~2-4 (survives), range2 covers ~21-23 (suppressed).
+        normal_lines = [
+            "import os\n",
+            "import sys\n",
+            "class MyClass:\n",
+            "    pass\n",
+            "# end of normal code\n",
+        ]
+        padding = [f"# padding line {i}\n" for i in range(6, 20)]
+        pem_lines = [
+            "# cert config\n",          # line 20
+            "KEY = '''\n",               # line 21
+            "-----BEGIN RSA PRIVATE KEY-----\n",  # line 22 (match here)
+            "MIIBogIBAAJBALRiMLAH\n",   # line 23
+            "-----END RSA PRIVATE KEY-----\n",    # line 24
+            "'''\n",                      # line 25
+        ]
+        content = "".join(normal_lines + padding + pem_lines)
+        (tmp_path / "app.py").write_text(content)
+
+        spec = self._make_spec(context_lines=1)
+        grouped = {"app.py": [3, 22]}  # match in normal code + match in PEM block
+        git_files = {"app.py"}
+
+        blocks, match_count, grep_matches, _ = build_evidence_blocks(
+            grouped, spec, str(tmp_path), git_files,
+        )
+
+        # Only the normal-code range should survive (PEM range suppressed)
+        assert len(blocks) == 1
+        assert "class MyClass:" in blocks[0].text
+        assert "BEGIN RSA PRIVATE KEY" not in blocks[0].text
+
+        # match_count should only count the surviving range's match (line 3)
+        assert match_count == 1
+
+        # grep_matches should list only the surviving range
+        assert len(grep_matches) == 1
+        assert grep_matches[0].path_display == "app.py"
+        assert len(grep_matches[0].ranges) == 1
+        surviving_range = grep_matches[0].ranges[0]
+        assert surviving_range[0] <= 3 <= surviving_range[1]  # line 3 is in range

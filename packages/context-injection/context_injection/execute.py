@@ -1,11 +1,11 @@
-"""Call 2 execution pipeline: read executor, evidence wrappers, integration.
+"""Call 2 execution pipeline: read executor, grep executor, top-level dispatch.
 
-Build order:
-- Task 1 (D2b): read_file_excerpt, ReadExcerpt, BinaryFileError
-- Task 2 (D2b): evidence wrapper builders, budget computation
-- Task 3 (D2b): execute_read (read -> classify -> redact -> truncate -> wrap)
-- Task 4 (D2b): execute_scout (top-level dispatch)
-- Task 13-14 (D4): grep executor, grep post-processing
+Layers:
+- File reading: read_file_excerpt, ReadExcerpt, BinaryFileError
+- Evidence wrappers: build_read_evidence_wrapper, build_grep_evidence_wrapper, compute_budget
+- Read pipeline: execute_read (path check → read → classify → redact → truncate → wrap)
+- Grep pipeline: execute_grep (rg → group → filter → read+redact → truncate → wrap)
+- Dispatch: execute_scout (HMAC validation → action routing)
 """
 
 from __future__ import annotations
@@ -197,7 +197,7 @@ def compute_budget(evidence_history_len: int, *, success: bool) -> Budget:
     )
 
 
-# --- Read pipeline integration (Task 3) ---
+# --- Read pipeline ---
 
 
 _SUPPRESSION_MARKERS: dict[SuppressionReason, str] = {
@@ -216,6 +216,10 @@ def execute_read(
     evidence_history_len: int,
 ) -> ScoutResultSuccess | ScoutResultFailure:
     """Execute a read scout: path check -> read -> classify -> redact -> truncate -> wrap.
+
+    Takes ``repo_root`` (not ``AppContext``) because it only needs the repo root
+    for path resolution. ``execute_grep`` takes ``AppContext`` because it
+    additionally needs ``git_files`` for post-hoc file filtering.
 
     Classification uses os.path.realpath (NOT path_display) to prevent
     symlink-based classification bypass. Same realpath passed to redact_text
@@ -353,7 +357,7 @@ def execute_read(
     )
 
 
-# --- Grep pipeline integration (D4 Task 4) ---
+# --- Grep pipeline ---
 
 
 def execute_grep(
@@ -487,7 +491,7 @@ def execute_grep(
     )
 
 
-# --- Top-level dispatch (Task 4) ---
+# --- Top-level dispatch ---
 
 
 def execute_scout(

@@ -1,9 +1,9 @@
 """Ripgrep subprocess execution and output parsing for grep scouts.
 
-Build order:
-- Task 1 (D4): GrepRawMatch, RgNotFoundError, _parse_rg_json_lines, run_grep
-- Task 2 (D4): build_context_ranges
-- Task 3 (D4): group_matches_by_file, filter_file, read_line_range, build_evidence_blocks
+Layers:
+- Subprocess runner: run_grep, _parse_rg_json_lines, exception types
+- Range building: build_context_ranges (match lines → merged windows)
+- Evidence building: group_matches_by_file, filter_file, build_evidence_blocks
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import subprocess
 from dataclasses import dataclass
 
 from context_injection.classify import classify_path
-from context_injection.paths import _check_denylist
+from context_injection.paths import check_denylist
 from context_injection.redact import RedactedText, SuppressedText, redact_text
 from context_injection.truncate import EvidenceBlock
 from context_injection.types import GrepMatch, GrepSpec
@@ -33,6 +33,12 @@ class GrepRawMatch:
     """1-indexed line number."""
     line_text: str
     """Matched line content (trailing newline stripped)."""
+
+    def __post_init__(self) -> None:
+        if self.line_number < 1:
+            raise ValueError(
+                f"line_number must be >= 1. Got: {self.line_number}"
+            )
 
 
 class RgNotFoundError(Exception):
@@ -204,7 +210,7 @@ def filter_file(path: str, git_files: set[str]) -> bool:
     """
     if path not in git_files:
         return False
-    return _check_denylist(path) is None
+    return check_denylist(path) is None
 
 
 _BINARY_CHECK_SIZE: int = 8192
@@ -229,20 +235,6 @@ def _read_file_lines(abs_path: str) -> list[str]:
         raise ValueError(f"Binary file: {abs_path}")
     return raw.decode("utf-8").splitlines(keepends=True)
 
-
-def read_line_range(abs_path: str, start: int, end: int) -> str:
-    """Read lines [start, end] (1-indexed, inclusive) from a UTF-8 file.
-
-    Returns selected lines joined as a single string (preserving line endings).
-
-    Raises:
-        FileNotFoundError: file does not exist.
-        UnicodeDecodeError: file is not valid UTF-8.
-        ValueError: binary file (NUL byte in first 8KB).
-    """
-    all_lines = _read_file_lines(abs_path)
-    selected = all_lines[start - 1 : end]
-    return "".join(selected)
 
 
 def build_evidence_blocks(

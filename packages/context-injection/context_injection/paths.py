@@ -297,7 +297,7 @@ def _is_denied_file(path: str) -> str | None:
     return None
 
 
-def _check_denylist(normalized_path: str) -> str | None:
+def check_denylist(normalized_path: str) -> str | None:
     """Run full denylist check (dirs then files).
 
     Returns deny reason string, or None if allowed.
@@ -384,9 +384,9 @@ def check_path_compile_time(
     # Step 4: Denylist check — both normalized and resolved paths
     # A symlink like docs/readme.md -> .env must be caught even though
     # the link name passes the denylist. Check both surfaces.
-    deny_reason = _check_denylist(normalized)
+    deny_reason = check_denylist(normalized)
     if not deny_reason and resolved_rel != normalized:
-        deny_reason = _check_denylist(resolved_rel)
+        deny_reason = check_denylist(resolved_rel)
     if deny_reason:
         return CompileTimeResult(
             status="denied",
@@ -455,7 +455,7 @@ def check_path_runtime(
     # Denylist re-check on resolved path (defense in depth against
     # symlinks swapped between compile-time and runtime)
     resolved_rel = os.path.relpath(real, repo_root_normalized).replace(os.sep, "/")
-    deny_reason = _check_denylist(resolved_rel)
+    deny_reason = check_denylist(resolved_rel)
     if deny_reason:
         return RuntimeResult(
             status="denied",
