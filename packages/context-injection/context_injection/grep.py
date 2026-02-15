@@ -9,8 +9,15 @@ Build order:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
+
+from context_injection.classify import classify_path
+from context_injection.paths import _check_denylist
+from context_injection.redact import RedactedText, SuppressedText, redact_text
+from context_injection.truncate import EvidenceBlock
+from context_injection.types import GrepMatch, GrepSpec
 
 
 @dataclass(frozen=True)
@@ -149,3 +156,151 @@ def build_context_ranges(
             merged.append((start, end))
 
     return merged
+
+
+def group_matches_by_file(
+    matches: list[GrepRawMatch],
+) -> dict[str, list[int]]:
+    """Group match line numbers by file path.
+
+    Returns dict mapping repo-relative path to sorted list of
+    1-indexed line numbers.
+    """
+    grouped: dict[str, list[int]] = {}
+    for m in matches:
+        grouped.setdefault(m.path, []).append(m.line_number)
+    for line_numbers in grouped.values():
+        line_numbers.sort()
+    return grouped
+
+
+def filter_file(path: str, git_files: set[str]) -> bool:
+    """Check if file should be included in grep results.
+
+    Returns True if file is git-tracked AND not in denylist.
+    """
+    if path not in git_files:
+        return False
+    return _check_denylist(path) is None
+
+
+_BINARY_CHECK_SIZE: int = 8192
+"""Check first 8KB for NUL bytes to detect binary files."""
+
+
+def _read_file_lines(abs_path: str) -> list[str]:
+    """Read a UTF-8 text file and return lines with line endings preserved.
+
+    Raises:
+        FileNotFoundError: file does not exist.
+        UnicodeDecodeError: file is not valid UTF-8.
+        ValueError: binary file (NUL byte in first 8KB).
+    """
+    with open(abs_path, "rb") as f:
+        head = f.read(_BINARY_CHECK_SIZE)
+    if b"\x00" in head:
+        raise ValueError(f"Binary file: {abs_path}")
+    with open(abs_path, encoding="utf-8") as f:
+        return f.readlines()
+
+
+def read_line_range(abs_path: str, start: int, end: int) -> str:
+    """Read lines [start, end] (1-indexed, inclusive) from a UTF-8 file.
+
+    Returns selected lines joined as a single string (preserving line endings).
+
+    Raises:
+        FileNotFoundError: file does not exist.
+        UnicodeDecodeError: file is not valid UTF-8.
+        ValueError: binary file (NUL byte in first 8KB).
+    """
+    all_lines = _read_file_lines(abs_path)
+    selected = all_lines[start - 1 : end]
+    return "".join(selected)
+
+
+def build_evidence_blocks(
+    grouped: dict[str, list[int]],
+    spec: GrepSpec,
+    repo_root: str,
+    git_files: set[str],
+) -> tuple[list[EvidenceBlock], int, list[GrepMatch], int]:
+    """Build evidence blocks from grouped match data.
+
+    For each file: filter -> read -> build ranges -> redact per range -> blocks.
+    Files with errors (binary, decode, not found, permission, replaced-by-dir)
+    or full suppression are skipped.
+
+    Returns:
+        (blocks, match_count, grep_matches, redactions_applied)
+        - blocks: one EvidenceBlock per surviving range
+        - match_count: total match lines across files with surviving blocks,
+          counting only lines whose ranges survived redaction
+        - grep_matches: one GrepMatch per file with surviving blocks
+        - redactions_applied: total redactions across all blocks
+    """
+    all_blocks: list[EvidenceBlock] = []
+    match_count = 0
+    grep_matches: list[GrepMatch] = []
+    redactions_applied = 0
+
+    for path in sorted(grouped):
+        match_lines = grouped[path]
+
+        if not filter_file(path, git_files):
+            continue
+
+        abs_path = os.path.join(repo_root, path)
+
+        # Read file once — catch TOCTOU errors (file deleted, replaced by dir,
+        # permission changed between rg run and our read)
+        try:
+            all_lines = _read_file_lines(abs_path)
+        except (FileNotFoundError, UnicodeDecodeError, ValueError,
+                PermissionError, IsADirectoryError):
+            continue
+
+        total_lines = len(all_lines)
+        ranges = build_context_ranges(match_lines, spec.context_lines, total_lines)
+
+        # Build blocks per range, tracking which ranges survive redaction
+        file_blocks: list[EvidenceBlock] = []
+        surviving_ranges: list[tuple[int, int]] = []
+        for start, end in ranges:
+            range_text = "".join(all_lines[start - 1 : end])
+            classification = classify_path(abs_path)
+            redact_outcome = redact_text(
+                text=range_text, classification=classification, path=abs_path,
+            )
+
+            if isinstance(redact_outcome, SuppressedText):
+                continue
+
+            assert isinstance(redact_outcome, RedactedText)
+            redactions_applied += (
+                redact_outcome.stats.format_redactions
+                + redact_outcome.stats.token_redactions
+            )
+            block_text = f"# {path}:{start}-{end}\n{redact_outcome.text}"
+            file_blocks.append(
+                EvidenceBlock(text=block_text, start_line=start, path=path),
+            )
+            surviving_ranges.append((start, end))
+
+        if file_blocks:
+            all_blocks.extend(file_blocks)
+            # Count only match lines within surviving ranges
+            file_match_count = sum(
+                1 for line in match_lines
+                if any(s <= line <= e for s, e in surviving_ranges)
+            )
+            match_count += file_match_count
+            grep_matches.append(
+                GrepMatch(
+                    path_display=path,
+                    total_lines=total_lines,
+                    ranges=[[s, e] for s, e in surviving_ranges],
+                ),
+            )
+
+    return all_blocks, match_count, grep_matches, redactions_applied
