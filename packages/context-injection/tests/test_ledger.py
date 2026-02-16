@@ -423,6 +423,19 @@ class TestValidateLedgerEntryHardReject:
                 turn_number=-1,
             )
 
+    def test_claim_future_turn_rejected(self) -> None:
+        """Claim from turn 5 in a turn_number=2 entry is rejected."""
+        with pytest.raises(LedgerValidationError) as exc_info:
+            validate_ledger_entry(
+                position="Position",
+                claims=[Claim(text="A", status="new", turn=5)],
+                delta="x",
+                tags=[],
+                unresolved=[],
+                turn_number=2,
+            )
+        assert any("exceeds" in w.message for w in exc_info.value.warnings)
+
     def test_multiple_hard_rejects_all_reported(self) -> None:
         """All hard rejects collected, not just first one."""
         with pytest.raises(LedgerValidationError) as exc_info:
