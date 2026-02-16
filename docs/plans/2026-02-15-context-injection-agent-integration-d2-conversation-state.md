@@ -12,7 +12,7 @@
 ## Prerequisite Contract
 
 **Requires from D1:**
-- From `context_injection/ledger.py`: `LedgerEntry`, `CumulativeState`, validation functions
+- From `context_injection/ledger.py`: `LedgerEntry`, `LedgerEntryCounters`, `CumulativeState`, validation functions
 - From `context_injection/enums.py`: `EffectiveDelta`, `QualityLabel`
 - Source of truth: `context_injection/ledger.py`, `context_injection/enums.py`
 
@@ -64,7 +64,7 @@ Pure additive delivery. New `conversation.py` + `checkpoint.py`. Extends `state.
 - Create: `context_injection/conversation.py`
 - Create: `tests/test_conversation.py`
 
-Pydantic `BaseModel` with `ConfigDict(frozen=True)` — not ProtocolModel (internal state, not wire type). Projection methods use `model_copy(update={...})` to return new instances. Pipeline commits atomically by replacing `ctx.conversations[id] = projected`.
+Pydantic `BaseModel` with `ConfigDict(frozen=True, extra="forbid", strict=True)` — not ProtocolModel (internal state, not wire type). Projection methods use `model_copy(update={...})` to return new instances. Pipeline commits atomically by replacing `ctx.conversations[id] = projected`.
 
 **Design refinement from outline:** `with_turn(entry)` simplified from `with_turn(entry, claims)` — claims derived from `entry.claims` since `validate_ledger_entry` constructs the entry with the same claims. No redundancy.
 
@@ -648,7 +648,7 @@ class TestDeserializeCheckpoint:
             parent_checkpoint_id=None,
             format_version=CHECKPOINT_FORMAT_VERSION,
             payload="not valid json",
-            size=15,
+            size=14,
         )
         with pytest.raises(CheckpointError) as exc_info:
             deserialize_checkpoint(cp.model_dump_json())
@@ -1101,33 +1101,125 @@ class TestCompactionEquivalence:
     Under DD-2 invariant (MAX_CONVERSATION_TURNS < MAX_ENTRIES_BEFORE_COMPACT),
     compaction should never trigger. This test verifies that IF it did trigger,
     the action decision would be equivalent — proving the safety net is sound.
+
+    Covers all compute_action branches:
+    - ADVANCING-only (no plateau)
+    - Plateau with closing probe fired
+    - Plateau without closing probe (no probe)
+    - Plateau with unresolved questions
+    - Budget exhausted
     """
 
-    def test_compute_action_matches_after_compaction(self) -> None:
+    def test_invariant_keep_recent_gte_min_plateau(self) -> None:
+        """Structural invariant: KEEP_RECENT_ENTRIES >= MIN_ENTRIES_FOR_PLATEAU.
+
+        If this fails, compaction would trim entries below the plateau detection
+        window and change compute_action results.
+        """
+        from context_injection.control import MIN_ENTRIES_FOR_PLATEAU
+
+        assert KEEP_RECENT_ENTRIES >= MIN_ENTRIES_FOR_PLATEAU, (
+            f"KEEP_RECENT_ENTRIES ({KEEP_RECENT_ENTRIES}) must be >= "
+            f"MIN_ENTRIES_FOR_PLATEAU ({MIN_ENTRIES_FOR_PLATEAU})"
+        )
+
+    @pytest.mark.parametrize(
+        "label,make_entries,budget,closing_probe",
+        [
+            pytest.param(
+                "advancing_only",
+                lambda n: [
+                    _make_entry(turn_number=i)
+                    for i in range(1, n + 1)
+                ],
+                5,
+                False,
+                id="advancing-only",
+            ),
+            pytest.param(
+                "plateau_with_probe",
+                lambda n: [
+                    _make_entry(
+                        turn_number=i,
+                        claims=[Claim(text=f"C{i}", status="reinforced", turn=i)],
+                    )
+                    for i in range(1, n + 1)
+                ],
+                5,
+                True,
+                id="plateau+probe",
+            ),
+            pytest.param(
+                "plateau_no_probe",
+                lambda n: [
+                    _make_entry(
+                        turn_number=i,
+                        claims=[Claim(text=f"C{i}", status="reinforced", turn=i)],
+                    )
+                    for i in range(1, n + 1)
+                ],
+                5,
+                False,
+                id="plateau+no_probe",
+            ),
+            pytest.param(
+                "plateau_with_unresolved",
+                lambda n: [
+                    _make_entry(
+                        turn_number=i,
+                        claims=[Claim(text=f"C{i}", status="reinforced", turn=i)],
+                    )
+                    for i in range(1, n + 1)
+                ],
+                5,
+                False,
+                id="plateau+unresolved",
+            ),
+            pytest.param(
+                "budget_exhausted",
+                lambda n: [
+                    _make_entry(turn_number=i)
+                    for i in range(1, n + 1)
+                ],
+                0,
+                False,
+                id="budget-exhausted",
+            ),
+        ],
+    )
+    def test_compute_action_matches_after_compaction(
+        self, label: str, make_entries: object, budget: int, closing_probe: bool,
+    ) -> None:
         """compute_action on full-history state matches compute_action on compacted state."""
-        from context_injection.action import compute_action
+        from context_injection.control import compute_action
+
+        entry_count = MAX_ENTRIES_BEFORE_COMPACT + 5
+        entries = make_entries(entry_count)  # type: ignore[operator]
 
         state = ConversationState(conversation_id="conv-1")
-        for i in range(1, MAX_ENTRIES_BEFORE_COMPACT + 5):
-            state = state.with_turn(_make_entry(turn_number=i))
+        for entry in entries:
+            state = state.with_turn(entry)
+        if closing_probe:
+            state = state.with_closing_probe_fired()
 
-        full_cumulative = state.compute_cumulative_state()
         compacted = compact_ledger(state)
-        compacted_cumulative = compacted.compute_cumulative_state()
 
         # Action decisions depend on delta sequence tail and budget —
         # compaction preserves recent entries, so action should match
         full_action = compute_action(
-            cumulative=full_cumulative,
-            budget_remaining=5,
+            entries=list(state.entries),
+            budget_remaining=budget,
             closing_probe_fired=state.closing_probe_fired,
         )
         compacted_action = compute_action(
-            cumulative=compacted_cumulative,
-            budget_remaining=5,
+            entries=list(compacted.entries),
+            budget_remaining=budget,
             closing_probe_fired=compacted.closing_probe_fired,
         )
-        assert full_action == compacted_action
+        assert full_action == compacted_action, (
+            f"Branch {label}: full-history action {full_action} != "
+            f"compacted action {compacted_action}"
+        )
 
 
 class TestCompactionRoundTrip:
@@ -1362,6 +1454,35 @@ class TestAppContextConversations:
         ctx.conversations["conv-1"] = projected
         retrieved = ctx.get_or_create_conversation("conv-1")
         assert retrieved.last_checkpoint_id == "cp-1"
+
+
+class TestConversationGuardLimit:
+    """DD-3: CONVERSATION_GUARD_LIMIT overflow protection."""
+
+    def test_below_limit_creates(self) -> None:
+        """Creating conversations below the limit succeeds."""
+        ctx = AppContext.create(repo_root="/tmp/test")
+        for i in range(ctx.CONVERSATION_GUARD_LIMIT):
+            state = ctx.get_or_create_conversation(f"conv-{i}")
+            assert state.conversation_id == f"conv-{i}"
+        assert len(ctx.conversations) == ctx.CONVERSATION_GUARD_LIMIT
+
+    def test_overflow_on_new_id_raises(self) -> None:
+        """Creating a new conversation at the limit raises ValueError."""
+        ctx = AppContext.create(repo_root="/tmp/test")
+        for i in range(ctx.CONVERSATION_GUARD_LIMIT):
+            ctx.get_or_create_conversation(f"conv-{i}")
+        with pytest.raises(ValueError, match="Conversation limit exceeded"):
+            ctx.get_or_create_conversation("conv-overflow")
+
+    def test_existing_id_returns_at_limit(self) -> None:
+        """Retrieving an existing conversation at the limit succeeds."""
+        ctx = AppContext.create(repo_root="/tmp/test")
+        for i in range(ctx.CONVERSATION_GUARD_LIMIT):
+            ctx.get_or_create_conversation(f"conv-{i}")
+        # Existing ID should still be retrievable
+        state = ctx.get_or_create_conversation("conv-0")
+        assert state.conversation_id == "conv-0"
 ```
 
 **Step 2: Run tests to verify failure**
@@ -1387,14 +1508,27 @@ Add field to `AppContext` class (after `entity_counter`):
 Add method to `AppContext` class (after `next_entity_id`):
 
 ```python
+    CONVERSATION_GUARD_LIMIT: int = 50
+    """Maximum number of tracked conversations. Prevents unbounded memory growth
+    from leaked or malicious conversation IDs."""
+
     def get_or_create_conversation(self, conversation_id: str) -> ConversationState:
         """Return existing conversation state or create empty one.
 
         The returned state may be "fresh" (no real state) if the server
         restarted. Checkpoint intake (validate_checkpoint_intake) determines
         whether to use it or restore from a checkpoint.
+
+        Raises ValueError if creating a new conversation would exceed
+        CONVERSATION_GUARD_LIMIT (DD-3 overflow protection).
         """
         if conversation_id not in self.conversations:
+            if len(self.conversations) >= self.CONVERSATION_GUARD_LIMIT:
+                raise ValueError(
+                    f"Conversation limit exceeded: {len(self.conversations)} "
+                    f"conversations already tracked (limit: {self.CONVERSATION_GUARD_LIMIT}). "
+                    f"Cannot create conversation {conversation_id!r}."
+                )
             self.conversations[conversation_id] = ConversationState(
                 conversation_id=conversation_id,
             )

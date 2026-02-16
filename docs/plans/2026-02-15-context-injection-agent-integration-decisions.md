@@ -196,7 +196,7 @@ TurnPacket (0.2.0):
   cumulative: CumulativeState   # Running totals across all turns
 
   # New: conversation control
-  action: str                   # "continue" / "closing_probe" / "conclude"
+  action: str                   # "continue_dialogue" / "closing_probe" / "conclude"
   action_reason: str            # Mechanical explanation
 
   # New: compaction-safe snapshot

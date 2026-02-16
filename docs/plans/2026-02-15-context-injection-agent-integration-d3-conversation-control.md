@@ -332,6 +332,74 @@ class TestComputeActionReasonStrings:
             [_make_entry()], budget_remaining=5, closing_probe_fired=False,
         )
         assert len(reason) > 0
+
+
+class TestComputeActionPrecedenceInteractions:
+    """Precedence and interaction tests — budget exhaustion beats all other conditions."""
+
+    def test_empty_entries_budget_zero_returns_conclude(self) -> None:
+        """compute_action([], budget_remaining=0) returns CONCLUDE, not CONTINUE."""
+        action, reason = compute_action([], budget_remaining=0, closing_probe_fired=False)
+        assert action == ConversationAction.CONCLUDE
+        assert "budget" in reason.lower()
+
+    def test_budget_zero_trumps_plateau_and_unresolved(self) -> None:
+        """budget=0 + plateau + unresolved returns CONCLUDE (budget wins)."""
+        entries = [
+            _make_entry(
+                turn_number=1,
+                effective_delta=EffectiveDelta.STATIC,
+            ),
+            _make_entry(
+                turn_number=2,
+                effective_delta=EffectiveDelta.STATIC,
+                unresolved=[Unresolved(text="Open question", turn=2)],
+            ),
+        ]
+        action, reason = compute_action(
+            entries, budget_remaining=0, closing_probe_fired=True,
+        )
+        assert action == ConversationAction.CONCLUDE
+        assert "budget" in reason.lower()
+
+    def test_closing_probe_at_budget_one_then_budget_zero_concludes(self) -> None:
+        """Closing probe fires at budget=1; next call at budget=0 forces CONCLUDE."""
+        entries = [
+            _make_entry(turn_number=1, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=2, effective_delta=EffectiveDelta.STATIC),
+        ]
+        # First call: budget=1, probe not yet fired → CLOSING_PROBE
+        action_1, _ = compute_action(
+            entries, budget_remaining=1, closing_probe_fired=False,
+        )
+        assert action_1 == ConversationAction.CLOSING_PROBE
+
+        # Second call: budget=0, probe now fired → CONCLUDE (budget exhaustion)
+        action_2, reason = compute_action(
+            entries, budget_remaining=0, closing_probe_fired=True,
+        )
+        assert action_2 == ConversationAction.CONCLUDE
+        assert "budget" in reason.lower()
+
+    def test_unresolved_only_checked_on_latest_entry(self) -> None:
+        """Unresolved items on earlier entries do NOT prevent CONCLUDE — only latest matters."""
+        entries = [
+            _make_entry(
+                turn_number=1,
+                effective_delta=EffectiveDelta.STATIC,
+                unresolved=[Unresolved(text="Old question", turn=1)],
+            ),
+            _make_entry(
+                turn_number=2,
+                effective_delta=EffectiveDelta.STATIC,
+                # Latest entry: no unresolved
+            ),
+        ]
+        action, reason = compute_action(
+            entries, budget_remaining=5, closing_probe_fired=True,
+        )
+        assert action == ConversationAction.CONCLUDE
+        assert "plateau" in reason.lower()
 ```
 
 Run: `cd packages/context-injection && uv run pytest tests/test_control.py -v`
@@ -349,6 +417,7 @@ Pure functions on ledger types. No side effects, no I/O.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from enum import StrEnum
 
 from context_injection.enums import EffectiveDelta
@@ -380,7 +449,7 @@ class ConversationAction(StrEnum):
 # ---------------------------------------------------------------------------
 
 
-def _is_plateau(entries: list[LedgerEntry]) -> bool:
+def _is_plateau(entries: Sequence[LedgerEntry]) -> bool:
     """Check if the last MIN_ENTRIES_FOR_PLATEAU entries are all STATIC."""
     if len(entries) < MIN_ENTRIES_FOR_PLATEAU:
         return False
@@ -388,7 +457,7 @@ def _is_plateau(entries: list[LedgerEntry]) -> bool:
     return all(e.effective_delta == EffectiveDelta.STATIC for e in recent)
 
 
-def _has_open_unresolved(entries: list[LedgerEntry]) -> bool:
+def _has_open_unresolved(entries: Sequence[LedgerEntry]) -> bool:
     """Check if the latest entry has unresolved items."""
     if not entries:
         return False
@@ -396,7 +465,7 @@ def _has_open_unresolved(entries: list[LedgerEntry]) -> bool:
 
 
 def compute_action(
-    entries: list[LedgerEntry],
+    entries: Sequence[LedgerEntry],
     budget_remaining: int,
     closing_probe_fired: bool,
 ) -> tuple[ConversationAction, str]:
@@ -814,7 +883,7 @@ def _format_turn_line(entry: LedgerEntry) -> str:
 
 
 def generate_ledger_summary(
-    entries: list[LedgerEntry],
+    entries: Sequence[LedgerEntry],
     cumulative: CumulativeState,
 ) -> str:
     """Generate a compact text summary of the conversation ledger.

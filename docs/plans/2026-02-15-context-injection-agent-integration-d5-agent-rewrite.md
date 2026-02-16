@@ -18,7 +18,7 @@
 
 **Requires MCP tools:** `mcp__context-injection__process_turn`, `mcp__context-injection__execute_scout` (in addition to existing `mcp__codex__codex`, `mcp__codex__codex-reply`)
 
-**Critical invariant:** The agent rewrite changes `.claude/agents/codex-dialogue.md` — this is a subagent definition (markdown instruction file), not Python code. The rewrite replaces the Phase 2 conversation loop while preserving Phase 1 (setup) and Phase 3 (synthesis).
+**Critical invariant:** The agent rewrite changes `.claude/agents/codex-dialogue.md` — this is a subagent definition (markdown instruction file), not Python code. The rewrite replaces the Phase 2 conversation loop while preserving Phase 1 (setup) and Phase 3 (synthesis) with targeted additions.
 
 **Adaptation:** If the 0.2.0 protocol schema field names differ from this plan, adapt the agent instructions and note the mapping.
 
@@ -56,7 +56,7 @@ Rewrites `.claude/agents/codex-dialogue.md` Phase 2 conversation loop from 3-ste
 
 **Step 1: Read the current agent file**
 
-Read `.claude/agents/codex-dialogue.md` (324 lines). Verify:
+Read `.claude/agents/codex-dialogue.md`. Verify:
 - Frontmatter `tools:` line contains `mcp__codex__codex` and `mcp__codex__codex-reply`
 - Phase 1 (Setup): lines 17-66
 - Phase 2 (Conversation Loop): lines 68-185
@@ -83,8 +83,8 @@ tools: Bash, Read, Glob, Grep, mcp__codex__codex, mcp__codex__codex-reply, mcp__
 Add after the existing MCP tools precondition (after line 15):
 
 ```markdown
-- Context injection MCP tools `mcp__context-injection__process_turn` and `mcp__context-injection__execute_scout` must be available (context injection server running)
-- **Mode gating:** Start in `server_assisted` mode. If context injection tools are unavailable at conversation start (tool listing fails or first `process_turn` returns a connection error), switch to `manual_legacy` mode for the remainder of the conversation. Do not switch modes mid-conversation after a successful `process_turn`.
+- Context injection MCP tools `mcp__context-injection__process_turn` and `mcp__context-injection__execute_scout` should be available (see mode gating below)
+- **Mode gating:** Start in `server_assisted` mode. If context injection tools are unavailable at conversation start (first call to `mcp__context-injection__process_turn` returns an error or times out), switch to `manual_legacy` mode for the remainder of the conversation. Do not switch modes mid-conversation after a successful `process_turn`.
 ```
 
 **Step 4: Replace Phase 2 conversation loop**
@@ -147,13 +147,13 @@ The server tracks: cumulative claim counts, plateau detection, closing probe sta
 
 ### Fallback Mode: Legacy Manual Loop
 
-When running in `manual_legacy` mode (context injection tools unavailable), use the original 3-step conversation loop:
+The 7-step per-turn loop is bypassed entirely in `manual_legacy` mode. Instead, use the original 3-step conversation loop:
 
 1. **Extract** semantic data from the Codex response (same as Step 1 above)
 2. **Evaluate** continue/conclude manually: count turns, detect repetition, apply closing probe if plateau detected (2+ consecutive `static` delta turns)
 3. **Compose** follow-up using the posture patterns table and send via `codex-reply`
 
-In this mode, skip Steps 2-4 of the 7-step loop (no `process_turn`, no scouting, no checkpoint tracking). The agent manages its own ledger state, convergence detection, and turn budget. Synthesis (Phase 3) proceeds without `ledger_summary` or evidence data — reconstruct trajectory from the manually tracked extraction history.
+The agent manages its own ledger state, convergence detection, and turn budget. Synthesis (Phase 3) proceeds without `ledger_summary` or evidence data — reconstruct trajectory from the manually tracked extraction history.
 
 ### Per-turn loop (7 steps)
 
@@ -229,8 +229,8 @@ Call `mcp__context-injection__process_turn` with:
 ```
 
 **Field mapping:**
-- Set `focus.claims` and top-level `claims` to the same list. On subsequent turns, `focus.claims` contains claims relevant to the current focus scope (not the full conversation history — the server accumulates history internally).
-- Set `focus.unresolved` and top-level `unresolved` to the same list.
+- Build `claims` list once from ledger extraction. Assign to BOTH `focus.claims` and top-level `claims` fields. On subsequent turns, `focus.claims` contains claims relevant to the current focus scope (not the full conversation history — the server accumulates history internally).
+- Build `unresolved` list once. Assign to BOTH `focus.unresolved` and top-level `unresolved` fields.
 - `focus.text` is the overarching topic (stable across turns), not the per-turn `position`.
 
 **First turn:** Set `state_checkpoint` and `checkpoint_id` to `null`.
@@ -248,7 +248,7 @@ Call `mcp__context-injection__process_turn` with:
 | `cumulative` | Running totals: `total_claims`, `reinforced`, `revised`, `conceded`, `unresolved_open`. Use for conversation awareness. |
 | `action` | **Directive:** `continue_dialogue`, `closing_probe`, or `conclude`. See Step 5. |
 | `action_reason` | Human-readable explanation. Include in your internal reasoning. |
-| `template_candidates` | Available scout options for evidence gathering. See Step 4. |
+| `template_candidates` | Available scout options for evidence gathering. See Step 4. Fields per candidate: `rank`, `template_id`, `entity_key`, `scout_options` (each with `id`, `scout_token`). Note: `turn_request_ref` is NOT part of `template_candidates` — it is agent-derived in Step 4. |
 | `budget` | `scout_available` (bool), `evidence_count`, `evidence_remaining`. |
 | `ledger_summary` | Compact trajectory summary. Use in follow-up composition. |
 | `state_checkpoint` | **Store** — pass in next turn's request. |
@@ -258,25 +258,27 @@ Call `mcp__context-injection__process_turn` with:
 
 | Code | Recovery |
 |------|----------|
-| `checkpoint_stale` | Retry once with a different checkpoint pair. If no alternative checkpoint is available, synthesize from `turn_history` (proceed to Phase 3). |
+| `checkpoint_stale` | Retry once with `state_checkpoint=null` and `checkpoint_id=null`. If the retry also fails, synthesize from `turn_history` (proceed to Phase 3). |
 | `checkpoint_missing` | Retry once only if a non-null checkpoint is available. If checkpoint is already null, synthesize from `turn_history` (proceed to Phase 3). |
 | `checkpoint_invalid` | Do not retry. Synthesize from `turn_history` (proceed to Phase 3). |
 | `ledger_hard_reject` | Re-examine the Codex response, correct your extraction, retry `process_turn`. Maximum one retry per turn. |
 | `turn_cap_exceeded` | Do not retry. Proceed to Phase 3 (Synthesis). |
 | Other codes | Do not retry. Synthesize from `turn_history` (proceed to Phase 3). |
+| Transport/tool failure (after prior success) | Do not switch to `manual_legacy`. Proceed to Phase 3 (Synthesis) using `turn_history`. |
 
 **Checkpoint retry cap:** Maximum 1 checkpoint retry per turn regardless of error code. If the retry also fails, synthesize from `turn_history`.
 
 #### Step 4: Scout (optional)
 
-**Skip this step** if `template_candidates` is empty OR `budget.scout_available` is `false`.
+**Skip this step** if `template_candidates` is empty.
 
-If scouts are available:
+If `template_candidates` is non-empty:
 
 1. Select the highest-ranked candidate (lowest `rank` value)
-2. **Clarifier check:** If the top candidate has `scout_options: []` (empty list), this is a clarifier — skip scouting for this turn. Instead, use the clarifier's question text in Step 6 follow-up composition (treat it as a high-priority unresolved item). Continue to Step 5.
-3. Select its first `scout_option`
-4. Call `mcp__context-injection__execute_scout`:
+2. **Clarifier check:** If the top candidate has `scout_options: []` (empty list), this is a clarifier — skip scouting for this turn. Instead, use the clarifier's question text in Step 6 follow-up composition (treat it as a high-priority unresolved item). Continue to Step 5. (Clarifiers do not consume evidence budget, so this check runs even when `budget.scout_available` is `false`.)
+3. **Budget gate:** If `budget.scout_available` is `false`, skip scout execution (steps 4-6 below). Continue to Step 5.
+4. Select its first `scout_option`
+5. Call `mcp__context-injection__execute_scout`:
 
 ```json
 {
@@ -289,12 +291,12 @@ If scouts are available:
 }
 ```
 
-5. On success:
+6. On success:
    - Store `evidence_wrapper` (human-readable summary — include in follow-up)
    - Store `read_result` or `grep_result` if you need raw evidence data
    - Increment `evidence_count`
    - Note updated `budget`
-6. On error: continue without evidence. Do not retry.
+7. On error: continue without evidence. Do not retry.
 
 #### Step 5: Act on action
 
@@ -365,10 +367,12 @@ Increment `turn_count`. Return to Step 1 for the next Codex response.
 - **Budget 2:** Run both turns through the loop. The server's `action` guides whether to continue after turn 1.
 - **Budget 3+:** The server handles convergence detection and closing probes via `action`. Trust the directive.
 - **Budget exceeded:** If `turn_count >= effective_budget`, treat any server action as `conclude` regardless of what the server returns. See Step 5 budget precedence.
-- If `mcp__codex__codex-reply` fails mid-conversation, call `process_turn` one final time with what you extracted. If that final `process_turn` also errors, synthesize from whatever data was collected in `turn_history` from earlier turns (do not dead-end). Use the most recent `cumulative` snapshot and `validated_entry` records from `turn_history` in place of the missing `ledger_summary`.
+- If `mcp__codex__codex-reply` fails mid-conversation, proceed directly to Phase 3 synthesis using `turn_history`. Use the most recent `cumulative` snapshot and `validated_entry` records from `turn_history` in place of the missing `ledger_summary`. Do not attempt to call `process_turn` again — there is no new Codex response to extract from.
 ````
 
 **Step 5: Update Phase 3 synthesis**
+
+Update the Phase 3 intro text: replace any reference to "walk the ledger entries" with "walk the `turn_history` (server-validated `validated_entry` records and cumulative snapshots)".
 
 Add the following to the **Assembly process** section in Phase 3 (after the existing item 4 "Unresolved → Open Questions"):
 
@@ -448,9 +452,18 @@ Use the Task tool to invoke the codex-dialogue agent:
 
 5. **Verify error recovery:**
 
-- [ ] If `process_turn` returns `checkpoint_stale`, agent retries with null checkpoint
+- [ ] If `process_turn` returns `checkpoint_stale`, agent retries with `state_checkpoint=null` and `checkpoint_id=null`
 - [ ] If `execute_scout` fails, agent continues without evidence (no retry)
-- [ ] If Codex reply fails mid-conversation, agent calls `process_turn` one final time and synthesizes
+- [ ] If Codex reply fails mid-conversation, agent proceeds directly to Phase 3 synthesis using `turn_history`
+- [ ] If `process_turn` returns `checkpoint_missing`, agent retries once only if a non-null checkpoint is available; otherwise synthesizes from `turn_history`
+- [ ] If `process_turn` returns `checkpoint_invalid`, agent does not retry and synthesizes from `turn_history`
+- [ ] If `process_turn` returns `ledger_hard_reject`, agent re-examines extraction and retries once (maximum one retry per turn)
+- [ ] If `process_turn` returns `turn_cap_exceeded`, agent does not retry and proceeds to Phase 3
+- [ ] If `process_turn` returns an unknown action, agent treats it as `conclude` and logs a warning
+- [ ] Agent's turn budget cap takes priority over server `action` (budget-precedence override)
+- [ ] Transport/tool failure after initial success: agent does not switch to `manual_legacy`, proceeds to Phase 3 using `turn_history`
+- [ ] Clarifier handling when `budget.scout_available=false`: clarifier check still runs, clarifier question used in follow-up
+- [ ] `turn_history` is appended after each successful `process_turn` response (append semantics verified)
 
 6. **Verify fallback (context injection unavailable — `manual_legacy` mode):**
 
