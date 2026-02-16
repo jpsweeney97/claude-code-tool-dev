@@ -58,3 +58,70 @@ class CumulativeState(ProtocolModel):
     unresolved_closed: int = Field(ge=0)
     turns_completed: int = Field(ge=0)
     effective_delta_sequence: list[EffectiveDelta]
+
+
+# ---------------------------------------------------------------------------
+# Computation functions
+# ---------------------------------------------------------------------------
+
+
+def compute_counters(
+    claims: list[Claim], *, unresolved_closed: int = 0,
+) -> LedgerEntryCounters:
+    """Count claims by status. Reinforced claims are not counted.
+
+    unresolved_closed is passed in by the caller — D1 has no access
+    to prior state for comparing unresolved lists.
+
+    Raises ValueError if unresolved_closed is negative.
+    """
+    if unresolved_closed < 0:
+        msg = f"unresolved_closed must be >= 0, got {unresolved_closed}"
+        raise ValueError(msg)
+    return LedgerEntryCounters(
+        new_claims=sum(1 for c in claims if c.status == "new"),
+        revised=sum(1 for c in claims if c.status == "revised"),
+        conceded=sum(1 for c in claims if c.status == "conceded"),
+        unresolved_closed=unresolved_closed,
+    )
+
+
+def compute_quality(counters: LedgerEntryCounters) -> QualityLabel:
+    """Any non-reinforced activity -> substantive."""
+    if (
+        counters.new_claims > 0
+        or counters.revised > 0
+        or counters.conceded > 0
+        or counters.unresolved_closed > 0
+    ):
+        return QualityLabel.SUBSTANTIVE
+    return QualityLabel.SHALLOW
+
+
+def compute_effective_delta(counters: LedgerEntryCounters) -> EffectiveDelta:
+    """Compute effective delta. Priority: advancing > shifting > static.
+
+    Unresolved closure alone doesn't change position — it clarifies.
+    """
+    if counters.new_claims > 0:
+        return EffectiveDelta.ADVANCING
+    if counters.revised > 0 or counters.conceded > 0:
+        return EffectiveDelta.SHIFTING
+    return EffectiveDelta.STATIC
+
+
+def _delta_disagrees(agent_delta: str, effective_delta: EffectiveDelta) -> bool:
+    """Check if agent's self-reported delta contradicts computed effective_delta.
+
+    Canonical 3-way semantic logic:
+    - "static" contradicts non-STATIC (advancing or shifting)
+    - "advancing" or "shifting" contradicts STATIC
+    - Unknown agent delta values fall through (no disagreement)
+    """
+    agent_lower = agent_delta.lower()
+
+    if agent_lower == "static" and effective_delta != EffectiveDelta.STATIC:
+        return True
+    if agent_lower in {"advancing", "shifting"} and effective_delta == EffectiveDelta.STATIC:
+        return True
+    return False

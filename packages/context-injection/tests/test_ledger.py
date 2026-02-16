@@ -4,6 +4,16 @@ import pytest
 from pydantic import ValidationError
 
 from context_injection.enums import EffectiveDelta, QualityLabel, ValidationTier
+from context_injection.ledger import (
+    CumulativeState,
+    LedgerEntry,
+    LedgerEntryCounters,
+    ValidationWarning,
+    compute_counters,
+    compute_effective_delta,
+    compute_quality,
+)
+from context_injection.types import Claim, Unresolved
 
 
 class TestLedgerEnums:
@@ -22,15 +32,6 @@ class TestLedgerEnums:
         assert ValidationTier.HARD_REJECT == "hard_reject"
         assert ValidationTier.SOFT_WARN == "soft_warn"
         assert ValidationTier.REFERENTIAL_WARN == "referential_warn"
-
-
-from context_injection.ledger import (
-    CumulativeState,
-    LedgerEntry,
-    LedgerEntryCounters,
-    ValidationWarning,
-)
-from context_injection.types import Claim, Unresolved
 
 
 class TestLedgerTypes:
@@ -226,3 +227,155 @@ class TestNegativeCounterRejection:
         kwargs[field] = -1
         with pytest.raises(ValidationError):
             CumulativeState(**kwargs)
+
+    def test_compute_counters_rejects_negative_unresolved_closed(self) -> None:
+        with pytest.raises(ValueError, match="unresolved_closed must be >= 0"):
+            compute_counters([], unresolved_closed=-1)
+
+
+class TestComputeCounters:
+    """compute_counters: count claims by status."""
+
+    def test_all_new_claims(self) -> None:
+        claims = [
+            Claim(text="A", status="new", turn=1),
+            Claim(text="B", status="new", turn=1),
+        ]
+        counters = compute_counters(claims)
+        assert counters.new_claims == 2
+        assert counters.revised == 0
+        assert counters.conceded == 0
+        assert counters.unresolved_closed == 0
+
+    def test_mixed_statuses(self) -> None:
+        claims = [
+            Claim(text="A", status="new", turn=1),
+            Claim(text="B", status="revised", turn=1),
+            Claim(text="C", status="conceded", turn=1),
+            Claim(text="D", status="reinforced", turn=1),
+        ]
+        counters = compute_counters(claims)
+        assert counters.new_claims == 1
+        assert counters.revised == 1
+        assert counters.conceded == 1
+        assert counters.unresolved_closed == 0
+
+    def test_empty_claims(self) -> None:
+        counters = compute_counters([])
+        assert counters.new_claims == 0
+        assert counters.revised == 0
+        assert counters.conceded == 0
+        assert counters.unresolved_closed == 0
+
+    def test_reinforced_not_counted_as_new(self) -> None:
+        claims = [
+            Claim(text="A", status="reinforced", turn=1),
+            Claim(text="B", status="reinforced", turn=1),
+        ]
+        counters = compute_counters(claims)
+        assert counters.new_claims == 0
+        assert counters.revised == 0
+        assert counters.conceded == 0
+
+    def test_unresolved_closed_passthrough(self) -> None:
+        counters = compute_counters([], unresolved_closed=3)
+        assert counters.unresolved_closed == 3
+
+
+class TestComputeQuality:
+    """compute_quality: any non-reinforced activity -> substantive."""
+
+    def test_new_claims_substantive(self) -> None:
+        counters = LedgerEntryCounters(new_claims=1, revised=0, conceded=0, unresolved_closed=0)
+        assert compute_quality(counters) == QualityLabel.SUBSTANTIVE
+
+    def test_revised_substantive(self) -> None:
+        counters = LedgerEntryCounters(new_claims=0, revised=1, conceded=0, unresolved_closed=0)
+        assert compute_quality(counters) == QualityLabel.SUBSTANTIVE
+
+    def test_conceded_substantive(self) -> None:
+        counters = LedgerEntryCounters(new_claims=0, revised=0, conceded=1, unresolved_closed=0)
+        assert compute_quality(counters) == QualityLabel.SUBSTANTIVE
+
+    def test_unresolved_closed_substantive(self) -> None:
+        counters = LedgerEntryCounters(new_claims=0, revised=0, conceded=0, unresolved_closed=2)
+        assert compute_quality(counters) == QualityLabel.SUBSTANTIVE
+
+    def test_all_zero_shallow(self) -> None:
+        counters = LedgerEntryCounters(new_claims=0, revised=0, conceded=0, unresolved_closed=0)
+        assert compute_quality(counters) == QualityLabel.SHALLOW
+
+
+class TestComputeEffectiveDelta:
+    """compute_effective_delta: advancing > shifting > static."""
+
+    def test_new_claims_advancing(self) -> None:
+        counters = LedgerEntryCounters(new_claims=1, revised=0, conceded=0, unresolved_closed=0)
+        assert compute_effective_delta(counters) == EffectiveDelta.ADVANCING
+
+    def test_revised_shifting(self) -> None:
+        counters = LedgerEntryCounters(new_claims=0, revised=1, conceded=0, unresolved_closed=0)
+        assert compute_effective_delta(counters) == EffectiveDelta.SHIFTING
+
+    def test_conceded_shifting(self) -> None:
+        counters = LedgerEntryCounters(new_claims=0, revised=0, conceded=1, unresolved_closed=0)
+        assert compute_effective_delta(counters) == EffectiveDelta.SHIFTING
+
+    def test_all_zero_static(self) -> None:
+        counters = LedgerEntryCounters(new_claims=0, revised=0, conceded=0, unresolved_closed=0)
+        assert compute_effective_delta(counters) == EffectiveDelta.STATIC
+
+    def test_new_takes_priority_over_revised(self) -> None:
+        """new_claims > 0 -> advancing, even if revised also > 0."""
+        counters = LedgerEntryCounters(new_claims=1, revised=1, conceded=0, unresolved_closed=0)
+        assert compute_effective_delta(counters) == EffectiveDelta.ADVANCING
+
+    def test_unresolved_closed_alone_is_static(self) -> None:
+        """Unresolved closure doesn't change position -- it clarifies."""
+        counters = LedgerEntryCounters(new_claims=0, revised=0, conceded=0, unresolved_closed=2)
+        assert compute_effective_delta(counters) == EffectiveDelta.STATIC
+
+
+class TestDeltaDisagreesTruthTable:
+    """_delta_disagrees: all 9 canonical combinations + unknown."""
+
+    @pytest.mark.parametrize(
+        ("agent_delta", "effective", "expected"),
+        [
+            # agent=static vs all effective values
+            ("static", EffectiveDelta.STATIC, False),
+            ("static", EffectiveDelta.ADVANCING, True),
+            ("static", EffectiveDelta.SHIFTING, True),
+            # agent=advancing vs all effective values
+            ("advancing", EffectiveDelta.STATIC, True),
+            ("advancing", EffectiveDelta.ADVANCING, False),
+            ("advancing", EffectiveDelta.SHIFTING, False),
+            # agent=shifting vs all effective values
+            ("shifting", EffectiveDelta.STATIC, True),
+            ("shifting", EffectiveDelta.ADVANCING, False),
+            ("shifting", EffectiveDelta.SHIFTING, False),
+            # unknown agent delta -- always no disagreement
+            ("new_information", EffectiveDelta.STATIC, False),
+            ("correction", EffectiveDelta.ADVANCING, False),
+            ("none", EffectiveDelta.SHIFTING, False),
+        ],
+    )
+    def test_delta_disagrees(
+        self, agent_delta: str, effective: EffectiveDelta, expected: bool,
+    ) -> None:
+        from context_injection.ledger import _delta_disagrees
+
+        assert _delta_disagrees(agent_delta, effective) is expected
+
+
+class TestSubstantiveStaticDocumentation:
+    """quality=SUBSTANTIVE + effective_delta=STATIC is valid (unresolved closure)."""
+
+    def test_unresolved_closed_is_substantive_but_static(self) -> None:
+        """Closing unresolved questions is substantive progress but doesn't
+        change position (static). This combination must be allowed."""
+        counters = LedgerEntryCounters(
+            new_claims=0, revised=0, conceded=0, unresolved_closed=2,
+        )
+        assert compute_quality(counters) == QualityLabel.SUBSTANTIVE
+        assert compute_effective_delta(counters) == EffectiveDelta.STATIC
