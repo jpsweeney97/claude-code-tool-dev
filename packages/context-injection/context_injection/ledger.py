@@ -238,8 +238,33 @@ def validate_ledger_entry(
     return entry, soft
 
 
+_REFERENTIAL_STATUSES: frozenset[str] = frozenset({"reinforced", "revised", "conceded"})
+"""Claim statuses that imply a prior referent exists."""
+
+
 def _referential_warnings(
     claims: list[Claim], prior_claims: list[Claim],
 ) -> list[ValidationWarning]:
-    """Stub for Task 4 referential validation."""
-    return []
+    """Check that claims with referential statuses have matching prior claims.
+
+    Uses exact text match (deterministic). Referential warnings are softer
+    than soft warnings — the agent may have legitimately rephrased.
+    """
+    prior_texts = frozenset(c.text for c in prior_claims)
+    warnings: list[ValidationWarning] = []
+
+    for claim in claims:
+        if claim.status not in _REFERENTIAL_STATUSES:
+            continue
+        if claim.text not in prior_texts:
+            warnings.append(ValidationWarning(
+                tier=ValidationTier.REFERENTIAL_WARN,
+                field="claims",
+                message=(
+                    f"Claim marked {claim.status!r} but no prior claim with "
+                    f"matching text found: {claim.text!r:.80}"
+                ),
+                details={"status": claim.status, "text": claim.text},
+            ))
+
+    return warnings

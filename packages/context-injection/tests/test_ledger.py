@@ -536,3 +536,112 @@ class TestValidateLedgerEntrySoftWarn:
         )
         assert entry.counters.unresolved_closed == 1
         assert entry.quality == QualityLabel.SUBSTANTIVE
+
+
+class TestReferentialValidation:
+    """Referential warnings when claim status doesn't match prior history."""
+
+    def test_reinforced_with_matching_prior_no_warning(self) -> None:
+        prior = [Claim(text="X is true", status="new", turn=1)]
+        entry, warnings = validate_ledger_entry(
+            position="Reaffirming X",
+            claims=[Claim(text="X is true", status="reinforced", turn=2)],
+            delta="stable",
+            tags=[],
+            unresolved=[],
+            turn_number=2,
+            prior_claims=prior,
+        )
+        referential = [w for w in warnings if w.tier == ValidationTier.REFERENTIAL_WARN]
+        assert referential == []
+
+    def test_reinforced_no_matching_prior_warns(self) -> None:
+        prior = [Claim(text="Y is true", status="new", turn=1)]
+        entry, warnings = validate_ledger_entry(
+            position="Reaffirming X",
+            claims=[Claim(text="X is true", status="reinforced", turn=2)],
+            delta="stable",
+            tags=[],
+            unresolved=[],
+            turn_number=2,
+            prior_claims=prior,
+        )
+        referential = [w for w in warnings if w.tier == ValidationTier.REFERENTIAL_WARN]
+        assert len(referential) == 1
+        assert "reinforced" in referential[0].message
+        assert "X is true" in referential[0].message
+
+    def test_conceded_no_matching_prior_warns(self) -> None:
+        prior = [Claim(text="Y is true", status="new", turn=1)]
+        entry, warnings = validate_ledger_entry(
+            position="Withdrawing",
+            claims=[Claim(text="X was wrong", status="conceded", turn=2)],
+            delta="correction",
+            tags=[],
+            unresolved=[],
+            turn_number=2,
+            prior_claims=prior,
+        )
+        referential = [w for w in warnings if w.tier == ValidationTier.REFERENTIAL_WARN]
+        assert len(referential) == 1
+        assert "conceded" in referential[0].message
+
+    def test_revised_no_matching_prior_warns(self) -> None:
+        prior = [Claim(text="Y is true", status="new", turn=1)]
+        entry, warnings = validate_ledger_entry(
+            position="Revising",
+            claims=[Claim(text="X updated", status="revised", turn=2)],
+            delta="correction",
+            tags=[],
+            unresolved=[],
+            turn_number=2,
+            prior_claims=prior,
+        )
+        referential = [w for w in warnings if w.tier == ValidationTier.REFERENTIAL_WARN]
+        assert len(referential) == 1
+        assert "revised" in referential[0].message
+
+    def test_new_claim_never_triggers_referential(self) -> None:
+        """New claims have no prior referent — never warns."""
+        entry, warnings = validate_ledger_entry(
+            position="New info",
+            claims=[Claim(text="Z is novel", status="new", turn=1)],
+            delta="new_information",
+            tags=[],
+            unresolved=[],
+            turn_number=1,
+            prior_claims=[],
+        )
+        referential = [w for w in warnings if w.tier == ValidationTier.REFERENTIAL_WARN]
+        assert referential == []
+
+    def test_no_prior_claims_skips_referential(self) -> None:
+        """When prior_claims is None, referential checks are skipped."""
+        entry, warnings = validate_ledger_entry(
+            position="Position",
+            claims=[Claim(text="X", status="reinforced", turn=1)],
+            delta="stable",
+            tags=[],
+            unresolved=[],
+            turn_number=1,
+            prior_claims=None,
+        )
+        referential = [w for w in warnings if w.tier == ValidationTier.REFERENTIAL_WARN]
+        assert referential == []
+
+    def test_multiple_referential_warnings(self) -> None:
+        prior = [Claim(text="A", status="new", turn=1)]
+        entry, warnings = validate_ledger_entry(
+            position="Position",
+            claims=[
+                Claim(text="X", status="reinforced", turn=2),
+                Claim(text="Y", status="conceded", turn=2),
+            ],
+            delta="mixed",
+            tags=[],
+            unresolved=[],
+            turn_number=2,
+            prior_claims=prior,
+        )
+        referential = [w for w in warnings if w.tier == ValidationTier.REFERENTIAL_WARN]
+        assert len(referential) == 2
