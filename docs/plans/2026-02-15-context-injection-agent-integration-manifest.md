@@ -30,7 +30,7 @@ D3 (Conversation Control) ──┘
 - D2: depends on D1 (uses LedgerEntry, CumulativeState types)
 - D3: depends on D1 only (pure functions on D1 types — NOT on D2's ConversationState)
 - D4a: depends on D1 + D2 + D3 (incorporates all new types into 0.2.0 schema)
-- D4b: depends on D4a (pipeline uses 0.2.0 types)
+- D4b: depends on D4a (pipeline uses 0.2.0 types); D4b also directly imports D1/D2/D3 runtime modules — D4a provides schema integration but not full encapsulation
 - D5: depends on D4b (agent uses 0.2.0 protocol)
 
 ## Execution Order
@@ -54,22 +54,22 @@ D3 before D2: momentum ordering — D3 is smaller/simpler and provides early val
 
 | After | Verify |
 |-------|--------|
-| D1 | Ledger types compile, all D1 tests pass, counter/quality/delta computation is deterministic |
+| D1 | Ledger types compile, all D1 tests pass, counter/quality/delta computation is deterministic, base_types extraction complete, re-export identity verified |
 | D3 | Control functions work on D1 types, D3 tests pass, functions are pure (no side effects) |
-| D2 | ConversationState works, checkpoint chain validates, compaction preserves invariants, compaction contract documented, D2 tests pass |
+| D2 | ConversationState works, checkpoint chain validates, compaction preserves invariants, compaction contract documented, D2 tests pass, checkpoint restore guards pass (4 validation checks) |
 | D4a | 0.2.0 types defined; all new type tests pass; all 739 existing tests collect and execute (no import/construction errors); remaining semantic failures marked `xfail(strict=True)` with D4b task mapping; xfail inventory committed; no pipeline/execute/server changes |
-| D4b | Pipeline rewired, turn-cap invariant enforced, guard tested, all tests pass (existing + new), protocol contract updated |
+| D4b | Pipeline rewired, turn-cap invariant enforced, guard tested, all tests pass (existing + new), protocol contract updated, no `D4b:` xfail markers remain in tests |
 | D5 | Agent rewrite complete, Phase 2 uses `process_turn` and `execute_scout`, Phase 1/3 preserved |
 
 ## Contingency: D4c Split
 
-If D4b (~971 lines) exceeds subagent context budget during execution, split Task 14 (Integration tests + protocol contract) into a separate D4c delivery.
+If D4b (~1087 lines post-errata) exceeds subagent context budget during execution, split Task 14 (Integration tests + protocol contract) into a separate D4c delivery.
 
 **Trigger criteria:**
 - After Tasks 13a + 13b complete, first full test run has >25 failures across 4+ modules
 - Two consecutive fix passes still miss items from a fixed checklist: checkpoint ingestion, prospective-state commit, evidence auto-recording, contract doc, integration assertions
 
-**D4c scope (if triggered):** Task 14 only (~241 lines), run after D4b Tasks 13a + 13b complete.
+**D4c scope (if triggered):** Task 14 only (~245 lines), run after D4b Tasks 13a + 13b complete.
 
 ## Resolved Questions (Canonical)
 
@@ -100,7 +100,7 @@ These assumptions justify: no conversation eviction policy (DD-3), no disk persi
 ## Final Verification
 
 Run: `cd packages/context-injection && uv run pytest tests/ -v`
-Expected: All tests pass (~739 existing updated + ~400-580 new)
+Expected: All tests pass (~739 existing updated + ~270-390 new per delivery estimates: D1 ~50-70, D2 100-150, D3 50-80, D4a ~50, D4b ~20-40 integration)
 
 Run: `cd packages/context-injection && ruff check context_injection/ tests/`
 Expected: No errors
@@ -119,13 +119,13 @@ Expected: No errors
 | `context_injection/pipeline.py` | Modified | Rewired to use ConversationState, new validation/control steps |
 | `context_injection/execute.py` | Modified | Auto-record evidence, budget from ConversationState |
 | `context_injection/state.py` | Modified | AppContext.conversations dict |
-| `context_injection/server.py` | Modified | Minimal — pipeline resolves conversation internally |
+| `context_injection/server.py` | Modified | Minimal — pipeline resolves conversation internally. Verification: confirm `process_turn`/`execute_scout` signatures unchanged per Resolved Question #2 |
 | `tests/test_ledger.py` | New | D1 validation tests |
 | `tests/test_conversation.py` | New | D2 state management tests |
 | `tests/test_checkpoint.py` | New | D2 checkpoint tests |
 | `tests/test_control.py` | New | D3 control + summary tests |
 | `tests/test_types.py` | Modified | D1: re-export identity tests; D4a: schema 0.2.0 migration |
 | `tests/test_*.py` (5 other existing) | Modified | Schema 0.2.0 migration |
-| `pyproject.toml` | Modified | D4b: package version bump to 0.2.0, Python floor annotation |
+| `pyproject.toml` | Modified | D4b: package version bump to 0.2.0, Python floor annotation (requires D4b-PF-6: add to D4b Files in Scope and Task 14 steps) |
 | `docs/references/context-injection-contract.md` | Modified | 0.2.0 protocol contract |
 | `.claude/agents/codex-dialogue.md` | Modified | Phase 2 rewrite (7-step loop) |

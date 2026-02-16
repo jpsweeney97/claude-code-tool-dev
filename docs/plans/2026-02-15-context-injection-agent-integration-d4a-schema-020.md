@@ -18,7 +18,7 @@
 - Source of truth: `context_injection/base_types.py`, `context_injection/ledger.py`, `context_injection/enums.py`
 
 **Requires from D2 (runtime/semantic dependency — D4a does not import D2 modules directly, but 0.2.0 types embed D2-defined types as fields):**
-- `ConversationState` from `context_injection/conversation.py` — embedded in TurnPacketSuccess
+- `ConversationState` from `context_injection/conversation.py` — transported as opaque checkpoint string in TurnPacketSuccess.state_checkpoint (not embedded directly)
 - Checkpoint types from `context_injection/checkpoint.py` — checkpoint serialization contract
 - Source of truth: `context_injection/conversation.py`, `context_injection/checkpoint.py`
 
@@ -35,14 +35,17 @@
 
 ## Files in Scope
 
-**Create:** None.
+**Create:** `tests/xfail_inventory_d4a.md`
 
 **Modify:**
 - `context_injection/types.py` — TurnRequest/TurnPacket 0.2.0 schema
 - `context_injection/enums.py` — Additional enums if needed
+- `context_injection/templates.py` — Budget construction compatibility (add `budget_status`)
+- `context_injection/execute.py` — Budget construction compatibility (add `budget_status`)
 - `tests/test_*.py` (6 existing test files) — Test shape migration to 0.2.0
+- `tests/test_canonical.py` — Budget construction compatibility (add `budget_status`) and key assertion updates
 
-**Out of scope:** All files not listed above. In particular, do NOT modify `context_injection/pipeline.py`, `context_injection/execute.py`, or `context_injection/server.py` (those are D4b).
+**Out of scope:** All files not listed above. In particular, do NOT modify `context_injection/pipeline.py` or `context_injection/server.py` (those are D4b). Changes to `context_injection/execute.py` and `context_injection/templates.py` are limited to Budget compatibility (adding `budget_status` to `compute_budget()` return values).
 
 ## Done Criteria
 
@@ -50,7 +53,7 @@
 - All 739 existing tests collect and execute (no import errors, no construction errors)
 - Semantic failures marked with `pytest.mark.xfail(strict=True, reason="D4b: <cause> (Task 13a|13b|14)")`
 - Xfail inventory committed at `packages/context-injection/tests/xfail_inventory_d4a.md`
-- No changes to `pipeline.py`, `execute.py`, or `server.py`
+- No changes to `pipeline.py` or `server.py`; `execute.py` and `templates.py` changes limited to Budget compatibility
 
 ## Scope Boundary
 
@@ -181,7 +184,7 @@ class TestTurnRequest020:
                 posture="exploratory",
                 position="test",
                 claims=[],
-                delta="static",
+                delta="high",
                 tags=[],
                 unresolved=[],
             )
@@ -458,17 +461,59 @@ class TurnPacketSuccess(ProtocolModel):
     checkpoint_id: str
 ```
 
+> **Parity note:** The `action` field uses a duplicated `Literal["continue_dialogue", "closing_probe", "conclude"]` rather than referencing the `ConversationAction` type alias from `control.py`. This is intentional — `types.py` should not import from `control.py` to keep the import DAG clean. Add a parity test to `tests/test_types.py` to verify the literal values stay in sync:
+> ```python
+> def test_action_literal_matches_conversation_action() -> None:
+>     """Verify TurnPacketSuccess.action literal stays in sync with ConversationAction."""
+>     from context_injection.control import ConversationAction
+>     packet_action_args = get_args(TurnPacketSuccess.model_fields["action"].annotation)
+>     control_action_args = get_args(ConversationAction)
+>     assert set(packet_action_args) == set(control_action_args)
+> ```
+
 **Step 4: Run new type tests to verify pass**
 
 Run: `cd packages/context-injection && uv run pytest tests/test_types.py::TestTurnRequest020 tests/test_types.py::TestTurnPacketSuccess020 tests/test_types.py::TestErrorDetail020 tests/test_types.py::TestSchemaVersion020 -v`
 Expected: PASS
 
-**Step 5: Update existing version validation tests**
+**Step 5: Migrate existing tests in test_types.py**
 
-In `tests/test_types.py`, find existing tests that use `"0.2.0"` as an invalid version. Change the invalid version string from `"0.2.0"` to `"0.3.0"`. The test asserting `"0.1.0"` is valid should now assert it's invalid — but this is already covered by `TestSchemaVersion020.test_old_version_rejected`. Update the existing test to use `"0.3.0"` as the invalid version.
+This file has 6+ locations that need migration beyond the new tests written in Steps 1-2. **All** of these must be updated or the file will not collect:
+
+1. **Version string in invalid-version tests:** Find existing tests that use `"0.2.0"` as an invalid version. Change from `"0.2.0"` to `"0.3.0"`. The test asserting `"0.1.0"` is valid should now assert it's invalid — already covered by `TestSchemaVersion020.test_old_version_rejected`. Update to use `"0.3.0"`.
+
+2. **Old TurnRequest fixtures using `context_claims`:** Existing test fixtures that construct `TurnRequest(... context_claims=[...] ...)` will fail with `extra="forbid"`. Remove `context_claims` and add the new required fields (`position`, `claims`, `delta`, `tags`, `unresolved`). Check around lines 109, 116, 129.
+
+3. **Old TurnRequest fixtures using `evidence_history`:** Same pattern — remove `evidence_history` and ensure new required fields are present. Check around lines 145-156.
+
+4. **Budget construction without `budget_status`:** Existing tests that construct `Budget(evidence_count=..., evidence_remaining=..., scout_available=...)` without `budget_status` will fail. Add `budget_status="under_budget"` (or appropriate value). Check around line 223.
+
+5. **Hardcoded `"0.1.0"` in TurnPacket/ScoutResult payloads:** Tests that construct TurnPacketSuccess, TurnPacketError, or ScoutResult with `schema_version="0.1.0"` must change to `"0.2.0"` or use `SCHEMA_VERSION`. Check around lines 360, 378, 394, 427, 447.
+
+6. **Assertions on exact dumped keys:** Tests that assert on `.model_dump()` output may check for `context_claims`/`evidence_history` keys that no longer exist, or may miss new required keys like `budget_status`. Update assertions to match the 0.2.0 shape.
 
 Run: `cd packages/context-injection && uv run pytest tests/test_types.py -v`
 Expected: PASS (all type tests). Many other test files will now FAIL because they still construct TurnRequest with old fields — that's expected and fixed in Task 12.
+
+**Step 6: Update `compute_budget()` return values for Budget compatibility**
+
+> **Scope note (CC-PF-1):** Adding `budget_status` to the Budget type (Step 3 item 4) breaks all existing `Budget()` constructors in templates.py and execute.py. These are runtime producers within D4a's expanded scope — fix them here, not in D4b.
+
+Update `context_injection/templates.py` — find all `Budget(` constructors in `compute_budget()` and add `budget_status` field. Derive the value from existing fields:
+```python
+# Determine budget_status from evidence_remaining
+if evidence_remaining > 0:
+    budget_status = "under_budget"
+elif evidence_remaining == 0:
+    budget_status = "at_budget"
+else:
+    budget_status = "over_budget"
+```
+
+Update `context_injection/execute.py` — same pattern: find all `Budget(` constructors and add `budget_status` field with the same derivation logic.
+
+Run: `cd packages/context-injection && uv run pytest tests/test_types.py -v`
+Expected: Still PASS.
 
 ---
 
@@ -482,6 +527,12 @@ Expected: PASS (all type tests). Many other test files will now FAIL because the
 - Modify: `tests/test_execute.py` (TurnRequest construction)
 - Modify: `tests/test_state.py` (`_make_turn_request` + callers)
 - Modify: `tests/test_integration.py` (4 `TurnRequest.model_validate()` calls)
+- Modify: `tests/test_canonical.py` (`Budget()` construction without `budget_status`, exact-key assertions on `.model_dump()` output)
+
+> **SchemaVersionLiteral cascade note:** Changing `SchemaVersionLiteral` from `Literal["0.1.0"]` to `Literal["0.2.0"]` cascades beyond TurnRequest/TurnPacket — Scout types (`ScoutRequest`, `ScoutResult`) also use `SchemaVersionLiteral`. All test files that construct Scout types with hardcoded `"0.1.0"` must be updated. **Checklist:**
+> - Update all hardcoded `schema_version="0.1.0"` in test files to `SCHEMA_VERSION` or `"0.2.0"`
+> - Check: `test_types.py`, `test_execute.py`, `test_pipeline.py`, `test_integration.py` for Scout-related constructors
+> - Grep for `"0.1.0"` across `tests/` to catch any remaining instances
 
 **Step 1: Update `_make_turn_request` in test_pipeline.py**
 
@@ -696,6 +747,7 @@ Expected: Many tests pass (request construction now works). Some tests FAIL.
    - Missing required field in a constructor
    - Import path not updated
    - Removed field still referenced
+   - Shape failures in runtime producers within D4a's expanded scope (Budget in `templates.py`, `execute.py`) are Category 1: fix immediately
 
 2. **Semantic failures** (D4b scope) — mark with xfail:
    - Pipeline tests assert old behavior (e.g., `context_claims` entity extraction)
@@ -722,7 +774,7 @@ Expected: No FAIL or ERROR results. Only PASS and XFAIL.
 **Step 8: Commit Tasks 11+12 together**
 
 ```bash
-git add packages/context-injection/context_injection/types.py packages/context-injection/tests/test_types.py packages/context-injection/tests/test_pipeline.py packages/context-injection/tests/test_templates.py packages/context-injection/tests/test_execute.py packages/context-injection/tests/test_state.py packages/context-injection/tests/test_integration.py
+git add packages/context-injection/context_injection/types.py packages/context-injection/context_injection/templates.py packages/context-injection/context_injection/execute.py packages/context-injection/tests/test_types.py packages/context-injection/tests/test_pipeline.py packages/context-injection/tests/test_templates.py packages/context-injection/tests/test_execute.py packages/context-injection/tests/test_state.py packages/context-injection/tests/test_integration.py packages/context-injection/tests/test_canonical.py packages/context-injection/tests/xfail_inventory_d4a.md
 git commit -m "feat(context-injection): update wire types to 0.2.0 schema + migrate test helpers (D4 Tasks 11-12)
 
 TurnRequest: add position, claims, delta, tags, unresolved, checkpoint fields; remove context_claims, evidence_history.

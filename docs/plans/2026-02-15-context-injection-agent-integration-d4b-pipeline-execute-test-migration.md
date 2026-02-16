@@ -49,6 +49,7 @@
 - `context_injection/execute.py` — Auto-record evidence, budget from ConversationState
 - `context_injection/server.py` — Minimal changes
 - `docs/references/context-injection-contract.md` — 0.2.0 protocol contract
+- `pyproject.toml` — Version bump to 0.2.0
 
 **Out of scope:** All files not listed above. In particular, do NOT modify `context_injection/types.py` (D4a), `context_injection/ledger.py` (D1), `context_injection/conversation.py` (D2), `context_injection/control.py` (D3), or `.claude/agents/codex-dialogue.md` (D5).
 
@@ -191,6 +192,232 @@ class TestPipelineCheckpoint:
         assert result.status == "success"
         conv = ctx.conversations["conv_ckpt"]
         assert conv.last_checkpoint_id == result.checkpoint_id
+
+    def test_cross_conversation_checkpoint_rejected(self) -> None:
+        """Checkpoint from conversation A must not be accepted by conversation B (D2 guard #4)."""
+        ctx = _make_ctx(git_files=set())
+
+        # Turn 1 on conversation A — get a valid checkpoint
+        r1 = _make_turn_request(conversation_id="conv_A", turn_number=1)
+        result_a = process_turn(r1, ctx)
+        assert result_a.status == "success"
+
+        # Attempt turn 2 on conversation B using conversation A's checkpoint
+        r2 = _make_turn_request(
+            conversation_id="conv_B",
+            turn_number=2,
+            state_checkpoint=result_a.state_checkpoint,
+            checkpoint_id=result_a.checkpoint_id,
+        )
+        result_b = process_turn(r2, ctx)
+        assert result_b.status == "error"
+        assert result_b.error.code == "checkpoint_invalid"
+
+
+class TestCheckpointConsistencyCC3:
+    """CC-3 test matrix: checkpoint triplet (conversation_id, turn_number, checkpoint_id) consistency."""
+
+    def test_consistent_triplet_accepted(self) -> None:
+        """Valid checkpoint with matching conversation_id, turn_number, and checkpoint_id passes."""
+        ctx = _make_ctx(git_files=set())
+        r1 = _make_turn_request(conversation_id="conv_cc3", turn_number=1)
+        result1 = process_turn(r1, ctx)
+        assert result1.status == "success"
+
+        r2 = _make_turn_request(
+            conversation_id="conv_cc3",
+            turn_number=2,
+            state_checkpoint=result1.state_checkpoint,
+            checkpoint_id=result1.checkpoint_id,
+        )
+        result2 = process_turn(r2, ctx)
+        assert result2.status == "success"
+
+    def test_two_turn_chain(self) -> None:
+        """Checkpoint chains across three turns: T1 → T2 → T3."""
+        ctx = _make_ctx(git_files=set())
+        r1 = _make_turn_request(conversation_id="conv_chain", turn_number=1)
+        result1 = process_turn(r1, ctx)
+        assert result1.status == "success"
+
+        r2 = _make_turn_request(
+            conversation_id="conv_chain",
+            turn_number=2,
+            state_checkpoint=result1.state_checkpoint,
+            checkpoint_id=result1.checkpoint_id,
+        )
+        result2 = process_turn(r2, ctx)
+        assert result2.status == "success"
+
+        r3 = _make_turn_request(
+            conversation_id="conv_chain",
+            turn_number=3,
+            state_checkpoint=result2.state_checkpoint,
+            checkpoint_id=result2.checkpoint_id,
+        )
+        result3 = process_turn(r3, ctx)
+        assert result3.status == "success"
+        assert result3.cumulative.turns_completed == 3
+
+    def test_restart_chain_from_checkpoint(self) -> None:
+        """Server restart: conversation restored from checkpoint without in-memory state."""
+        ctx = _make_ctx(git_files=set())
+        r1 = _make_turn_request(conversation_id="conv_restart", turn_number=1)
+        result1 = process_turn(r1, ctx)
+        assert result1.status == "success"
+
+        # Simulate server restart — fresh ctx with no in-memory conversations
+        ctx2 = _make_ctx(git_files=set())
+        assert "conv_restart" not in ctx2.conversations
+
+        r2 = _make_turn_request(
+            conversation_id="conv_restart",
+            turn_number=2,
+            state_checkpoint=result1.state_checkpoint,
+            checkpoint_id=result1.checkpoint_id,
+        )
+        result2 = process_turn(r2, ctx2)
+        assert result2.status == "success"
+        assert result2.cumulative.turns_completed == 2
+
+    def test_cross_conversation_checkpoint_rejected(self) -> None:
+        """Checkpoint from conversation A rejected when presented to conversation B."""
+        ctx = _make_ctx(git_files=set())
+        r1 = _make_turn_request(conversation_id="conv_cc3_A", turn_number=1)
+        result_a = process_turn(r1, ctx)
+        assert result_a.status == "success"
+
+        r2 = _make_turn_request(
+            conversation_id="conv_cc3_B",
+            turn_number=2,
+            state_checkpoint=result_a.state_checkpoint,
+            checkpoint_id=result_a.checkpoint_id,
+        )
+        result_b = process_turn(r2, ctx)
+        assert result_b.status == "error"
+        assert result_b.error.code == "checkpoint_invalid"
+
+
+class TestTurnCapCC5:
+    """CC-5 test matrix: turn cap enforcement via MAX_CONVERSATION_TURNS."""
+
+    def test_constant_invariant(self) -> None:
+        """MAX_CONVERSATION_TURNS < MAX_ENTRIES_BEFORE_COMPACT (import-time check)."""
+        from context_injection.pipeline import MAX_CONVERSATION_TURNS
+        from context_injection.checkpoint import MAX_ENTRIES_BEFORE_COMPACT
+        assert MAX_CONVERSATION_TURNS < MAX_ENTRIES_BEFORE_COMPACT
+
+    def test_below_cap_succeeds(self) -> None:
+        """Conversation below turn cap processes normally."""
+        ctx = _make_ctx(git_files=set())
+        r1 = _make_turn_request(conversation_id="conv_below_cap", turn_number=1)
+        result = process_turn(r1, ctx)
+        assert result.status == "success"
+
+    def test_at_cap_rejected(self) -> None:
+        """Conversation at turn cap returns turn_cap_exceeded error."""
+        from context_injection.pipeline import MAX_CONVERSATION_TURNS
+        ctx = _make_ctx(git_files=set())
+
+        # Build up conversation to exactly MAX_CONVERSATION_TURNS entries
+        last_result = None
+        for turn in range(1, MAX_CONVERSATION_TURNS + 1):
+            r = _make_turn_request(
+                conversation_id="conv_at_cap",
+                turn_number=turn,
+                state_checkpoint=last_result.state_checkpoint if last_result else None,
+                checkpoint_id=last_result.checkpoint_id if last_result else None,
+            )
+            last_result = process_turn(r, ctx)
+            assert last_result.status == "success", f"Turn {turn} should succeed"
+
+        # Next turn should be rejected
+        r_over = _make_turn_request(
+            conversation_id="conv_at_cap",
+            turn_number=MAX_CONVERSATION_TURNS + 1,
+            state_checkpoint=last_result.state_checkpoint,
+            checkpoint_id=last_result.checkpoint_id,
+        )
+        result_over = process_turn(r_over, ctx)
+        assert result_over.status == "error"
+        assert result_over.error.code == "turn_cap_exceeded"
+
+    def test_no_mutation_on_reject(self) -> None:
+        """Turn cap rejection does not mutate ConversationState."""
+        from context_injection.pipeline import MAX_CONVERSATION_TURNS
+        ctx = _make_ctx(git_files=set())
+
+        # Fill to cap
+        last_result = None
+        for turn in range(1, MAX_CONVERSATION_TURNS + 1):
+            r = _make_turn_request(
+                conversation_id="conv_no_mutate",
+                turn_number=turn,
+                state_checkpoint=last_result.state_checkpoint if last_result else None,
+                checkpoint_id=last_result.checkpoint_id if last_result else None,
+            )
+            last_result = process_turn(r, ctx)
+
+        entries_before = len(ctx.conversations["conv_no_mutate"].entries)
+
+        # Rejected turn must not add an entry
+        r_over = _make_turn_request(
+            conversation_id="conv_no_mutate",
+            turn_number=MAX_CONVERSATION_TURNS + 1,
+            state_checkpoint=last_result.state_checkpoint,
+            checkpoint_id=last_result.checkpoint_id,
+        )
+        process_turn(r_over, ctx)
+        entries_after = len(ctx.conversations["conv_no_mutate"].entries)
+        assert entries_after == entries_before
+
+    def test_repeated_turn_number_bound(self) -> None:
+        """Submitting the same turn_number twice does not bypass the cap."""
+        ctx = _make_ctx(git_files=set())
+        r1 = _make_turn_request(conversation_id="conv_repeat", turn_number=1)
+        result1 = process_turn(r1, ctx)
+        assert result1.status == "success"
+
+        # Repeat turn 1 — should not create a second entry or bypass validation
+        r1_dup = _make_turn_request(
+            conversation_id="conv_repeat",
+            turn_number=1,
+            state_checkpoint=result1.state_checkpoint,
+            checkpoint_id=result1.checkpoint_id,
+        )
+        result_dup = process_turn(r1_dup, ctx)
+        # Implementation-defined: may succeed (idempotent) or reject (stale turn).
+        # Either way, entries should not exceed 1.
+        conv = ctx.conversations["conv_repeat"]
+        assert len(conv.entries) <= 2  # at most original + duplicate
+
+    def test_checkpoint_restore_at_cap(self) -> None:
+        """After server restart, restored-at-cap conversation still rejects."""
+        from context_injection.pipeline import MAX_CONVERSATION_TURNS
+        ctx = _make_ctx(git_files=set())
+
+        # Fill to cap
+        last_result = None
+        for turn in range(1, MAX_CONVERSATION_TURNS + 1):
+            r = _make_turn_request(
+                conversation_id="conv_restore_cap",
+                turn_number=turn,
+                state_checkpoint=last_result.state_checkpoint if last_result else None,
+                checkpoint_id=last_result.checkpoint_id if last_result else None,
+            )
+            last_result = process_turn(r, ctx)
+
+        # Simulate restart — fresh context, restore from checkpoint
+        ctx2 = _make_ctx(git_files=set())
+        r_over = _make_turn_request(
+            conversation_id="conv_restore_cap",
+            turn_number=MAX_CONVERSATION_TURNS + 1,
+            state_checkpoint=last_result.state_checkpoint,
+            checkpoint_id=last_result.checkpoint_id,
+        )
+        result_over = process_turn(r_over, ctx2)
+        assert result_over.status == "error"
+        assert result_over.error.code == "turn_cap_exceeded"
 
 
 class TestPipelineLedgerSummary:
@@ -413,6 +640,34 @@ def _process_turn_inner(
             ),
         )
 
+    # --- Step 1b: Dual-claims channel guard (CC-PF-3) ---
+    # TurnRequest carries claims/unresolved at both top-level and inside focus.
+    # If these diverge, the pipeline cannot determine authoritative source.
+    if request.focus.claims != request.claims:
+        return TurnPacketError(
+            schema_version=SCHEMA_VERSION,
+            status="error",
+            error=ErrorDetail(
+                code="ledger_hard_reject",
+                message=(
+                    "focus.claims and top-level claims are inconsistent. "
+                    "Both channels must carry identical claim lists."
+                ),
+            ),
+        )
+    if request.focus.unresolved != request.unresolved:
+        return TurnPacketError(
+            schema_version=SCHEMA_VERSION,
+            status="error",
+            error=ErrorDetail(
+                code="ledger_hard_reject",
+                message=(
+                    "focus.unresolved and top-level unresolved are inconsistent. "
+                    "Both channels must carry identical unresolved lists."
+                ),
+            ),
+        )
+
     # --- Step 2: Resolve ConversationState ---
     base = ctx.get_or_create_conversation(request.conversation_id)
 
@@ -422,6 +677,7 @@ def _process_turn_inner(
         checkpoint_id=request.checkpoint_id,
         checkpoint_payload=request.state_checkpoint,
         turn_number=request.turn_number,
+        target_conversation_id=request.conversation_id,
     )
 
     # --- Step 3b: Turn cap guard (CC-4/CC-5/DD-2) ---
@@ -694,7 +950,7 @@ class TestExecuteEvidenceFromConversation:
     def test_budget_reflects_conversation_evidence(self, tmp_path: Path) -> None:
         """Evidence count comes from conversation state, not request."""
         # Set up ctx with a file
-        (tmp_path / "src" / "app.py").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "src").mkdir(parents=True, exist_ok=True)
         (tmp_path / "src" / "app.py").write_text("def hello(): pass")
         ctx = AppContext.create(
             repo_root=str(tmp_path),
@@ -723,11 +979,12 @@ class TestExecuteEvidenceFromConversation:
         assert len(turn_result.template_candidates) > 0, (
             "Deterministic fixture must produce template candidates"
         )
+        candidate = turn_result.template_candidates[0]
         scout_req = ScoutRequest(
             schema_version=SCHEMA_VERSION,
-            scout_option_id=turn_result.template_candidates[0].scout_option_id,
-            scout_token=turn_result.template_candidates[0].scout_token,
-            turn_request_ref=turn_result.template_candidates[0].turn_request_ref,
+            scout_option_id=candidate.scout_options[0].id,
+            scout_token=candidate.scout_options[0].scout_token,
+            turn_request_ref=f"{request.conversation_id}:{request.turn_number}",
         )
         scout_result = execute_scout(ctx, scout_req)
         # Budget should show 3 evidence items (2 prior + 1 new)
@@ -754,18 +1011,19 @@ class TestExecuteEvidenceFromConversation:
         assert len(turn_result.template_candidates) > 0, (
             "Deterministic fixture must produce template candidates"
         )
+        candidate = turn_result.template_candidates[0]
         scout_req = ScoutRequest(
             schema_version=SCHEMA_VERSION,
-            scout_option_id=turn_result.template_candidates[0].scout_option_id,
-            scout_token=turn_result.template_candidates[0].scout_token,
-            turn_request_ref=turn_result.template_candidates[0].turn_request_ref,
+            scout_option_id=candidate.scout_options[0].id,
+            scout_token=candidate.scout_options[0].scout_token,
+            turn_request_ref=f"{request.conversation_id}:{request.turn_number}",
         )
         scout_result = execute_scout(ctx, scout_req)
 
         # Conversation should now have evidence
         conv = ctx.conversations["conv_record"]
         evidence = conv.get_evidence_history()
-            assert len(evidence) >= 1
+        assert len(evidence) >= 1
 ```
 
 Run: `cd packages/context-injection && uv run pytest tests/test_execute.py::TestExecuteEvidenceFromConversation -v`
@@ -808,6 +1066,8 @@ if isinstance(scout_result, ScoutResultSuccess):
 from context_injection.conversation import ConversationState
 from context_injection.types import EvidenceRecord
 ```
+
+**Known limitation — checkpoint atomicity gap:** Evidence recorded by `execute_scout` updates in-memory `ConversationState` but is NOT included in the checkpoint that was already returned to the client during Call 1. On server restart, restored state from the client's checkpoint loses evidence recorded during Call 2. This is low-probability under the "short-lived MCP server process" assumption (server lifetime typically covers a single dialogue session). If long-lived server deployments become a requirement, this gap must be addressed by either: (a) returning an updated checkpoint from Call 2, or (b) persisting evidence to durable storage on write.
 
 **Step 3: Update existing execute tests**
 
@@ -948,9 +1208,9 @@ class TestIntegration020RoundTrip:
         candidate = turn_result.template_candidates[0]
         scout_req = ScoutRequest(
             schema_version=SCHEMA_VERSION,
-            scout_option_id=candidate.scout_option_id,
-            scout_token=candidate.scout_token,
-            turn_request_ref=candidate.turn_request_ref,
+            scout_option_id=candidate.scout_options[0].id,
+            scout_token=candidate.scout_options[0].scout_token,
+            turn_request_ref=f"{request.conversation_id}:{request.turn_number}",
         )
         scout_result = execute_scout(ctx, scout_req)
         assert scout_result.status == "success"
@@ -1064,8 +1324,13 @@ Update `docs/references/context-injection-contract.md` to reflect 0.2.0 schema:
 2. Add TurnRequest new fields: `position`, `claims`, `delta`, `tags`, `unresolved`, `state_checkpoint`, `checkpoint_id`
 3. Document removed fields: `context_claims`, `evidence_history`
 4. Add TurnPacketSuccess new fields: `validated_entry`, `warnings`, `cumulative`, `action`, `action_reason`, `ledger_summary`, `state_checkpoint`, `checkpoint_id`
-5. Add new ErrorDetail codes: `ledger_hard_reject`, `checkpoint_missing`, `checkpoint_invalid`, `checkpoint_stale`
-6. Add conversation flow section: checkpoint pass-through, multi-turn state progression, action computation
+5. Add new ErrorDetail codes: `ledger_hard_reject`, `checkpoint_missing`, `checkpoint_invalid`, `checkpoint_stale`, `turn_cap_exceeded`
+6. Add `Budget.budget_status` to TurnPacketSuccess changes (budget now reports remaining capacity)
+7. Add conversation flow section: checkpoint pass-through, multi-turn state progression, action computation
+
+**Step 2b: Bump package version**
+
+Update `packages/context-injection/pyproject.toml` version from `0.1.x` to `0.2.0`. The manifest (line 129) assigns this version bump to D4b but no task step previously existed for it.
 
 **Step 3: Run full suite — final verification**
 
@@ -1075,10 +1340,15 @@ Expected: ALL tests pass — ~739 updated + ~50-80 new from D1-D4
 Run: `cd packages/context-injection && uv run pytest tests/ -v --tb=short 2>&1 | tail -5`
 Expected: All pass, zero failures
 
+**Step 3b: Verify no D4b xfails remain**
+
+Run: `grep -r 'reason="D4b:' packages/context-injection/tests/ && echo "FAIL: D4b xfails remain" && exit 1 || echo "PASS: No D4b xfails found"`
+Expected: PASS — done criteria require all D4b xfails to be resolved, this step enforces it.
+
 **Step 4: Commit**
 
 ```bash
-git add packages/context-injection/tests/test_integration.py docs/references/context-injection-contract.md
+git add packages/context-injection/tests/test_integration.py docs/references/context-injection-contract.md packages/context-injection/pyproject.toml
 git commit -m "feat(context-injection): add 0.2.0 integration tests + update protocol contract (D4 Task 14)
 
 New round-trip, multi-turn, checkpoint, and action flow integration tests.

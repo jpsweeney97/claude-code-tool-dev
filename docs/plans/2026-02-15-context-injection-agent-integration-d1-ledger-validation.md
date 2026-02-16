@@ -21,7 +21,7 @@ No prerequisites. D1 is the first delivery and is independent of all others.
 - `tests/test_ledger.py` — D1 validation tests
 
 **Modify:**
-- `context_injection/enums.py` — EffectiveDelta, QualityLabel, ValidationTier, new error codes
+- `context_injection/enums.py` — EffectiveDelta, QualityLabel, ValidationTier (three new enum classes)
 - `context_injection/types.py` — Remove `ProtocolModel`, `Claim`, `Unresolved` class definitions; re-export from `base_types`; remove unused `BaseModel`/`ConfigDict` pydantic imports
 - `tests/test_types.py` — Add `TestBaseTypeReexports` re-export identity test
 
@@ -269,6 +269,137 @@ class TestLedgerTypes:
         )
         assert state.total_claims == 0
         assert state.effective_delta_sequence == []
+
+
+class TestStrictnessPreservation:
+    """Re-exported Claim rejects type coercion (strict=True)."""
+
+    def test_claim_rejects_string_turn(self) -> None:
+        """strict=True means str '1' is not coerced to int 1."""
+        with pytest.raises(ValidationError):
+            Claim(text="A", status="new", turn="1")  # type: ignore[arg-type]
+
+    def test_claim_rejects_float_turn(self) -> None:
+        with pytest.raises(ValidationError):
+            Claim(text="A", status="new", turn=1.0)  # type: ignore[arg-type]
+
+
+class TestInvalidClaimStatus:
+    """Claim.status rejects values outside the Literal constraint."""
+
+    def test_unknown_status_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            Claim(text="A", status="unknown", turn=1)  # type: ignore[arg-type]
+
+    def test_empty_status_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            Claim(text="A", status="", turn=1)  # type: ignore[arg-type]
+
+    def test_valid_statuses_accepted(self) -> None:
+        for status in ("new", "reinforced", "revised", "conceded"):
+            claim = Claim(text="A", status=status, turn=1)
+            assert claim.status == status
+
+
+class TestDeltaDisagreesTruthTable:
+    """_delta_disagrees: all 9 canonical combinations + unknown."""
+
+    @pytest.mark.parametrize(
+        ("agent_delta", "effective", "expected"),
+        [
+            # agent=static vs all effective values
+            ("static", EffectiveDelta.STATIC, False),
+            ("static", EffectiveDelta.ADVANCING, True),
+            ("static", EffectiveDelta.SHIFTING, True),
+            # agent=advancing vs all effective values
+            ("advancing", EffectiveDelta.STATIC, True),
+            ("advancing", EffectiveDelta.ADVANCING, False),
+            ("advancing", EffectiveDelta.SHIFTING, False),
+            # agent=shifting vs all effective values
+            ("shifting", EffectiveDelta.STATIC, True),
+            ("shifting", EffectiveDelta.ADVANCING, False),
+            ("shifting", EffectiveDelta.SHIFTING, False),
+            # unknown agent delta — always no disagreement
+            ("new_information", EffectiveDelta.STATIC, False),
+            ("correction", EffectiveDelta.ADVANCING, False),
+            ("none", EffectiveDelta.SHIFTING, False),
+        ],
+    )
+    def test_delta_disagrees(
+        self, agent_delta: str, effective: EffectiveDelta, expected: bool,
+    ) -> None:
+        from context_injection.ledger import _delta_disagrees
+
+        assert _delta_disagrees(agent_delta, effective) is expected
+
+
+class TestImmutability:
+    """LedgerEntry and CumulativeState are frozen (immutable)."""
+
+    def test_ledger_entry_frozen(self) -> None:
+        counters = LedgerEntryCounters(
+            new_claims=1, revised=0, conceded=0, unresolved_closed=0,
+        )
+        entry = LedgerEntry(
+            position="P", claims=[Claim(text="A", status="new", turn=1)],
+            delta="new_information", tags=[], unresolved=[], counters=counters,
+            quality=QualityLabel.SUBSTANTIVE, effective_delta=EffectiveDelta.ADVANCING,
+            turn_number=1,
+        )
+        with pytest.raises(ValidationError):
+            entry.position = "changed"  # type: ignore[misc]
+
+    def test_cumulative_state_frozen(self) -> None:
+        state = CumulativeState(
+            total_claims=0, reinforced=0, revised=0, conceded=0,
+            unresolved_open=0, unresolved_closed=0, turns_completed=0,
+            effective_delta_sequence=[],
+        )
+        with pytest.raises(ValidationError):
+            state.total_claims = 5  # type: ignore[misc]
+
+
+class TestNegativeCounterRejection:
+    """Counter fields reject negative values via Field(ge=0)."""
+
+    @pytest.mark.parametrize("field", ["new_claims", "revised", "conceded", "unresolved_closed"])
+    def test_ledger_entry_counters_reject_negative(self, field: str) -> None:
+        kwargs = {"new_claims": 0, "revised": 0, "conceded": 0, "unresolved_closed": 0}
+        kwargs[field] = -1
+        with pytest.raises(ValidationError):
+            LedgerEntryCounters(**kwargs)
+
+    @pytest.mark.parametrize(
+        "field",
+        ["total_claims", "reinforced", "revised", "conceded",
+         "unresolved_open", "unresolved_closed", "turns_completed"],
+    )
+    def test_cumulative_state_rejects_negative(self, field: str) -> None:
+        kwargs = {
+            "total_claims": 0, "reinforced": 0, "revised": 0, "conceded": 0,
+            "unresolved_open": 0, "unresolved_closed": 0, "turns_completed": 0,
+            "effective_delta_sequence": [],
+        }
+        kwargs[field] = -1
+        with pytest.raises(ValidationError):
+            CumulativeState(**kwargs)
+
+    def test_compute_counters_rejects_negative_unresolved_closed(self) -> None:
+        with pytest.raises(ValueError, match="unresolved_closed must be >= 0"):
+            compute_counters([], unresolved_closed=-1)
+
+
+class TestSubstantiveStaticDocumentation:
+    """quality=SUBSTANTIVE + effective_delta=STATIC is valid (unresolved closure)."""
+
+    def test_unresolved_closed_is_substantive_but_static(self) -> None:
+        """Closing unresolved questions is substantive progress but doesn't
+        change position (static). This combination must be allowed."""
+        counters = LedgerEntryCounters(
+            new_claims=0, revised=0, conceded=0, unresolved_closed=2,
+        )
+        assert compute_quality(counters) == QualityLabel.SUBSTANTIVE
+        assert compute_effective_delta(counters) == EffectiveDelta.STATIC
 ```
 
 **Step 6: Run tests to verify failure**
@@ -289,20 +420,22 @@ Only `ledger.py` imports directly from `base_types.py`.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 
 
 class ProtocolModel(BaseModel):
     """Base model for all protocol types."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
 
 class Claim(ProtocolModel):
     """A claim from the ledger."""
 
     text: str
-    status: str
+    status: Literal["new", "reinforced", "revised", "conceded"]
     turn: int
 
 
@@ -330,6 +463,10 @@ referential constraints.
 
 from __future__ import annotations
 
+from typing import Any
+
+from pydantic import Field
+
 from context_injection.enums import EffectiveDelta, QualityLabel, ValidationTier
 from context_injection.base_types import Claim, ProtocolModel, Unresolved
 
@@ -337,10 +474,10 @@ from context_injection.base_types import Claim, ProtocolModel, Unresolved
 class LedgerEntryCounters(ProtocolModel):
     """Claim status counts for a single ledger entry."""
 
-    new_claims: int
-    revised: int
-    conceded: int
-    unresolved_closed: int
+    new_claims: int = Field(ge=0)
+    revised: int = Field(ge=0)
+    conceded: int = Field(ge=0)
+    unresolved_closed: int = Field(ge=0)
 
 
 class LedgerEntry(ProtocolModel):
@@ -369,13 +506,13 @@ class ValidationWarning(ProtocolModel):
 class CumulativeState(ProtocolModel):
     """Aggregated state across all validated ledger entries."""
 
-    total_claims: int
-    reinforced: int
-    revised: int
-    conceded: int
-    unresolved_open: int
-    unresolved_closed: int
-    turns_completed: int
+    total_claims: int = Field(ge=0)
+    reinforced: int = Field(ge=0)
+    revised: int = Field(ge=0)
+    conceded: int = Field(ge=0)
+    unresolved_open: int = Field(ge=0)
+    unresolved_closed: int = Field(ge=0)
+    turns_completed: int = Field(ge=0)
     effective_delta_sequence: list[EffectiveDelta]
 ```
 
@@ -546,7 +683,12 @@ def compute_counters(
 
     unresolved_closed is passed in by the caller — D1 has no access
     to prior state for comparing unresolved lists.
+
+    Raises ValueError if unresolved_closed is negative.
     """
+    if unresolved_closed < 0:
+        msg = f"unresolved_closed must be >= 0, got {unresolved_closed}"
+        raise ValueError(msg)
     return LedgerEntryCounters(
         new_claims=sum(1 for c in claims if c.status == "new"),
         revised=sum(1 for c in claims if c.status == "revised"),
@@ -603,7 +745,9 @@ git commit -m "feat(context-injection): add counter, quality, and effective_delt
 - Modify: `context_injection/ledger.py` (add LedgerValidationError, validate_ledger_entry)
 - Modify: `tests/test_ledger.py`
 
-Pydantic handles type/field validation at parse time. `validate_ledger_entry` handles semantic validation: structural hard rejects (empty claims, bad turn number) and consistency soft warnings (delta/counter mismatch, empty position). Hard rejects raise `LedgerValidationError`; soft warnings are returned alongside the valid entry.
+Pydantic handles type/field validation at parse time. `validate_ledger_entry` handles semantic validation: structural hard rejects (empty claims, bad turn number, claim turn out of bounds) and consistency soft warnings (delta/counter mismatch, empty position). Hard rejects raise `LedgerValidationError`; soft warnings are returned alongside the valid entry.
+
+> **Note:** Unknown delta values are tolerated in D1. Stricter validation (Literal constraint) deferred to D4a when schema 0.2.0 introduces a constrained delta field.
 
 **Step 1: Write failing tests for hard rejects**
 
@@ -815,6 +959,24 @@ def validate_ledger_entry(
             field="turn_number",
             message=f"Turn number must be >= 1, got {turn_number}",
         ))
+
+    # --- Structural chronology: claim.turn bounds ---
+    for claim in claims:
+        if claim.turn < 1:
+            hard.append(ValidationWarning(
+                tier=ValidationTier.HARD_REJECT,
+                field="claims",
+                message=f"Claim turn must be >= 1, got {claim.turn} for {claim.text!r:.80}",
+            ))
+        elif claim.turn > turn_number:
+            hard.append(ValidationWarning(
+                tier=ValidationTier.HARD_REJECT,
+                field="claims",
+                message=(
+                    f"Claim turn {claim.turn} exceeds entry turn_number "
+                    f"{turn_number} for {claim.text!r:.80}"
+                ),
+            ))
 
     if hard:
         raise LedgerValidationError(hard)
