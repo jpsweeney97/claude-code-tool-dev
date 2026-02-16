@@ -125,3 +125,121 @@ def _delta_disagrees(agent_delta: str, effective_delta: EffectiveDelta) -> bool:
     if agent_lower in {"advancing", "shifting"} and effective_delta == EffectiveDelta.STATIC:
         return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+
+class LedgerValidationError(Exception):
+    """Hard rejection of a ledger entry."""
+
+    def __init__(self, warnings: list[ValidationWarning]) -> None:
+        self.warnings = warnings
+        super().__init__(f"{len(warnings)} hard validation error(s)")
+
+
+def validate_ledger_entry(
+    position: str,
+    claims: list[Claim],
+    delta: str,
+    tags: list[str],
+    unresolved: list[Unresolved],
+    turn_number: int,
+    *,
+    unresolved_closed: int = 0,
+    prior_claims: list[Claim] | None = None,
+) -> tuple[LedgerEntry, list[ValidationWarning]]:
+    """Build and validate a LedgerEntry.
+
+    Raises LedgerValidationError for hard rejects (empty claims, bad turn_number,
+    claim turn out of bounds). Returns (entry, soft_warnings) on success.
+
+    prior_claims: if provided, enables referential validation (Task 4).
+    """
+    hard: list[ValidationWarning] = []
+    soft: list[ValidationWarning] = []
+
+    # --- Hard rejects ---
+    if not claims:
+        hard.append(ValidationWarning(
+            tier=ValidationTier.HARD_REJECT,
+            field="claims",
+            message="Claims list is empty — each turn must have at least one claim",
+        ))
+    if turn_number < 1:
+        hard.append(ValidationWarning(
+            tier=ValidationTier.HARD_REJECT,
+            field="turn_number",
+            message=f"Turn number must be >= 1, got {turn_number}",
+        ))
+
+    # --- Structural chronology: claim.turn bounds ---
+    for claim in claims:
+        if claim.turn < 1:
+            hard.append(ValidationWarning(
+                tier=ValidationTier.HARD_REJECT,
+                field="claims",
+                message=f"Claim turn must be >= 1, got {claim.turn} for {claim.text!r:.80}",
+            ))
+        elif claim.turn > turn_number:
+            hard.append(ValidationWarning(
+                tier=ValidationTier.HARD_REJECT,
+                field="claims",
+                message=(
+                    f"Claim turn {claim.turn} exceeds entry turn_number "
+                    f"{turn_number} for {claim.text!r:.80}"
+                ),
+            ))
+
+    if hard:
+        raise LedgerValidationError(hard)
+
+    # --- Compute derived fields ---
+    counters = compute_counters(claims, unresolved_closed=unresolved_closed)
+    quality = compute_quality(counters)
+    effective_delta = compute_effective_delta(counters)
+
+    # --- Soft warnings ---
+    if not position:
+        soft.append(ValidationWarning(
+            tier=ValidationTier.SOFT_WARN,
+            field="position",
+            message="Position is empty — agent should summarize their current stance",
+        ))
+
+    if delta and _delta_disagrees(delta, effective_delta):
+        soft.append(ValidationWarning(
+            tier=ValidationTier.SOFT_WARN,
+            field="delta",
+            message=(
+                f"Agent-reported delta {delta!r} disagrees with "
+                f"computed effective_delta {effective_delta.value!r}"
+            ),
+            details={"agent_delta": delta, "effective_delta": effective_delta.value},
+        ))
+
+    # --- Referential warnings (Task 4 extension point) ---
+    if prior_claims is not None:
+        soft.extend(_referential_warnings(claims, prior_claims))
+
+    entry = LedgerEntry(
+        position=position,
+        claims=claims,
+        delta=delta,
+        tags=tags,
+        unresolved=unresolved,
+        counters=counters,
+        quality=quality,
+        effective_delta=effective_delta,
+        turn_number=turn_number,
+    )
+    return entry, soft
+
+
+def _referential_warnings(
+    claims: list[Claim], prior_claims: list[Claim],
+) -> list[ValidationWarning]:
+    """Stub for Task 4 referential validation."""
+    return []

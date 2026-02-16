@@ -8,10 +8,12 @@ from context_injection.ledger import (
     CumulativeState,
     LedgerEntry,
     LedgerEntryCounters,
+    LedgerValidationError,
     ValidationWarning,
     compute_counters,
     compute_effective_delta,
     compute_quality,
+    validate_ledger_entry,
 )
 from context_injection.types import Claim, Unresolved
 
@@ -379,3 +381,145 @@ class TestSubstantiveStaticDocumentation:
         )
         assert compute_quality(counters) == QualityLabel.SUBSTANTIVE
         assert compute_effective_delta(counters) == EffectiveDelta.STATIC
+
+
+class TestValidateLedgerEntryHardReject:
+    """Hard rejects raise LedgerValidationError."""
+
+    def test_empty_claims_rejected(self) -> None:
+        with pytest.raises(LedgerValidationError) as exc_info:
+            validate_ledger_entry(
+                position="Some position",
+                claims=[],
+                delta="none",
+                tags=[],
+                unresolved=[],
+                turn_number=1,
+            )
+        assert len(exc_info.value.warnings) == 1
+        assert exc_info.value.warnings[0].tier == ValidationTier.HARD_REJECT
+        assert exc_info.value.warnings[0].field == "claims"
+
+    def test_turn_number_zero_rejected(self) -> None:
+        with pytest.raises(LedgerValidationError) as exc_info:
+            validate_ledger_entry(
+                position="Position",
+                claims=[Claim(text="A", status="new", turn=0)],
+                delta="new_information",
+                tags=[],
+                unresolved=[],
+                turn_number=0,
+            )
+        assert exc_info.value.warnings[0].field == "turn_number"
+
+    def test_negative_turn_number_rejected(self) -> None:
+        with pytest.raises(LedgerValidationError):
+            validate_ledger_entry(
+                position="Position",
+                claims=[Claim(text="A", status="new", turn=-1)],
+                delta="x",
+                tags=[],
+                unresolved=[],
+                turn_number=-1,
+            )
+
+    def test_multiple_hard_rejects_all_reported(self) -> None:
+        """All hard rejects collected, not just first one."""
+        with pytest.raises(LedgerValidationError) as exc_info:
+            validate_ledger_entry(
+                position="Position",
+                claims=[],
+                delta="x",
+                tags=[],
+                unresolved=[],
+                turn_number=0,
+            )
+        assert len(exc_info.value.warnings) == 2  # empty claims + bad turn_number
+
+
+class TestValidateLedgerEntrySoftWarn:
+    """Soft warnings return alongside valid entry."""
+
+    def test_empty_position_warns(self) -> None:
+        entry, warnings = validate_ledger_entry(
+            position="",
+            claims=[Claim(text="A", status="new", turn=1)],
+            delta="new_information",
+            tags=[],
+            unresolved=[],
+            turn_number=1,
+        )
+        assert entry is not None
+        assert len(warnings) == 1
+        assert warnings[0].tier == ValidationTier.SOFT_WARN
+        assert warnings[0].field == "position"
+
+    def test_delta_counter_mismatch_warns(self) -> None:
+        """Agent says 'static' but computed effective_delta is 'advancing'."""
+        entry, warnings = validate_ledger_entry(
+            position="Has new info",
+            claims=[Claim(text="A", status="new", turn=1)],
+            delta="static",
+            tags=[],
+            unresolved=[],
+            turn_number=1,
+        )
+        assert entry is not None
+        delta_warnings = [w for w in warnings if w.field == "delta"]
+        assert len(delta_warnings) == 1
+        assert delta_warnings[0].tier == ValidationTier.SOFT_WARN
+
+    def test_shifting_contradicts_static_effective_delta(self) -> None:
+        """Agent says 'shifting' but computed effective_delta is 'static' (CC-8 bug fix)."""
+        entry, warnings = validate_ledger_entry(
+            position="Only reinforced claims",
+            claims=[Claim(text="A", status="reinforced", turn=2)],
+            delta="shifting",
+            tags=[],
+            unresolved=[],
+            turn_number=2,
+        )
+        assert entry is not None
+        delta_warnings = [w for w in warnings if w.field == "delta"]
+        assert len(delta_warnings) == 1
+        assert delta_warnings[0].tier == ValidationTier.SOFT_WARN
+
+    def test_no_warnings_on_valid_entry(self) -> None:
+        entry, warnings = validate_ledger_entry(
+            position="Model claims X",
+            claims=[Claim(text="X", status="new", turn=1)],
+            delta="new_information",
+            tags=["factual"],
+            unresolved=[],
+            turn_number=1,
+        )
+        assert entry is not None
+        assert warnings == []
+
+    def test_valid_entry_fields_correct(self) -> None:
+        entry, _ = validate_ledger_entry(
+            position="Position",
+            claims=[Claim(text="A", status="new", turn=1)],
+            delta="new_information",
+            tags=["tag1"],
+            unresolved=[],
+            turn_number=1,
+        )
+        assert entry.position == "Position"
+        assert entry.turn_number == 1
+        assert entry.counters.new_claims == 1
+        assert entry.quality == QualityLabel.SUBSTANTIVE
+        assert entry.effective_delta == EffectiveDelta.ADVANCING
+
+    def test_unresolved_closed_passed_through(self) -> None:
+        entry, _ = validate_ledger_entry(
+            position="Position",
+            claims=[Claim(text="A", status="reinforced", turn=2)],
+            delta="stable",
+            tags=[],
+            unresolved=[],
+            turn_number=2,
+            unresolved_closed=1,
+        )
+        assert entry.counters.unresolved_closed == 1
+        assert entry.quality == QualityLabel.SUBSTANTIVE
