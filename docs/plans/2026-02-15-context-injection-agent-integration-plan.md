@@ -1,6 +1,8 @@
 # Context Injection Agent Integration — Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **ARCHIVE ONLY** — This is the original monolithic plan. The authoritative versions are the split delivery documents listed in the [manifest](2026-02-15-context-injection-agent-integration-manifest.md). This file is preserved for git history (commit `34c4f2c`). Do not execute from this file.
+
+> ~~**For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.~~
 
 **Goal:** Upgrade the context injection MCP server from "scout executor" to "conversation controller" — server owns ledger state, validates entries, computes derived fields, and makes continue/conclude decisions.
 
