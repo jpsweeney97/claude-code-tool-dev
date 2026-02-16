@@ -30,6 +30,7 @@ docs/
 ├── frameworks/   # Methodology frameworks (thoroughness, decision-making, verification)
 ├── references/   # Skill patterns, guides, task-list guidance
 ├── plans/        # Implementation plans and design documents
+├── tickets/      # Work tickets with fix lists and design decisions
 ├── audits/       # Quality audits
 └── claude-code-documentation/  # Official Claude Code docs (reference)
 ```
