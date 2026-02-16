@@ -221,7 +221,7 @@ All items in Sections 1-2 checked off:
   - `delta="static"` should not appear in `test_invalid_delta_rejected` (D4a-PF-1)
   - `"continue"` (bare, not `"continue_dialogue"`) should not appear as an action value in decisions doc (DEC-PF-1)
 - [x] Commit on fix branch
-- [ ] Merge to `main`
+- [x] Merge to `main`
 
 ## 5. References
 
