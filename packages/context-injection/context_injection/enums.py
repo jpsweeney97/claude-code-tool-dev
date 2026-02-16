@@ -121,3 +121,26 @@ class TruncationReason(StrEnum):
     MAX_LINES = "max_lines"
     MAX_CHARS = "max_chars"
     MAX_RANGES = "max_ranges"
+
+
+class EffectiveDelta(StrEnum):
+    """Server-computed effective delta for a ledger entry."""
+
+    ADVANCING = "advancing"
+    SHIFTING = "shifting"
+    STATIC = "static"
+
+
+class QualityLabel(StrEnum):
+    """Server-computed quality label for a ledger entry."""
+
+    SUBSTANTIVE = "substantive"
+    SHALLOW = "shallow"
+
+
+class ValidationTier(StrEnum):
+    """Validation warning severity tier."""
+
+    HARD_REJECT = "hard_reject"
+    SOFT_WARN = "soft_warn"
+    REFERENTIAL_WARN = "referential_warn"

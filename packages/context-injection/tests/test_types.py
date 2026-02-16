@@ -545,3 +545,17 @@ class TestReadResultExcerptRangeNullable:
                 excerpt_range=["1", "40"],
                 total_lines=100,
             )
+
+
+class TestBaseTypeReexports:
+    """Verify types.py re-exports are identity-equal to base_types.py originals."""
+
+    def test_reexport_identity(self) -> None:
+        from context_injection.base_types import Claim as BaseClaim
+        from context_injection.base_types import ProtocolModel as BaseProtocolModel
+        from context_injection.base_types import Unresolved as BaseUnresolved
+        from context_injection.types import Claim, ProtocolModel, Unresolved
+
+        assert ProtocolModel is BaseProtocolModel
+        assert Claim is BaseClaim
+        assert Unresolved is BaseUnresolved

@@ -10,7 +10,9 @@ Contract reference: docs/references/context-injection-contract.md
 
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
+from pydantic import Discriminator, Field, Tag, model_validator
+
+from context_injection.base_types import Claim, ProtocolModel, Unresolved
 
 
 SchemaVersionLiteral = Literal["0.1.0"]
@@ -19,28 +21,7 @@ SCHEMA_VERSION: SchemaVersionLiteral = "0.1.0"
 """Single-point version control. 0.x uses exact-match semantics."""
 
 
-class ProtocolModel(BaseModel):
-    """Base for all protocol types. Frozen, strict, forbids extra fields."""
-
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-
-
 # --- TurnRequest input models (Call 1 input) ---
-
-
-class Claim(ProtocolModel):
-    """A claim from the ledger."""
-
-    text: str
-    status: Literal["new", "reinforced", "revised", "conceded"]
-    turn: int
-
-
-class Unresolved(ProtocolModel):
-    """An unresolved question from the ledger."""
-
-    text: str
-    turn: int
 
 
 class Focus(ProtocolModel):
