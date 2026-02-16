@@ -12,8 +12,8 @@
 ## Prerequisite Contract
 
 **Requires from D1:**
-- `LedgerEntry`, `CumulativeState`, `QualityLabel`, `EffectiveDelta`, validation functions from `context_injection/ledger.py`
-- Enums from `context_injection/enums.py`
+- From `context_injection/ledger.py`: `LedgerEntry`, `CumulativeState`, validation functions
+- From `context_injection/enums.py`: `EffectiveDelta`, `QualityLabel`
 - Source of truth: `context_injection/ledger.py`, `context_injection/enums.py`
 
 **Critical invariants:**
@@ -93,7 +93,7 @@ def _make_entry(
     *,
     position: str = "Position",
     claims: list[Claim] | None = None,
-    delta: str = "new_information",
+    delta: str = "advancing",
     effective_delta: EffectiveDelta = EffectiveDelta.ADVANCING,
     quality: QualityLabel = QualityLabel.SUBSTANTIVE,
     unresolved: list[Unresolved] | None = None,
@@ -129,9 +129,9 @@ class TestConversationStateConstruction:
     def test_empty_state(self) -> None:
         state = ConversationState(conversation_id="conv-1")
         assert state.conversation_id == "conv-1"
-        assert state.entries == []
-        assert state.claim_registry == []
-        assert state.evidence_history == []
+        assert state.entries == ()
+        assert state.claim_registry == ()
+        assert state.evidence_history == ()
         assert state.closing_probe_fired is False
         assert state.last_checkpoint_id is None
 
@@ -178,8 +178,8 @@ class TestWithTurn:
         state = ConversationState(conversation_id="conv-1")
         entry = _make_entry(turn_number=1)
         _ = state.with_turn(entry)
-        assert state.entries == []
-        assert state.claim_registry == []
+        assert state.entries == ()
+        assert state.claim_registry == ()
 
     def test_multi_claim_turn(self) -> None:
         state = ConversationState(conversation_id="conv-1")
@@ -212,7 +212,7 @@ class TestWithEvidence:
             entity_key="file:foo.py", template_id="probe.file_repo_fact", turn=1,
         )
         _ = state.with_evidence(record)
-        assert state.evidence_history == []
+        assert state.evidence_history == ()
 
 
 class TestWithClosingProbeFired:
@@ -398,26 +398,26 @@ from context_injection.types import Claim, EvidenceRecord
 class ConversationState(BaseModel):
     """Per-conversation state. Frozen — projection methods return new instances."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     conversation_id: str
-    entries: list[LedgerEntry] = []
-    claim_registry: list[Claim] = []
-    evidence_history: list[EvidenceRecord] = []
+    entries: tuple[LedgerEntry, ...] = ()
+    claim_registry: tuple[Claim, ...] = ()
+    evidence_history: tuple[EvidenceRecord, ...] = ()
     closing_probe_fired: bool = False
     last_checkpoint_id: str | None = None
 
     def with_turn(self, entry: LedgerEntry) -> ConversationState:
         """New state with entry appended and claim_registry extended."""
         return self.model_copy(update={
-            "entries": [*self.entries, entry],
-            "claim_registry": [*self.claim_registry, *entry.claims],
+            "entries": (*self.entries, entry),
+            "claim_registry": (*self.claim_registry, *entry.claims),
         })
 
     def with_evidence(self, record: EvidenceRecord) -> ConversationState:
         """New state with evidence record appended."""
         return self.model_copy(update={
-            "evidence_history": [*self.evidence_history, record],
+            "evidence_history": (*self.evidence_history, record),
         })
 
     def with_closing_probe_fired(self) -> ConversationState:
@@ -429,15 +429,20 @@ class ConversationState(BaseModel):
         return self.model_copy(update={"last_checkpoint_id": checkpoint_id})
 
     def get_cumulative_claims(self) -> list[Claim]:
-        """All claims from all turns (insertion-ordered). Returns copy."""
+        """All claims from all turns (insertion-ordered). Returns mutable copy."""
         return list(self.claim_registry)
 
     def get_evidence_history(self) -> list[EvidenceRecord]:
-        """All evidence records (insertion-ordered). Returns copy."""
+        """All evidence records (insertion-ordered). Returns mutable copy."""
         return list(self.evidence_history)
 
     def compute_cumulative_state(self) -> CumulativeState:
         """Aggregate state across all validated ledger entries.
+
+        Correct only when compaction has not triggered. See DD-2 invariant:
+        MAX_CONVERSATION_TURNS < MAX_ENTRIES_BEFORE_COMPACT ensures compaction
+        is unreachable under normal operation. If compaction has occurred,
+        totals reflect only the retained window, not full conversation history.
 
         total_claims: all claims across all entries (including reinforced).
         reinforced: scanned from claims (not tracked in counters).
@@ -499,7 +504,7 @@ git commit -m "feat(context-injection): add ConversationState with immutable pro
 
 `StateCheckpoint` is a `ProtocolModel` (wire type — the `model_dump_json()` of this type is the opaque string in `TurnPacketSuccess.state_checkpoint`). The agent stores this string opaque and sends it back. The server deserializes to restore state.
 
-`serialize_checkpoint` returns `tuple[str, str]` — `(checkpoint_id, checkpoint_string)`. The pipeline needs both: checkpoint_id for `with_checkpoint_id()` and `TurnPacketSuccess.checkpoint_id`; checkpoint_string for `TurnPacketSuccess.state_checkpoint`.
+`serialize_checkpoint` returns a `SerializedCheckpoint` NamedTuple `(state, checkpoint_id, checkpoint_string)`. The `parent_id` parameter is eliminated — derived inside from `state.last_checkpoint_id` (encapsulates ordering invariant, prevents caller/callee mismatch). The new `checkpoint_id` is embedded into state BEFORE serializing the payload, so the returned `state` already has `last_checkpoint_id` updated — the caller commits this projected state directly. The pipeline needs all three: `state` for atomic commit, `checkpoint_id` for `TurnPacketSuccess.checkpoint_id`, and `checkpoint_string` for `TurnPacketSuccess.state_checkpoint`.
 
 **Step 1: Write failing tests for StateCheckpoint and serialization**
 
@@ -515,6 +520,7 @@ import pytest
 from context_injection.checkpoint import (
     CHECKPOINT_FORMAT_VERSION,
     CheckpointError,
+    SerializedCheckpoint,
     StateCheckpoint,
     deserialize_checkpoint,
     serialize_checkpoint,
@@ -549,26 +555,42 @@ class TestStateCheckpoint:
 
 
 class TestSerializeCheckpoint:
-    """serialize_checkpoint: state → (checkpoint_id, checkpoint_string)."""
+    """serialize_checkpoint: state → SerializedCheckpoint(state, checkpoint_id, checkpoint_string)."""
 
     def test_round_trip(self) -> None:
         state = ConversationState(conversation_id="conv-1")
-        checkpoint_id, checkpoint_string = serialize_checkpoint(state, parent_id=None)
-        assert len(checkpoint_id) == 32  # uuid4 hex
-        restored, restored_id = deserialize_checkpoint(checkpoint_string)
+        result = serialize_checkpoint(state)
+        assert len(result.checkpoint_id) == 32  # uuid4 hex
+        # Returned state has last_checkpoint_id updated
+        assert result.state.last_checkpoint_id == result.checkpoint_id
+        restored, restored_id = deserialize_checkpoint(result.checkpoint_string)
         assert restored.conversation_id == "conv-1"
-        assert restored_id == checkpoint_id
+        assert restored_id == result.checkpoint_id
 
-    def test_parent_id_preserved(self) -> None:
+    def test_state_checkpoint_id_embedded_before_serialization(self) -> None:
+        """Payload last_checkpoint_id matches envelope checkpoint_id (CC-3 fix)."""
         state = ConversationState(conversation_id="conv-1")
-        _, cp_string = serialize_checkpoint(state, parent_id="parent-abc")
-        parsed = json.loads(cp_string)
+        result = serialize_checkpoint(state)
+        restored, _ = deserialize_checkpoint(result.checkpoint_string)
+        assert restored.last_checkpoint_id == result.checkpoint_id
+
+    def test_parent_id_derived_from_state(self) -> None:
+        """parent_checkpoint_id derived from state.last_checkpoint_id, not a parameter."""
+        state = ConversationState(conversation_id="conv-1").with_checkpoint_id("parent-abc")
+        result = serialize_checkpoint(state)
+        parsed = json.loads(result.checkpoint_string)
         assert parsed["parent_checkpoint_id"] == "parent-abc"
+
+    def test_first_checkpoint_parent_is_none(self) -> None:
+        state = ConversationState(conversation_id="conv-1")
+        result = serialize_checkpoint(state)
+        parsed = json.loads(result.checkpoint_string)
+        assert parsed["parent_checkpoint_id"] is None
 
     def test_format_version_included(self) -> None:
         state = ConversationState(conversation_id="conv-1")
-        _, cp_string = serialize_checkpoint(state, parent_id=None)
-        parsed = json.loads(cp_string)
+        result = serialize_checkpoint(state)
+        parsed = json.loads(result.checkpoint_string)
         assert parsed["format_version"] == CHECKPOINT_FORMAT_VERSION
 
     def test_exceeds_size_cap_raises(self) -> None:
@@ -586,7 +608,7 @@ class TestSerializeCheckpoint:
         entry = LedgerEntry(
             position="x" * 500,
             claims=claims,
-            delta="new",
+            delta="advancing",
             tags=[],
             unresolved=[],
             counters=counters,
@@ -596,7 +618,7 @@ class TestSerializeCheckpoint:
         )
         state = ConversationState(conversation_id="conv-1").with_turn(entry)
         with pytest.raises(ValueError, match="exceeds"):
-            serialize_checkpoint(state, parent_id=None)
+            serialize_checkpoint(state)
 
 
 class TestDeserializeCheckpoint:
@@ -657,6 +679,7 @@ model_dump_json() of StateCheckpoint. This is double-encoded JSON
 from __future__ import annotations
 
 import uuid
+from typing import NamedTuple
 
 from context_injection.conversation import ConversationState
 from context_injection.types import ProtocolModel
@@ -694,16 +717,32 @@ class CheckpointError(Exception):
         super().__init__(message)
 
 
-def serialize_checkpoint(
-    state: ConversationState, parent_id: str | None,
-) -> tuple[str, str]:
-    """Serialize state to checkpoint. Returns (checkpoint_id, checkpoint_string).
+class SerializedCheckpoint(NamedTuple):
+    """Result of serialize_checkpoint.
 
-    checkpoint_string is the opaque payload for TurnPacketSuccess.state_checkpoint.
+    state: ConversationState with last_checkpoint_id already updated.
+           Caller commits this directly — no separate with_checkpoint_id() call.
+    checkpoint_id: The new checkpoint ID (for TurnPacketSuccess.checkpoint_id).
+    checkpoint_string: Opaque payload (for TurnPacketSuccess.state_checkpoint).
+    """
+
+    state: ConversationState
+    checkpoint_id: str
+    checkpoint_string: str
+
+
+def serialize_checkpoint(state: ConversationState) -> SerializedCheckpoint:
+    """Serialize state to checkpoint. Returns SerializedCheckpoint.
+
+    parent_id is derived from state.last_checkpoint_id (not a parameter).
+    New checkpoint_id is embedded into state BEFORE serializing the payload,
+    so the returned state already has last_checkpoint_id updated (CC-3 fix).
     Raises ValueError if payload exceeds MAX_CHECKPOINT_PAYLOAD_BYTES.
     """
     checkpoint_id = uuid.uuid4().hex
-    payload = state.model_dump_json()
+    parent_id = state.last_checkpoint_id
+    state_for_payload = state.with_checkpoint_id(checkpoint_id)
+    payload = state_for_payload.model_dump_json()
     payload_size = len(payload.encode("utf-8"))
 
     if payload_size > MAX_CHECKPOINT_PAYLOAD_BYTES:
@@ -719,7 +758,11 @@ def serialize_checkpoint(
         payload=payload,
         size=payload_size,
     )
-    return checkpoint_id, checkpoint.model_dump_json()
+    return SerializedCheckpoint(
+        state=state_for_payload,
+        checkpoint_id=checkpoint_id,
+        checkpoint_string=checkpoint.model_dump_json(),
+    )
 
 
 def deserialize_checkpoint(checkpoint_string: str) -> tuple[ConversationState, str]:
@@ -740,6 +783,14 @@ def deserialize_checkpoint(checkpoint_string: str) -> tuple[ConversationState, s
             "checkpoint_invalid",
             f"Unsupported checkpoint format version: {checkpoint.format_version!r}, "
             f"expected {CHECKPOINT_FORMAT_VERSION!r}",
+        )
+
+    actual_size = len(checkpoint.payload.encode("utf-8"))
+    if actual_size != checkpoint.size:
+        raise CheckpointError(
+            "checkpoint_invalid",
+            f"Payload size mismatch: envelope claims {checkpoint.size} bytes, "
+            f"actual payload is {actual_size} bytes (corruption detected)",
         )
 
     try:
@@ -776,6 +827,8 @@ git commit -m "feat(context-injection): add checkpoint types and serialization (
 **Files:**
 - Modify: `context_injection/checkpoint.py` (add validate_checkpoint_intake, compact_ledger)
 - Modify: `tests/test_checkpoint.py`
+
+**Head-pointer validation model.** Stale detection uses a head-pointer comparison: the server's `last_checkpoint_id` is compared against the agent's `checkpoint_id`. There is no parent-chain walk. `parent_checkpoint_id` in `StateCheckpoint` is informational/deferred — reserved for future parent-chain validation but not used in 0.2.0 stale detection.
 
 Five-case intake policy for resolving conversation state at the start of each turn. The key distinction: `last_checkpoint_id is not None` reliably indicates "real state" vs "fresh empty state created by `get_or_create_conversation` after server restart." This lets the function route to checkpoint restore when the server has no real memory of the conversation.
 
@@ -837,16 +890,15 @@ class TestValidateCheckpointIntake:
         """Turn > 1, server restarted (no real state) — restore from checkpoint."""
         in_memory = ConversationState(conversation_id="conv-1")
         # Create a checkpoint from real state
-        real_state = ConversationState(
-            conversation_id="conv-1",
-        ).with_checkpoint_id("cp-1")
-        _, cp_string = serialize_checkpoint(real_state, parent_id=None)
+        real_state = ConversationState(conversation_id="conv-1")
+        result_cp = serialize_checkpoint(real_state)
         result = validate_checkpoint_intake(
-            in_memory, checkpoint_id="cp-1", checkpoint_payload=cp_string,
+            in_memory, checkpoint_id=result_cp.checkpoint_id,
+            checkpoint_payload=result_cp.checkpoint_string,
             turn_number=2,
         )
         assert result.conversation_id == "conv-1"
-        assert result.last_checkpoint_id == "cp-1"
+        assert result.last_checkpoint_id == result_cp.checkpoint_id
 
     def test_turn_gt1_no_real_state_no_checkpoint_raises(self) -> None:
         """Turn > 1, no real state, no checkpoint — missing error."""
@@ -867,6 +919,80 @@ class TestValidateCheckpointIntake:
                 turn_number=2,
             )
         assert exc_info.value.code == "checkpoint_invalid"
+
+    # --- Restore integrity guards (CC-3) ---
+
+    def test_restore_guard_checkpoint_id_none_with_payload(self) -> None:
+        """Guard 1: checkpoint_id must not be None when payload is present."""
+        in_memory = ConversationState(conversation_id="conv-1")
+        result_cp = serialize_checkpoint(
+            ConversationState(conversation_id="conv-1"),
+        )
+        with pytest.raises(CheckpointError) as exc_info:
+            validate_checkpoint_intake(
+                in_memory, checkpoint_id=None,
+                checkpoint_payload=result_cp.checkpoint_string,
+                turn_number=2,
+            )
+        assert exc_info.value.code == "checkpoint_missing"
+
+    def test_restore_guard_request_id_mismatch(self) -> None:
+        """Guard 2: request checkpoint_id must match envelope ID."""
+        in_memory = ConversationState(conversation_id="conv-1")
+        result_cp = serialize_checkpoint(
+            ConversationState(conversation_id="conv-1"),
+        )
+        with pytest.raises(CheckpointError) as exc_info:
+            validate_checkpoint_intake(
+                in_memory, checkpoint_id="wrong-id",
+                checkpoint_payload=result_cp.checkpoint_string,
+                turn_number=2,
+            )
+        assert exc_info.value.code == "checkpoint_stale"
+
+    def test_restore_guard_payload_checkpoint_id_mismatch(self) -> None:
+        """Guard 3: payload last_checkpoint_id must match envelope ID.
+
+        This catches corruption where the envelope ID was tampered but the
+        payload was serialized with a different checkpoint_id.
+        """
+        in_memory = ConversationState(conversation_id="conv-1")
+        # Manually craft a checkpoint with mismatched IDs
+        state_with_wrong_id = ConversationState(
+            conversation_id="conv-1",
+        ).with_checkpoint_id("wrong-inner-id")
+        payload = state_with_wrong_id.model_dump_json()
+        tampered = StateCheckpoint(
+            checkpoint_id="envelope-id",
+            parent_checkpoint_id=None,
+            format_version=CHECKPOINT_FORMAT_VERSION,
+            payload=payload,
+            size=len(payload.encode("utf-8")),
+        )
+        with pytest.raises(CheckpointError) as exc_info:
+            validate_checkpoint_intake(
+                in_memory, checkpoint_id="envelope-id",
+                checkpoint_payload=tampered.model_dump_json(),
+                turn_number=2,
+            )
+        assert exc_info.value.code == "checkpoint_invalid"
+
+    def test_restore_guard_cross_conversation_swap(self) -> None:
+        """Guard 4: payload conversation_id must match target conversation."""
+        in_memory = ConversationState(conversation_id="conv-target")
+        # Create a checkpoint from a different conversation
+        result_cp = serialize_checkpoint(
+            ConversationState(conversation_id="conv-other"),
+        )
+        with pytest.raises(CheckpointError) as exc_info:
+            validate_checkpoint_intake(
+                in_memory, checkpoint_id=result_cp.checkpoint_id,
+                checkpoint_payload=result_cp.checkpoint_string,
+                turn_number=2,
+                target_conversation_id="conv-target",
+            )
+        assert exc_info.value.code == "checkpoint_invalid"
+        assert "cross-conversation" in str(exc_info.value).lower()
 ```
 
 **Step 2: Run tests to verify failure**
@@ -903,7 +1029,7 @@ def _make_entry(
     return LedgerEntry(
         position=f"Position {turn_number}",
         claims=claims,
-        delta="new_information",
+        delta="advancing",
         tags=[],
         unresolved=[],
         counters=counters,
@@ -967,6 +1093,75 @@ class TestCompactLedger:
         assert result.closing_probe_fired is True
         assert result.last_checkpoint_id == "cp-5"
         assert len(result.evidence_history) == 1
+
+
+class TestCompactionEquivalence:
+    """D2-7: Prove compute_action() equivalence between full-history and compacted state.
+
+    Under DD-2 invariant (MAX_CONVERSATION_TURNS < MAX_ENTRIES_BEFORE_COMPACT),
+    compaction should never trigger. This test verifies that IF it did trigger,
+    the action decision would be equivalent — proving the safety net is sound.
+    """
+
+    def test_compute_action_matches_after_compaction(self) -> None:
+        """compute_action on full-history state matches compute_action on compacted state."""
+        from context_injection.action import compute_action
+
+        state = ConversationState(conversation_id="conv-1")
+        for i in range(1, MAX_ENTRIES_BEFORE_COMPACT + 5):
+            state = state.with_turn(_make_entry(turn_number=i))
+
+        full_cumulative = state.compute_cumulative_state()
+        compacted = compact_ledger(state)
+        compacted_cumulative = compacted.compute_cumulative_state()
+
+        # Action decisions depend on delta sequence tail and budget —
+        # compaction preserves recent entries, so action should match
+        full_action = compute_action(
+            cumulative=full_cumulative,
+            budget_remaining=5,
+            closing_probe_fired=state.closing_probe_fired,
+        )
+        compacted_action = compute_action(
+            cumulative=compacted_cumulative,
+            budget_remaining=5,
+            closing_probe_fired=compacted.closing_probe_fired,
+        )
+        assert full_action == compacted_action
+
+
+class TestCompactionRoundTrip:
+    """D2-8: Build conversation with >16 entries, compact, restore, verify contract."""
+
+    def test_compact_serialize_restore_recompute(self) -> None:
+        """Full round-trip: build → compact → serialize → restore → recompute cumulative."""
+        state = ConversationState(conversation_id="conv-1")
+        for i in range(1, MAX_ENTRIES_BEFORE_COMPACT + 5):
+            state = state.with_turn(_make_entry(turn_number=i))
+
+        # Compact
+        compacted = compact_ledger(state)
+        assert len(compacted.entries) == KEEP_RECENT_ENTRIES
+
+        # Serialize
+        result = serialize_checkpoint(compacted)
+        assert result.state.last_checkpoint_id == result.checkpoint_id
+
+        # Restore
+        restored, restored_id = deserialize_checkpoint(result.checkpoint_string)
+        assert restored_id == result.checkpoint_id
+        assert restored.conversation_id == "conv-1"
+        assert len(restored.entries) == KEEP_RECENT_ENTRIES
+
+        # Recompute cumulative from restored state
+        cumulative = restored.compute_cumulative_state()
+        assert cumulative.turns_completed == KEEP_RECENT_ENTRIES
+        assert cumulative.total_claims == KEEP_RECENT_ENTRIES  # 1 claim per entry
+
+        # Claim registry rebuilt from recent entries only
+        recent_turns = {e.turn_number for e in restored.entries}
+        for claim in restored.claim_registry:
+            assert claim.turn in recent_turns
 ```
 
 **Step 4: Implement validate_checkpoint_intake and compact_ledger**
@@ -986,6 +1181,7 @@ def validate_checkpoint_intake(
     checkpoint_id: str | None,
     checkpoint_payload: str | None,
     turn_number: int,
+    target_conversation_id: str | None = None,
 ) -> ConversationState:
     """Resolve conversation state for a turn.
 
@@ -996,9 +1192,17 @@ def validate_checkpoint_intake(
     - Turn > 1, no real state, checkpoint present: restore from checkpoint
     - Turn > 1, no real state, no checkpoint: checkpoint_missing error
 
+    Restore integrity checks (when restoring from checkpoint):
+    1. checkpoint_id not None when payload present → checkpoint_missing
+    2. Request checkpoint_id matches envelope ID → checkpoint_stale
+    3. Payload last_checkpoint_id matches envelope ID → checkpoint_invalid (corruption)
+    4. Payload conversation_id matches target conversation → checkpoint_invalid (security)
+
     in_memory: from ctx.get_or_create_conversation() — never None.
     "Real state" means last_checkpoint_id is not None (server has
     processed at least one turn for this conversation).
+    target_conversation_id: the conversation_id from the request context.
+    Used for cross-conversation checkpoint swap detection.
     """
     if turn_number <= 1:
         return in_memory
@@ -1016,7 +1220,43 @@ def validate_checkpoint_intake(
 
     # No real state (server restarted) — restore from checkpoint
     if checkpoint_payload is not None:
-        state, _ = deserialize_checkpoint(checkpoint_payload)
+        # Guard 1: checkpoint_id required when payload present
+        if checkpoint_id is None:
+            raise CheckpointError(
+                "checkpoint_missing",
+                "Checkpoint payload present but checkpoint_id is None",
+            )
+
+        state, envelope_id = deserialize_checkpoint(checkpoint_payload)
+
+        # Guard 2: request checkpoint_id matches envelope ID
+        if checkpoint_id != envelope_id:
+            raise CheckpointError(
+                "checkpoint_stale",
+                f"Request checkpoint_id {checkpoint_id!r} does not match "
+                f"envelope checkpoint_id {envelope_id!r}",
+            )
+
+        # Guard 3: payload last_checkpoint_id matches envelope ID
+        if state.last_checkpoint_id != envelope_id:
+            raise CheckpointError(
+                "checkpoint_invalid",
+                f"Payload last_checkpoint_id {state.last_checkpoint_id!r} does not "
+                f"match envelope checkpoint_id {envelope_id!r} (corruption detected)",
+            )
+
+        # Guard 4: payload conversation_id matches target conversation
+        if (
+            target_conversation_id is not None
+            and state.conversation_id != target_conversation_id
+        ):
+            raise CheckpointError(
+                "checkpoint_invalid",
+                f"Checkpoint conversation_id {state.conversation_id!r} does not "
+                f"match target {target_conversation_id!r} "
+                f"(cross-conversation checkpoint swap detected)",
+            )
+
         return state
 
     raise CheckpointError(
@@ -1029,6 +1269,11 @@ def validate_checkpoint_intake(
 def compact_ledger(state: ConversationState) -> ConversationState:
     """Reduce state size by keeping only recent entries.
 
+    Unreachable under DD-2 invariant (MAX_CONVERSATION_TURNS <
+    MAX_ENTRIES_BEFORE_COMPACT). The pipeline's pre-append turn cap guard
+    rejects turns before entry count can reach the compaction threshold.
+    Retained as a safety net if the invariant is relaxed in the future.
+
     Triggered before checkpoint serialization when approaching size cap.
     Keeps KEEP_RECENT_ENTRIES most recent entries and rebuilds
     claim_registry from them.
@@ -1040,7 +1285,7 @@ def compact_ledger(state: ConversationState) -> ConversationState:
         return state
 
     recent = state.entries[-KEEP_RECENT_ENTRIES:]
-    claims = [c for e in recent for c in e.claims]
+    claims = tuple(c for e in recent for c in e.claims)
     return state.model_copy(update={
         "entries": recent,
         "claim_registry": claims,
@@ -1093,7 +1338,7 @@ class TestAppContextConversations:
         state = ctx.get_or_create_conversation("conv-1")
         assert isinstance(state, ConversationState)
         assert state.conversation_id == "conv-1"
-        assert state.entries == []
+        assert state.entries == ()
 
     def test_get_or_create_returns_existing(self) -> None:
         ctx = AppContext.create(repo_root="/tmp/test")

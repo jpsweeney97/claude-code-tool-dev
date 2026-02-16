@@ -263,7 +263,7 @@ Ledger summary generation (in `ledger.py` or separate):
 **Risk: HIGH — big integration delivery**
 
 #### Types changes (`types.py`, `enums.py`):
-- TurnRequest 0.2.0: add `position`, `claims` (top-level), `delta`, `tags`, `unresolved` (top-level), `state_checkpoint`, `checkpoint_id`, `parent_checkpoint_id`; remove `context_claims`, `evidence_history`
+- TurnRequest 0.2.0: add `position`, `claims` (top-level), `delta`, `tags`, `unresolved` (top-level), `state_checkpoint`, `checkpoint_id`; remove `context_claims`, `evidence_history` (`parent_checkpoint_id` is inside `StateCheckpoint` envelope only, not a TurnRequest field)
 - TurnPacketSuccess 0.2.0: add `validated_entry`, `warnings`, `cumulative`, `action`, `action_reason`, `ledger_summary`, `state_checkpoint`, `checkpoint_id`
 - ScoutRequest 0.2.0: update schema_version
 - Schema version constant: `"0.1.0"` → `"0.2.0"`

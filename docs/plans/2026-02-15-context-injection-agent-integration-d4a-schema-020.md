@@ -12,22 +12,24 @@
 ## Prerequisite Contract
 
 **Requires from D1:**
-- `LedgerEntry`, `CumulativeState`, `EffectiveDelta`, `QualityLabel`, `ValidationTier` from `context_injection/ledger.py`
+- `LedgerEntry`, `CumulativeState`, `LedgerEntryCounters`, `EffectiveDelta`, `QualityLabel`, `ValidationTier` from `context_injection/ledger.py`
 - Enums from `context_injection/enums.py`
-- Source of truth: `context_injection/ledger.py`, `context_injection/enums.py`
+- `ProtocolModel`, `Claim`, `Unresolved` extracted to `context_injection/base_types.py` (DD-1: import cycle resolution). `types.py` re-exports these — existing import paths unchanged.
+- Source of truth: `context_injection/base_types.py`, `context_injection/ledger.py`, `context_injection/enums.py`
 
-**Requires from D2:**
-- `ConversationState` from `context_injection/conversation.py`
-- Checkpoint types from `context_injection/checkpoint.py`
+**Requires from D2 (runtime/semantic dependency — D4a does not import D2 modules directly, but 0.2.0 types embed D2-defined types as fields):**
+- `ConversationState` from `context_injection/conversation.py` — embedded in TurnPacketSuccess
+- Checkpoint types from `context_injection/checkpoint.py` — checkpoint serialization contract
 - Source of truth: `context_injection/conversation.py`, `context_injection/checkpoint.py`
 
 **Requires from D3:**
-- `ConversationAction`, `LedgerSummary` from `context_injection/control.py`
+- `ConversationAction` from `context_injection/control.py`
+- `generate_ledger_summary(entries, cumulative) -> str` function from `context_injection/control.py`
 - Source of truth: `context_injection/control.py`
 
 **Critical invariants:**
 - All D1/D2/D3 modules must be complete and tested before this delivery
-- New 0.2.0 types must maintain backward compatibility — existing test infrastructure continues to work after migration
+- No wire-level backward compatibility: only 0.2.0 is accepted. Compatibility goal is test infrastructure migration (existing helpers compile with new fields), not dual-schema runtime support.
 
 **Adaptation:** If D1/D2/D3 type names differ from this plan, adapt type references and note the mapping.
 
@@ -44,9 +46,11 @@
 
 ## Done Criteria
 
-- 0.2.0 TurnRequest/TurnPacket types defined and compile
-- All 739 existing tests pass with new schema
-- No pipeline or execution logic changes
+- All new 0.2.0 type tests pass
+- All 739 existing tests collect and execute (no import errors, no construction errors)
+- Semantic failures marked with `pytest.mark.xfail(strict=True, reason="D4b: <cause> (Task 13a|13b|14)")`
+- Xfail inventory committed at `packages/context-injection/tests/xfail_inventory_d4a.md`
+- No changes to `pipeline.py`, `execute.py`, or `server.py`
 
 ## Scope Boundary
 
@@ -54,13 +58,13 @@ This document covers D4a only. After completing all tasks in this delivery, stop
 
 ---
 
-Concentrated integration delivery. Changes types, rewires pipeline, migrates tests. Five tasks: 11 (types), 12 (test shape), 13a (pipeline), 13b (execute), 14 (integration).
+Two tasks: 11 (0.2.0 types) and 12 (test shape migration). Tasks 13a/13b/14 are in D4b.
 
 **Estimated:** ~50 new tests + ~739 updated
 **Depends on:** D1 + D2 + D3 complete
-**Risk:** HIGH — tightly coupled changes (see planning brief Section 3)
+**Risk:** MEDIUM — type changes are self-contained; semantic failures deferred to D4b
 
-**Commit strategy:** Tasks 11+12 commit together (type changes + test helpers are inseparable). Tasks 13a, 13b, 14 each get their own commit.
+**Commit strategy:** Tasks 11+12 commit together (type changes + test helpers are inseparable).
 
 ### Task 11: TurnRequest/TurnPacket 0.2.0 types
 
@@ -88,13 +92,13 @@ class TestTurnRequest020:
             posture="exploratory",
             position="Initial analysis",
             claims=[],
-            delta="high",
+            delta="static",
             tags=["architecture"],
             unresolved=[],
         )
         assert request.position == "Initial analysis"
         assert request.claims == []
-        assert request.delta == "high"
+        assert request.delta == "static"
         assert request.tags == ["architecture"]
         assert request.unresolved == []
 
@@ -108,7 +112,7 @@ class TestTurnRequest020:
             posture="exploratory",
             position="Initial analysis",
             claims=[],
-            delta="high",
+            delta="static",
             tags=[],
             unresolved=[],
         )
@@ -124,7 +128,7 @@ class TestTurnRequest020:
             posture="exploratory",
             position="Follow-up",
             claims=[],
-            delta="medium",
+            delta="static",
             tags=[],
             unresolved=[],
             state_checkpoint='{"checkpoint_id":"abc"}',
@@ -144,7 +148,7 @@ class TestTurnRequest020:
                 posture="exploratory",
                 position="test",
                 claims=[],
-                delta="high",
+                delta="static",
                 tags=[],
                 unresolved=[],
                 context_claims=[],
@@ -161,10 +165,25 @@ class TestTurnRequest020:
                 posture="exploratory",
                 position="test",
                 claims=[],
-                delta="high",
+                delta="static",
                 tags=[],
                 unresolved=[],
                 evidence_history=[],
+            )
+    def test_invalid_delta_rejected(self) -> None:
+        """Pre-canonical delta values (high/medium/low) are no longer valid."""
+        with pytest.raises(ValidationError):
+            TurnRequest(
+                schema_version=SCHEMA_VERSION,
+                turn_number=1,
+                conversation_id="conv_1",
+                focus=Focus(text="test", claims=[], unresolved=[]),
+                posture="exploratory",
+                position="test",
+                claims=[],
+                delta="static",
+                tags=[],
+                unresolved=[],
             )
 ```
 
@@ -187,7 +206,7 @@ class TestTurnPacketSuccess020:
         entry = LedgerEntry(
             position="test",
             claims=[],
-            delta="high",
+            delta="static",
             tags=[],
             unresolved=[],
             counters=LedgerEntryCounters(
@@ -229,6 +248,43 @@ class TestTurnPacketSuccess020:
         assert packet.checkpoint_id == "abc"
 
 
+class TestTurnPacketCheckpointRequired:
+    """TurnPacketSuccess requires state_checkpoint and checkpoint_id with no defaults."""
+
+    def test_turn1_checkpoint_required(self) -> None:
+        """Even turn 1 must produce a checkpoint — no defaults on these fields."""
+        with pytest.raises(ValidationError):
+            TurnPacketSuccess(
+                schema_version=SCHEMA_VERSION,
+                status="success",
+                entities=[],
+                path_decisions=[],
+                template_candidates=[],
+                budget=Budget(
+                    evidence_count=0, evidence_remaining=3,
+                    scout_available=True, budget_status="under_budget",
+                ),
+                deduped=[],
+                validated_entry=LedgerEntry(
+                    position="test", claims=[], delta="static", tags=[],
+                    unresolved=[], counters=LedgerEntryCounters(
+                        new_claims=0, revised=0, conceded=0, unresolved_closed=0,
+                    ),
+                    quality="substantive", effective_delta="advancing", turn_number=1,
+                ),
+                warnings=[],
+                cumulative=CumulativeState(
+                    total_claims=0, reinforced=0, revised=0, conceded=0,
+                    unresolved_open=0, unresolved_closed=0, turns_completed=1,
+                    effective_delta_sequence=["advancing"],
+                ),
+                action="continue_dialogue",
+                action_reason="Conversation active",
+                ledger_summary="T1: test (advancing)",
+                # state_checkpoint and checkpoint_id omitted — should fail
+            )
+
+
 class TestErrorDetail020:
     """0.2.0 ErrorDetail new codes."""
 
@@ -237,6 +293,7 @@ class TestErrorDetail020:
         "checkpoint_missing",
         "checkpoint_invalid",
         "checkpoint_stale",
+        "turn_cap_exceeded",
     ])
     def test_new_error_codes_accepted(self, code: str) -> None:
         error = ErrorDetail(code=code, message="test")
@@ -272,7 +329,7 @@ class TestSchemaVersion020:
             posture="exploratory",
             position="test",
             claims=[],
-            delta="high",
+            delta="static",
             tags=[],
             unresolved=[],
         )
@@ -289,7 +346,7 @@ class TestSchemaVersion020:
                 posture="exploratory",
                 position="test",
                 claims=[],
-                delta="high",
+                delta="static",
                 tags=[],
                 unresolved=[],
             )
@@ -322,7 +379,7 @@ class TurnRequest(ProtocolModel):
     # --- 0.2.0: Ledger fields (top-level for validation) ---
     position: str
     claims: list[Claim]
-    delta: str
+    delta: Literal["advancing", "shifting", "static"]
     tags: list[str]
     unresolved: list[Unresolved]
 
@@ -347,12 +404,27 @@ class ErrorDetail(ProtocolModel):
         "checkpoint_missing",
         "checkpoint_invalid",
         "checkpoint_stale",
+        "turn_cap_exceeded",
     ]
     message: str
     details: dict | None = None
 ```
 
-4. Update TurnPacketSuccess — add new fields:
+4. Update Budget — add `budget_status` field:
+```python
+class Budget(ProtocolModel):
+    """Evidence budget status."""
+
+    evidence_count: int
+    evidence_remaining: int
+    scout_available: bool
+    budget_status: Literal["under_budget", "at_budget", "over_budget"]
+```
+
+5. Update TurnPacketSuccess — add new fields:
+
+> **Import cycle note (DD-1):** This `types.py → ledger.py` import is cycle-safe because `ledger.py` imports `ProtocolModel`, `Claim`, and `Unresolved` from `base_types.py` (not from `types.py`). The import DAG is: `base_types.py` → `ledger.py` + `types.py` — no cycles.
+
 ```python
 from context_injection.ledger import (
     CumulativeState,
@@ -377,7 +449,7 @@ class TurnPacketSuccess(ProtocolModel):
     cumulative: CumulativeState
 
     # --- 0.2.0: Conversation control ---
-    action: str
+    action: Literal["continue_dialogue", "closing_probe", "conclude"]
     action_reason: str
     ledger_summary: str
 
@@ -442,7 +514,7 @@ def _make_turn_request(**overrides: Any) -> TurnRequest:
         # 0.2.0 ledger fields
         "position": "Test position",
         "claims": [],
-        "delta": "medium",
+        "delta": "static",
         "tags": ["test"],
         "unresolved": [],
     }
@@ -488,7 +560,7 @@ def _make_turn_request(
         posture="exploratory",
         position="Test position",
         claims=[],
-        delta="medium",
+        delta="static",
         tags=["test"],
         unresolved=[],
     )
@@ -527,7 +599,7 @@ def _make_turn_request(
         posture="exploratory",
         position="Test position",
         claims=[],
-        delta="medium",
+        delta="static",
         tags=["test"],
         unresolved=[],
     )
@@ -559,7 +631,7 @@ TurnRequest(
     posture="exploratory",
     position="Test position",
     claims=[...],         # same claims as focus.claims (or appropriate defaults)
-    delta="medium",
+    delta="advancing",
     tags=["test"],
     unresolved=[...],     # same as focus.unresolved (or appropriate defaults)
 )
@@ -596,7 +668,7 @@ request = TurnRequest.model_validate({
         {"text": "The project uses settings.yaml", "status": "new", "turn": 3},
         {"text": "YAML chosen over TOML", "status": "new", "turn": 3},
     ],
-    "delta": "high",
+    "delta": "advancing",
     "tags": ["configuration"],
     "unresolved": [
         {"text": "Whether config.yaml is the only config file", "turn": 3},
@@ -612,16 +684,40 @@ Tests that assert on TurnPacketSuccess fields need updating. The response now in
 
 Focus on making the TurnRequest construction compile. Pipeline semantic tests that will fail because the pipeline doesn't yet produce the new response fields are deferred to Task 13a.
 
-**Step 7: Run tests to assess migration state**
+**Step 7: Run tests and apply xfail markers**
 
-Run: `cd packages/context-injection && uv run pytest tests/ -v 2>&1 | tail -30`
+Run: `cd packages/context-injection && uv run pytest tests/ -v 2>&1 | tail -50`
 
-Expected: Many tests pass (request construction now works). Some tests FAIL — these are semantic failures where:
-- Pipeline tests assert old behavior (e.g., `context_claims` entity extraction)
-- Pipeline doesn't yet produce new TurnPacketSuccess fields (validated_entry, etc.)
-- Execute tests reference `evidence_history` from stored request
+Expected: Many tests pass (request construction now works). Some tests FAIL.
 
-Count failures and categorize: shape failures (Task 12 missed something) vs semantic failures (Task 13a/13b scope). Fix any remaining shape failures.
+**Categorize each failure:**
+
+1. **Shape failures** (Task 12 missed something) — fix immediately:
+   - Missing required field in a constructor
+   - Import path not updated
+   - Removed field still referenced
+
+2. **Semantic failures** (D4b scope) — mark with xfail:
+   - Pipeline tests assert old behavior (e.g., `context_claims` entity extraction)
+   - Pipeline doesn't yet produce new TurnPacketSuccess fields (validated_entry, etc.)
+   - Execute tests reference `evidence_history` from stored request
+
+**Xfail workflow:**
+```python
+@pytest.mark.xfail(strict=True, reason="D4b: pipeline uses context_claims for entity extraction (Task 13a)")
+def test_entity_extraction_from_claims(self) -> None:
+    ...
+```
+
+Each xfail reason MUST:
+- Start with `D4b:` prefix
+- Name the specific cause
+- Reference the D4b task (Task 13a, 13b, or 14)
+
+**Re-run after marking:** `cd packages/context-injection && uv run pytest tests/ -v`
+Expected: No FAIL or ERROR results. Only PASS and XFAIL.
+
+**Commit inventory:** Create `packages/context-injection/tests/xfail_inventory_d4a.md` listing all xfail-marked tests with their reasons and target D4b tasks.
 
 **Step 8: Commit Tasks 11+12 together**
 
@@ -631,9 +727,9 @@ git commit -m "feat(context-injection): update wire types to 0.2.0 schema + migr
 
 TurnRequest: add position, claims, delta, tags, unresolved, checkpoint fields; remove context_claims, evidence_history.
 TurnPacketSuccess: add validated_entry, warnings, cumulative, action, ledger_summary, checkpoint fields.
-ErrorDetail: add ledger_hard_reject, checkpoint_missing, checkpoint_invalid, checkpoint_stale codes.
+ErrorDetail: add ledger_hard_reject, checkpoint_missing, checkpoint_invalid, checkpoint_stale, turn_cap_exceeded codes.
 
-Tests compile but some semantic failures expected until pipeline rewiring (Task 13a)."
+All 739 existing tests collect and execute. Semantic failures marked xfail(strict=True) with D4b task mapping. Xfail inventory committed."
 ```
 
 ---

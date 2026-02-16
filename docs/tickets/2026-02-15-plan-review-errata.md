@@ -245,113 +245,113 @@ D4b test code uses "high"/"medium"/"low" for delta. D5 instructs "advancing"/"sh
 
 File: `docs/plans/2026-02-15-context-injection-agent-integration-manifest.md`
 
-- [ ] **M-1** [Major] Replace D4c contingency triggers (line 69-71) with actionable criteria: (a) after Tasks 13a+13b, first full test run has >25 failures across 4+ modules, (b) two consecutive fix passes still miss items from a fixed checklist (checkpoint ingestion, prospective-state commit, evidence auto-recording, contract doc, integration assertions)
-- [ ] **M-2** [Minor] Add "Operational Assumptions" section: single-agent, single-flight, short-lived MCP server process
-- [ ] **M-3** [Minor] Add `pyproject.toml` metadata update (package version, Python floor) to D4a or D4b scope
+- [x] **M-1** [Major] Replace D4c contingency triggers (line 69-71) with actionable criteria: (a) after Tasks 13a+13b, first full test run has >25 failures across 4+ modules, (b) two consecutive fix passes still miss items from a fixed checklist (checkpoint ingestion, prospective-state commit, evidence auto-recording, contract doc, integration assertions)
+- [x] **M-2** [Minor] Add "Operational Assumptions" section: single-agent, single-flight, short-lived MCP server process
+- [x] **M-3** [Minor] Add `pyproject.toml` metadata update (package version, Python floor) to D4a or D4b scope
 
 ### D1: Ledger Validation
 
 File: `docs/plans/2026-02-15-context-injection-agent-integration-d1-ledger-validation.md`
 
-- [ ] **D1-1** [Minor] Line ~298: Change `ValidationWarning.details: dict | None` to `dict[str, Any] | None`
-- [ ] **D1-2** [Minor] Line ~42: Clarify test estimate — "200-300" is for all deliveries, D1 specifically yields ~50-70 tests
-- [ ] **D1-3** [Major] DD-1 resolved: apply 8 D1 edits for base_types extraction (see CC-1). Create `base_types.py` with `ProtocolModel`, `Claim`, `Unresolved`. Update scope statement, file list, step 7, ledger.py import, step 8 run command, commit. Add re-export identity test in `test_types.py`
-- [ ] **D1-4** [Major] Simplify `_delta_disagrees` function (line ~778) to canonical semantic logic: `"static"` contradicts non-STATIC, `"advancing"`/`"shifting"` contradicts STATIC, unknown falls through. Bug: current function has no handling for `delta="shifting"` — falls through silently. Add test for `delta="shifting"` vs `effective_delta=STATIC` (see CC-8)
+- [x] **D1-1** [Minor] Line ~298: Change `ValidationWarning.details: dict | None` to `dict[str, Any] | None`
+- [x] **D1-2** [Minor] Line ~42: Clarify test estimate — "200-300" is for all deliveries, D1 specifically yields ~50-70 tests
+- [x] **D1-3** [Major] DD-1 resolved: apply 8 D1 edits for base_types extraction (see CC-1). Create `base_types.py` with `ProtocolModel`, `Claim`, `Unresolved`. Update scope statement, file list, step 7, ledger.py import, step 8 run command, commit. Add re-export identity test in `test_types.py`
+- [x] **D1-4** [Major] Simplify `_delta_disagrees` function (line ~778) to canonical semantic logic: `"static"` contradicts non-STATIC, `"advancing"`/`"shifting"` contradicts STATIC, unknown falls through. Bug: current function has no handling for `delta="shifting"` — falls through silently. Add test for `delta="shifting"` vs `effective_delta=STATIC` (see CC-8)
 
 ### D2: Conversation State
 
 File: `docs/plans/2026-02-15-context-injection-agent-integration-d2-conversation-state.md`
 
-- [ ] **D2-1** [Critical] Lines 697-722: Fix `serialize_checkpoint` — embed new `checkpoint_id` into state BEFORE serialization (see CC-3)
-- [ ] **D2-2** [Critical] Lines 984-1026: Add restore integrity checks to `validate_checkpoint_intake` — validate envelope self-consistency (`state.last_checkpoint_id == envelope.checkpoint_id`), validate request-context binding (request `checkpoint_id` vs envelope id, conversation_id match)
-- [ ] **D2-3** [Major] Lines 780-781 (Task 7 intro): Update checkpoint chain model language — explicitly state "head-pointer validation model." Mark `parent_checkpoint_id` in `StateCheckpoint` as informational/deferred
-- [ ] **D2-4** [Major] Lines 398-408: Change collection fields to tuples (`tuple[LedgerEntry, ...] = ()`) and add `extra="forbid"`, `strict=True` to model config. Projection methods use tuple concatenation
-- [ ] **D2-5** [Major] DD-2 resolved (C-lite): Add docstring to `compute_cumulative_state` (line ~439): "Correct only when compaction has not triggered. See DD-2 invariant." Add docstring to `compact_ledger` (line ~1029): "Unreachable under DD-2 invariant (MAX_CONVERSATION_TURNS < MAX_ENTRIES_BEFORE_COMPACT)."
-- [ ] **D2-6** [Minor] Lines 720, 725-753: Add `len(checkpoint.payload.encode("utf-8")) == checkpoint.size` check in `deserialize_checkpoint`
-- [ ] **D2-7** [Minor] Add compaction-equivalence test: prove `compute_action()` on full-history state matches `compute_action()` on compacted state
-- [ ] **D2-8** [Minor] Add compaction round-trip test: build conversation with >16 entries, compact, restore, recompute cumulative, assert documented contract
-- [ ] **D2-9** [Minor] Fix prerequisite naming drift (line 15): split into per-module lines — `From context_injection/ledger.py: LedgerEntry, CumulativeState, validation functions` + `From context_injection/enums.py: EffectiveDelta, QualityLabel` (see CC-6 — missing from original ticket)
-- [ ] **D2-10** [Minor] Normalize delta test values: line 589 `delta="new"` → `"advancing"`, line 906 `delta="new_information"` → `"advancing"` (see CC-8)
+- [x] **D2-1** [Critical] Lines 697-722: Fix `serialize_checkpoint` — embed new `checkpoint_id` into state BEFORE serialization (see CC-3)
+- [x] **D2-2** [Critical] Lines 984-1026: Add restore integrity checks to `validate_checkpoint_intake` — validate envelope self-consistency (`state.last_checkpoint_id == envelope.checkpoint_id`), validate request-context binding (request `checkpoint_id` vs envelope id, conversation_id match)
+- [x] **D2-3** [Major] Lines 780-781 (Task 7 intro): Update checkpoint chain model language — explicitly state "head-pointer validation model." Mark `parent_checkpoint_id` in `StateCheckpoint` as informational/deferred
+- [x] **D2-4** [Major] Lines 398-408: Change collection fields to tuples (`tuple[LedgerEntry, ...] = ()`) and add `extra="forbid"`, `strict=True` to model config. Projection methods use tuple concatenation
+- [x] **D2-5** [Major] DD-2 resolved (C-lite): Add docstring to `compute_cumulative_state` (line ~439): "Correct only when compaction has not triggered. See DD-2 invariant." Add docstring to `compact_ledger` (line ~1029): "Unreachable under DD-2 invariant (MAX_CONVERSATION_TURNS < MAX_ENTRIES_BEFORE_COMPACT)."
+- [x] **D2-6** [Minor] Lines 720, 725-753: Add `len(checkpoint.payload.encode("utf-8")) == checkpoint.size` check in `deserialize_checkpoint`
+- [x] **D2-7** [Minor] Add compaction-equivalence test: prove `compute_action()` on full-history state matches `compute_action()` on compacted state
+- [x] **D2-8** [Minor] Add compaction round-trip test: build conversation with >16 entries, compact, restore, recompute cumulative, assert documented contract
+- [x] **D2-9** [Minor] Fix prerequisite naming drift (line 15): split into per-module lines — `From context_injection/ledger.py: LedgerEntry, CumulativeState, validation functions` + `From context_injection/enums.py: EffectiveDelta, QualityLabel` (see CC-6 — missing from original ticket)
+- [x] **D2-10** [Minor] Normalize delta test values: line 589 `delta="new"` → `"advancing"`, line 906 `delta="new_information"` → `"advancing"` (see CC-8)
 
 ### D3: Conversation Control
 
 File: `docs/plans/2026-02-15-context-injection-agent-integration-d3-conversation-control.md`
 
-- [ ] **D3-1** [Major] Task 9 Step 3, `compute_action` docstring (line ~373): Document one-shot closing probe policy as explicit design decision
-- [ ] **D3-2** [Major] Task 9 Step 3, `compute_action` docstring (line ~386): Add "budget_remaining: Turn budget remaining (NOT evidence budget)"
-- [ ] **D3-3** [Major] Task 10 Step 2, docstring (line ~777): Add precondition: "entries and cumulative must come from same conversation snapshot"
-- [ ] **D3-4** [Major] Lines 130 and 569: Fix StrEnum literals — `_make_entry` passes `quality="substantive"` (string). With `strict=True`, must use `QualityLabel.SUBSTANTIVE`
-- [ ] **D3-5** [Major] Line 15: Update prerequisite contract — add `CumulativeState` and `LedgerEntryCounters` to imports from D1. Fix import source to `context_injection.enums`
-- [ ] **D3-6** [Minor] Task 9 Step 2, `TestComputeActionClosingProbe` (line ~198): Add test for full-cycle re-plateau `[STATIC, STATIC, ADVANCING, STATIC, STATIC]` with `closing_probe_fired=True`
-- [ ] **D3-7** [Minor] Same location: Add test for same scenario but with unresolved items on latest entry, asserting `CONTINUE_DIALOGUE`
-- [ ] **D3-8** [Advisory] Line 476: Note that D3 tests hand-build CumulativeState with values inconsistent with entries. Consider builder helper during implementation
-- [ ] **D3-9** [Minor] Normalize delta test values: line 121 `delta="high"` → `"advancing"`, line 563 `delta="high"` → `"advancing"` (see CC-8)
+- [x] **D3-1** [Major] Task 9 Step 3, `compute_action` docstring (line ~373): Document one-shot closing probe policy as explicit design decision
+- [x] **D3-2** [Major] Task 9 Step 3, `compute_action` docstring (line ~386): Add "budget_remaining: Turn budget remaining (NOT evidence budget)"
+- [x] **D3-3** [Major] Task 10 Step 2, docstring (line ~777): Add precondition: "entries and cumulative must come from same conversation snapshot"
+- [x] **D3-4** [Major] Lines 130 and 569: Fix StrEnum literals — `_make_entry` passes `quality="substantive"` (string). With `strict=True`, must use `QualityLabel.SUBSTANTIVE`
+- [x] **D3-5** [Major] Line 15: Update prerequisite contract — add `CumulativeState` and `LedgerEntryCounters` to imports from D1. Fix import source to `context_injection.enums`
+- [x] **D3-6** [Minor] Task 9 Step 2, `TestComputeActionClosingProbe` (line ~198): Add test for full-cycle re-plateau `[STATIC, STATIC, ADVANCING, STATIC, STATIC]` with `closing_probe_fired=True`
+- [x] **D3-7** [Minor] Same location: Add test for same scenario but with unresolved items on latest entry, asserting `CONTINUE_DIALOGUE`
+- [x] **D3-8** [Advisory] Line 476: Note that D3 tests hand-build CumulativeState with values inconsistent with entries. Consider builder helper during implementation
+- [x] **D3-9** [Minor] Normalize delta test values: line 121 `delta="high"` → `"advancing"`, line 563 `delta="high"` → `"advancing"` (see CC-8)
 
 ### D4a: Schema 0.2.0
 
 File: `docs/plans/2026-02-15-context-injection-agent-integration-d4a-schema-020.md`
 
-- [ ] **D4a-1** [Critical] Line 357: Fix import cycle per DD-1 decision (see CC-1)
-- [ ] **D4a-2** [Major] Lines 57-63: Remove stale pre-split text — replace "Five tasks: 11, 12, 13a, 13b, 14" with "Two tasks: 11 (0.2.0 types) and 12 (test shape migration). Tasks 13a/13b/14 are in D4b."
-- [ ] **D4a-3** [Major] Line 30: Reword backward-compatibility language — "No wire-level backward compatibility: only 0.2.0 is accepted. Compatibility goal is test infrastructure migration (existing helpers compile with new fields), not dual-schema runtime support."
-- [ ] **D4a-4** [Major] Line 213: Fix `budget_status` phantom field — either add `budget_status: Literal["under_budget", "at_budget", "over_budget"]` to Budget type definition in Step 3, or remove from test example
-- [ ] **D4a-5** [Major] Line 380: Change `action: str` to `action: Literal["continue_dialogue", "closing_probe", "conclude"]`
-- [ ] **D4a-6** [Minor] Lines 19-22: Reword D2 prerequisite as runtime/semantic dependency, not direct schema import
-- [ ] **D4a-7** [Minor] Add explicit test for turn-1 checkpoint generation (TurnPacketSuccess requires `state_checkpoint` and `checkpoint_id` with no defaults)
-- [ ] **D4a-8** [Major] Add `turn_cap_exceeded` to `ErrorDetail.code` literal type (line ~341) and test parametrize list (line ~235). 0.2.0 schema only (see CC-5/DD-2)
-- [ ] **D4a-9** [Major] Change `delta: str` to `delta: Literal["advancing", "shifting", "static"]` (line 325). Add validation test: `delta="high"` raises `ValidationError` (see CC-8)
+- [x] **D4a-1** [Critical] Line 357: Fix import cycle per DD-1 decision (see CC-1)
+- [x] **D4a-2** [Major] Lines 57-63: Remove stale pre-split text — replace "Five tasks: 11, 12, 13a, 13b, 14" with "Two tasks: 11 (0.2.0 types) and 12 (test shape migration). Tasks 13a/13b/14 are in D4b."
+- [x] **D4a-3** [Major] Line 30: Reword backward-compatibility language — "No wire-level backward compatibility: only 0.2.0 is accepted. Compatibility goal is test infrastructure migration (existing helpers compile with new fields), not dual-schema runtime support."
+- [x] **D4a-4** [Major] Line 213: Fix `budget_status` phantom field — either add `budget_status: Literal["under_budget", "at_budget", "over_budget"]` to Budget type definition in Step 3, or remove from test example
+- [x] **D4a-5** [Major] Line 380: Change `action: str` to `action: Literal["continue_dialogue", "closing_probe", "conclude"]`
+- [x] **D4a-6** [Minor] Lines 19-22: Reword D2 prerequisite as runtime/semantic dependency, not direct schema import
+- [x] **D4a-7** [Minor] Add explicit test for turn-1 checkpoint generation (TurnPacketSuccess requires `state_checkpoint` and `checkpoint_id` with no defaults)
+- [x] **D4a-8** [Major] Add `turn_cap_exceeded` to `ErrorDetail.code` literal type (line ~341) and test parametrize list (line ~235). 0.2.0 schema only (see CC-5/DD-2)
+- [x] **D4a-9** [Major] Change `delta: str` to `delta: Literal["advancing", "shifting", "static"]` (line 325). Add validation test: `delta="high"` raises `ValidationError` (see CC-8)
 
 ### D4b: Pipeline + Execute + Test Migration
 
 File: `docs/plans/2026-02-15-context-injection-agent-integration-d4b-pipeline-execute-test-migration.md`
 
-- [ ] **D4b-1** [Critical] Line 510: Fix budget parameter — add `MAX_CONVERSATION_TURNS` constant, compute `turn_budget_remaining`, pass to `compute_action` (see CC-4)
-- [ ] **D4b-2** [Critical] Lines 479-488: Fix `validate_ledger_entry` call — change `prior_cumulative=prior_cumulative` to `prior_claims=prior_claims, unresolved_closed=unresolved_closed`. Compute `prior_claims` from `base.get_cumulative_claims()` (available at line 402)
-- [ ] **D4b-3** [Critical] Lines 490-501: Replace warning-filter logic with `try/except LedgerValidationError` handler that returns `TurnPacketError(code="ledger_hard_reject", ...)`
-- [ ] **D4b-4** [Critical] Lines 351-367: Add `except LedgerValidationError as exc` to error handler (currently only catches `CheckpointError` and generic `Exception`)
-- [ ] **D4b-5** [Major] Lines 146-152: Fix hard-reject test trigger — change from empty position (soft warn in D1) to empty claims list or `turn_number=0` (actual hard reject per D1)
-- [ ] **D4b-6** [Major] Line 480: Add `unresolved_closed` computation and pass to `validate_ledger_entry`
-- [ ] **D4b-7** [Major] Lines 698, 727, 917: Fix `execute_scout` argument order — change `execute_scout(scout_req, ctx)` to `execute_scout(ctx, scout_req)` (matches actual signature at `execute.py:497`)
-- [ ] **D4b-8** [Major] Lines 909, 691, 720: Fix vacuous integration tests — add `assert len(template_candidates) > 0` before Call 2 block. Use deterministic fixtures guaranteeing template matching
-- [ ] **D4b-9** [Major] Line 1004: Fix test that passes `claims=[]` expecting `status == "success"` — D1 hard-rejects empty claims
-- [ ] **D4b-10** [Minor] Line 16: Update prerequisite text to reference xfail inventory from D4a (per CC-2)
-- [ ] **D4b-11** [Minor] Line 253: Verify dedupe test entity_key shape against canonical format in `canonical.py`
-- [ ] **D4b-12** [Major] Update 8 delta test values from "high"/"medium"/"low" to "advancing"/"shifting"/"static" with context-sensitive mapping: `claims=[]` → `"static"`, `claims=[new]` → `"advancing"` (see CC-8). Lines: 137, 590, 849, 900, 940, 959, 983, 1005. D4b-9 ordering dependency for lines 983, 1005
-- [ ] **D4b-13** [Major] Pipeline 18-step → 17-step: remove step 15 (dual-write — eliminated by CC-3 serialize_checkpoint redesign), renumber steps 16-18 to 15-17. Update all "18-step" references (lines 278, 374, 632)
-- [ ] **D4b-14** [Major] Add pre-append turn cap guard at step 4.5 (after checkpoint intake, before entity extraction): `if len(base.entries) >= MAX_CONVERSATION_TURNS: return TurnPacketError(code="turn_cap_exceeded")` (see CC-4/CC-5/DD-2)
-- [ ] **D4b-15** [Major] Add D4b done criteria: "No temporary D4a semantic markers remain: no pytest xfail with reason prefix `D4b:` exists in tests" (see CC-2)
+- [x] **D4b-1** [Critical] Line 510: Fix budget parameter — add `MAX_CONVERSATION_TURNS` constant, compute `turn_budget_remaining`, pass to `compute_action` (see CC-4)
+- [x] **D4b-2** [Critical] Lines 479-488: Fix `validate_ledger_entry` call — change `prior_cumulative=prior_cumulative` to `prior_claims=prior_claims, unresolved_closed=unresolved_closed`. Compute `prior_claims` from `base.get_cumulative_claims()` (available at line 402)
+- [x] **D4b-3** [Critical] Lines 490-501: Replace warning-filter logic with `try/except LedgerValidationError` handler that returns `TurnPacketError(code="ledger_hard_reject", ...)`
+- [x] **D4b-4** [Critical] Lines 351-367: Add `except LedgerValidationError as exc` to error handler (currently only catches `CheckpointError` and generic `Exception`)
+- [x] **D4b-5** [Major] Lines 146-152: Fix hard-reject test trigger — change from empty position (soft warn in D1) to empty claims list or `turn_number=0` (actual hard reject per D1)
+- [x] **D4b-6** [Major] Line 480: Add `unresolved_closed` computation and pass to `validate_ledger_entry`
+- [x] **D4b-7** [Major] Lines 698, 727, 917: Fix `execute_scout` argument order — change `execute_scout(scout_req, ctx)` to `execute_scout(ctx, scout_req)` (matches actual signature at `execute.py:497`)
+- [x] **D4b-8** [Major] Lines 909, 691, 720: Fix vacuous integration tests — add `assert len(template_candidates) > 0` before Call 2 block. Use deterministic fixtures guaranteeing template matching
+- [x] **D4b-9** [Major] Line 1004: Fix test that passes `claims=[]` expecting `status == "success"` — D1 hard-rejects empty claims
+- [x] **D4b-10** [Minor] Line 16: Update prerequisite text to reference xfail inventory from D4a (per CC-2)
+- [x] **D4b-11** [Minor] Line 253: Verify dedupe test entity_key shape against canonical format in `canonical.py`
+- [x] **D4b-12** [Major] Update 8 delta test values from "high"/"medium"/"low" to "advancing"/"shifting"/"static" with context-sensitive mapping: `claims=[]` → `"static"`, `claims=[new]` → `"advancing"` (see CC-8). Lines: 137, 590, 849, 900, 940, 959, 983, 1005. D4b-9 ordering dependency for lines 983, 1005
+- [x] **D4b-13** [Major] Pipeline 18-step → 17-step: remove step 15 (dual-write — eliminated by CC-3 serialize_checkpoint redesign), renumber steps 16-18 to 15-17. Update all "18-step" references (lines 278, 374, 632)
+- [x] **D4b-14** [Major] Add pre-append turn cap guard at step 4.5 (after checkpoint intake, before entity extraction): `if len(base.entries) >= MAX_CONVERSATION_TURNS: return TurnPacketError(code="turn_cap_exceeded")` (see CC-4/CC-5/DD-2)
+- [x] **D4b-15** [Major] Add D4b done criteria: "No temporary D4a semantic markers remain: no pytest xfail with reason prefix `D4b:` exists in tests" (see CC-2)
 
 ### D5: Agent Rewrite
 
 File: `docs/plans/2026-02-15-context-injection-agent-integration-d5-agent-rewrite.md`
 
-- [ ] **D5-1** [Critical] Lines 87-88, 131: Fix dangling fallback — preserve old 3-step manual loop as "Fallback Mode: Legacy Manual Loop" subsection. Include mode gating: start in `server_assisted`, switch to `manual_legacy` if context injection tools unavailable
-- [ ] **D5-2** [Critical] Line 292: Fix "weakest claim" — agent must retain per-turn `validated_entry` objects. "Weakest claim" derived from accumulated claim history, not aggregate counters
-- [ ] **D5-3** [Critical] Lines 131-138, 331-342: Add explicit per-turn state retention for Phase 3 — after each `process_turn` response, store `validated_entry`, `cumulative` snapshot, and scout outcomes in a per-turn list
-- [ ] **D5-4** [Critical] Lines 239-245: Add `checkpoint_invalid` to error recovery table. Fix checkpoint retry: max 1 per turn regardless of error code. For `checkpoint_stale`, retry only with different checkpoint pair. For `checkpoint_missing`, retry only if non-null checkpoint available. Otherwise synthesize
-- [ ] **D5-5** [Major] Line 270: Fix field name — change `file_result` to `read_result` (matches protocol contract and execute module)
-- [ ] **D5-6** [Major] Lines 252-255: Add clarifier handling — if top candidate has `scout_options: []`, skip scouting, use clarifier question in follow-up composition instead
-- [ ] **D5-7** [Major] Line 273: Fix codex-reply failure path — if final `process_turn` also errors, synthesize from whatever data was collected in earlier turns (don't dead-end)
-- [ ] **D5-8** [Major] Add unknown-action fallback: unknown action → treat as `conclude` and log warning
-- [ ] **D5-9** [Major] Add closing_probe fallback when `validated_entry.unresolved` is empty: target unresolved item → highest-impact claim → core thesis summary question
-- [ ] **D5-10** [Major] Add `ledger_hard_reject` retry cap: maximum one retry per turn
-- [ ] **D5-11** [Major] Document server action vs agent turn budget precedence: agent cap takes priority, exhausted budget → `conclude`
-- [ ] **D5-12** [Minor] Add clarifying note for focus.claims: "On subsequent turns, focus.claims contains claims relevant to current focus scope"
-- [ ] **D5-13** [Major] DD-4 resolved: de-scope reframe model. Add explicit rationale (design spec flags detection as unsolved, Section 12). Add target-lock guardrail to Step 6: "When scout evidence is available, the follow-up question MUST target the claim or unresolved item that triggered the scout. Other observations MAY be noted in disposition but MUST NOT change the question's target." Document known tradeoff (one-turn delay on side findings) and future path (server-side `reframe_outcome` field)
-- [ ] **D5-14** [Major] Add `turn_cap_exceeded` to error recovery table: no retry, proceed to Phase 3 synthesis (see CC-5/DD-2)
-- [ ] **D5-15** [Major] Add agent-side budget override (defense-in-depth): `effective_budget = min(max(1, user_budget), MAX_CONVERSATION_TURNS)`. Step 5: if `turn_count >= effective_budget`, treat any server action as `conclude`. Document as interim measure (see CC-4)
+- [x] **D5-1** [Critical] Lines 87-88, 131: Fix dangling fallback — preserve old 3-step manual loop as "Fallback Mode: Legacy Manual Loop" subsection. Include mode gating: start in `server_assisted`, switch to `manual_legacy` if context injection tools unavailable
+- [x] **D5-2** [Critical] Line 292: Fix "weakest claim" — agent must retain per-turn `validated_entry` objects. "Weakest claim" derived from accumulated claim history, not aggregate counters
+- [x] **D5-3** [Critical] Lines 131-138, 331-342: Add explicit per-turn state retention for Phase 3 — after each `process_turn` response, store `validated_entry`, `cumulative` snapshot, and scout outcomes in a per-turn list
+- [x] **D5-4** [Critical] Lines 239-245: Add `checkpoint_invalid` to error recovery table. Fix checkpoint retry: max 1 per turn regardless of error code. For `checkpoint_stale`, retry only with different checkpoint pair. For `checkpoint_missing`, retry only if non-null checkpoint available. Otherwise synthesize
+- [x] **D5-5** [Major] Line 270: Fix field name — change `file_result` to `read_result` (matches protocol contract and execute module)
+- [x] **D5-6** [Major] Lines 252-255: Add clarifier handling — if top candidate has `scout_options: []`, skip scouting, use clarifier question in follow-up composition instead
+- [x] **D5-7** [Major] Line 273: Fix codex-reply failure path — if final `process_turn` also errors, synthesize from whatever data was collected in earlier turns (don't dead-end)
+- [x] **D5-8** [Major] Add unknown-action fallback: unknown action → treat as `conclude` and log warning
+- [x] **D5-9** [Major] Add closing_probe fallback when `validated_entry.unresolved` is empty: target unresolved item → highest-impact claim → core thesis summary question
+- [x] **D5-10** [Major] Add `ledger_hard_reject` retry cap: maximum one retry per turn
+- [x] **D5-11** [Major] Document server action vs agent turn budget precedence: agent cap takes priority, exhausted budget → `conclude`
+- [x] **D5-12** [Minor] Add clarifying note for focus.claims: "On subsequent turns, focus.claims contains claims relevant to current focus scope"
+- [x] **D5-13** [Major] DD-4 resolved: de-scope reframe model. Add explicit rationale (design spec flags detection as unsolved, Section 12). Add target-lock guardrail to Step 6: "When scout evidence is available, the follow-up question MUST target the claim or unresolved item that triggered the scout. Other observations MAY be noted in disposition but MUST NOT change the question's target." Document known tradeoff (one-turn delay on side findings) and future path (server-side `reframe_outcome` field)
+- [x] **D5-14** [Major] Add `turn_cap_exceeded` to error recovery table: no retry, proceed to Phase 3 synthesis (see CC-5/DD-2)
+- [x] **D5-15** [Major] Add agent-side budget override (defense-in-depth): `effective_budget = min(max(1, user_budget), MAX_CONVERSATION_TURNS)`. Step 5: if `turn_count >= effective_budget`, treat any server action as `conclude`. Document as interim measure (see CC-4)
 
 ### Decisions Document
 
 File: `docs/plans/2026-02-15-context-injection-agent-integration-decisions.md`
 
-- [ ] **DEC-1** [Major] 4 edits for `parent_checkpoint_id` removal (see CC-7): (1) line 31 chain validation bullet: "enables" → "reserved for future (not used in 0.2.0)"; (2) line 38 stale error: reference head-pointer model, not parent-chain; (3) lines 178-179 TurnRequest shape: remove field, add comment; (4) cross-ref to D2-3 for remaining chain-model language
+- [x] **DEC-1** [Major] 4 edits for `parent_checkpoint_id` removal (see CC-7): (1) line 31 chain validation bullet: "enables" → "reserved for future (not used in 0.2.0)"; (2) line 38 stale error: reference head-pointer model, not parent-chain; (3) lines 178-179 TurnRequest shape: remove field, add comment; (4) cross-ref to D2-3 for remaining chain-model language
 
 ### Planning Brief
 
 File: `docs/plans/2026-02-15-context-injection-agent-integration-planning-brief.md`
 
-- [ ] **PB-1** [Minor] Line 266: Remove `parent_checkpoint_id` from TurnRequest field list (see CC-7)
+- [x] **PB-1** [Minor] Line 266: Remove `parent_checkpoint_id` from TurnRequest field list (see CC-7)
 
 ## 3. Post-Fix Follow-Up Items
 
@@ -475,11 +475,11 @@ Future path: server-side `reframe_outcome` field (deterministic classification w
 
 All items in Sections 1-2 checked off:
 
-- [ ] All cross-cutting issues (CC-1 through CC-8) addressed
-- [ ] All per-document fixes applied (M, D1, D2, D3, D4a, D4b, D5, DEC items)
-- [ ] All 4 design decisions resolved (DD-1 through DD-4)
-- [ ] Documents internally consistent — no file references another file's content contradictorily
-- [ ] Grep for known error patterns:
+- [x] All cross-cutting issues (CC-1 through CC-8) addressed
+- [x] All per-document fixes applied (M, D1, D2, D3, D4a, D4b, D5, DEC items)
+- [x] All 4 design decisions resolved (DD-1 through DD-4)
+- [x] Documents internally consistent — no file references another file's content contradictorily
+- [x] Grep for known error patterns:
   - `prior_cumulative` should not appear in D4b (replaced by `prior_claims`)
   - `generate_summary` should be `generate_ledger_summary` everywhere
   - `file_result` should be `read_result` in D5

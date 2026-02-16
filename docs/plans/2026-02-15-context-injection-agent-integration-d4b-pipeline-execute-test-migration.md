@@ -13,7 +13,8 @@
 
 **Requires from D4a:**
 - 0.2.0 `TurnRequest`/`TurnPacket` types from `context_injection/types.py`
-- All 739 existing tests passing with new schema
+- All 739 existing tests collect and execute (no import/construction errors); semantic failures marked `xfail(strict=True)` with D4b task mapping
+- Xfail inventory at `packages/context-injection/tests/xfail_inventory_d4a.md` — xfail inventory matches in-code markers
 - Source of truth: `context_injection/types.py`
 
 **Requires from D1:**
@@ -27,7 +28,7 @@
 - Source of truth: `context_injection/conversation.py`, `context_injection/checkpoint.py`, `context_injection/state.py`
 
 **Requires from D3:**
-- `compute_action()`, `generate_summary()` from `context_injection/control.py`
+- `compute_action()`, `generate_ledger_summary()` from `context_injection/control.py`
 - Source of truth: `context_injection/control.py`
 
 **Critical invariants:**
@@ -57,6 +58,7 @@
 - Execute auto-records evidence correctly
 - All tests pass (existing updated + new integration tests)
 - Protocol contract updated to 0.2.0
+- No temporary D4a semantic markers remain: no pytest xfail with reason prefix `D4b:` exists in tests
 
 ## Scope Boundary
 
@@ -134,7 +136,7 @@ class TestPipelineLedgerValidation:
         request = _make_turn_request(
             position="Auth module analysis",
             claims=[Claim(text="JWT is used", status="new", turn=1)],
-            delta="high",
+            delta="advancing",
             tags=["architecture"],
         )
         result = process_turn(request, ctx)
@@ -144,9 +146,9 @@ class TestPipelineLedgerValidation:
         assert len(result.validated_entry.claims) == 1
 
     def test_hard_reject_returns_error(self) -> None:
-        """Empty position should hard reject."""
+        """turn_number=0 should hard reject (invalid turn number per D1)."""
         ctx = _make_ctx(git_files=set())
-        request = _make_turn_request(position="")
+        request = _make_turn_request(turn_number=0, claims=[])
         result = process_turn(request, ctx)
         assert result.status == "error"
         assert result.error.code == "ledger_hard_reject"
@@ -246,11 +248,13 @@ class TestPipelinePriorEvidence:
         ctx = _make_ctx(git_files={"src/app.py"})
 
         # Seed conversation with evidence record
+        # entity_key uses canonical format: "{entity_type}:{canonical_form}"
+        # (see canonical.py:make_entity_key)
         from context_injection.types import EvidenceRecord
         conv = ctx.get_or_create_conversation("conv_evidence")
         conv = conv.with_evidence(
             EvidenceRecord(
-                entity_key="src/app.py",
+                entity_key="file_path:src/app.py",
                 template_id="clarify.file_path",
                 turn=1,
             ),
@@ -267,15 +271,15 @@ class TestPipelinePriorEvidence:
         result2 = process_turn(r2, ctx)
         assert result2.status == "success"
 
-        # The src/app.py entity should be deduped
+        # The src/app.py entity should be deduped (canonical key format)
         deduped_keys = [d.entity_key for d in result2.deduped]
-        assert "src/app.py" in deduped_keys
+        assert "file_path:src/app.py" in deduped_keys
 ```
 
 Run: `cd packages/context-injection && uv run pytest tests/test_pipeline.py::TestPipelineConversationState -v`
 Expected: FAIL — pipeline doesn't resolve ConversationState yet
 
-**Step 2: Rewrite `_process_turn_inner` to 18-step pipeline**
+**Step 2: Rewrite `_process_turn_inner` to 17-step pipeline**
 
 Replace the body of `_process_turn_inner` in `context_injection/pipeline.py`:
 
@@ -295,12 +299,11 @@ Composes the full v0.2.0 processing pipeline:
 10. Build provisional state
 11. Compute cumulative state, action, reason
 12. Closing probe projection
-13. Serialize checkpoint
+13. Serialize checkpoint (returns updated state with checkpoint ID)
 14. Generate ledger summary
-15. Record checkpoint ID in projected state
-16. Store TurnRequestRecord for Call 2
-17. Commit projected state
-18. Return TurnPacketSuccess
+15. Store TurnRequestRecord for Call 2
+16. Commit projected state
+17. Return TurnPacketSuccess
 
 Contract reference: docs/references/context-injection-contract.md
 """
@@ -317,7 +320,7 @@ from context_injection.checkpoint import (
 )
 from context_injection.control import compute_action, generate_ledger_summary
 from context_injection.entities import extract_entities
-from context_injection.ledger import validate_ledger_entry
+from context_injection.ledger import LedgerValidationError, validate_ledger_entry
 from context_injection.paths import check_path_compile_time
 from context_injection.state import (
     AppContext,
@@ -338,6 +341,19 @@ from context_injection.types import (
 
 logger = logging.getLogger(__name__)
 
+MAX_CONVERSATION_TURNS: int = 15
+
+# Import-time invariant: turn cap must be strictly less than compaction threshold.
+# If this fails, compute_cumulative_state() produces incorrect totals after compaction.
+from context_injection.checkpoint import MAX_ENTRIES_BEFORE_COMPACT
+
+if MAX_CONVERSATION_TURNS >= MAX_ENTRIES_BEFORE_COMPACT:
+    raise RuntimeError(
+        f"MAX_CONVERSATION_TURNS ({MAX_CONVERSATION_TURNS}) must be strictly less than "
+        f"MAX_ENTRIES_BEFORE_COMPACT ({MAX_ENTRIES_BEFORE_COMPACT}). "
+        "See DD-2 (C-lite) invariant."
+    )
+
 _PATH_CHECK_TYPES: frozenset[str] = frozenset({"file_loc", "file_path", "file_name"})
 
 
@@ -355,6 +371,16 @@ def process_turn(
             status="error",
             error=ErrorDetail(code=exc.code, message=str(exc)),
         )
+    except LedgerValidationError as exc:
+        logger.warning("Ledger validation error: %s", exc)
+        return TurnPacketError(
+            schema_version=SCHEMA_VERSION,
+            status="error",
+            error=ErrorDetail(
+                code="ledger_hard_reject",
+                message=str(exc),
+            ),
+        )
     except Exception as exc:
         logger.exception("process_turn failed: %s", exc)
         return TurnPacketError(
@@ -371,7 +397,7 @@ def _process_turn_inner(
     request: TurnRequest,
     ctx: AppContext,
 ) -> TurnPacketSuccess | TurnPacketError:
-    """Inner pipeline logic — 18-step orchestration."""
+    """Inner pipeline logic — 17-step orchestration."""
 
     # --- Step 1: Schema version validation ---
     if request.schema_version != SCHEMA_VERSION:
@@ -397,6 +423,20 @@ def _process_turn_inner(
         checkpoint_payload=request.state_checkpoint,
         turn_number=request.turn_number,
     )
+
+    # --- Step 3b: Turn cap guard (CC-4/CC-5/DD-2) ---
+    if len(base.entries) >= MAX_CONVERSATION_TURNS:
+        return TurnPacketError(
+            schema_version=SCHEMA_VERSION,
+            status="error",
+            error=ErrorDetail(
+                code="turn_cap_exceeded",
+                message=(
+                    f"Conversation has {len(base.entries)} entries, "
+                    f"which meets or exceeds MAX_CONVERSATION_TURNS={MAX_CONVERSATION_TURNS}."
+                ),
+            ),
+        )
 
     # --- Step 4: Snapshot prior state ---
     prior_claims: list[Claim] = base.get_cumulative_claims()
@@ -476,7 +516,10 @@ def _process_turn_inner(
     budget = compute_budget(prior_evidence)
 
     # --- Step 9: Ledger entry validation ---
-    prior_cumulative = base.compute_cumulative_state() if base.entries else None
+    # prior_claims already computed at step 4 (empty list when no entries)
+    unresolved_closed: int = (
+        base.compute_cumulative_state().unresolved_closed if base.entries else 0
+    )
     validated_entry, warnings = validate_ledger_entry(
         position=request.position,
         claims=request.claims,
@@ -484,30 +527,22 @@ def _process_turn_inner(
         tags=request.tags,
         unresolved=request.unresolved,
         turn_number=request.turn_number,
-        prior_cumulative=prior_cumulative,
+        prior_claims=prior_claims,
+        unresolved_closed=unresolved_closed,
     )
 
-    # Check for hard reject
-    hard_rejects = [w for w in warnings if w.tier == "hard_reject"]
-    if hard_rejects:
-        return TurnPacketError(
-            schema_version=SCHEMA_VERSION,
-            status="error",
-            error=ErrorDetail(
-                code="ledger_hard_reject",
-                message=hard_rejects[0].message,
-                details={"field": hard_rejects[0].field},
-            ),
-        )
+    # Hard rejects are raised as LedgerValidationError by validate_ledger_entry
+    # and caught by the outer try/except in process_turn (see D4b-4).
 
     # --- Step 10: Build provisional state ---
     provisional = base.with_turn(validated_entry)
 
     # --- Step 11: Compute cumulative, action, reason ---
     cumulative = provisional.compute_cumulative_state()
+    turn_budget_remaining = max(0, MAX_CONVERSATION_TURNS - cumulative.turns_completed)
     action, action_reason = compute_action(
         entries=provisional.entries,
-        budget_remaining=budget.evidence_remaining,
+        budget_remaining=turn_budget_remaining,
         closing_probe_fired=provisional.closing_probe_fired,
     )
 
@@ -519,10 +554,10 @@ def _process_turn_inner(
 
     # --- Step 13: Serialize checkpoint ---
     projected = compact_ledger(projected)
-    checkpoint_id, checkpoint_string = serialize_checkpoint(
-        state=projected,
-        parent_id=base.last_checkpoint_id,
-    )
+    serialized = serialize_checkpoint(state=projected)
+    projected = serialized.state
+    checkpoint_id = serialized.checkpoint_id
+    checkpoint_string = serialized.checkpoint_string
 
     # --- Step 14: Generate ledger summary ---
     ledger_summary = generate_ledger_summary(
@@ -530,10 +565,7 @@ def _process_turn_inner(
         cumulative=cumulative,
     )
 
-    # --- Step 15: Record checkpoint ID ---
-    projected = projected.with_checkpoint_id(checkpoint_id)
-
-    # --- Step 16: Store TurnRequestRecord for Call 2 ---
+    # --- Step 15: Store TurnRequestRecord for Call 2 ---
     ref = make_turn_request_ref(request)
     record = TurnRequestRecord(
         turn_request=request,
@@ -541,10 +573,10 @@ def _process_turn_inner(
     )
     ctx.store_record(ref, record)
 
-    # --- Step 17: Commit projected state ---
+    # --- Step 16: Commit projected state ---
     ctx.conversations[request.conversation_id] = projected
 
-    # --- Step 18: Return TurnPacketSuccess ---
+    # --- Step 17: Return TurnPacketSuccess ---
     return TurnPacketSuccess(
         schema_version=SCHEMA_VERSION,
         status="success",
@@ -587,7 +619,7 @@ def test_prior_claims_extracted_as_out_of_focus(self):
     conv = conv.with_turn(LedgerEntry(
         position="Prior analysis",
         claims=[Claim(text="File src/app.py has logic", status="new", turn=1)],
-        delta="medium", tags=["test"], unresolved=[],
+        delta="advancing", tags=["test"], unresolved=[],
         counters=LedgerEntryCounters(new_claims=1, revised=0, conceded=0, unresolved_closed=0),
         quality="substantive", effective_delta="advancing", turn_number=1,
     ))
@@ -629,7 +661,7 @@ Expected: All PASS
 
 ```bash
 git add packages/context-injection/context_injection/pipeline.py packages/context-injection/tests/test_pipeline.py packages/context-injection/tests/test_integration.py
-git commit -m "feat(context-injection): rewrite pipeline to 18-step 0.2.0 flow with conversation state (D4 Task 13a)
+git commit -m "feat(context-injection): rewrite pipeline to 17-step 0.2.0 flow with conversation state (D4 Task 13a)
 
 Pipeline resolves ConversationState internally. Entity extraction uses cumulative claims
 from conversation (replaces context_claims). Template matching and budget use evidence
@@ -688,16 +720,18 @@ class TestExecuteEvidenceFromConversation:
         assert turn_result.status == "success"
 
         # Execute a scout — budget should reflect 2 prior + 1 new = 3
-        if turn_result.template_candidates:
-            scout_req = ScoutRequest(
-                schema_version=SCHEMA_VERSION,
-                scout_option_id=turn_result.template_candidates[0].scout_option_id,
-                scout_token=turn_result.template_candidates[0].scout_token,
-                turn_request_ref=turn_result.template_candidates[0].turn_request_ref,
-            )
-            scout_result = execute_scout(scout_req, ctx)
-            # Budget should show 3 evidence items (2 prior + 1 new)
-            assert scout_result.budget.evidence_count == 3
+        assert len(turn_result.template_candidates) > 0, (
+            "Deterministic fixture must produce template candidates"
+        )
+        scout_req = ScoutRequest(
+            schema_version=SCHEMA_VERSION,
+            scout_option_id=turn_result.template_candidates[0].scout_option_id,
+            scout_token=turn_result.template_candidates[0].scout_token,
+            turn_request_ref=turn_result.template_candidates[0].turn_request_ref,
+        )
+        scout_result = execute_scout(ctx, scout_req)
+        # Budget should show 3 evidence items (2 prior + 1 new)
+        assert scout_result.budget.evidence_count == 3
 
     def test_evidence_recorded_after_success(self, tmp_path: Path) -> None:
         """Successful scout execution records evidence in ConversationState."""
@@ -717,18 +751,20 @@ class TestExecuteEvidenceFromConversation:
         assert turn_result.status == "success"
 
         # Execute scout
-        if turn_result.template_candidates:
-            scout_req = ScoutRequest(
-                schema_version=SCHEMA_VERSION,
-                scout_option_id=turn_result.template_candidates[0].scout_option_id,
-                scout_token=turn_result.template_candidates[0].scout_token,
-                turn_request_ref=turn_result.template_candidates[0].turn_request_ref,
-            )
-            scout_result = execute_scout(scout_req, ctx)
+        assert len(turn_result.template_candidates) > 0, (
+            "Deterministic fixture must produce template candidates"
+        )
+        scout_req = ScoutRequest(
+            schema_version=SCHEMA_VERSION,
+            scout_option_id=turn_result.template_candidates[0].scout_option_id,
+            scout_token=turn_result.template_candidates[0].scout_token,
+            turn_request_ref=turn_result.template_candidates[0].turn_request_ref,
+        )
+        scout_result = execute_scout(ctx, scout_req)
 
-            # Conversation should now have evidence
-            conv = ctx.conversations["conv_record"]
-            evidence = conv.get_evidence_history()
+        # Conversation should now have evidence
+        conv = ctx.conversations["conv_record"]
+        evidence = conv.get_evidence_history()
             assert len(evidence) >= 1
 ```
 
@@ -846,7 +882,7 @@ class TestIntegration020RoundTrip:
             "claims": [
                 {"text": "Project uses src/config.py for DB config", "status": "new", "turn": 1},
             ],
-            "delta": "high",
+            "delta": "advancing",
             "tags": ["configuration", "database"],
             "unresolved": [],
         })
@@ -897,7 +933,7 @@ class TestIntegration020RoundTrip:
             "claims": [
                 {"text": "main.py is the entry point", "status": "new", "turn": 1},
             ],
-            "delta": "high",
+            "delta": "advancing",
             "tags": ["architecture"],
             "unresolved": [],
         })
@@ -905,17 +941,19 @@ class TestIntegration020RoundTrip:
         turn_result = process_turn(request, ctx)
         assert turn_result.status == "success"
 
-        # Call 2 (if scout available)
-        if turn_result.template_candidates:
-            candidate = turn_result.template_candidates[0]
-            scout_req = ScoutRequest(
-                schema_version=SCHEMA_VERSION,
-                scout_option_id=candidate.scout_option_id,
-                scout_token=candidate.scout_token,
-                turn_request_ref=candidate.turn_request_ref,
-            )
-            scout_result = execute_scout(scout_req, ctx)
-            assert scout_result.status == "success"
+        # Call 2 — deterministic fixture guarantees template matching
+        assert len(turn_result.template_candidates) > 0, (
+            "Deterministic fixture must produce template candidates"
+        )
+        candidate = turn_result.template_candidates[0]
+        scout_req = ScoutRequest(
+            schema_version=SCHEMA_VERSION,
+            scout_option_id=candidate.scout_option_id,
+            scout_token=candidate.scout_token,
+            turn_request_ref=candidate.turn_request_ref,
+        )
+        scout_result = execute_scout(ctx, scout_req)
+        assert scout_result.status == "success"
 
 
 class TestIntegration020MultiTurn:
@@ -937,7 +975,7 @@ class TestIntegration020MultiTurn:
             "posture": "exploratory",
             "position": "Initial app review",
             "claims": [{"text": "app.py contains state", "status": "new", "turn": 1}],
-            "delta": "high",
+            "delta": "advancing",
             "tags": ["architecture"],
             "unresolved": [],
         })
@@ -956,7 +994,7 @@ class TestIntegration020MultiTurn:
             "posture": "collaborative",
             "position": "Confirmed app structure",
             "claims": [{"text": "app.py contains state", "status": "reinforced", "turn": 2}],
-            "delta": "low",
+            "delta": "static",
             "tags": ["architecture"],
             "unresolved": [],
             "state_checkpoint": result1.state_checkpoint,
@@ -980,7 +1018,7 @@ class TestIntegration020MultiTurn:
             "posture": "exploratory",
             "position": "test",
             "claims": [],
-            "delta": "medium",
+            "delta": "static",
             "tags": [],
             "unresolved": [],
         })
@@ -998,11 +1036,15 @@ class TestIntegration020ActionFlow:
             "schema_version": SCHEMA_VERSION,
             "turn_number": 1,
             "conversation_id": "conv_action",
-            "focus": {"text": "test", "claims": [], "unresolved": []},
+            "focus": {"text": "test", "claims": [
+                {"text": "Initial observation", "status": "new", "turn": 1},
+            ], "unresolved": []},
             "posture": "exploratory",
             "position": "Initial analysis",
-            "claims": [],
-            "delta": "high",
+            "claims": [
+                {"text": "Initial observation", "status": "new", "turn": 1},
+            ],
+            "delta": "advancing",
             "tags": ["test"],
             "unresolved": [],
         })

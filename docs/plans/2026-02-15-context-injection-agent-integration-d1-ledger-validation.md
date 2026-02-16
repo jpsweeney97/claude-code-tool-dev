@@ -16,11 +16,14 @@ No prerequisites. D1 is the first delivery and is independent of all others.
 ## Files in Scope
 
 **Create:**
+- `context_injection/base_types.py` — Extracted base types (`ProtocolModel`, `Claim`, `Unresolved`) to break import cycle (DD-1)
 - `context_injection/ledger.py` — Ledger types, validation, counter/quality/delta computation
 - `tests/test_ledger.py` — D1 validation tests
 
 **Modify:**
 - `context_injection/enums.py` — EffectiveDelta, QualityLabel, ValidationTier, new error codes
+- `context_injection/types.py` — Remove `ProtocolModel`, `Claim`, `Unresolved` class definitions; re-export from `base_types`; remove unused `BaseModel`/`ConfigDict` pydantic imports
+- `tests/test_types.py` — Add `TestBaseTypeReexports` re-export identity test
 
 **Out of scope:** All files not listed above.
 
@@ -36,16 +39,19 @@ This document covers D1 only. After completing all tasks in this delivery, stop.
 
 ---
 
-Pure additive delivery. New `ledger.py` module + `test_ledger.py`. No existing code changes.
+Mostly additive (one extraction edit to `types.py`). New `base_types.py`, `ledger.py` module + `test_ledger.py`. One modification to `types.py` (extract base types) and `test_types.py` (re-export identity test).
 
-**Estimated new tests:** 200-300
+**Estimated new tests:** ~50-70 (the "200-300" estimate in the manifest is for all deliveries combined)
 
 ### Task 1: Ledger types and enums
 
 **Files:**
 - Modify: `context_injection/enums.py` (add EffectiveDelta, QualityLabel, ValidationTier)
+- Create: `context_injection/base_types.py` (ProtocolModel, Claim, Unresolved — extracted from types.py per DD-1)
+- Modify: `context_injection/types.py` (remove 3 class defs, add re-exports from base_types, remove unused BaseModel/ConfigDict imports)
 - Create: `context_injection/ledger.py` (LedgerEntry, LedgerEntryCounters, ValidationWarning, CumulativeState)
 - Create: `tests/test_ledger.py`
+- Modify: `tests/test_types.py` (add TestBaseTypeReexports)
 
 **Step 1: Write failing tests for new enums**
 
@@ -115,6 +121,28 @@ class ValidationTier(StrEnum):
 
 Run: `cd packages/context-injection && uv run pytest tests/test_ledger.py::TestLedgerEnums -v`
 Expected: PASS (3 tests)
+
+**Step 4a: Write and run re-export identity test**
+
+Add to `tests/test_types.py`:
+
+```python
+class TestBaseTypeReexports:
+    """Verify types.py re-exports are identity-equal to base_types.py originals."""
+
+    def test_reexport_identity(self) -> None:
+        from context_injection.base_types import Claim as BaseClaim
+        from context_injection.base_types import ProtocolModel as BaseProtocolModel
+        from context_injection.base_types import Unresolved as BaseUnresolved
+        from context_injection.types import Claim, ProtocolModel, Unresolved
+
+        assert ProtocolModel is BaseProtocolModel
+        assert Claim is BaseClaim
+        assert Unresolved is BaseUnresolved
+```
+
+Run: `cd packages/context-injection && uv run pytest tests/test_types.py::TestBaseTypeReexports -v`
+Expected: FAIL until `base_types.py` is created and `types.py` is modified (Step 7).
 
 **Step 5: Write failing tests for ledger types**
 
@@ -248,7 +276,47 @@ class TestLedgerTypes:
 Run: `cd packages/context-injection && uv run pytest tests/test_ledger.py::TestLedgerTypes -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'context_injection.ledger'`
 
-**Step 7: Implement ledger types**
+**Step 7: Extract base types, modify types.py, then implement ledger types**
+
+Create `context_injection/base_types.py` (DD-1: break import cycle between `types.py` and `ledger.py`):
+
+```python
+"""Base protocol types extracted from types.py to break import cycle.
+
+Canonical rule: all code imports from `types.py` (which re-exports these).
+Only `ledger.py` imports directly from `base_types.py`.
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict
+
+
+class ProtocolModel(BaseModel):
+    """Base model for all protocol types."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class Claim(ProtocolModel):
+    """A claim from the ledger."""
+
+    text: str
+    status: str
+    turn: int
+
+
+class Unresolved(ProtocolModel):
+    """An unresolved question from the ledger."""
+
+    text: str
+    turn: int
+```
+
+Modify `context_injection/types.py`:
+- Remove `ProtocolModel`, `Claim`, `Unresolved` class definitions
+- Add re-exports from `base_types`: `from context_injection.base_types import Claim, ProtocolModel, Unresolved`
+- Remove now-unused `BaseModel` and `ConfigDict` pydantic imports (if no other types in the file use them directly)
 
 Create `context_injection/ledger.py`:
 
@@ -263,7 +331,7 @@ referential constraints.
 from __future__ import annotations
 
 from context_injection.enums import EffectiveDelta, QualityLabel, ValidationTier
-from context_injection.types import Claim, ProtocolModel, Unresolved
+from context_injection.base_types import Claim, ProtocolModel, Unresolved
 
 
 class LedgerEntryCounters(ProtocolModel):
@@ -295,7 +363,7 @@ class ValidationWarning(ProtocolModel):
     tier: ValidationTier
     field: str
     message: str
-    details: dict | None = None
+    details: dict[str, Any] | None = None
 
 
 class CumulativeState(ProtocolModel):
@@ -313,8 +381,8 @@ class CumulativeState(ProtocolModel):
 
 **Step 8: Run tests to verify pass**
 
-Run: `cd packages/context-injection && uv run pytest tests/test_ledger.py -v`
-Expected: PASS (all TestLedgerEnums + TestLedgerTypes tests)
+Run: `cd packages/context-injection && uv run pytest tests/test_ledger.py tests/test_types.py::TestBaseTypeReexports -v`
+Expected: PASS (all TestLedgerEnums + TestLedgerTypes + TestBaseTypeReexports tests)
 
 **Step 9: Run full suite to verify no regressions**
 
@@ -325,9 +393,12 @@ Expected: All ~739 existing tests pass, plus new test_ledger.py tests.
 
 ```bash
 git add packages/context-injection/context_injection/enums.py \
+       packages/context-injection/context_injection/base_types.py \
+       packages/context-injection/context_injection/types.py \
        packages/context-injection/context_injection/ledger.py \
+       packages/context-injection/tests/test_types.py \
        packages/context-injection/tests/test_ledger.py
-git commit -m "feat(context-injection): add ledger types and enums (D1 Task 1)"
+git commit -m "feat(context-injection): add ledger types and enums, extract base_types (D1 Task 1)"
 ```
 
 ### Task 2: Counter, quality, and effective_delta computation
@@ -641,6 +712,21 @@ class TestValidateLedgerEntrySoftWarn:
         assert len(delta_warnings) == 1
         assert delta_warnings[0].tier == ValidationTier.SOFT_WARN
 
+    def test_shifting_contradicts_static_effective_delta(self) -> None:
+        """Agent says 'shifting' but computed effective_delta is 'static' (CC-8 bug fix)."""
+        entry, warnings = validate_ledger_entry(
+            position="Only reinforced claims",
+            claims=[Claim(text="A", status="reinforced", turn=2)],
+            delta="shifting",
+            tags=[],
+            unresolved=[],
+            turn_number=2,
+        )
+        assert entry is not None
+        delta_warnings = [w for w in warnings if w.field == "delta"]
+        assert len(delta_warnings) == 1
+        assert delta_warnings[0].tier == ValidationTier.SOFT_WARN
+
     def test_no_warnings_on_valid_entry(self) -> None:
         entry, warnings = validate_ledger_entry(
             position="Model claims X",
@@ -778,17 +864,16 @@ def validate_ledger_entry(
 def _delta_disagrees(agent_delta: str, effective_delta: EffectiveDelta) -> bool:
     """Check if agent's self-reported delta contradicts computed effective_delta.
 
-    Agent delta is free-form text; effective_delta is computed from counters.
-    Disagreement: agent says 'static'/'no change' but computed is advancing/shifting,
-    or agent says 'new'/'major' but computed is static.
+    Canonical 3-way semantic logic:
+    - "static" contradicts non-STATIC (advancing or shifting)
+    - "advancing" or "shifting" contradicts STATIC
+    - Unknown agent delta values fall through (no disagreement)
     """
     agent_lower = agent_delta.lower()
-    static_signals = {"static", "none", "no change", "no_change", "stable"}
-    advancing_signals = {"new", "new_information", "major", "advancing"}
 
-    if agent_lower in static_signals and effective_delta != EffectiveDelta.STATIC:
+    if agent_lower == "static" and effective_delta != EffectiveDelta.STATIC:
         return True
-    if agent_lower in advancing_signals and effective_delta == EffectiveDelta.STATIC:
+    if agent_lower in {"advancing", "shifting"} and effective_delta == EffectiveDelta.STATIC:
         return True
     return False
 

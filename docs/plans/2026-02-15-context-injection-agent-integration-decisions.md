@@ -28,14 +28,14 @@ This session resolved all architectural open questions from the exploration docu
 
 **Chain validation (from Codex consultation):**
 - `checkpoint_id`: unique identifier per checkpoint
-- `parent_checkpoint_id`: links to previous checkpoint, enables stale/replay/fork detection
+- `parent_checkpoint_id`: links to previous checkpoint, reserved for future parent-chain validation (not used in 0.2.0 stale detection)
 - `format_version`: deserialization safety across server versions
 - Size cap: hard limit (8-16 KB), server controls compaction via rolling aggregation
 
 **Recovery error codes:**
 - `checkpoint_missing`: no checkpoint provided and no in-memory state
 - `checkpoint_invalid`: deserialization failed or payload corrupted
-- `checkpoint_stale`: `parent_checkpoint_id` doesn't match server's expected chain
+- `checkpoint_stale`: request `checkpoint_id` doesn't match server `last_checkpoint_id` (head-pointer model)
 
 **Deferred:**
 - Disk persistence (sqlite/jsonl) — add if checkpoint pattern proves insufficient
@@ -176,7 +176,7 @@ TurnRequest (0.2.0):
   # State recovery (opaque pass-through)
   state_checkpoint: str | null  # Server-generated, agent-opaque
   checkpoint_id: str | null     # Chain validation
-  parent_checkpoint_id: str | null
+  # parent_checkpoint_id is inside state_checkpoint envelope only; not a TurnRequest field in 0.2.0
 
   # Removed from 0.1.0:
   # context_claims — server-managed
@@ -206,6 +206,8 @@ TurnPacket (0.2.0):
   state_checkpoint: str         # Opaque blob for agent to pass back next turn
   checkpoint_id: str            # Current checkpoint identifier
 ```
+
+**Note:** Remaining chain-model language updates (head-pointer validation model, `parent_checkpoint_id` as informational/deferred in `StateCheckpoint`) are tracked in D2-3.
 
 ---
 

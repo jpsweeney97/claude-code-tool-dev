@@ -12,9 +12,8 @@
 ## Prerequisite Contract
 
 **Requires from D1:**
-- `LedgerEntry`, `EffectiveDelta`, `QualityLabel` from `context_injection/ledger.py`
-- Enums from `context_injection/enums.py`
-- Source of truth: `context_injection/ledger.py`, `context_injection/enums.py`
+- From `context_injection/ledger.py`: `LedgerEntry`, `LedgerEntryCounters`, `CumulativeState`
+- From `context_injection/enums.py`: `EffectiveDelta`, `QualityLabel`
 
 **Critical invariant:** D3 functions are pure on D1 types only — they do NOT take ConversationState (D2) as input. The pipeline extracts data from ConversationState and passes it to D3 functions.
 
@@ -101,7 +100,7 @@ Add test helper and test classes to `tests/test_control.py`:
 
 ```python
 from context_injection.control import compute_action
-from context_injection.enums import EffectiveDelta
+from context_injection.enums import EffectiveDelta, QualityLabel
 from context_injection.ledger import LedgerEntry, LedgerEntryCounters
 from context_injection.types import Claim, Unresolved
 
@@ -118,7 +117,7 @@ def _make_entry(
     return LedgerEntry(
         position=position,
         claims=claims or [],
-        delta="high",
+        delta="advancing",
         tags=["architecture"],
         unresolved=unresolved or [],
         counters=LedgerEntryCounters(
@@ -127,7 +126,7 @@ def _make_entry(
             conceded=0,
             unresolved_closed=0,
         ),
-        quality="substantive",
+        quality=QualityLabel.SUBSTANTIVE,
         effective_delta=effective_delta,
         turn_number=turn_number,
     )
@@ -242,6 +241,36 @@ class TestComputeActionClosingProbe:
         ]
         action, _ = compute_action(entries, budget_remaining=5, closing_probe_fired=True)
         assert action == ConversationAction.CONTINUE_DIALOGUE
+
+    def test_re_plateau_after_advance_concludes(self) -> None:
+        """Full cycle: plateau → advance → re-plateau with probe already fired → CONCLUDE."""
+        entries = [
+            _make_entry(turn_number=1, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=2, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=3, effective_delta=EffectiveDelta.ADVANCING),
+            _make_entry(turn_number=4, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=5, effective_delta=EffectiveDelta.STATIC),
+        ]
+        action, reason = compute_action(entries, budget_remaining=5, closing_probe_fired=True)
+        assert action == ConversationAction.CONCLUDE
+        assert "plateau" in reason.lower()
+
+    def test_re_plateau_with_unresolved_continues(self) -> None:
+        """Full cycle re-plateau with probe fired BUT unresolved items → CONTINUE."""
+        entries = [
+            _make_entry(turn_number=1, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=2, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=3, effective_delta=EffectiveDelta.ADVANCING),
+            _make_entry(turn_number=4, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(
+                turn_number=5,
+                effective_delta=EffectiveDelta.STATIC,
+                unresolved=[Unresolved(text="Open question", turn=5)],
+            ),
+        ]
+        action, reason = compute_action(entries, budget_remaining=5, closing_probe_fired=True)
+        assert action == ConversationAction.CONTINUE_DIALOGUE
+        assert "unresolved" in reason.lower()
 
 
 class TestComputeActionContinue:
@@ -373,6 +402,13 @@ def compute_action(
 ) -> tuple[ConversationAction, str]:
     """Determine next conversation action from ledger trajectory.
 
+    Design decision — one-shot closing probe policy:
+        A closing probe fires at most once per conversation. If the conversation
+        advances after a closing probe (plateau broken by ADVANCING/SHIFTING),
+        a second plateau will skip the probe and proceed directly to CONCLUDE.
+        Rationale: repeated probes add latency without new information — if the
+        first probe did not surface actionable material, a second will not either.
+
     Precedence (highest to lowest):
     1. Budget exhausted → CONCLUDE
     2. Plateau detected (last 2 STATIC):
@@ -383,7 +419,7 @@ def compute_action(
 
     Args:
         entries: Validated ledger entries (chronological order).
-        budget_remaining: Turns remaining in the conversation budget.
+        budget_remaining: Turn budget remaining (NOT evidence budget).
             0 or negative means budget is exhausted.
         closing_probe_fired: Whether a closing probe was already sent.
 
@@ -468,6 +504,13 @@ Add to `tests/test_control.py`:
 ```python
 from context_injection.control import generate_ledger_summary
 from context_injection.ledger import CumulativeState
+
+# NOTE: Tests below hand-build CumulativeState with values that may be
+# inconsistent with the entries passed alongside them (e.g., total_claims
+# doesn't match len(claims) across entries). This is intentional for unit
+# testing — each test controls exactly the state it needs. During
+# implementation, consider a builder helper that derives CumulativeState
+# from entries to reduce manual bookkeeping in new tests.
 
 
 class TestGenerateLedgerSummaryFormat:
@@ -560,13 +603,13 @@ class TestGenerateLedgerSummaryFormat:
             LedgerEntry(
                 position="Security review",
                 claims=[],
-                delta="high",
+                delta="advancing",
                 tags=["security", "auth"],
                 unresolved=[],
                 counters=LedgerEntryCounters(
                     new_claims=0, revised=0, conceded=0, unresolved_closed=0,
                 ),
-                quality="substantive",
+                quality=QualityLabel.SUBSTANTIVE,
                 effective_delta=EffectiveDelta.ADVANCING,
                 turn_number=1,
             ),
@@ -779,6 +822,10 @@ def generate_ledger_summary(
     Designed for injection into agent prompts. Each turn gets one line,
     followed by aggregate state and trajectory.
 
+    Precondition: ``entries`` and ``cumulative`` must come from the same
+    conversation snapshot. Passing entries from one conversation with
+    cumulative state from another produces silently wrong output.
+
     Format:
         T1: [position] (effective_delta, tags)
         T2: [position] (effective_delta, tags)
@@ -790,7 +837,7 @@ def generate_ledger_summary(
 
     Args:
         entries: Validated ledger entries (chronological order).
-        cumulative: Pre-computed cumulative state.
+        cumulative: Pre-computed cumulative state from the same conversation.
 
     Returns:
         Multi-line summary string.
