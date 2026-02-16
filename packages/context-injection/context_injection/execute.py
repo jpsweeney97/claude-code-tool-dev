@@ -190,10 +190,18 @@ def compute_budget(evidence_history_len: int, *, success: bool) -> Budget:
         evidence_count = evidence_history_len + 1
     else:
         evidence_count = evidence_history_len
+    evidence_remaining = max(0, MAX_EVIDENCE_ITEMS - evidence_count)
+    if evidence_remaining > 0:
+        budget_status = "under_budget"
+    elif evidence_remaining == 0:
+        budget_status = "at_budget"
+    else:
+        budget_status = "over_budget"
     return Budget(
         evidence_count=evidence_count,
-        evidence_remaining=max(0, MAX_EVIDENCE_ITEMS - evidence_count),
+        evidence_remaining=evidence_remaining,
         scout_available=False,
+        budget_status=budget_status,
     )
 
 

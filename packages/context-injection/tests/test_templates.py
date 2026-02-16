@@ -42,15 +42,19 @@ def _make_ctx() -> AppContext:
 def _make_turn_request(
     conversation_id: str = "conv_1",
     turn_number: int = 1,
-    evidence_history: list[EvidenceRecord] | None = None,
 ) -> TurnRequest:
+    """Convenience TurnRequest constructor with sensible 0.2.0 defaults."""
     return TurnRequest(
         schema_version=SCHEMA_VERSION,
         turn_number=turn_number,
         conversation_id=conversation_id,
         focus=Focus(text="test", claims=[], unresolved=[]),
-        evidence_history=evidence_history or [],
         posture="exploratory",
+        position="Test position",
+        claims=[],
+        delta="static",
+        tags=["test"],
+        unresolved=[],
     )
 
 
@@ -535,7 +539,7 @@ class TestDedupe:
                 turn=1,
             ),
         ]
-        req = _make_turn_request(evidence_history=history)
+        req = _make_turn_request()
 
         candidates, deduped, _ = match_templates([entity], [pd], history, req, ctx)
         # No probe candidates for this entity
@@ -590,7 +594,7 @@ class TestDedupe:
                 turn=1,
             ),
         ]
-        req = _make_turn_request(evidence_history=history)
+        req = _make_turn_request()
 
         candidates, deduped, _ = match_templates(
             [e_name, e_resolved], [pd], history, req, ctx
@@ -628,7 +632,7 @@ class TestDedupe:
                 turn=1,
             ),
         ]
-        req = _make_turn_request(evidence_history=history)
+        req = _make_turn_request()
 
         candidates, deduped, _ = match_templates([entity], [], history, req, ctx)
         sym_probes = [
@@ -961,7 +965,7 @@ class TestBudgetExhausted:
             )
             for i in range(5)
         ]
-        req = _make_turn_request(evidence_history=history)
+        req = _make_turn_request()
 
         candidates, _, _ = match_templates([entity], [pd], history, req, ctx)
         probe_candidates = [c for c in candidates if c.template_id.startswith("probe.")]
@@ -988,7 +992,7 @@ class TestBudgetExhausted:
             )
             for i in range(5)
         ]
-        req = _make_turn_request(evidence_history=history)
+        req = _make_turn_request()
 
         candidates, _, _ = match_templates([entity], [], history, req, ctx)
         assert len(candidates) == 1

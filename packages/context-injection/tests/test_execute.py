@@ -28,7 +28,6 @@ from context_injection.state import (
     make_turn_request_ref,
 )
 from context_injection.types import (
-    EvidenceRecord,
     Focus,
     GrepSpec,
     ReadSpec,
@@ -464,7 +463,6 @@ def _setup_execute_scout_test(
     *,
     file_content: str = "x = 1\n",
     file_name: str = "app.py",
-    evidence_history: list | None = None,
     action: str = "read",
 ) -> tuple[AppContext, ScoutRequest]:
     """Set up a full execute_scout scenario with a real file.
@@ -477,16 +475,17 @@ def _setup_execute_scout_test(
     f = tmp_path / file_name
     f.write_text(file_content)
 
-    if evidence_history is None:
-        evidence_history = []
-
     req = TurnRequest(
         schema_version=SCHEMA_VERSION,
         turn_number=1,
         conversation_id="conv_1",
         focus=Focus(text="test", claims=[], unresolved=[]),
-        evidence_history=evidence_history,
         posture="exploratory",
+        position="Test position",
+        claims=[],
+        delta="static",
+        tags=["test"],
+        unresolved=[],
     )
     ref = make_turn_request_ref(req)
     so_id = "so_001"
@@ -548,6 +547,7 @@ def _setup_execute_scout_test(
 
 
 class TestExecuteScout:
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_valid_read_returns_success(self, tmp_path) -> None:
         ctx, req = _setup_execute_scout_test(tmp_path)
         result = execute_scout(ctx, req)
@@ -569,6 +569,7 @@ class TestExecuteScout:
         assert result.status == "invalid_request"
         assert result.budget is None
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_already_used_returns_invalid(self, tmp_path) -> None:
         ctx, req = _setup_execute_scout_test(tmp_path)
         execute_scout(ctx, req)  # First use
@@ -577,6 +578,7 @@ class TestExecuteScout:
         assert result.status == "invalid_request"
         assert "already used" in result.error_message
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_grep_happy_path(self, tmp_path) -> None:
         ctx, req = _setup_execute_scout_test(
             tmp_path, action="grep",
@@ -600,6 +602,7 @@ class TestExecuteScout:
         assert result.evidence_wrapper.startswith("Grep for `MyClass`")
         assert "1 matches in 1 file(s)" in result.evidence_wrapper
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_grep_no_matches(self, tmp_path) -> None:
         ctx, req = _setup_execute_scout_test(tmp_path, action="grep")
         with patch("context_injection.execute.run_grep", return_value=[]):
@@ -612,6 +615,7 @@ class TestExecuteScout:
         assert result.grep_result.matches == []
         assert "0 matches" in result.evidence_wrapper
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_grep_rg_not_found(self, tmp_path) -> None:
         from context_injection.grep import RgNotFoundError
 
@@ -623,6 +627,7 @@ class TestExecuteScout:
         assert result.status == "timeout"
         assert "rg" in result.error_message
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_grep_timeout(self, tmp_path) -> None:
         from context_injection.grep import GrepTimeoutError
 
@@ -634,6 +639,7 @@ class TestExecuteScout:
         assert result.status == "timeout"
         assert "timed out" in result.error_message
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_grep_rg_execution_error(self, tmp_path) -> None:
         from context_injection.grep import RgExecutionError
 
@@ -648,6 +654,7 @@ class TestExecuteScout:
         assert result.status == "timeout"
         assert "ripgrep error" in result.error_message
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_grep_all_files_filtered(self, tmp_path) -> None:
         ctx, req = _setup_execute_scout_test(
             tmp_path, action="grep",
@@ -664,6 +671,7 @@ class TestExecuteScout:
         assert isinstance(result, ScoutResultSuccess)
         assert result.grep_result.match_count == 0
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_grep_truncation_recomputes_metadata(self, tmp_path) -> None:
         """After truncation drops blocks, grep_matches and match_count reflect only surviving blocks."""
         # Create 6 files to produce 6 blocks (exceeds max_ranges=5 in spec)
@@ -693,17 +701,11 @@ class TestExecuteScout:
         for m in result.grep_result.matches:
             assert f"# {m.path_display}:" in result.grep_result.excerpt
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_grep_budget_success(self, tmp_path) -> None:
         ctx, req = _setup_execute_scout_test(
             tmp_path, action="grep",
             file_content="class MyClass:\n    pass\n",
-            evidence_history=[
-                EvidenceRecord(
-                    entity_key="symbol:OtherClass",
-                    template_id="probe.symbol_repo_fact",
-                    turn=0,
-                ),
-            ],
         )
         ctx.git_files = {"app.py"}
         mock_matches = [
@@ -717,18 +719,12 @@ class TestExecuteScout:
         assert result.budget.evidence_count == 2
         assert result.budget.scout_available is False
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_grep_budget_failure(self, tmp_path) -> None:
         from context_injection.grep import RgNotFoundError
 
         ctx, req = _setup_execute_scout_test(
             tmp_path, action="grep",
-            evidence_history=[
-                EvidenceRecord(
-                    entity_key="symbol:OtherClass",
-                    template_id="probe.symbol_repo_fact",
-                    turn=0,
-                ),
-            ],
         )
         with patch("context_injection.execute.run_grep", side_effect=RgNotFoundError("not found")):
             result = execute_scout(ctx, req)
@@ -737,22 +733,17 @@ class TestExecuteScout:
         # Failed scouts are free: 1 prior + 0 = 1
         assert result.budget.evidence_count == 1
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_budget_with_evidence_history(self, tmp_path) -> None:
-        history = [
-            EvidenceRecord(
-                entity_key="file_path:other.py",
-                template_id="probe.file_repo_fact",
-                turn=1,
-            ),
-        ]
         ctx, req = _setup_execute_scout_test(
-            tmp_path, evidence_history=history,
+            tmp_path,
         )
         result = execute_scout(ctx, req)
         assert isinstance(result, ScoutResultSuccess)
         assert result.budget.evidence_count == 2  # 1 prior + 1 current
         assert result.budget.evidence_remaining == 3
 
+    @pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 14)")
     def test_all_success_fields_from_option_record(self, tmp_path) -> None:
         """Every ScoutResultSuccess field is populated from ScoutOptionRecord."""
         ctx, req = _setup_execute_scout_test(tmp_path)

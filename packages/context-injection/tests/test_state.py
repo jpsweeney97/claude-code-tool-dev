@@ -29,15 +29,20 @@ def _make_read_spec(**overrides) -> ReadSpec:
 
 
 def _make_turn_request(
-    conversation_id: str = "conv_1", turn_number: int = 1
+    conversation_id: str = "conv_1", turn_number: int = 1,
 ) -> TurnRequest:
+    """Convenience TurnRequest constructor with sensible 0.2.0 defaults."""
     return TurnRequest(
         schema_version=SCHEMA_VERSION,
         turn_number=turn_number,
         conversation_id=conversation_id,
         focus=Focus(text="test", claims=[], unresolved=[]),
-        evidence_history=[],
         posture="exploratory",
+        position="Test position",
+        claims=[],
+        delta="static",
+        tags=["test"],
+        unresolved=[],
     )
 
 

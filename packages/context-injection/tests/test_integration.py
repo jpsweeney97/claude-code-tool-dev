@@ -1,4 +1,4 @@
-"""Integration test: full Call 1 → Call 2 pipeline with contract example input."""
+"""Integration test: full Call 1 -> Call 2 pipeline with contract example input."""
 
 import shutil
 
@@ -16,6 +16,7 @@ from context_injection.types import (
 )
 
 
+@pytest.mark.xfail(strict=True, reason="D4b: pipeline uses context_claims for entity extraction (Task 13a)")
 def test_contract_example_produces_valid_turn_packet() -> None:
     """The contract's Call 1 example input produces a valid TurnPacketSuccess.
 
@@ -55,21 +56,16 @@ def test_contract_example_produces_valid_turn_packet() -> None:
                     }
                 ],
             },
-            "context_claims": [
-                {
-                    "text": "The project follows a monorepo structure with `packages/` subdirectories",
-                    "status": "reinforced",
-                    "turn": 1,
-                }
-            ],
-            "evidence_history": [
-                {
-                    "entity_key": "file_path:src/config/loader.py",
-                    "template_id": "probe.file_repo_fact",
-                    "turn": 1,
-                }
-            ],
             "posture": "evaluative",
+            "position": "YAML is the primary config format",
+            "claims": [
+                {"text": "Uses YAML", "status": "new", "turn": 3},
+            ],
+            "delta": "advancing",
+            "tags": ["config"],
+            "unresolved": [
+                {"text": "Are there environment overrides?", "turn": 3},
+            ],
         }
     )
 
@@ -79,19 +75,13 @@ def test_contract_example_produces_valid_turn_packet() -> None:
     assert result.status == "success"
 
     # --- Entities ---
-    # Should have extracted entities from backticked paths in claims and unresolved.
-    # Claim 1: `src/config/settings.yaml` -> file_path (has /, backticked)
-    # Unresolved: `config.yaml` -> file_name (known extension, no /, backticked)
-    # Context claim: `packages/` -> file_path (has /, backticked, in_focus=False)
     entity_types = {e.type for e in result.entities}
     assert "file_path" in entity_types
     assert "file_name" in entity_types
 
     # Verify in_focus propagation
     focus_entities = [e for e in result.entities if e.in_focus]
-    context_entities = [e for e in result.entities if not e.in_focus]
     assert len(focus_entities) >= 2  # settings.yaml + config.yaml at minimum
-    assert len(context_entities) >= 1  # packages/ from context_claims
 
     # Backticked entities should be high confidence
     settings_entities = [e for e in result.entities if "settings.yaml" in e.canonical]
@@ -106,29 +96,16 @@ def test_contract_example_produces_valid_turn_packet() -> None:
     assert config_entities[0].type == "file_name"
 
     # --- Path decisions ---
-    # Tier 1 file entities get path decisions.
-    # src/config/settings.yaml -> allowed (in git_files)
-    # config.yaml -> allowed (in git_files)
-    # packages/ -> not_tracked (not in git_files as a file)
     allowed_decisions = [pd for pd in result.path_decisions if pd.status == "allowed"]
     assert len(allowed_decisions) >= 2  # settings.yaml + config.yaml
 
     # --- Budget ---
-    # 1 prior evidence item -> evidence_count=1, remaining=4
-    assert result.budget.evidence_count == 1
-    assert result.budget.evidence_remaining == 4
     assert result.budget.scout_available is True
 
     # --- Deduped ---
-    # No extracted entity has key "file_path:src/config/loader.py" because
-    # loader.py is not mentioned in any claim/unresolved text. Dedupe only
-    # matches extracted entities against evidence_history, so deduped is empty.
     assert result.deduped == []
 
     # --- Template candidates ---
-    # src/config/settings.yaml: file_path, in_focus=True, allowed -> probe.file_repo_fact
-    # config.yaml: file_name, in_focus=True, allowed -> probe.file_repo_fact
-    # packages/: file_path, in_focus=False -> excluded by focus-affinity gate
     assert len(result.template_candidates) >= 2
 
     probe_candidates = [
@@ -150,16 +127,15 @@ def test_contract_example_produces_valid_turn_packet() -> None:
     assert ranks[0] == 1
 
     # --- Store ---
-    # TurnRequest should be stored for Call 2 validation
     ref = "conv_abc123:3"
     assert ref in ctx.store
     record = ctx.store[ref]
     assert record.turn_request is request
     assert not record.used
-    # spec_registry should have scout option entries
     assert len(record.scout_options) > 0
 
 
+@pytest.mark.xfail(strict=True, reason="D4b: pipeline uses context_claims for entity extraction (Task 13a)")
 def test_grep_call1_call2_round_trip(tmp_path) -> None:
     """Full Call 1 -> Call 2 flow for a grep scout.
 
@@ -205,6 +181,13 @@ def test_grep_call1_call2_round_trip(tmp_path) -> None:
                 "unresolved": [],
             },
             "posture": "exploratory",
+            "position": "Investigating app.config.load",
+            "claims": [
+                {"text": "app.config.load reads from YAML files", "status": "new", "turn": 1},
+            ],
+            "delta": "static",
+            "tags": ["investigation"],
+            "unresolved": [],
         }
     )
 
@@ -217,10 +200,7 @@ def test_grep_call1_call2_round_trip(tmp_path) -> None:
         for tc in result.template_candidates
         if tc.template_id == "probe.symbol_repo_fact"
     ]
-    assert len(grep_candidates) >= 1, (
-        f"Expected grep candidate but got templates: "
-        f"{[tc.template_id for tc in result.template_candidates]}"
-    )
+    assert len(grep_candidates) >= 1
 
     grep_tc = grep_candidates[0]
     assert len(grep_tc.scout_options) == 1
@@ -246,12 +226,9 @@ def test_grep_call1_call2_round_trip(tmp_path) -> None:
     assert scout_result.budget.scout_available is False
 
 
+@pytest.mark.xfail(strict=True, reason="D4b: pipeline uses context_claims for entity extraction (Task 13a)")
 def test_grep_no_matches_returns_success(tmp_path) -> None:
-    """Grep for a non-existent symbol returns success with 0 matches.
-
-    Absence is data per design spec — the model learns the symbol
-    doesn't exist in the repo.
-    """
+    """Grep for a non-existent symbol returns success with 0 matches."""
     if shutil.which("rg") is None:
         pytest.skip("ripgrep (rg) not installed")
 
@@ -276,6 +253,13 @@ def test_grep_no_matches_returns_success(tmp_path) -> None:
                 "unresolved": [],
             },
             "posture": "exploratory",
+            "position": "Investigating nonexistent.symbol.name",
+            "claims": [
+                {"text": "nonexistent.symbol.name is used somewhere", "status": "new", "turn": 1},
+            ],
+            "delta": "static",
+            "tags": ["investigation"],
+            "unresolved": [],
         }
     )
 
@@ -304,6 +288,7 @@ def test_grep_no_matches_returns_success(tmp_path) -> None:
     assert "0 matches" in scout_result.evidence_wrapper
 
 
+@pytest.mark.xfail(strict=True, reason="D4b: pipeline uses context_claims for entity extraction (Task 13a)")
 def test_grep_denied_file_filtered(tmp_path) -> None:
     """Matches in denied files (.env) are excluded from grep results."""
     if shutil.which("rg") is None:
@@ -331,6 +316,13 @@ def test_grep_denied_file_filtered(tmp_path) -> None:
                 "unresolved": [],
             },
             "posture": "exploratory",
+            "position": "Investigating app.config.load",
+            "claims": [
+                {"text": "app.config.load is referenced in the codebase", "status": "new", "turn": 1},
+            ],
+            "delta": "static",
+            "tags": ["investigation"],
+            "unresolved": [],
         }
     )
 
@@ -341,10 +333,7 @@ def test_grep_denied_file_filtered(tmp_path) -> None:
         tc for tc in result.template_candidates
         if tc.template_id == "probe.symbol_repo_fact"
     ]
-    assert len(grep_candidates) >= 1, (
-        f"Expected grep candidate for app.config.load but got templates: "
-        f"{[tc.template_id for tc in result.template_candidates]}"
-    )
+    assert len(grep_candidates) >= 1
 
     grep_option = grep_candidates[0].scout_options[0]
     ref = f"{request.conversation_id}:{request.turn_number}"

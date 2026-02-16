@@ -148,12 +148,16 @@ class TestWireDump:
         assert "resolved_to" in dumped
 
     def test_budget_wire_dump(self) -> None:
-        b = Budget(evidence_count=1, evidence_remaining=4, scout_available=True)
+        b = Budget(
+            evidence_count=1, evidence_remaining=4,
+            scout_available=True, budget_status="under_budget",
+        )
         dumped = wire_dump(b)
         assert dumped == {
             "evidence_count": 1,
             "evidence_remaining": 4,
             "scout_available": True,
+            "budget_status": "under_budget",
         }
 
 

@@ -1,22 +1,30 @@
 """Tests for protocol Pydantic models."""
 
+from typing import get_args
+
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from context_injection.enums import EffectiveDelta, QualityLabel
 from context_injection.types import (
     SCHEMA_VERSION,
     Budget,
     Claim,
     Clarifier,
+    CumulativeState,
     DedupRecord,
     Entity,
+    ErrorDetail,
     Focus,
     GrepOption,
     GrepSpec,
+    LedgerEntry,
+    LedgerEntryCounters,
     PathDecision,
     ReadOption,
     ReadResult,
     ReadSpec,
+    SchemaVersionLiteral,
     ScoutResult,
     ScoutResultFailure,
     ScoutResultInvalid,
@@ -28,7 +36,42 @@ from context_injection.types import (
     TurnPacketSuccess,
     TurnRequest,
     Unresolved,
+    ValidationWarning,
 )
+
+
+# --- Shared test helpers ---
+
+
+def _minimal_ledger_entry() -> LedgerEntry:
+    """Minimal valid LedgerEntry for use in TurnPacketSuccess tests."""
+    return LedgerEntry(
+        position="Test position",
+        claims=[Claim(text="test claim", status="new", turn=1)],
+        delta="static",
+        tags=["test"],
+        unresolved=[],
+        counters=LedgerEntryCounters(
+            new_claims=1, revised=0, conceded=0, unresolved_closed=0,
+        ),
+        quality=QualityLabel.SUBSTANTIVE,
+        effective_delta=EffectiveDelta.STATIC,
+        turn_number=1,
+    )
+
+
+def _minimal_cumulative() -> CumulativeState:
+    """Minimal valid CumulativeState for use in TurnPacketSuccess tests."""
+    return CumulativeState(
+        total_claims=1,
+        reinforced=0,
+        revised=0,
+        conceded=0,
+        unresolved_open=0,
+        unresolved_closed=0,
+        turns_completed=1,
+        effective_delta_sequence=[EffectiveDelta.STATIC],
+    )
 
 
 class TestProtocolModel:
@@ -80,7 +123,7 @@ class TestFocus:
 
 class TestTurnRequest:
     def test_parse_contract_example(self) -> None:
-        """Parse the exact JSON from the contract's Call 1 example."""
+        """Parse a 0.2.0 contract example with ledger fields."""
         data = {
             "schema_version": SCHEMA_VERSION,
             "turn_number": 3,
@@ -106,54 +149,317 @@ class TestTurnRequest:
                     }
                 ],
             },
-            "context_claims": [
-                {
-                    "text": "The project follows a monorepo structure with `packages/` subdirectories",
-                    "status": "reinforced",
-                    "turn": 1,
-                }
-            ],
-            "evidence_history": [
-                {
-                    "entity_key": "file_path:src/config/loader.py",
-                    "template_id": "probe.file_repo_fact",
-                    "turn": 1,
-                }
-            ],
             "posture": "evaluative",
+            "position": "YAML is the primary config format",
+            "claims": [
+                {"text": "Uses YAML", "status": "new", "turn": 3},
+            ],
+            "delta": "advancing",
+            "tags": ["config"],
+            "unresolved": [
+                {"text": "Are there environment overrides?", "turn": 3},
+            ],
         }
         req = TurnRequest.model_validate(data)
         assert req.turn_number == 3
         assert req.conversation_id == "conv_abc123"
         assert len(req.focus.claims) == 2
-        assert len(req.evidence_history) == 1
         assert req.posture == "evaluative"
+        assert req.position == "YAML is the primary config format"
+        assert req.delta == "advancing"
+        assert len(req.claims) == 1
+        assert req.tags == ["config"]
+        assert len(req.unresolved) == 1
 
     def test_wrong_schema_version_rejected(self) -> None:
         """Pydantic strict Literal rejects wrong version."""
         data = {
-            "schema_version": "0.2.0",
+            "schema_version": "0.3.0",
             "turn_number": 1,
             "conversation_id": "conv_1",
             "focus": {"text": "test", "claims": [], "unresolved": []},
-            "evidence_history": [],
             "posture": "exploratory",
+            "position": "test",
+            "claims": [{"text": "c", "status": "new", "turn": 1}],
+            "delta": "static",
+            "tags": [],
+            "unresolved": [],
         }
         with pytest.raises(ValidationError):
             TurnRequest.model_validate(data)
 
-    def test_optional_context_claims(self) -> None:
-        """context_claims is optional and defaults to empty."""
+    def test_checkpoint_fields_optional(self) -> None:
+        """state_checkpoint and checkpoint_id default to None."""
         data = {
             "schema_version": SCHEMA_VERSION,
             "turn_number": 1,
             "conversation_id": "conv_1",
             "focus": {"text": "test", "claims": [], "unresolved": []},
-            "evidence_history": [],
             "posture": "exploratory",
+            "position": "test",
+            "claims": [{"text": "c", "status": "new", "turn": 1}],
+            "delta": "static",
+            "tags": [],
+            "unresolved": [],
         }
         req = TurnRequest.model_validate(data)
-        assert req.context_claims == []
+        assert req.state_checkpoint is None
+        assert req.checkpoint_id is None
+
+
+class TestTurnRequest020:
+    """0.2.0 TurnRequest schema: new required fields, removed fields."""
+
+    def test_new_required_fields_present(self) -> None:
+        """All new 0.2.0 required fields are accepted."""
+        req = TurnRequest(
+            schema_version=SCHEMA_VERSION,
+            turn_number=1,
+            conversation_id="conv_1",
+            focus=Focus(text="test", claims=[], unresolved=[]),
+            posture="exploratory",
+            position="Test position",
+            claims=[Claim(text="c", status="new", turn=1)],
+            delta="advancing",
+            tags=["t1"],
+            unresolved=[Unresolved(text="q?", turn=1)],
+        )
+        assert req.position == "Test position"
+        assert req.delta == "advancing"
+        assert req.tags == ["t1"]
+        assert len(req.claims) == 1
+        assert len(req.unresolved) == 1
+
+    def test_checkpoint_fields_optional_absent(self) -> None:
+        """Checkpoint fields default to None when absent."""
+        req = TurnRequest(
+            schema_version=SCHEMA_VERSION,
+            turn_number=1,
+            conversation_id="conv_1",
+            focus=Focus(text="test", claims=[], unresolved=[]),
+            posture="exploratory",
+            position="p",
+            claims=[Claim(text="c", status="new", turn=1)],
+            delta="static",
+            tags=[],
+            unresolved=[],
+        )
+        assert req.state_checkpoint is None
+        assert req.checkpoint_id is None
+
+    def test_checkpoint_fields_set(self) -> None:
+        """Checkpoint fields can be explicitly set."""
+        req = TurnRequest(
+            schema_version=SCHEMA_VERSION,
+            turn_number=2,
+            conversation_id="conv_1",
+            focus=Focus(text="test", claims=[], unresolved=[]),
+            posture="exploratory",
+            position="p",
+            claims=[Claim(text="c", status="new", turn=2)],
+            delta="advancing",
+            tags=[],
+            unresolved=[],
+            state_checkpoint="base64data==",
+            checkpoint_id="cp_abc123",
+        )
+        assert req.state_checkpoint == "base64data=="
+        assert req.checkpoint_id == "cp_abc123"
+
+    def test_context_claims_removed(self) -> None:
+        """context_claims is no longer accepted (extra=forbid)."""
+        data = {
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 1,
+            "conversation_id": "conv_1",
+            "focus": {"text": "test", "claims": [], "unresolved": []},
+            "posture": "exploratory",
+            "position": "p",
+            "claims": [{"text": "c", "status": "new", "turn": 1}],
+            "delta": "static",
+            "tags": [],
+            "unresolved": [],
+            "context_claims": [],
+        }
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            TurnRequest.model_validate(data)
+
+    def test_evidence_history_removed(self) -> None:
+        """evidence_history is no longer accepted (extra=forbid)."""
+        data = {
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 1,
+            "conversation_id": "conv_1",
+            "focus": {"text": "test", "claims": [], "unresolved": []},
+            "posture": "exploratory",
+            "position": "p",
+            "claims": [{"text": "c", "status": "new", "turn": 1}],
+            "delta": "static",
+            "tags": [],
+            "unresolved": [],
+            "evidence_history": [],
+        }
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            TurnRequest.model_validate(data)
+
+    def test_invalid_delta_rejected(self) -> None:
+        """delta must be one of advancing/shifting/static."""
+        data = {
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 1,
+            "conversation_id": "conv_1",
+            "focus": {"text": "test", "claims": [], "unresolved": []},
+            "posture": "exploratory",
+            "position": "p",
+            "claims": [{"text": "c", "status": "new", "turn": 1}],
+            "delta": "regressing",
+            "tags": [],
+            "unresolved": [],
+        }
+        with pytest.raises(ValidationError):
+            TurnRequest.model_validate(data)
+
+
+class TestTurnPacketSuccess020:
+    """0.2.0 TurnPacketSuccess: new fields present."""
+
+    def test_new_fields_present(self) -> None:
+        """All new 0.2.0 fields are accepted and stored."""
+        entry = _minimal_ledger_entry()
+        cumulative = _minimal_cumulative()
+        pkt = TurnPacketSuccess(
+            schema_version=SCHEMA_VERSION,
+            status="success",
+            entities=[],
+            path_decisions=[],
+            template_candidates=[],
+            budget=Budget(
+                evidence_count=0, evidence_remaining=5,
+                scout_available=True, budget_status="under_budget",
+            ),
+            deduped=[],
+            validated_entry=entry,
+            warnings=[],
+            cumulative=cumulative,
+            action="continue_dialogue",
+            action_reason="No plateau",
+            ledger_summary="T1: Test (static, test)",
+            state_checkpoint="base64==",
+            checkpoint_id="cp_001",
+        )
+        assert pkt.validated_entry is entry
+        assert pkt.warnings == []
+        assert pkt.cumulative is cumulative
+        assert pkt.action == "continue_dialogue"
+        assert pkt.action_reason == "No plateau"
+        assert pkt.ledger_summary == "T1: Test (static, test)"
+        assert pkt.state_checkpoint == "base64=="
+        assert pkt.checkpoint_id == "cp_001"
+
+
+class TestTurnPacketCheckpointRequired:
+    """0.2.0 TurnPacketSuccess requires checkpoint fields."""
+
+    def test_checkpoint_fields_required(self) -> None:
+        """state_checkpoint and checkpoint_id are required on TurnPacketSuccess."""
+        with pytest.raises(ValidationError):
+            TurnPacketSuccess(
+                schema_version=SCHEMA_VERSION,
+                status="success",
+                entities=[],
+                path_decisions=[],
+                template_candidates=[],
+                budget=Budget(
+                    evidence_count=0, evidence_remaining=5,
+                    scout_available=True, budget_status="under_budget",
+                ),
+                deduped=[],
+                validated_entry=_minimal_ledger_entry(),
+                warnings=[],
+                cumulative=_minimal_cumulative(),
+                action="continue_dialogue",
+                action_reason="test",
+                ledger_summary="test",
+                # state_checkpoint and checkpoint_id omitted
+            )
+
+
+class TestErrorDetail020:
+    """0.2.0 ErrorDetail: new error codes."""
+
+    def test_new_error_codes_accepted(self) -> None:
+        """New 0.2.0 error codes are valid."""
+        new_codes = [
+            "ledger_hard_reject",
+            "checkpoint_missing",
+            "checkpoint_invalid",
+            "checkpoint_stale",
+            "turn_cap_exceeded",
+        ]
+        for code in new_codes:
+            err = ErrorDetail(code=code, message=f"Test {code}")
+            assert err.code == code
+
+    def test_existing_codes_still_work(self) -> None:
+        """Original error codes remain valid."""
+        original_codes = [
+            "invalid_schema_version",
+            "missing_required_field",
+            "malformed_json",
+            "internal_error",
+        ]
+        for code in original_codes:
+            err = ErrorDetail(code=code, message=f"Test {code}")
+            assert err.code == code
+
+
+class TestSchemaVersion020:
+    """0.2.0 schema version constant and validation."""
+
+    def test_version_constant(self) -> None:
+        """SCHEMA_VERSION is '0.2.0'."""
+        assert SCHEMA_VERSION == "0.2.0"
+
+    def test_valid_version_accepted(self) -> None:
+        """'0.2.0' is accepted by SchemaVersionLiteral."""
+        # If the literal is correct, SCHEMA_VERSION assignment would fail at import.
+        # This test makes it explicit.
+        args = get_args(SchemaVersionLiteral)
+        assert "0.2.0" in args
+
+    def test_old_version_rejected(self) -> None:
+        """'0.1.0' is rejected by TurnRequest."""
+        data = {
+            "schema_version": "0.1.0",
+            "turn_number": 1,
+            "conversation_id": "conv_1",
+            "focus": {"text": "test", "claims": [], "unresolved": []},
+            "posture": "exploratory",
+            "position": "p",
+            "claims": [{"text": "c", "status": "new", "turn": 1}],
+            "delta": "static",
+            "tags": [],
+            "unresolved": [],
+        }
+        with pytest.raises(ValidationError):
+            TurnRequest.model_validate(data)
+
+
+def test_action_literal_matches_conversation_action() -> None:
+    """Parity: TurnPacketSuccess.action literal values match ConversationAction enum."""
+    from context_injection.control import ConversationAction
+
+    # Get the Literal args from TurnPacketSuccess.action field
+    action_field = TurnPacketSuccess.model_fields["action"]
+    literal_values = set(get_args(action_field.annotation))
+
+    # Get ConversationAction enum values
+    enum_values = {a.value for a in ConversationAction}
+
+    assert literal_values == enum_values, (
+        f"TurnPacketSuccess.action literal {literal_values} != "
+        f"ConversationAction values {enum_values}"
+    )
 
 
 class TestEntity:
@@ -220,8 +526,12 @@ class TestPathDecision:
 
 class TestBudget:
     def test_budget(self) -> None:
-        b = Budget(evidence_count=1, evidence_remaining=4, scout_available=True)
+        b = Budget(
+            evidence_count=1, evidence_remaining=4,
+            scout_available=True, budget_status="under_budget",
+        )
         assert b.evidence_remaining == 4
+        assert b.budget_status == "under_budget"
 
 
 class TestTemplateCandidate:
@@ -356,8 +666,10 @@ class TestScoutOption:
 
 class TestTurnPacket:
     def test_success_packet(self) -> None:
+        entry = _minimal_ledger_entry()
+        cumulative = _minimal_cumulative()
         data = {
-            "schema_version": "0.1.0",
+            "schema_version": SCHEMA_VERSION,
             "status": "success",
             "entities": [],
             "path_decisions": [],
@@ -366,8 +678,17 @@ class TestTurnPacket:
                 "evidence_count": 0,
                 "evidence_remaining": 5,
                 "scout_available": True,
+                "budget_status": "under_budget",
             },
             "deduped": [],
+            "validated_entry": entry.model_dump(),
+            "warnings": [],
+            "cumulative": cumulative.model_dump(),
+            "action": "continue_dialogue",
+            "action_reason": "test",
+            "ledger_summary": "test",
+            "state_checkpoint": "base64==",
+            "checkpoint_id": "cp_001",
         }
         adapter = TypeAdapter(TurnPacket)
         packet = adapter.validate_python(data)
@@ -375,7 +696,7 @@ class TestTurnPacket:
 
     def test_error_packet(self) -> None:
         data = {
-            "schema_version": "0.1.0",
+            "schema_version": SCHEMA_VERSION,
             "status": "error",
             "error": {
                 "code": "invalid_schema_version",
@@ -391,7 +712,7 @@ class TestTurnPacket:
 class TestScoutResult:
     def test_success_read_result(self) -> None:
         data = {
-            "schema_version": "0.1.0",
+            "schema_version": SCHEMA_VERSION,
             "scout_option_id": "so_005",
             "status": "success",
             "template_id": "probe.file_repo_fact",
@@ -414,6 +735,7 @@ class TestScoutResult:
                 "evidence_count": 2,
                 "evidence_remaining": 3,
                 "scout_available": False,
+                "budget_status": "under_budget",
             },
         }
         adapter = TypeAdapter(ScoutResult)
@@ -424,7 +746,7 @@ class TestScoutResult:
 
     def test_failure_not_found(self) -> None:
         data = {
-            "schema_version": "0.1.0",
+            "schema_version": SCHEMA_VERSION,
             "scout_option_id": "so_005",
             "status": "not_found",
             "template_id": "probe.file_repo_fact",
@@ -436,6 +758,7 @@ class TestScoutResult:
                 "evidence_count": 1,
                 "evidence_remaining": 4,
                 "scout_available": False,
+                "budget_status": "under_budget",
             },
         }
         adapter = TypeAdapter(ScoutResult)
@@ -444,7 +767,7 @@ class TestScoutResult:
 
     def test_invalid_request(self) -> None:
         data = {
-            "schema_version": "0.1.0",
+            "schema_version": SCHEMA_VERSION,
             "scout_option_id": "so_005",
             "status": "invalid_request",
             "error_message": "Scout token invalid",
