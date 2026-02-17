@@ -252,6 +252,7 @@ These rules are non-negotiable:
 3. **Dangerous mode never auto-escalates:** never upgrade sandbox from `read-only` to `workspace-write` or `danger-full-access` without explicit user flag (`-s`).
 4. **Strategy default:** when uncertain, use direct invocation.
 5. **Reply continuity:** `threadId` is canonical; `conversationId` is a deprecated compatibility alias.
+6. **Egress sanitization:** no outbound payload to Codex (briefing, follow-up, diagnostics) without a sanitizer pass. The agent's token safety rules and the context injection server's redaction pipeline are complementary layers — both apply to their respective data paths. The fail-closed default applies to all paths.
 
 ## Troubleshooting
 

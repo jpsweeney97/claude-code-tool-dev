@@ -381,7 +381,7 @@ Assemble synthesis from `turn_history`. Do not recall the full conversation — 
 
 ### Assembly process
 
-These 6 items are independent output sections. Assemble all 6 from `turn_history`.
+These 7 items are independent output sections. Assemble all 7 from `turn_history`.
 
 1. **Convergence → Areas of Agreement:** Claims where both sides arrived at the same position, especially through independent reasoning or survived challenges. High confidence.
 2. **Concessions → Key Outcomes:** Claims where one side changed position. Note which side, what triggered the change, and the final position.
@@ -389,6 +389,7 @@ These 6 items are independent output sections. Assemble all 6 from `turn_history
 4. **Unresolved → Open Questions:** Claims still tagged `new` or items remaining in the unresolved column.
 5. **Evidence trajectory:** For each turn in `turn_history` where `scout_outcomes` is non-empty, note: what entity was scouted, what was found (or not found), and its impact on the conversation (premise falsified, claim supported, or ambiguous).
 6. **Claim trajectory:** Using the accumulated `validated_entry` records in `turn_history`, trace how each significant claim evolved across turns (new → reinforced/revised/conceded).
+7. **Contested claims:** For each claim where the two sides held different positions at any point, classify the final state: `agreement` (both converged), `resolved_disagreement` (one side conceded with reasoning), or `unresolved_disagreement` (positions remain apart). Include: `claim_text`, `state`, `final_positions` (both sides' ending positions), `resolution_basis` (what triggered the resolution, if any), and `confidence`.
 
 ### Confidence annotations
 
@@ -416,6 +417,7 @@ Before writing output, verify every item:
 - [ ] Areas of Agreement include confidence levels
 - [ ] Open Questions reference which turn(s) raised them
 - [ ] Continuation section includes unresolved items and recommended posture (if warranted)
+- [ ] Contested claims classified with state (agreement/resolved_disagreement/unresolved_disagreement) and resolution basis
 - [ ] Evidence statistics: scouts executed, entities scouted, impacts on conversation. If `evidence_count == 0`, state "Evidence: none (no scouts executed)" and omit evidence trajectory
 
 If any item is missing, fix it before returning output.
@@ -457,6 +459,15 @@ Annotate each finding:
 
 Points both sides converged on. Include confidence level.
 
+### Contested Claims
+
+For each claim with divergent positions during the dialogue:
+- **Claim:** [claim text]
+- **State:** Agreement / Resolved disagreement / Unresolved disagreement
+- **Final positions:** [both sides' ending positions]
+- **Resolution basis:** [what triggered resolution, if resolved]
+- **Confidence:** High / Medium / Low
+
 ### Open Questions
 
 Unresolved points worth further investigation. Include which turn(s) raised them.
@@ -466,7 +477,7 @@ Unresolved points worth further investigation. Include which turn(s) raised them
 - **Continuation warranted:** yes — [reason] / no
 - **Unresolved items carried forward:** [list from ledger, if continuation warranted]
 - **Recommended posture for continuation:** [posture suggestion based on conversation dynamics]
-- **Evidence trajectory:** [which turns had evidence, what entities, what impacts]
+- **Evidence trajectory:** [which turns had evidence, what entities, what impacts — or "none (no scouts executed)" if evidence_count == 0]
 
 ### Example
 
@@ -500,6 +511,14 @@ Complete example showing all required fields:
 
 - Audit requirements demand append-only semantics (High — independently argued T1-T2)
 - Read-heavy queries shouldn't hit the event store (High — converged T2-T3)
+
+### Contested Claims
+
+**Use CQRS framework for read model projections**
+- **State:** Resolved disagreement
+- **Final positions:** Both agreed to skip — use simple materialized views
+- **Resolution basis:** Codex proposed CQRS (T1), challenged on operational complexity (T2), conceded in favor of simplicity (T3)
+- **Confidence:** Medium
 
 ### Open Questions
 
