@@ -17,6 +17,10 @@ Manage extended conversations with OpenAI Codex via MCP. Start a dialogue, run m
 - **Mode gating:** Start in `server_assisted` mode. If context injection tools are unavailable at conversation start, switch to `manual_legacy` mode for the remainder of the conversation. Do not switch modes mid-conversation after a successful `process_turn`.
 - **Turn 1 failure precedence:** On turn 1, apply Step 3 retry rules first (retry `checkpoint_stale` and `ledger_hard_reject` per the error table). Switch to `manual_legacy` only if all retries for turn 1 are exhausted and no successful `process_turn` response was received. A transport error or timeout with no prior success also triggers the switch.
 
+## Defaults
+
+When no instruction covers the current situation: log a warning describing the unexpected state and proceed to the next step. If the current step cannot be skipped (it produces state required by subsequent steps), proceed directly to Phase 3 synthesis using whatever `turn_history` is available. Do not retry failed steps unless the error table in Step 3 explicitly permits retry.
+
 ## Task
 
 1. **Setup** — Parse the prompt, gather context, assemble initial briefing
@@ -102,7 +106,7 @@ Initialize after starting the conversation:
 | `conversation_id` | Same as `threadId` | For `process_turn` calls |
 | `state_checkpoint` | `null` | Opaque string; store from `process_turn` response, pass back next turn |
 | `checkpoint_id` | `null` | Opaque string; store from `process_turn` response, pass back next turn |
-| `turn_count` | `1` | Turns completed |
+| `current_turn` | `1` | Current turn number (1-indexed) |
 | `evidence_count` | `0` | Scouts executed (for synthesis statistics) |
 | `turn_history` | `[]` | Per-turn list of `{validated_entry, cumulative, scout_outcomes}` — append in Step 3 on every successful `process_turn` response, before the budget gate check |
 
@@ -136,7 +140,7 @@ The 7-step per-turn loop is bypassed entirely in `manual_legacy` mode. Instead, 
 
 The agent manages its own ledger state, convergence detection, and turn budget. Synthesis (Phase 3) proceeds without `ledger_summary` or evidence data — reconstruct trajectory from the manually tracked extraction history.
 
-**manual_legacy state:** In addition to `threadId`, `turn_count`, and `evidence_count` (always `0` — no scouts in this mode) from the main state table, track:
+**manual_legacy state:** In addition to `threadId`, `current_turn`, and `evidence_count` (always `0` — no scouts in this mode) from the main state table, track:
 
 | State | Initial value | Purpose |
 |-------|--------------|---------|
@@ -200,7 +204,7 @@ Call `mcp__context-injection__process_turn` with:
 {
   "request": {
     "schema_version": "0.2.0",
-    "turn_number": <turn_count>,
+    "turn_number": <current_turn>,
     "conversation_id": "<conversation_id>",
     "focus": {
       "text": "<the overarching topic under discussion>",
@@ -220,7 +224,7 @@ Call `mcp__context-injection__process_turn` with:
 ```
 
 **Field mapping:**
-- Build `claims` list once from ledger extraction. Assign to BOTH `focus.claims` and top-level `claims` fields. On subsequent turns, `focus.claims` contains claims relevant to the current focus scope (not the full conversation history — the server accumulates history internally).
+- Build `claims` list from ledger extraction each turn. Assign the identical list to BOTH `focus.claims` and top-level `claims` fields — the server requires both channels to carry identical lists (dual-claims guard CC-PF-3; mismatched lists trigger `ledger_hard_reject`). The server accumulates history internally; send only the current turn's extracted claims.
 - Build `unresolved` list once. Assign to BOTH `focus.unresolved` and top-level `unresolved` fields.
 - `focus.text` is the overarching topic (stable across turns), not the per-turn `position`.
 
@@ -232,7 +236,7 @@ Call `mcp__context-injection__process_turn` with:
 
 **On success (`status: "success"`) — data capture (always first):** Append to `turn_history`: `{validated_entry, cumulative, scout_outcomes: []}`. Store `state_checkpoint` and `checkpoint_id`. This append happens unconditionally — before the budget gate and before any continue/conclude decision.
 
-**Budget gate (checked after data capture):** If `turn_count >= effective_budget`, skip Steps 4-7 (scout, action, follow-up, send). Proceed directly to Phase 3 (Synthesis). The conversation is complete. Error recovery below still applies to failed responses — a failed `process_turn` has no data to capture, so the budget gate does not change error handling.
+**Budget gate (checked after data capture):** If `current_turn >= effective_budget`, skip Steps 4-7 (scout, action, follow-up, send). Proceed directly to Phase 3 (Synthesis). The conversation is complete. Error recovery below still applies to failed responses — a failed `process_turn` has no data to capture, so the budget gate does not change error handling.
 
 **On success — remaining fields** (skip if budget gate fired):
 
@@ -311,7 +315,7 @@ If `template_candidates` is non-empty:
 
 The server handles plateau detection, budget exhaustion, and closing probe sequencing internally. Trust the `action` — do not override it with your own continue/conclude logic.
 
-**Budget precedence:** The agent's turn budget cap takes priority over the server's `action`. If `turn_count >= effective_budget` (see Turn management), treat any server action — including `continue_dialogue` — as `conclude`. This prevents runaway conversations when the server's budget tracking diverges from the agent's.
+**Budget precedence:** The agent's turn budget cap takes priority over the server's `action`. If `current_turn >= effective_budget` (see Turn management), treat any server action — including `continue_dialogue` — as `conclude`. This prevents runaway conversations when the server's budget tracking diverges from the agent's.
 
 #### Step 6: Compose follow-up
 
@@ -320,7 +324,7 @@ Build the follow-up from these inputs. Priority order for choosing what to ask:
 1. **Scout evidence** (if Step 4 produced results): Frame a question around `evidence_wrapper` using the evidence shape below
 2. **Unresolved items** from `validated_entry.unresolved`
 3. **Unprobed claims** tagged `new` in `validated_entry.claims`
-4. **Weakest claim** derived from accumulated `turn_history` claim records (least-supported, highest-impact). Scan `validated_entry.claims` across all turns in `turn_history` — the weakest claim is the one with fewest `reinforced` statuses relative to its importance, not a value derived from aggregate counters in `cumulative`
+4. **Weakest claim** derived from accumulated `turn_history` claim records (least-supported, highest-impact). Scan `validated_entry.claims` across all turns in `turn_history` — the weakest claim is the one with the fewest `reinforced` statuses across all turns in `turn_history`, not a value derived from aggregate counters in `cumulative`
 5. **Posture-driven probe** from the patterns table
 
 **When scout evidence is available**, use this shape:
@@ -354,7 +358,7 @@ Use `ledger_summary` for conversation awareness — knowing which claims are set
 
 Send via `mcp__codex__codex-reply` with the persisted `threadId`.
 
-Increment `turn_count`. Return to Step 1 for the next Codex response.
+Increment `current_turn`. Return to Step 1 for the next Codex response.
 
 ### Turn management
 
@@ -363,7 +367,7 @@ Increment `turn_count`. Return to Step 1 for the next Codex response.
 - **Budget 1:** No follow-ups. Extract semantic data, call `process_turn` once, synthesize from the single response.
 - **Budget 2:** Run both turns through the loop. The server's `action` guides whether to continue after turn 1.
 - **Budget 3+:** The server handles convergence detection and closing probes via `action`. Trust the directive.
-- **Budget exceeded:** If `turn_count >= effective_budget`, treat any server action as `conclude` regardless of what the server returns. See Step 5 budget precedence.
+- **Budget exceeded:** If `current_turn >= effective_budget`, treat any server action as `conclude` regardless of what the server returns. See Step 5 budget precedence.
 - If `mcp__codex__codex-reply` fails mid-conversation, proceed directly to Phase 3 synthesis using `turn_history`. Use the most recent `cumulative` snapshot and `validated_entry` records from `turn_history` in place of the missing `ledger_summary`. Do not attempt to call `process_turn` again — there is no new Codex response to extract from.
 
 ## Phase 3: Synthesis
