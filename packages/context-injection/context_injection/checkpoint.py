@@ -126,6 +126,13 @@ def deserialize_checkpoint(checkpoint_string: str) -> tuple[ConversationState, s
             f"actual payload is {actual_size} bytes (corruption detected)",
         )
 
+    if actual_size > MAX_CHECKPOINT_PAYLOAD_BYTES:
+        raise CheckpointError(
+            "checkpoint_invalid",
+            f"Checkpoint payload exceeds {MAX_CHECKPOINT_PAYLOAD_BYTES} bytes: "
+            f"got {actual_size} bytes",
+        )
+
     try:
         state = ConversationState.model_validate_json(checkpoint.payload)
     except Exception as e:

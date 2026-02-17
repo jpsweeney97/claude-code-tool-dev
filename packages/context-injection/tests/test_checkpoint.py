@@ -166,6 +166,29 @@ class TestDeserializeCheckpoint:
             deserialize_checkpoint(cp.model_dump_json())
         assert exc_info.value.code == "checkpoint_invalid"
 
+    def test_oversized_payload_rejected_on_intake(self) -> None:
+        """Payload exceeding MAX_CHECKPOINT_PAYLOAD_BYTES is rejected on deserialize."""
+        from context_injection.checkpoint import MAX_CHECKPOINT_PAYLOAD_BYTES
+
+        # Craft a payload that exceeds the limit but is self-consistent
+        oversized_payload = ConversationState(
+            conversation_id="x" * (MAX_CHECKPOINT_PAYLOAD_BYTES + 1),
+        ).model_dump_json()
+        actual_size = len(oversized_payload.encode("utf-8"))
+        assert actual_size > MAX_CHECKPOINT_PAYLOAD_BYTES
+
+        cp = StateCheckpoint(
+            checkpoint_id="abc",
+            parent_checkpoint_id=None,
+            format_version=CHECKPOINT_FORMAT_VERSION,
+            payload=oversized_payload,
+            size=actual_size,
+        )
+        with pytest.raises(CheckpointError) as exc_info:
+            deserialize_checkpoint(cp.model_dump_json())
+        assert exc_info.value.code == "checkpoint_invalid"
+        assert "exceeds" in str(exc_info.value).lower()
+
 
 # ---------------------------------------------------------------------------
 # Helpers for Task 7 tests

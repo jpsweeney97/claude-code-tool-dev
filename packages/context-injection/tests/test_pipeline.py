@@ -1013,6 +1013,204 @@ class TestPipelineCumulativeClaims:
 # ============================================================
 
 
+class TestPipelineUnresolvedClosures:
+    """Per-turn unresolved closure computation."""
+
+    def test_first_turn_unresolved_closed_is_zero(self) -> None:
+        """Turn 1 has no prior unresolved list to compare against."""
+        ctx = _make_ctx()
+        unresolved = [Unresolved(text="Open question?", turn=1)]
+        r1 = _make_turn_request(
+            conversation_id="conv_uc",
+            unresolved=unresolved,
+            focus=Focus(
+                text="test",
+                claims=[Claim(text="C1", status="new", turn=1)],
+                unresolved=unresolved,
+            ),
+        )
+        result = process_turn(r1, ctx)
+        assert result.status == "success"
+        assert isinstance(result, TurnPacketSuccess)
+        assert result.validated_entry.counters.unresolved_closed == 0
+
+    def test_closing_one_unresolved_item(self) -> None:
+        """Turn 2 drops one unresolved item -> unresolved_closed = 1."""
+        ctx = _make_ctx()
+        unresolved_t1 = [
+            Unresolved(text="Q1?", turn=1),
+            Unresolved(text="Q2?", turn=1),
+        ]
+        r1 = _make_turn_request(
+            conversation_id="conv_uc2",
+            unresolved=unresolved_t1,
+            focus=Focus(
+                text="test",
+                claims=[Claim(text="C1", status="new", turn=1)],
+                unresolved=unresolved_t1,
+            ),
+        )
+        result1 = process_turn(r1, ctx)
+        assert result1.status == "success"
+        assert isinstance(result1, TurnPacketSuccess)
+
+        # Turn 2: Q1 resolved, Q2 remains
+        unresolved_t2 = [Unresolved(text="Q2?", turn=1)]
+        r2 = _make_turn_request(
+            conversation_id="conv_uc2",
+            turn_number=2,
+            unresolved=unresolved_t2,
+            claims=[Claim(text="C2", status="new", turn=2)],
+            focus=Focus(
+                text="test",
+                claims=[Claim(text="C2", status="new", turn=2)],
+                unresolved=unresolved_t2,
+            ),
+            state_checkpoint=result1.state_checkpoint,
+            checkpoint_id=result1.checkpoint_id,
+        )
+        result2 = process_turn(r2, ctx)
+        assert result2.status == "success"
+        assert isinstance(result2, TurnPacketSuccess)
+        assert result2.validated_entry.counters.unresolved_closed == 1
+
+    def test_closing_all_unresolved_items(self) -> None:
+        """Turn 2 closes all unresolved items."""
+        ctx = _make_ctx()
+        unresolved_t1 = [
+            Unresolved(text="Q1?", turn=1),
+            Unresolved(text="Q2?", turn=1),
+        ]
+        r1 = _make_turn_request(
+            conversation_id="conv_uc3",
+            unresolved=unresolved_t1,
+            focus=Focus(
+                text="test",
+                claims=[Claim(text="C1", status="new", turn=1)],
+                unresolved=unresolved_t1,
+            ),
+        )
+        result1 = process_turn(r1, ctx)
+        assert result1.status == "success"
+        assert isinstance(result1, TurnPacketSuccess)
+
+        # Turn 2: all unresolved closed
+        r2 = _make_turn_request(
+            conversation_id="conv_uc3",
+            turn_number=2,
+            unresolved=[],
+            claims=[Claim(text="C2", status="new", turn=2)],
+            focus=Focus(
+                text="test",
+                claims=[Claim(text="C2", status="new", turn=2)],
+                unresolved=[],
+            ),
+            state_checkpoint=result1.state_checkpoint,
+            checkpoint_id=result1.checkpoint_id,
+        )
+        result2 = process_turn(r2, ctx)
+        assert result2.status == "success"
+        assert isinstance(result2, TurnPacketSuccess)
+        assert result2.validated_entry.counters.unresolved_closed == 2
+
+    def test_cumulative_closures_across_turns(self) -> None:
+        """Closures accumulate correctly across 3 turns."""
+        ctx = _make_ctx()
+        unresolved_t1 = [
+            Unresolved(text="Q1?", turn=1),
+            Unresolved(text="Q2?", turn=1),
+            Unresolved(text="Q3?", turn=1),
+        ]
+        r1 = _make_turn_request(
+            conversation_id="conv_uc4",
+            unresolved=unresolved_t1,
+            focus=Focus(
+                text="test",
+                claims=[Claim(text="C1", status="new", turn=1)],
+                unresolved=unresolved_t1,
+            ),
+        )
+        result1 = process_turn(r1, ctx)
+        assert isinstance(result1, TurnPacketSuccess)
+
+        # Turn 2: close Q1
+        unresolved_t2 = [
+            Unresolved(text="Q2?", turn=1),
+            Unresolved(text="Q3?", turn=1),
+        ]
+        r2 = _make_turn_request(
+            conversation_id="conv_uc4",
+            turn_number=2,
+            unresolved=unresolved_t2,
+            claims=[Claim(text="C2", status="new", turn=2)],
+            focus=Focus(
+                text="test",
+                claims=[Claim(text="C2", status="new", turn=2)],
+                unresolved=unresolved_t2,
+            ),
+            state_checkpoint=result1.state_checkpoint,
+            checkpoint_id=result1.checkpoint_id,
+        )
+        result2 = process_turn(r2, ctx)
+        assert isinstance(result2, TurnPacketSuccess)
+        assert result2.validated_entry.counters.unresolved_closed == 1
+
+        # Turn 3: close Q2 and Q3
+        r3 = _make_turn_request(
+            conversation_id="conv_uc4",
+            turn_number=3,
+            unresolved=[],
+            claims=[Claim(text="C3", status="new", turn=3)],
+            focus=Focus(
+                text="test",
+                claims=[Claim(text="C3", status="new", turn=3)],
+                unresolved=[],
+            ),
+            state_checkpoint=result2.state_checkpoint,
+            checkpoint_id=result2.checkpoint_id,
+        )
+        result3 = process_turn(r3, ctx)
+        assert isinstance(result3, TurnPacketSuccess)
+        assert result3.validated_entry.counters.unresolved_closed == 2
+
+        # Cumulative: 0 (turn 1) + 1 (turn 2) + 2 (turn 3) = 3
+        assert result3.cumulative.unresolved_closed == 3
+
+    def test_no_closures_when_unresolved_unchanged(self) -> None:
+        """Same unresolved list across turns -> unresolved_closed = 0."""
+        ctx = _make_ctx()
+        unresolved = [Unresolved(text="Q1?", turn=1)]
+        r1 = _make_turn_request(
+            conversation_id="conv_uc5",
+            unresolved=unresolved,
+            focus=Focus(
+                text="test",
+                claims=[Claim(text="C1", status="new", turn=1)],
+                unresolved=unresolved,
+            ),
+        )
+        result1 = process_turn(r1, ctx)
+        assert isinstance(result1, TurnPacketSuccess)
+
+        # Turn 2: same unresolved list
+        r2 = _make_turn_request(
+            conversation_id="conv_uc5",
+            turn_number=2,
+            unresolved=unresolved,
+            claims=[Claim(text="C2", status="new", turn=2)],
+            focus=Focus(
+                text="test",
+                claims=[Claim(text="C2", status="new", turn=2)],
+                unresolved=unresolved,
+            ),
+            state_checkpoint=result1.state_checkpoint,
+            checkpoint_id=result1.checkpoint_id,
+        )
+        result2 = process_turn(r2, ctx)
+        assert isinstance(result2, TurnPacketSuccess)
+        assert result2.validated_entry.counters.unresolved_closed == 0
+
+
 class TestPipelinePriorEvidence:
     """Pipeline uses evidence from ConversationState (replaces request.evidence_history)."""
 

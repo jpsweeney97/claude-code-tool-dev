@@ -258,9 +258,14 @@ def _process_turn_inner(
     budget = compute_budget(prior_evidence)
 
     # --- Step 9: Ledger entry validation ---
-    unresolved_closed: int = (
-        base.compute_cumulative_state().unresolved_closed if base.entries else 0
-    )
+    # Compute per-turn unresolved closures: items in the previous turn's
+    # unresolved list that are absent from the current turn's list.
+    if base.entries:
+        prior_unresolved_texts = frozenset(u.text for u in base.entries[-1].unresolved)
+        current_unresolved_texts = frozenset(u.text for u in request.unresolved)
+        unresolved_closed = len(prior_unresolved_texts - current_unresolved_texts)
+    else:
+        unresolved_closed = 0
     validated_entry, warnings = validate_ledger_entry(
         position=request.position,
         claims=request.claims,
