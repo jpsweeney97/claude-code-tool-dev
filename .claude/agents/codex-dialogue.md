@@ -14,7 +14,8 @@ Manage extended conversations with OpenAI Codex via MCP. Start a dialogue, run m
 - MCP tools `mcp__codex__codex` and `mcp__codex__codex-reply` must be available (Codex MCP server running)
 - If MCP tools are unavailable, report the error immediately — do not proceed with context gathering
 - Context injection MCP tools `mcp__context-injection__process_turn` and `mcp__context-injection__execute_scout` should be available (see mode gating below)
-- **Mode gating:** Start in `server_assisted` mode. If context injection tools are unavailable at conversation start (first call to `mcp__context-injection__process_turn` returns an error or times out), switch to `manual_legacy` mode for the remainder of the conversation. Do not switch modes mid-conversation after a successful `process_turn`.
+- **Mode gating:** Start in `server_assisted` mode. If context injection tools are unavailable at conversation start, switch to `manual_legacy` mode for the remainder of the conversation. Do not switch modes mid-conversation after a successful `process_turn`.
+- **Turn 1 failure precedence:** On turn 1, apply Step 3 retry rules first (retry `checkpoint_stale` and `ledger_hard_reject` per the error table). Switch to `manual_legacy` only if all retries for turn 1 are exhausted and no successful `process_turn` response was received. A transport error or timeout with no prior success also triggers the switch.
 
 ## Task
 
@@ -64,7 +65,13 @@ If the prompt references files without inlining them, read those files before as
 
 1. Never read or parse `auth.json`.
 2. Never include `id_token`, `access_token`, `refresh_token`, `account_id`, bearer tokens, or API keys (`sk-...`) in the briefing.
-3. Before sending, scan for secret-like text (passwords, credentials, private key material). If detected, replace with `[REDACTED: credential material]` and note the redaction in your output.
+3. Before sending, in addition to the specific tokens named in rule 2, scan for credential patterns:
+   - Password/secret assignments: variable names `password`, `secret_key`, `api_key`, `client_secret`, or `private_key` followed by an assignment containing a non-empty string value
+   - PEM key blocks: any string containing `-----BEGIN ... KEY-----`
+   - Bearer tokens: any string matching `Bearer <value>`
+   - AWS-style access keys: strings starting with `AKIA` followed by 16+ uppercase alphanumeric characters
+   - Base64 strings longer than 40 characters adjacent to authentication variable names
+   If any match is detected, replace the matched value with `[REDACTED: credential material]` and note the redaction in your output. When uncertain whether a string is a credential, redact (fail-closed).
 4. If redaction cannot be confirmed, do not send the briefing (fail-closed).
 
 ## Phase 2: Conversation Loop
@@ -97,12 +104,14 @@ Initialize after starting the conversation:
 | `checkpoint_id` | `null` | Opaque string; store from `process_turn` response, pass back next turn |
 | `turn_count` | `1` | Turns completed |
 | `evidence_count` | `0` | Scouts executed (for synthesis statistics) |
-| `turn_history` | `[]` | Per-turn list of `{validated_entry, cumulative, scout_outcomes}` — append after each successful `process_turn` response |
+| `turn_history` | `[]` | Per-turn list of `{validated_entry, cumulative, scout_outcomes}` — append in Step 3 on every successful `process_turn` response, before the budget gate check |
 
-**Per-turn state retention:** After each successful `process_turn` response, append to `turn_history`:
+**Per-turn state retention:** On every successful `process_turn` response, append to `turn_history` **before** checking the budget gate:
 - `validated_entry` — the server-validated ledger entry for this turn
 - `cumulative` — the cumulative snapshot returned by the server
-- `scout_outcomes` — list of scout results from Step 4 (empty if no scouts executed)
+- `scout_outcomes` — placeholder `[]` at Step 3 append time; updated to actual scout results after Step 4 if scouts execute
+
+Appending before the budget gate ensures that budget=1 conversations have a populated `turn_history` for Phase 3 synthesis. Step 4 updates `scout_outcomes` in place only if scouts execute; otherwise the `[]` placeholder stands.
 
 This accumulated history is required for Phase 3 synthesis (especially claim trajectory and "weakest claim" derivation) and for fallback synthesis if later turns error.
 
@@ -127,6 +136,14 @@ The 7-step per-turn loop is bypassed entirely in `manual_legacy` mode. Instead, 
 
 The agent manages its own ledger state, convergence detection, and turn budget. Synthesis (Phase 3) proceeds without `ledger_summary` or evidence data — reconstruct trajectory from the manually tracked extraction history.
 
+**manual_legacy state:** In addition to `threadId`, `turn_count`, and `evidence_count` (always `0` — no scouts in this mode) from the main state table, track:
+
+| State | Initial value | Purpose |
+|-------|--------------|---------|
+| `extraction_history` | `[]` | Per-turn list of `{position, claims, delta, tags, unresolved}` extracted in step 1 of the 3-step loop |
+
+Append to `extraction_history` after each extraction (step 1 of the 3-step loop). This history replaces `turn_history` for Phase 3 synthesis: use it to reconstruct claim trajectory, detect convergence patterns, and identify unresolved items.
+
 ### Per-turn loop (7 steps)
 
 After each Codex response, execute steps 1-7 in order.
@@ -142,6 +159,8 @@ Read the Codex response and extract:
 | `delta` | `string` | Single label: `advancing`, `shifting`, or `static` (see table below) |
 | `tags` | `list[string]` | 0-2 tags from the tag table below |
 | `unresolved` | `list[{text, turn}]` | Questions this turn opened or left unanswered |
+
+**Minimum claims:** If no distinct claims are extractable from the Codex response, create a single claim using the `position` text from this turn's extraction. Every turn must produce at least one claim (contract requirement).
 
 **Claim status:**
 
@@ -211,22 +230,24 @@ Call `mcp__context-injection__process_turn` with:
 
 #### Step 3: Process the response
 
-**Budget gate (checked first):** If `turn_count >= effective_budget`, skip error recovery and follow-up composition. Proceed directly to Phase 3 (Synthesis) using `turn_history`. The conversation is complete — retrying a failed turn that would be immediately concluded is wasted effort.
+**On success (`status: "success"`) — data capture (always first):** Append to `turn_history`: `{validated_entry, cumulative, scout_outcomes: []}`. Store `state_checkpoint` and `checkpoint_id`. This append happens unconditionally — before the budget gate and before any continue/conclude decision.
 
-**On success** (`status: "success"`):
+**Budget gate (checked after data capture):** If `turn_count >= effective_budget`, skip Steps 4-7 (scout, action, follow-up, send). Proceed directly to Phase 3 (Synthesis). The conversation is complete. Error recovery below still applies to failed responses — a failed `process_turn` has no data to capture, so the budget gate does not change error handling.
+
+**On success — remaining fields** (skip if budget gate fired):
 
 | Field | What to do |
 |-------|-----------|
-| `validated_entry` | Server-validated ledger entry. Use for follow-up composition — authoritative over your extraction. |
+| `validated_entry` | Stored in `turn_history` (see data capture above). Use for follow-up composition — authoritative over your extraction. |
 | `warnings` | Log internally. No action needed. |
-| `cumulative` | Running totals: `total_claims`, `reinforced`, `revised`, `conceded`, `unresolved_open`. Use for conversation awareness. |
-| `action` | **Directive:** `continue_dialogue`, `closing_probe`, or `conclude`. See Step 5. |
+| `cumulative` | Stored in `turn_history` (see data capture above). Running totals: `total_claims`, `reinforced`, `revised`, `conceded`, `unresolved_open`. Use for conversation awareness. |
+| `action` | **Directive:** `continue_dialogue`, `closing_probe`, or `conclude`. See Step 5. (Skip if budget gate fired.) |
 | `action_reason` | Human-readable explanation. Include in your internal reasoning. |
 | `template_candidates` | Available scout options for evidence gathering. See Step 4. Fields per candidate: `rank`, `template_id`, `entity_key`, `scout_options` (each with `id`, `scout_token`). Note: `turn_request_ref` is NOT part of `template_candidates` — it is agent-derived in Step 4. |
 | `budget` | `scout_available` (bool), `evidence_count`, `evidence_remaining`. |
 | `ledger_summary` | Compact trajectory summary. Use in follow-up composition. |
-| `state_checkpoint` | **Store** — pass in next turn's request. |
-| `checkpoint_id` | **Store** — pass in next turn's request. |
+| `state_checkpoint` | Stored above (see data capture). Pass in next turn's request. |
+| `checkpoint_id` | Stored above (see data capture). Pass in next turn's request. |
 
 **On error** (`status: "error"`):
 
