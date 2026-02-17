@@ -308,7 +308,7 @@ Python -> Agent. Contains everything the agent needs to select a template and sc
 | `budget.evidence_count` | `int` | Yes | Number of evidence-bearing scouts completed in this conversation. |
 | `budget.evidence_remaining` | `int` | Yes | `max_evidence_items - evidence_count`. |
 | `budget.scout_available` | `bool` | Yes | False if budget exhausted or per-turn cap reached. |
-| `budget.budget_status` | `BudgetStatus` | Yes | `"under_budget"`, `"at_budget"`, or `"over_budget"`. Reports remaining capacity. |
+| `budget.budget_status` | `BudgetStatus` | Yes | `"under_budget"` or `"at_budget"`. Reports remaining capacity. |
 | `deduped` | `DedupRecord[]` | On success | Entities/templates filtered by dedupe. Informational. May be empty. |
 | `deduped[].entity_key` | `string` | Yes | Deterministic key of the deduped entity. For probe templates, this is the **resolved key** (effective probed target), not the original entity_key. See dedupe semantics below. |
 | `deduped[].template_id` | `TemplateId` | On `template_already_used` | Which template was already used against this entity. |
@@ -815,7 +815,7 @@ See Conversation Flow section for semantics and precedence.
 
 ### BudgetStatus
 
-`under_budget` | `at_budget` | `over_budget`
+`under_budget` | `at_budget`
 
 Reports remaining evidence capacity relative to the per-conversation cap.
 
@@ -1043,7 +1043,7 @@ If the helper process restarts mid-conversation, in-memory state (TurnRequest st
 | `ledger_summary` | Compact text summary for agent prompt injection. |
 | `state_checkpoint` | Serialized conversation state for next turn. |
 | `checkpoint_id` | Checkpoint identifier for next turn. |
-| `budget.budget_status` | Remaining capacity status (`under_budget`, `at_budget`, `over_budget`). |
+| `budget.budget_status` | Remaining capacity status (`under_budget` or `at_budget`). |
 
 ### New Error Codes
 

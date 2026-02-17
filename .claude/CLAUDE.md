@@ -81,7 +81,7 @@ Mid-conversation evidence gathering for Codex dialogues. When Codex makes a fact
 
 **Security stance:** Over-redaction is always preferable to under-redaction. When adding format-specific redaction logic, verify that edge cases fail toward over-redaction (safe) not under-redaction (leak). Footgun tests (`test_footgun_*`) verify which pipeline layer catches secrets — check that they still test their stated contract after behavior changes.
 
-**Status:** MCP server complete (739 tests). Agent integration pending — the codex-dialogue agent's 3-step conversation loop needs upgrading to the 7-step scouting loop described in the design spec.
+**Status:** MCP server and agent integration complete (969 tests). The codex-dialogue agent uses the 7-step scouting loop with context injection for mid-conversation evidence gathering.
 
 ### Cross-Model Learning
 
