@@ -33,14 +33,22 @@ Determine the diff command from the prompt you received:
 | Commit range (e.g., "abc..def") | `git diff abc..def` |
 | No specific scope | `git diff HEAD` |
 
-**Detecting the base branch:** Run `git merge-base <branch> develop` and `git merge-base <branch> main`. Use whichever base is closer (more recent commit). If neither ref exists, ask the caller to specify.
+**Detecting the base branch:** Run `git merge-base <branch> main`. If `main` doesn't exist (e.g., the default branch uses a different name), ask the caller to specify the base branch.
 
 After getting the diff:
 - Run `git status --short` to identify untracked files — `git diff` commands never show untracked files. Read untracked files directly and include them in the review material.
 - Read modified files for surrounding context (not just changed lines)
 - Check for project conventions: CLAUDE.md, lint configs, test patterns
-- If the diff exceeds ~500 lines, summarize sections instead of inlining everything
-- If the diff is empty and there are no untracked files, report "No changes to review" and stop
+
+### Handling large diffs
+
+| Diff size | Strategy |
+|-----------|----------|
+| ≤500 lines | Include full diff in briefing |
+| 501–1500 lines | **Summarize by file.** List all changed files with line counts. Inline only the most critical changes (up to 500 lines total). Prioritize: new files > modified core logic > test changes > config/formatting. Note which files were summarized vs. inlined. |
+| >1500 lines | **Stop and report.** Output: "This changeset has {N} lines of changes, which exceeds the 1500-line review limit. Consider splitting into smaller PRs for effective review." Do not attempt the review. |
+
+If the diff is empty and there are no untracked files, report "No changes to review" and stop.
 
 ## Step 2: Assemble Briefing
 
