@@ -30,10 +30,11 @@ THRESHOLD = 3
 
 
 def state_path(session_id: str) -> Path:
+    # Temp files accumulate over sessions; OS /tmp cleanup handles removal.
     return Path(tempfile.gettempdir()) / f"claude-nudge-{session_id}"
 
 
-def main():
+def main() -> None:
     try:
         event = json.load(sys.stdin)
     except json.JSONDecodeError as e:
@@ -72,7 +73,7 @@ def main():
             "hookSpecificOutput": {
                 "hookEventName": "PostToolUseFailure",
                 "additionalContext": (
-                    "You've hit several consecutive failures. "
+                    "You've hit several failures. "
                     "Consider running /codex to get a second opinion from another model. "
                     "It can help spot assumptions you might be stuck on."
                 ),
