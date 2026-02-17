@@ -34,6 +34,7 @@ from context_injection.templates import MAX_EVIDENCE_ITEMS
 from context_injection.truncate import truncate_blocks, truncate_excerpt
 from context_injection.types import (
     Budget,
+    EvidenceRecord,
     GrepMatch,
     GrepResult,
     GrepSpec,
@@ -528,16 +529,33 @@ def execute_scout(
             budget=None,
         )
 
-    # Get evidence history length from stored TurnRequest
+    # Get evidence history length from ConversationState
     record = ctx.store[req.turn_request_ref]
-    evidence_history_len = len(record.turn_request.evidence_history)
+    conversation = ctx.get_or_create_conversation(record.turn_request.conversation_id)
+    evidence_history_len = len(conversation.get_evidence_history())
 
     # Step 2: Dispatch by action
     if option.action == "read":
-        return execute_read(
+        scout_result = execute_read(
             req.scout_option_id, option, ctx.repo_root, evidence_history_len,
         )
+    else:
+        scout_result = execute_grep(
+            req.scout_option_id, option, ctx, evidence_history_len,
+        )
 
-    return execute_grep(
-        req.scout_option_id, option, ctx, evidence_history_len,
-    )
+    # Step 3: Record evidence in ConversationState if successful
+    if isinstance(scout_result, ScoutResultSuccess):
+        conversation = ctx.get_or_create_conversation(
+            record.turn_request.conversation_id,
+        )
+        conversation = conversation.with_evidence(
+            EvidenceRecord(
+                entity_key=option.entity_key,
+                template_id=option.template_id,
+                turn=record.turn_request.turn_number,
+            ),
+        )
+        ctx.conversations[record.turn_request.conversation_id] = conversation
+
+    return scout_result

@@ -134,7 +134,6 @@ def test_contract_example_produces_valid_turn_packet() -> None:
     assert len(record.scout_options) > 0
 
 
-@pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 13b)")
 def test_grep_call1_call2_round_trip(tmp_path) -> None:
     """Full Call 1 -> Call 2 flow for a grep scout.
 
@@ -225,7 +224,6 @@ def test_grep_call1_call2_round_trip(tmp_path) -> None:
     assert scout_result.budget.scout_available is False
 
 
-@pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 13b)")
 def test_grep_no_matches_returns_success(tmp_path) -> None:
     """Grep for a non-existent symbol returns success with 0 matches."""
     if shutil.which("rg") is None:
@@ -287,7 +285,6 @@ def test_grep_no_matches_returns_success(tmp_path) -> None:
     assert "0 matches" in scout_result.evidence_wrapper
 
 
-@pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 13b)")
 def test_grep_denied_file_filtered(tmp_path) -> None:
     """Matches in denied files (.env) are excluded from grep results."""
     if shutil.which("rg") is None:
