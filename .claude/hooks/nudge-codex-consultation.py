@@ -19,7 +19,9 @@ Exit codes:
   0 - Success (with optional additionalContext JSON)
   1 - Hook error (non-blocking, logged in verbose mode)
 """
+import fcntl
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -31,17 +33,6 @@ def state_path(session_id: str) -> Path:
     return Path(tempfile.gettempdir()) / f"claude-nudge-{session_id}"
 
 
-def read_count(path: Path) -> int:
-    try:
-        return int(path.read_text().strip())
-    except (FileNotFoundError, ValueError):
-        return 0
-
-
-def write_count(path: Path, count: int) -> None:
-    path.write_text(str(count))
-
-
 def main():
     try:
         event = json.load(sys.stdin)
@@ -49,12 +40,34 @@ def main():
         print(f"nudge-codex-consultation: invalid JSON input: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # B12: Defensive tool_name filtering — PostToolUseFailure matcher support
+    # is undocumented, so filter in code to ensure only Bash failures count.
+    tool_name = event.get("tool_name", "")
+    if tool_name != "Bash":
+        sys.exit(0)
+
     session_id = event.get("session_id", "unknown")
     path = state_path(session_id)
-    count = read_count(path) + 1
+    # B13: Atomic read-increment-write with file locking
+    try:
+        fd = os.open(str(path), os.O_RDWR | os.O_CREAT)
+        with os.fdopen(fd, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            content = f.read().strip()
+            count = (int(content) if content else 0) + 1
+
+            if count >= THRESHOLD:
+                f.seek(0)
+                f.truncate()
+                f.write("0")
+            else:
+                f.seek(0)
+                f.truncate()
+                f.write(str(count))
+    except (ValueError, OSError):
+        count = 1  # On any file error, assume first failure
 
     if count >= THRESHOLD:
-        write_count(path, 0)
         output = {
             "hookSpecificOutput": {
                 "hookEventName": "PostToolUseFailure",
@@ -66,8 +79,6 @@ def main():
             }
         }
         print(json.dumps(output))
-    else:
-        write_count(path, count)
 
     sys.exit(0)
 
