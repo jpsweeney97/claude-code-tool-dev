@@ -16,11 +16,10 @@ Cross-model code review: gather changes from git, assemble a review-focused brie
 
 ## Task
 
-1. **Gather changes** from git diff
-2. **Read surrounding code** for context
-3. **Assemble a review briefing** for Codex
-4. **Consult Codex** via MCP (1-2 turns)
-5. **Synthesize findings** — critically assess Codex's response, add your own observations
+1. **Gather changes** from git diff and read surrounding code for context
+2. **Assemble a review briefing** for Codex
+3. **Consult Codex** via MCP (1-2 turns)
+4. **Synthesize findings** — critically assess Codex's response, add your own observations
 
 ## Step 1: Gather Changes
 
@@ -40,7 +39,7 @@ Determine the diff command from the prompt you received:
 After getting the diff:
 - Run `git status --short` to identify untracked files — `git diff` commands never show untracked files. Read untracked files directly and include them in the review material.
 - Read modified files for surrounding context: for files under 300 lines, read the full file; for larger files, read the modified functions/classes plus 20 lines above and below each change
-- Check for project conventions: CLAUDE.md, lint configs, test patterns
+- Check for project conventions from CLAUDE.md and `.claude/rules/`: lint configs, test patterns, code style
 
 ### Handling large diffs
 
@@ -127,6 +126,8 @@ Do not parrot Codex's response. Add independent judgment.
 - **Foreground only** — Requires MCP tools; cannot run in background.
 
 ## Output Format
+
+**Complete review criteria:** (1) at least one finding per file reviewed or explicit "no issues found," (2) severity assigned to every finding, (3) source attribution (Codex/Self/Both) on every finding.
 
 ### Summary
 - Scope reviewed: [files changed, approximate line count]
