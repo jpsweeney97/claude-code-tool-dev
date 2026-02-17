@@ -43,12 +43,12 @@ D3 before D2: momentum ordering — D3 is smaller/simpler and provides early val
 
 | Order | Delivery | Document | Tasks | Status |
 |-------|----------|----------|-------|--------|
-| 1 | D1: Ledger Validation | [`...-d1-ledger-validation.md`](2026-02-15-context-injection-agent-integration-d1-ledger-validation.md) | 1-4 | Pending |
-| 2 | D3: Conversation Control | [`...-d3-conversation-control.md`](2026-02-15-context-injection-agent-integration-d3-conversation-control.md) | 9-10 | Pending |
-| 3 | D2: Conversation State | [`...-d2-conversation-state.md`](2026-02-15-context-injection-agent-integration-d2-conversation-state.md) | 5-8 | Pending |
-| 4 | D4a: Schema 0.2.0 | [`...-d4a-schema-020.md`](2026-02-15-context-injection-agent-integration-d4a-schema-020.md) | 11-12 | Pending |
-| 5 | D4b: Pipeline + Execute | [`...-d4b-pipeline-execute-test-migration.md`](2026-02-15-context-injection-agent-integration-d4b-pipeline-execute-test-migration.md) | 13a, 13b, 14 | Pending |
-| 6 | D5: Agent Rewrite | [`...-d5-agent-rewrite.md`](2026-02-15-context-injection-agent-integration-d5-agent-rewrite.md) | 15 | Pending |
+| 1 | D1: Ledger Validation | [`...-d1-ledger-validation.md`](2026-02-15-context-injection-agent-integration-d1-ledger-validation.md) | 1-4 | Complete |
+| 2 | D3: Conversation Control | [`...-d3-conversation-control.md`](2026-02-15-context-injection-agent-integration-d3-conversation-control.md) | 9-10 | Complete |
+| 3 | D2: Conversation State | [`...-d2-conversation-state.md`](2026-02-15-context-injection-agent-integration-d2-conversation-state.md) | 5-8 | Complete |
+| 4 | D4a: Schema 0.2.0 | [`...-d4a-schema-020.md`](2026-02-15-context-injection-agent-integration-d4a-schema-020.md) | 11-12 | Complete |
+| 5 | D4b: Pipeline + Execute | [`...-d4b-pipeline-execute-test-migration.md`](2026-02-15-context-injection-agent-integration-d4b-pipeline-execute-test-migration.md) | 13a, 13b, 14 | Complete |
+| 6 | D5: Agent Rewrite | [`...-d5-agent-rewrite.md`](2026-02-15-context-injection-agent-integration-d5-agent-rewrite.md) | 15 | Complete |
 
 ## Review Gates
 
