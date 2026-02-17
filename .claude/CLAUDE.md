@@ -68,6 +68,8 @@ MCP server providing cross-model dialogue with OpenAI Codex. Enables Claude Code
 
 **Status:** Deployed.
 
+**Hook delivery:** `PostToolUseFailure` `additionalContext` is confirmed working — appears as a `PostToolUseFailure:Bash hook additional context:` system-reminder in Claude's context (verified 2026-02-17).
+
 ### Context Injection
 
 Mid-conversation evidence gathering for Codex dialogues. When Codex makes a factual claim about the codebase, the agent reads the relevant file and uses the evidence to shape follow-ups — verifying claims in real-time rather than relying entirely on the initial briefing.
