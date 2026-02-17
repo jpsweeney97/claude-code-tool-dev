@@ -138,6 +138,23 @@ class TestComputeBudget:
         assert budget.evidence_remaining == 3
         assert budget.scout_available is True
 
+    def test_at_budget_when_evidence_at_max(self) -> None:
+        """budget_status is 'at_budget' (not 'over_budget') when evidence_count == MAX."""
+        from context_injection.templates import compute_budget, MAX_EVIDENCE_ITEMS
+
+        history = [
+            EvidenceRecord(
+                entity_key=f"file_path:file_{i}.py",
+                template_id="probe.file_repo_fact",
+                turn=i,
+            )
+            for i in range(MAX_EVIDENCE_ITEMS)
+        ]
+        budget = compute_budget(history)
+        assert budget.evidence_count == MAX_EVIDENCE_ITEMS
+        assert budget.evidence_remaining == 0
+        assert budget.budget_status == "at_budget"
+
     def test_full_history_disables_scouting(self) -> None:
         from context_injection.templates import compute_budget
 

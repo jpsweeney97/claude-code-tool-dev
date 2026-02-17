@@ -105,27 +105,35 @@ def _extract_line_number(raw: str) -> int | None:
 # --- Budget computation ---
 
 
-def compute_budget(evidence_history: list[EvidenceRecord]) -> Budget:
-    """Compute budget state from evidence history.
+def _make_budget(
+    evidence_count: int,
+    *,
+    scout_available: bool | None = None,
+) -> Budget:
+    """Shared budget builder. Used by both Call 1 (templates) and Call 2 (execute).
 
-    evidence_count = len(evidence_history) — this IS the floor invariant.
-    The history list length reflects reality even if items were evicted from store.
+    evidence_remaining is clamped to >= 0, so budget_status is always
+    "under_budget" or "at_budget" — never "over_budget".
     """
-    evidence_count = len(evidence_history)
     evidence_remaining = max(0, MAX_EVIDENCE_ITEMS - evidence_count)
-    scout_available = evidence_remaining > 0
-    if evidence_remaining > 0:
-        budget_status = "under_budget"
-    elif evidence_remaining == 0:
-        budget_status = "at_budget"
-    else:
-        budget_status = "over_budget"
+    if scout_available is None:
+        scout_available = evidence_remaining > 0
+    budget_status = "under_budget" if evidence_remaining > 0 else "at_budget"
     return Budget(
         evidence_count=evidence_count,
         evidence_remaining=evidence_remaining,
         scout_available=scout_available,
         budget_status=budget_status,
     )
+
+
+def compute_budget(evidence_history: list[EvidenceRecord]) -> Budget:
+    """Compute budget state from evidence history.
+
+    evidence_count = len(evidence_history) — this IS the floor invariant.
+    The history list length reflects reality even if items were evicted from store.
+    """
+    return _make_budget(len(evidence_history))
 
 
 # --- Dedupe logic ---
@@ -563,7 +571,10 @@ def match_templates(
             scout_options: list[ReadOption | GrepOption] = [scout_option]
         else:
             template_id = "probe.file_repo_fact"
-            assert pd is not None  # Guaranteed by gating above
+            if pd is None:
+                raise RuntimeError(
+                    f"file entity {entity.id} has no PathDecision after gating"
+                )
             scout_option = _make_read_option(
                 entity,
                 pd,

@@ -124,7 +124,7 @@ class Budget(ProtocolModel):
     evidence_count: int
     evidence_remaining: int
     scout_available: bool
-    budget_status: Literal["under_budget", "at_budget", "over_budget"]
+    budget_status: Literal["under_budget", "at_budget"]
 
 
 class DedupRecord(ProtocolModel):

@@ -154,6 +154,60 @@ class TestSchemaValidation:
 
 
 # ============================================================
+# Dual-claims channel guard (CC-PF-3)
+# ============================================================
+
+
+class TestDualClaimsGuard:
+    """Pipeline rejects requests where focus claims/unresolved differ from top-level."""
+
+    def test_mismatched_focus_claims_rejected(self) -> None:
+        """focus.claims != top-level claims -> ledger_hard_reject."""
+        ctx = _make_ctx()
+        focus_claims = [Claim(text="Focus claim", status="new", turn=1)]
+        top_claims = [Claim(text="Different claim", status="new", turn=1)]
+        req = TurnRequest(
+            schema_version=SCHEMA_VERSION,
+            turn_number=1,
+            conversation_id="conv_dc1",
+            focus=Focus(text="test", claims=focus_claims, unresolved=[]),
+            posture="exploratory",
+            position="Test",
+            claims=top_claims,
+            delta="static",
+            tags=["test"],
+            unresolved=[],
+        )
+        result = process_turn(req, ctx)
+        assert isinstance(result, TurnPacketError)
+        assert result.error.code == "ledger_hard_reject"
+        assert "claims" in result.error.message.lower()
+
+    def test_mismatched_focus_unresolved_rejected(self) -> None:
+        """focus.unresolved != top-level unresolved -> ledger_hard_reject."""
+        ctx = _make_ctx()
+        claims = [Claim(text="Test claim", status="new", turn=1)]
+        focus_unresolved = [Unresolved(text="Q1?", turn=1)]
+        top_unresolved = [Unresolved(text="Q2?", turn=1)]
+        req = TurnRequest(
+            schema_version=SCHEMA_VERSION,
+            turn_number=1,
+            conversation_id="conv_dc2",
+            focus=Focus(text="test", claims=claims, unresolved=focus_unresolved),
+            posture="exploratory",
+            position="Test",
+            claims=claims,
+            delta="static",
+            tags=["test"],
+            unresolved=top_unresolved,
+        )
+        result = process_turn(req, ctx)
+        assert isinstance(result, TurnPacketError)
+        assert result.error.code == "ledger_hard_reject"
+        assert "unresolved" in result.error.message.lower()
+
+
+# ============================================================
 # Entity extraction
 # ============================================================
 
@@ -737,6 +791,36 @@ class TestPipelineCheckpoint:
         assert result.status == "success"
         conv = ctx.conversations["conv_ckpt"]
         assert conv.last_checkpoint_id == result.checkpoint_id
+
+    def test_checkpoint_stale_through_pipeline(self) -> None:
+        """Turn 2 with wrong checkpoint_id -> checkpoint_stale through pipeline."""
+        ctx = _make_ctx(git_files=set())
+        r1 = _make_turn_request(conversation_id="conv_stale", turn_number=1)
+        result1 = process_turn(r1, ctx)
+        assert result1.status == "success"
+
+        r2 = _make_turn_request(
+            conversation_id="conv_stale",
+            turn_number=2,
+            state_checkpoint=result1.state_checkpoint,
+            checkpoint_id="wrong-checkpoint-id",
+        )
+        result2 = process_turn(r2, ctx)
+        assert isinstance(result2, TurnPacketError)
+        assert result2.error.code == "checkpoint_stale"
+
+    def test_checkpoint_missing_through_pipeline(self) -> None:
+        """Turn 2 on fresh context with no checkpoint -> checkpoint_missing."""
+        # Fresh context — server has no in-memory state for this conversation
+        ctx = _make_ctx(git_files=set())
+        # Turn 2 without checkpoint payload on a conversation the server hasn't seen
+        r2 = _make_turn_request(
+            conversation_id="conv_missing",
+            turn_number=2,
+        )
+        result2 = process_turn(r2, ctx)
+        assert isinstance(result2, TurnPacketError)
+        assert result2.error.code == "checkpoint_missing"
 
     def test_cross_conversation_checkpoint_rejected(self) -> None:
         """Checkpoint from conversation A must not be accepted by conversation B (D2 guard #4)."""

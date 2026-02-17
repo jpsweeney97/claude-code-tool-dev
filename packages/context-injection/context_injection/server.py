@@ -51,7 +51,10 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
 
 
 def _load_git_files(repo_root: str) -> set[str]:
-    """Load tracked file list from git ls-files. Fail closed on error."""
+    """Load tracked file list from git ls-files.
+
+    Fail closed: empty set means all files denied by git gating.
+    """
     try:
         result = subprocess.run(
             ["git", "ls-files"],

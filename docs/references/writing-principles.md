@@ -132,7 +132,7 @@ When choosing between two edits:
 - Context insufficient: Propose chunked approach; do not attempt incomplete review
 - Wrong mode: Clarify that these principles apply only to instruction documents
 
-### Outcomes (#14)
+### Outcomes (#13)
 
 **Success criteria for applying this document:**
 

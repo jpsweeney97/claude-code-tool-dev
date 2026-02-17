@@ -1,23 +1,23 @@
 """Call 1 pipeline: TurnRequest -> TurnPacketSuccess | TurnPacketError.
 
-Composes the full v0.2.0 processing pipeline:
+Composes the full v0.2.0 processing pipeline (17 steps per contract):
  1. Schema version validation
- 2. Resolve ConversationState
- 3. Checkpoint intake
- 4. Snapshot prior state (claims + evidence)
- 5. Entity extraction from focus + prior claims
- 6. Path checking for Tier 1 file entities
- 7. Template matching with prior evidence
- 8. Budget computation from prior evidence
- 9. Ledger entry validation
-10. Build provisional state
-11. Compute cumulative state, action, reason
-12. Closing probe projection
-13. Serialize checkpoint (returns updated state with checkpoint ID)
-14. Generate ledger summary
-15. Store TurnRequestRecord for Call 2
-16. Commit projected state
-17. Return TurnPacketSuccess
+ 2. Dual-claims channel guard (CC-PF-3)
+ 3. Resolve ConversationState (in-memory or create)
+ 4. Checkpoint intake (restore from checkpoint if needed)
+ 5. Turn cap guard
+ 6. Snapshot prior state (claims + evidence from conversation state)
+ 7. Entity extraction (regex on focus claims/unresolved + prior claims)
+ 8. Entity type disambiguation
+ 9. Path canonicalization and denylist check
+10. Template matching (with prior evidence for dedupe)
+11. Budget computation (from prior evidence)
+12. Ledger entry validation (compute counters, quality, effective_delta)
+13. Build provisional state (append entry)
+14. Compute cumulative state, action, reason
+15. Closing probe projection
+16. Serialize checkpoint
+17. Generate ledger summary, store record, commit state, return TurnPacketSuccess
 
 Contract reference: docs/references/context-injection-contract.md
 """
@@ -114,7 +114,7 @@ def _process_turn_inner(
 ) -> TurnPacketSuccess | TurnPacketError:
     """Inner pipeline logic -- 17-step orchestration."""
 
-    # --- Step 1: Schema version validation ---
+    # --- Step 1: Schema version validation (contract step 1) ---
     if request.schema_version != SCHEMA_VERSION:
         return TurnPacketError(
             schema_version=SCHEMA_VERSION,
@@ -128,7 +128,7 @@ def _process_turn_inner(
             ),
         )
 
-    # --- Step 1b: Dual-claims channel guard (CC-PF-3) ---
+    # --- Step 2: Dual-claims channel guard (CC-PF-3) ---
     if request.focus.claims != request.claims:
         return TurnPacketError(
             schema_version=SCHEMA_VERSION,
@@ -154,10 +154,10 @@ def _process_turn_inner(
             ),
         )
 
-    # --- Step 2: Resolve ConversationState ---
+    # --- Step 3: Resolve ConversationState ---
     base = ctx.get_or_create_conversation(request.conversation_id)
 
-    # --- Step 3: Checkpoint intake ---
+    # --- Step 4: Checkpoint intake ---
     base = validate_checkpoint_intake(
         in_memory=base,
         checkpoint_id=request.checkpoint_id,
@@ -166,7 +166,7 @@ def _process_turn_inner(
         target_conversation_id=request.conversation_id,
     )
 
-    # --- Step 3b: Turn cap guard (CC-4/CC-5/DD-2) ---
+    # --- Step 5: Turn cap guard (CC-4/CC-5/DD-2) ---
     if len(base.entries) >= MAX_CONVERSATION_TURNS:
         return TurnPacketError(
             schema_version=SCHEMA_VERSION,
@@ -180,11 +180,11 @@ def _process_turn_inner(
             ),
         )
 
-    # --- Step 4: Snapshot prior state ---
+    # --- Step 6: Snapshot prior state ---
     prior_claims: list[Claim] = base.get_cumulative_claims()
     prior_evidence = base.get_evidence_history()
 
-    # --- Step 5: Entity extraction ---
+    # --- Steps 7-8: Entity extraction + disambiguation ---
     entities: list[Entity] = []
 
     for claim in request.focus.claims:
@@ -217,7 +217,7 @@ def _process_turn_inner(
             )
         )
 
-    # --- Step 6: Path checking ---
+    # --- Step 9: Path canonicalization and denylist check ---
     path_decisions: list[PathDecision] = []
 
     for entity in entities:
@@ -245,7 +245,7 @@ def _process_turn_inner(
             )
         )
 
-    # --- Step 7: Template matching (with prior evidence) ---
+    # --- Step 10: Template matching (with prior evidence for dedupe) ---
     template_candidates, dedup_records, spec_registry = match_templates(
         entities,
         path_decisions,
@@ -254,10 +254,10 @@ def _process_turn_inner(
         ctx,
     )
 
-    # --- Step 8: Budget computation (from prior evidence) ---
+    # --- Step 11: Budget computation (from prior evidence) ---
     budget = compute_budget(prior_evidence)
 
-    # --- Step 9: Ledger entry validation ---
+    # --- Step 12: Ledger entry validation ---
     # Compute per-turn unresolved closures: items in the previous turn's
     # unresolved list that are absent from the current turn's list.
     if base.entries:
@@ -277,10 +277,10 @@ def _process_turn_inner(
         unresolved_closed=unresolved_closed,
     )
 
-    # --- Step 10: Build provisional state ---
+    # --- Step 13: Build provisional state ---
     provisional = base.with_turn(validated_entry)
 
-    # --- Step 11: Compute cumulative, action, reason ---
+    # --- Step 14: Compute cumulative, action, reason ---
     cumulative = provisional.compute_cumulative_state()
     turn_budget_remaining = max(0, MAX_CONVERSATION_TURNS - cumulative.turns_completed)
     action, action_reason = compute_action(
@@ -289,26 +289,25 @@ def _process_turn_inner(
         closing_probe_fired=provisional.closing_probe_fired,
     )
 
-    # --- Step 12: Closing probe projection ---
+    # --- Step 15: Closing probe projection ---
     if action == "closing_probe":
         projected = provisional.with_closing_probe_fired()
     else:
         projected = provisional
 
-    # --- Step 13: Serialize checkpoint ---
+    # --- Step 16: Serialize checkpoint ---
     projected = compact_ledger(projected)
     serialized = serialize_checkpoint(state=projected)
     projected = serialized.state
     checkpoint_id = serialized.checkpoint_id
     checkpoint_string = serialized.checkpoint_string
 
-    # --- Step 14: Generate ledger summary ---
+    # --- Step 17: Generate ledger summary, store record, commit state, return ---
     ledger_summary = generate_ledger_summary(
         entries=projected.entries,
         cumulative=cumulative,
     )
 
-    # --- Step 15: Store TurnRequestRecord for Call 2 ---
     ref = make_turn_request_ref(request)
     record = TurnRequestRecord(
         turn_request=request,
@@ -316,10 +315,7 @@ def _process_turn_inner(
     )
     ctx.store_record(ref, record)
 
-    # --- Step 16: Commit projected state ---
     ctx.conversations[request.conversation_id] = projected
-
-    # --- Step 17: Return TurnPacketSuccess ---
     return TurnPacketSuccess(
         schema_version=SCHEMA_VERSION,
         status="success",

@@ -1,6 +1,8 @@
 """Tests for the MCP server setup."""
 
 import os
+import subprocess
+from unittest.mock import patch, Mock
 
 from context_injection.server import (
     _load_git_files,
@@ -42,4 +44,24 @@ def test_load_git_files_returns_set() -> None:
 def test_load_git_files_fail_closed() -> None:
     """Non-existent directory should return empty set (fail closed)."""
     result = _load_git_files("/nonexistent/path")
+    assert result == set()
+
+
+def test_load_git_files_timeout_returns_empty() -> None:
+    """TimeoutExpired from subprocess -> empty set (fail closed)."""
+    with patch(
+        "context_injection.server.subprocess.run",
+        side_effect=subprocess.TimeoutExpired("git", 10),
+    ):
+        result = _load_git_files("/any")
+    assert result == set()
+
+
+def test_load_git_files_nonzero_exit_returns_empty() -> None:
+    """Non-zero exit code from git ls-files -> empty set (fail closed)."""
+    with patch(
+        "context_injection.server.subprocess.run",
+        return_value=Mock(returncode=1, stderr="fatal: not a git repository"),
+    ):
+        result = _load_git_files("/any")
     assert result == set()

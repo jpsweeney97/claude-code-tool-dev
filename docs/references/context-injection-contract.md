@@ -125,7 +125,7 @@ Claims and unresolved items appear in two channels: nested inside the focus obje
 | `turn_number` | `int` | Yes | 1-indexed. Used for provenance tracking. |
 | `conversation_id` | `string` | Yes | Stable across turns. Used for conversation state lookup and TurnRequest storage for Call 2 validation. |
 | `focus` | `Focus` | Yes | The current focus the agent is probing. Defines the focus-affinity scope. |
-| `focus.text` | `string` | Yes | Human-readable description of what the focus is about. |
+| `focus.text` | `string` | Yes | Human-readable description of what the focus is about. Informational only — the server does not use it for template ranking or convergence detection. |
 | `focus.claims` | `Claim[]` | Yes | Claims relevant to this focus. Must be identical to top-level `claims` (CC-PF-3). Entity extraction runs on each `claim.text`. All entities have focus affinity. May be empty. |
 | `focus.unresolved` | `Unresolved[]` | Yes | Unresolved items this focus addresses. Must be identical to top-level `unresolved` (CC-PF-3). Entity extraction runs on each `unresolved.text`. All entities have focus affinity. May be empty. |
 | `posture` | `Posture` | Yes | Conversation posture. Reserved for future template ranking adjustments. |

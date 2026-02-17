@@ -1,5 +1,11 @@
 """Protocol enum types for the context injection contract.
 
+Convention: Literal types in ``types.py`` are authoritative for the wire protocol.
+StrEnum classes here provide IDE autocompletion and are used in production only where
+enum values participate in computation: EffectiveDelta, QualityLabel, ValidationTier,
+and TruncationReason. The remaining classes mirror Literal definitions for test
+convenience and documentation.
+
 All values match the contract at docs/references/context-injection-contract.md.
 """
 
@@ -105,14 +111,6 @@ class ScoutStatus(StrEnum):
     TIMEOUT = "timeout"
     INVALID_REQUEST = "invalid_request"
 
-
-class ErrorCode(StrEnum):
-    """TurnPacket error codes."""
-
-    INVALID_SCHEMA_VERSION = "invalid_schema_version"
-    MISSING_REQUIRED_FIELD = "missing_required_field"
-    MALFORMED_JSON = "malformed_json"
-    INTERNAL_ERROR = "internal_error"
 
 
 class TruncationReason(StrEnum):

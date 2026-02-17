@@ -15,7 +15,11 @@ from context_injection.types import Claim, EvidenceRecord
 
 
 class ConversationState(BaseModel):
-    """Per-conversation state. Frozen — projection methods return new instances."""
+    """Per-conversation state. Frozen — projection methods return new instances.
+
+    Server-side state — not protocol-facing. Uses BaseModel directly with
+    identical config to ProtocolModel (frozen, extra=forbid, strict).
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 

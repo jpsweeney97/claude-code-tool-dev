@@ -4,7 +4,6 @@ from context_injection.enums import (
     ClaimStatus,
     Confidence,
     EntityType,
-    ErrorCode,
     ExcerptStrategy,
     PathStatus,
     Posture,
@@ -107,13 +106,6 @@ class TestScoutStatus:
         assert ScoutStatus.INVALID_REQUEST == "invalid_request"
 
 
-class TestErrorCode:
-    def test_values(self) -> None:
-        assert ErrorCode.INVALID_SCHEMA_VERSION == "invalid_schema_version"
-        assert ErrorCode.MISSING_REQUIRED_FIELD == "missing_required_field"
-        assert ErrorCode.MALFORMED_JSON == "malformed_json"
-        assert ErrorCode.INTERNAL_ERROR == "internal_error"
-
 
 class TestTruncationReason:
     def test_values(self) -> None:
@@ -135,7 +127,6 @@ def test_all_enums_are_str_subclass() -> None:
         ScoutAction,
         ExcerptStrategy,
         ScoutStatus,
-        ErrorCode,
         TruncationReason,
     ]:
         for member in enum_cls:

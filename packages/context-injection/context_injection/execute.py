@@ -30,7 +30,7 @@ from context_injection.redact import (
     redact_text,
 )
 from context_injection.state import AppContext, ScoutOptionRecord
-from context_injection.templates import MAX_EVIDENCE_ITEMS
+from context_injection.templates import _make_budget
 from context_injection.truncate import truncate_blocks, truncate_excerpt
 from context_injection.types import (
     Budget,
@@ -119,7 +119,8 @@ def read_file_excerpt(
         end = len(selected)
     else:
         # centered: window around center_line (1-indexed)
-        assert spec.center_line is not None, "centered strategy requires center_line"
+        if spec.center_line is None:
+            raise RuntimeError("centered strategy requires center_line")
         context = (spec.max_lines - 1) // 2
         center_idx = spec.center_line - 1
         start_idx = max(0, center_idx - context)
@@ -187,23 +188,8 @@ def compute_budget(evidence_history_len: int, *, success: bool) -> Budget:
     Failure: evidence_count = history (failed scouts are free).
     Both:    scout_available = False (1 scout per turn, just consumed).
     """
-    if success:
-        evidence_count = evidence_history_len + 1
-    else:
-        evidence_count = evidence_history_len
-    evidence_remaining = max(0, MAX_EVIDENCE_ITEMS - evidence_count)
-    if evidence_remaining > 0:
-        budget_status = "under_budget"
-    elif evidence_remaining == 0:
-        budget_status = "at_budget"
-    else:
-        budget_status = "over_budget"
-    return Budget(
-        evidence_count=evidence_count,
-        evidence_remaining=evidence_remaining,
-        scout_available=False,
-        budget_status=budget_status,
-    )
+    count = evidence_history_len + (1 if success else 0)
+    return _make_budget(count, scout_available=False)
 
 
 # --- Read pipeline ---
@@ -237,7 +223,8 @@ def execute_read(
     Returns ScoutResultSuccess or ScoutResultFailure. Never raises.
     """
     spec = option.spec
-    assert isinstance(spec, ReadSpec)
+    if not isinstance(spec, ReadSpec):
+        raise RuntimeError(f"execute_read requires ReadSpec, got {type(spec).__name__}")
 
     def _fail(status: ScoutFailureStatus, error_message: str) -> ScoutResultFailure:
         logger.info("read scout failed: status=%s, %s", status, error_message)
@@ -261,7 +248,10 @@ def execute_read(
         return _fail("not_found", f"File not found: {spec.resolved_path}")
 
     realpath = runtime.resolved_abs
-    assert realpath is not None  # guaranteed when status == "allowed"
+    if realpath is None:
+        raise RuntimeError(
+            f"path check status=allowed but resolved_abs is None for {spec.resolved_path}"
+        )
 
     # Step 2: Read file (use realpath so opened file == checked file)
     try:
@@ -309,7 +299,8 @@ def execute_read(
         )
 
     # RedactedText path
-    assert isinstance(redact_outcome, RedactedText)
+    if not isinstance(redact_outcome, RedactedText):
+        raise RuntimeError(f"unexpected redact type: {type(redact_outcome).__name__}")
 
     # Step 5: Truncate
     trunc = truncate_excerpt(
@@ -381,7 +372,8 @@ def execute_grep(
     ScoutResultFailure (rg not found, timeout). Never raises.
     """
     spec = option.spec
-    assert isinstance(spec, GrepSpec)
+    if not isinstance(spec, GrepSpec):
+        raise RuntimeError(f"execute_grep requires GrepSpec, got {type(spec).__name__}")
 
     def _fail(status: ScoutFailureStatus, error_message: str) -> ScoutResultFailure:
         logger.info("grep scout failed: status=%s, %s", status, error_message)
