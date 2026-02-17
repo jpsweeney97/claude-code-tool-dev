@@ -3,9 +3,9 @@
 ```yaml
 id: T-006
 date: 2026-02-17
-status: open
+status: complete
 priority: low
-branch: null
+branch: chore/codex-audit-tier3
 blocked_by: [T-004, T-005]
 blocks: []
 related: [T-003, T-004, T-005]
