@@ -27,7 +27,9 @@ from context_injection.state import (
     generate_token,
     make_turn_request_ref,
 )
+from context_injection.pipeline import process_turn
 from context_injection.types import (
+    Claim,
     EvidenceRecord,
     Focus,
     GrepSpec,
@@ -464,7 +466,6 @@ def _setup_execute_scout_test(
     *,
     file_content: str = "x = 1\n",
     file_name: str = "app.py",
-    evidence_history: list | None = None,
     action: str = "read",
 ) -> tuple[AppContext, ScoutRequest]:
     """Set up a full execute_scout scenario with a real file.
@@ -477,16 +478,17 @@ def _setup_execute_scout_test(
     f = tmp_path / file_name
     f.write_text(file_content)
 
-    if evidence_history is None:
-        evidence_history = []
-
     req = TurnRequest(
         schema_version=SCHEMA_VERSION,
         turn_number=1,
         conversation_id="conv_1",
         focus=Focus(text="test", claims=[], unresolved=[]),
-        evidence_history=evidence_history,
         posture="exploratory",
+        position="Test position",
+        claims=[],
+        delta="static",
+        tags=["test"],
+        unresolved=[],
     )
     ref = make_turn_request_ref(req)
     so_id = "so_001"
@@ -697,15 +699,14 @@ class TestExecuteScout:
         ctx, req = _setup_execute_scout_test(
             tmp_path, action="grep",
             file_content="class MyClass:\n    pass\n",
-            evidence_history=[
-                EvidenceRecord(
-                    entity_key="symbol:OtherClass",
-                    template_id="probe.symbol_repo_fact",
-                    turn=0,
-                ),
-            ],
         )
         ctx.git_files = {"app.py"}
+        # Seed 1 prior evidence in ConversationState
+        conv = ctx.get_or_create_conversation("conv_1")
+        conv = conv.with_evidence(
+            EvidenceRecord(entity_key="file_path:prior.py", template_id="probe.file_repo_fact", turn=0),
+        )
+        ctx.conversations["conv_1"] = conv
         mock_matches = [
             GrepRawMatch(path="app.py", line_number=1, line_text="class MyClass:"),
         ]
@@ -722,14 +723,13 @@ class TestExecuteScout:
 
         ctx, req = _setup_execute_scout_test(
             tmp_path, action="grep",
-            evidence_history=[
-                EvidenceRecord(
-                    entity_key="symbol:OtherClass",
-                    template_id="probe.symbol_repo_fact",
-                    turn=0,
-                ),
-            ],
         )
+        # Seed 1 prior evidence in ConversationState
+        conv = ctx.get_or_create_conversation("conv_1")
+        conv = conv.with_evidence(
+            EvidenceRecord(entity_key="file_path:prior.py", template_id="probe.file_repo_fact", turn=0),
+        )
+        ctx.conversations["conv_1"] = conv
         with patch("context_injection.execute.run_grep", side_effect=RgNotFoundError("not found")):
             result = execute_scout(ctx, req)
 
@@ -738,16 +738,15 @@ class TestExecuteScout:
         assert result.budget.evidence_count == 1
 
     def test_budget_with_evidence_history(self, tmp_path) -> None:
-        history = [
-            EvidenceRecord(
-                entity_key="file_path:other.py",
-                template_id="probe.file_repo_fact",
-                turn=1,
-            ),
-        ]
         ctx, req = _setup_execute_scout_test(
-            tmp_path, evidence_history=history,
+            tmp_path,
         )
+        # Seed 1 prior evidence in ConversationState
+        conv = ctx.get_or_create_conversation("conv_1")
+        conv = conv.with_evidence(
+            EvidenceRecord(entity_key="file_path:prior.py", template_id="probe.file_repo_fact", turn=0),
+        )
+        ctx.conversations["conv_1"] = conv
         result = execute_scout(ctx, req)
         assert isinstance(result, ScoutResultSuccess)
         assert result.budget.evidence_count == 2  # 1 prior + 1 current
@@ -778,6 +777,110 @@ class TestExecuteScout:
         result = execute_scout(ctx, bad_req)
         assert isinstance(result, ScoutResultInvalid)
         assert "not found" in result.error_message
+
+
+# --- Evidence from ConversationState ---
+
+
+class TestExecuteEvidenceFromConversation:
+    """execute_scout uses ConversationState for evidence count."""
+
+    def test_budget_reflects_conversation_evidence(self, tmp_path) -> None:
+        """Evidence count comes from conversation state, not request."""
+        # Set up ctx with a file
+        (tmp_path / "src").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "src" / "app.py").write_text("def hello(): pass")
+        ctx = AppContext.create(
+            repo_root=str(tmp_path),
+            git_files={"src/app.py"},
+        )
+
+        # Seed conversation with 2 prior evidence records
+        conv = ctx.get_or_create_conversation("conv_budget")
+        conv = conv.with_evidence(
+            EvidenceRecord(entity_key="file_path:file1.py", template_id="clarify.file_path", turn=1),
+        )
+        conv = conv.with_evidence(
+            EvidenceRecord(entity_key="file_path:file2.py", template_id="clarify.file_path", turn=1),
+        )
+        ctx.conversations["conv_budget"] = conv
+
+        # Process turn 1 to create a scout option
+        claims = [Claim(text="Check src/app.py", status="new", turn=1)]
+        request = TurnRequest(
+            schema_version=SCHEMA_VERSION,
+            turn_number=1,
+            conversation_id="conv_budget",
+            focus=Focus(text="analysis", claims=claims, unresolved=[]),
+            posture="exploratory",
+            position="Test position",
+            claims=claims,
+            delta="advancing",
+            tags=["test"],
+            unresolved=[],
+        )
+        turn_result = process_turn(request, ctx)
+        assert turn_result.status == "success"
+
+        # Execute a scout — budget should reflect 2 prior + 1 new = 3
+        assert len(turn_result.template_candidates) > 0, (
+            "Deterministic fixture must produce template candidates"
+        )
+        candidate = turn_result.template_candidates[0]
+        scout_req = ScoutRequest(
+            schema_version=SCHEMA_VERSION,
+            scout_option_id=candidate.scout_options[0].id,
+            scout_token=candidate.scout_options[0].scout_token,
+            turn_request_ref=f"{request.conversation_id}:{request.turn_number}",
+        )
+        scout_result = execute_scout(ctx, scout_req)
+        # Budget should show 3 evidence items (2 prior + 1 new)
+        assert scout_result.budget.evidence_count == 3
+
+    def test_evidence_recorded_after_success(self, tmp_path) -> None:
+        """Successful scout execution records evidence in ConversationState."""
+        (tmp_path / "src").mkdir(exist_ok=True)
+        (tmp_path / "src" / "app.py").write_text("def hello(): pass")
+        ctx = AppContext.create(
+            repo_root=str(tmp_path),
+            git_files={"src/app.py"},
+        )
+
+        # Process turn
+        claims = [Claim(text="Check src/app.py", status="new", turn=1)]
+        request = TurnRequest(
+            schema_version=SCHEMA_VERSION,
+            turn_number=1,
+            conversation_id="conv_record",
+            focus=Focus(text="analysis", claims=claims, unresolved=[]),
+            posture="exploratory",
+            position="Test position",
+            claims=claims,
+            delta="advancing",
+            tags=["test"],
+            unresolved=[],
+        )
+        turn_result = process_turn(request, ctx)
+        assert turn_result.status == "success"
+
+        # Execute scout
+        assert len(turn_result.template_candidates) > 0, (
+            "Deterministic fixture must produce template candidates"
+        )
+        candidate = turn_result.template_candidates[0]
+        scout_req = ScoutRequest(
+            schema_version=SCHEMA_VERSION,
+            scout_option_id=candidate.scout_options[0].id,
+            scout_token=candidate.scout_options[0].scout_token,
+            turn_request_ref=f"{request.conversation_id}:{request.turn_number}",
+        )
+        scout_result = execute_scout(ctx, scout_req)
+        assert isinstance(scout_result, ScoutResultSuccess)
+
+        # Conversation should now have evidence
+        conv = ctx.conversations["conv_record"]
+        evidence = conv.get_evidence_history()
+        assert len(evidence) >= 1
 
 
 # --- Startup gates ---

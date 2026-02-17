@@ -3,6 +3,7 @@
 import pytest
 
 from context_injection.canonical import ScoutTokenPayload
+from context_injection.conversation import ConversationState
 from context_injection.state import (
     MAX_TURN_RECORDS,
     AppContext,
@@ -28,15 +29,20 @@ def _make_read_spec(**overrides) -> ReadSpec:
 
 
 def _make_turn_request(
-    conversation_id: str = "conv_1", turn_number: int = 1
+    conversation_id: str = "conv_1", turn_number: int = 1,
 ) -> TurnRequest:
+    """Convenience TurnRequest constructor with sensible 0.2.0 defaults."""
     return TurnRequest(
         schema_version=SCHEMA_VERSION,
         turn_number=turn_number,
         conversation_id=conversation_id,
         focus=Focus(text="test", claims=[], unresolved=[]),
-        evidence_history=[],
         posture="exploratory",
+        position="Test position",
+        claims=[],
+        delta="static",
+        tags=["test"],
+        unresolved=[],
     )
 
 
@@ -386,3 +392,70 @@ class TestConsumeScout:
         ctx.consume_scout(ref, "so_001", token1)
         with pytest.raises(ValueError, match="already used"):
             ctx.consume_scout(ref, "so_002", token2)
+
+
+class TestAppContextConversations:
+    """AppContext conversation management."""
+
+    def test_conversations_empty_by_default(self) -> None:
+        ctx = AppContext.create(repo_root="/tmp/test")
+        assert ctx.conversations == {}
+
+    def test_get_or_create_new(self) -> None:
+        ctx = AppContext.create(repo_root="/tmp/test")
+        state = ctx.get_or_create_conversation("conv-1")
+        assert isinstance(state, ConversationState)
+        assert state.conversation_id == "conv-1"
+        assert state.entries == ()
+
+    def test_get_or_create_returns_existing(self) -> None:
+        ctx = AppContext.create(repo_root="/tmp/test")
+        state1 = ctx.get_or_create_conversation("conv-1")
+        state2 = ctx.get_or_create_conversation("conv-1")
+        assert state1 is state2
+
+    def test_multiple_conversations(self) -> None:
+        ctx = AppContext.create(repo_root="/tmp/test")
+        s1 = ctx.get_or_create_conversation("conv-1")
+        s2 = ctx.get_or_create_conversation("conv-2")
+        assert s1.conversation_id == "conv-1"
+        assert s2.conversation_id == "conv-2"
+        assert len(ctx.conversations) == 2
+
+    def test_conversation_replacement(self) -> None:
+        """Pipeline commits by replacing dict entry."""
+        ctx = AppContext.create(repo_root="/tmp/test")
+        state = ctx.get_or_create_conversation("conv-1")
+        projected = state.with_checkpoint_id("cp-1")
+        ctx.conversations["conv-1"] = projected
+        retrieved = ctx.get_or_create_conversation("conv-1")
+        assert retrieved.last_checkpoint_id == "cp-1"
+
+
+class TestConversationGuardLimit:
+    """DD-3: CONVERSATION_GUARD_LIMIT overflow protection."""
+
+    def test_below_limit_creates(self) -> None:
+        """Creating conversations below the limit succeeds."""
+        ctx = AppContext.create(repo_root="/tmp/test")
+        for i in range(ctx.CONVERSATION_GUARD_LIMIT):
+            state = ctx.get_or_create_conversation(f"conv-{i}")
+            assert state.conversation_id == f"conv-{i}"
+        assert len(ctx.conversations) == ctx.CONVERSATION_GUARD_LIMIT
+
+    def test_overflow_on_new_id_raises(self) -> None:
+        """Creating a new conversation at the limit raises ValueError."""
+        ctx = AppContext.create(repo_root="/tmp/test")
+        for i in range(ctx.CONVERSATION_GUARD_LIMIT):
+            ctx.get_or_create_conversation(f"conv-{i}")
+        with pytest.raises(ValueError, match="Conversation limit exceeded"):
+            ctx.get_or_create_conversation("conv-overflow")
+
+    def test_existing_id_returns_at_limit(self) -> None:
+        """Retrieving an existing conversation at the limit succeeds."""
+        ctx = AppContext.create(repo_root="/tmp/test")
+        for i in range(ctx.CONVERSATION_GUARD_LIMIT):
+            ctx.get_or_create_conversation(f"conv-{i}")
+        # Existing ID should still be retrievable
+        state = ctx.get_or_create_conversation("conv-0")
+        assert state.conversation_id == "conv-0"

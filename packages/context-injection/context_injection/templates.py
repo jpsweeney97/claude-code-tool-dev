@@ -114,10 +114,17 @@ def compute_budget(evidence_history: list[EvidenceRecord]) -> Budget:
     evidence_count = len(evidence_history)
     evidence_remaining = max(0, MAX_EVIDENCE_ITEMS - evidence_count)
     scout_available = evidence_remaining > 0
+    if evidence_remaining > 0:
+        budget_status = "under_budget"
+    elif evidence_remaining == 0:
+        budget_status = "at_budget"
+    else:
+        budget_status = "over_budget"
     return Budget(
         evidence_count=evidence_count,
         evidence_remaining=evidence_remaining,
         scout_available=scout_available,
+        budget_status=budget_status,
     )
 
 

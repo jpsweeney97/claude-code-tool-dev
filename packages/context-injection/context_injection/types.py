@@ -10,37 +10,24 @@ Contract reference: docs/references/context-injection-contract.md
 
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
+from pydantic import Discriminator, Field, Tag, model_validator
+
+from context_injection.base_types import Claim, ProtocolModel, Unresolved
+from context_injection.ledger import (
+    CumulativeState,
+    LedgerEntry,
+    LedgerEntryCounters,  # re-exported for test convenience
+    ValidationWarning,
+)
 
 
-SchemaVersionLiteral = Literal["0.1.0"]
+SchemaVersionLiteral = Literal["0.2.0"]
 
-SCHEMA_VERSION: SchemaVersionLiteral = "0.1.0"
+SCHEMA_VERSION: SchemaVersionLiteral = "0.2.0"
 """Single-point version control. 0.x uses exact-match semantics."""
 
 
-class ProtocolModel(BaseModel):
-    """Base for all protocol types. Frozen, strict, forbids extra fields."""
-
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-
-
 # --- TurnRequest input models (Call 1 input) ---
-
-
-class Claim(ProtocolModel):
-    """A claim from the ledger."""
-
-    text: str
-    status: Literal["new", "reinforced", "revised", "conceded"]
-    turn: int
-
-
-class Unresolved(ProtocolModel):
-    """An unresolved question from the ledger."""
-
-    text: str
-    turn: int
 
 
 class Focus(ProtocolModel):
@@ -71,9 +58,18 @@ class TurnRequest(ProtocolModel):
     turn_number: int
     conversation_id: str
     focus: Focus
-    context_claims: list[Claim] = []
-    evidence_history: list[EvidenceRecord] = []
     posture: Literal["adversarial", "collaborative", "exploratory", "evaluative"]
+
+    # --- 0.2.0: Ledger fields (top-level for validation) ---
+    position: str
+    claims: list[Claim]
+    delta: Literal["advancing", "shifting", "static"]
+    tags: list[str]
+    unresolved: list[Unresolved]
+
+    # --- 0.2.0: Checkpoint fields (optional — absent on turn 1) ---
+    state_checkpoint: str | None = None
+    checkpoint_id: str | None = None
 
 
 # --- TurnPacket output models (Call 1 response nested types) ---
@@ -128,6 +124,7 @@ class Budget(ProtocolModel):
     evidence_count: int
     evidence_remaining: int
     scout_available: bool
+    budget_status: Literal["under_budget", "at_budget", "over_budget"]
 
 
 class DedupRecord(ProtocolModel):
@@ -281,6 +278,11 @@ class ErrorDetail(ProtocolModel):
         "missing_required_field",
         "malformed_json",
         "internal_error",
+        "ledger_hard_reject",
+        "checkpoint_missing",
+        "checkpoint_invalid",
+        "checkpoint_stale",
+        "turn_cap_exceeded",
     ]
     message: str
     details: dict | None = None
@@ -296,6 +298,20 @@ class TurnPacketSuccess(ProtocolModel):
     template_candidates: list[TemplateCandidate]
     budget: Budget
     deduped: list[DedupRecord]
+
+    # --- 0.2.0: Ledger validation results ---
+    validated_entry: LedgerEntry
+    warnings: list[ValidationWarning]
+    cumulative: CumulativeState
+
+    # --- 0.2.0: Conversation control ---
+    action: Literal["continue_dialogue", "closing_probe", "conclude"]
+    action_reason: str
+    ledger_summary: str
+
+    # --- 0.2.0: Checkpoint ---
+    state_checkpoint: str
+    checkpoint_id: str
 
 
 class TurnPacketError(ProtocolModel):

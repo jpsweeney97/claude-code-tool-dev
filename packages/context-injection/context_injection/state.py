@@ -18,9 +18,10 @@ import hmac
 import os
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import ClassVar, Literal
 
 from context_injection.canonical import ScoutTokenPayload, canonical_json_bytes
+from context_injection.conversation import ConversationState
 from context_injection.types import ReadSpec, GrepSpec, TurnRequest
 
 MAX_TURN_RECORDS: int = 200
@@ -88,6 +89,12 @@ class AppContext:
     """Tracked file paths from git ls-files (repo-relative, populated at startup)."""
     entity_counter: int = 0
     """Monotonic counter for entity IDs within this process."""
+    conversations: dict[str, ConversationState] = field(default_factory=dict)
+    """Per-conversation state, keyed by conversation_id."""
+
+    CONVERSATION_GUARD_LIMIT: ClassVar[int] = 50
+    """Maximum number of tracked conversations. Prevents unbounded memory growth
+    from leaked or malicious conversation IDs."""
 
     @classmethod
     def create(cls, repo_root: str, git_files: set[str] | None = None) -> AppContext:
@@ -102,6 +109,28 @@ class AppContext:
         """Generate the next entity ID (e_NNN format, monotonic per process)."""
         self.entity_counter += 1
         return f"e_{self.entity_counter:03d}"
+
+    def get_or_create_conversation(self, conversation_id: str) -> ConversationState:
+        """Return existing conversation state or create empty one.
+
+        The returned state may be "fresh" (no real state) if the server
+        restarted. Checkpoint intake (validate_checkpoint_intake) determines
+        whether to use it or restore from a checkpoint.
+
+        Raises ValueError if creating a new conversation would exceed
+        CONVERSATION_GUARD_LIMIT (DD-3 overflow protection).
+        """
+        if conversation_id not in self.conversations:
+            if len(self.conversations) >= self.CONVERSATION_GUARD_LIMIT:
+                raise ValueError(
+                    f"Conversation limit exceeded: {len(self.conversations)} "
+                    f"conversations already tracked (limit: {self.CONVERSATION_GUARD_LIMIT}). "
+                    f"Cannot create conversation {conversation_id!r}."
+                )
+            self.conversations[conversation_id] = ConversationState(
+                conversation_id=conversation_id,
+            )
+        return self.conversations[conversation_id]
 
     def consume_scout(
         self,
