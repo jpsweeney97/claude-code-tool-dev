@@ -7,6 +7,9 @@
 """
 Suggest /codex consultation after repeated Bash failures.
 
+Verified 2026-02-17: PostToolUseFailure additionalContext delivery confirmed working.
+The additionalContext field is injected as a system-reminder visible to Claude.
+
 Tracks failure count per session in a temp file. After THRESHOLD failures,
 injects an additionalContext nudge suggesting /codex for a second opinion.
 Counter resets after each nudge so the suggestion recurs only after another
