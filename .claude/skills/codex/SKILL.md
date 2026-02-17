@@ -40,7 +40,7 @@ This skill assumes Claude Code can see an MCP server named `codex` that runs the
 
 ## Arguments
 
-Parse optional flags from `$ARGUMENTS`. Remaining text after flags = PROMPT.
+Parse optional flags from `$ARGUMENTS` — the raw text following `/codex` in the user's command (e.g., for `/codex -t high review this PR`, `$ARGUMENTS` is `-t high review this PR`). Remaining text after extracting flags = PROMPT.
 
 | Flag | MCP Parameter | Default |
 |------|---------------|---------|
@@ -48,6 +48,8 @@ Parse optional flags from `$ARGUMENTS`. Remaining text after flags = PROMPT.
 | `-s {read-only\|workspace-write\|danger-full-access}` | `sandbox` | `read-only` |
 | `-a {untrusted\|on-failure\|on-request\|never}` | `approval-policy` | `never` if read-only, `on-failure` if workspace-write or danger-full-access |
 | `-t {minimal\|low\|medium\|high\|xhigh}` | `config` → `{"model_reasoning_effort": "<value>"}` | `xhigh` |
+
+Flag values are case-insensitive: `high`, `HIGH`, and `High` are all accepted for `-t` and other enum flags.
 
 Only `prompt` is required by the MCP tool schema for `mcp__codex__codex`. For deterministic, least-privilege behavior, always pass resolved execution controls (`sandbox`, `approval-policy`, and `config.model_reasoning_effort`) rather than relying on upstream defaults. Only include `model` when overriding Codex's default model. If the user explicitly sets `-a`, that value always overrides the sandbox-coupled default.
 
@@ -121,6 +123,34 @@ For subagent delegation:
 3. The subagent manages the conversation, detects convergence, and returns a synthesis + the Codex `threadId`
 4. To continue later, resume the subagent via its `agentId` (preserves richer context than raw `threadId`)
 
+**Delegation example:**
+
+User asks: `/codex I need a deep review of our caching strategy — challenge my assumptions`
+
+This likely needs 3+ adversarial turns — delegate to codex-dialogue:
+
+```
+Task(
+  subagent_type: "codex-dialogue",
+  prompt: """
+    Goal: Challenge the caching strategy assumptions.
+    Posture: adversarial
+    Budget: 5
+
+    ## Context
+    [Current caching approach, decisions made, trade-offs considered]
+
+    ## Material
+    [Key cache implementation files, config, performance data]
+
+    ## Question
+    What are the weakest assumptions in this caching strategy?
+  """
+)
+```
+
+The subagent returns a confidence-annotated synthesis with convergence points, divergence points, and the Codex `threadId`. Present this synthesis to the user with your own assessment.
+
 ## Step 3: Invoke Codex
 
 Authentication is handled by the Codex CLI from cached login state.
@@ -129,7 +159,7 @@ Authentication is handled by the Codex CLI from cached login state.
 
 1. Never read or parse `auth.json` during normal consultation flow.
 2. Never include `id_token`, `access_token`, `refresh_token`, `account_id`, bearer tokens, or API keys (`sk-...`) in prompts, tool parameters, logs, or user-visible output.
-3. Before sending a briefing, scan for secret-like text. If detected, replace with `[REDACTED: sensitive credential material]` and note the redaction to the user.
+3. Before sending a briefing, scan for secret-like text. If detected, replace with `[REDACTED: credential material]` and note the redaction to the user.
 4. If redaction cannot be confirmed, do not send the briefing (fail-closed).
 
 ### New conversation
@@ -180,6 +210,8 @@ Present Codex's response to the user with your own assessment:
 - Recommended next steps
 
 Do not just parrot Codex's response. Add value as the primary agent.
+
+**After relaying:** Capture diagnostics for this consultation (see [Diagnostics](#diagnostics) section below — timestamp, strategy, flags, success/failure).
 
 ## Failure Handling
 
