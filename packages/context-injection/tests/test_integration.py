@@ -16,7 +16,6 @@ from context_injection.types import (
 )
 
 
-@pytest.mark.xfail(strict=True, reason="D4b: pipeline uses context_claims for entity extraction (Task 13a)")
 def test_contract_example_produces_valid_turn_packet() -> None:
     """The contract's Call 1 example input produces a valid TurnPacketSuccess.
 
@@ -30,42 +29,42 @@ def test_contract_example_produces_valid_turn_packet() -> None:
     }
     ctx = AppContext.create(repo_root="/tmp/repo", git_files=git_files)
 
+    # Claims and unresolved must be identical in focus and top-level (CC-PF-3).
+    claims = [
+        {
+            "text": "The project uses `src/config/settings.yaml` for all configuration",
+            "status": "new",
+            "turn": 1,
+        },
+        {
+            "text": "YAML was chosen over TOML for readability",
+            "status": "new",
+            "turn": 1,
+        },
+    ]
+    unresolved = [
+        {
+            "text": "Whether `config.yaml` is the only config file or if there are environment overrides",
+            "turn": 1,
+        }
+    ]
+
     request = TurnRequest.model_validate(
         {
             "schema_version": SCHEMA_VERSION,
-            "turn_number": 3,
+            "turn_number": 1,
             "conversation_id": "conv_abc123",
             "focus": {
                 "text": "Whether the project uses YAML or TOML for configuration",
-                "claims": [
-                    {
-                        "text": "The project uses `src/config/settings.yaml` for all configuration",
-                        "status": "new",
-                        "turn": 3,
-                    },
-                    {
-                        "text": "YAML was chosen over TOML for readability",
-                        "status": "new",
-                        "turn": 3,
-                    },
-                ],
-                "unresolved": [
-                    {
-                        "text": "Whether `config.yaml` is the only config file or if there are environment overrides",
-                        "turn": 3,
-                    }
-                ],
+                "claims": claims,
+                "unresolved": unresolved,
             },
             "posture": "evaluative",
             "position": "YAML is the primary config format",
-            "claims": [
-                {"text": "Uses YAML", "status": "new", "turn": 3},
-            ],
+            "claims": claims,
             "delta": "advancing",
             "tags": ["config"],
-            "unresolved": [
-                {"text": "Are there environment overrides?", "turn": 3},
-            ],
+            "unresolved": unresolved,
         }
     )
 
@@ -127,7 +126,7 @@ def test_contract_example_produces_valid_turn_packet() -> None:
     assert ranks[0] == 1
 
     # --- Store ---
-    ref = "conv_abc123:3"
+    ref = "conv_abc123:1"
     assert ref in ctx.store
     record = ctx.store[ref]
     assert record.turn_request is request
@@ -135,7 +134,7 @@ def test_contract_example_produces_valid_turn_packet() -> None:
     assert len(record.scout_options) > 0
 
 
-@pytest.mark.xfail(strict=True, reason="D4b: pipeline uses context_claims for entity extraction (Task 13a)")
+@pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 13b)")
 def test_grep_call1_call2_round_trip(tmp_path) -> None:
     """Full Call 1 -> Call 2 flow for a grep scout.
 
@@ -163,7 +162,15 @@ def test_grep_call1_call2_round_trip(tmp_path) -> None:
     git_files = {"src/loader.py"}
     ctx = AppContext.create(repo_root=str(tmp_path), git_files=git_files)
 
-    # Call 1: process_turn with a focus mentioning the dotted symbol
+    # Call 1: process_turn with a focus mentioning the dotted symbol.
+    # Claims must be identical in focus and top-level (CC-PF-3).
+    claims = [
+        {
+            "text": "`app.config.load` reads from YAML files",
+            "status": "new",
+            "turn": 1,
+        },
+    ]
     request = TurnRequest.model_validate(
         {
             "schema_version": SCHEMA_VERSION,
@@ -171,20 +178,12 @@ def test_grep_call1_call2_round_trip(tmp_path) -> None:
             "conversation_id": "conv_grep_test",
             "focus": {
                 "text": "How does `app.config.load` initialize settings?",
-                "claims": [
-                    {
-                        "text": "`app.config.load` reads from YAML files",
-                        "status": "new",
-                        "turn": 1,
-                    },
-                ],
+                "claims": claims,
                 "unresolved": [],
             },
             "posture": "exploratory",
             "position": "Investigating app.config.load",
-            "claims": [
-                {"text": "app.config.load reads from YAML files", "status": "new", "turn": 1},
-            ],
+            "claims": claims,
             "delta": "static",
             "tags": ["investigation"],
             "unresolved": [],
@@ -226,7 +225,7 @@ def test_grep_call1_call2_round_trip(tmp_path) -> None:
     assert scout_result.budget.scout_available is False
 
 
-@pytest.mark.xfail(strict=True, reason="D4b: pipeline uses context_claims for entity extraction (Task 13a)")
+@pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 13b)")
 def test_grep_no_matches_returns_success(tmp_path) -> None:
     """Grep for a non-existent symbol returns success with 0 matches."""
     if shutil.which("rg") is None:
@@ -236,6 +235,14 @@ def test_grep_no_matches_returns_success(tmp_path) -> None:
     git_files = {"main.py"}
     ctx = AppContext.create(repo_root=str(tmp_path), git_files=git_files)
 
+    # Claims must be identical in focus and top-level (CC-PF-3).
+    claims = [
+        {
+            "text": "`nonexistent.symbol.name` is used somewhere",
+            "status": "new",
+            "turn": 1,
+        },
+    ]
     request = TurnRequest.model_validate(
         {
             "schema_version": SCHEMA_VERSION,
@@ -243,20 +250,12 @@ def test_grep_no_matches_returns_success(tmp_path) -> None:
             "conversation_id": "conv_no_match",
             "focus": {
                 "text": "How does `nonexistent.symbol.name` work?",
-                "claims": [
-                    {
-                        "text": "`nonexistent.symbol.name` is used somewhere",
-                        "status": "new",
-                        "turn": 1,
-                    },
-                ],
+                "claims": claims,
                 "unresolved": [],
             },
             "posture": "exploratory",
             "position": "Investigating nonexistent.symbol.name",
-            "claims": [
-                {"text": "nonexistent.symbol.name is used somewhere", "status": "new", "turn": 1},
-            ],
+            "claims": claims,
             "delta": "static",
             "tags": ["investigation"],
             "unresolved": [],
@@ -288,7 +287,7 @@ def test_grep_no_matches_returns_success(tmp_path) -> None:
     assert "0 matches" in scout_result.evidence_wrapper
 
 
-@pytest.mark.xfail(strict=True, reason="D4b: pipeline uses context_claims for entity extraction (Task 13a)")
+@pytest.mark.xfail(strict=True, reason="D4b: execute_scout uses turn_request.evidence_history (Task 13b)")
 def test_grep_denied_file_filtered(tmp_path) -> None:
     """Matches in denied files (.env) are excluded from grep results."""
     if shutil.which("rg") is None:
@@ -299,6 +298,14 @@ def test_grep_denied_file_filtered(tmp_path) -> None:
     git_files = {".env"}
     ctx = AppContext.create(repo_root=str(tmp_path), git_files=git_files)
 
+    # Claims must be identical in focus and top-level (CC-PF-3).
+    claims = [
+        {
+            "text": "`app.config.load` is referenced in the codebase",
+            "status": "new",
+            "turn": 1,
+        },
+    ]
     request = TurnRequest.model_validate(
         {
             "schema_version": SCHEMA_VERSION,
@@ -306,20 +313,12 @@ def test_grep_denied_file_filtered(tmp_path) -> None:
             "conversation_id": "conv_denied",
             "focus": {
                 "text": "Where is `app.config.load` used?",
-                "claims": [
-                    {
-                        "text": "`app.config.load` is referenced in the codebase",
-                        "status": "new",
-                        "turn": 1,
-                    },
-                ],
+                "claims": claims,
                 "unresolved": [],
             },
             "posture": "exploratory",
             "position": "Investigating app.config.load",
-            "claims": [
-                {"text": "app.config.load is referenced in the codebase", "status": "new", "turn": 1},
-            ],
+            "claims": claims,
             "delta": "static",
             "tags": ["investigation"],
             "unresolved": [],
