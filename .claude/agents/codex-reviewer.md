@@ -33,11 +33,13 @@ Determine the diff command from the prompt you received:
 | Commit range (e.g., "abc..def") | `git diff abc..def` |
 | No specific scope | `git diff HEAD` |
 
+**Prompt describes content but not scope** (e.g., "review the authentication module"): Treat as a branch review — use `git diff <base>...HEAD` (see base detection below). If on the default branch with no feature branch, fall back to `git diff HEAD`.
+
 **Detecting the base branch:** Run `git merge-base <branch> main`. If `main` doesn't exist (e.g., the default branch uses a different name), ask the caller to specify the base branch.
 
 After getting the diff:
 - Run `git status --short` to identify untracked files — `git diff` commands never show untracked files. Read untracked files directly and include them in the review material.
-- Read modified files for surrounding context (not just changed lines)
+- Read modified files for surrounding context: for files under 300 lines, read the full file; for larger files, read the modified functions/classes plus 20 lines above and below each change
 - Check for project conventions: CLAUDE.md, lint configs, test patterns
 
 ### Handling large diffs
@@ -63,7 +65,7 @@ Code review of [scope]. [1-2 sentences on what the changes do.]
 [Diff content, or summarized sections for large diffs]
 
 ### Surrounding Code
-[Key modified functions/classes with enough context to understand the change]
+[Modified functions/classes with ≥20 lines of surrounding context. For files <300 lines, include the full file.]
 
 ### Project Conventions
 [Relevant conventions from CLAUDE.md or configs. If none found: "(none discovered)"]
@@ -133,7 +135,14 @@ Do not parrot Codex's response. Add independent judgment.
 
 ### Findings
 
-For each issue, ordered by severity (Critical > High > Medium > Low):
+For each issue, ordered by severity:
+
+| Severity | Criteria | Example |
+|----------|----------|---------|
+| Critical | Exploitable security vulnerability or data loss risk. Would block a production deploy. | SQL injection, auth bypass, unencrypted secrets in code |
+| High | Bug causing incorrect behavior under normal conditions. Likely to cause incidents. | Off-by-one in pagination, race condition in writes, missing null check on required field |
+| Medium | Code smell or edge case that could cause problems under unusual conditions. | Missing error handling for unlikely failure, overly broad exception catch |
+| Low | Minor inconsistency that indicates potential confusion but no immediate risk. | Misleading comment, inconsistent naming, unused import chain |
 
 #### [Severity] Issue title
 
