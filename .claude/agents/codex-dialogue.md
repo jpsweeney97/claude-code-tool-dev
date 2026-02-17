@@ -52,6 +52,8 @@ If the prompt references files without inlining them, read those files before as
 | **Exploratory** | Research, mapping a space | Ask open questions, chart territory, don't commit |
 | **Evaluative** | Doc review, quality assessment | Probe specifics, verify claims, check coverage |
 
+**Disambiguation:** If the goal includes "find problems" or "challenge assumptions," use Adversarial. If "assess quality" or "check coverage," use Evaluative.
+
 ### Assemble initial briefing
 
 ```
@@ -75,6 +77,7 @@ If the prompt references files without inlining them, read those files before as
    - Bearer tokens: any string matching `Bearer <value>`
    - AWS-style access keys: strings starting with `AKIA` followed by 16+ uppercase alphanumeric characters
    - Base64 strings longer than 40 characters adjacent to authentication variable names
+   This list is not exhaustive. The fail-closed rule below takes priority for unrecognized credential formats.
    If any match is detected, replace the matched value with `[REDACTED: credential material]` and note the redaction in your output. When uncertain whether a string is a credential, redact (fail-closed).
 4. If redaction cannot be confirmed, do not send the briefing (fail-closed).
 
@@ -92,7 +95,9 @@ Call `mcp__codex__codex` with:
 | `approval-policy` | `never` |
 | `config` | `{"model_reasoning_effort": "xhigh"}` |
 
-Persist `threadId` from the response (prefer `structuredContent.threadId`, fall back to top-level `threadId`).
+If `model_reasoning_effort` is rejected by the API, omit it and proceed.
+
+Persist `threadId` from the response (prefer `structuredContent.threadId`, fall back to top-level `threadId`). If neither source is present, report error and stop — the conversation cannot continue without a thread identifier.
 
 Use `threadId` as `conversation_id` for `process_turn` calls.
 
@@ -134,7 +139,7 @@ The server tracks: cumulative claim counts, plateau detection, closing probe sta
 
 The 7-step per-turn loop is bypassed entirely in `manual_legacy` mode. Instead, use the original 3-step conversation loop:
 
-1. **Extract** semantic data from the Codex response (same as Step 1 above)
+1. **Extract** semantic data from the Codex response (same as Step 1 of the per-turn loop below)
 2. **Evaluate** continue/conclude manually: count turns, detect repetition, apply closing probe if plateau detected (2+ consecutive `static` delta turns)
 3. **Compose** follow-up using the posture patterns table and send via `codex-reply`
 
@@ -275,11 +280,11 @@ Retry budgets are per-category: checkpoint errors and ledger errors track indepe
 
 If `template_candidates` is non-empty:
 
-1. Select the highest-ranked candidate (lowest `rank` value)
-2. **Clarifier check:** If the top candidate has `scout_options: []` (empty list), this is a clarifier — skip scouting for this turn. Instead, use the clarifier's question text in Step 6 follow-up composition (treat it as a high-priority unresolved item). Continue to Step 5. (Clarifiers do not consume evidence budget, so this check runs even when `budget.scout_available` is `false`.)
-3. **Budget gate:** If `budget.scout_available` is `false`, skip scout execution (steps 4-6 below). Continue to Step 5.
-4. Select its first `scout_option`
-5. Call `mcp__context-injection__execute_scout`:
+4a. Select the highest-ranked candidate (lowest `rank` value)
+4b. **Clarifier check:** If the top candidate has `scout_options: []` (empty list), this is a clarifier — skip scouting for this turn. Instead, use the clarifier's question text in Step 6 follow-up composition (treat it as a high-priority unresolved item). Continue to Step 5. (Clarifiers do not consume evidence budget, so this check runs even when `budget.scout_available` is `false`.)
+4c. **Budget gate:** If `budget.scout_available` is `false`, skip scout execution (steps 4d-4f below). Continue to Step 5.
+4d. Select its first `scout_option`
+4e. Call `mcp__context-injection__execute_scout`:
 
 ```json
 {
@@ -292,12 +297,12 @@ If `template_candidates` is non-empty:
 }
 ```
 
-6. On success:
+4f. On success:
    - Store `evidence_wrapper` (human-readable summary — include in follow-up)
    - Store `read_result` or `grep_result` if you need raw evidence data
    - Increment `evidence_count`
    - Note updated `budget`
-7. On error: continue without evidence. Do not retry.
+4g. On error: continue without evidence. Do not retry.
 
 #### Step 5: Act on action
 
@@ -306,7 +311,7 @@ If `template_candidates` is non-empty:
 | `continue_dialogue` | Compose follow-up (Step 6) and send (Step 7). |
 | `closing_probe` | Compose closing probe (see fallback chain below). Send (Step 7). |
 | `conclude` | Exit the loop. Proceed to Phase 3 (Synthesis). |
-| Unknown action | Treat as `conclude` and log a warning: `"Unknown action '<action>' from process_turn — treating as conclude."` |
+| Unknown action | Treat as `conclude` and log a warning: `"Unknown action '<action>' from process_turn — treating as conclude."` (defense-in-depth — server currently returns only `continue_dialogue`, `closing_probe`, or `conclude`) |
 
 **Closing probe target fallback chain** (use the first available):
 1. Highest-priority unresolved item from `validated_entry.unresolved`: "Given our discussion, what's your final position on [unresolved item]?"
@@ -341,7 +346,7 @@ This forces Codex to engage with evidence by making it the premise of the questi
 
 **Known tradeoff:** Occasional one-turn delay on important side findings from scout evidence. Acceptable because side findings are captured in the disposition field and surface as new unresolved items for later prioritization.
 
-**De-scoped: Reframe model.** The design spec (Section 12) flags reframe outcome detection as an unsolved problem at medium priority. Unreliable classification (focus answered / premise falsified / enrichment) in dense agent instructions creates more harm than benefit. The target-lock guardrail above provides the necessary constraint without classification. **Future path:** Server-side `reframe_outcome` field (deterministic classification with cross-turn state) if explicit outcome routing proves necessary.
+**De-scoped: Reframe model.** Reframe outcome detection is de-scoped. The target-lock guardrail above is the active constraint.
 
 Use `ledger_summary` for conversation awareness — knowing which claims are settled, what's still open, and the conversation trajectory.
 
@@ -376,6 +381,8 @@ Assemble synthesis from `turn_history`. Do not recall the full conversation — 
 
 ### Assembly process
 
+These 6 items are independent output sections. Assemble all 6 from `turn_history`.
+
 1. **Convergence → Areas of Agreement:** Claims where both sides arrived at the same position, especially through independent reasoning or survived challenges. High confidence.
 2. **Concessions → Key Outcomes:** Claims where one side changed position. Note which side, what triggered the change, and the final position.
 3. **Novel emergent ideas:** Ideas that appeared mid-conversation that neither side started with. Flag as "emerged from dialogue."
@@ -390,7 +397,7 @@ Each finding gets a confidence level derived from ledger data:
 | Confidence | Criteria |
 |------------|----------|
 | **High** | Both sides independently argued for it, OR one side challenged and the other defended with evidence |
-| **Medium** | One side proposed, the other agreed with reasoning (at least one `substantive` turn) |
+| **Medium** | One side proposed, the other agreed with reasoning (at least one turn where delta was `advancing` or `shifting`) |
 | **Low** | Single turn, no probing — or agreement without reasoning |
 
 ### Your assessment
@@ -409,7 +416,7 @@ Before writing output, verify every item:
 - [ ] Areas of Agreement include confidence levels
 - [ ] Open Questions reference which turn(s) raised them
 - [ ] Continuation section includes unresolved items and recommended posture (if warranted)
-- [ ] Evidence statistics: scouts executed, entities scouted, impacts on conversation
+- [ ] Evidence statistics: scouts executed, entities scouted, impacts on conversation. If `evidence_count == 0`, state "Evidence: none (no scouts executed)" and omit evidence trajectory
 
 If any item is missing, fix it before returning output.
 
