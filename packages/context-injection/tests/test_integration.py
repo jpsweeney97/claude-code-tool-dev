@@ -1,9 +1,12 @@
 """Integration test: full Call 1 -> Call 2 pipeline with contract example input."""
 
 import shutil
+from pathlib import Path
 
 import pytest
 
+from context_injection.control import ConversationAction
+from context_injection.enums import EffectiveDelta
 from context_injection.execute import execute_scout
 from context_injection.pipeline import process_turn
 from context_injection.state import AppContext
@@ -344,3 +347,237 @@ def test_grep_denied_file_filtered(tmp_path) -> None:
     assert isinstance(scout_result, ScoutResultSuccess)
     # rg may find the match, but filter_file should exclude .env
     assert scout_result.grep_result.match_count == 0
+
+
+# ---------------------------------------------------------------------------
+# 0.2.0 integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestIntegration020RoundTrip:
+    """Full 0.2.0 Call 1 -> Call 2 round trip."""
+
+    def test_call1_returns_ledger_entry(self, tmp_path: Path) -> None:
+        """Process turn returns validated ledger entry with all fields."""
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "config.py").write_text("DB_URL = 'postgres://...'")
+        git_files = {"src/config.py"}
+        ctx = AppContext.create(repo_root=str(tmp_path), git_files=git_files)
+
+        request = TurnRequest.model_validate({
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 1,
+            "conversation_id": "conv_020",
+            "focus": {
+                "text": "Database configuration approach",
+                "claims": [
+                    {"text": "Project uses src/config.py for DB config", "status": "new", "turn": 1},
+                ],
+                "unresolved": [],
+            },
+            "posture": "collaborative",
+            "position": "Database configuration analysis",
+            "claims": [
+                {"text": "Project uses src/config.py for DB config", "status": "new", "turn": 1},
+            ],
+            "delta": "advancing",
+            "tags": ["configuration", "database"],
+            "unresolved": [],
+        })
+
+        result = process_turn(request, ctx)
+        assert result.status == "success"
+
+        # Ledger entry
+        assert result.validated_entry.position == "Database configuration analysis"
+        assert result.validated_entry.turn_number == 1
+        assert result.validated_entry.effective_delta in set(EffectiveDelta)
+
+        # Cumulative state
+        assert result.cumulative.turns_completed == 1
+        assert result.cumulative.total_claims == 1
+
+        # Action
+        assert result.action == ConversationAction.CONTINUE_DIALOGUE
+        assert len(result.action_reason) > 0
+
+        # Checkpoint
+        assert result.checkpoint_id is not None
+        assert result.state_checkpoint is not None
+
+        # Summary
+        assert "T1:" in result.ledger_summary
+
+    def test_call1_then_call2_round_trip(self, tmp_path: Path) -> None:
+        """Full round-trip: Call 1 -> get scout -> Call 2 -> execute scout."""
+        (tmp_path / "main.py").write_text("def main():\n    print('hello')\n")
+        git_files = {"main.py"}
+        ctx = AppContext.create(repo_root=str(tmp_path), git_files=git_files)
+
+        # Call 1
+        request = TurnRequest.model_validate({
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 1,
+            "conversation_id": "conv_roundtrip",
+            "focus": {
+                "text": "Main entry point",
+                "claims": [
+                    {"text": "main.py is the entry point", "status": "new", "turn": 1},
+                ],
+                "unresolved": [],
+            },
+            "posture": "exploratory",
+            "position": "Entry point analysis",
+            "claims": [
+                {"text": "main.py is the entry point", "status": "new", "turn": 1},
+            ],
+            "delta": "advancing",
+            "tags": ["architecture"],
+            "unresolved": [],
+        })
+
+        turn_result = process_turn(request, ctx)
+        assert turn_result.status == "success"
+
+        # Call 2 -- deterministic fixture guarantees template matching
+        assert len(turn_result.template_candidates) > 0, (
+            "Deterministic fixture must produce template candidates"
+        )
+        candidate = turn_result.template_candidates[0]
+        scout_req = ScoutRequest(
+            schema_version=SCHEMA_VERSION,
+            scout_option_id=candidate.scout_options[0].id,
+            scout_token=candidate.scout_options[0].scout_token,
+            turn_request_ref=f"{request.conversation_id}:{request.turn_number}",
+        )
+        scout_result = execute_scout(ctx, scout_req)
+        assert scout_result.status == "success"
+
+    def test_dual_claims_guard_rejection(self, tmp_path: Path) -> None:
+        """Mismatched focus.claims vs top-level claims returns error."""
+        ctx = AppContext.create(repo_root=str(tmp_path), git_files=set())
+
+        request = TurnRequest.model_validate({
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 1,
+            "conversation_id": "conv_dual_guard",
+            "focus": {
+                "text": "Test",
+                "claims": [
+                    {"text": "Claim A", "status": "new", "turn": 1},
+                ],
+                "unresolved": [],
+            },
+            "posture": "exploratory",
+            "position": "Test",
+            "claims": [
+                {"text": "Different claim", "status": "new", "turn": 1},
+            ],
+            "delta": "static",
+            "tags": [],
+            "unresolved": [],
+        })
+        result = process_turn(request, ctx)
+        assert result.status == "error"
+        assert result.error.code == "ledger_hard_reject"
+
+
+class TestIntegration020MultiTurn:
+    """Multi-turn conversation with state progression."""
+
+    def test_two_turn_conversation(self, tmp_path: Path) -> None:
+        """Second turn sees cumulative state from first turn."""
+        (tmp_path / "app.py").write_text("x = 1")
+        ctx = AppContext.create(repo_root=str(tmp_path), git_files={"app.py"})
+
+        # Turn 1
+        r1 = TurnRequest.model_validate({
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 1,
+            "conversation_id": "conv_multi",
+            "focus": {"text": "App analysis", "claims": [
+                {"text": "app.py contains state", "status": "new", "turn": 1},
+            ], "unresolved": []},
+            "posture": "exploratory",
+            "position": "Initial app review",
+            "claims": [{"text": "app.py contains state", "status": "new", "turn": 1}],
+            "delta": "advancing",
+            "tags": ["architecture"],
+            "unresolved": [],
+        })
+        result1 = process_turn(r1, ctx)
+        assert result1.status == "success"
+        assert result1.cumulative.turns_completed == 1
+
+        # Turn 2 -- pass checkpoint back
+        r2 = TurnRequest.model_validate({
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 2,
+            "conversation_id": "conv_multi",
+            "focus": {"text": "Follow-up", "claims": [
+                {"text": "app.py contains state", "status": "reinforced", "turn": 2},
+            ], "unresolved": []},
+            "posture": "collaborative",
+            "position": "Confirmed app structure",
+            "claims": [{"text": "app.py contains state", "status": "reinforced", "turn": 2}],
+            "delta": "static",
+            "tags": ["architecture"],
+            "unresolved": [],
+            "state_checkpoint": result1.state_checkpoint,
+            "checkpoint_id": result1.checkpoint_id,
+        })
+        result2 = process_turn(r2, ctx)
+        assert result2.status == "success"
+        assert result2.cumulative.turns_completed == 2
+        assert result2.cumulative.reinforced >= 1
+
+    def test_checkpoint_missing_on_turn2_without_state(self, tmp_path: Path) -> None:
+        """Turn 2 without checkpoint or in-memory state -> error."""
+        ctx = AppContext.create(repo_root=str(tmp_path), git_files=set())
+
+        # Skip turn 1 -- go straight to turn 2 without checkpoint
+        r2 = TurnRequest.model_validate({
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 2,
+            "conversation_id": "conv_no_state",
+            "focus": {"text": "test", "claims": [
+                {"text": "placeholder claim", "status": "new", "turn": 2},
+            ], "unresolved": []},
+            "posture": "exploratory",
+            "position": "test",
+            "claims": [
+                {"text": "placeholder claim", "status": "new", "turn": 2},
+            ],
+            "delta": "static",
+            "tags": [],
+            "unresolved": [],
+        })
+        result = process_turn(r2, ctx)
+        assert result.status == "error"
+        assert result.error.code == "checkpoint_missing"
+
+
+class TestIntegration020ActionFlow:
+    """Action computation in integration context."""
+
+    def test_continue_on_first_turn(self, tmp_path: Path) -> None:
+        ctx = AppContext.create(repo_root=str(tmp_path), git_files=set())
+        request = TurnRequest.model_validate({
+            "schema_version": SCHEMA_VERSION,
+            "turn_number": 1,
+            "conversation_id": "conv_action",
+            "focus": {"text": "test", "claims": [
+                {"text": "Initial observation", "status": "new", "turn": 1},
+            ], "unresolved": []},
+            "posture": "exploratory",
+            "position": "Initial analysis",
+            "claims": [
+                {"text": "Initial observation", "status": "new", "turn": 1},
+            ],
+            "delta": "advancing",
+            "tags": ["test"],
+            "unresolved": [],
+        })
+        result = process_turn(request, ctx)
+        assert result.status == "success"
+        assert result.action == ConversationAction.CONTINUE_DIALOGUE
