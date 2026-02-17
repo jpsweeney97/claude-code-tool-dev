@@ -211,6 +211,8 @@ Call `mcp__context-injection__process_turn` with:
 
 #### Step 3: Process the response
 
+**Budget gate (checked first):** If `turn_count >= effective_budget`, skip error recovery and follow-up composition. Proceed directly to Phase 3 (Synthesis) using `turn_history`. The conversation is complete — retrying a failed turn that would be immediately concluded is wasted effort.
+
 **On success** (`status: "success"`):
 
 | Field | What to do |
@@ -225,8 +227,6 @@ Call `mcp__context-injection__process_turn` with:
 | `ledger_summary` | Compact trajectory summary. Use in follow-up composition. |
 | `state_checkpoint` | **Store** — pass in next turn's request. |
 | `checkpoint_id` | **Store** — pass in next turn's request. |
-
-**Budget gate (checked first):** If `turn_count >= effective_budget`, skip all error recovery below. Proceed to Phase 3 (Synthesis) using `turn_history`. The conversation is complete — retrying a failed turn that would be immediately concluded is wasted effort.
 
 **On error** (`status: "error"`):
 
@@ -246,7 +246,7 @@ Retry budgets are per-category: checkpoint errors and ledger errors track indepe
 
 #### Step 4: Scout (optional)
 
-**Skip this step** if `template_candidates` is empty.
+**Skip this step** if `template_candidates` is empty or if the action directive from Step 3 is `conclude`.
 
 If `template_candidates` is non-empty:
 
