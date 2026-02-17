@@ -178,9 +178,7 @@ Call `mcp__codex__codex`:
 
 Call `mcp__codex__codex-reply` with:
 - `prompt`: follow-up message (enrich with any new context since last turn)
-- at least one continuity identifier:
-  - `threadId` (canonical)
-  - `conversationId` (deprecated compatibility alias)
+- at least one continuity identifier: `threadId` or `conversationId` (see [Governance](#governance-decision-locked) rule #5)
 
 Normalization and deterministic validation:
 1. Normalize `threadId` and `conversationId` by trimming outer whitespace; treat empty strings as absent.
@@ -195,12 +193,12 @@ Normalization and deterministic validation:
 
 If normalized `threadId` is invalid/expired upstream, start a new conversation and rebuild a full briefing.
 
-### Continuity state (canonical)
+### Continuity state
 
-After a successful Codex tool call:
-- Treat `structuredContent.threadId` as the canonical continuity source.
+After a successful Codex tool call, persist `threadId` for follow-up turns:
+- Prefer `structuredContent.threadId` (primary source).
+- Fall back to the top-level `threadId` field (when present).
 - Treat `content` as compatibility output only.
-- Persist canonical `threadId` for follow-up turns. If `structuredContent.threadId` is missing, fall back to the top-level `threadId` field (when present).
 
 ## Step 4: Relay Response
 
@@ -224,7 +222,7 @@ All failure messages use this format:
 | Missing prompt | Empty prompt on new call | Ask the user for a specific question |
 | MCP tool unavailable | Tool call failure | Return troubleshooting steps + fallback guidance |
 | Thread invalid/expired | Reply error from upstream | Start new `codex` call with rebuilt full briefing |
-| Timeout | Tool timeout | Do not auto-retry. Warn that upstream may have processed the request and retry could create duplicates. Let the user opt into retry |
+| Timeout | Tool timeout | Do not auto-retry. Report that upstream may have processed the request; retrying could create duplicates. Prompt the user to confirm before retrying |
 | Auth missing | Login/API key unavailable | Return auth remediation steps (see Troubleshooting) |
 | Secret in briefing material | Redaction detector hit | Redact with marker and continue; note the redaction to the user |
 | Policy mismatch | Disallowed sandbox or approval combination | Return error with allowed values |
