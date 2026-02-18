@@ -83,7 +83,7 @@ Error format:
 
 ## Step 1: Build Context Briefing
 
-Briefing structure is defined in `docs/references/consultation-contract.md` § Briefing Contract (§5). This file is not normative for briefing format.
+Briefing structure is defined in [consultation-contract.md](../../references/consultation-contract.md) § Briefing Contract (§5). This file is not normative for briefing format.
 
 Before building a briefing:
 1. Read and apply the Briefing Contract (§5) in full.
@@ -144,7 +144,7 @@ Authentication is handled by the Codex CLI from cached login state.
 
 ### Pre-dispatch gate and credential safety (Normative Contract)
 
-Safety rules are defined in `docs/references/consultation-contract.md` § Safety Pipeline (§7). This file is not normative for credential patterns.
+Safety rules are defined in [consultation-contract.md](../../references/consultation-contract.md) § Safety Pipeline (§7). This file is not normative for credential patterns.
 
 Before any outbound Codex dispatch:
 1. Read and apply the Safety Pipeline (§7) in full.
@@ -153,21 +153,21 @@ Before any outbound Codex dispatch:
 
 ### New conversation
 
-Call `mcp__plugin_codex_codex__codex` with parameters from `docs/references/consultation-contract.md` § Codex Transport Adapter (§9) and § Policy Resolver Contract (§8). Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults.
+Call `mcp__plugin_codex_codex__codex` with parameters from [consultation-contract.md](../../references/consultation-contract.md) § Codex Transport Adapter (§9) and § Policy Resolver Contract (§8). Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults.
 
 ### Continue conversation
 
-Call `mcp__plugin_codex_codex__codex-reply` per `docs/references/consultation-contract.md` § Codex Transport Adapter (§9). Apply `threadId` canonicalization from § Continuity State Contract (§10) before dispatch.
+Call `mcp__plugin_codex_codex__codex-reply` per [consultation-contract.md](../../references/consultation-contract.md) § Codex Transport Adapter (§9). Apply `threadId` canonicalization from § Continuity State Contract (§10) before dispatch.
 
 ### Continuity state
 
-Persist `threadId` per `docs/references/consultation-contract.md` § Continuity State Contract (§10).
+Persist `threadId` per [consultation-contract.md](../../references/consultation-contract.md) § Continuity State Contract (§10).
 - Prefer `structuredContent.threadId`. Fall back to top-level `threadId`.
 - If `threadId` is invalid or expired upstream, start a new conversation with a rebuilt full briefing.
 
 ## Step 4: Relay Response
 
-Relay obligations are defined in `docs/references/consultation-contract.md` § Relay Assessment Contract (§11). This file is not normative for relay format.
+Relay obligations are defined in [consultation-contract.md](../../references/consultation-contract.md) § Relay Assessment Contract (§11). This file is not normative for relay format.
 
 After every Codex response:
 1. Read and apply the Relay Assessment Contract (§11) in full.

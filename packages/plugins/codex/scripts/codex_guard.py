@@ -205,18 +205,18 @@ def handle_post(data: dict) -> int:
     tool = data.get("tool_name", "unknown")
     session_id = data.get("session_id", "unknown")
     tool_input = data.get("tool_input", {})
-    tool_result = data.get("tool_result", {})
+    tool_response = data.get("tool_response", {})
 
     prompt = tool_input.get("prompt", "") if isinstance(tool_input, dict) else ""
     result_text = ""
-    if isinstance(tool_result, dict):
-        result_text = str(tool_result.get("content", ""))
-    elif isinstance(tool_result, str):
-        result_text = tool_result
+    if isinstance(tool_response, dict):
+        result_text = str(tool_response.get("content", ""))
+    elif isinstance(tool_response, str):
+        result_text = tool_response
 
     thread_id_present = bool(
         (isinstance(tool_input, dict) and tool_input.get("threadId"))
-        or (isinstance(tool_result, dict) and tool_result.get("threadId"))
+        or (isinstance(tool_response, dict) and tool_response.get("threadId"))
     )
 
     _append_log(

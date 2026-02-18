@@ -19,15 +19,10 @@ Proportionate for accidental-credential threat model.
 
 ### Known limitations
 
-- Contract stub paths in SKILL.md point to `docs/references/` (repo-relative).
-  Works within this repo; update paths before external distribution.
 - Broad-tier patterns (generic credential assignments) are shadow-only.
   Promote to strict/contextual after real-world FP data collection.
 - `updatedInput` (in-flight redaction) deferred: parallel hook merge semantics
   are undefined, making it unsafe for security-critical v0.1.
-- PostToolUse event log shows `result_length: 0` and `thread_id_present: false`
-  because the PostToolUse hook payload uses a different key than `tool_result`.
-  PreToolUse blocking is unaffected.
 
 ### Implementation notes
 

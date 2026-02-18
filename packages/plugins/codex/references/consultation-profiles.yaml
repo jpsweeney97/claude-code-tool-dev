@@ -1,7 +1,7 @@
 # Consultation Profiles
 #
 # Version: 0.1.0
-# Reference: docs/references/consultation-contract.md §14
+# Reference: consultation-contract.md §14
 #
 # Named profiles resolve to a complete set of execution controls.
 # Resolution order: explicit flags > named profile > contract defaults.

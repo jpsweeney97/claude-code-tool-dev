@@ -43,7 +43,7 @@ def _post(prompt: str = "hello", result: str = "world") -> dict:
         "tool_name": "mcp__codex__codex",
         "session_id": "test-session",
         "tool_input": {"prompt": prompt},
-        "tool_result": {"content": result},
+        "tool_response": {"content": result},
     }
 
 
