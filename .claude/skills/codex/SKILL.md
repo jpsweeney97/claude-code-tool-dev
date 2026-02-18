@@ -176,12 +176,56 @@ The subagent returns a confidence-annotated synthesis with convergence points, d
 
 Authentication is handled by the Codex CLI from cached login state.
 
-### Token safety (hard rules)
+### Pre-dispatch gate and credential safety (required)
 
-1. Never read or parse `auth.json` during normal consultation flow.
-2. Never include `id_token`, `access_token`, `refresh_token`, `account_id`, bearer tokens, or API keys (`sk-...`) in prompts, tool parameters, logs, or user-visible output.
-3. Before sending a briefing, scan for secret-like text. If detected, replace with `[REDACTED: credential material]` and note the redaction to the user.
-4. If redaction cannot be confirmed, do not send the briefing (fail-closed).
+Run this gate immediately before every outbound Codex call (`mcp__codex__codex` or `mcp__codex__codex-reply`).
+
+Create an internal pre-dispatch record with these fields:
+- `parse_status`: `pass` | `fail`
+- `prompt_status`: `pass` | `fail` | `not_required`
+- `strategy_status`: `pass` | `fail`
+- `continuity_status`: `pass` | `fail` | `not_required`
+- `controls_status`: `pass` | `fail`
+- `credential_rules_status`: `pass` | `fail`
+- `sanitizer_status`: `pass_clean` | `pass_redacted` | `fail_not_run` | `fail_unresolved_match`
+
+Do not proceed until all required fields are pass-equivalent (`pass`, `pass_clean`, `pass_redacted`, `not_required`).
+
+Credential rules (non-negotiable):
+1. Never read or parse `auth.json` during consultation flow.
+2. Never include raw credential material in outbound text: `id_token`, `access_token`, `refresh_token`, `account_id`, bearer tokens, API keys (`sk-...`), or equivalent secrets.
+
+Sanitizer rule:
+1. Scan all outbound payload text (`prompt`, follow-up text, outbound diagnostics metadata) for secret candidates, including:
+   - API keys matching `sk-...`
+   - AWS access keys beginning with `AKIA`
+   - `Bearer ...` tokens
+   - PEM private key blocks
+   - fields/assignments containing `password`, `secret`, `token`, `api_key`, `id_token`, `access_token`, `refresh_token`, `account_id`
+   - base64-like strings (length >= 40) adjacent to auth-related variable names
+2. Replace every detected candidate with `[REDACTED: credential material]`.
+3. If any candidate cannot be confidently classified as safe, redact it.
+4. Set `sanitizer_status` to:
+   - `pass_clean` if none found
+   - `pass_redacted` if found and redacted
+   - `fail_unresolved_match` if any unresolved candidate remains
+   - `fail_not_run` if scan did not run
+
+If another agent profile defines additional secret patterns, treat those patterns as additive, not alternative.
+
+On any gate failure, return:
+`pre-dispatch gate failed: {reason}. Got: {input!r:.100}`
+
+Allowed reasons:
+- `argument parse invalid`
+- `missing prompt for new conversation`
+- `invocation strategy not selected`
+- `missing conversation identifier`
+- `threadId and conversationId mismatch`
+- `resolved execution controls incomplete`
+- `credential rule violation`
+- `sanitizer not run`
+- `unresolved secret candidate in outbound payload`
 
 ### New conversation
 
@@ -223,14 +267,35 @@ After a successful Codex tool call, persist `threadId` for follow-up turns:
 
 ## Step 4: Relay Response
 
-Present Codex's response to the user with your own assessment:
-- Where you agree or disagree with Codex's take
-- How it changes (or doesn't change) the current approach
-- Recommended next steps
+Present Codex output and your independent judgment using this required 3-part contract.
 
-Do not just parrot Codex's response. Add value as the primary agent.
+1. **Codex Position**
+   - Summarize Codex's answer in 1-3 bullets.
+   - If Codex reports uncertainty or requests more context, state that explicitly.
 
-**After relaying:** Capture diagnostics for this consultation (see [Diagnostics](#diagnostics) section below — timestamp, strategy, flags, success/failure).
+2. **Claude Assessment**
+   - State `agree`, `partially agree`, or `disagree`, and give the reason.
+   - Name at least one risk, trade-off, or assumption.
+
+3. **Decision and Next Action**
+   - Choose one disposition:
+     - Recommendation dispositions: `adopt`, `adopt-with-changes`, `defer`, `reject`
+     - Informational dispositions: `incorporate`, `note`, `no-change`
+   - State one concrete next action. If no action is needed, state `no change` explicitly.
+
+If Codex requests more context or cannot conclude:
+- Keep all 3 sections.
+- Use `defer` or `note`.
+- Request the specific missing artifacts.
+- State whether to re-invoke Codex after those artifacts are provided.
+
+Completion criteria:
+- All 3 sections are present.
+- Disposition is explicit.
+- Next action is observable.
+- Do not relay Codex output verbatim as the final response.
+
+After relaying, capture diagnostics for this consultation (see [Diagnostics](#diagnostics) section below — timestamp, strategy, flags, success/failure).
 
 ## Failure Handling
 
@@ -245,8 +310,9 @@ All failure messages use this format:
 | Thread invalid/expired | Reply error from upstream | Start new `codex` call with rebuilt full briefing |
 | Timeout | Tool timeout | Do not auto-retry. Report that upstream may have processed the request; retrying could create duplicates. Prompt the user to confirm before retrying |
 | Auth missing | Login/API key unavailable | Return auth remediation steps (see Troubleshooting) |
-| Secret in briefing material | Redaction detector hit | Redact with marker and continue; note the redaction to the user |
-| Policy mismatch | Disallowed sandbox or approval combination | Return error with allowed values |
+| Pre-dispatch gate failure | `controls_status`, `sanitizer_status`, or any field not pass-equivalent | Return `pre-dispatch gate failed: {reason}`. Do not dispatch. |
+| Secret in briefing material | `sanitizer_status=fail_unresolved_match` | Redact with `[REDACTED: credential material]`; set `sanitizer_status=pass_redacted`; note redaction to user |
+| Policy mismatch | `controls_status=fail` — disallowed sandbox or approval combination | Return error with allowed values; do not dispatch |
 
 Retry policy:
 - No automatic retries for failures where upstream execution is uncertain (timeout, connection drop after dispatch).
@@ -273,7 +339,7 @@ These rules are non-negotiable:
 3. **Dangerous mode never auto-escalates:** never upgrade sandbox from `read-only` to `workspace-write` or `danger-full-access` without explicit user flag (`-s`).
 4. **Strategy default:** when uncertain, use direct invocation.
 5. **Reply continuity:** `threadId` is canonical; `conversationId` is a deprecated compatibility alias.
-6. **Egress sanitization:** no outbound payload to Codex (briefing, follow-up, diagnostics) without a sanitizer pass. The agent's token safety rules and the context injection server's redaction pipeline are complementary layers — both apply to their respective data paths. The fail-closed default applies to all paths.
+6. **Egress sanitization:** no outbound payload to Codex (briefing, follow-up, diagnostics) without a sanitizer pass. The pre-dispatch gate (§ Step 3) enforces this — `sanitizer_status` must be `pass_clean` or `pass_redacted` before dispatch. The context injection server's redaction pipeline is a complementary layer; both apply to their respective data paths.
 
 ## Troubleshooting
 
