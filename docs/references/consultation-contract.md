@@ -157,7 +157,7 @@ Scan all outbound payload text (`prompt`, follow-up text, outbound diagnostics m
 - Fields/assignments containing `password`, `secret`, `token`, `api_key`, `id_token`, `access_token`, `refresh_token`, `account_id`
 - Base64-like strings (length >= 40) adjacent to auth-related variable names
 
-Replace every detected candidate with `[REDACTED: credential material]`. If any candidate cannot be confidently classified as safe, redact it.
+No credential-bearing payload may be dispatched. Candidates must be redacted with `[REDACTED: credential material]` before dispatch, or the dispatch must be blocked. If any candidate cannot be confidently classified as safe, block or redact — over-redaction is always preferable to dispatch.
 
 Set `sanitizer_status`:
 - `pass_clean` — none found
