@@ -7,6 +7,12 @@
       "env": {
         "CODEX_SANDBOX": "seatbelt"
       }
+    },
+    "context-injection": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--directory", "${CLAUDE_PLUGIN_ROOT}/context-injection", "python", "-m", "context_injection"],
+      "env": {}
     }
   }
 }
