@@ -1,4 +1,4 @@
-"""Tests for packages/plugins/codex/scripts/codex_guard.py.
+"""Tests for packages/plugins/cross-model/scripts/codex_guard.py.
 
 Tests the PreToolUse credential detection hook and PostToolUse logging hook.
 Imports the guard module directly via importlib (same pattern as test_consultation_contract_sync.py).
@@ -14,7 +14,7 @@ MODULE_PATH = (
     Path(__file__).resolve().parents[1]
     / "packages"
     / "plugins"
-    / "codex"
+    / "cross-model"
     / "scripts"
     / "codex_guard.py"
 )
