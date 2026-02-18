@@ -63,7 +63,7 @@ MCP server providing cross-model dialogue with OpenAI Codex. Enables Claude Code
 
 | Resource  | Location                                        |
 | --------- | ----------------------------------------------- |
-| MCP tools | `mcp__codex__codex`, `mcp__codex__codex-reply`  |
+| MCP tools | `mcp__plugin_codex_codex__codex`, `mcp__plugin_codex_codex__codex-reply`  |
 | Agent     | `.claude/agents/codex-dialogue.md`              |
 
 **Status:** Deployed.
