@@ -74,7 +74,6 @@ _PLACEHOLDER_WORDS: frozenset[str] = frozenset(
         "format",
         "example",
         "looks",
-        "like",
         "placeholder",
         "dummy",
         "sample",
@@ -84,8 +83,6 @@ _PLACEHOLDER_WORDS: frozenset[str] = frozenset(
         "redacted",
         "your-",
         "my-",
-        "<",
-        ">",
         "[redacted",
     ]
 )
@@ -142,11 +139,11 @@ def _check_strict(prompt: str) -> str | None:
 
 
 def _check_contextual(prompt: str) -> str | None:
-    """Return a reason string if a contextual-tier pattern matches without suppression."""
+    """Return a reason string if any contextual-tier match lacks placeholder context."""
     for pat in _CONTEXTUAL:
-        m = pat.search(prompt)
-        if m and not _has_placeholder_context(prompt, m.start(), m.end()):
-            return f"contextual:{pat.pattern[:60]}"
+        for m in pat.finditer(prompt):
+            if not _has_placeholder_context(prompt, m.start(), m.end()):
+                return f"contextual:{pat.pattern[:60]}"
     return None
 
 

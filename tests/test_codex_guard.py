@@ -162,3 +162,37 @@ class TestPostToolUse:
 
     def test_post_empty_data_returns_0(self) -> None:
         assert MODULE.handle_post({}) == 0
+
+
+# ---------------------------------------------------------------------------
+# Security hardening: regression tests for review findings
+# ---------------------------------------------------------------------------
+
+
+class TestSecurityHardening:
+    def test_contextual_second_match_blocks_when_first_suppressed(self) -> None:
+        """P1: _check_contextual must check ALL matches, not just the first."""
+        token1 = "ghp_" + "A" * 36
+        token2 = "ghp_" + "B" * 36
+        # Padding pushes "example" >100 chars from second token
+        padding = "x" * 80
+        prompt = f"An example GitHub PAT: {token1} {padding} real: {token2}"
+        assert MODULE.handle_pre(_pre(prompt)) == 2
+
+    def test_html_context_does_not_suppress_real_key(self) -> None:
+        """P1: angle brackets must not suppress contextual detection."""
+        key = "sk-" + "a" * 40
+        prompt = f"<div>{key}</div>"
+        assert MODULE.handle_pre(_pre(prompt)) == 2
+
+    def test_angle_bracket_comparison_does_not_suppress(self) -> None:
+        """P1: comparison operators near tokens must not suppress."""
+        token = "ghp_" + "A" * 36
+        prompt = f"if count > 0; export TOKEN={token}"
+        assert MODULE.handle_pre(_pre(prompt)) == 2
+
+    def test_like_without_looks_does_not_suppress(self) -> None:
+        """P3: standalone 'like' must not suppress contextual detection."""
+        token = "ghp_" + "A" * 36
+        prompt = f"I would like to use my token: {token}"
+        assert MODULE.handle_pre(_pre(prompt)) == 2
