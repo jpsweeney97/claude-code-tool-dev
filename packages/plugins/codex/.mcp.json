@@ -5,8 +5,7 @@
       "command": "codex",
       "args": ["mcp-server"],
       "env": {
-        "CODEX_SANDBOX": "seatbelt",
-        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
+        "CODEX_SANDBOX": "seatbelt"
       }
     }
   }
