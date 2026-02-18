@@ -3,7 +3,7 @@ name: codex
 description: Consult OpenAI Codex for second opinions on architecture, debugging, code review, plans, and decisions.
 argument-hint: "[-m <model>] [-s {read-only|workspace-write|danger-full-access}] [-a {untrusted|on-failure|on-request|never}] [-t {minimal|low|medium|high|xhigh}] [PROMPT]"
 user-invocable: true
-allowed-tools: mcp__codex__codex, mcp__codex__codex-reply
+allowed-tools: mcp__plugin_codex_codex__codex, mcp__plugin_codex_codex__codex-reply
 ---
 
 # Codex Consultation Protocol
@@ -34,30 +34,20 @@ Default on ambiguity: Do not invoke Codex until scope is clear. Ask one clarifyi
 - **egress sanitization:** Run sanitizer/redaction checks on every outbound Codex payload (`prompt`, follow-up text, and outbound diagnostics metadata) before dispatch.
 
 Two MCP tools available:
-- `mcp__codex__codex` — start a new conversation
-- `mcp__codex__codex-reply` — continue an existing conversation
+- `mcp__plugin_codex_codex__codex` — start a new conversation
+- `mcp__plugin_codex_codex__codex-reply` — continue an existing conversation
 
 ## Setup (required)
 
-This skill assumes Claude Code can see an MCP server named `codex` that runs the Codex CLI MCP server (`codex mcp-server`).
+This plugin registers the `codex` MCP server automatically. No manual `.mcp.json` configuration needed.
 
-**Project scope (recommended):** this repo includes a `.mcp.json` at the project root that registers:
+**Prerequisites:**
+1. Codex CLI installed: `npm install -g @openai/codex`
+2. Authenticated: run `codex login` once, or set `OPENAI_API_KEY`
 
-```json
-{
-  "mcpServers": {
-    "codex": {
-      "type": "stdio",
-      "command": "codex",
-      "args": ["mcp-server"]
-    }
-  }
-}
-```
+**macOS stability:** if the Codex CLI panics at startup (`Attempted to create a NULL object.`), the plugin's `.mcp.json` sets `CODEX_SANDBOX=seatbelt` by default to prevent this.
 
-**macOS stability note:** some spawn environments may start `codex mcp-server` without the full user environment. If the Codex CLI panics at startup (for example, `Attempted to create a NULL object.`), ensure the MCP server process receives `CODEX_SANDBOX=seatbelt`. This repo’s `.mcp.json` sets `CODEX_SANDBOX` by default.
-
-**Auth prerequisite:** ensure the `codex` CLI is installed and authenticated (interactive `codex login` or `OPENAI_API_KEY`). Never paste tokens into prompts or logs.
+**Enforcement:** a `codex_guard` PreToolUse hook runs credential detection on every outbound prompt. Dispatches are blocked (not redacted) on strict and contextual matches. See `~/.claude/.codex-events.jsonl` for block and shadow telemetry.
 
 ## Arguments
 
@@ -72,7 +62,7 @@ Parse optional flags from `$ARGUMENTS` — the raw text following `/codex` in th
 
 Flag values are case-insensitive: `high`, `HIGH`, and `High` are all accepted for `-t` and other enum flags.
 
-Only `prompt` is required by the MCP tool schema for `mcp__codex__codex`. For deterministic, least-privilege behavior, always pass resolved execution controls (`sandbox`, `approval-policy`, and `config.model_reasoning_effort`) rather than relying on upstream defaults. Only include `model` when overriding Codex's default model. If the user explicitly sets `-a`, that value always overrides the sandbox-coupled default.
+Only `prompt` is required by the MCP tool schema for `mcp__plugin_codex_codex__codex`. For deterministic, least-privilege behavior, always pass resolved execution controls (`sandbox`, `approval-policy`, and `config.model_reasoning_effort`) rather than relying on upstream defaults. Only include `model` when overriding Codex's default model. If the user explicitly sets `-a`, that value always overrides the sandbox-coupled default.
 
 Examples:
 - `/codex review the plan in docs/plans/auth-redesign.md` → all defaults, PROMPT = "review the plan..."
@@ -93,7 +83,7 @@ Error format:
 
 ## Step 1: Build Context Briefing
 
-Briefing structure is defined in `docs/references/consultation-contract.md` § Briefing Contract (§5). This file is not normative for briefing format.
+Briefing structure is defined in [consultation-contract.md](../../references/consultation-contract.md) § Briefing Contract (§5). This file is not normative for briefing format.
 
 Before building a briefing:
 1. Read and apply the Briefing Contract (§5) in full.
@@ -154,7 +144,7 @@ Authentication is handled by the Codex CLI from cached login state.
 
 ### Pre-dispatch gate and credential safety (Normative Contract)
 
-Safety rules are defined in `docs/references/consultation-contract.md` § Safety Pipeline (§7). This file is not normative for credential patterns.
+Safety rules are defined in [consultation-contract.md](../../references/consultation-contract.md) § Safety Pipeline (§7). This file is not normative for credential patterns.
 
 Before any outbound Codex dispatch:
 1. Read and apply the Safety Pipeline (§7) in full.
@@ -163,21 +153,21 @@ Before any outbound Codex dispatch:
 
 ### New conversation
 
-Call `mcp__codex__codex` with parameters from `docs/references/consultation-contract.md` § Codex Transport Adapter (§9) and § Policy Resolver Contract (§8). Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults.
+Call `mcp__plugin_codex_codex__codex` with parameters from [consultation-contract.md](../../references/consultation-contract.md) § Codex Transport Adapter (§9) and § Policy Resolver Contract (§8). Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults.
 
 ### Continue conversation
 
-Call `mcp__codex__codex-reply` per `docs/references/consultation-contract.md` § Codex Transport Adapter (§9). Apply `threadId` canonicalization from § Continuity State Contract (§10) before dispatch.
+Call `mcp__plugin_codex_codex__codex-reply` per [consultation-contract.md](../../references/consultation-contract.md) § Codex Transport Adapter (§9). Apply `threadId` canonicalization from § Continuity State Contract (§10) before dispatch.
 
 ### Continuity state
 
-Persist `threadId` per `docs/references/consultation-contract.md` § Continuity State Contract (§10).
+Persist `threadId` per [consultation-contract.md](../../references/consultation-contract.md) § Continuity State Contract (§10).
 - Prefer `structuredContent.threadId`. Fall back to top-level `threadId`.
 - If `threadId` is invalid or expired upstream, start a new conversation with a rebuilt full briefing.
 
 ## Step 4: Relay Response
 
-Relay obligations are defined in `docs/references/consultation-contract.md` § Relay Assessment Contract (§11). This file is not normative for relay format.
+Relay obligations are defined in [consultation-contract.md](../../references/consultation-contract.md) § Relay Assessment Contract (§11). This file is not normative for relay format.
 
 After every Codex response:
 1. Read and apply the Relay Assessment Contract (§11) in full.

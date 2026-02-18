@@ -63,7 +63,7 @@ MCP server providing cross-model dialogue with OpenAI Codex. Enables Claude Code
 
 | Resource  | Location                                        |
 | --------- | ----------------------------------------------- |
-| MCP tools | `mcp__codex__codex`, `mcp__codex__codex-reply`  |
+| MCP tools | `mcp__plugin_codex_codex__codex`, `mcp__plugin_codex_codex__codex-reply`  |
 | Agent     | `.claude/agents/codex-dialogue.md`              |
 
 **Status:** Deployed.
@@ -116,11 +116,11 @@ uv run scripts/promote <type> <name>   # Validate and deploy to ~/.claude/
 
 ### Plugin Development
 
-Plugins use the `tool-dev` marketplace instead of the promote script:
+Plugins use the `cross-model` marketplace instead of the promote script:
 
 ```bash
-claude plugin marketplace update tool-dev
-claude plugin install <name>@tool-dev
+claude plugin marketplace update cross-model
+claude plugin install <name>@cross-model
 ```
 
 ## Rules

@@ -1,7 +1,7 @@
 ---
 name: codex-reviewer
 description: Use when code changes need cross-model review before commit or PR. Must run in foreground (requires MCP tools).
-tools: Bash, Read, Glob, Grep, mcp__codex__codex, mcp__codex__codex-reply
+tools: Bash, Read, Glob, Grep, mcp__plugin_codex_codex__codex, mcp__plugin_codex_codex__codex-reply
 model: opus
 ---
 
@@ -11,7 +11,7 @@ Cross-model code review: gather changes from git, assemble a review-focused brie
 
 ## Preconditions
 
-- MCP tools `mcp__codex__codex` and `mcp__codex__codex-reply` must be available (Codex MCP server running)
+- MCP tools `mcp__plugin_codex_codex__codex` and `mcp__plugin_codex_codex__codex-reply` must be available (Codex MCP server running)
 - If MCP tools are unavailable, report the error immediately — do not proceed with context gathering
 
 ## Task
@@ -89,7 +89,7 @@ Focus on substantive issues. Skip style nitpicks unless they indicate a real pro
 
 ## Step 3: Consult Codex
 
-Call `mcp__codex__codex` with:
+Call `mcp__plugin_codex_codex__codex` with:
 
 | Parameter | Value |
 |-----------|-------|
@@ -100,7 +100,7 @@ Call `mcp__codex__codex` with:
 | `config` | `{"model_reasoning_effort": "xhigh"}` |
 
 After receiving Codex's response:
-- If high-severity issues need clarification, send **one** follow-up via `mcp__codex__codex-reply` using `threadId` from the response
+- If high-severity issues need clarification, send **one** follow-up via `mcp__plugin_codex_codex__codex-reply` using `threadId` from the response
 - Maximum 2 Codex turns total (initial + one follow-up)
 - Persist `threadId` for follow-up (prefer `structuredContent.threadId`, fall back to top-level `threadId`)
 

@@ -56,7 +56,7 @@ If the prompt references files without inlining them, read those files before as
 
 ### Assemble initial briefing
 
-Briefing structure is defined in `docs/references/consultation-contract.md` § Briefing Contract (§5). This file is not normative for briefing format.
+Briefing structure is defined in [consultation-contract.md](../references/consultation-contract.md) § Briefing Contract (§5). This file is not normative for briefing format.
 
 Before building the initial briefing:
 1. Read and apply the Briefing Contract (§5) in full.
@@ -65,7 +65,7 @@ Before building the initial briefing:
 
 ### Token safety (Normative Contract)
 
-Safety rules are defined in `docs/references/consultation-contract.md` § Safety Pipeline (§7). This file is not normative for credential patterns.
+Safety rules are defined in [consultation-contract.md](../references/consultation-contract.md) § Safety Pipeline (§7). This file is not normative for credential patterns.
 
 Before sending any briefing or follow-up to Codex:
 1. Read and apply the Safety Pipeline (§7) in full.
@@ -78,7 +78,7 @@ Before sending any briefing or follow-up to Codex:
 
 ### Start the conversation
 
-Call `mcp__plugin_codex_codex__codex` with parameters from `docs/references/consultation-contract.md` § Codex Transport Adapter (§9). If `model_reasoning_effort` is rejected by the API, omit it and proceed.
+Call `mcp__plugin_codex_codex__codex` with parameters from [consultation-contract.md](../references/consultation-contract.md) § Codex Transport Adapter (§9). If `model_reasoning_effort` is rejected by the API, omit it and proceed.
 
 Persist `threadId` per § Continuity State Contract (§10): prefer `structuredContent.threadId`, fall back to top-level `threadId`. If neither is present, report error and stop — the conversation cannot continue without a thread identifier.
 

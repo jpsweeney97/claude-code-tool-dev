@@ -319,7 +319,7 @@ Implementors SHOULD emit these 6 events. Events are append-only; do not overwrit
 
 ## 14. Profile Schema and Resolution
 
-Named profiles are stored in `docs/references/consultation-profiles.yaml`. Each profile resolves to a complete set of execution controls.
+Named profiles are stored in [consultation-profiles.yaml](consultation-profiles.yaml). Each profile resolves to a complete set of execution controls.
 
 **Resolution order (highest priority first):**
 1. Explicit flag (`-m`, `-s`, `-a`, `-t`)
