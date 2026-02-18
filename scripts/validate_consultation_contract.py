@@ -127,9 +127,9 @@ def validate(repo_root: Path | None = None) -> list[str]:
     if repo_root is None:
         repo_root = Path(__file__).resolve().parents[1]
 
-    contract_path = repo_root / "docs/references/consultation-contract.md"
-    skill_path = repo_root / ".claude/skills/codex/SKILL.md"
-    agent_path = repo_root / ".claude/agents/codex-dialogue.md"
+    contract_path = repo_root / "packages/plugins/cross-model/references/consultation-contract.md"
+    skill_path = repo_root / "packages/plugins/cross-model/skills/codex/SKILL.md"
+    agent_path = repo_root / "packages/plugins/cross-model/agents/codex-dialogue.md"
 
     try:
         contract_text = read_file(contract_path)

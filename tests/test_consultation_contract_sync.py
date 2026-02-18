@@ -19,7 +19,7 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CONTRACT_PATH = REPO_ROOT / "docs/references/consultation-contract.md"
+CONTRACT_PATH = REPO_ROOT / "packages/plugins/cross-model/references/consultation-contract.md"
 
 # ---------------------------------------------------------------------------
 # Happy path
