@@ -10,6 +10,8 @@
 
 **Reference:** `docs/plans/2026-02-18-cross-model-plugin-migration.md` (design doc with 6 resolved design questions)
 
+**Amended:** 2026-02-18 — pre-execution review found 7 issues (3 blocking, 2 important, 2 minor). Fixes: Task 2 adds vendored copy warning + build script `--exclude` to preserve it; Task 6 adds broader file-type verification; Task 7 expands CLAUDE.md updates to cover tool names and agent paths; Task 8 updates all three validation paths (contract, skill, agent) not just contract; Task 9 scopes stale-name grep to exclude soon-to-be-deleted project agents; Task 10 replaces `git add -A` with explicit staging, adds repo-level `.mcp.json` removal, adds `mcp__context-injection__` dangling reference check.
+
 **Branch:** Create `feature/cross-model-plugin` from `main`.
 
 **Test command:** `cd packages/context-injection && uv run pytest` (969 tests) + `uv run pytest tests/test_codex_guard.py` (24 tests) + `uv run pytest tests/test_consultation_contract_sync.py` (13 tests)
@@ -121,6 +123,7 @@ rsync -a --delete \
     --exclude='tests/' \
     --exclude='.pytest_cache/' \
     --exclude='.ruff_cache/' \
+    --exclude='README.vendored.md' \
     "$SRC/" "$DEST/"
 
 echo "Synced context-injection → cross-model plugin ($(find "$DEST/context_injection" -name '*.py' | wc -l | tr -d ' ') Python files)"
@@ -138,7 +141,25 @@ scripts/build-cross-model-plugin
 
 Expected output: `Synced context-injection → cross-model plugin (N Python files)`
 
-**Step 3: Verify the vendored copy excludes build artifacts**
+**Step 3: Add vendored copy warning**
+
+The build script created `packages/plugins/cross-model/context-injection/`. Add a marker file (preserved across future syncs by the `--exclude='README.vendored.md'` in the build script):
+
+Create `packages/plugins/cross-model/context-injection/README.vendored.md`:
+
+```markdown
+# Vendored Copy — Do Not Edit
+
+This directory is a vendored copy of `packages/context-injection/`.
+Edits here will be overwritten by `scripts/build-cross-model-plugin`.
+
+To make changes:
+1. Edit the source at `packages/context-injection/`
+2. Run tests: `cd packages/context-injection && uv run pytest`
+3. Sync: `scripts/build-cross-model-plugin`
+```
+
+**Step 4: Verify the vendored copy excludes build artifacts**
 
 ```bash
 ls packages/plugins/cross-model/context-injection/
@@ -146,7 +167,7 @@ ls packages/plugins/cross-model/context-injection/
 
 Expected: `CLAUDE.md`, `context_injection/`, `pyproject.toml`, `uv.lock` — NO `.venv/`, `tests/`, `__pycache__/`.
 
-**Step 4: Add context injection MCP server to `.mcp.json`**
+**Step 5: Add context injection MCP server to `.mcp.json`**
 
 Edit `packages/plugins/cross-model/.mcp.json`:
 
@@ -171,7 +192,7 @@ Edit `packages/plugins/cross-model/.mcp.json`:
 }
 ```
 
-**Step 5: Commit**
+**Step 6: Commit**
 
 ```bash
 git add scripts/build-cross-model-plugin packages/plugins/cross-model/context-injection packages/plugins/cross-model/.mcp.json
@@ -505,7 +526,17 @@ cat packages/plugins/cross-model/hooks/hooks.json | grep matcher
 
 Expected: `mcp__plugin_cross-model_codex__codex|mcp__plugin_cross-model_codex__codex-reply` for PreToolUse/PostToolUse, `Bash` for PostToolUseFailure.
 
-**Step 8: Commit**
+**Step 8: Broader verification — check for missed file types**
+
+The `find` in Steps 2 and 4 filters for `.md`, `.json`, `.py`, `.yaml`. Verify no stale tool names exist in other file types (`.toml`, extensionless files, etc.):
+
+```bash
+grep -r "mcp__plugin_codex_codex__\|mcp__context-injection__" packages/plugins/cross-model/
+```
+
+Expected: no matches. If any found in files not covered by the extension filter, fix manually.
+
+**Step 9: Commit**
 
 ```bash
 git add packages/plugins/cross-model
@@ -616,11 +647,34 @@ Replace the first paragraph and installation section of `packages/plugins/cross-
 - Note that `CROSS_MODEL_NUDGE=1` enables the opt-in failure nudge
 - Prerequisites: Codex CLI + `uv` (for context injection server)
 
-**Step 5: Update .claude/CLAUDE.md marketplace references**
+**Step 5: Update .claude/CLAUDE.md — marketplace, tool names, and paths**
 
-Search `.claude/CLAUDE.md` for `codex@cross-model` and `codex` plugin references. Update:
+Search `.claude/CLAUDE.md` for all stale references. Three categories of updates:
+
+**5a: Marketplace references**
 - Install command: `claude plugin install cross-model@cross-model`
 - Any references to "codex plugin" → "cross-model plugin"
+
+**5b: Tool name references (4 occurrences)**
+
+In the "Codex Integration" table:
+- `mcp__plugin_codex_codex__codex`, `mcp__plugin_codex_codex__codex-reply` → `mcp__plugin_cross-model_codex__codex`, `mcp__plugin_cross-model_codex__codex-reply`
+
+In the "Context Injection" table:
+- `mcp__context-injection__process_turn`, `mcp__context-injection__execute_scout` → `mcp__plugin_cross-model_context-injection__process_turn`, `mcp__plugin_cross-model_context-injection__execute_scout`
+
+**5c: Agent path reference**
+
+In the "Codex Integration" table:
+- `| Agent | .claude/agents/codex-dialogue.md |` → update to reference the plugin location or the plugin itself (e.g., `| Agent | cross-model plugin: agents/codex-dialogue.md |`)
+
+Verify no stale references remain:
+
+```bash
+grep -n "mcp__plugin_codex_codex__\|mcp__context-injection__\|\.claude/agents/codex-" .claude/CLAUDE.md
+```
+
+Expected: no matches.
 
 **Step 6: Commit**
 
@@ -629,7 +683,8 @@ git add packages/plugins/cross-model/.claude-plugin/plugin.json .claude-plugin/m
 git commit -m "feat: update metadata for cross-model plugin v1.0.0
 
 Bumps version to 1.0.0, updates marketplace entry, CHANGELOG,
-README, and CLAUDE.md references. Install command is now:
+README, and CLAUDE.md references (tool names, agent paths,
+install command). Install command is now:
 claude plugin install cross-model@cross-model"
 ```
 
@@ -641,17 +696,26 @@ claude plugin install cross-model@cross-model"
 - Modify: `scripts/validate_consultation_contract.py`
 - Modify: `tests/test_consultation_contract_sync.py`
 
-**Step 1: Find the path constant in validate_consultation_contract.py**
+**Context:** The validation script references three paths (lines 130-132):
+- `contract_path` → `docs/references/consultation-contract.md`
+- `skill_path` → `.claude/skills/codex/SKILL.md`
+- `agent_path` → `.claude/agents/codex-dialogue.md`
+
+The skill path has been broken since PR #13 (project-level skill removed). All three paths must be updated to plugin-canonical locations.
+
+**Step 1: Find all path constants in validate_consultation_contract.py**
 
 ```bash
-grep -n 'docs/references\|CONTRACT_PATH\|CANONICAL' scripts/validate_consultation_contract.py
+grep -n 'docs/references\|\.claude/skills\|\.claude/agents\|contract_path\|skill_path\|agent_path' scripts/validate_consultation_contract.py
 ```
 
-**Step 2: Update the path constant**
+**Step 2: Update all three path constants**
 
-Change the contract path from `docs/references/consultation-contract.md` to `packages/plugins/cross-model/references/consultation-contract.md`.
+Change line 130: `docs/references/consultation-contract.md` → `packages/plugins/cross-model/references/consultation-contract.md`
+Change line 131: `.claude/skills/codex/SKILL.md` → `packages/plugins/cross-model/skills/codex/SKILL.md`
+Change line 132: `.claude/agents/codex-dialogue.md` → `packages/plugins/cross-model/agents/codex-dialogue.md`
 
-The symlink at `docs/references/consultation-contract.md` would also work, but pointing directly at the canonical location is clearer for maintainability.
+The symlinks at `docs/references/` would work for the contract, but pointing directly at canonical locations is clearer.
 
 **Step 3: Find the path constant in test_consultation_contract_sync.py**
 
@@ -659,34 +723,36 @@ The symlink at `docs/references/consultation-contract.md` would also work, but p
 grep -n 'docs/references\|CONTRACT_PATH\|CANONICAL' tests/test_consultation_contract_sync.py
 ```
 
-**Step 4: Update the path constant**
+**Step 4: Update the test path constant**
 
-Same change: update the contract path to point at the plugin's canonical location.
+Change the `CONTRACT_PATH` from `docs/references/consultation-contract.md` to `packages/plugins/cross-model/references/consultation-contract.md`.
 
-**Step 5: Run validation tests**
-
-```bash
-uv run pytest tests/test_consultation_contract_sync.py -v
-```
-
-Expected: All 13 tests pass.
-
-**Step 6: Run validation script**
+**Step 5: Run validation script directly**
 
 ```bash
 uv run scripts/validate_consultation_contract.py
 ```
 
-Expected: 16-section check passes.
+Expected: 16-section check passes (previously failing due to missing skill path).
+
+**Step 6: Run validation tests**
+
+```bash
+uv run pytest tests/test_consultation_contract_sync.py -v
+```
+
+Expected: All 13 tests pass (previously 1 failing due to missing skill path).
 
 **Step 7: Commit**
 
 ```bash
 git add scripts/validate_consultation_contract.py tests/test_consultation_contract_sync.py
-git commit -m "fix: update validation scripts for plugin-canonical contract path
+git commit -m "fix: update validation scripts for plugin-canonical paths
 
-Points at packages/plugins/cross-model/references/ instead of
-docs/references/ (which is now a symlink to the plugin)."
+Updates contract, skill, and agent paths to point at
+packages/plugins/cross-model/ instead of docs/references/
+and .claude/ (project-level skill removed in PR #13,
+project-level agent removed in Task 10)."
 ```
 
 ---
@@ -757,14 +823,14 @@ file docs/references/context-injection-contract.md
 
 Expected: all three show as symbolic links pointing to `../../packages/plugins/cross-model/references/...`
 
-**Step 7: Verify no stale tool names anywhere in project**
+**Step 7: Verify no stale tool names in plugin and CLAUDE.md**
 
 ```bash
-grep -r "mcp__plugin_codex_codex__" packages/plugins/cross-model/ .claude/agents/ .claude/CLAUDE.md
-grep -r "mcp__context-injection__" packages/plugins/cross-model/
+grep -r "mcp__plugin_codex_codex__" packages/plugins/cross-model/ .claude/CLAUDE.md
+grep -r "mcp__context-injection__" packages/plugins/cross-model/ .claude/CLAUDE.md
 ```
 
-Expected: no matches.
+Expected: no matches. Note: `.claude/agents/` is excluded from this check — those files still contain old tool names but are deleted in Task 10.
 
 ---
 
@@ -775,6 +841,7 @@ Expected: no matches.
 - Remove: `.claude/agents/codex-dialogue.md` (plugin is canonical)
 - Remove: `.claude/agents/codex-reviewer.md` (plugin is canonical)
 - Remove: `.claude/hooks/nudge-codex-consultation.py` (plugin is canonical)
+- Remove: `.mcp.json` (repo-level context-injection server — now bundled in plugin)
 
 **Step 1: Remove old codex plugin**
 
@@ -795,29 +862,41 @@ trash .claude/agents/codex-reviewer.md
 trash .claude/hooks/nudge-codex-consultation.py
 ```
 
-**Step 4: Verify no dangling references to removed files**
+**Step 4: Remove repo-level .mcp.json**
+
+The repo-level `.mcp.json` starts a context-injection MCP server with `mcp__context-injection__*` tool names. After migration, nothing references those tools — the plugin provides `mcp__plugin_cross-model_context-injection__*` instead. Remove to avoid confusion.
+
+```bash
+trash .mcp.json
+```
+
+Note: for development testing of context injection code, run tests directly (`cd packages/context-injection && uv run pytest`). The MCP server is only needed at runtime via the plugin.
+
+**Step 5: Verify no dangling references to removed files**
 
 ```bash
 grep -r "\.claude/agents/codex-" .claude/ docs/ --include='*.md'
 grep -r "nudge-codex-consultation" .claude/ docs/ --include='*.md' --include='*.json'
+grep -r "mcp__context-injection__" .claude/ docs/ scripts/ tests/ --include='*.md' --include='*.py' --include='*.json'
 ```
 
 Fix any references found (update or remove).
 
-**Step 5: Commit**
+**Step 6: Commit**
 
 ```bash
-git add -A
+git add packages/plugins/codex .claude/agents/codex-dialogue.md .claude/agents/codex-reviewer.md .claude/hooks/nudge-codex-consultation.py .mcp.json
 git commit -m "chore: remove project-level files replaced by cross-model plugin
 
 Removes:
 - packages/plugins/codex/ (replaced by cross-model)
 - .claude/agents/codex-dialogue.md (plugin canonical)
 - .claude/agents/codex-reviewer.md (plugin canonical)
-- .claude/hooks/nudge-codex-consultation.py (plugin canonical)"
+- .claude/hooks/nudge-codex-consultation.py (plugin canonical)
+- .mcp.json (context-injection now bundled in plugin)"
 ```
 
-**Step 6: Uninstall old plugin (separate session)**
+**Step 7: Uninstall old plugin (separate session)**
 
 After merging and restarting Claude Code:
 
@@ -858,7 +937,9 @@ Expected: No errors
 | `scripts/validate_consultation_contract.py` | Modified | Updated canonical path to plugin |
 | `tests/test_consultation_contract_sync.py` | Modified | Updated canonical path to plugin |
 | `docs/references/{3 files}` | Modified | Replaced with symlinks to plugin |
-| `.claude/CLAUDE.md` | Modified | Updated marketplace/install references |
+| `.claude/CLAUDE.md` | Modified | Updated marketplace/install references, tool names, agent paths |
+| `packages/plugins/cross-model/context-injection/README.vendored.md` | New | Warning marker for vendored copy |
 | `packages/plugins/codex/` | Removed | Replaced by cross-model plugin |
 | `.claude/agents/codex-{dialogue,reviewer}.md` | Removed | Replaced by plugin agents |
 | `.claude/hooks/nudge-codex-consultation.py` | Removed | Replaced by plugin hook |
+| `.mcp.json` | Removed | Context-injection now bundled in plugin |
