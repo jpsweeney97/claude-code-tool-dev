@@ -6,6 +6,8 @@
 
 **Schema versioning:** For 0.x versions, the helper requires an exact match on `schema_version`. No semver compatibility -- any version mismatch is rejected. This simplifies pre-1.0 iteration.
 
+**Related:** `consultation-contract.md` governs the higher-level Codex consultation protocol (briefing structure, safety pipeline, transport parameters, relay obligations). This contract governs the mid-conversation evidence gathering layer (process_turn / execute_scout) used within delegated consultations. Both contracts apply to `codex-dialogue` agent sessions.
+
 ---
 
 ## Protocol Overview
