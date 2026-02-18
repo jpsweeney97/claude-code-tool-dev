@@ -7,8 +7,6 @@ Imports the guard module directly via importlib (same pattern as test_consultati
 from __future__ import annotations
 
 import importlib.util
-import json
-import sys
 from io import StringIO
 from pathlib import Path
 
