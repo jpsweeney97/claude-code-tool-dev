@@ -56,48 +56,31 @@ If the prompt references files without inlining them, read those files before as
 
 ### Assemble initial briefing
 
-```
-## Context
-[Topic and background. What we're working on and why.]
+Briefing structure is defined in `docs/references/consultation-contract.md` § Briefing Contract (§5). This file is not normative for briefing format.
 
-## Material
-[Relevant content — code, plans, docs, decisions. Inline when concise; summarize when large. If none: "(none)"]
+Before building the initial briefing:
+1. Read and apply the Briefing Contract (§5) in full.
+2. Derive `## Question` from the caller's stated goal.
+3. If the Briefing Contract cannot be read, build a minimal briefing with `## Context` (topic and background) and `## Question` (derived from goal); include `## Material: (none)` if no material applies.
 
-## Question
-[Clear framing of what we want Codex's input on. Derived from the goal.]
-```
+### Token safety (Normative Contract)
 
-### Token safety (hard rules)
+Safety rules are defined in `docs/references/consultation-contract.md` § Safety Pipeline (§7). This file is not normative for credential patterns.
 
-1. Never read or parse `auth.json`.
-2. Never include `id_token`, `access_token`, `refresh_token`, `account_id`, bearer tokens, or API keys (`sk-...`) in the briefing.
-3. Before sending, in addition to the specific tokens named in rule 2, scan for credential patterns:
-   - Password/secret assignments: variable names `password`, `secret_key`, `api_key`, `client_secret`, or `private_key` followed by an assignment containing a non-empty string value
-   - PEM key blocks: any string containing `-----BEGIN ... KEY-----`
-   - Bearer tokens: any string matching `Bearer <value>`
-   - AWS-style access keys: strings starting with `AKIA` followed by 16+ uppercase alphanumeric characters
-   - Base64 strings longer than 40 characters adjacent to authentication variable names
-   This list is not exhaustive. The fail-closed rule below takes priority for unrecognized credential formats.
-   If any match is detected, replace the matched value with `[REDACTED: credential material]` and note the redaction in your output. When uncertain whether a string is a credential, redact (fail-closed).
-4. If redaction cannot be confirmed, do not send the briefing (fail-closed).
+Before sending any briefing or follow-up to Codex:
+1. Read and apply the Safety Pipeline (§7) in full.
+2. Run sanitizer/redaction on every outbound payload.
+3. If the Safety Pipeline cannot be read or applied, block dispatch (fail-closed).
+
+**`manual_legacy` mode:** The safety pipeline applies regardless of mode. `manual_legacy` does not relax credential rules or sanitizer requirements — same patterns, same fail-closed behavior.
 
 ## Phase 2: Conversation Loop
 
 ### Start the conversation
 
-Call `mcp__codex__codex` with:
+Call `mcp__codex__codex` with parameters from `docs/references/consultation-contract.md` § Codex Transport Adapter (§9). If `model_reasoning_effort` is rejected by the API, omit it and proceed.
 
-| Parameter | Value |
-|-----------|-------|
-| `prompt` | Assembled briefing |
-| `model` | `"gpt-5.3-codex"` |
-| `sandbox` | `read-only` |
-| `approval-policy` | `never` |
-| `config` | `{"model_reasoning_effort": "xhigh"}` |
-
-If `model_reasoning_effort` is rejected by the API, omit it and proceed.
-
-Persist `threadId` from the response (prefer `structuredContent.threadId`, fall back to top-level `threadId`). If neither source is present, report error and stop — the conversation cannot continue without a thread identifier.
+Persist `threadId` per § Continuity State Contract (§10): prefer `structuredContent.threadId`, fall back to top-level `threadId`. If neither is present, report error and stop — the conversation cannot continue without a thread identifier.
 
 Use `threadId` as `conversation_id` for `process_turn` calls.
 

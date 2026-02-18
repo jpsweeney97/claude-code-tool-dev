@@ -93,36 +93,12 @@ Error format:
 
 ## Step 1: Build Context Briefing
 
-Codex has no knowledge of the current session. Before calling it, build a complete briefing from conversation context.
+Briefing structure is defined in `docs/references/consultation-contract.md` § Briefing Contract (§5). This file is not normative for briefing format.
 
-Include:
-- **Current task:** What we're working on and why
-- **Decisions made:** What's been decided, what trade-offs were considered
-- **Relevant material:** Inline key content or reference file paths — Codex in read-only mode can browse files but not write. Inline when concise; reference paths when files are large.
-- **What's been tried:** If applicable, what approaches failed and why
-- **Specific question:** Frame the consultation as a clear, answerable question
-
-Structure:
-
-```
-## Context
-[Task, state, and relevant decisions]
-
-## Material
-[Inline relevant content — code, plans, docs, error output. Be selective, not exhaustive.]
-
-## Question
-[What we want Codex's input on]
-```
-
-Always include **all three** top-level sections (`## Context`, `## Material`, `## Question`) exactly once per briefing. If there is no relevant material for a simple question, keep `## Material` but make it explicit:
-
-```
-## Material
-- (none)
-```
-
-**Calibrate depth to the question.** A quick "what do you think of this approach?" needs a paragraph of context. A debugging session needs file contents, error output, and a list of failed approaches. Do not inline entire repositories or large file trees — summarize or reference paths. Briefing assembly should be linear in input size.
+Before building a briefing:
+1. Read and apply the Briefing Contract (§5) in full.
+2. Include all 3 required sections: `## Context`, `## Material`, `## Question`.
+3. If the Briefing Contract cannot be read, build a minimal briefing with `## Context` (task and why) and `## Question` (specific ask); include `## Material: (none)` if no material applies.
 
 ## Step 2: Choose Invocation Strategy
 
@@ -176,126 +152,39 @@ The subagent returns a confidence-annotated synthesis with convergence points, d
 
 Authentication is handled by the Codex CLI from cached login state.
 
-### Pre-dispatch gate and credential safety (required)
+### Pre-dispatch gate and credential safety (Normative Contract)
 
-Run this gate immediately before every outbound Codex call (`mcp__codex__codex` or `mcp__codex__codex-reply`).
+Safety rules are defined in `docs/references/consultation-contract.md` § Safety Pipeline (§7). This file is not normative for credential patterns.
 
-Create an internal pre-dispatch record with these fields:
-- `parse_status`: `pass` | `fail`
-- `prompt_status`: `pass` | `fail` | `not_required`
-- `strategy_status`: `pass` | `fail`
-- `continuity_status`: `pass` | `fail` | `not_required`
-- `controls_status`: `pass` | `fail`
-- `credential_rules_status`: `pass` | `fail`
-- `sanitizer_status`: `pass_clean` | `pass_redacted` | `fail_not_run` | `fail_unresolved_match`
-
-Do not proceed until all required fields are pass-equivalent (`pass`, `pass_clean`, `pass_redacted`, `not_required`).
-
-Credential rules (non-negotiable):
-1. Never read or parse `auth.json` during consultation flow.
-2. Never include raw credential material in outbound text: `id_token`, `access_token`, `refresh_token`, `account_id`, bearer tokens, API keys (`sk-...`), or equivalent secrets.
-
-Sanitizer rule:
-1. Scan all outbound payload text (`prompt`, follow-up text, outbound diagnostics metadata) for secret candidates, including:
-   - API keys matching `sk-...`
-   - AWS access keys beginning with `AKIA`
-   - `Bearer ...` tokens
-   - PEM private key blocks
-   - fields/assignments containing `password`, `secret`, `token`, `api_key`, `id_token`, `access_token`, `refresh_token`, `account_id`
-   - base64-like strings (length >= 40) adjacent to auth-related variable names
-2. Replace every detected candidate with `[REDACTED: credential material]`.
-3. If any candidate cannot be confidently classified as safe, redact it.
-4. Set `sanitizer_status` to:
-   - `pass_clean` if none found
-   - `pass_redacted` if found and redacted
-   - `fail_unresolved_match` if any unresolved candidate remains
-   - `fail_not_run` if scan did not run
-
-If another agent profile defines additional secret patterns, treat those patterns as additive, not alternative.
-
-On any gate failure, return:
-`pre-dispatch gate failed: {reason}. Got: {input!r:.100}`
-
-Allowed reasons:
-- `argument parse invalid`
-- `missing prompt for new conversation`
-- `invocation strategy not selected`
-- `missing conversation identifier`
-- `threadId and conversationId mismatch`
-- `resolved execution controls incomplete`
-- `credential rule violation`
-- `sanitizer not run`
-- `unresolved secret candidate in outbound payload`
+Before any outbound Codex dispatch:
+1. Read and apply the Safety Pipeline (§7) in full.
+2. Run sanitizer/redaction on every outbound payload.
+3. If the Safety Pipeline cannot be read or applied, block dispatch and return: `pre-dispatch gate failed: contract unavailable. Got: {input!r:.100}`.
 
 ### New conversation
 
-Call `mcp__codex__codex`:
-
-| Parameter | Value |
-|-----------|-------|
-| `prompt` | Enriched briefing from Step 1 |
-| `model` | From `-m` flag, or omit for Codex default |
-| `sandbox` | From `-s` flag, or `read-only` |
-| `approval-policy` | From `-a` flag, or `never` (read-only) / `on-failure` (workspace-write) |
-| `config` | `{"model_reasoning_effort": "<-t flag or 'xhigh'>"}` |
+Call `mcp__codex__codex` with parameters from `docs/references/consultation-contract.md` § Codex Transport Adapter (§9) and § Policy Resolver Contract (§8). Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults.
 
 ### Continue conversation
 
-Call `mcp__codex__codex-reply` with:
-- `prompt`: follow-up message (enrich with any new context since last turn)
-- at least one continuity identifier: `threadId` or `conversationId` (see [Governance](#governance-decision-locked) rule #5)
-
-Normalization and deterministic validation:
-1. Normalize `threadId` and `conversationId` by trimming outer whitespace; treat empty strings as absent.
-2. If both are absent, return:
-   - code: `MISSING_REQUIRED_FIELD`
-   - message format: `"validation failed: missing conversation identifier. Got: {input!r:.100}"`
-3. If both are present and values are unequal, return:
-   - code: `INVALID_ARGUMENT`
-   - message format: `"validation failed: threadId and conversationId mismatch. Got: {input!r:.100}"`
-4. If `threadId` is present, use it as canonical continuity identifier.
-5. Else map `conversationId` to canonical `threadId` before upstream dispatch.
-
-If normalized `threadId` is invalid/expired upstream, start a new conversation and rebuild a full briefing.
+Call `mcp__codex__codex-reply` per `docs/references/consultation-contract.md` § Codex Transport Adapter (§9). Apply `threadId` canonicalization from § Continuity State Contract (§10) before dispatch.
 
 ### Continuity state
 
-After a successful Codex tool call, persist `threadId` for follow-up turns:
-- Prefer `structuredContent.threadId` (primary source).
-- Fall back to the top-level `threadId` field (when present).
-- Treat `content` as compatibility output only.
+Persist `threadId` per `docs/references/consultation-contract.md` § Continuity State Contract (§10).
+- Prefer `structuredContent.threadId`. Fall back to top-level `threadId`.
+- If `threadId` is invalid or expired upstream, start a new conversation with a rebuilt full briefing.
 
 ## Step 4: Relay Response
 
-Present Codex output and your independent judgment using this required 3-part contract.
+Relay obligations are defined in `docs/references/consultation-contract.md` § Relay Assessment Contract (§11). This file is not normative for relay format.
 
-1. **Codex Position**
-   - Summarize Codex's answer in 1-3 bullets.
-   - If Codex reports uncertainty or requests more context, state that explicitly.
+After every Codex response:
+1. Read and apply the Relay Assessment Contract (§11) in full.
+2. Present output using the required 3-part structure: Codex Position, Claude Assessment, Decision and Next Action.
+3. If the Relay Assessment Contract cannot be read, present Codex output with your own assessment in free form — do not relay verbatim.
 
-2. **Claude Assessment**
-   - State `agree`, `partially agree`, or `disagree`, and give the reason.
-   - Name at least one risk, trade-off, or assumption.
-
-3. **Decision and Next Action**
-   - Choose one disposition:
-     - Recommendation dispositions: `adopt`, `adopt-with-changes`, `defer`, `reject`
-     - Informational dispositions: `incorporate`, `note`, `no-change`
-   - State one concrete next action. If no action is needed, state `no change` explicitly.
-
-If Codex requests more context or cannot conclude:
-- Keep all 3 sections.
-- Use `defer` or `note`.
-- Request the specific missing artifacts.
-- State whether to re-invoke Codex after those artifacts are provided.
-
-Completion criteria:
-- All 3 sections are present.
-- Disposition is explicit.
-- Next action is observable.
-- Do not relay Codex output verbatim as the final response.
-
-After relaying, capture diagnostics for this consultation (see [Diagnostics](#diagnostics) section below — timestamp, strategy, flags, success/failure).
+After relaying, capture diagnostics for this consultation (see [Diagnostics](#diagnostics) section — timestamp, strategy, flags, success/failure).
 
 ## Failure Handling
 
