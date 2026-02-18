@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "mcp__codex__codex|mcp__codex__codex-reply",
+        "matcher": "mcp__plugin_codex_codex__codex|mcp__plugin_codex_codex__codex-reply",
         "hooks": [
           {
             "type": "command",
@@ -13,7 +13,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "mcp__codex__codex|mcp__codex__codex-reply",
+        "matcher": "mcp__plugin_codex_codex__codex|mcp__plugin_codex_codex__codex-reply",
         "hooks": [
           {
             "type": "command",
