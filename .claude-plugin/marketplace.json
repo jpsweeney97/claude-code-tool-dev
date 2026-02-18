@@ -1,0 +1,7 @@
+{
+  "name": "cross-model",
+  "owner": { "name": "JP" },
+  "plugins": [
+    { "name": "codex", "source": "./packages/plugins/codex" }
+  ]
+}
