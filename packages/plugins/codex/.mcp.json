@@ -2,11 +2,10 @@
   "mcpServers": {
     "codex": {
       "type": "stdio",
-      "command": "codex",
+      "command": "/Users/jp/.local/share/mise/installs/node/24.11.1/bin/codex",
       "args": ["mcp-server"],
       "env": {
-        "CODEX_SANDBOX": "seatbelt",
-        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
+        "CODEX_SANDBOX": "seatbelt"
       }
     }
   }
