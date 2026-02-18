@@ -229,6 +229,7 @@ These rules are non-negotiable:
 4. **Strategy default:** when uncertain, use direct invocation.
 5. **Reply continuity:** `threadId` is canonical; `conversationId` is a deprecated compatibility alias.
 6. **Egress sanitization:** no outbound payload to Codex (briefing, follow-up, diagnostics) without a sanitizer pass. The pre-dispatch gate (§ Step 3) enforces this — `sanitizer_status` must be `pass_clean` or `pass_redacted` before dispatch. The context injection server's redaction pipeline is a complementary layer; both apply to their respective data paths.
+7. **Consent required for scope expansion:** any scope change after initial preflight requires explicit re-consent.
 
 ## Troubleshooting
 
