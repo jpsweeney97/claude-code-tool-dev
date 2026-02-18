@@ -11,7 +11,7 @@
 This contract governs interaction between:
 - The `/codex` skill (direct-mode consultations)
 - The `codex-dialogue` agent (extended multi-turn consultations)
-- OpenAI Codex via `mcp__plugin_codex_codex__codex` and `mcp__plugin_codex_codex__codex-reply` MCP tools
+- OpenAI Codex via `mcp__plugin_cross-model_codex__codex` and `mcp__plugin_cross-model_codex__codex-reply` MCP tools
 
 **In scope:** Briefing assembly, pre-dispatch safety checks, transport parameters, continuity state, relay output obligations, conformance verification.
 
@@ -124,7 +124,7 @@ When the `/codex` skill delegates to the `codex-dialogue` agent, it passes a del
 
 ## 7. Safety Pipeline (Normative)
 
-Run this pipeline immediately before every outbound Codex call (`mcp__plugin_codex_codex__codex` or `mcp__plugin_codex_codex__codex-reply`). This section is normative — skill and agent stubs must defer to it.
+Run this pipeline immediately before every outbound Codex call (`mcp__plugin_cross-model_codex__codex` or `mcp__plugin_cross-model_codex__codex-reply`). This section is normative — skill and agent stubs must defer to it.
 
 ### Pre-dispatch record
 
@@ -204,7 +204,7 @@ Resolve execution controls before dispatch:
 
 ## 9. Codex Transport Adapter
 
-### New conversation (`mcp__plugin_codex_codex__codex`)
+### New conversation (`mcp__plugin_cross-model_codex__codex`)
 
 | Parameter | Value |
 |-----------|-------|
@@ -216,7 +216,7 @@ Resolve execution controls before dispatch:
 
 Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults. Include `model` only when overriding Codex's default.
 
-### Continue conversation (`mcp__plugin_codex_codex__codex-reply`)
+### Continue conversation (`mcp__plugin_cross-model_codex__codex-reply`)
 
 | Parameter | Value |
 |-----------|-------|

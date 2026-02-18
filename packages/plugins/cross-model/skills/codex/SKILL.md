@@ -3,7 +3,7 @@ name: codex
 description: Consult OpenAI Codex for second opinions on architecture, debugging, code review, plans, and decisions.
 argument-hint: "[-m <model>] [-s {read-only|workspace-write|danger-full-access}] [-a {untrusted|on-failure|on-request|never}] [-t {minimal|low|medium|high|xhigh}] [PROMPT]"
 user-invocable: true
-allowed-tools: mcp__plugin_codex_codex__codex, mcp__plugin_codex_codex__codex-reply
+allowed-tools: mcp__plugin_cross-model_codex__codex, mcp__plugin_cross-model_codex__codex-reply
 ---
 
 # Codex Consultation Protocol
@@ -34,8 +34,8 @@ Default on ambiguity: Do not invoke Codex until scope is clear. Ask one clarifyi
 - **egress sanitization:** Run sanitizer/redaction checks on every outbound Codex payload (`prompt`, follow-up text, and outbound diagnostics metadata) before dispatch.
 
 Two MCP tools available:
-- `mcp__plugin_codex_codex__codex` — start a new conversation
-- `mcp__plugin_codex_codex__codex-reply` — continue an existing conversation
+- `mcp__plugin_cross-model_codex__codex` — start a new conversation
+- `mcp__plugin_cross-model_codex__codex-reply` — continue an existing conversation
 
 ## Setup (required)
 
@@ -62,7 +62,7 @@ Parse optional flags from `$ARGUMENTS` — the raw text following `/codex` in th
 
 Flag values are case-insensitive: `high`, `HIGH`, and `High` are all accepted for `-t` and other enum flags.
 
-Only `prompt` is required by the MCP tool schema for `mcp__plugin_codex_codex__codex`. For deterministic, least-privilege behavior, always pass resolved execution controls (`sandbox`, `approval-policy`, and `config.model_reasoning_effort`) rather than relying on upstream defaults. Only include `model` when overriding Codex's default model. If the user explicitly sets `-a`, that value always overrides the sandbox-coupled default.
+Only `prompt` is required by the MCP tool schema for `mcp__plugin_cross-model_codex__codex`. For deterministic, least-privilege behavior, always pass resolved execution controls (`sandbox`, `approval-policy`, and `config.model_reasoning_effort`) rather than relying on upstream defaults. Only include `model` when overriding Codex's default model. If the user explicitly sets `-a`, that value always overrides the sandbox-coupled default.
 
 Examples:
 - `/codex review the plan in docs/plans/auth-redesign.md` → all defaults, PROMPT = "review the plan..."
@@ -153,11 +153,11 @@ Before any outbound Codex dispatch:
 
 ### New conversation
 
-Call `mcp__plugin_codex_codex__codex` with parameters from [consultation-contract.md](../../references/consultation-contract.md) § Codex Transport Adapter (§9) and § Policy Resolver Contract (§8). Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults.
+Call `mcp__plugin_cross-model_codex__codex` with parameters from [consultation-contract.md](../../references/consultation-contract.md) § Codex Transport Adapter (§9) and § Policy Resolver Contract (§8). Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults.
 
 ### Continue conversation
 
-Call `mcp__plugin_codex_codex__codex-reply` per [consultation-contract.md](../../references/consultation-contract.md) § Codex Transport Adapter (§9). Apply `threadId` canonicalization from § Continuity State Contract (§10) before dispatch.
+Call `mcp__plugin_cross-model_codex__codex-reply` per [consultation-contract.md](../../references/consultation-contract.md) § Codex Transport Adapter (§9). Apply `threadId` canonicalization from § Continuity State Contract (§10) before dispatch.
 
 ### Continuity state
 
