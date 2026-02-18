@@ -63,8 +63,8 @@ MCP server providing cross-model dialogue with OpenAI Codex. Enables Claude Code
 
 | Resource  | Location                                        |
 | --------- | ----------------------------------------------- |
-| MCP tools | `mcp__plugin_codex_codex__codex`, `mcp__plugin_codex_codex__codex-reply`  |
-| Agent     | `.claude/agents/codex-dialogue.md`              |
+| MCP tools | `mcp__plugin_cross-model_codex__codex`, `mcp__plugin_cross-model_codex__codex-reply`  |
+| Agent     | cross-model plugin: `agents/codex-dialogue.md`  |
 
 **Status:** Deployed.
 
@@ -79,7 +79,7 @@ Mid-conversation evidence gathering for Codex dialogues. When Codex makes a fact
 | MCP server        | `packages/context-injection/`                                   |
 | Protocol contract | `docs/references/context-injection-contract.md`                 |
 | Design spec       | `docs/plans/2026-02-11-conversation-aware-context-injection.md` |
-| MCP tools         | `mcp__context-injection__process_turn`, `mcp__context-injection__execute_scout` |
+| MCP tools         | `mcp__plugin_cross-model_context-injection__process_turn`, `mcp__plugin_cross-model_context-injection__execute_scout` |
 
 **Security stance:** Over-redaction is always preferable to under-redaction. When adding format-specific redaction logic, verify that edge cases fail toward over-redaction (safe) not under-redaction (leak). Footgun tests (`test_footgun_*`) verify which pipeline layer catches secrets — check that they still test their stated contract after behavior changes.
 
@@ -120,7 +120,7 @@ Plugins use the `cross-model` marketplace instead of the promote script:
 
 ```bash
 claude plugin marketplace update cross-model
-claude plugin install <name>@cross-model
+claude plugin install cross-model@cross-model
 ```
 
 ## Rules

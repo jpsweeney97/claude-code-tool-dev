@@ -1,31 +1,37 @@
 # Changelog
 
+## [1.0.0] — 2026-02-18
+
+### Added
+
+- Context injection MCP server bundled (vendored from `packages/context-injection/`)
+- `codex-reviewer` agent for single-turn code review
+- Opt-in nudge hook: suggests `/codex` after repeated Bash failures (`CROSS_MODEL_NUDGE=1`)
+- `context-injection-contract.md` in plugin references (canonical)
+
+### Changed
+
+- Renamed from `codex` to `cross-model`
+- Plugin is now canonical source for consultation contract, profiles, and context injection contract
+- All tool names updated for plugin rename (`mcp__plugin_cross-model_codex__*`, `mcp__plugin_cross-model_context-injection__*`)
+- Context injection tools no longer require separate repo-level MCP configuration
+
+### Migration
+
+Uninstall old plugin and install new:
+```bash
+claude plugin uninstall codex@cross-model
+claude plugin marketplace update cross-model
+claude plugin install cross-model@cross-model
+```
+
 ## [0.1.0] — 2026-02-18
 
 ### Added
 
-- `/codex` skill (247 lines, 7 governance rules)
+- `/codex` skill (237 lines, 7 governance rules)
 - `codex-dialogue` subagent for extended multi-turn consultations
 - Consultation contract (16 sections, normative) and 5 named profiles
 - PreToolUse enforcement hook: tiered credential detection (strict/contextual/shadow)
 - PostToolUse consultation event logging to `~/.claude/.codex-events.jsonl`
 - Auto-configured `codex mcp-server` MCP connection
-
-### Enforcement model
-
-Block-or-allow only (no in-flight redaction). Fail-closed by design: hook errors
-block the call. Fail-open on hook process crash (OS exit code semantics — see README).
-Proportionate for accidental-credential threat model.
-
-### Known limitations
-
-- Broad-tier patterns (generic credential assignments) are shadow-only.
-  Promote to strict/contextual after real-world FP data collection.
-- `updatedInput` (in-flight redaction) deferred: parallel hook merge semantics
-  are undefined, making it unsafe for security-critical v0.1.
-
-### Implementation notes
-
-- Plugin-provided MCP tools use `mcp__plugin_<plugin>_<server>__<tool>` naming,
-  not `mcp__<server>__<tool>`. Hook matcher must use the plugin-namespaced form.
-  Discovered empirically — not documented in Claude Code plugin docs.

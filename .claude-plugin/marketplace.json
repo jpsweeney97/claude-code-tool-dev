@@ -2,6 +2,6 @@
   "name": "cross-model",
   "owner": { "name": "JP" },
   "plugins": [
-    { "name": "codex", "source": "./packages/plugins/codex" }
+    { "name": "cross-model", "source": "./packages/plugins/cross-model" }
   ]
 }

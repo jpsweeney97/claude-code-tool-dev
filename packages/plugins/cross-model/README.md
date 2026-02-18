@@ -1,28 +1,39 @@
-# Codex Plugin
+# Cross-Model Plugin
 
-Cross-model consultation via OpenAI Codex, with code-level credential enforcement.
+Cross-model consultation via OpenAI Codex, with context injection for mid-conversation evidence gathering and code-level credential enforcement. Future: persistent cross-model learning from consultation resolutions.
 
 ## What this plugin provides
 
 - `/codex` skill — single-turn and multi-turn Codex consultations
 - `codex-dialogue` subagent — extended multi-turn dialogue with convergence detection
+- `codex-reviewer` agent — single-turn code review via Codex
+- Context injection MCP server — mid-conversation evidence gathering for Codex dialogues
 - Consultation contract and named profiles (normative reference)
+- Context injection contract (normative reference)
 - PreToolUse credential enforcement hook — blocks dispatch if secrets detected
 - PostToolUse consultation event log at `~/.claude/.codex-events.jsonl`
-- Auto-configured `codex mcp-server` MCP connection
+- Opt-in nudge hook — suggests `/codex` after repeated Bash failures (`CROSS_MODEL_NUDGE=1`)
+- Auto-configured MCP connections (Codex + context injection)
 
 ## Prerequisites
 
 1. Codex CLI: `npm install -g @openai/codex`
 2. Auth: `codex login` (or set `OPENAI_API_KEY`)
+3. `uv` (for context injection server): `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 ## Installation
 
 ```bash
-claude plugin install codex@cross-model
+claude plugin install cross-model@cross-model
 ```
 
 Restart Claude Code after installing.
+
+## Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CROSS_MODEL_NUDGE` | unset | Set to `1` to enable opt-in failure nudge hook |
 
 ## Enforcement model
 
