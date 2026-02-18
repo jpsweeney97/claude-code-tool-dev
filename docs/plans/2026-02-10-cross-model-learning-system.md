@@ -1300,7 +1300,7 @@ Added inline above: bootstrap card, prompted injection, scoring mode, behavioral
 
 | Question | Resolution Method |
 |----------|-----------------|
-| Phase 0 exit criterion: what counts as "useful on re-injection"? | Define before Phase 0 starts |
+| Phase 0 exit criterion: what counts as "useful on re-injection"? | **Resolved:** A8 — three-gate structure (capture, curation, reference) with pre-registered thresholds |
 | Bootstrap card content: which of the 12 design sessions yield generalizable cards? | Extract during Phase 0 |
 | Scoring formula coefficients and normalization | Calibrate during Phase 2b against real retrieval outcomes |
 | TTL values by knowledge kind | Calibrate after 3+ months of usage data |
@@ -1320,3 +1320,76 @@ Added inline above: bootstrap card, prompted injection, scoring mode, behavioral
 | 3 | Manual process abandonment | Medium | Prompted injection reduces friction; Phase 0 tests habit formation |
 | 4 | Auto-injection reliability (Phase 2) | Medium | Rule file compliance testing; explicit keyword-only scoring mode |
 | 5 | Feedback sparsity | Medium | Lower promotion thresholds (2 episodes / 2 contexts); MVP works even if most cards stay Active forever |
+
+---
+
+### A8. Phase 0 Exit Criteria (amends A4.1)
+
+**Date:** 2026-02-18
+**Source:** Pre-registered before Phase 0 validation period, per learning entry 2026-02-17 [codex, workflow] ("pre-register rubrics and thresholds before starting to prevent goalpost-shifting").
+**Resolves:** Open question "Phase 0 exit criterion: what counts as 'useful on re-injection'?" (A6).
+
+#### What Phase 0 Answers
+
+> "Is capturing and re-injecting unstructured insights worth the effort of building structured infrastructure (episodes, cards, linters, lifecycle, retrieval)?"
+
+Three observable sub-questions:
+
+| Question | Validates | Why it matters |
+|----------|-----------|----------------|
+| Will the developer capture insights? | Habit formation | If capture doesn't happen, nothing downstream matters |
+| Will the developer curate the file? | Quality signal | Uncurated file becomes noise — re-injection degrades |
+| Do insights get referenced in future work? | Re-injection value | Capture without reuse is a journal, not a learning system |
+
+Phase 0 can credibly measure habit formation and curation behavior. It cannot credibly measure causal efficacy (whether a specific learning changed a specific outcome) — that requires infrastructure (A/B tests, blinding, withdrawal probes) that contradicts Phase 0's "no infrastructure" constraint.
+
+#### Duration
+
+2 weeks: 2026-02-18 → 2026-03-04.
+
+#### Baseline
+
+16 entries in `docs/learnings/learnings.md` at start:
+- 2 organic entries (2026-02-17)
+- 14 bootstrap entries (2026-02-18, seeded from 12+ design sessions per A4.2)
+
+Bootstrap entries are identifiable by date (all 2026-02-18) and do not count toward capture metrics.
+
+#### Gate 1: Capture (habit formation)
+
+**Threshold:** 5+ new entries captured via `/learn` during the 2-week period.
+
+**Observable evidence:** Entries in `docs/learnings/learnings.md` with dates after 2026-02-18.
+
+**Rationale:** At ~3-5 sessions/week, 5 entries ≈ 1 capture per 2-3 sessions. Matches the original spec's rate (10 insights over a longer horizon). Lower than this suggests the habit isn't forming.
+
+#### Gate 2: Curation (quality maintenance)
+
+**Threshold:** At least 1 curation action during the 2-week period.
+
+**Curation actions:** edit an entry's text, delete a stale entry, merge duplicates, change tags on an existing entry.
+
+**Observable evidence:** Git history on `docs/learnings/learnings.md` showing a non-append edit.
+
+**Rationale:** If the file only grows and never shrinks or improves, re-injection quality degrades over time. A single curation action shows the developer treats the file as a living document, not an append-only log.
+
+#### Gate 3: Re-injection reference (value delivery)
+
+**Threshold:** At the end of the 2-week period, the user reviews the learnings file and identifies at least 2 specific entries that were referenced or useful during a session.
+
+**Observable evidence:** Self-report, constrained to specific entry identification (not a general "was it useful?" rating). Weaker than artifact-backed evidence but zero overhead during the validation period.
+
+**Rationale:** Capture without reuse validates journaling, not learning. Over-instrumenting reuse (e.g., per-entry reference counters) adds ceremony that kills adoption and changes the behavior being measured.
+
+#### Decision Matrix
+
+| Gate 1 (capture) | Gate 2 (curation) | Gate 3 (reference) | Decision |
+|-------------------|--------------------|--------------------|----------|
+| Pass | Pass | Pass | Proceed to Phase 1 |
+| Pass | Pass | Fail | Investigate injection quality before proceeding (may indicate Phase 2a needed first) |
+| Fail | Any | Any | Stop — habit not forming, structured infrastructure won't help |
+| Pass | Fail | Any | Stop — file quality will degrade; address curation before scaling |
+
+#### Relationship to Original Gate
+
+The original "capture 10 insights, report 3 useful" (A4.1) is replaced by this three-gate structure. The capture threshold is calibrated to the same rate over a shorter window. The "3 useful" self-rating is replaced by Gates 2 and 3, which separate quality maintenance from re-injection value.
