@@ -1,7 +1,7 @@
 ---
 name: codex-dialogue
 description: Use when an extended multi-turn conversation with Codex is needed — ideation, planning, document review, decision-making, or any topic requiring sustained back-and-forth with an independent model. Must run in foreground (requires MCP tools).
-tools: Bash, Read, Glob, Grep, mcp__codex__codex, mcp__codex__codex-reply, mcp__context-injection__process_turn, mcp__context-injection__execute_scout
+tools: Bash, Read, Glob, Grep, mcp__plugin_codex_codex__codex, mcp__plugin_codex_codex__codex-reply, mcp__context-injection__process_turn, mcp__context-injection__execute_scout
 model: opus
 ---
 
@@ -11,7 +11,7 @@ Manage extended conversations with OpenAI Codex via MCP. Start a dialogue, run m
 
 ## Preconditions
 
-- MCP tools `mcp__codex__codex` and `mcp__codex__codex-reply` must be available (Codex MCP server running)
+- MCP tools `mcp__plugin_codex_codex__codex` and `mcp__plugin_codex_codex__codex-reply` must be available (Codex MCP server running)
 - If MCP tools are unavailable, report the error immediately — do not proceed with context gathering
 - Context injection MCP tools `mcp__context-injection__process_turn` and `mcp__context-injection__execute_scout` should be available (see mode gating below)
 - **Mode gating:** Start in `server_assisted` mode. If context injection tools are unavailable at conversation start, switch to `manual_legacy` mode for the remainder of the conversation. Do not switch modes mid-conversation after a successful `process_turn`.
@@ -78,7 +78,7 @@ Before sending any briefing or follow-up to Codex:
 
 ### Start the conversation
 
-Call `mcp__codex__codex` with parameters from `docs/references/consultation-contract.md` § Codex Transport Adapter (§9). If `model_reasoning_effort` is rejected by the API, omit it and proceed.
+Call `mcp__plugin_codex_codex__codex` with parameters from `docs/references/consultation-contract.md` § Codex Transport Adapter (§9). If `model_reasoning_effort` is rejected by the API, omit it and proceed.
 
 Persist `threadId` per § Continuity State Contract (§10): prefer `structuredContent.threadId`, fall back to top-level `threadId`. If neither is present, report error and stop — the conversation cannot continue without a thread identifier.
 
@@ -344,7 +344,7 @@ Use `ledger_summary` for conversation awareness — knowing which claims are set
 
 #### Step 7: Send follow-up
 
-Send via `mcp__codex__codex-reply` with the persisted `threadId`.
+Send via `mcp__plugin_codex_codex__codex-reply` with the persisted `threadId`.
 
 Increment `current_turn`. Return to Step 1 for the next Codex response.
 
@@ -356,7 +356,7 @@ Increment `current_turn`. Return to Step 1 for the next Codex response.
 - **Budget 2:** Run both turns through the loop. The server's `action` guides whether to continue after turn 1.
 - **Budget 3+:** The server handles convergence detection and closing probes via `action`. Trust the directive.
 - **Budget exceeded:** If `current_turn >= effective_budget`, treat any server action as `conclude` regardless of what the server returns. See Step 5 budget precedence.
-- If `mcp__codex__codex-reply` fails mid-conversation, proceed directly to Phase 3 synthesis using `turn_history`. Use the most recent `cumulative` snapshot and `validated_entry` records from `turn_history` in place of the missing `ledger_summary`. Do not attempt to call `process_turn` again — there is no new Codex response to extract from.
+- If `mcp__plugin_codex_codex__codex-reply` fails mid-conversation, proceed directly to Phase 3 synthesis using `turn_history`. Use the most recent `cumulative` snapshot and `validated_entry` records from `turn_history` in place of the missing `ledger_summary`. Do not attempt to call `process_turn` again — there is no new Codex response to extract from.
 
 ## Phase 3: Synthesis
 

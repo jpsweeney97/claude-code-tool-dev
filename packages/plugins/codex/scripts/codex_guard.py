@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-codex_guard.py — PreToolUse/PostToolUse enforcement hook for mcp__codex__codex.
+codex_guard.py — PreToolUse/PostToolUse enforcement hook for mcp__plugin_codex_codex__codex.
 
 PreToolUse: Tiered credential detection on outbound Codex prompts.
   Blocks on strict/contextual tier matches.
