@@ -12,6 +12,27 @@ Consult OpenAI Codex via its MCP server for second opinions. Claude remains the 
 
 **Auto-invocation rule:** Only invoke when the user explicitly requests a second opinion or Codex consultation. Do not call Codex proactively — wait for user intent.
 
+## Scope Boundaries
+
+In scope:
+1. Invoke Codex only when the user explicitly requests Codex or a second opinion.
+2. Use Codex as an advisory consultant for architecture, debugging, review, planning, and decision support.
+3. Continue prior Codex conversations only with a valid continuity identifier.
+
+Out of scope (non-exhaustive):
+1. Proactive Codex invocation without explicit user intent.
+2. Treating Codex output as authoritative without Claude's independent assessment.
+3. Sending any outbound payload that fails required sanitizer/redaction checks.
+4. Consultations that depend on live runtime state that cannot be represented in briefing artifacts.
+
+Default on ambiguity: Do not invoke Codex until scope is clear. Ask one clarifying question.
+
+## Operational Definitions
+
+- **fail-closed:** If a required check cannot be completed with a passing result, block the Codex call and return an error.
+- **debug-gated:** Include prompt/response retention or expanded logging only when debug mode is explicitly enabled for the current consultation; otherwise keep it off.
+- **egress sanitization:** Run sanitizer/redaction checks on every outbound Codex payload (`prompt`, follow-up text, and outbound diagnostics metadata) before dispatch.
+
 Two MCP tools available:
 - `mcp__codex__codex` — start a new conversation
 - `mcp__codex__codex-reply` — continue an existing conversation
