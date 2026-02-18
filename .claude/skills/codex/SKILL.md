@@ -12,6 +12,27 @@ Consult OpenAI Codex via its MCP server for second opinions. Claude remains the 
 
 **Auto-invocation rule:** Only invoke when the user explicitly requests a second opinion or Codex consultation. Do not call Codex proactively — wait for user intent.
 
+## Scope Boundaries
+
+In scope:
+1. Invoke Codex only when the user explicitly requests Codex or a second opinion.
+2. Use Codex as an advisory consultant for architecture, debugging, review, planning, and decision support.
+3. Continue prior Codex conversations only with a valid continuity identifier.
+
+Out of scope (non-exhaustive):
+1. Proactive Codex invocation without explicit user intent.
+2. Treating Codex output as authoritative without Claude's independent assessment.
+3. Sending any outbound payload that fails required sanitizer/redaction checks.
+4. Consultations that depend on live runtime state that cannot be represented in briefing artifacts.
+
+Default on ambiguity: Do not invoke Codex until scope is clear. Ask one clarifying question.
+
+## Operational Definitions
+
+- **fail-closed:** If a required check cannot be completed with a passing result, block the Codex call and return an error.
+- **debug-gated:** Include prompt/response retention or expanded logging only when debug mode is explicitly enabled for the current consultation; otherwise keep it off.
+- **egress sanitization:** Run sanitizer/redaction checks on every outbound Codex payload (`prompt`, follow-up text, and outbound diagnostics metadata) before dispatch.
+
 Two MCP tools available:
 - `mcp__codex__codex` — start a new conversation
 - `mcp__codex__codex-reply` — continue an existing conversation
@@ -72,36 +93,12 @@ Error format:
 
 ## Step 1: Build Context Briefing
 
-Codex has no knowledge of the current session. Before calling it, build a complete briefing from conversation context.
+Briefing structure is defined in `docs/references/consultation-contract.md` § Briefing Contract (§5). This file is not normative for briefing format.
 
-Include:
-- **Current task:** What we're working on and why
-- **Decisions made:** What's been decided, what trade-offs were considered
-- **Relevant material:** Inline key content or reference file paths — Codex in read-only mode can browse files but not write. Inline when concise; reference paths when files are large.
-- **What's been tried:** If applicable, what approaches failed and why
-- **Specific question:** Frame the consultation as a clear, answerable question
-
-Structure:
-
-```
-## Context
-[Task, state, and relevant decisions]
-
-## Material
-[Inline relevant content — code, plans, docs, error output. Be selective, not exhaustive.]
-
-## Question
-[What we want Codex's input on]
-```
-
-Always include **all three** top-level sections (`## Context`, `## Material`, `## Question`) exactly once per briefing. If there is no relevant material for a simple question, keep `## Material` but make it explicit:
-
-```
-## Material
-- (none)
-```
-
-**Calibrate depth to the question.** A quick "what do you think of this approach?" needs a paragraph of context. A debugging session needs file contents, error output, and a list of failed approaches. Do not inline entire repositories or large file trees — summarize or reference paths. Briefing assembly should be linear in input size.
+Before building a briefing:
+1. Read and apply the Briefing Contract (§5) in full.
+2. Include all 3 required sections: `## Context`, `## Material`, `## Question`.
+3. If the Briefing Contract cannot be read, build a minimal briefing with `## Context` (task and why) and `## Question` (specific ask); include `## Material: (none)` if no material applies.
 
 ## Step 2: Choose Invocation Strategy
 
@@ -155,61 +152,39 @@ The subagent returns a confidence-annotated synthesis with convergence points, d
 
 Authentication is handled by the Codex CLI from cached login state.
 
-### Token safety (hard rules)
+### Pre-dispatch gate and credential safety (Normative Contract)
 
-1. Never read or parse `auth.json` during normal consultation flow.
-2. Never include `id_token`, `access_token`, `refresh_token`, `account_id`, bearer tokens, or API keys (`sk-...`) in prompts, tool parameters, logs, or user-visible output.
-3. Before sending a briefing, scan for secret-like text. If detected, replace with `[REDACTED: credential material]` and note the redaction to the user.
-4. If redaction cannot be confirmed, do not send the briefing (fail-closed).
+Safety rules are defined in `docs/references/consultation-contract.md` § Safety Pipeline (§7). This file is not normative for credential patterns.
+
+Before any outbound Codex dispatch:
+1. Read and apply the Safety Pipeline (§7) in full.
+2. Run sanitizer/redaction on every outbound payload.
+3. If the Safety Pipeline cannot be read or applied, block dispatch and return: `pre-dispatch gate failed: contract unavailable. Got: {input!r:.100}`.
 
 ### New conversation
 
-Call `mcp__codex__codex`:
-
-| Parameter | Value |
-|-----------|-------|
-| `prompt` | Enriched briefing from Step 1 |
-| `model` | From `-m` flag, or omit for Codex default |
-| `sandbox` | From `-s` flag, or `read-only` |
-| `approval-policy` | From `-a` flag, or `never` (read-only) / `on-failure` (workspace-write) |
-| `config` | `{"model_reasoning_effort": "<-t flag or 'xhigh'>"}` |
+Call `mcp__codex__codex` with parameters from `docs/references/consultation-contract.md` § Codex Transport Adapter (§9) and § Policy Resolver Contract (§8). Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults.
 
 ### Continue conversation
 
-Call `mcp__codex__codex-reply` with:
-- `prompt`: follow-up message (enrich with any new context since last turn)
-- at least one continuity identifier: `threadId` or `conversationId` (see [Governance](#governance-decision-locked) rule #5)
-
-Normalization and deterministic validation:
-1. Normalize `threadId` and `conversationId` by trimming outer whitespace; treat empty strings as absent.
-2. If both are absent, return:
-   - code: `MISSING_REQUIRED_FIELD`
-   - message format: `"validation failed: missing conversation identifier. Got: {input!r:.100}"`
-3. If both are present and values are unequal, return:
-   - code: `INVALID_ARGUMENT`
-   - message format: `"validation failed: threadId and conversationId mismatch. Got: {input!r:.100}"`
-4. If `threadId` is present, use it as canonical continuity identifier.
-5. Else map `conversationId` to canonical `threadId` before upstream dispatch.
-
-If normalized `threadId` is invalid/expired upstream, start a new conversation and rebuild a full briefing.
+Call `mcp__codex__codex-reply` per `docs/references/consultation-contract.md` § Codex Transport Adapter (§9). Apply `threadId` canonicalization from § Continuity State Contract (§10) before dispatch.
 
 ### Continuity state
 
-After a successful Codex tool call, persist `threadId` for follow-up turns:
-- Prefer `structuredContent.threadId` (primary source).
-- Fall back to the top-level `threadId` field (when present).
-- Treat `content` as compatibility output only.
+Persist `threadId` per `docs/references/consultation-contract.md` § Continuity State Contract (§10).
+- Prefer `structuredContent.threadId`. Fall back to top-level `threadId`.
+- If `threadId` is invalid or expired upstream, start a new conversation with a rebuilt full briefing.
 
 ## Step 4: Relay Response
 
-Present Codex's response to the user with your own assessment:
-- Where you agree or disagree with Codex's take
-- How it changes (or doesn't change) the current approach
-- Recommended next steps
+Relay obligations are defined in `docs/references/consultation-contract.md` § Relay Assessment Contract (§11). This file is not normative for relay format.
 
-Do not just parrot Codex's response. Add value as the primary agent.
+After every Codex response:
+1. Read and apply the Relay Assessment Contract (§11) in full.
+2. Present output using the required 3-part structure: Codex Position, Claude Assessment, Decision and Next Action.
+3. If the Relay Assessment Contract cannot be read, present Codex output with your own assessment in free form — do not relay verbatim.
 
-**After relaying:** Capture diagnostics for this consultation (see [Diagnostics](#diagnostics) section below — timestamp, strategy, flags, success/failure).
+After relaying, capture diagnostics for this consultation (see [Diagnostics](#diagnostics) section — timestamp, strategy, flags, success/failure).
 
 ## Failure Handling
 
@@ -224,8 +199,9 @@ All failure messages use this format:
 | Thread invalid/expired | Reply error from upstream | Start new `codex` call with rebuilt full briefing |
 | Timeout | Tool timeout | Do not auto-retry. Report that upstream may have processed the request; retrying could create duplicates. Prompt the user to confirm before retrying |
 | Auth missing | Login/API key unavailable | Return auth remediation steps (see Troubleshooting) |
-| Secret in briefing material | Redaction detector hit | Redact with marker and continue; note the redaction to the user |
-| Policy mismatch | Disallowed sandbox or approval combination | Return error with allowed values |
+| Pre-dispatch gate failure | `controls_status`, `sanitizer_status`, or any field not pass-equivalent | Return `pre-dispatch gate failed: {reason}`. Do not dispatch. |
+| Secret in briefing material | `sanitizer_status=fail_unresolved_match` | Redact with `[REDACTED: credential material]`; set `sanitizer_status=pass_redacted`; note redaction to user |
+| Policy mismatch | `controls_status=fail` — disallowed sandbox or approval combination | Return error with allowed values; do not dispatch |
 
 Retry policy:
 - No automatic retries for failures where upstream execution is uncertain (timeout, connection drop after dispatch).
@@ -252,7 +228,7 @@ These rules are non-negotiable:
 3. **Dangerous mode never auto-escalates:** never upgrade sandbox from `read-only` to `workspace-write` or `danger-full-access` without explicit user flag (`-s`).
 4. **Strategy default:** when uncertain, use direct invocation.
 5. **Reply continuity:** `threadId` is canonical; `conversationId` is a deprecated compatibility alias.
-6. **Egress sanitization:** no outbound payload to Codex (briefing, follow-up, diagnostics) without a sanitizer pass. The agent's token safety rules and the context injection server's redaction pipeline are complementary layers — both apply to their respective data paths. The fail-closed default applies to all paths.
+6. **Egress sanitization:** no outbound payload to Codex (briefing, follow-up, diagnostics) without a sanitizer pass. The pre-dispatch gate (§ Step 3) enforces this — `sanitizer_status` must be `pass_clean` or `pass_redacted` before dispatch. The context injection server's redaction pipeline is a complementary layer; both apply to their respective data paths.
 
 ## Troubleshooting
 

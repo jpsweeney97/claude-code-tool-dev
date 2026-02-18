@@ -19,8 +19,10 @@ A comprehensive reference for building Claude Code skills.
 
 - [Quick Reference](#quick-reference)
   - [Skill Type Decision Table](#skill-type-decision-table)
+  - [Operational Profile Check](#operational-profile-check)
   - [YAML Frontmatter Reference](#yaml-frontmatter-reference)
   - [Quality Checklist](#quality-checklist)
+  - [Precedence](#precedence)
 - [Skill Structure](#skill-structure)
   - [Directory Structure](#directory-structure)
   - [The SKILL.md File](#the-skillmd-file)
@@ -64,6 +66,18 @@ A comprehensive reference for building Claude Code skills.
 | Surface external information       | **Reference**  | Info exists but isn't in Claude's training data          |
 
 Most skills blend types but lean toward one. Identify the dominant type, then borrow techniques from others as needed. See [Common Skill Types](#common-skill-types) for detailed descriptions.
+
+### Operational Profile Check
+
+After choosing a type, answer three questions — they drive frontmatter decisions:
+
+| Question | Options | Frontmatter |
+| -------- | ------- | ----------- |
+| **Invocation** | Auto (Claude decides) / Manual (`/name` only) | `disable-model-invocation: true` for manual |
+| **Execution** | Inline (main context) / Fork (isolated subagent) | `context: fork` for fork |
+| **Side effects** | Read-only / Writes files or calls external services | Document in description; scope with `allowed-tools` |
+
+**Default to manual invocation for skills with side effects.** Auto-invoked skills that write files or call external services create surprise actions.
 
 ### YAML Frontmatter Reference
 
@@ -117,9 +131,11 @@ Before considering a skill complete, verify:
 
 **For Discipline Skills**
 
-- [ ] Phase gates require evidence before proceeding
-- [ ] Rationalization table preempts common excuses
-- [ ] Red flags list catches shortcut thinking
+- [ ] Phase gates with evidence requirements — baseline, required for all discipline skills
+- [ ] Rationalization table and red flags — for workflows with known loophole patterns
+- [ ] Absolute prohibitions ("NEVER", "no exceptions") — for high-cost or irreversible operations
+
+Not every discipline skill needs all three layers. Match hardening depth to failure cost.
 
 ### Supporting Files Decision Table
 
@@ -129,6 +145,10 @@ Before considering a skill complete, verify:
 | Reference material not always needed | Yes                   |
 | Examples that vary by context        | Yes                   |
 | Core instructions for every run      | No — keep in SKILL.md |
+
+### Precedence
+
+When guidance conflicts: **`.claude/rules/skills.md` takes precedence over this guide** (it is the enforced rules file; this guide is the reference). **This guide takes precedence over canonical Claude Code documentation** for project conventions, including the requirement that `name` and `description` are mandatory fields.
 
 ---
 
@@ -217,7 +237,7 @@ Keep file references one level deep from `SKILL.md`. Avoid deeply nested referen
 
 Skills use a three-level system:
 
-- **First level (YAML frontmatter):** Always loaded in Claude's system prompt. Provides just enough information for Claude to know when each skill should be used without loading all of it into context.
+- **First level (YAML frontmatter):** Loaded into Claude's system prompt for every skill, providing just enough information for Claude to know when each skill is relevant. Exception: `disable-model-invocation: true` removes the description from context entirely (manual `/name` invocation only).
 - **Second level (SKILL.md body):** Loaded when Claude thinks the skill is relevant to the current task. Contains the full instructions and guidance.
 - **Third level (Supporting files):** Additional files bundled within the skill directory that Claude can choose to navigate and discover only as needed.
 
@@ -226,6 +246,12 @@ This progressive disclosure minimizes token usage while maintaining specialized 
 ### Composability
 
 Claude can load multiple skills simultaneously. Skills should work well alongside others, not assume it's the only capability available.
+
+**Scope boundaries:** Narrow your description to the precise trigger condition. Two skills that both match the same query means one description is too broad.
+
+**Negative triggers:** Use "Do NOT use for X (use Y skill instead)" in the description when overlap with an adjacent skill is likely.
+
+**When multiple skills load for the same query,** Claude applies all of them. More specific instructions override general ones. State explicitly when your skill's instructions should yield to task-specific context.
 
 ### Concise Is Key
 
@@ -519,6 +545,8 @@ Keep SKILL.md focused on core instructions. Move detailed documentation to `refe
 
 ### Bulletproofing Skills Against Rationalization
 
+> **Applies to Discipline skills with high-cost or irreversible failure modes.** Do not apply adversarial framing to Technique, Pattern, or Reference skills — over-constraining them reduces flexibility without benefit.
+
 Skills that enforce discipline need to resist rationalization. Claude is smart and will find loopholes.
 
 #### Use Persuasive Language
@@ -745,7 +773,7 @@ Note: Adding this to user prompts is more effective than in SKILL.md
 1. **Optimize SKILL.md size**
    - Move detailed docs to `references/`
    - Link to references instead of inline
-   - Keep SKILL.md under 5,000 words
+   - Keep SKILL.md under 500 lines
 
 2. **Reduce enabled skills**
    - Evaluate if you have more than 20-50 skills enabled simultaneously

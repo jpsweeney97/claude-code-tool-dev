@@ -33,3 +33,21 @@
    - Task-list design guidance for structured execution and assessment.
 3. `./writing-principles.md`
    - Writing-quality principles used across planning/spec/report artifacts.
+
+## Codex Consultation Protocol
+
+1. `./consultation-contract.md`
+   - Normative 16-section contract for Codex consultations. Single source of truth
+     for briefing structure, safety pipeline, transport params, continuity state,
+     relay obligations, and conformance. Referenced by the `/codex` skill and
+     `codex-dialogue` agent via fail-closed stubs.
+
+2. `./consultation-profiles.yaml`
+   - Named profiles (`quick-check`, `deep-review`, `adversarial-challenge`,
+     `exploratory`, `code-review`) mapping to resolved execution controls.
+     Stored separately from the contract for edit-frequency isolation.
+
+3. `./context-injection-contract.md`
+   - Complementary protocol: JSON contract between the `codex-dialogue` agent
+     and the context injection Python helper (MCP server). Governs mid-conversation
+     evidence gathering (process_turn / execute_scout calls).
