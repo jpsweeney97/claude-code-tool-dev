@@ -37,7 +37,7 @@ Used exclusively with `COUNTER` tag:
 
 1. Lines not starting with a recognized tag (`CLAIM:`, `COUNTER:`, `CONFIRM:`, `OPEN:`) are **ignored**.
 2. `CLAIM`, `COUNTER`, or `CONFIRM` lines missing `@ <path>:<line>` citation are **discarded**.
-3. `COUNTER` lines missing `AID:<id>` are **discarded**.
+3. `COUNTER` or `CONFIRM` lines missing `AID:<id>` are **discarded**.
 4. `COUNTER` lines missing `TYPE:<type>` are **discarded**.
 5. Malformed metadata slots (e.g., `AID:` with no value) are ignored; the line is still parsed if tag and content are valid.
 6. Multiple metadata markers on one line: parse left-to-right, first match wins for each field type.
@@ -48,11 +48,13 @@ Used exclusively with `COUNTER` tag:
 When the `/dialogue` skill assembles gatherer outputs:
 
 1. **Parse** — extract tagged lines, ignore untagged
-2. **Discard** — remove `CLAIM`/`COUNTER`/`CONFIRM` missing citation; remove `COUNTER` missing `AID:` or `TYPE:`
-3. **Cap** — if >3 `COUNTER` items remain, keep first 3 (by appearance order)
-4. **Sanitize** — run credential patterns (consultation contract §7) on remaining content
-5. **Dedup** — same tag type + citation key across gatherers → keep Gatherer A's. Different tag types at same citation retained. Key = `path:line` normalized: strip leading `./`, lowercase, collapse `//`
-6. **Group** — deterministic order (Gatherer A first, then B within each section):
+2. **Retry** — if a gatherer produced <4 parseable lines, re-launch once, re-parse, combine with original
+3. **Zero-output fallback** — if total parseable lines across both gatherers is 0 after retries, use minimal briefing with `seed_confidence: low`; skip steps 4-8
+4. **Discard** — remove `CLAIM`/`COUNTER`/`CONFIRM` missing citation; remove `COUNTER`/`CONFIRM` missing `AID:`; remove `COUNTER` missing `TYPE:`
+5. **Cap** — if >3 `COUNTER` items remain, keep first 3 (by appearance order)
+6. **Sanitize** — run credential patterns (consultation contract §7) on remaining content
+7. **Dedup** — same tag type + citation key across gatherers → keep Gatherer A's. Different tag types at same citation retained. Key = `path:line` normalized: strip leading `./`, lowercase, collapse `//`
+8. **Group** — deterministic order (Gatherer A first, then B within each section):
    - Context: `OPEN` + `COUNTER` + `CONFIRM`
    - Material: `CLAIM`
    - Question: user's question verbatim

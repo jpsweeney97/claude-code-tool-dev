@@ -52,8 +52,10 @@ Emit each finding as a prefix-tagged line (see Output Format below). Target 15-3
 Emit findings as prefix-tagged lines. Each line follows this grammar:
 
 ```
-TAG: <content> [@ <path>:<line>] [AID:<id>]
+TAG: <content> [@ <path>:<line>]
 ```
+
+Full grammar with `AID:` and `TYPE:` fields: see [`tag-grammar.md`](../dialogue/references/tag-grammar.md). This agent emits only `CLAIM` and `OPEN`, which do not require those fields.
 
 **Tags you emit:**
 

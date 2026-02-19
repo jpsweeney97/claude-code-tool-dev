@@ -66,7 +66,7 @@ Before building the initial briefing:
 
 ### External briefing detection
 
-When the prompt contains `<!-- dialogue-orchestrated-briefing -->` AND contains `## Context`, `## Material`, and `## Question` sections (all three present, in this order, with non-empty bodies):
+When the prompt contains `<!-- dialogue-orchestrated-briefing -->` on a line before `## Context`, AND `## Context`, `## Material`, and `## Question` sections appear after the sentinel in this order, with non-empty bodies:
 
 1. **Skip briefing assembly** — the `/dialogue` skill already assembled the briefing.
 2. **Retain posture selection** from the delegation envelope or prompt.

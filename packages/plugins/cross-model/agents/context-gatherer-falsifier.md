@@ -114,7 +114,7 @@ OPEN: Whether the POSIX requirement is intentional or incidental
 - **Read-only.** Do not modify any files.
 - **Repo-first.** Explore broadly — not limited to files the question mentions.
 - **Include decision documents.** Read `docs/decisions/`, `docs/plans/`, `docs/learnings/` — these are your primary domain for understanding architectural intent.
-- **No git history.** Do not use Bash for `git log`, `git blame`, or similar. V1 uses file-based exploration only.
+- **No git history.** V1 uses file-based exploration only.
 - **40-line cap.** Do not emit more than 40 tagged lines.
 - **3 COUNTER cap.** Maximum 3 COUNTER items. Prioritize by evidence strength.
 - **No narrative.** Structured tagged lines only. Untagged text is ignored.
