@@ -1,6 +1,6 @@
 ---
 name: dialogue
-description: "Multi-turn Codex consultation with proactive context gathering. Launches parallel codebase explorers, assembles a structured briefing, and delegates to codex-dialogue. For quick single-turn questions, use /codex."
+description: "Multi-turn Codex consultation with proactive context gathering. Launches parallel codebase explorers, assembles a structured briefing, and delegates to codex-dialogue. Use when you need a thorough, evidence-backed consultation, deep codebase analysis before asking Codex, or when the user says 'deep review', 'explore and discuss', or 'thorough consultation'. For quick single-turn questions, use /codex."
 argument-hint: '"question" [-p posture] [-n turns] [--profile name]'
 user-invocable: true
 ---
@@ -207,3 +207,40 @@ Relay the `codex-dialogue` agent's synthesis to the user. Include:
 | codex-dialogue fails to start | Report error to user, suggest `/codex` for direct consultation |
 | codex-dialogue errors mid-conversation | Agent synthesizes from available `turn_history` (built-in fallback) |
 | MCP tools unavailable | Report missing tools and stop |
+
+## Example
+
+**User:** `/dialogue -p adversarial "Is our redaction pipeline over-engineered? The format-specific layer seems redundant."`
+
+**Step 1 — Extract assumptions:**
+- `A1: "The generic redaction layer catches everything the format-specific layer catches"`
+- `A2: "The format-specific layer is redundant"`
+
+**Step 2 — Launch gatherers (parallel):**
+- Gatherer A explores `redact.py`, `redact_formats.py`, `paths.py`, test files → emits 18 `CLAIM` lines + 2 `OPEN`
+- Gatherer B tests A1 and A2 against codebase → emits 1 `CONFIRM`, 2 `COUNTER`, 1 `OPEN`
+
+**Step 3 — Assemble briefing:**
+```
+<!-- dialogue-orchestrated-briefing -->
+## Context
+OPEN: Whether format-specific redaction adds value given generic runs unconditionally
+OPEN: Whether test fixture coverage reflects production workload distribution AID:A2
+COUNTER: Format-specific layer has zero matches in 847/969 test cases @ test_redact.py:203 AID:A2 TYPE:interface mismatch
+COUNTER: Generic redaction catches all patterns format-specific targets @ redact.py:78 AID:A2 TYPE:control-flow mismatch
+CONFIRM: Denylist covers OWASP secret categories (AWS, PEM, JWT, GitHub PAT) @ paths.py:22 AID:A1
+
+## Material
+CLAIM: Redaction pipeline has 3 layers (generic, format-specific, token) @ redact.py:45
+CLAIM: Format-specific redaction handles YAML, JSON, TOML independently @ redact_formats.py:11
+...16 more CLAIM lines...
+
+## Question
+Is our redaction pipeline over-engineered? The format-specific layer seems redundant.
+```
+
+**Step 4 — Health check:** 20 citations, 8 unique files → `seed_confidence: normal`
+
+**Step 5 — Delegate:** Launch `codex-dialogue` with adversarial posture, budget 8, assembled briefing. Agent detects sentinel, skips its own briefing assembly, runs multi-turn conversation.
+
+**Step 6 — Present synthesis:** Relay narrative + Synthesis Checkpoint to user.
