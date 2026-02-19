@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Consult OpenAI Codex for second opinions on architecture, debugging, code review, plans, and decisions.
+description: Consult OpenAI Codex for second opinions on architecture, debugging, code review, plans, and decisions. For multi-turn dialogues with proactive context gathering, use /dialogue.
 argument-hint: "[-m <model>] [-s {read-only|workspace-write|danger-full-access}] [-a {untrusted|on-failure|on-request|never}] [-t {minimal|low|medium|high|xhigh}] [PROMPT]"
 user-invocable: true
 allowed-tools: mcp__plugin_cross-model_codex__codex, mcp__plugin_cross-model_codex__codex-reply
@@ -104,6 +104,8 @@ Before building a briefing:
 
 If uncertain whether to use direct or delegated, default to direct invocation.
 
+> **Tip:** The `/dialogue` skill provides an orchestrated multi-turn path with pre-dialogue context gathering. It launches parallel codebase explorers, assembles a structured briefing, and delegates to `codex-dialogue` automatically. Use `/dialogue` when you want thorough, evidence-backed consultations without manually assembling context.
+
 For subagent delegation:
 1. Spawn a `codex-dialogue` subagent (purpose-built for multi-turn Codex conversations)
 2. Pass the enriched briefing, goal, and optionally a posture (adversarial, collaborative, exploratory, evaluative) and turn budget
@@ -118,7 +120,7 @@ This likely needs 3+ adversarial turns — delegate to codex-dialogue:
 
 ```
 Task(
-  subagent_type: "codex-dialogue",
+  subagent_type: "cross-model:codex-dialogue",
   prompt: """
     Goal: Challenge the caching strategy assumptions.
     Posture: adversarial

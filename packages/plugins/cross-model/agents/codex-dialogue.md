@@ -40,6 +40,7 @@ The prompt from the caller contains:
 | Goal | Yes | Desired outcome: ideas, critique, decision input, plan review, etc. |
 | Posture | No | Conversation style (see below). Default: **collaborative** |
 | Turn budget | No | Maximum Codex turns. Default: **8** |
+| `seed_confidence` | No | Quality signal from pre-dialogue context gathering. Values: `normal` (default), `low`. Read from delegation envelope. |
 
 If the prompt references files without inlining them, read those files before assembling the briefing.
 
@@ -62,6 +63,19 @@ Before building the initial briefing:
 1. Read and apply the Briefing Contract (§5) in full.
 2. Derive `## Question` from the caller's stated goal.
 3. If the Briefing Contract cannot be read, build a minimal briefing with `## Context` (topic and background) and `## Question` (derived from goal); include `## Material: (none)` if no material applies.
+
+### External briefing detection
+
+When the prompt contains `<!-- dialogue-orchestrated-briefing -->` on a line before `## Context`, AND `## Context`, `## Material`, and `## Question` sections appear after the sentinel in this order, with non-empty bodies:
+
+1. **Skip briefing assembly** — the `/dialogue` skill already assembled the briefing.
+2. **Retain posture selection** from the delegation envelope or prompt.
+3. **Retain initial turn construction** — derive `## Question` from the briefing's Question section.
+4. Proceed to token safety check.
+
+**Fail-safe:** If the sentinel is absent, or any of the three sections is missing, or the parse is ambiguous: assemble the briefing normally (current standalone behavior). Always fail-safe to normal assembly.
+
+The sentinel `<!-- dialogue-orchestrated-briefing -->` is injected by the `/dialogue` skill and never appears in standalone invocations.
 
 ### Token safety (Normative Contract)
 
@@ -97,6 +111,7 @@ Initialize after starting the conversation:
 | `current_turn` | `1` | Current turn number (1-indexed) |
 | `evidence_count` | `0` | Scouts executed (for synthesis statistics) |
 | `turn_history` | `[]` | Per-turn list of `{validated_entry, cumulative, scout_outcomes}` — append in Step 3 on every successful `process_turn` response, before the budget gate check |
+| `seed_confidence` | `normal` | From delegation envelope. Values: `normal`, `low`. Controls early-turn scouting bias. |
 
 **Per-turn state retention:** On every successful `process_turn` response, append to `turn_history` **before** checking the budget gate:
 - `validated_entry` — the server-validated ledger entry for this turn
@@ -106,6 +121,17 @@ Initialize after starting the conversation:
 Appending before the budget gate ensures that budget=1 conversations have a populated `turn_history` for Phase 3 synthesis. Step 4 updates `scout_outcomes` in place only if scouts execute; otherwise the `[]` placeholder stands.
 
 This accumulated history is required for Phase 3 synthesis (especially claim trajectory and "weakest claim" derivation) and for fallback synthesis if later turns error.
+
+### Low seed confidence behavior
+
+When `seed_confidence` is `low` (set by the `/dialogue` skill when context gathering produced thin results):
+
+- **Turns 1-2:** Compose follow-up prompts that prioritize probing claims where the initial briefing had thin or no evidence. When `process_turn` returns `template_candidates` in turns 1-2, prefer executing scouts (Step 4) even for lower-ranked candidates — the initial briefing needs supplementing.
+- **Turns 3+:** Revert to normal follow-up composition priority (scout evidence → unresolved → unprobed claims → weakest claim → posture-driven).
+
+This is a **prompt-level bias** — the context injection server's scout generation and template ranking are unchanged. The agent simply weights early scouting opportunities higher when it knows the initial briefing was thin.
+
+When `seed_confidence` is `normal` or absent: no change to existing behavior.
 
 ### Running ledger
 
@@ -405,6 +431,31 @@ Before writing output, verify every item:
 
 If any item is missing, fix it before returning output.
 
+### Synthesis checkpoint
+
+After the narrative synthesis and pre-flight checklist, emit a structured checkpoint block:
+
+```
+## Synthesis Checkpoint
+RESOLVED: <claim> [confidence: High|Medium|Low] [basis: convergence|concession|evidence]
+UNRESOLVED: <item> [raised: turn N]
+EMERGED: <idea> [source: dialogue-born]
+```
+
+**Tags:**
+- `RESOLVED` — claims where both sides reached agreement. Include confidence level and the basis for resolution.
+- `UNRESOLVED` — items still open at dialogue end. Include the turn number where first raised.
+- `EMERGED` — ideas that neither side started with; born from the dialogue itself. Flag as `dialogue-born`.
+
+**Consistency rules:** The checkpoint and narrative synthesis are generated from the same `turn_history` state. Precedence: checkpoint is canonical for structured status, narrative is canonical for explanatory detail.
+
+Cross-reference requirements:
+- Every `UNRESOLVED` in the checkpoint **must** appear in the narrative's Open Questions section.
+- Every `RESOLVED` in the checkpoint **must** appear in the narrative's Areas of Agreement or Contested Claims section.
+- Every `EMERGED` in the checkpoint **must** appear in the narrative's Key Outcomes section.
+
+If any cross-reference is missing, add it before returning output.
+
 ## Constraints
 
 - **Read-only** — Do not modify files. Use Bash only for git commands if needed for context.
@@ -461,6 +512,19 @@ Unresolved points worth further investigation. Include which turn(s) raised them
 - **Unresolved items carried forward:** [list from ledger, if continuation warranted]
 - **Recommended posture for continuation:** [posture suggestion based on conversation dynamics]
 - **Evidence trajectory:** [which turns had evidence, what entities, what impacts — or "none (no scouts executed)" if evidence_count == 0]
+
+### Synthesis Checkpoint
+
+Structured summary of dialogue outcomes. Emitted after the narrative sections:
+
+```
+## Synthesis Checkpoint
+RESOLVED: <claim> [confidence: High|Medium|Low] [basis: convergence|concession|evidence]
+UNRESOLVED: <item> [raised: turn N]
+EMERGED: <idea> [source: dialogue-born]
+```
+
+Include all items from the narrative — this block must be consistent with the narrative sections per the consistency rules in Phase 3.
 
 ### Example
 

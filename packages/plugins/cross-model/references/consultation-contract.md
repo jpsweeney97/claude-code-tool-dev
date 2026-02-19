@@ -105,7 +105,7 @@ Every Codex consultation MUST use this 3-section structure:
 
 ## 6. Delegation Envelope Contract
 
-When the `/codex` skill delegates to the `codex-dialogue` agent, it passes a delegation envelope:
+When a skill delegates to the `codex-dialogue` agent, it passes a delegation envelope. This applies to `/codex` (direct delegation) and `/dialogue` (orchestrated delegation with pre-gathered context).
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -114,6 +114,7 @@ When the `/codex` skill delegates to the `codex-dialogue` agent, it passes a del
 | `posture` | No | Conversation posture. Default: `collaborative` |
 | `turn_budget` | No | Maximum Codex turns. Default: 8, max: 15 |
 | `scope_envelope` | Yes | Immutable scope set from §3 preflight |
+| `seed_confidence` | No | Quality signal from pre-dialogue context gathering. Values: `normal` (default), `low`. When omitted, treated as `normal`. |
 
 **Scope envelope (immutable):** Set at delegation time. Contains allowed roots and source classes from §3. On scope breach, the agent MUST:
 1. Stop the consultation immediately
