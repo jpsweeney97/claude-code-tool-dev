@@ -23,7 +23,7 @@ The `/dialogue` pipeline assumes a formed question. Planning tasks start with pr
 
 Each `/codex` and `/dialogue` invocation produces a Synthesis Checkpoint with structured outcomes (RESOLVED/UNRESOLVED/EMERGED), but this data exists only in the conversation context. There is no cross-session persistence for dialogue outcomes. The `codex_guard.py` hook writes security telemetry (`block`, `shadow`) and basic consultation metadata (`consultation`) to `~/.claude/.codex-events.jsonl`, but lacks dialogue-quality fields: posture, turn count, convergence, seed_confidence, synthesis counts, gatherer metrics.
 
-The learning system spec (Phase 2+) defines Episode and Learning Card schemas for knowledge capture, but analytics — statistical outcome tracking — is architecturally adjacent, not identical. The V2 deferred item "third conditional gatherer when LOW_SEED_CONFIDENCE >30% over 10+ sessions" explicitly requires cross-session outcome data that doesn't exist yet.
+The learning system spec (Phase 2+) defines Episode and Learning Card schemas for knowledge capture, but analytics — statistical outcome tracking — is architecturally adjacent, not identical. The V2 deferred item "third conditional gatherer" requires cross-session outcome data that doesn't exist yet. The trigger formula (TBD — requires defining session windowing and aggregation algorithm) will be specified when V2 design begins.
 
 ---
 
@@ -64,12 +64,14 @@ Add a `[SRC:<source>]` metadata field to `CLAIM` lines:
 In the `/dialogue` SKILL.md assembly step, after 3a (Parse):
 
 **3a-bis. Validate provenance:** For each `CLAIM` line, check for `[SRC:code]` or `[SRC:docs]`. If a CLAIM line lacks a provenance tag:
-- **Infer from citation path** as fallback: if citation starts with `docs/decisions/`, `docs/plans/`, `docs/learnings/`, or matches `CLAUDE.md`/`README.md` → infer `[SRC:docs]`. Otherwise → infer `[SRC:code]`.
-- Increment `provenance_inferred_count`.
+- Assign `[SRC:unknown]` — an assembler-only fallback value. Emitters never produce `unknown`; its presence means the gatherer did not follow its output format.
+- Increment `provenance_unknown_count`.
 
-If `provenance_inferred_count > 0`, set `seed_confidence` to `low` (the gatherer didn't follow its output format consistently — context quality is uncertain).
+If `provenance_unknown_count > 0`, set `seed_confidence` to `low` (the gatherer didn't follow its output format consistently — context quality is uncertain).
 
-**Why path inference instead of hard-dropping:** Avoids a bootstrapping problem. The first runs after updating gatherer instructions will likely produce untagged lines. Path inference provides a grace period without losing data.
+**Why `[SRC:unknown]` instead of path inference or hard-drop:** Path inference converts a structural guarantee (gatherer followed format) into a heuristic — citation paths can be misleading (e.g., a code file under `docs/`). Hard-dropping discards valid findings over a formatting issue. `[SRC:unknown]` preserves data, marks uncertainty explicitly, and triggers `seed_confidence: low` for downstream awareness. The emitter contract stays binary (`code`|`docs`); `unknown` is assembler-assigned only.
+
+**Briefing passthrough:** `[SRC:unknown]` lines are preserved in the assembled briefing sent to `codex-dialogue` — not stripped before delegation. The tag may trigger Codex to locate the source via mid-dialogue scouting, turning an assembler-level quality signal into a dialogue-level recovery mechanism.
 
 ### 2.5 Tag Grammar Extension
 
@@ -99,7 +101,7 @@ All paths relative to `packages/plugins/cross-model/`.
 
 1. **Provenance tag scope beyond no-assumptions fallback.** Should Gatherer B always emit `[SRC:docs]` on CLAIM lines, even when testing assumptions? Current design: only in no-assumptions fallback. Rationale: when assumptions exist, the COUNTER/CONFIRM tags with AID already provide traceability — adding SRC is redundant. Revisit if analytics shows assembler needs richer signal.
 
-2. **Path inference deprecation timeline.** Path inference is a bootstrapping mechanism. After N sessions where provenance_inferred_count is consistently 0, the inference code could be replaced with hard-drop. No timeline set — measure via analytics first.
+2. **`[SRC:unknown]` graduation.** After N sessions where `provenance_unknown_count` is consistently 0, the `[SRC:unknown]` fallback could be replaced with hard-drop (discard untagged lines). No timeline set — measure via analytics first.
 
 ---
 
@@ -124,6 +126,8 @@ When `--plan` is present, Step 0 runs before Step 1.
 When `--plan` is set, before the normal pipeline:
 
 **Input:** The user's raw problem statement (e.g., "how should we architect the caching layer?").
+
+**Scope:** `--plan` is for architectural, design, and planning questions — not debugging. Debugging questions ("why does X fail?") produce root-cause hypotheses, not architectural assumptions; the template structure is not designed for them. If a debugging question is detected (heuristic: question contains "fail", "error", "bug", "crash", "broken"), run Step 0 best-effort and force `shape_confidence: low` with guidance: "This looks like a debugging question. Consider running without `--plan` for better results."
 
 **Process:** Claude (locally, no Codex) decomposes the problem statement into:
 
@@ -281,6 +285,9 @@ The `codex-dialogue` agent has synthesis checkpoint data (RESOLVED/UNRESOLVED/EM
   "gatherer_b_retry": false,
   "citations_total": 34,           // Total lines with @ path:line
   "unique_files_total": 12,        // Unique file paths cited
+  "gatherer_a_unique_paths": 10,   // Unique citation paths from code explorer
+  "gatherer_b_unique_paths": 6,    // Unique citation paths from falsifier
+  "shared_citation_paths": 2,      // Citation paths appearing in both gatherers
   "counter_count": 3,              // After cap
   "confirm_count": 3,
   "open_count": 10,
@@ -289,6 +296,11 @@ The `codex-dialogue` agent has synthesis checkpoint data (RESOLVED/UNRESOLVED/EM
   // Scouting (from codex-dialogue output)
   "scout_count": 0,                // Evidence scouts executed during dialogue
 
+  // Scope envelope (compact observability)
+  "source_classes": ["code", "docs", "config"],  // Allowed source classes
+  "scope_root_count": 3,           // Number of allowed roots
+  "scope_roots_fingerprint": "a1b2c3",  // Hash of sorted canonical root paths
+
   // Planning (nullable — populated when --plan is used, Enhancement 2)
   "question_shaped": null,          // boolean, null when --plan not used
   "shape_confidence": null,         // "high" | "medium" | "low", null when --plan not used
@@ -296,7 +308,7 @@ The `codex-dialogue` agent has synthesis checkpoint data (RESOLVED/UNRESOLVED/EM
   "ambiguity_count": null,
 
   // Provenance (nullable — populated when Enhancement 1 is active)
-  "provenance_inferred_count": null, // Lines where SRC tag was inferred from path
+  "provenance_unknown_count": null,  // Lines where assembler assigned [SRC:unknown]
 
   // Linkage (nullable — for future learning system integration)
   "episode_id": null                 // EP-XXXX when promoted to Episode
@@ -306,9 +318,9 @@ The `codex-dialogue` agent has synthesis checkpoint data (RESOLVED/UNRESOLVED/EM
 ### 4.4 Schema Versioning
 
 The `schema_version` field enables forward compatibility:
-- `0.1.0`: Initial schema (this spec). Analytics enhancement only.
-- `0.2.0`: Add provenance fields (Enhancement 1 ships).
-- `0.3.0`: Add planning fields (Enhancement 2 ships).
+- `0.1.0`: Initial schema (this spec). All fields present; provenance and planning fields are nullable (always `null`).
+- `0.2.0`: First version where provenance fields (`provenance_unknown_count`) are non-null (E-TUNING active).
+- `0.3.0`: First version where planning fields (`question_shaped`, `shape_confidence`, etc.) are non-null (E-PLANNING active).
 
 Readers must handle missing fields gracefully (nullable fields may be absent in older records).
 
@@ -322,6 +334,24 @@ In `/dialogue` SKILL.md Step 6, after presenting synthesis to user:
 4. Append to `~/.claude/.codex-events.jsonl` using the same format as existing events (one JSON object per line, `_append_log` pattern from `codex_guard.py`).
 
 **Error handling:** If event emission fails (file write error), log a warning but do not block the user from seeing the synthesis. Analytics is best-effort, never blocking.
+
+### 4.5a Extraction Contract
+
+The `/dialogue` skill's Step 6 parser must extract structured fields from the `codex-dialogue` agent's Task tool return value. The agent's Synthesis Checkpoint uses prefix-tagged lines (e.g., `RESOLVED: ...`, `EMERGED: ...`) that are countable via line-prefix matching.
+
+**Field extraction mapping:**
+
+| Analytics Field | Source | Extraction Method |
+|----------------|--------|-------------------|
+| `resolved_count` | Synthesis Checkpoint | Count lines starting with `RESOLVED:` |
+| `unresolved_count` | Synthesis Checkpoint | Count lines starting with `UNRESOLVED:` |
+| `emerged_count` | Synthesis Checkpoint | Count lines starting with `EMERGED:` |
+| `converged` | Narrative "Converged:" field | Parse `yes`/`no` from "Converged: {value}" |
+| `turn_count` | Narrative "Turns:" field | Parse integer from "Turns: {N} of {budget}" |
+| `thread_id` | Codex MCP tool output | Extract actual thread ID string from `codex-reply` return value. **Note:** The `codex-dialogue` agent currently outputs "Thread ID present: yes/no" — this must be updated to output the actual thread ID value (e.g., "Thread ID: {id}" or "Thread ID: none"). |
+| `scout_count` | Narrative "Evidence:" field | Parse integer from evidence trajectory |
+
+**Fallback:** If any field cannot be parsed, use the default value (0 for counts, `null` for strings, `false` for booleans). Log the parse failure as a warning. Analytics is best-effort — parse failures do not block synthesis presentation.
 
 ### 4.6 Standalone `/codex` Analytics
 
@@ -355,7 +385,7 @@ A future `/consultation-stats` command (not in this spec) reads `~/.claude/.code
 - Convergence rate (converged / total dialogue_outcome)
 - Average turn utilization (turn_count / turn_budget)
 - seed_confidence distribution
-- no_assumptions_fallback frequency (the V2 trigger for third gatherer)
+- no_assumptions_fallback frequency (V2 trigger input — aggregation formula TBD)
 - EMERGED items per dialogue (cross-model value metric)
 
 ### 4.8 Relationship to Learning System
@@ -392,22 +422,24 @@ All paths relative to `packages/plugins/cross-model/`.
 
 2. **Retention policy.** `codex-events.jsonl` has no retention policy currently. As analytics records accumulate, the file could grow large. Consider a 90-day rotation or size cap. Not blocking for v1 — the file is append-only JSONL and can be truncated manually.
 
+3. **Event stream split trigger.** Security telemetry (`block`, `shadow`, `consultation`) and analytics (`dialogue_outcome`, `consultation_outcome`) share `~/.claude/.codex-events.jsonl`. For v1 this is acceptable — the `event` field provides clean namespace separation (`jq 'select(.event == "dialogue_outcome")'`). Split into separate files (`codex-security.jsonl` + `codex-analytics.jsonl`) when either: (a) analytics volume exceeds 1MB/month, or (b) a retention policy is defined that differs between security and analytics event types.
+
 ---
 
 ## 5. Implementation Sequencing
 
-| Order | Enhancement | Size | Rationale |
-|-------|------------|------|-----------|
-| 1 | Analytics (§4) | S | Establishes baseline metrics; other enhancements benefit from data |
-| 2 | Gathering Agent Tuning (§2) | S | Self-contained; provenance validation measurable via analytics |
-| 3 | Planning Mode (§3) | M | Reuses pre-created nullable analytics fields; validates quality improvement |
+| Ship Order | ID | Enhancement | Section | Size | Rationale |
+|------------|-----|------------|---------|------|-----------|
+| 1 | E-ANALYTICS | Consultation Analytics | §4 | S | Establishes baseline metrics; other enhancements benefit from data |
+| 2 | E-TUNING | Gathering Agent Tuning | §2 | S | Self-contained; provenance validation measurable via analytics |
+| 3 | E-PLANNING | Planning Mode | §3 | M | Reuses pre-created nullable analytics fields; validates quality improvement |
 
 Each enhancement is independently shippable. Schema versioning (`schema_version` field) ensures forward compatibility as fields are added.
 
 **Dependencies:**
-- Enhancement 2 depends on Enhancement 3 for analytics fields (`question_shaped`, `shape_confidence`, etc.) but can ship without them — the fields are nullable.
-- Enhancement 1 depends on Enhancement 3 for `provenance_inferred_count` field but can ship without it — same nullable pattern.
-- Enhancement 3 has no dependencies.
+- E-PLANNING depends on E-ANALYTICS for analytics fields (`question_shaped`, `shape_confidence`, etc.) but can ship without them — the fields are nullable.
+- E-TUNING depends on E-ANALYTICS for `provenance_unknown_count` field but can ship without it — same nullable pattern.
+- E-ANALYTICS has no dependencies.
 
 ---
 
@@ -415,9 +447,9 @@ Each enhancement is independently shippable. Schema versioning (`schema_version`
 
 ### 6.1 Enhancement 1 (Gathering Agent Tuning)
 
-- No-assumptions fallback produces <20% content overlap between gatherers (measured by shared citation paths).
+- No-assumptions fallback produces <20% content overlap between gatherers, measured by `shared_citation_paths / min(gatherer_a_unique_paths, gatherer_b_unique_paths)`.
 - Provenance tags present on >90% of CLAIM lines after 5+ `/dialogue` invocations.
-- `provenance_inferred_count` trends toward 0 over time.
+- `provenance_unknown_count` trends toward 0 over time.
 
 ### 6.2 Enhancement 2 (Planning Mode)
 
