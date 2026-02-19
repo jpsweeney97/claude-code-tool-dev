@@ -70,3 +70,7 @@ Escalation triggers (log these, evaluate quarterly):
 | `block` | PreToolUse blocks | `ts`, `event`, `tool`, `session_id`, `prompt_length`, `reason` |
 | `shadow` | Broad-tier match | same as block |
 | `consultation` | PostToolUse | `ts`, `event`, `tool`, `session_id`, `prompt_length`, `result_length`, `thread_id_present` |
+| `dialogue_outcome` | `/dialogue` Step 7 | `schema_version`, `consultation_id`, `thread_id`, `session_id`, `event`, `ts`, `posture`, `turn_count`, `turn_budget`, `profile_name`, `mode`, `converged`, `convergence_reason_code`, `termination_reason`, `resolved_count`, `unresolved_count`, `emerged_count`, `seed_confidence`, `low_seed_confidence_reasons`, `assumption_count`, `no_assumptions_fallback`, gatherer metrics, scope envelope, nullable planning/provenance fields |
+| `consultation_outcome` | `/codex` post-diagnostics | `schema_version`, `consultation_id`, `thread_id`, `session_id`, `event`, `ts`, `posture`, `turn_count`, `turn_budget`, `profile_name`, `mode`, `converged`, `termination_reason` |
+
+`dialogue_outcome` and `consultation_outcome` events use `schema_version` for forward compatibility. See `docs/plans/2026-02-19-cross-model-plugin-enhancements.md` §4.4 for version semantics.
