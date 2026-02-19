@@ -24,7 +24,7 @@ Context Injection (this package) ← you are here
 Cross-Model Learning (design complete, not implemented)
 ```
 
-**Primary consumer:** `.claude/agents/codex-dialogue.md` — a 7-step scouting loop that:
+**Primary consumer:** `packages/plugins/cross-model/agents/codex-dialogue.md` — a 7-step scouting loop that:
 1. Calls `process_turn` (Call 1) to get scout options
 2. Selects a scout and calls `execute_scout` (Call 2) for evidence
 3. Uses evidence to verify Codex's factual claims mid-conversation

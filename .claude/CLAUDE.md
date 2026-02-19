@@ -76,7 +76,7 @@ Mid-conversation evidence gathering for Codex dialogues. When Codex makes a fact
 
 | Resource          | Location                                                        |
 | ----------------- | --------------------------------------------------------------- |
-| MCP server        | `packages/context-injection/`                                   |
+| MCP server (source) | `packages/context-injection/` (dev/test; vendored into plugin at runtime) |
 | Protocol contract | `docs/references/context-injection-contract.md`                 |
 | Design spec       | `docs/plans/2026-02-11-conversation-aware-context-injection.md` |
 | MCP tools         | `mcp__plugin_cross-model_context-injection__process_turn`, `mcp__plugin_cross-model_context-injection__execute_scout` |
