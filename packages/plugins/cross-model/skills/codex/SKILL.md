@@ -178,6 +178,8 @@ After every Codex response:
 
 After relaying, capture diagnostics for this consultation (see [Diagnostics](#diagnostics) section — timestamp, strategy, flags, success/failure).
 
+After diagnostics, emit a `consultation_outcome` analytics event (see [Analytics Emission](#analytics-emission) section).
+
 ## Failure Handling
 
 All failure messages use this format:
@@ -211,6 +213,39 @@ After each Codex consultation, capture these non-secret diagnostics:
 - Error code (if any)
 
 Do not log prompt bodies or Codex response text by default. Prompt/log retention is debug-gated opt-in only.
+
+### Analytics Emission
+
+After capturing diagnostics, emit a `consultation_outcome` event to the shared event log. Analytics is best-effort — failures do not block the consultation response.
+
+Construct and append a single JSON line to `~/.claude/.codex-events.jsonl`:
+
+```jsonc
+{
+  "schema_version": "0.1.0",
+  "consultation_id": "{generated UUID v4}",
+  "thread_id": "{threadId from Codex response, or null}",
+  "session_id": "{Claude Code session ID}",
+  "event": "consultation_outcome",
+  "ts": "{ISO 8601 UTC timestamp}",
+  "posture": "{resolved posture from briefing}",
+  "turn_count": 1,
+  "turn_budget": 1,
+  "profile_name": null,
+  "mode": "server_assisted",
+  "converged": null,
+  "termination_reason": "complete"
+}
+```
+
+For multi-turn `/codex` consultations (continued with `codex-reply`), increment `turn_count` for each round-trip. `turn_budget` remains 1 (standalone consultations have no pre-set budget).
+
+Append using:
+```bash
+echo '{...event JSON...}' >> ~/.claude/.codex-events.jsonl
+```
+
+If the append fails, log a warning. Do not retry.
 
 ## Governance (Decision-Locked)
 
