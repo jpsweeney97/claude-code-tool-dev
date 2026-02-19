@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# /// hook
+# /// hook (documentation only — registration is in hooks.json)
 # event: PostToolUseFailure
 # matcher: Bash
 # timeout: 5
@@ -71,7 +71,8 @@ def main() -> None:
                 f.seek(0)
                 f.truncate()
                 f.write(str(count))
-    except (ValueError, OSError):
+    except (ValueError, OSError) as e:
+        print(f"nudge-codex: state file error, resetting count: {e}", file=sys.stderr)
         count = 1
 
     if count >= THRESHOLD:

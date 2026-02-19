@@ -2,12 +2,12 @@
 
 FastMCP server providing mid-conversation evidence gathering for the Codex dialogue system. Two MCP tools: `process_turn` (Call 1) and `execute_scout` (Call 2).
 
-**Protocol contract:** `docs/references/context-injection-contract.md` (relative to repo root). Authoritative spec for both the server and its callers.
+**Protocol contract:** `docs/references/context-injection-contract.md` (relative to repo root). In the vendored plugin copy, see `../../references/context-injection-contract.md` relative to this directory. Authoritative spec for both the server and its callers.
 
 ## Commands
 
 ```bash
-uv run pytest                                # run all 969 tests
+uv run pytest                                # run all 969 tests (source package only; vendored copy excludes tests)
 uv run ruff check context_injection/ tests/  # lint
 python -m context_injection                  # start server
 ```

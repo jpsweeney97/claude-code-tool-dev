@@ -25,7 +25,7 @@ claude plugin marketplace update cross-model
 claude plugin install cross-model@cross-model
 ```
 
-## [0.1.0] — 2026-02-18
+## [0.1.0] — 2026-02-18 (originally released as the `codex` plugin)
 
 ### Added
 

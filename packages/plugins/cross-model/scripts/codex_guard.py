@@ -111,8 +111,8 @@ def _append_log(entry: dict) -> None:
         _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with _LOG_PATH.open("a") as f:
             f.write(json.dumps(entry) + "\n")
-    except OSError:
-        pass  # Never block on log I/O failure
+    except OSError as e:
+        print(f"codex-guard: log write failed: {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +242,11 @@ def main() -> int:
     try:
         data = json.load(sys.stdin)
     except Exception as e:
-        # Cannot parse input — fail-closed for PreToolUse (default), silent for PostToolUse
+        # Cannot parse input — cannot determine event type.
+        # Fail-closed: blocking is safer than silently allowing
+        # a potentially dangerous PreToolUse through. PostToolUse
+        # callers would also get exit 2, but Claude Code is unlikely
+        # to send malformed JSON.
         print(f"codex-guard: failed to parse stdin ({e})", file=sys.stderr)
         return 2
 
