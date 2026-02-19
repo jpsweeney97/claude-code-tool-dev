@@ -181,7 +181,7 @@ The protocol shape is identical whether Codex is available or not. No forking in
 
 "Codex MCP is available" means:
 - The `codex-dialogue` subagent type exists in the Task tool's available agents
-- MCP tools `mcp__codex__codex` and `mcp__codex__codex-reply` are listed as available
+- MCP tools `mcp__plugin_cross-model_codex__codex` and `mcp__plugin_cross-model_codex__codex-reply` are listed as available
 
 Check at the start of the adversarial phase. If unavailable, fall back immediately — do not retry or wait.
 
@@ -201,7 +201,7 @@ Check at the start of the adversarial phase. If unavailable, fall back immediate
 ### Codex MCP tools not found
 
 **Cause:** Codex MCP server not running or not configured.
-**Fix:** Check `mcp__codex__codex` availability. If not present, fall back to local adversarial lenses.
+**Fix:** Check `mcp__plugin_cross-model_codex__codex` availability. If not present, fall back to local adversarial lenses.
 
 ### Codex returns shallow or generic response
 

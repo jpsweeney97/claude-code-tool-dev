@@ -1,4 +1,4 @@
-"""Tests for packages/plugins/codex/scripts/codex_guard.py.
+"""Tests for packages/plugins/cross-model/scripts/codex_guard.py.
 
 Tests the PreToolUse credential detection hook and PostToolUse logging hook.
 Imports the guard module directly via importlib (same pattern as test_consultation_contract_sync.py).
@@ -14,7 +14,7 @@ MODULE_PATH = (
     Path(__file__).resolve().parents[1]
     / "packages"
     / "plugins"
-    / "codex"
+    / "cross-model"
     / "scripts"
     / "codex_guard.py"
 )
@@ -28,7 +28,7 @@ SPEC.loader.exec_module(MODULE)
 # ---------------------------------------------------------------------------
 
 
-def _pre(prompt: str, tool: str = "mcp__codex__codex") -> dict:
+def _pre(prompt: str, tool: str = "mcp__plugin_cross-model_codex__codex") -> dict:
     return {
         "hook_event_name": "PreToolUse",
         "tool_name": tool,
@@ -40,7 +40,7 @@ def _pre(prompt: str, tool: str = "mcp__codex__codex") -> dict:
 def _post(prompt: str = "hello", result: str = "world") -> dict:
     return {
         "hook_event_name": "PostToolUse",
-        "tool_name": "mcp__codex__codex",
+        "tool_name": "mcp__plugin_cross-model_codex__codex",
         "session_id": "test-session",
         "tool_input": {"prompt": prompt},
         "tool_response": {"content": result},
@@ -144,7 +144,7 @@ class TestFailClosed:
         assert result == 2
 
     def test_missing_tool_input_allows(self) -> None:
-        data = {"hook_event_name": "PreToolUse", "tool_name": "mcp__codex__codex"}
+        data = {"hook_event_name": "PreToolUse", "tool_name": "mcp__plugin_cross-model_codex__codex"}
         assert MODULE.handle_pre(data) == 0
 
 
@@ -159,6 +159,13 @@ class TestPostToolUse:
 
     def test_post_with_aws_key_in_result_still_returns_0(self) -> None:
         assert MODULE.handle_post(_post(result="AKIAIOSFODNN7EXAMPLE")) == 0
+
+    def test_post_codex_reply_returns_0(self, tmp_path, monkeypatch) -> None:
+        """PostToolUse works for codex-reply tool variant."""
+        monkeypatch.setattr(MODULE, "_LOG_PATH", tmp_path / "events.jsonl")
+        data = _post()
+        data["tool_name"] = "mcp__plugin_cross-model_codex__codex-reply"
+        assert MODULE.handle_post(data) == 0
 
     def test_post_empty_data_returns_0(self) -> None:
         assert MODULE.handle_post({}) == 0

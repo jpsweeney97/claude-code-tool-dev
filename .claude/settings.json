@@ -1,19 +1,5 @@
 {
   "env": {
     "GITFLOW_ALLOW_FILES": "**/docs/**,CHANGELOG.md,README.md,settings.json,**/.claude/handoffs/**,**/.claude/notes/**,CLAUDE.md"
-  },
-  "hooks": {
-    "PostToolUseFailure": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/nudge-codex-consultation.py",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
   }
 }
