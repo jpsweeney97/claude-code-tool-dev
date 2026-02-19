@@ -507,7 +507,7 @@ For each claim with divergent positions during the dialogue:
 Unresolved points worth further investigation. Include which turn(s) raised them.
 
 ### Continuation
-- **Thread ID present:** yes/no
+- **Thread ID:** {persisted threadId value} | none
 - **Continuation warranted:** yes — [reason] / no
 - **Unresolved items carried forward:** [list from ledger, if continuation warranted]
 - **Recommended posture for continuation:** [posture suggestion based on conversation dynamics]
@@ -573,7 +573,7 @@ Complete example showing all required fields:
 - Whether to use database triggers or application-level projection (raised T1, partially explored T2)
 
 ### Continuation
-- **Thread ID present:** yes
+- **Thread ID:** thread_abc123
 - **Continuation warranted:** yes — retention policy and projection strategy unresolved
 - **Unresolved items carried forward:** event retention policy, trigger vs. application projection
 - **Recommended posture for continuation:** Exploratory — key decisions made, remaining items need research not debate
