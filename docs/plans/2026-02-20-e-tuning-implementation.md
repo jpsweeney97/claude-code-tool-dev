@@ -14,7 +14,7 @@
 
 **Test command:** `uv run pytest tests/test_emit_analytics.py -v`
 
-**All paths relative to:** `packages/plugins/cross-model/`
+**Target files:** Under `packages/plugins/cross-model/` unless noted otherwise. Task headers and git commands use repo-root paths.
 
 **Dependencies between tasks:**
 - Task 1 (tag-grammar.md): independent — defines the SRC field grammar all other files reference
@@ -101,7 +101,7 @@ After the `TYPE:` field description (line 16), add:
 
 **Step 3: Add SRC column to tag table**
 
-Replace the tag table (lines 20-26):
+Replace the tag table (lines 20-25):
 
 ```markdown
 | Tag | Purpose | Citation | AID | TYPE | SRC |
@@ -199,7 +199,7 @@ TAG: <content> [@ <path>:<line>] [SRC:<source>]
 
 **Step 2: Add SRC column to tag table**
 
-Replace the tag table (lines 62-66):
+Replace the tag table (lines 62-65):
 
 ```markdown
 | Tag | When to use | Citation required? | SRC required? |
@@ -210,7 +210,7 @@ Replace the tag table (lines 62-66):
 
 **Step 3: Update examples**
 
-Replace examples (lines 73-80):
+Replace the inner content of the examples code block (lines 74-79, preserving fences at lines 73 and 80):
 
 ```
 CLAIM: Redaction pipeline has 3 layers (generic, format-specific, token) @ redact.py:45 [SRC:code]
@@ -264,7 +264,7 @@ When the `assumptions` list is empty (the question contains no testable assumpti
 1. Explore **rationale surfaces only**: `docs/decisions/`, `docs/plans/`, `docs/learnings/`, `CLAUDE.md`, `README.md`, and architectural files at repository root.
 2. Do NOT explore code files, test files, or config files — those are the code explorer's domain.
 3. Emit `CLAIM` and `OPEN` items about design rationale, architectural decisions, and documented constraints relevant to the question.
-4. Tag every `CLAIM` line with the appropriate provenance tag (see Provenance Tags below).
+4. Tag every `CLAIM` line with `[SRC:docs]` — all CLAIMs in the fallback path are documentation-sourced because only rationale surfaces are explored.
 5. Do **not** emit `COUNTER` or `CONFIRM` — these require assumption IDs.
 ```
 
@@ -284,7 +284,7 @@ TAG: <content> [@ <path>:<line>] [AID:<id>] [TYPE:<type>] [SRC:<source>]
 
 **Step 3: Add SRC column to tag table**
 
-Replace the tag table (lines 66-72):
+Replace the tag table (lines 66-71):
 
 ```markdown
 | Tag | When to use | Citation | AID | TYPE | SRC |
@@ -316,7 +316,7 @@ In the no-assumptions fallback (rationale surfaces only), all CLAIMs will carry 
 
 **Step 5: Update no-assumptions fallback examples**
 
-Replace the fallback examples (lines 105-110):
+Replace the inner content of the fallback examples code block (lines 107-109, preserving section header at line 105 and fences at lines 106 and 110):
 
 ```
 CLAIM: Authentication module chosen over JWT per ADR-003 @ docs/decisions/ADR-003.md:12 [SRC:docs]
@@ -355,7 +355,7 @@ Old:
 
 New:
 ```
-**3b. Low-output retry:** After parsing, if a gatherer produced fewer than 4 parseable tagged lines, re-launch that gatherer once with a prompt reinforcing the output format: "Emit findings as prefix-tagged lines per the output format. Each CLAIM must include `@ path:line` citation and `[SRC:code]` or `[SRC:docs]` provenance tag. Each COUNTER must include `@ path:line` citation, `AID:<id>`, and `TYPE:<type>`." Parse the retry output (3a) and merge with the original lines: non-duplicate lines are combined (both kept). For duplicate claim keys (same tag type + normalized citation): retry-wins — prefer the SRC-tagged version from retry output over the untagged original. Tie-break: if both original and retry have valid SRC tags (`code` or `docs`), keep the retry version. If still below 4 after retry, proceed with available output.
+**3b. Low-output retry:** After parsing, if a gatherer produced fewer than 4 parseable tagged lines, re-launch that gatherer once with a prompt reinforcing the output format: "Emit findings as prefix-tagged lines per the output format. Each CLAIM must include `@ path:line` citation and `[SRC:code]` or `[SRC:docs]` provenance tag. Each COUNTER must include `@ path:line` citation, `AID:<id>`, and `TYPE:<type>`." Parse the retry output (3a) and merge with the original lines: non-duplicate lines are combined (both kept). For duplicate claim keys (same tag type + normalized citation): retry-wins — prefer the SRC-tagged version from retry output over the untagged original. Tie-break: if both original and retry have valid SRC tags (`code` or `docs`), keep the retry version. (This both-tagged tie-break fills a gap in the spec, which does not address the case where both versions carry valid SRC tags.) If still below 4 after retry, proceed with available output.
 ```
 
 **Step 2: Update 3c skip list and seed_confidence handling**
@@ -461,7 +461,7 @@ Updated rows:
 | `low_seed_confidence_reasons` | Step 4b | list of enum: `thin_citations`, `few_files`, `zero_output`, `provenance_violations` |
 ```
 
-New row (add after `claim_count`):
+New row (add between `claim_count` at line 228 and `source_classes` at line 229):
 
 ```
 | `provenance_unknown_count` | Step 3h-bis | int or null |
@@ -566,7 +566,7 @@ New:
 
 **Step 4: Add schema version auto-bump**
 
-In `build_dialogue_outcome()`, change from returning the dict directly to assigning it, then conditionally bumping:
+In `build_dialogue_outcome()`, refactor the `return {` statement (line 294) to `event = {` — keep all existing key-value pairs unchanged, change only the assignment target. Then add the conditional bump and `return event` after the closing brace:
 
 After the dict construction (before the function ends), assign to `event` variable and add:
 
@@ -679,13 +679,20 @@ In `TestBuildDialogueOutcome`:
         """schema_version stays 0.1.0 when provenance_unknown_count is None."""
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         assert event["schema_version"] == "0.1.0"
+
+    def test_provenance_unknown_count_explicit_none_schema_stays(self) -> None:
+        """schema_version stays 0.1.0 when provenance_unknown_count is explicitly None."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": None}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["schema_version"] == "0.1.0"
+        assert event["provenance_unknown_count"] is None
 ```
 
 **Step 8: Run tests**
 
 Run: `uv run pytest tests/test_emit_analytics.py -v`
 
-Expected: All tests pass (84 existing + 8 new = 92 total). The one modified test (`test_low_seed_confidence_reasons_valid`) also passes with enum values.
+Expected: All tests pass (84 existing + 9 new = 93 total). The one modified test (`test_low_seed_confidence_reasons_valid`) also passes with enum values. Note: Steps 1-5 (enum set, count fields, pipeline plumbing, schema bump, validation) must be applied before the new tests (Steps 6-7), since the tests depend on the code changes.
 
 **Step 9: Commit**
 
@@ -697,7 +704,7 @@ git commit -m "feat(cross-model): enum enforcement + provenance_unknown_count pl
 - Make provenance_unknown_count a real pipeline input (was hard-coded None)
 - Auto-bump schema_version to 0.2.0 when provenance_unknown_count is non-null
 - Add provenance_unknown_count to _COUNT_FIELDS for non-negative int validation
-- 8 new tests, 1 updated test (92 total)
+- 9 new tests, 1 updated test (93 total)
 Spec: §2.6, §4.4 of cross-model-plugin-enhancements."
 ```
 
@@ -706,7 +713,7 @@ Spec: §2.6, §4.4 of cross-model-plugin-enhancements."
 ## Final Verification
 
 Run: `uv run pytest tests/test_emit_analytics.py -v`
-Expected: All 92 tests pass
+Expected: All 93 tests pass
 
 Verify no stale references across all modified files:
 - `rg "3d-3h[^-]" packages/plugins/cross-model/` — should find zero matches (all updated to include 3h-bis)
@@ -723,4 +730,4 @@ Verify no stale references across all modified files:
 | `skills/dialogue/SKILL.md` | Modified | 3h-bis, Step 4b, retry SRC prompt, pipeline table |
 | `agents/codex-dialogue.md` | Modified | Unknown-claims-priority scouting |
 | `scripts/emit_analytics.py` | Modified | Enum enforcement, provenance plumbing, schema bump |
-| `tests/test_emit_analytics.py` | Modified | 8 new tests (92 total) |
+| `tests/test_emit_analytics.py` | Modified | 9 new tests (93 total) |
