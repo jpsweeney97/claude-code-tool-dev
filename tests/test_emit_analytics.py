@@ -582,6 +582,68 @@ class TestValidate:
         with pytest.raises(ValueError, match="source_classes must contain only strings"):
             MODULE.validate(event, "dialogue_outcome")
 
+    def test_none_mode_rejected_dialogue(self) -> None:
+        """mode is required — None must not pass validation."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["mode"] = None
+        with pytest.raises(ValueError, match="mode is required"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_none_mode_rejected_consultation(self) -> None:
+        """mode is required for consultation_outcome too."""
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        event["mode"] = None
+        with pytest.raises(ValueError, match="mode is required"):
+            MODULE.validate(event, "consultation_outcome")
+
+    def test_missing_mode_rejected(self) -> None:
+        """mode in required sets — missing key caught by required fields check."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        del event["mode"]
+        with pytest.raises(ValueError, match="missing required fields"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_turn_budget_null_rejected(self) -> None:
+        """turn_budget=None must raise ValueError, not TypeError."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["turn_budget"] = None
+        with pytest.raises(ValueError, match="turn_budget must be a positive int"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_turn_budget_bool_rejected(self) -> None:
+        """turn_budget=True caught by count fields validator (bool is subclass of int)."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["turn_budget"] = True
+        with pytest.raises(ValueError, match="non-negative int"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_turn_budget_string_rejected(self) -> None:
+        """turn_budget='5' caught by count fields validator."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["turn_budget"] = "5"
+        with pytest.raises(ValueError, match="non-negative int"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_low_seed_confidence_reasons_string_rejected(self) -> None:
+        """low_seed_confidence_reasons must be a list, not a string."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["low_seed_confidence_reasons"] = "insufficient coverage"
+        with pytest.raises(ValueError, match="low_seed_confidence_reasons must be a list"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_low_seed_confidence_reasons_non_string_items(self) -> None:
+        """low_seed_confidence_reasons items must be strings."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["low_seed_confidence_reasons"] = [1, 2]
+        with pytest.raises(ValueError, match="low_seed_confidence_reasons must contain only strings"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_low_seed_confidence_reasons_valid(self) -> None:
+        """Valid list of strings passes."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["low_seed_confidence_reasons"] = ["narrow scope", "few files"]
+        MODULE.validate(event, "dialogue_outcome")  # no exception
+
 
 # ---------------------------------------------------------------------------
 # TestAppendLog
@@ -620,6 +682,14 @@ class TestAppendLog:
         monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
         assert MODULE._append_log({"test": True}) is False
         (tmp_path / "readonly").chmod(0o755)  # cleanup
+
+    def test_typeerror_returns_false(self, tmp_path, monkeypatch) -> None:
+        """json.dumps TypeError on non-serializable values returns False (degraded)."""
+        from pathlib import Path
+
+        log_path = tmp_path / "events.jsonl"
+        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        assert MODULE._append_log({"path": Path("/tmp")}) is False
 
 
 # ---------------------------------------------------------------------------

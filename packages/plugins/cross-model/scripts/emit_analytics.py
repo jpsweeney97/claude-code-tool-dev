@@ -92,6 +92,7 @@ _DIALOGUE_REQUIRED = {
     "unresolved_count",
     "emerged_count",
     "seed_confidence",
+    "mode",
 }
 
 _CONSULTATION_REQUIRED = {
@@ -103,6 +104,7 @@ _CONSULTATION_REQUIRED = {
     "turn_count",
     "turn_budget",
     "termination_reason",
+    "mode",
 }
 
 
@@ -123,7 +125,7 @@ def _append_log(entry: dict) -> bool:
         with open(_LOG_PATH, "a") as f:
             f.write(json.dumps(entry) + "\n")
         return True
-    except OSError as exc:
+    except (OSError, TypeError) as exc:
         print(f"log write failed: {exc}", file=sys.stderr)
         return False
 
@@ -421,7 +423,9 @@ def validate(event: dict, event_type: str) -> None:
         raise ValueError(f"invalid seed_confidence: {seed!r}")
 
     mode = event.get("mode")
-    if mode is not None and mode not in _VALID_MODES:
+    if mode is None:
+        raise ValueError("mode is required")
+    if mode not in _VALID_MODES:
         raise ValueError(f"invalid mode: {mode!r}")
 
     # Count fields >= 0
@@ -433,7 +437,9 @@ def validate(event: dict, event_type: str) -> None:
             raise ValueError(f"{field} must be non-negative int, got {value!r}")
 
     # Cross-field invariants
-    turn_budget = event.get("turn_budget", 1)
+    turn_budget = event.get("turn_budget")
+    if turn_budget is None or isinstance(turn_budget, bool) or not isinstance(turn_budget, int):
+        raise ValueError(f"turn_budget must be a positive int, got {turn_budget!r}")
     if turn_budget < 1:
         raise ValueError(f"turn_budget must be >= 1, got {turn_budget}")
 
@@ -460,6 +466,13 @@ def validate(event: dict, event_type: str) -> None:
             raise ValueError("source_classes must be a list")
         if not all(isinstance(s, str) for s in source_classes):
             raise ValueError("source_classes must contain only strings")
+
+    low_reasons = event.get("low_seed_confidence_reasons")
+    if low_reasons is not None:
+        if not isinstance(low_reasons, list):
+            raise ValueError("low_seed_confidence_reasons must be a list")
+        if not all(isinstance(s, str) for s in low_reasons):
+            raise ValueError("low_seed_confidence_reasons must contain only strings")
 
 
 # ---------------------------------------------------------------------------
