@@ -47,38 +47,60 @@ This makes the domain partition **mandatory** in the fallback path, eliminating 
 
 ### 2.3 Provenance Tags
 
-Add a `[SRC:<source>]` metadata field to `CLAIM` lines:
+Add a `[SRC:<source>]` metadata field to `CLAIM` lines. Provenance is **line-semantic**: the tag reflects the actual evidence surface of the specific finding, not which gatherer emitted it.
 
-| Tag | Meaning | Emitter |
-|-----|---------|---------|
-| `[SRC:code]` | Derived from code, test, or config files | Gatherer A (code explorer) |
-| `[SRC:docs]` | Derived from decision docs, plans, learnings, architecture files | Gatherer B (falsifier) |
+| Tag | Meaning | When to use |
+|-----|---------|-------------|
+| `[SRC:code]` | Finding derived from code, test, or config files | CLAIM cites a code/test/config file |
+| `[SRC:docs]` | Finding derived from decision docs, plans, learnings, architecture files | CLAIM cites a docs/plans/decisions/README/CLAUDE.md file |
 
 **Emission rules:**
-- Gatherer A: emit `[SRC:code]` on every `CLAIM` line.
-- Gatherer B: emit `[SRC:docs]` on every `CLAIM` line (no-assumptions fallback only). When testing assumptions (COUNTER/CONFIRM), no provenance tag required — the AID field already provides traceability.
+- Every `CLAIM` line must carry `[SRC:code]` or `[SRC:docs]` based on the actual source file cited, regardless of which gatherer emitted it.
+- A falsifier CLAIM about code (e.g., when testing assumptions against implementation files) carries `[SRC:code]`, not `[SRC:docs]`.
+- `COUNTER`/`CONFIRM` lines: no provenance tag required — the AID field already provides traceability.
 - `OPEN` lines: no provenance tag required (they signal gaps, not findings).
 
 ### 2.4 Assembler Validation
 
-In the `/dialogue` SKILL.md assembly step, after 3a (Parse):
+In the `/dialogue` SKILL.md assembly step, after 3g (Dedup) — i.e., on the final retained CLAIM set. Pipeline insertion point: 3g (Dedup) → **3h-bis** (Validate provenance) → 3h (Group).
 
-**3a-bis. Validate provenance:** For each `CLAIM` line, check for `[SRC:code]` or `[SRC:docs]`. If a CLAIM line lacks a provenance tag:
+**3h-bis. Validate provenance:** For each `CLAIM` line in the final retained set, check for `[SRC:code]` or `[SRC:docs]`. If a CLAIM line lacks a provenance tag:
 - Assign `[SRC:unknown]` — an assembler-only fallback value. Emitters never produce `unknown`; its presence means the gatherer did not follow its output format.
 - Increment `provenance_unknown_count`.
 
-If `provenance_unknown_count > 0`, set `seed_confidence` to `low` (the gatherer didn't follow its output format consistently — context quality is uncertain).
+3h-bis produces `provenance_unknown_count` as a metric only. It does **not** finalize `seed_confidence` — that happens in Step 4b (see §2.4a).
 
-**Why `[SRC:unknown]` instead of path inference or hard-drop:** Path inference converts a structural guarantee (gatherer followed format) into a heuristic — citation paths can be misleading (e.g., a code file under `docs/`). Hard-dropping discards valid findings over a formatting issue. `[SRC:unknown]` preserves data, marks uncertainty explicitly, and triggers `seed_confidence: low` for downstream awareness. The emitter contract stays binary (`code`|`docs`); `unknown` is assembler-assigned only.
+**Why run after dedup, not after parse:** Running on pre-retry or pre-discard output overcounts violations from lines that retry or dedup would remove. The provenance check must see the same set of CLAIMs that will appear in the briefing.
 
-**Briefing passthrough:** `[SRC:unknown]` lines are preserved in the assembled briefing sent to `codex-dialogue` — not stripped before delegation. The tag may trigger Codex to locate the source via mid-dialogue scouting, turning an assembler-level quality signal into a dialogue-level recovery mechanism.
+**Why `[SRC:unknown]` instead of path inference or hard-drop:** Path inference converts a structural guarantee (gatherer followed format) into a heuristic — citation paths can be misleading (e.g., a code file under `docs/`). Hard-dropping discards valid findings over a formatting issue. `[SRC:unknown]` preserves data, marks uncertainty explicitly, and feeds the reason collector for downstream awareness. The emitter contract stays binary (`code`|`docs`); `unknown` is assembler-assigned only. Do **not** implement path inference — this is an explicit prohibition, not just a preference.
+
+**Retry supersession:** The low-output retry prompt (Step 3b) must explicitly request SRC tags: "Each CLAIM must include `[SRC:code]` or `[SRC:docs]` provenance tag." Merge logic for retries: non-duplicate lines are combined (both kept). For duplicate claim keys (same tag type + normalized citation): retry-wins — prefer the SRC-tagged version from retry output over the untagged original.
+
+**Briefing passthrough:** `[SRC:unknown]` lines are preserved in the assembled briefing sent to `codex-dialogue` — not stripped before delegation. To make recovery non-heuristic, the `codex-dialogue` agent must include an explicit instruction to prioritize verification of briefing claims marked `[SRC:unknown]`, targeting citation paths for mid-dialogue scouting. This converts an assembler-level quality signal into a dialogue-level recovery mechanism with an explicit behavioral contract, not reliance on model interpretation.
+
+### 2.4a Step 4b: Reason Collector
+
+After Step 4 (Health Check), add Step 4b to compose the final `seed_confidence` from all metrics sources. Step 4 computes metrics (citation count, unique file count) but does not set `seed_confidence` directly — Step 4b is the sole authority for the final `seed_confidence` value.
+
+**4b. Compose seed_confidence:** Collect reasons from all pipeline stages into `low_seed_confidence_reasons`:
+
+| Reason | Source | Trigger |
+|--------|--------|---------|
+| `zero_output` | Step 3c | Total parseable lines = 0 after retries |
+| `thin_citations` | Step 4 | Total lines with `@ path:line` < 8 |
+| `few_files` | Step 4 | Unique file paths cited < 5 |
+| `provenance_violations` | Step 3h-bis | `provenance_unknown_count` >= 2 |
+
+`seed_confidence` = `low` if `low_seed_confidence_reasons` is non-empty; `normal` otherwise. No short-circuit masking between reasons — all triggered reasons are collected.
+
+**Why >= 2 instead of > 0:** A single untagged CLAIM (`provenance_unknown_count == 1`) is likely format noise — possibly from a retry-combined line where the retry itself lacked tags. Threshold of 1 would cause confidence flapping. At typical CLAIM volumes (15-30 lines), a ratio threshold (e.g., >= 10%) adds negligible value because the count threshold is nearly always the binding constraint.
 
 ### 2.5 Tag Grammar Extension
 
 Add to `tag-grammar.md`:
 
 ```
-[SRC:<source>] — provenance tag. Values: `code`, `docs`. Indicates the exploration surface the finding came from. Required on CLAIM lines. Optional on OPEN lines. Not used on COUNTER/CONFIRM (AID provides traceability).
+[SRC:<source>] — provenance tag. Gatherer-emitted values: `code`, `docs`. Assembler-assigned only: `unknown` (indicates gatherer did not follow output format — never valid in gatherer output). Indicates the exploration surface the finding came from. Required on CLAIM lines. Optional on OPEN lines. Not used on COUNTER/CONFIRM (AID provides traceability).
 ```
 
 Update the grammar line:
@@ -90,18 +112,22 @@ TAG: <content> [@ <path>:<line>] [AID:<id>] [TYPE:<type>] [SRC:<source>]
 
 | File | Change |
 |------|--------|
-| `agents/context-gatherer-falsifier.md` | Constrain no-assumptions fallback to rationale surfaces; add `[SRC:docs]` to CLAIM output |
-| `agents/context-gatherer-code.md` | Add `[SRC:code]` to CLAIM output |
-| `skills/dialogue/SKILL.md` | Add 3a-bis provenance validation; path inference fallback |
-| `skills/dialogue/references/tag-grammar.md` | Add `[SRC:<source>]` to grammar, tag table, and examples |
+| `agents/context-gatherer-falsifier.md` | Constrain no-assumptions fallback to rationale surfaces; add line-semantic `[SRC:code]`/`[SRC:docs]` to all CLAIM output |
+| `agents/context-gatherer-code.md` | Add `[SRC:code]` to all CLAIM output |
+| `agents/codex-dialogue.md` | Add unknown-claims-priority instruction: prioritize verification of `[SRC:unknown]` claims via scouting |
+| `skills/dialogue/SKILL.md` | Add 3h-bis provenance validation (between 3g and 3h); add Step 4b reason collector; add SRC tags to retry prompt; update 3c skip list to include 3h-bis; add `provenance_unknown_count` to Step 7 pipeline table (source: Step 3h-bis, type: int or null); update Step 7 `low_seed_confidence_reasons` source from "Step 4" to "Step 4b" |
+| `skills/dialogue/references/tag-grammar.md` | Add `[SRC:<source>]` to grammar, tag table, examples, and assembly processing order (insert provenance validation between Dedup and Group) |
+| `scripts/emit_analytics.py` | Add enum enforcement for `low_seed_confidence_reasons` values (`thin_citations`, `few_files`, `zero_output`, `provenance_violations`); add `provenance_unknown_count` as real pipeline input (currently hard-coded to `None`) |
 
 All paths relative to `packages/plugins/cross-model/`.
 
+**Rollout ordering constraint:** Gatherer agent updates (`context-gatherer-falsifier.md`, `context-gatherer-code.md`) must ship simultaneously with or before the assembler validation step (`3h-bis` in `SKILL.md`). If 3h-bis ships first, every session produces `provenance_unknown_count` equal to total CLAIM count, triggering universal `seed_confidence: low`.
+
 ### 2.7 Open Questions
 
-1. **Provenance tag scope beyond no-assumptions fallback.** Should Gatherer B always emit `[SRC:docs]` on CLAIM lines, even when testing assumptions? Current design: only in no-assumptions fallback. Rationale: when assumptions exist, the COUNTER/CONFIRM tags with AID already provide traceability — adding SRC is redundant. Revisit if analytics shows assembler needs richer signal.
+1. ~~**Provenance tag scope beyond no-assumptions fallback.**~~ **Resolved (2026-02-20).** Provenance is line-semantic, not gatherer-semantic. Every CLAIM line carries `[SRC:code]` or `[SRC:docs]` based on the actual evidence surface, regardless of which gatherer emitted it or whether assumptions are present. COUNTER/CONFIRM without SRC remains acceptable — AID provides traceability. (Resolved via evaluative Codex dialogue, 5 turns.)
 
-2. **`[SRC:unknown]` graduation.** After N sessions where `provenance_unknown_count` is consistently 0, the `[SRC:unknown]` fallback could be replaced with hard-drop (discard untagged lines). No timeline set — measure via analytics first.
+2. **`[SRC:unknown]` graduation.** After N sessions where `provenance_unknown_count` is consistently < 2, the `[SRC:unknown]` fallback could be replaced with hard-drop (discard untagged lines). No timeline set — measure via analytics first. Note: v1 threshold is `>= 2`, so graduation tracks sessions where count is consistently < 2, not consistently 0.
 
 ---
 
@@ -231,7 +257,7 @@ Extend `~/.claude/.codex-events.jsonl` with `dialogue_outcome` event records. Th
 
 ### 4.2 Writer Location
 
-**Writer:** The `/dialogue` skill, at Step 6 (after receiving synthesis from `codex-dialogue`).
+**Writer:** The `/dialogue` skill, at Step 7 (after presenting synthesis to the user).
 
 **Rationale:** The `/dialogue` skill has complete pipeline state:
 - Gatherer metrics (line counts, parse results, retry counts)
@@ -266,7 +292,7 @@ The `codex-dialogue` agent has synthesis checkpoint data (RESOLVED/UNRESOLVED/EM
 
   // Outcome (parsed from codex-dialogue Synthesis Checkpoint)
   "converged": true,
-  "convergence_reason_code": "all_resolved", // Enum: all_resolved | budget_exhausted | natural_convergence | error
+  "convergence_reason_code": "all_resolved", // Enum: all_resolved | budget_exhausted | natural_convergence | error | scope_breach
   "termination_reason": "convergence",       // Enum: convergence | budget | error | scope_breach
   "resolved_count": 7,
   "unresolved_count": 0,
@@ -319,14 +345,14 @@ The `codex-dialogue` agent has synthesis checkpoint data (RESOLVED/UNRESOLVED/EM
 
 The `schema_version` field enables forward compatibility:
 - `0.1.0`: Initial schema (this spec). All fields present; provenance and planning fields are nullable (always `null`).
-- `0.2.0`: First version where provenance fields (`provenance_unknown_count`) are non-null (E-TUNING active).
+- `0.2.0`: First version where provenance fields (`provenance_unknown_count`) are non-null (E-TUNING active). Transition rule: when the emitter receives a non-null `provenance_unknown_count`, set `schema_version` to `"0.2.0"`.
 - `0.3.0`: First version where planning fields (`question_shaped`, `shape_confidence`, etc.) are non-null (E-PLANNING active).
 
 Readers must handle missing fields gracefully (nullable fields may be absent in older records).
 
 ### 4.5 Emission Logic
 
-In `/dialogue` SKILL.md Step 6, after presenting synthesis to user:
+In `/dialogue` SKILL.md Step 7, after presenting synthesis to user:
 
 1. Generate `consultation_id` (UUID v4).
 2. Parse `codex-dialogue` output for: `converged`, `resolved_count`, `unresolved_count`, `emerged_count`, `scout_count`, `thread_id`.
@@ -337,7 +363,7 @@ In `/dialogue` SKILL.md Step 6, after presenting synthesis to user:
 
 ### 4.5a Extraction Contract
 
-The `/dialogue` skill's Step 6 parser must extract structured fields from the `codex-dialogue` agent's Task tool return value. The agent's Synthesis Checkpoint uses prefix-tagged lines (e.g., `RESOLVED: ...`, `EMERGED: ...`) that are countable via line-prefix matching.
+The `/dialogue` skill's Step 7 parser must extract structured fields from the `codex-dialogue` agent's Task tool return value. The agent's Synthesis Checkpoint uses prefix-tagged lines (e.g., `RESOLVED: ...`, `EMERGED: ...`) that are countable via line-prefix matching.
 
 **Field extraction mapping:**
 
@@ -348,7 +374,7 @@ The `/dialogue` skill's Step 6 parser must extract structured fields from the `c
 | `emerged_count` | Synthesis Checkpoint | Count lines starting with `EMERGED:` |
 | `converged` | Narrative "Converged:" field | Parse `yes`/`no` from "Converged: {value}" |
 | `turn_count` | Narrative "Turns:" field | Parse integer from "Turns: {N} of {budget}" |
-| `thread_id` | Codex MCP tool output | Extract actual thread ID string from `codex-reply` return value. **Note:** The `codex-dialogue` agent currently outputs "Thread ID present: yes/no" — this must be updated to output the actual thread ID value (e.g., "Thread ID: {id}" or "Thread ID: none"). |
+| `thread_id` | Codex MCP tool output | Extract actual thread ID string from `codex-reply` return value (e.g., "Thread ID: {id}" or "Thread ID: none"). |
 | `scout_count` | Narrative "Evidence:" field | Parse integer from evidence trajectory |
 
 **Fallback:** If any field cannot be parsed, use the default value (0 for counts, `null` for strings, `false` for booleans). Log the parse failure as a warning. Analytics is best-effort — parse failures do not block synthesis presentation.
@@ -410,7 +436,7 @@ Analytics does NOT replace Episodes. It provides the quantitative data that Epis
 
 | File | Change |
 |------|--------|
-| `skills/dialogue/SKILL.md` | Add Step 6 analytics emission after synthesis presentation |
+| `skills/dialogue/SKILL.md` | Add Step 7 analytics emission after synthesis presentation |
 | `skills/codex/SKILL.md` | Add analytics emission for standalone consultations |
 | `README.md` | Add `dialogue_outcome` and `consultation_outcome` to event log table |
 
@@ -418,7 +444,7 @@ All paths relative to `packages/plugins/cross-model/`.
 
 ### 4.10 Open Questions
 
-1. **Exact emission location in `/dialogue` skill.** Step 6 (after synthesis) is the logical place, but should the emission be a visible step in the pipeline documentation, or a silent side-effect? Current design: visible step to aid debugging. Revisit if users find the analytics emission noisy.
+1. **Exact emission location in `/dialogue` skill.** Step 7 (after synthesis) is the logical place, but should the emission be a visible step in the pipeline documentation, or a silent side-effect? Current design: visible step to aid debugging. Revisit if users find the analytics emission noisy.
 
 2. **Retention policy.** `codex-events.jsonl` has no retention policy currently. As analytics records accumulate, the file could grow large. Consider a 90-day rotation or size cap. Not blocking for v1 — the file is append-only JSONL and can be truncated manually.
 

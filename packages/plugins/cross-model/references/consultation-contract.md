@@ -210,12 +210,12 @@ Resolve execution controls before dispatch:
 | Parameter | Value |
 |-----------|-------|
 | `prompt` | Assembled briefing from §5 |
-| `model` | From `-m` flag, or omit for Codex default |
+| `model` | Do NOT set this parameter unless `-m` was explicitly provided. Omit entirely — the Codex server selects the correct model. Never guess model names from training knowledge. |
 | `sandbox` | Resolved from §8 |
 | `approval-policy` | Resolved from §8 |
 | `config` | `{"model_reasoning_effort": "<resolved value>"}` |
 
-Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults. Include `model` only when overriding Codex's default.
+Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults. Do NOT include `model` unless the user explicitly passed `-m <model>`. Omitting `model` lets the Codex server select its default — this is the correct behavior. Setting `model` to values from training knowledge (e.g., "o3", "o4 mini") causes API failures.
 
 ### Continue conversation (`mcp__plugin_cross-model_codex__codex-reply`)
 
