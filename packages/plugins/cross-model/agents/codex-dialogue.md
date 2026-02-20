@@ -92,7 +92,7 @@ Before sending any briefing or follow-up to Codex:
 
 ### Start the conversation
 
-Call `mcp__plugin_cross-model_codex__codex` with parameters from [consultation-contract.md](../references/consultation-contract.md) § Codex Transport Adapter (§9). If `model_reasoning_effort` is rejected by the API, omit it and proceed.
+Call `mcp__plugin_cross-model_codex__codex` with parameters from [consultation-contract.md](../references/consultation-contract.md) § Codex Transport Adapter (§9). Do **not** set the `model` parameter — omit it entirely so the Codex server uses its default. Setting model names from training knowledge (e.g., "o4 mini", "o3") causes the tool call to fail. If `model_reasoning_effort` is rejected by the API, omit it and proceed.
 
 Persist `threadId` per § Continuity State Contract (§10): prefer `structuredContent.threadId`, fall back to top-level `threadId`. If neither is present, report error and stop — the conversation cannot continue without a thread identifier.
 

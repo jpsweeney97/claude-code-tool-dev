@@ -62,7 +62,7 @@ Parse optional flags from `$ARGUMENTS` — the raw text following `/codex` in th
 
 Flag values are case-insensitive: `high`, `HIGH`, and `High` are all accepted for `-t` and other enum flags.
 
-Only `prompt` is required by the MCP tool schema for `mcp__plugin_cross-model_codex__codex`. For deterministic, least-privilege behavior, always pass resolved execution controls (`sandbox`, `approval-policy`, and `config.model_reasoning_effort`) rather than relying on upstream defaults. Only include `model` when overriding Codex's default model. If the user explicitly sets `-a`, that value always overrides the sandbox-coupled default.
+Only `prompt` is required by the MCP tool schema for `mcp__plugin_cross-model_codex__codex`. For deterministic, least-privilege behavior, always pass resolved execution controls (`sandbox`, `approval-policy`, and `config.model_reasoning_effort`) rather than relying on upstream defaults. Do NOT include `model` unless the user explicitly passed `-m <model>`. Omitting `model` lets the Codex server select its default — this is correct. Never guess model names from training knowledge (e.g., "o3", "o4 mini") — these cause API failures. If the user explicitly sets `-a`, that value always overrides the sandbox-coupled default.
 
 Examples:
 - `/codex review the plan in docs/plans/auth-redesign.md` → all defaults, PROMPT = "review the plan..."
