@@ -14,8 +14,9 @@ Input JSON must contain:
 - "scope_breach": bool (dialogue_outcome only)
 
 Exit codes:
-    0 — success (event appended) or degraded (validation ok, write failed)
+    0 — success (event appended)
     1 — error (bad input, validation failure, missing file)
+    2 — degraded (validation ok, write failed)
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ import json
 import os
 import re
 import sys
+import traceback
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -174,7 +176,9 @@ def parse_synthesis(text: str) -> dict:
     the original text since they appear inside fenced code blocks that
     get stripped during section splitting.
 
-    Returns dict with 7 fields. Defaults on parse failure:
+    Returns dict with keys: resolved_count, unresolved_count,
+    emerged_count, converged, turn_count, thread_id, scout_count.
+    Defaults on parse failure:
     - counts: 0
     - strings: None
     - booleans: False
@@ -393,7 +397,9 @@ def validate(event: dict, event_type: str) -> None:
 
     # Enum checks
     posture = event.get("posture")
-    if posture is not None and posture not in _VALID_POSTURES:
+    if posture is None:
+        raise ValueError("posture is required")
+    if posture not in _VALID_POSTURES:
         raise ValueError(f"invalid posture: {posture!r}")
 
     code = event.get("convergence_reason_code")
@@ -403,10 +409,14 @@ def validate(event: dict, event_type: str) -> None:
         raise ValueError(f"invalid convergence_reason_code: {code!r}")
 
     reason = event.get("termination_reason")
-    if reason is not None and reason not in _VALID_TERMINATION_REASONS:
+    if reason is None:
+        raise ValueError("termination_reason is required")
+    if reason not in _VALID_TERMINATION_REASONS:
         raise ValueError(f"invalid termination_reason: {reason!r}")
 
     seed = event.get("seed_confidence")
+    if event_type == "dialogue_outcome" and seed is None:
+        raise ValueError("seed_confidence required for dialogue_outcome")
     if seed is not None and seed not in _VALID_SEED_CONFIDENCE:
         raise ValueError(f"invalid seed_confidence: {seed!r}")
 
@@ -417,7 +427,9 @@ def validate(event: dict, event_type: str) -> None:
     # Count fields >= 0
     for field in _COUNT_FIELDS:
         value = event.get(field)
-        if value is not None and (not isinstance(value, int) or value < 0):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+        ):
             raise ValueError(f"{field} must be non-negative int, got {value!r}")
 
     # Cross-field invariants
@@ -473,6 +485,7 @@ def _process(input_path: Path) -> int:
 
     event_type = input_data.get("event_type")
 
+    # Build phase — KeyError/TypeError likely indicate bugs or bad input structure
     try:
         if event_type == "dialogue_outcome":
             event = build_dialogue_outcome(input_data)
@@ -481,20 +494,26 @@ def _process(input_path: Path) -> int:
         else:
             print(_result("error", f"unknown event_type: {event_type!r}"))
             return 1
+    except (KeyError, TypeError) as exc:
+        print(traceback.format_exc(), file=sys.stderr)
+        print(_result("error", f"build failed: {exc}"))
+        return 1
 
+    # Validation phase — ValueError is expected for invalid field values
+    try:
         validate(event, event_type)
-    except (ValueError, KeyError, TypeError) as exc:
+    except ValueError as exc:
         print(_result("error", str(exc)))
         return 1
 
     # Append to log (best-effort)
-    success = _append_log(event)
+    logged = _append_log(event)
 
-    if success:
-        print(_result("ok"))
-    else:
+    if not logged:
         print(_result("degraded", "event valid but log write failed"))
+        return 2
 
+    print(_result("ok"))
     return 0
 
 
@@ -514,8 +533,8 @@ def main() -> int:
     finally:
         try:
             input_path.unlink()
-        except OSError:
-            pass
+        except OSError as exc:
+            print(f"input cleanup failed: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

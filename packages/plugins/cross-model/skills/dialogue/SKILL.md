@@ -193,7 +193,7 @@ After presenting synthesis to the user, emit a `dialogue_outcome` event via the 
 
 **7a. Write input file**
 
-Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json` containing the input JSON for the emitter script. The file has three top-level fields:
+Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json` containing the input JSON for the emitter script. The file has four top-level fields:
 
 | Field | Type | Source |
 |-------|------|--------|

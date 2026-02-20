@@ -491,6 +491,97 @@ class TestValidate:
         with pytest.raises(ValueError, match="invalid mode"):
             MODULE.validate(event, "dialogue_outcome")
 
+    def test_none_posture_rejected(self) -> None:
+        """posture is required — None must not pass validation."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["posture"] = None
+        with pytest.raises(ValueError, match="posture is required"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_none_posture_rejected_consultation(self) -> None:
+        """posture is required for consultation_outcome too."""
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        event["posture"] = None
+        with pytest.raises(ValueError, match="posture is required"):
+            MODULE.validate(event, "consultation_outcome")
+
+    def test_boolean_count_rejected(self) -> None:
+        """bool is a subclass of int — must be explicitly rejected for counts."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["turn_count"] = True
+        with pytest.raises(ValueError, match="non-negative int"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_boolean_false_count_rejected(self) -> None:
+        """False (== 0) must also be rejected as a count value."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["resolved_count"] = False
+        with pytest.raises(ValueError, match="non-negative int"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_none_termination_reason_rejected(self) -> None:
+        """termination_reason is required — None must not pass."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["termination_reason"] = None
+        with pytest.raises(ValueError, match="termination_reason is required"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_none_seed_confidence_rejected_for_dialogue(self) -> None:
+        """seed_confidence is required for dialogue_outcome."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["seed_confidence"] = None
+        with pytest.raises(ValueError, match="seed_confidence required"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_none_seed_confidence_allowed_for_consultation(self) -> None:
+        """seed_confidence is not required for consultation_outcome."""
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        event["seed_confidence"] = None
+        MODULE.validate(event, "consultation_outcome")  # no exception
+
+    def test_invalid_seed_confidence_value(self) -> None:
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["seed_confidence"] = "high"
+        with pytest.raises(ValueError, match="invalid seed_confidence"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_invalid_convergence_reason_code(self) -> None:
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["convergence_reason_code"] = "timeout"
+        with pytest.raises(ValueError, match="invalid convergence_reason_code"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_turn_budget_zero_rejected(self) -> None:
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["turn_budget"] = 0
+        with pytest.raises(ValueError, match="turn_budget must be >= 1"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_event_type_mismatch(self) -> None:
+        """Event dict says dialogue_outcome but validate called with consultation_outcome."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        with pytest.raises(ValueError, match="event field mismatch"):
+            MODULE.validate(event, "consultation_outcome")
+
+    def test_converged_string_rejected(self) -> None:
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["converged"] = "yes"
+        with pytest.raises(ValueError, match="converged must be bool"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_source_classes_string_rejected(self) -> None:
+        """source_classes must be a list, not a plain string."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["source_classes"] = "code"
+        with pytest.raises(ValueError, match="source_classes must be a list"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_source_classes_non_string_items(self) -> None:
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["source_classes"] = [1, 2]
+        with pytest.raises(ValueError, match="source_classes must contain only strings"):
+            MODULE.validate(event, "dialogue_outcome")
+
 
 # ---------------------------------------------------------------------------
 # TestAppendLog
@@ -616,7 +707,7 @@ class TestMain:
         monkeypatch.setattr("sys.argv", ["emit_analytics.py", str(input_file)])
 
         exit_code = MODULE.main()
-        assert exit_code == 0  # non-blocking
+        assert exit_code == 2  # degraded: distinct from success (0) and error (1)
         output = json.loads(capsys.readouterr().out.strip())
         assert output["status"] == "degraded"
         readonly_dir.chmod(0o755)  # cleanup
