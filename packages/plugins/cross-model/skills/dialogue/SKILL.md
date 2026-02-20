@@ -189,117 +189,64 @@ Relay the `codex-dialogue` agent's synthesis to the user. Include:
 
 ### Step 7: Emit analytics
 
-After presenting synthesis to the user, emit a `dialogue_outcome` event to the shared event log. Analytics is best-effort — failures do not block the user from seeing the synthesis.
+After presenting synthesis to the user, emit a `dialogue_outcome` event via the analytics emitter script. Analytics is best-effort — failures do not block the user from seeing the synthesis.
 
-**7a. Parse synthesis output**
+**7a. Write input file**
 
-Extract structured fields from the `codex-dialogue` agent's Task tool return value:
+Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json` containing the input JSON for the emitter script. The file has four top-level fields:
 
-| Field | Source | Extraction |
-|-------|--------|------------|
-| `resolved_count` | Synthesis Checkpoint | Count lines starting with `RESOLVED:` |
-| `unresolved_count` | Synthesis Checkpoint | Count lines starting with `UNRESOLVED:` |
-| `emerged_count` | Synthesis Checkpoint | Count lines starting with `EMERGED:` |
-| `converged` | Summary "Converged:" field | `true` if value starts with "yes" (case-insensitive) |
-| `turn_count` | Summary "Turns:" field | First integer in "Turns: {N} of {budget}" |
-| `thread_id` | Continuation "Thread ID:" field | String after "Thread ID:" trimmed. If "none", use `null`. |
-| `scout_count` | Continuation "Evidence:" field | First integer found, or 0 if "none" |
+| Field | Type | Source |
+|-------|------|--------|
+| `event_type` | `"dialogue_outcome"` | Literal |
+| `synthesis_text` | string | Full raw output from the `codex-dialogue` agent's Task tool return value |
+| `scope_breach` | bool | Determined during Step 5-6 delegation. `true` if the codex-dialogue agent returned a resume capsule instead of a synthesis (per consultation contract §6 scope breach protocol). `false` otherwise. Passed through as pipeline state — not inferred from synthesis text. |
+| `pipeline` | object | Pipeline state accumulated during Steps 1-6 (see field table below) |
 
-If any field cannot be parsed, use default: 0 for counts, `null` for strings, `false` for booleans.
+Pipeline fields to include:
 
-**7b. Determine convergence reason**
+| Pipeline Field | Source Step | Type |
+|----------------|-----------|------|
+| `posture` | Args | string |
+| `turn_budget` | Args | int |
+| `profile_name` | Args | string or null |
+| `seed_confidence` | Step 4 | `"normal"` or `"low"` |
+| `low_seed_confidence_reasons` | Step 4 | list (empty at schema 0.1.0) |
+| `assumption_count` | Step 1 | int |
+| `no_assumptions_fallback` | Step 1 | bool |
+| `gatherer_a_lines` | Step 3 | int |
+| `gatherer_b_lines` | Step 3 | int |
+| `gatherer_a_retry` | Step 3 | bool |
+| `gatherer_b_retry` | Step 3 | bool |
+| `citations_total` | Step 4 | int |
+| `unique_files_total` | Step 4 | int |
+| `gatherer_a_unique_paths` | Step 3 | int |
+| `gatherer_b_unique_paths` | Step 3 | int |
+| `shared_citation_paths` | Step 3 | int |
+| `counter_count` | Step 3 | int |
+| `confirm_count` | Step 3 | int |
+| `open_count` | Step 3 | int |
+| `claim_count` | Step 3 | int |
+| `source_classes` | Step 5 | list of strings |
+| `scope_root_count` | Step 5 | int |
+| `scope_roots_fingerprint` | Step 5 | string or null |
+| `mode` | Args | `"server_assisted"` or `"manual_legacy"` |
 
-| Condition | `convergence_reason_code` | `termination_reason` |
-|-----------|--------------------------|---------------------|
-| `converged` is true and `unresolved_count` is 0 | `all_resolved` | `convergence` |
-| `converged` is true and `unresolved_count` > 0 | `natural_convergence` | `convergence` |
-| `converged` is false and `turn_count` >= budget | `budget_exhausted` | `budget` |
-| `converged` is false and `turn_count` < budget | `error` | `error` |
+**7b. Run emitter**
 
-**7c. Assemble event**
-
-Construct the JSON event object. Fields from three sources:
-- **Pipeline state** (from earlier steps): posture, turn_budget, profile_name, seed_confidence, low_seed_confidence_reasons, assumption_count, no_assumptions_fallback, gatherer_a_lines, gatherer_b_lines, gatherer_a_retry, gatherer_b_retry, citations_total, unique_files_total, gatherer_a_unique_paths, gatherer_b_unique_paths, shared_citation_paths, counter_count, confirm_count, open_count, claim_count, source_classes, scope_root_count, scope_roots_fingerprint
-- **Parsed from synthesis** (7a): resolved_count, unresolved_count, emerged_count, converged, turn_count, thread_id, scout_count
-- **Computed** (7b + generated): convergence_reason_code, termination_reason, consultation_id (UUID v4), ts (ISO 8601 UTC), session_id
-
-```jsonc
-{
-  // Core
-  "schema_version": "0.1.0",
-  "consultation_id": "uuid-v4",
-  "thread_id": "codex-thread-id",
-  "session_id": "claude-session-id",
-  "event": "dialogue_outcome",
-  "ts": "2026-02-19T18:43:44Z",
-
-  // Dialogue parameters
-  "posture": "collaborative",
-  "turn_count": 5,
-  "turn_budget": 8,
-  "profile_name": null,
-  "mode": "server_assisted",
-
-  // Outcome
-  "converged": true,
-  "convergence_reason_code": "all_resolved",
-  "termination_reason": "convergence",
-  "resolved_count": 7,
-  "unresolved_count": 0,
-  "emerged_count": 3,
-
-  // Context quality
-  "seed_confidence": "normal",
-  "low_seed_confidence_reasons": [],
-  "assumption_count": 4,
-  "no_assumptions_fallback": false,
-
-  // Gatherer metrics
-  "gatherer_a_lines": 23,
-  "gatherer_b_lines": 14,
-  "gatherer_a_retry": false,
-  "gatherer_b_retry": false,
-  "citations_total": 34,
-  "unique_files_total": 12,
-  "gatherer_a_unique_paths": 10,
-  "gatherer_b_unique_paths": 6,
-  "shared_citation_paths": 2,
-  "counter_count": 3,
-  "confirm_count": 3,
-  "open_count": 10,
-  "claim_count": 24,
-
-  // Scouting
-  "scout_count": 0,
-
-  // Scope envelope
-  "source_classes": ["code", "docs", "config"],
-  "scope_root_count": 3,
-  "scope_roots_fingerprint": "a1b2c3",
-
-  // Planning (nullable — populated when --plan is used)
-  "question_shaped": null,
-  "shape_confidence": null,
-  "assumptions_generated_count": null,
-  "ambiguity_count": null,
-
-  // Provenance (nullable — populated when E-TUNING is active)
-  "provenance_unknown_count": null,
-
-  // Linkage (nullable — for future learning system integration)
-  "episode_id": null
-}
-```
-
-**7d. Append to event log**
-
-Append the JSON event as a single line to `~/.claude/.codex-events.jsonl`:
+The emitter script is at `scripts/emit_analytics.py` within this plugin. Construct the path from this skill's base directory (shown in the header): replace the trailing `skills/dialogue` with `scripts/emit_analytics.py`.
 
 ```bash
-echo '{...serialized event...}' >> ~/.claude/.codex-events.jsonl
+python3 "{plugin_root}/scripts/emit_analytics.py" /tmp/claude_analytics_{random_suffix}.json
 ```
 
-If append fails, warn user: `"Analytics emission failed: {error}. This does not affect the consultation results."` Do not retry.
+**7c. Check result**
+
+The script prints a JSON status line to stdout:
+- `{"status": "ok"}` — event appended successfully
+- `{"status": "degraded", "reason": "..."}` — input valid, but log write failed
+- `{"status": "error", "reason": "..."}` — bad input or validation failure
+
+On `error` or `degraded`, warn the user: `"Analytics emission failed: {reason}. This does not affect the consultation results."` Do not retry.
 
 ## Constants
 
@@ -313,7 +260,7 @@ If append fails, warn user: `"Analytics emission failed: {error}. This does not 
 | Health check: min citations | 8 | Coverage proxy |
 | Health check: min unique files | 5 | Breadth proxy |
 | Reformat retry budget | 1 per gatherer | One retry, then proceed |
-| Analytics schema version | 0.1.0 | Event schema version |
+| Analytics emitter | `scripts/emit_analytics.py` | Relative to plugin root |
 | Analytics event log | `~/.claude/.codex-events.jsonl` | Shared with codex_guard.py |
 
 ## Failure Modes
@@ -326,8 +273,9 @@ If append fails, warn user: `"Analytics emission failed: {error}. This does not 
 | codex-dialogue fails to start | Report error to user, suggest `/codex` for direct consultation |
 | codex-dialogue errors mid-conversation | Agent synthesizes from available `turn_history` (built-in fallback) |
 | MCP tools unavailable | Report missing tools and stop |
-| Analytics emission fails | Warn user, do not retry. Synthesis already presented. |
-| Synthesis parse failure | Use defaults (0/null/false). Emit event with available fields. |
+| Analytics emitter returns error | Warn user with reason from script output. Do not retry. |
+| Analytics emitter returns degraded | Warn user. Event was valid but log write failed. Do not retry. |
+| Analytics emitter script not found | Warn user: "Analytics emitter not found." Skip emission. |
 
 ## Example
 

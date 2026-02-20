@@ -216,36 +216,37 @@ Do not log prompt bodies or Codex response text by default. Prompt/log retention
 
 ### Analytics Emission
 
-After capturing diagnostics, emit a `consultation_outcome` event to the shared event log. Analytics is best-effort — failures do not block the consultation response.
+After capturing diagnostics, emit a `consultation_outcome` event via the analytics emitter script. Analytics is best-effort — failures do not block the consultation response.
 
-Construct and append a single JSON line to `~/.claude/.codex-events.jsonl`:
+**Write input file**
 
-```jsonc
+Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json`:
+
+```json
 {
-  "schema_version": "0.1.0",
-  "consultation_id": "{generated UUID v4}",
-  "thread_id": "{threadId from Codex response, or null}",
-  "session_id": "{Claude Code session ID}",
-  "event": "consultation_outcome",
-  "ts": "{ISO 8601 UTC timestamp}",
-  "posture": "{resolved posture from briefing}",
-  "turn_count": 1,
-  "turn_budget": 1,
-  "profile_name": null,
-  "mode": "server_assisted",
-  "converged": null,
-  "termination_reason": "complete"
+  "event_type": "consultation_outcome",
+  "pipeline": {
+    "posture": "{resolved posture}",
+    "thread_id": "{threadId from Codex response, or null}",
+    "turn_count": 1,
+    "turn_budget": 1,
+    "profile_name": null,
+    "mode": "server_assisted"
+  }
 }
 ```
 
-For multi-turn `/codex` consultations (continued with `codex-reply`), increment `turn_count` for each round-trip. `turn_budget` remains 1 (standalone consultations have no pre-set budget).
+For multi-turn `/codex` consultations (continued with `codex-reply`), increment `turn_count` for each round-trip.
 
-Append using:
+**Run emitter**
+
+The emitter script is at `scripts/emit_analytics.py` within this plugin. Construct the path from this skill's base directory: replace the trailing `skills/codex` with `scripts/emit_analytics.py`.
+
 ```bash
-echo '{...event JSON...}' >> ~/.claude/.codex-events.jsonl
+python3 "{plugin_root}/scripts/emit_analytics.py" /tmp/claude_analytics_{random_suffix}.json
 ```
 
-If the append fails, log a warning. Do not retry.
+On `error` or `degraded` output, warn the user. Do not retry.
 
 ## Governance (Decision-Locked)
 
