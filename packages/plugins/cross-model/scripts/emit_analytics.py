@@ -47,6 +47,12 @@ _VALID_CONVERGENCE_CODES = {
     "scope_breach",
 }
 _VALID_MODES = {"server_assisted", "manual_legacy"}
+_VALID_LOW_SEED_CONFIDENCE_REASONS = {
+    "thin_citations",
+    "few_files",
+    "zero_output",
+    "provenance_violations",
+}
 _VALID_TERMINATION_REASONS = {
     "convergence",
     "budget",
@@ -75,6 +81,7 @@ _COUNT_FIELDS = {
     "claim_count",
     "scout_count",
     "scope_root_count",
+    "provenance_unknown_count",
 }
 
 _DIALOGUE_REQUIRED = {
@@ -291,7 +298,7 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         scope_breach=scope_breach,
     )
 
-    return {
+    event = {
         # Core
         "schema_version": _SCHEMA_VERSION,
         "consultation_id": str(uuid.uuid4()),
@@ -345,10 +352,16 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "assumptions_generated_count": None,
         "ambiguity_count": None,
         # Provenance (nullable)
-        "provenance_unknown_count": None,
+        "provenance_unknown_count": pipeline.get("provenance_unknown_count"),
         # Linkage (nullable)
         "episode_id": None,
     }
+
+    # Schema version auto-bump (§4.4): non-null provenance → 0.2.0
+    if event.get("provenance_unknown_count") is not None:
+        event["schema_version"] = "0.2.0"
+
+    return event
 
 
 def build_consultation_outcome(input_data: dict) -> dict:
@@ -473,6 +486,11 @@ def validate(event: dict, event_type: str) -> None:
             raise ValueError("low_seed_confidence_reasons must be a list")
         if not all(isinstance(s, str) for s in low_reasons):
             raise ValueError("low_seed_confidence_reasons must contain only strings")
+        invalid = set(low_reasons) - _VALID_LOW_SEED_CONFIDENCE_REASONS
+        if invalid:
+            raise ValueError(
+                f"invalid low_seed_confidence_reasons values: {sorted(invalid)}"
+            )
 
 
 # ---------------------------------------------------------------------------

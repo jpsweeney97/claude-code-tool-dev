@@ -390,6 +390,35 @@ class TestBuildDialogueOutcome:
         assert event["convergence_reason_code"] == "scope_breach"
         assert event["termination_reason"] == "scope_breach"
 
+    def test_provenance_unknown_count_from_pipeline(self) -> None:
+        """provenance_unknown_count flows from pipeline when provided."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 3}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["provenance_unknown_count"] == 3
+
+    def test_provenance_unknown_count_none_when_absent(self) -> None:
+        """provenance_unknown_count defaults to None when not in pipeline."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["provenance_unknown_count"] is None
+
+    def test_schema_version_bumps_with_provenance(self) -> None:
+        """schema_version auto-bumps to 0.2.0 when provenance_unknown_count is non-null."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 0}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["schema_version"] == "0.2.0"
+
+    def test_schema_version_stays_without_provenance(self) -> None:
+        """schema_version stays 0.1.0 when provenance_unknown_count is None."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["schema_version"] == "0.1.0"
+
+    def test_provenance_unknown_count_explicit_none_schema_stays(self) -> None:
+        """schema_version stays 0.1.0 when provenance_unknown_count is explicitly None."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": None}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["schema_version"] == "0.1.0"
+        assert event["provenance_unknown_count"] is None
+
 
 # ---------------------------------------------------------------------------
 # TestBuildConsultationOutcome
@@ -639,10 +668,41 @@ class TestValidate:
             MODULE.validate(event, "dialogue_outcome")
 
     def test_low_seed_confidence_reasons_valid(self) -> None:
-        """Valid list of strings passes."""
+        """Valid list of enum strings passes."""
         event = MODULE.build_dialogue_outcome(_dialogue_input())
-        event["low_seed_confidence_reasons"] = ["narrow scope", "few files"]
+        event["low_seed_confidence_reasons"] = ["thin_citations", "few_files"]
         MODULE.validate(event, "dialogue_outcome")  # no exception
+
+    def test_invalid_low_seed_confidence_reason_rejected(self) -> None:
+        """Only enum values from §2.4a are accepted."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["low_seed_confidence_reasons"] = ["narrow_scope"]
+        with pytest.raises(ValueError, match="invalid low_seed_confidence_reasons"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_all_low_seed_confidence_reasons_accepted(self) -> None:
+        """All four enum values pass validation together."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["low_seed_confidence_reasons"] = [
+            "thin_citations", "few_files", "zero_output", "provenance_violations"
+        ]
+        MODULE.validate(event, "dialogue_outcome")  # no exception
+
+    def test_provenance_unknown_count_negative_rejected(self) -> None:
+        """provenance_unknown_count must be non-negative (via _COUNT_FIELDS)."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 3}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        event["provenance_unknown_count"] = -1
+        with pytest.raises(ValueError, match="non-negative int"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_provenance_unknown_count_bool_rejected(self) -> None:
+        """provenance_unknown_count bool must be rejected (via _COUNT_FIELDS)."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 3}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        event["provenance_unknown_count"] = True
+        with pytest.raises(ValueError, match="non-negative int"):
+            MODULE.validate(event, "dialogue_outcome")
 
 
 # ---------------------------------------------------------------------------
