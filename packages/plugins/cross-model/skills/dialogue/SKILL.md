@@ -187,6 +187,67 @@ Relay the `codex-dialogue` agent's synthesis to the user. Include:
 2. The Synthesis Checkpoint block (RESOLVED/UNRESOLVED/EMERGED)
 3. Your own assessment of the dialogue outcomes
 
+### Step 7: Emit analytics
+
+After presenting synthesis to the user, emit a `dialogue_outcome` event via the analytics emitter script. Analytics is best-effort — failures do not block the user from seeing the synthesis.
+
+**7a. Write input file**
+
+Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json` containing the input JSON for the emitter script. The file has four top-level fields:
+
+| Field | Type | Source |
+|-------|------|--------|
+| `event_type` | `"dialogue_outcome"` | Literal |
+| `synthesis_text` | string | Full raw output from the `codex-dialogue` agent's Task tool return value |
+| `scope_breach` | bool | Determined during Step 5-6 delegation. `true` if the codex-dialogue agent returned a resume capsule instead of a synthesis (per consultation contract §6 scope breach protocol). `false` otherwise. Passed through as pipeline state — not inferred from synthesis text. |
+| `pipeline` | object | Pipeline state accumulated during Steps 1-6 (see field table below) |
+
+Pipeline fields to include:
+
+| Pipeline Field | Source Step | Type |
+|----------------|-----------|------|
+| `posture` | Args | string |
+| `turn_budget` | Args | int |
+| `profile_name` | Args | string or null |
+| `seed_confidence` | Step 4 | `"normal"` or `"low"` |
+| `low_seed_confidence_reasons` | Step 4 | list (empty at schema 0.1.0) |
+| `assumption_count` | Step 1 | int |
+| `no_assumptions_fallback` | Step 1 | bool |
+| `gatherer_a_lines` | Step 3 | int |
+| `gatherer_b_lines` | Step 3 | int |
+| `gatherer_a_retry` | Step 3 | bool |
+| `gatherer_b_retry` | Step 3 | bool |
+| `citations_total` | Step 4 | int |
+| `unique_files_total` | Step 4 | int |
+| `gatherer_a_unique_paths` | Step 3 | int |
+| `gatherer_b_unique_paths` | Step 3 | int |
+| `shared_citation_paths` | Step 3 | int |
+| `counter_count` | Step 3 | int |
+| `confirm_count` | Step 3 | int |
+| `open_count` | Step 3 | int |
+| `claim_count` | Step 3 | int |
+| `source_classes` | Step 5 | list of strings |
+| `scope_root_count` | Step 5 | int |
+| `scope_roots_fingerprint` | Step 5 | string or null |
+| `mode` | Args | `"server_assisted"` or `"manual_legacy"` |
+
+**7b. Run emitter**
+
+The emitter script is at `scripts/emit_analytics.py` within this plugin. Construct the path from this skill's base directory (shown in the header): replace the trailing `skills/dialogue` with `scripts/emit_analytics.py`.
+
+```bash
+python3 "{plugin_root}/scripts/emit_analytics.py" /tmp/claude_analytics_{random_suffix}.json
+```
+
+**7c. Check result**
+
+The script prints a JSON status line to stdout:
+- `{"status": "ok"}` — event appended successfully
+- `{"status": "degraded", "reason": "..."}` — input valid, but log write failed
+- `{"status": "error", "reason": "..."}` — bad input or validation failure
+
+On `error` or `degraded`, warn the user: `"Analytics emission failed: {reason}. This does not affect the consultation results."` Do not retry.
+
 ## Constants
 
 | Constant | Value | Purpose |
@@ -199,6 +260,8 @@ Relay the `codex-dialogue` agent's synthesis to the user. Include:
 | Health check: min citations | 8 | Coverage proxy |
 | Health check: min unique files | 5 | Breadth proxy |
 | Reformat retry budget | 1 per gatherer | One retry, then proceed |
+| Analytics emitter | `scripts/emit_analytics.py` | Relative to plugin root |
+| Analytics event log | `~/.claude/.codex-events.jsonl` | Shared with codex_guard.py |
 
 ## Failure Modes
 
@@ -210,6 +273,9 @@ Relay the `codex-dialogue` agent's synthesis to the user. Include:
 | codex-dialogue fails to start | Report error to user, suggest `/codex` for direct consultation |
 | codex-dialogue errors mid-conversation | Agent synthesizes from available `turn_history` (built-in fallback) |
 | MCP tools unavailable | Report missing tools and stop |
+| Analytics emitter returns error | Warn user with reason from script output. Do not retry. |
+| Analytics emitter returns degraded | Warn user. Event was valid but log write failed. Do not retry. |
+| Analytics emitter script not found | Warn user: "Analytics emitter not found." Skip emission. |
 
 ## Example
 
@@ -247,3 +313,5 @@ Is our redaction pipeline over-engineered? The format-specific layer seems redun
 **Step 5 — Delegate:** Launch `codex-dialogue` with adversarial posture, budget 8, assembled briefing. Agent detects sentinel, skips its own briefing assembly, runs multi-turn conversation.
 
 **Step 6 — Present synthesis:** Relay narrative + Synthesis Checkpoint to user.
+
+**Step 7 — Emit analytics:** Parse synthesis output → 7 RESOLVED, 0 UNRESOLVED, 3 EMERGED, converged=true, 5 turns. convergence_reason=`all_resolved`. Append `dialogue_outcome` event to `~/.claude/.codex-events.jsonl`.

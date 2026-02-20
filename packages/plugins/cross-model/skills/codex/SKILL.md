@@ -178,6 +178,8 @@ After every Codex response:
 
 After relaying, capture diagnostics for this consultation (see [Diagnostics](#diagnostics) section — timestamp, strategy, flags, success/failure).
 
+After diagnostics, emit a `consultation_outcome` analytics event (see [Analytics Emission](#analytics-emission) section).
+
 ## Failure Handling
 
 All failure messages use this format:
@@ -211,6 +213,40 @@ After each Codex consultation, capture these non-secret diagnostics:
 - Error code (if any)
 
 Do not log prompt bodies or Codex response text by default. Prompt/log retention is debug-gated opt-in only.
+
+### Analytics Emission
+
+After capturing diagnostics, emit a `consultation_outcome` event via the analytics emitter script. Analytics is best-effort — failures do not block the consultation response.
+
+**Write input file**
+
+Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json`:
+
+```json
+{
+  "event_type": "consultation_outcome",
+  "pipeline": {
+    "posture": "{resolved posture}",
+    "thread_id": "{threadId from Codex response, or null}",
+    "turn_count": 1,
+    "turn_budget": 1,
+    "profile_name": null,
+    "mode": "server_assisted"
+  }
+}
+```
+
+For multi-turn `/codex` consultations (continued with `codex-reply`), increment `turn_count` for each round-trip.
+
+**Run emitter**
+
+The emitter script is at `scripts/emit_analytics.py` within this plugin. Construct the path from this skill's base directory: replace the trailing `skills/codex` with `scripts/emit_analytics.py`.
+
+```bash
+python3 "{plugin_root}/scripts/emit_analytics.py" /tmp/claude_analytics_{random_suffix}.json
+```
+
+On `error` or `degraded` output, warn the user. Do not retry.
 
 ## Governance (Decision-Locked)
 

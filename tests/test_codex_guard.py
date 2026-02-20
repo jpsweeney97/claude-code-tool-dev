@@ -7,6 +7,7 @@ Imports the guard module directly via importlib (same pattern as test_consultati
 from __future__ import annotations
 
 import importlib.util
+import json
 from io import StringIO
 from pathlib import Path
 
@@ -166,6 +167,38 @@ class TestPostToolUse:
         data = _post()
         data["tool_name"] = "mcp__plugin_cross-model_codex__codex-reply"
         assert MODULE.handle_post(data) == 0
+
+    def test_post_thread_id_from_structured_content(self, tmp_path, monkeypatch) -> None:
+        """thread_id_present is True when threadId is in structuredContent."""
+        monkeypatch.setattr(MODULE, "_LOG_PATH", tmp_path / "events.jsonl")
+        data = _post()
+        data["tool_response"] = {
+            "content": "response text",
+            "structuredContent": {"threadId": "thread_abc123"},
+        }
+        MODULE.handle_post(data)
+        log = json.loads((tmp_path / "events.jsonl").read_text().strip())
+        assert log["thread_id_present"] is True
+
+    def test_post_thread_id_from_top_level_response(self, tmp_path, monkeypatch) -> None:
+        """thread_id_present is True when threadId is at top level of tool_response."""
+        monkeypatch.setattr(MODULE, "_LOG_PATH", tmp_path / "events.jsonl")
+        data = _post()
+        data["tool_response"] = {
+            "content": "response text",
+            "threadId": "thread_abc123",
+        }
+        MODULE.handle_post(data)
+        log = json.loads((tmp_path / "events.jsonl").read_text().strip())
+        assert log["thread_id_present"] is True
+
+    def test_post_thread_id_absent(self, tmp_path, monkeypatch) -> None:
+        """thread_id_present is False when no threadId anywhere."""
+        monkeypatch.setattr(MODULE, "_LOG_PATH", tmp_path / "events.jsonl")
+        data = _post()
+        MODULE.handle_post(data)
+        log = json.loads((tmp_path / "events.jsonl").read_text().strip())
+        assert log["thread_id_present"] is False
 
     def test_post_empty_data_returns_0(self) -> None:
         assert MODULE.handle_post({}) == 0

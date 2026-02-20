@@ -217,6 +217,11 @@ def handle_post(data: dict) -> int:
     thread_id_present = bool(
         (isinstance(tool_input, dict) and tool_input.get("threadId"))
         or (isinstance(tool_response, dict) and tool_response.get("threadId"))
+        or (
+            isinstance(tool_response, dict)
+            and isinstance(tool_response.get("structuredContent"), dict)
+            and tool_response["structuredContent"].get("threadId")
+        )
     )
 
     _append_log(
