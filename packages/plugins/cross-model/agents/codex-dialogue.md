@@ -133,6 +133,18 @@ This is a **prompt-level bias** — the context injection server's scout generat
 
 When `seed_confidence` is `normal` or absent: no change to existing behavior.
 
+### Unknown-provenance claims
+
+When the assembled briefing is received (via the `<!-- dialogue-orchestrated-briefing -->` sentinel), extract `unknown_claim_paths` — the set of citation paths (`@ path:line`) from any briefing line containing `[SRC:unknown]`.
+
+If `unknown_claim_paths` is non-empty, prioritize verifying those claims via mid-dialogue scouting:
+
+- **Briefing parse (Phase 1):** After detecting the sentinel, scan the briefing `## Material` section for lines containing `[SRC:unknown]`. Extract each cited `path:line` into the `unknown_claim_paths` set. Store this set in conversation state.
+- **Step 4 (Scout):** When selecting among `template_candidates`, prefer candidates whose `entity_key` matches a path in `unknown_claim_paths`. If multiple candidates match, prefer the highest-ranked (lowest `rank` value).
+- **Step 6 (Compose follow-up):** Treat unknown-provenance claims as higher priority than unprobed `new` claims — insert between priority items 2 (Unresolved items) and 3 (Unprobed claims) in the existing follow-up composition list.
+
+`[SRC:unknown]` is an assembler-assigned tag indicating the gatherer did not follow its output format. Scouting converts this quality signal into dialogue-level recovery — the agent verifies the claim's evidence surface directly rather than relying on incorrect metadata.
+
 ### Running ledger
 
 The context injection server maintains the conversation ledger, computes counters, derives quality, detects convergence, and decides when to continue or conclude. The agent's role per turn:
