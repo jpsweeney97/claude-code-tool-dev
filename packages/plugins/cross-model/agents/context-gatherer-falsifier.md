@@ -49,26 +49,28 @@ Emit each finding as a prefix-tagged line (see Output Format below). Target 10-2
 
 When the `assumptions` list is empty (the question contains no testable assumptions):
 
-1. Explore the codebase repo-first as in Step 2
-2. Emit `CLAIM` and `OPEN` items about what you discover relevant to the question
-3. Do **not** emit `COUNTER` or `CONFIRM` — these require assumption IDs
+1. Explore **rationale surfaces only**: `docs/decisions/`, `docs/plans/`, `docs/learnings/`, `CLAUDE.md`, `README.md`, and architectural files at repository root.
+2. Do NOT explore code files, test files, or config files — those are the code explorer's domain.
+3. Emit `CLAIM` and `OPEN` items about design rationale, architectural decisions, and documented constraints relevant to the question.
+4. Tag every `CLAIM` line with `[SRC:docs]` — all CLAIMs in the fallback path are documentation-sourced because only rationale surfaces are explored.
+5. Do **not** emit `COUNTER` or `CONFIRM` — these require assumption IDs.
 
 ## Output Format
 
 Emit findings as prefix-tagged lines. Each line follows this grammar:
 
 ```
-TAG: <content> [@ <path>:<line>] [AID:<id>] [TYPE:<type>]
+TAG: <content> [@ <path>:<line>] [AID:<id>] [TYPE:<type>] [SRC:<source>]
 ```
 
 **Tags you emit:**
 
-| Tag | When to use | Citation | AID | TYPE |
-|-----|-------------|----------|-----|------|
-| `COUNTER` | Evidence contradicting an assumption | Required | Required | Required |
-| `CONFIRM` | Evidence supporting an assumption | Required | Required | No |
-| `OPEN` | Unresolved question or ambiguity | Optional | Optional | No |
-| `CLAIM` | Factual observation (no-assumptions fallback only) | Required | No | No |
+| Tag | When to use | Citation | AID | TYPE | SRC |
+|-----|-------------|----------|-----|------|-----|
+| `COUNTER` | Evidence contradicting an assumption | Required | Required | Required | No |
+| `CONFIRM` | Evidence supporting an assumption | Required | Required | No | No |
+| `OPEN` | Unresolved question or ambiguity | Optional | Optional | No | No |
+| `CLAIM` | Factual observation (no-assumptions fallback only) | Required | No | No | Required |
 
 ### COUNTER constraints
 
@@ -100,13 +102,26 @@ OPEN: Whether test fixture coverage reflects production workload distribution AI
 OPEN: No evidence found for or against the claim about performance impact
 ```
 
+### Provenance tags
+
+Every `CLAIM` line must include a provenance tag based on the actual source file cited:
+
+| Tag | When to use |
+|-----|-------------|
+| `[SRC:code]` | CLAIM cites a code, test, or config file |
+| `[SRC:docs]` | CLAIM cites a docs, plans, decisions, README, or CLAUDE.md file |
+
+`COUNTER`, `CONFIRM`, and `OPEN` lines do not require provenance tags.
+
+In the no-assumptions fallback (rationale surfaces only), all CLAIMs will carry `[SRC:docs]` because only documentation files are explored.
+
 ### No-assumptions fallback examples
 
 When `assumptions` is empty:
 ```
-CLAIM: Context injection server exposes 2 MCP tools (process_turn, execute_scout) @ server.py:23
-CLAIM: Server requires POSIX (os.name check at startup) @ server.py:47
-OPEN: Whether the POSIX requirement is intentional or incidental
+CLAIM: Authentication module chosen over JWT per ADR-003 @ docs/decisions/ADR-003.md:12 [SRC:docs]
+CLAIM: Caching strategy documented as "defer until profiled" @ docs/plans/architecture.md:45 [SRC:docs]
+OPEN: Whether the caching deferral decision still holds given new requirements
 ```
 
 ## Constraints
