@@ -95,7 +95,7 @@ Perform **deterministic, non-LLM assembly** of gatherer outputs. Reference: `ref
 
 **3a. Parse:** Scan each gatherer's output for lines starting with `CLAIM:`, `COUNTER:`, `CONFIRM:`, or `OPEN:`. Ignore all other lines.
 
-**3b. Low-output retry:** After parsing, if a gatherer produced fewer than 4 parseable tagged lines, re-launch that gatherer once with a prompt reinforcing the output format: "Emit findings as prefix-tagged lines per the output format. Each CLAIM must include `@ path:line` citation. Each COUNTER must include `@ path:line` citation, `AID:<id>`, and `TYPE:<type>`." Parse the retry output (3a) and combine with the original lines. If still below 4 after retry, proceed with available output.
+**3b. Low-output retry:** After parsing, if a gatherer produced fewer than 4 parseable tagged lines, re-launch that gatherer once with a prompt reinforcing the output format: "Emit findings as prefix-tagged lines per the output format. Each CLAIM must include `@ path:line` citation and `[SRC:code]` or `[SRC:docs]` provenance tag. Each COUNTER must include `@ path:line` citation, `AID:<id>`, and `TYPE:<type>`." Parse the retry output (3a) and merge with the original lines: non-duplicate lines are combined (both kept). For duplicate claim keys (same tag type + normalized citation): retry-wins — prefer the SRC-tagged version from retry output over the untagged original. Tie-break: if both original and retry have valid SRC tags (`code` or `docs`), keep the retry version. (This both-tagged tie-break fills a gap in the spec, which does not address the case where both versions carry valid SRC tags.) If still below 4 after retry, proceed with available output.
 
 **3c. Zero-output fallback:** If total parseable lines across both gatherers is 0 after retries:
 
@@ -111,7 +111,9 @@ Perform **deterministic, non-LLM assembly** of gatherer outputs. Reference: `ref
 {user's question, verbatim}
 ```
 
-Set `seed_confidence` to `low`. Skip steps 3d-3h.
+Set `seed_confidence` to `low` with `low_seed_confidence_reasons: ["zero_output"]`. Skip steps 3d through 3h (including 3h-bis), Step 4, and Step 4b.
+
+**3c as terminal exception:** Step 3c is a terminal early-exit that bypasses the normal pipeline entirely. Step 4b is the "sole authority" for `seed_confidence` within its jurisdiction (the normal path where Steps 3d through 3h-bis, 4, and 4b all run). When 3c fires, it sets both `seed_confidence` and `low_seed_confidence_reasons` directly because the composition step (4b) is skipped. The `zero_output` row in Step 4b's reason table documents the reason's semantics, not its runtime origin — in the 3c path, the reason is set by 3c itself, not collected by 4b.
 
 **3d. Discard:** Remove:
 - `CLAIM`, `COUNTER`, or `CONFIRM` lines missing `@ path:line` citation
@@ -124,6 +126,23 @@ Set `seed_confidence` to `low`. Skip steps 3d-3h.
 **3f. Sanitize:** Run the consultation contract pre-dispatch credential check (§7) on all remaining line content. If a line contains a credential pattern (AWS key, PEM, JWT, GitHub PAT, etc.), remove that line. This is defense-in-depth — the dialogue agent's own sanitizer is the final gate.
 
 **3g. Dedup:** If both gatherers emit lines with the same tag type citing the same file and line number, keep Gatherer A's version. Different tag types at the same citation are kept (e.g., Gatherer A's `CLAIM` and Gatherer B's `CONFIRM` at the same `path:line` are both retained — they serve different purposes). Normalize the citation key before comparing: strip leading `./`, lowercase the path, collapse `//` to `/`.
+
+**3h-bis. Validate provenance:** For each `CLAIM` line in the final retained set, check for `[SRC:code]` or `[SRC:docs]`. If a CLAIM line lacks a provenance tag:
+- Assign `[SRC:unknown]`. Emitters never produce `unknown`; its presence means the gatherer did not follow its output format.
+- Increment `provenance_unknown_count`.
+
+3h-bis produces `provenance_unknown_count` as a metric only. It does **not** set `seed_confidence` — that happens in Step 4b.
+
+Do **not** implement path inference (guessing SRC from the citation path). This is an explicit prohibition — `[SRC:unknown]` preserves data and marks uncertainty for downstream recovery via scouting.
+
+`[SRC:unknown]` lines are preserved in the assembled briefing — not stripped before delegation.
+
+**Pipeline state:** Initialize `provenance_unknown_count` as a pipeline variable with these semantics:
+- `null` — Step 3c fired (3h-bis never ran). Signals to `emit_analytics.py` that provenance validation was skipped; schema stays at `0.1.0`.
+- `0` — 3h-bis ran and all CLAIMs have valid SRC tags. Signals provenance validation ran successfully; schema bumps to `0.2.0`.
+- Positive `int` — count of CLAIMs where `[SRC:unknown]` was assigned. If `>= 2`, Step 4b adds `provenance_violations` to `low_seed_confidence_reasons`.
+
+Store this value for use by Step 4b (reason evaluation) and Step 7 (analytics emission).
 
 **3h. Group:** Assemble into three sections with deterministic ordering (Gatherer A items first, then Gatherer B within each section):
 
@@ -145,14 +164,27 @@ The sentinel `<!-- dialogue-orchestrated-briefing -->` must appear in the briefi
 
 ### Step 4: Health check
 
-Count citations and unique files in the assembled briefing:
+Count citations and unique files in the assembled briefing. Step 4 computes metrics only — it does **not** set `seed_confidence`. That happens in Step 4b.
 
-| Metric | Threshold | On failure |
-|--------|-----------|-----------|
-| Total lines with `@ path:line` | >= 8 | Set `seed_confidence` to `low` |
-| Unique file paths cited | >= 5 | Set `seed_confidence` to `low` |
+| Metric | Threshold | Reason code on failure |
+|--------|-----------|----------------------|
+| Total lines with `@ path:line` | >= 8 | `thin_citations` |
+| Unique file paths cited | >= 5 | `few_files` |
 
-If either threshold fails, `seed_confidence` is `low`. Both must pass for `normal`.
+Store triggered reason codes for Step 4b.
+
+### Step 4b: Compose seed_confidence
+
+Collect reasons from all pipeline stages into `low_seed_confidence_reasons`:
+
+| Reason | Source | Trigger |
+|--------|--------|---------|
+| `zero_output` | Step 3c (terminal) | Total parseable lines = 0 after retries. Set directly by 3c — 4b is skipped. |
+| `thin_citations` | Step 4 | Total lines with `@ path:line` < 8 |
+| `few_files` | Step 4 | Unique file paths cited < 5 |
+| `provenance_violations` | Step 3h-bis | `provenance_unknown_count` >= 2 |
+
+`seed_confidence` = `low` if `low_seed_confidence_reasons` is non-empty; `normal` otherwise. Step 4b is the sole authority for `seed_confidence` in the normal pipeline path (Steps 3d through 4b all run). Exception: Step 3c is a terminal early-exit that sets `seed_confidence` directly and skips 4b entirely (see Step 3c above). No short-circuit masking between reasons — all triggered reasons are collected.
 
 `seed_confidence: low` does **not** block the dialogue. It tells the dialogue agent to prioritize early scouting to compensate for thin initial context.
 
@@ -209,8 +241,8 @@ Pipeline fields to include:
 | `posture` | Args | string |
 | `turn_budget` | Args | int |
 | `profile_name` | Args | string or null |
-| `seed_confidence` | Step 4 | `"normal"` or `"low"` |
-| `low_seed_confidence_reasons` | Step 4 | list (empty at schema 0.1.0) |
+| `seed_confidence` | Step 4b | `"normal"` or `"low"` |
+| `low_seed_confidence_reasons` | Step 4b | list of enum: `thin_citations`, `few_files`, `zero_output`, `provenance_violations` |
 | `assumption_count` | Step 1 | int |
 | `no_assumptions_fallback` | Step 1 | bool |
 | `gatherer_a_lines` | Step 3 | int |
@@ -226,6 +258,7 @@ Pipeline fields to include:
 | `confirm_count` | Step 3 | int |
 | `open_count` | Step 3 | int |
 | `claim_count` | Step 3 | int |
+| `provenance_unknown_count` | Step 3h-bis | int or null |
 | `source_classes` | Step 5 | list of strings |
 | `scope_root_count` | Step 5 | int |
 | `scope_roots_fingerprint` | Step 5 | string or null |
@@ -300,15 +333,17 @@ COUNTER: Generic redaction catches all patterns format-specific targets @ redact
 CONFIRM: Denylist covers OWASP secret categories (AWS, PEM, JWT, GitHub PAT) @ paths.py:22 AID:A1
 
 ## Material
-CLAIM: Redaction pipeline has 3 layers (generic, format-specific, token) @ redact.py:45
-CLAIM: Format-specific redaction handles YAML, JSON, TOML independently @ redact_formats.py:11
-...16 more CLAIM lines...
+CLAIM: Redaction pipeline has 3 layers (generic, format-specific, token) @ redact.py:45 [SRC:code]
+CLAIM: Format-specific redaction handles YAML, JSON, TOML independently @ redact_formats.py:11 [SRC:code]
+...16 more CLAIM lines (each with [SRC:code] or [SRC:docs])...
 
 ## Question
 Is our redaction pipeline over-engineered? The format-specific layer seems redundant.
 ```
 
-**Step 4 — Health check:** 20 citations, 8 unique files → `seed_confidence: normal`
+**Step 4 — Health check:** 20 citations, 8 unique files → no reason codes triggered.
+
+**Step 4b — Compose seed_confidence:** `low_seed_confidence_reasons` is empty → `seed_confidence: normal`
 
 **Step 5 — Delegate:** Launch `codex-dialogue` with adversarial posture, budget 8, assembled briefing. Agent detects sentinel, skips its own briefing assembly, runs multi-turn conversation.
 
