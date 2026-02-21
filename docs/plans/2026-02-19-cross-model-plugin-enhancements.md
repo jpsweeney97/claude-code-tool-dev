@@ -153,7 +153,17 @@ When `--plan` is set, before the normal pipeline:
 
 **Input:** The user's raw problem statement (e.g., "how should we architect the caching layer?").
 
-**Scope:** `--plan` is for architectural, design, and planning questions — not debugging. Debugging questions ("why does X fail?") produce root-cause hypotheses, not architectural assumptions; the template structure is not designed for them. If a debugging question is detected (heuristic: question contains "fail", "error", "bug", "crash", "broken"), run Step 0 best-effort and force `shape_confidence: low` with guidance: "This looks like a debugging question. Consider running without `--plan` for better results."
+**Scope:** `--plan` is for architectural, design, and planning questions — not debugging. Debugging questions ("why does X fail?") produce root-cause hypotheses, not architectural assumptions; the template structure is not designed for them.
+
+**Debug gate (amended 2026-02-21):** If a debugging question is detected, skip Step 0 entirely — do not run best-effort. Set all planning pipeline fields to null (`question_shaped: null`). Proceed directly to Step 1 with the raw question.
+
+Detection uses a two-tier heuristic:
+- **Artifact signals** (any match skips): `traceback`, `stack trace`, `exception`, `panic`, `segfault`
+- **Intent+failure combos** (both required): an intent term (`how do I/we fix`, `debug`, `root cause`, `why does`) combined with an unsuppressed failure lexeme (`fail`, `failing`, `failed`, `failure`, `error`, `bug`, `crash`, `broken`)
+
+**Architecture phrase suppressions** prevent false positives on planning questions about error handling: `error handling`, `failure mode(s)`, `fault tolerance`, `error budget`, `recovery strategy`, `retry policy`, `crash-only design`.
+
+_Design rationale: Skip produces a clean null analytics signal (--plan was not effectively used), whereas best-effort produces a noisy question_shaped=false signal that conflates debugging detection with decomposition failure. The non-blocking pipeline means misclassification is recoverable — if the gate incorrectly skips Step 0, the dialogue still runs normally. Original design was best-effort with forced `shape_confidence: low`; changed to skip after cross-model design review (threads 019c7e82, 019c7e96)._
 
 **Process:** Claude (locally, no Codex) decomposes the problem statement into:
 
