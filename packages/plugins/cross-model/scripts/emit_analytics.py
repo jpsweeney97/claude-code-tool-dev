@@ -400,7 +400,9 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "ambiguity_count": pipeline.get("ambiguity_count"),
         # Provenance (nullable)
         "provenance_unknown_count": pipeline.get("provenance_unknown_count"),
-        # Linkage (nullable)
+        # Episode linkage: reserved nullable. Not populated at emit time.
+        # E-LEARNING will use append-only episode_link events for post-hoc
+        # linkage via consultation_id. Do not add to _DIALOGUE_REQUIRED.
         "episode_id": None,
     }
 

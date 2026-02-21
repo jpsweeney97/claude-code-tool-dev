@@ -1205,6 +1205,17 @@ class TestValidate:
         with pytest.raises(ValueError, match="ambiguity_count"):
             MODULE.validate(event, "dialogue_outcome")
 
+    def test_null_episode_id_passes_validation(self) -> None:
+        """episode_id=None should not cause validation errors (reserved nullable)."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["episode_id"] is None
+        # Validation should pass — episode_id is not in _DIALOGUE_REQUIRED
+        MODULE.validate(event, "dialogue_outcome")  # no exception = pass
+
+    def test_episode_id_not_required(self) -> None:
+        """episode_id must NOT be in _DIALOGUE_REQUIRED (reserved nullable)."""
+        assert "episode_id" not in MODULE._DIALOGUE_REQUIRED
+
 
 # ---------------------------------------------------------------------------
 # TestAppendLog
