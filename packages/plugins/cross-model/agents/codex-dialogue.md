@@ -323,7 +323,7 @@ Retry budgets are per-category: checkpoint errors and ledger errors track indepe
 
 If `template_candidates` is non-empty:
 
-4a. Select the highest-ranked candidate (lowest `rank` value)
+4a. Select the highest-ranked candidate (lowest `rank` value). **Exception:** When `unknown_claim_paths` is non-empty, apply entity resolution priority from "Unknown-provenance claims" above — match tier takes precedence over `rank`.
 4b. **Clarifier check:** If the top candidate has `scout_options: []` (empty list), this is a clarifier — skip scouting for this turn. Instead, use the clarifier's question text in Step 6 follow-up composition (treat it as a high-priority unresolved item). Continue to Step 5. (Clarifiers do not consume evidence budget, so this check runs even when `budget.scout_available` is `false`.)
 4c. **Budget gate:** If `budget.scout_available` is `false`, skip scout execution (steps 4d-4f below). Continue to Step 5.
 4d. Select its first `scout_option`
@@ -371,10 +371,10 @@ Build the follow-up from these inputs. Priority order for choosing what to ask:
 
 1. **Scout evidence** (if Step 4 produced results): Frame a question around `evidence_wrapper` using the evidence shape below
 2. **Unresolved items** from `validated_entry.unresolved`
-   - **Unknown-provenance claims** (if `unknown_claim_paths` is non-empty): Challenge the specific `[SRC:unknown]` claim text from the briefing. Frame the question to probe the claim's evidence surface — the goal is to verify or refute the untagged claim, not to ask a general question. When scout evidence comes from an unknown-provenance-triggered scout, the follow-up must target that specific claim. Note: unknown-provenance claims are sourced from the briefing (`unknown_claim_paths`), not from `validated_entry.unresolved`.
-3. **Unprobed claims** tagged `new` in `validated_entry.claims`
-4. **Weakest claim** derived from accumulated `turn_history` claim records (least-supported, highest-impact). Scan `validated_entry.claims` across all turns in `turn_history` — the weakest claim is the one with the fewest `reinforced` statuses across all turns in `turn_history`, not a value derived from aggregate counters in `cumulative`
-5. **Posture-driven probe** from the patterns table
+3. **Unknown-provenance claims** (if `unknown_claim_paths` is non-empty): Challenge the specific `[SRC:unknown]` claim text from the briefing. Frame the question to probe the claim's evidence surface — the goal is to verify or refute the untagged claim, not to ask a general question. When scout evidence comes from an unknown-provenance-triggered scout, the follow-up must target that specific claim. Source: `unknown_claim_paths` from the briefing, not `validated_entry.unresolved`.
+4. **Unprobed claims** tagged `new` in `validated_entry.claims`
+5. **Weakest claim** derived from accumulated `turn_history` claim records (least-supported, highest-impact). Scan `validated_entry.claims` across all turns in `turn_history` — the weakest claim is the one with the fewest `reinforced` statuses across all turns in `turn_history`, not a value derived from aggregate counters in `cumulative`
+6. **Posture-driven probe** from the patterns table
 
 **When scout evidence is available**, use this shape:
 

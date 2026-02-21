@@ -470,6 +470,31 @@ class TestBuildConsultationOutcome:
 
 
 # ---------------------------------------------------------------------------
+# TestIsNonNegativeInt
+# ---------------------------------------------------------------------------
+
+
+class TestIsNonNegativeInt:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            (0, True),
+            (1, True),
+            (100, True),
+            (-1, False),
+            (True, False),
+            (False, False),
+            (0.0, False),
+            (3.5, False),
+            ("5", False),
+            (None, False),
+        ],
+    )
+    def test_is_non_negative_int(self, value: object, expected: bool) -> None:
+        assert MODULE._is_non_negative_int(value) is expected
+
+
+# ---------------------------------------------------------------------------
 # TestValidate
 # ---------------------------------------------------------------------------
 
@@ -739,6 +764,15 @@ class TestValidate:
         with pytest.raises(ValueError, match="non-negative int"):
             MODULE.validate(event, "dialogue_outcome")
 
+    def test_provenance_schema_version_cross_field_invariant(self) -> None:
+        """schema_version must be 0.2.0 when provenance_unknown_count is set."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 3}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["schema_version"] == "0.2.0"  # build sets it correctly
+        event["schema_version"] = "0.1.0"  # simulate mutation
+        with pytest.raises(ValueError, match="provenance_unknown_count is set"):
+            MODULE.validate(event, "dialogue_outcome")
+
 
 # ---------------------------------------------------------------------------
 # TestAppendLog
@@ -812,6 +846,25 @@ class TestMain:
         assert event["event"] == "dialogue_outcome"
         assert event["schema_version"] == "0.1.0"
         assert event["resolved_count"] == 5
+
+    def test_dialogue_provenance_end_to_end(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """E2E: provenance_unknown_count triggers schema_version 0.2.0 in log."""
+        log_path = tmp_path / "events.jsonl"
+        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 5}
+        input_file = tmp_path / "input.json"
+        input_file.write_text(json.dumps(_dialogue_input(pipeline=pipeline)))
+        monkeypatch.setattr("sys.argv", ["emit_analytics.py", str(input_file)])
+
+        exit_code = MODULE.main()
+        assert exit_code == 0
+
+        event = json.loads(log_path.read_text().strip())
+        assert event["schema_version"] == "0.2.0"
+        assert event["provenance_unknown_count"] == 5
 
     def test_consultation_end_to_end(self, tmp_path, monkeypatch) -> None:
         log_path = tmp_path / "events.jsonl"

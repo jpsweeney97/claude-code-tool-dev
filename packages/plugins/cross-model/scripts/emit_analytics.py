@@ -453,6 +453,14 @@ def validate(event: dict, event_type: str) -> None:
         if value is not None and not _is_non_negative_int(value):
             raise ValueError(f"{field} must be non-negative int, got {value!r}")
 
+    # Cross-field: provenance count requires schema 0.2.0
+    prov = event.get("provenance_unknown_count")
+    if _is_non_negative_int(prov) and event.get("schema_version") != "0.2.0":
+        raise ValueError(
+            f"provenance_unknown_count is set ({prov}) but schema_version "
+            f"is {event.get('schema_version')!r}, expected '0.2.0'"
+        )
+
     # Cross-field invariants
     turn_budget = event.get("turn_budget")
     if turn_budget is None or isinstance(turn_budget, bool) or not isinstance(turn_budget, int):

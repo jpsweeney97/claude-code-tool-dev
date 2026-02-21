@@ -109,12 +109,11 @@ Every `CLAIM` line must include a provenance tag based on the actual source file
 
 | Tag | When to use |
 |-----|-------------|
-| `[SRC:code]` | CLAIM cites a code, test, or config file |
-| `[SRC:docs]` | CLAIM cites a docs, plans, decisions, README, or CLAUDE.md file |
+| `[SRC:docs]` | All CLAIM lines (fallback path explores documentation only) |
 
 `COUNTER`, `CONFIRM`, and `OPEN` lines do not require provenance tags.
 
-In the no-assumptions fallback (rationale surfaces only), all CLAIMs will carry `[SRC:docs]` because only documentation files are explored.
+Note: The grammar permits `[SRC:code]` but this agent only emits CLAIMs in the no-assumptions fallback, which is restricted to rationale surfaces. All falsifier CLAIMs are `[SRC:docs]`.
 
 ### No-assumptions fallback examples
 
