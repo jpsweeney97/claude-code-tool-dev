@@ -10,7 +10,7 @@ TAG: <content> [@ <path>:<line>] [AID:<id>] [TYPE:<type>] [SRC:<source>]
 
 **Fields:**
 - `TAG:` — required. One of: `CLAIM`, `COUNTER`, `CONFIRM`, `OPEN`.
-- `<content>` — required. The finding text. Everything between the tag colon and the first metadata marker (`@`, `AID:`, `TYPE:`), or end of line.
+- `<content>` — required. The finding text. Everything between the tag colon and the first metadata field (`@`, `AID:`, `TYPE:`, `[SRC:`), or end of line.
 - `@ <path>:<line>` — citation. File path and line number.
 - `AID:<id>` — assumption ID reference (e.g., `AID:A1`). Links finding to a specific assumption from the user's question.
 - `TYPE:<type>` — contradiction type. One of the values in the whitelist below.
@@ -41,9 +41,9 @@ Used exclusively with `COUNTER` tag:
 3. `COUNTER` or `CONFIRM` lines missing `AID:<id>` are **discarded**.
 4. `COUNTER` lines missing `TYPE:<type>` are **discarded**.
 5. Malformed metadata slots (e.g., `AID:` with no value) are ignored; the line is still parsed if tag and content are valid.
-6. Multiple metadata markers on one line: parse left-to-right, first match wins for each field type.
+6. Multiple metadata fields on one line: parse left-to-right, first match wins for each field type.
 7. Content with embedded `@` symbols (e.g., email addresses): only `@ ` followed by a path-like pattern (`word/word` or `word.ext:digits`) is treated as a citation.
-8. `SRC:` values must be one of `code`, `docs`. `unknown` is assembler-assigned only — if a gatherer emits `SRC:unknown`, treat it as a missing SRC tag (the assembler will assign `[SRC:unknown]` in step 8).
+8. `[SRC:<source>]` values must be one of `code`, `docs`. `unknown` is assembler-assigned only — if a gatherer emits `[SRC:unknown]`, treat it as a missing SRC tag (the assembler will assign `[SRC:unknown]` in step 8).
 
 ## Assembly Processing Order
 
