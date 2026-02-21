@@ -104,6 +104,11 @@ SAMPLE_PIPELINE = {
     "source_classes": ["code", "docs"],
     "scope_root_count": 3,
     "scope_roots_fingerprint": None,
+    # Planning fields (None = --plan not used)
+    "question_shaped": None,
+    "shape_confidence": None,
+    "assumptions_generated_count": None,
+    "ambiguity_count": None,
 }
 
 
@@ -117,6 +122,23 @@ def _dialogue_input(
         "synthesis_text": synthesis,
         "scope_breach": scope_breach,
         "pipeline": pipeline or SAMPLE_PIPELINE,
+    }
+
+
+def _pipeline_with_planning(
+    question_shaped: bool = True,
+    shape_confidence: str = "high",
+    assumptions_generated_count: int = 3,
+    ambiguity_count: int = 1,
+    **overrides,
+) -> dict:
+    return {
+        **SAMPLE_PIPELINE,
+        "question_shaped": question_shaped,
+        "shape_confidence": shape_confidence,
+        "assumptions_generated_count": assumptions_generated_count,
+        "ambiguity_count": ambiguity_count,
+        **overrides,
     }
 
 
@@ -439,6 +461,97 @@ class TestBuildDialogueOutcome:
         event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         # Helper rejects float — schema stays at base version
         assert event["schema_version"] == "0.1.0"
+
+    # --- Planning field build tests ---
+
+    def test_schema_version_bumps_with_planning(self) -> None:
+        """schema_version auto-bumps to 0.3.0 when question_shaped is non-None."""
+        pipeline = _pipeline_with_planning()
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["schema_version"] == "0.3.0"
+
+    def test_schema_version_bumps_with_planning_false(self) -> None:
+        """schema_version 0.3.0 even when question_shaped=False (failure telemetry)."""
+        pipeline = _pipeline_with_planning(question_shaped=False)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["schema_version"] == "0.3.0"
+
+    def test_planning_fields_propagated_from_pipeline(self) -> None:
+        """All 4 planning fields propagate from pipeline input."""
+        pipeline = _pipeline_with_planning(
+            question_shaped=True,
+            shape_confidence="medium",
+            assumptions_generated_count=5,
+            ambiguity_count=2,
+        )
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["question_shaped"] is True
+        assert event["shape_confidence"] == "medium"
+        assert event["assumptions_generated_count"] == 5
+        assert event["ambiguity_count"] == 2
+
+    def test_planning_none_when_absent(self) -> None:
+        """Planning fields default to None when not in pipeline."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["question_shaped"] is None
+        assert event["shape_confidence"] is None
+        assert event["assumptions_generated_count"] is None
+        assert event["ambiguity_count"] is None
+
+    def test_planning_precedence_over_provenance(self) -> None:
+        """schema_version 0.3.0 takes precedence when both planning and provenance active."""
+        pipeline = _pipeline_with_planning(provenance_unknown_count=3)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["schema_version"] == "0.3.0"
+
+    def test_planning_nonbool_question_shaped_still_bumps(self) -> None:
+        """Non-bool question_shaped triggers 0.3.0 (resolver checks is not None, validation catches type)."""
+        pipeline = {**SAMPLE_PIPELINE, "question_shaped": "yes"}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["schema_version"] == "0.3.0"
+
+    def test_planning_question_shaped_false_all_fields_present(self) -> None:
+        """question_shaped=False still propagates all planning fields."""
+        pipeline = _pipeline_with_planning(
+            question_shaped=False,
+            shape_confidence="low",
+            assumptions_generated_count=0,
+            ambiguity_count=0,
+        )
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["question_shaped"] is False
+        assert event["shape_confidence"] == "low"
+
+    def test_resolve_schema_version_base(self) -> None:
+        """_resolve_schema_version returns 0.1.0 with no feature flags."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert MODULE._resolve_schema_version(event) == "0.1.0"
+
+    # --- Planning hardening tests ---
+
+    def test_planning_bool_shape_confidence_passes_through(self) -> None:
+        """Bool shape_confidence from pipeline passes through (validation catches)."""
+        pipeline = _pipeline_with_planning(shape_confidence=True)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["shape_confidence"] is True
+
+    def test_planning_negative_assumptions_count_passes_through(self) -> None:
+        """Negative assumptions_generated_count passes through (validation catches)."""
+        pipeline = _pipeline_with_planning(assumptions_generated_count=-1)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["assumptions_generated_count"] == -1
+
+    def test_planning_float_ambiguity_count_passes_through(self) -> None:
+        """Float ambiguity_count passes through (validation catches)."""
+        pipeline = _pipeline_with_planning(ambiguity_count=1.5)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["ambiguity_count"] == 1.5
+
+    def test_planning_string_count_passes_through(self) -> None:
+        """String assumptions_generated_count passes through (validation catches)."""
+        pipeline = _pipeline_with_planning(assumptions_generated_count="3")
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["assumptions_generated_count"] == "3"
 
 
 # ---------------------------------------------------------------------------
@@ -765,12 +878,117 @@ class TestValidate:
             MODULE.validate(event, "dialogue_outcome")
 
     def test_provenance_schema_version_cross_field_invariant(self) -> None:
-        """schema_version must be 0.2.0 when provenance_unknown_count is set."""
+        """provenance_unknown_count requires schema_version 0.2.0."""
         pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 3}
         event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
-        assert event["schema_version"] == "0.2.0"  # build sets it correctly
-        event["schema_version"] = "0.1.0"  # simulate mutation
-        with pytest.raises(ValueError, match="provenance_unknown_count is set"):
+        event["schema_version"] = "0.1.0"
+        with pytest.raises(ValueError, match="schema_version mismatch"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    # --- Planning field validation tests ---
+
+    def test_planning_tri_state_missing_shape_confidence(self) -> None:
+        """question_shaped=True requires shape_confidence."""
+        pipeline = _pipeline_with_planning(shape_confidence=None)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        with pytest.raises(ValueError, match="shape_confidence is required"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_planning_tri_state_missing_assumptions_count(self) -> None:
+        """question_shaped=True requires assumptions_generated_count."""
+        pipeline = _pipeline_with_planning(assumptions_generated_count=None)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        with pytest.raises(ValueError, match="assumptions_generated_count is required"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_planning_tri_state_missing_ambiguity_count(self) -> None:
+        """question_shaped=True requires ambiguity_count."""
+        pipeline = _pipeline_with_planning(ambiguity_count=None)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        with pytest.raises(ValueError, match="ambiguity_count is required"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_planning_invalid_shape_confidence(self) -> None:
+        """shape_confidence must be in valid set."""
+        pipeline = _pipeline_with_planning(shape_confidence="very_high")
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        with pytest.raises(ValueError, match="invalid shape_confidence"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_planning_question_shaped_wrong_type(self) -> None:
+        """question_shaped must be bool when non-None."""
+        pipeline = {**SAMPLE_PIPELINE, "question_shaped": "yes", "shape_confidence": "high", "assumptions_generated_count": 3, "ambiguity_count": 1}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        with pytest.raises(ValueError, match="question_shaped must be bool"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_planning_schema_version_cross_field_invariant(self) -> None:
+        """Planning active requires schema_version 0.3.0."""
+        pipeline = _pipeline_with_planning()
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        event["schema_version"] = "0.2.0"
+        with pytest.raises(ValueError, match="schema_version mismatch"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_provenance_schema_version_still_validated(self) -> None:
+        """Provenance without planning still requires 0.2.0."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 3}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        event["schema_version"] = "0.1.0"
+        with pytest.raises(ValueError, match="schema_version mismatch"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_planning_valid_event_passes(self) -> None:
+        """Fully valid planning event passes validation."""
+        pipeline = _pipeline_with_planning()
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        MODULE.validate(event, "dialogue_outcome")
+
+    # --- Reverse invariant tests ---
+
+    def test_reverse_invariant_stray_shape_confidence(self) -> None:
+        """question_shaped=None with stray shape_confidence rejects."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["shape_confidence"] = "high"
+        with pytest.raises(ValueError, match="shape_confidence must be None when question_shaped is None"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_reverse_invariant_stray_assumptions_count(self) -> None:
+        """question_shaped=None with stray assumptions_generated_count rejects."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["assumptions_generated_count"] = 3
+        with pytest.raises(ValueError, match="assumptions_generated_count must be None when question_shaped is None"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_reverse_invariant_stray_ambiguity_count(self) -> None:
+        """question_shaped=None with stray ambiguity_count rejects."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["ambiguity_count"] = 1
+        with pytest.raises(ValueError, match="ambiguity_count must be None when question_shaped is None"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    # --- Error precedence test ---
+
+    def test_planning_nonbool_no_companions_type_error_first(self) -> None:
+        """Non-bool question_shaped without companions: type error takes precedence."""
+        pipeline = {**SAMPLE_PIPELINE, "question_shaped": "yes"}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        with pytest.raises(ValueError, match="question_shaped must be bool"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    # --- Emerged tests from adversarial review ---
+
+    def test_planning_valid_event_false_passes(self) -> None:
+        """question_shaped=False with all companions present passes validation."""
+        pipeline = _pipeline_with_planning(question_shaped=False)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        MODULE.validate(event, "dialogue_outcome")  # Should not raise
+
+    def test_planning_count_fields_negative_rejected(self) -> None:
+        """Negative assumptions_generated_count fails _COUNT_FIELDS validation."""
+        pipeline = _pipeline_with_planning(assumptions_generated_count=-1)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        with pytest.raises(ValueError, match="assumptions_generated_count"):
             MODULE.validate(event, "dialogue_outcome")
 
 
@@ -864,6 +1082,43 @@ class TestMain:
 
         event = json.loads(log_path.read_text().strip())
         assert event["schema_version"] == "0.2.0"
+        assert event["provenance_unknown_count"] == 5
+
+    def test_dialogue_planning_end_to_end(self, tmp_path, monkeypatch) -> None:
+        """E2E: planning fields trigger schema_version 0.3.0 in log."""
+        log_path = tmp_path / "events.jsonl"
+        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+
+        pipeline = _pipeline_with_planning()
+        input_file = tmp_path / "input.json"
+        input_file.write_text(json.dumps(_dialogue_input(pipeline=pipeline)))
+        monkeypatch.setattr("sys.argv", ["emit_analytics.py", str(input_file)])
+
+        exit_code = MODULE.main()
+        assert exit_code == 0
+
+        event = json.loads(log_path.read_text().strip())
+        assert event["schema_version"] == "0.3.0"
+        assert event["question_shaped"] is True
+        assert event["shape_confidence"] == "high"
+
+    def test_dialogue_planning_and_provenance_end_to_end(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """E2E: planning takes precedence over provenance for schema_version."""
+        log_path = tmp_path / "events.jsonl"
+        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+
+        pipeline = _pipeline_with_planning(provenance_unknown_count=5)
+        input_file = tmp_path / "input.json"
+        input_file.write_text(json.dumps(_dialogue_input(pipeline=pipeline)))
+        monkeypatch.setattr("sys.argv", ["emit_analytics.py", str(input_file)])
+
+        exit_code = MODULE.main()
+        assert exit_code == 0
+
+        event = json.loads(log_path.read_text().strip())
+        assert event["schema_version"] == "0.3.0"
         assert event["provenance_unknown_count"] == 5
 
     def test_consultation_end_to_end(self, tmp_path, monkeypatch) -> None:
