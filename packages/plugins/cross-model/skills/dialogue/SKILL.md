@@ -91,6 +91,20 @@ Task(
 
 Perform **deterministic, non-LLM assembly** of gatherer outputs. Reference: `references/tag-grammar.md` for full grammar and edge cases.
 
+**Step ID crosswalk** (SKILL.md ↔ tag-grammar.md assembly processing order):
+
+| SKILL.md | tag-grammar.md | Operation |
+|----------|---------------|-----------|
+| 3a | 1 | Parse |
+| 3b | 2 | Retry |
+| 3c | 3 | Zero-output fallback |
+| 3d | 4 | Discard |
+| 3e | 5 | Cap |
+| 3f | 6 | Sanitize |
+| 3g | 7 | Dedup |
+| 3h-bis | 8 | Validate provenance |
+| 3h | 9 | Group |
+
 **Processing order:**
 
 **3a. Parse:** Scan each gatherer's output for lines starting with `CLAIM:`, `COUNTER:`, `CONFIRM:`, or `OPEN:`. Ignore all other lines.

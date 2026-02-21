@@ -47,7 +47,7 @@ Used exclusively with `COUNTER` tag:
 
 ## Assembly Processing Order
 
-When the `/dialogue` skill assembles gatherer outputs:
+When the `/dialogue` skill assembles gatherer outputs (SKILL.md steps 3a-3h map to steps 1-9 below; see SKILL.md Step 3 for the full crosswalk table):
 
 1. **Parse** — extract tagged lines, ignore untagged
 2. **Retry** — if a gatherer produced <4 parseable lines, re-launch once, re-parse, combine with original
