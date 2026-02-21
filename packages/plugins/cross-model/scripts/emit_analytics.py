@@ -414,11 +414,8 @@ def build_consultation_outcome(input_data: dict) -> dict:
     """Build a consultation_outcome event from input JSON."""
     pipeline = input_data.get("pipeline", {})
 
-    # Consultation events use base schema (0.1.0) unconditionally.
-    # If provenance or planning fields are added to consultations,
-    # this must call _resolve_schema_version() like build_dialogue_outcome.
-    return {
-        "schema_version": _SCHEMA_VERSION,
+    event = {
+        "schema_version": _SCHEMA_VERSION,  # placeholder; resolved below
         "consultation_id": str(uuid.uuid4()),
         "thread_id": pipeline.get("thread_id"),
         "session_id": _session_id(),
@@ -431,7 +428,18 @@ def build_consultation_outcome(input_data: dict) -> dict:
         "mode": pipeline.get("mode", "server_assisted"),
         "converged": None,
         "termination_reason": "complete",
+        # Nullable feature-flag fields (propagated from pipeline when present)
+        "provenance_unknown_count": pipeline.get("provenance_unknown_count"),
+        "question_shaped": pipeline.get("question_shaped"),
+        "shape_confidence": pipeline.get("shape_confidence"),
+        "assumptions_generated_count": pipeline.get("assumptions_generated_count"),
+        "ambiguity_count": pipeline.get("ambiguity_count"),
     }
+
+    # Schema version auto-bump: unified resolver (same as build_dialogue_outcome)
+    event["schema_version"] = _resolve_schema_version(event)
+
+    return event
 
 
 # ---------------------------------------------------------------------------

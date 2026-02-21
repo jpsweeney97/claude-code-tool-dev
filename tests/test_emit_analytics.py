@@ -156,6 +156,11 @@ def _consultation_input(pipeline: dict | None = None) -> dict:
             "turn_budget": 1,
             "profile_name": None,
             "mode": "server_assisted",
+            "provenance_unknown_count": None,
+            "question_shaped": None,
+            "shape_confidence": None,
+            "assumptions_generated_count": None,
+            "ambiguity_count": None,
         },
     }
 
@@ -632,7 +637,7 @@ class TestBuildDialogueOutcome:
 class TestBuildConsultationOutcome:
     def test_field_count(self) -> None:
         event = MODULE.build_consultation_outcome(_consultation_input())
-        assert len(event) == 13
+        assert len(event) == 18
 
     def test_converged_null(self) -> None:
         event = MODULE.build_consultation_outcome(_consultation_input())
@@ -652,7 +657,7 @@ class TestBuildConsultationOutcome:
         assert event["thread_id"] == "thread-xyz-789"
 
     def test_schema_version_base(self) -> None:
-        """Consultation events always use base schema 0.1.0."""
+        """Consultation events default to base schema 0.1.0 when feature-flag fields are absent."""
         event = MODULE.build_consultation_outcome(_consultation_input())
         assert event["schema_version"] == "0.1.0"
 
@@ -675,6 +680,62 @@ class TestBuildConsultationOutcome:
     def test_mode_from_pipeline(self) -> None:
         event = MODULE.build_consultation_outcome(_consultation_input())
         assert event["mode"] == "server_assisted"
+
+    def test_schema_version_uses_resolver(self) -> None:
+        """consultation_outcome uses _resolve_schema_version like dialogue_outcome."""
+        pipeline = {
+            "posture": "collaborative",
+            "thread_id": "thread-xyz-789",
+            "turn_count": 1,
+            "turn_budget": 1,
+            "profile_name": None,
+            "mode": "server_assisted",
+            "provenance_unknown_count": 0,
+            "question_shaped": None,
+            "shape_confidence": None,
+            "assumptions_generated_count": None,
+            "ambiguity_count": None,
+        }
+        event = MODULE.build_consultation_outcome(_consultation_input(pipeline))
+        # With provenance_unknown_count=0 (non-negative int), resolver returns 0.2.0
+        assert event["schema_version"] == "0.2.0"
+
+    def test_reverse_invariant_consultation(self) -> None:
+        """Stray shape_confidence without question_shaped triggers validation error."""
+        pipeline = {
+            "posture": "collaborative",
+            "thread_id": None,
+            "turn_count": 1,
+            "turn_budget": 1,
+            "profile_name": None,
+            "mode": "server_assisted",
+            "provenance_unknown_count": None,
+            "question_shaped": None,
+            "shape_confidence": "high",
+            "assumptions_generated_count": None,
+            "ambiguity_count": None,
+        }
+        event = MODULE.build_consultation_outcome(_consultation_input(pipeline))
+        with pytest.raises(ValueError, match="shape_confidence"):
+            MODULE.validate(event, "consultation_outcome")
+
+    def test_schema_version_with_planning(self) -> None:
+        """consultation_outcome bumps to 0.3.0 when question_shaped is set."""
+        pipeline = {
+            "posture": "collaborative",
+            "thread_id": None,
+            "turn_count": 1,
+            "turn_budget": 1,
+            "profile_name": "planning",
+            "mode": "server_assisted",
+            "provenance_unknown_count": None,
+            "question_shaped": True,
+            "shape_confidence": "high",
+            "assumptions_generated_count": 3,
+            "ambiguity_count": 1,
+        }
+        event = MODULE.build_consultation_outcome(_consultation_input(pipeline))
+        assert event["schema_version"] == "0.3.0"
 
 
 # ---------------------------------------------------------------------------
@@ -710,7 +771,9 @@ class TestPipelineCompleteness:
         pipeline = _consultation_input()["pipeline"]
         builder_keys = {
             "thread_id", "posture", "turn_count", "turn_budget",
-            "profile_name", "mode",
+            "profile_name", "mode", "provenance_unknown_count",
+            "question_shaped", "shape_confidence",
+            "assumptions_generated_count", "ambiguity_count",
         }
         assert builder_keys.issubset(set(pipeline.keys())), (
             f"Missing pipeline keys: {builder_keys - set(pipeline.keys())}"
