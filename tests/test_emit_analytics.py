@@ -419,6 +419,27 @@ class TestBuildDialogueOutcome:
         assert event["schema_version"] == "0.1.0"
         assert event["provenance_unknown_count"] is None
 
+    def test_provenance_unknown_count_bool_pipeline_no_schema_bump(self) -> None:
+        """Bool pipeline.provenance_unknown_count does NOT trigger schema bump."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": True}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        # Helper rejects bool — schema stays at base version
+        assert event["schema_version"] == "0.1.0"
+
+    def test_provenance_unknown_count_string_pipeline_no_schema_bump(self) -> None:
+        """String pipeline.provenance_unknown_count does NOT trigger schema bump."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": "3"}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        # Helper rejects string — schema stays at base version
+        assert event["schema_version"] == "0.1.0"
+
+    def test_provenance_unknown_count_float_pipeline_no_schema_bump(self) -> None:
+        """Float pipeline.provenance_unknown_count does NOT trigger schema bump."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 0.0}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        # Helper rejects float — schema stays at base version
+        assert event["schema_version"] == "0.1.0"
+
 
 # ---------------------------------------------------------------------------
 # TestBuildConsultationOutcome
