@@ -51,9 +51,10 @@ When the `assumptions` list is empty (the question contains no testable assumpti
 
 1. Explore **rationale surfaces only**: `docs/decisions/`, `docs/plans/`, `docs/learnings/`, `CLAUDE.md`, `README.md`, and architectural files at repository root.
 2. Do NOT explore code files, test files, or config files — those are the code explorer's domain.
-3. Emit `CLAIM` and `OPEN` items about design rationale, architectural decisions, and documented constraints relevant to the question.
-4. Tag every `CLAIM` line with `[SRC:docs]` — all CLAIMs in the fallback path are documentation-sourced because only rationale surfaces are explored.
-5. Do **not** emit `COUNTER` or `CONFIRM` — these require assumption IDs.
+3. **Always** emit this OPEN line first: `OPEN: No-assumptions fallback active — scoped to rationale surfaces only; code/test/config exploration skipped`
+4. Emit `CLAIM` and `OPEN` items about design rationale, architectural decisions, and documented constraints relevant to the question.
+5. Tag every `CLAIM` line with `[SRC:docs]` — all CLAIMs in the fallback path are documentation-sourced because only rationale surfaces are explored.
+6. Do **not** emit `COUNTER` or `CONFIRM` — these require assumption IDs.
 
 ## Output Format
 
