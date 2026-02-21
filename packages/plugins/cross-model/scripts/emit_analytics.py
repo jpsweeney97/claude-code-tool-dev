@@ -162,9 +162,10 @@ def _append_log(entry: dict) -> bool:
 def _session_id() -> str | None:
     """Read session ID from environment. Never fabricated.
 
-    Returns None if CLAUDE_SESSION_ID is absent or empty string.
+    Returns None if CLAUDE_SESSION_ID is absent, empty, or whitespace-only.
     """
-    return os.environ.get("CLAUDE_SESSION_ID") or None
+    value = os.environ.get("CLAUDE_SESSION_ID", "").strip()
+    return value or None
 
 
 # ---------------------------------------------------------------------------
@@ -176,8 +177,13 @@ def _strip_fenced_blocks(text: str) -> str:
     """Remove fenced code blocks to prevent parsing headers inside them."""
     # First pass: matched pairs
     text = re.sub(r"^```.*?^```", "", text, flags=re.MULTILINE | re.DOTALL)
-    # Second pass: unclosed fence (opening ``` with no matching close) — strip to EOF
+    # Second pass: unclosed fence (opening ``` with no matching close) — strip to EOF.
+    # This intentionally discards all content after the unclosed fence because
+    # leaving it would create spurious section headers in _split_sections.
+    before = text
     text = re.sub(r"^```.*", "", text, flags=re.MULTILINE | re.DOTALL)
+    if text != before:
+        print("_strip_fenced_blocks: unclosed fence detected, content after fence discarded", file=sys.stderr)
     return text
 
 
@@ -294,9 +300,11 @@ def map_convergence(
 
     Priority order: scope_breach > all_resolved > natural > budget > error.
 
-    The error fallback represents a contradictory state: not converged but
-    zero unresolved items and under budget. This indicates a pipeline or
-    state tracking bug.
+    The error fallback covers any state where ``converged=False`` and
+    ``turn_count < turn_budget``. This includes the contradictory case
+    (zero unresolved items but not converged) and the unexpected case
+    (unresolved items remain but budget was not exhausted). Either
+    indicates a pipeline or state tracking bug.
     """
     if scope_breach:
         return ("scope_breach", "scope_breach")
@@ -306,6 +314,12 @@ def map_convergence(
         return ("natural_convergence", "convergence")
     if not converged and turn_count >= turn_budget:
         return ("budget_exhausted", "budget")
+    print(
+        f"map_convergence reached error fallback: converged={converged}, "
+        f"unresolved_count={unresolved_count}, turn_count={turn_count}, "
+        f"turn_budget={turn_budget}",
+        file=sys.stderr,
+    )
     return ("error", "error")
 
 

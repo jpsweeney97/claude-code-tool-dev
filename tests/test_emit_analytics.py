@@ -210,6 +210,22 @@ class TestSplitSections:
         result = MODULE._split_sections(text)
         assert "real content" in result.get("summary", "")
 
+    def test_unclosed_fence_with_lang_stripped(self) -> None:
+        """Unclosed fence with language specifier is also stripped."""
+        text = "### Before\ncontent\n```python\n## Inside\ncode\n"
+        result = MODULE._split_sections(text)
+        assert "inside" not in result
+        assert "before" in result
+
+    def test_multiple_unclosed_fences_stripped(self) -> None:
+        """Multiple unclosed fences: first pass pairs them, second pass catches remainder."""
+        text = "### Before\ncontent\n```\nmid\n```\n## After Pair\nok\n```\n## Trailing\nlost\n"
+        result = MODULE._split_sections(text)
+        # The paired fences are stripped by pass 1, "After Pair" survives,
+        # the trailing unclosed fence and "Trailing" are stripped by pass 2.
+        assert "trailing" not in result
+        assert "before" in result
+
 
 # ---------------------------------------------------------------------------
 # TestParseSynthesis
@@ -317,7 +333,7 @@ class TestParseSynthesis:
         assert result["scout_count"] == 0
 
     def test_unclosed_fence_does_not_corrupt_fields(self) -> None:
-        """Unclosed fence should not corrupt converged/turn_count extraction."""
+        """Unclosed fence should not corrupt converged/turn_count/scout_count."""
         text = (
             "### Conversation Summary\n"
             "- **Converged:** Yes\n"
@@ -331,6 +347,7 @@ class TestParseSynthesis:
         result = MODULE.parse_synthesis(text)
         assert result["converged"] is True
         assert result["turn_count"] == 5
+        assert result["scout_count"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -357,9 +374,13 @@ class TestMapConvergence:
             "budget",
         )
 
-    def test_error(self) -> None:
-        """Contradictory state: not converged but 0 unresolved and under budget."""
+    def test_error_zero_unresolved(self) -> None:
+        """Error fallback: not converged, zero unresolved, under budget."""
         assert MODULE.map_convergence(False, 0, 3, 8) == ("error", "error")
+
+    def test_error_nonzero_unresolved(self) -> None:
+        """Error fallback: not converged, unresolved remain, under budget."""
+        assert MODULE.map_convergence(False, 5, 3, 8) == ("error", "error")
 
     def test_scope_breach_overrides(self) -> None:
         """scope_breach takes priority even if converged=True."""

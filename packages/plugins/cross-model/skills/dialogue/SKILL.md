@@ -89,7 +89,7 @@ ambiguities:
 - List parsing: accept both YAML list and comma-separated formats for `assumptions`, `key_terms`, `ambiguities`
 - Assumption ID repair: if IDs are missing (e.g., bare strings), assign A1, A2, ... sequentially
 - Dedup: remove duplicate assumptions (normalized text match)
-- Tautology filter: reject assumptions that are restatements or negations of the question itself. An assumption must be a testable proposition about the codebase, not a reframing of the question. Example: question "Is X over-engineered?" → reject "X is over-engineered" (restatement) or "X is not over-engineered" (negation); accept "X has more abstraction layers than its callers require" (testable). If rejected, decrement `assumptions_generated_count` accordingly.
+- Tautology filter: reject assumptions that are restatements or negations of the question itself. An assumption must be a testable proposition about the codebase, not a reframing of the question. When in doubt, keep the assumption — false negatives (keeping a tautology) are less harmful than false positives (rejecting a valid assumption that overlaps with the question). Example: question "Is X over-engineered?" → reject "X is over-engineered" (restatement) or "X is not over-engineered" (negation); accept "X has more abstraction layers than its callers require" (testable). If rejected, decrement `assumptions_generated_count` accordingly.
 - Cap: maximum 5 assumptions, 8 key_terms, 3 ambiguities
 
 After normalization, validate each routing field independently:
