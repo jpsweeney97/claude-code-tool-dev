@@ -286,6 +286,10 @@ def map_convergence(
     """Map dialogue state to (convergence_reason_code, termination_reason).
 
     Priority order: scope_breach > all_resolved > natural > budget > error.
+
+    The error fallback represents a contradictory state: not converged but
+    zero unresolved items and under budget. This indicates a pipeline or
+    state tracking bug.
     """
     if scope_breach:
         return ("scope_breach", "scope_breach")

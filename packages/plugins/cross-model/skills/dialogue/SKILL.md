@@ -53,9 +53,13 @@ Skip this step if `--plan` is not set. Proceed directly to Step 1.
 
 **Debug gate:** Before decomposition, check if the question is a debugging question. If ANY of these artifact signals appear in the question (case-insensitive): `traceback`, `stack trace`, `exception`, `panic`, `segfault` — OR if an intent signal (`how do I fix`, `how do we fix`, `debug`, `root cause`, `why does`) appears together with an unsuppressed failure lexeme (`fail`, `failing`, `failed`, `failure`, `error`, `bug`, `crash`, `broken`) — then skip Step 0 entirely. Set all planning pipeline fields to null. Proceed to Step 1 with the raw question.
 
-Architecture phrase suppressions (these phrases suppress adjacent failure lexemes): `error handling`, `failure mode`, `failure modes`, `fault tolerance`, `error budget`, `recovery strategy`, `retry policy`, `crash-only design`.
+Architecture phrase suppressions (a suppression phrase suppresses a failure lexeme only when the lexeme appears as a substring of the suppression phrase, and that suppression phrase appears in the question): `error handling`, `failure mode`, `failure modes`, `fault tolerance`, `error budget`, `recovery strategy`, `retry policy`, `crash-only design`.
 
-Example: "How should we design error handling for the API?" → NOT a debugging question (failure lexeme "error" is suppressed by "error handling"). "Why does the API error on startup?" → IS a debugging question (intent "why does" + unsuppressed "error").
+Example: "How should we design error handling for the API?" → NOT a debugging question (failure lexeme "error" is suppressed by "error handling"). "Why does the API error on startup?" → IS a debugging question (intent "why does" + unsuppressed "error"). "Why does the retry fail on large payloads?" → IS a debugging question (intent "why does" + failure lexeme "fail"; the suppression phrase "retry policy" is NOT present in the question, so "fail" is not suppressed).
+
+**Decomposition failure:** If the decomposition call produces no output, empty output, or unparseable output (the response does not contain at least one of `planning_question`, `assumptions`, or `key_terms` as recognizable fields), treat it as a complete decomposition failure. Set `question_shaped=false` and proceed to the Failure terminal state below. Do not retry the decomposition call.
+
+Example: The decomposition call times out or returns "I cannot process this request" — neither contains any routing fields, so `question_shaped=false` and the pipeline falls through to Failure.
 
 **Decomposition:** Run Claude-locally (no Codex). Decompose the user's problem statement using this template:
 
@@ -85,6 +89,7 @@ ambiguities:
 - List parsing: accept both YAML list and comma-separated formats for `assumptions`, `key_terms`, `ambiguities`
 - Assumption ID repair: if IDs are missing (e.g., bare strings), assign A1, A2, ... sequentially
 - Dedup: remove duplicate assumptions (normalized text match)
+- Tautology filter: reject assumptions that are restatements or negations of the question itself. An assumption must be a testable proposition about the codebase, not a reframing of the question. Example: question "Is X over-engineered?" → reject "X is over-engineered" (restatement) or "X is not over-engineered" (negation); accept "X has more abstraction layers than its callers require" (testable). If rejected, decrement `assumptions_generated_count` accordingly.
 - Cap: maximum 5 assumptions, 8 key_terms, 3 ambiguities
 
 After normalization, validate each routing field independently:
@@ -200,7 +205,7 @@ Perform **deterministic, non-LLM assembly** of gatherer outputs. Reference: `ref
 
 **3a. Parse:** Scan each gatherer's output for lines starting with `CLAIM:`, `COUNTER:`, `CONFIRM:`, or `OPEN:`. Ignore all other lines.
 
-**3b. Low-output retry:** After parsing, if a gatherer produced fewer than 4 parseable tagged lines, re-launch that gatherer once with a prompt reinforcing the output format: "Emit findings as prefix-tagged lines per the output format. Each CLAIM must include `@ path:line` citation and `[SRC:code]` or `[SRC:docs]` provenance tag. Each COUNTER must include `@ path:line` citation, `AID:<id>`, and `TYPE:<type>`." Parse the retry output (3a) and merge with the original lines: non-duplicate lines are combined (both kept). For duplicate claim keys (same tag type + normalized citation): retry-wins — prefer the SRC-tagged version from retry output over the untagged original. Tie-break: if both original and retry have valid SRC tags (`code` or `docs`), keep the retry version. (This both-tagged tie-break fills a gap in the spec, which does not address the case where both versions carry valid SRC tags.) If still below 4 after retry, proceed with available output.
+**3b. Low-output retry:** After parsing, if a gatherer produced fewer than 4 parseable tagged lines, re-launch that gatherer once with a prompt reinforcing the output format: "Emit findings as prefix-tagged lines per the output format. Each CLAIM must include `@ path:line` citation and `[SRC:code]` or `[SRC:docs]` provenance tag. Each COUNTER must include `@ path:line` citation, `AID:<id>`, and `TYPE:<type>`." Parse the retry output (3a) and merge with the original lines. Two lines are duplicates when they share the same tag type AND the same normalized citation (`path:line`). All other line pairs are non-duplicates. Non-duplicate lines are combined (both kept). For duplicate claim keys (same tag type + normalized citation): retry-wins — prefer the SRC-tagged version from retry output over the untagged original. Tie-break: if both original and retry have valid SRC tags (`code` or `docs`), keep the retry version. (This both-tagged tie-break fills a gap in the spec, which does not address the case where both versions carry valid SRC tags.) If still below 4 after retry, proceed with available output.
 
 **Content conflict tracking:** When the retry-wins rule resolves a duplicate (same tag type + normalized citation, different content text), increment `content_conflict_count` (pipeline-local diagnostic counter, initialized to `0`). This counter is not emitted to analytics in the current schema — it exists for pipeline observability only.
 

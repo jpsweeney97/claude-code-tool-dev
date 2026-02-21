@@ -326,6 +326,7 @@ class TestMapConvergence:
         )
 
     def test_error(self) -> None:
+        """Contradictory state: not converged but 0 unresolved and under budget."""
         assert MODULE.map_convergence(False, 0, 3, 8) == ("error", "error")
 
     def test_scope_breach_overrides(self) -> None:
