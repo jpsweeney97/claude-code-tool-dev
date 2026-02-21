@@ -160,7 +160,10 @@ def _append_log(entry: dict) -> bool:
 
 
 def _session_id() -> str | None:
-    """Read session ID from environment. Never fabricated."""
+    """Read session ID from environment. Never fabricated.
+
+    Returns None if CLAUDE_SESSION_ID is absent or empty string.
+    """
     return os.environ.get("CLAUDE_SESSION_ID") or None
 
 
@@ -171,7 +174,11 @@ def _session_id() -> str | None:
 
 def _strip_fenced_blocks(text: str) -> str:
     """Remove fenced code blocks to prevent parsing headers inside them."""
-    return re.sub(r"^```.*?^```", "", text, flags=re.MULTILINE | re.DOTALL)
+    # First pass: matched pairs
+    text = re.sub(r"^```.*?^```", "", text, flags=re.MULTILINE | re.DOTALL)
+    # Second pass: unclosed fence (opening ``` with no matching close) — strip to EOF
+    text = re.sub(r"^```.*", "", text, flags=re.MULTILINE | re.DOTALL)
+    return text
 
 
 def _split_sections(text: str) -> dict[str, str]:
@@ -393,6 +400,9 @@ def build_consultation_outcome(input_data: dict) -> dict:
     """Build a consultation_outcome event from input JSON."""
     pipeline = input_data.get("pipeline", {})
 
+    # Consultation events use base schema (0.1.0) unconditionally.
+    # If provenance or planning fields are added to consultations,
+    # this must call _resolve_schema_version() like build_dialogue_outcome.
     return {
         "schema_version": _SCHEMA_VERSION,
         "consultation_id": str(uuid.uuid4()),

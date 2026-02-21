@@ -145,6 +145,8 @@ When the assembled briefing is received (via the `<!-- dialogue-orchestrated-bri
 
 **Extraction:** Scan the briefing `## Material` section for lines containing `[SRC:unknown]`. For each such line, parse the citation from the `@ path:line` annotation and extract the path component only (strip the `:line` suffix). Normalize: strip leading `./`, collapse `//` to `/`. Store the resulting set in `unknown_claim_paths` in conversation state.
 
+If the `## Material` section is present but contains no lines (or only the `(none)` placeholder from Step 3c), the extraction yields an empty set: `unknown_claim_paths = ∅`.
+
 **Standalone mode:** If no sentinel is detected (standalone invocation, not from `/dialogue`), initialize `unknown_claim_paths = ∅`. No unknown claims can exist because non-orchestrated briefings have no `[SRC:unknown]` tags (no gatherer pipeline runs in standalone mode).
 
 If `unknown_claim_paths` is non-empty, prioritize verifying those claims via mid-dialogue scouting:
