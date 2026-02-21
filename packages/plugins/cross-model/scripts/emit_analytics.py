@@ -47,6 +47,12 @@ _VALID_CONVERGENCE_CODES = {
     "scope_breach",
 }
 _VALID_MODES = {"server_assisted", "manual_legacy"}
+_VALID_LOW_SEED_CONFIDENCE_REASONS = {
+    "thin_citations",
+    "few_files",
+    "zero_output",
+    "provenance_violations",
+}
 _VALID_TERMINATION_REASONS = {
     "convergence",
     "budget",
@@ -54,6 +60,12 @@ _VALID_TERMINATION_REASONS = {
     "scope_breach",
     "complete",
 }
+
+
+def _is_non_negative_int(value: object) -> bool:
+    """Check value is a non-negative int, excluding bool."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
 
 _COUNT_FIELDS = {
     "turn_count",
@@ -75,6 +87,7 @@ _COUNT_FIELDS = {
     "claim_count",
     "scout_count",
     "scope_root_count",
+    "provenance_unknown_count",
 }
 
 _DIALOGUE_REQUIRED = {
@@ -291,7 +304,7 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         scope_breach=scope_breach,
     )
 
-    return {
+    event = {
         # Core
         "schema_version": _SCHEMA_VERSION,
         "consultation_id": str(uuid.uuid4()),
@@ -345,10 +358,16 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "assumptions_generated_count": None,
         "ambiguity_count": None,
         # Provenance (nullable)
-        "provenance_unknown_count": None,
+        "provenance_unknown_count": pipeline.get("provenance_unknown_count"),
         # Linkage (nullable)
         "episode_id": None,
     }
+
+    # Schema version auto-bump (§4.4): valid provenance count → 0.2.0
+    if _is_non_negative_int(event.get("provenance_unknown_count")):
+        event["schema_version"] = "0.2.0"
+
+    return event
 
 
 def build_consultation_outcome(input_data: dict) -> dict:
@@ -431,10 +450,16 @@ def validate(event: dict, event_type: str) -> None:
     # Count fields >= 0
     for field in _COUNT_FIELDS:
         value = event.get(field)
-        if value is not None and (
-            isinstance(value, bool) or not isinstance(value, int) or value < 0
-        ):
+        if value is not None and not _is_non_negative_int(value):
             raise ValueError(f"{field} must be non-negative int, got {value!r}")
+
+    # Cross-field: provenance count requires schema 0.2.0
+    prov = event.get("provenance_unknown_count")
+    if _is_non_negative_int(prov) and event.get("schema_version") != "0.2.0":
+        raise ValueError(
+            f"provenance_unknown_count is set ({prov}) but schema_version "
+            f"is {event.get('schema_version')!r}, expected '0.2.0'"
+        )
 
     # Cross-field invariants
     turn_budget = event.get("turn_budget")
@@ -473,6 +498,11 @@ def validate(event: dict, event_type: str) -> None:
             raise ValueError("low_seed_confidence_reasons must be a list")
         if not all(isinstance(s, str) for s in low_reasons):
             raise ValueError("low_seed_confidence_reasons must contain only strings")
+        invalid = set(low_reasons) - _VALID_LOW_SEED_CONFIDENCE_REASONS
+        if invalid:
+            raise ValueError(
+                f"invalid low_seed_confidence_reasons values: {sorted(invalid)}"
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -5,24 +5,25 @@ Reference for the `/dialogue` skill's assembly logic and gatherer agent output f
 ## Grammar
 
 ```
-TAG: <content> [@ <path>:<line>] [AID:<id>] [TYPE:<type>]
+TAG: <content> [@ <path>:<line>] [AID:<id>] [TYPE:<type>] [SRC:<source>]
 ```
 
 **Fields:**
 - `TAG:` — required. One of: `CLAIM`, `COUNTER`, `CONFIRM`, `OPEN`.
-- `<content>` — required. The finding text. Everything between the tag colon and the first metadata marker (`@`, `AID:`, `TYPE:`), or end of line.
+- `<content>` — required. The finding text. Everything between the tag colon and the first metadata field (`@`, `AID:`, `TYPE:`, `[SRC:`), or end of line.
 - `@ <path>:<line>` — citation. File path and line number.
 - `AID:<id>` — assumption ID reference (e.g., `AID:A1`). Links finding to a specific assumption from the user's question.
 - `TYPE:<type>` — contradiction type. One of the values in the whitelist below.
+- `SRC:<source>` — provenance tag. Gatherer-emitted values: `code`, `docs`. Assembler-assigned only: `unknown` (indicates gatherer did not follow output format — never valid in gatherer output). Required on CLAIM lines. Optional on OPEN lines. Not used on COUNTER/CONFIRM (AID provides traceability).
 
 ## Tags
 
-| Tag | Purpose | Citation | AID | TYPE |
-|-----|---------|----------|-----|------|
-| `CLAIM` | Factual observation about the codebase | Required | Optional | No |
-| `COUNTER` | Evidence contradicting a stated assumption | Required | Required | Required |
-| `CONFIRM` | Evidence supporting a stated assumption | Required | Required | No |
-| `OPEN` | Unresolved question or ambiguity | Optional | Optional | No |
+| Tag | Purpose | Citation | AID | TYPE | SRC |
+|-----|---------|----------|-----|------|-----|
+| `CLAIM` | Factual observation about the codebase | Required | Optional | No | Required |
+| `COUNTER` | Evidence contradicting a stated assumption | Required | Required | Required | No |
+| `CONFIRM` | Evidence supporting a stated assumption | Required | Required | No | No |
+| `OPEN` | Unresolved question or ambiguity | Optional | Optional | No | Optional |
 
 ## TYPE Whitelist
 
@@ -40,21 +41,23 @@ Used exclusively with `COUNTER` tag:
 3. `COUNTER` or `CONFIRM` lines missing `AID:<id>` are **discarded**.
 4. `COUNTER` lines missing `TYPE:<type>` are **discarded**.
 5. Malformed metadata slots (e.g., `AID:` with no value) are ignored; the line is still parsed if tag and content are valid.
-6. Multiple metadata markers on one line: parse left-to-right, first match wins for each field type.
+6. Multiple metadata fields on one line: parse left-to-right, first match wins for each field type.
 7. Content with embedded `@` symbols (e.g., email addresses): only `@ ` followed by a path-like pattern (`word/word` or `word.ext:digits`) is treated as a citation.
+8. `[SRC:<source>]` values must be one of `code`, `docs`. `unknown` is assembler-assigned only — if a gatherer emits `[SRC:unknown]`, treat it as a missing SRC tag (the assembler will assign `[SRC:unknown]` in step 8).
 
 ## Assembly Processing Order
 
-When the `/dialogue` skill assembles gatherer outputs:
+When the `/dialogue` skill assembles gatherer outputs (SKILL.md steps 3a-3h map to steps 1-9 below; see SKILL.md Step 3 for the full crosswalk table):
 
 1. **Parse** — extract tagged lines, ignore untagged
 2. **Retry** — if a gatherer produced <4 parseable lines, re-launch once, re-parse, combine with original
-3. **Zero-output fallback** — if total parseable lines across both gatherers is 0 after retries, use minimal briefing with `seed_confidence: low`; skip steps 4-8
+3. **Zero-output fallback** — if total parseable lines across both gatherers is 0 after retries, use minimal briefing with `seed_confidence: low`; skip steps 4-9
 4. **Discard** — remove `CLAIM`/`COUNTER`/`CONFIRM` missing citation; remove `COUNTER`/`CONFIRM` missing `AID:`; remove `COUNTER` missing `TYPE:`
 5. **Cap** — if >3 `COUNTER` items remain, keep first 3 (by appearance order)
 6. **Sanitize** — run credential patterns (consultation contract §7) on remaining content
 7. **Dedup** — same tag type + citation key across gatherers → keep Gatherer A's. Different tag types at same citation retained. Key = `path:line` normalized: strip leading `./`, lowercase, collapse `//`
-8. **Group** — deterministic order (Gatherer A first, then B within each section):
+8. **Validate provenance** — for each `CLAIM` line in the retained set, check for `[SRC:code]` or `[SRC:docs]`. If missing, assign `[SRC:unknown]` and increment `provenance_unknown_count`. Does not drop lines.
+9. **Group** — deterministic order (Gatherer A first, then B within each section):
    - Context: `OPEN` + `COUNTER` + `CONFIRM`
    - Material: `CLAIM`
    - Question: user's question verbatim
@@ -64,10 +67,10 @@ When the `/dialogue` skill assembles gatherer outputs:
 ### Gatherer A output (code explorer)
 
 ```
-CLAIM: Redaction pipeline has 3 layers (generic, format-specific, token) @ redact.py:45
-CLAIM: Format-specific redaction handles YAML, JSON, TOML independently @ redact_formats.py:11
-CLAIM: Generic token redaction runs unconditionally after format-specific @ redact.py:78
-CLAIM: Denylist covers 14 directory patterns and 12 file patterns @ paths.py:22
+CLAIM: Redaction pipeline has 3 layers (generic, format-specific, token) @ redact.py:45 [SRC:code]
+CLAIM: Format-specific redaction handles YAML, JSON, TOML independently @ redact_formats.py:11 [SRC:code]
+CLAIM: Generic token redaction runs unconditionally after format-specific @ redact.py:78 [SRC:code]
+CLAIM: Denylist covers 14 directory patterns and 12 file patterns @ paths.py:22 [SRC:code]
 OPEN: Whether format-specific redaction adds value given generic runs unconditionally
 ```
 
@@ -96,6 +99,16 @@ COUNTER: Pipeline is not thread-safe
 COUNTER: State file in /tmp is volatile @ nudge_codex.py:32 AID:A3
 ```
 **Discarded** — missing `TYPE:`.
+
+```
+CLAIM: Architecture uses event sourcing for audit log @ docs/decisions/ADR-003.md:12 [SRC:docs]
+```
+Valid — citation present, SRC is `docs` because the cited file is in `docs/`.
+
+```
+CLAIM: Pipeline has 3 layers @ redact.py:45
+```
+Missing SRC — assembler assigns `[SRC:unknown]` in step 8.
 
 ```
 This is a general observation about the codebase.

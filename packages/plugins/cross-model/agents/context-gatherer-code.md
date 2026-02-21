@@ -52,17 +52,17 @@ Emit each finding as a prefix-tagged line (see Output Format below). Target 15-3
 Emit findings as prefix-tagged lines. Each line follows this grammar:
 
 ```
-TAG: <content> [@ <path>:<line>]
+TAG: <content> [@ <path>:<line>] [SRC:<source>]
 ```
 
 Full grammar with `AID:` and `TYPE:` fields: see [`tag-grammar.md`](../dialogue/references/tag-grammar.md). This agent emits only `CLAIM` and `OPEN`, which do not require those fields.
 
 **Tags you emit:**
 
-| Tag | When to use | Citation required? |
-|-----|-------------|-------------------|
-| `CLAIM` | Factual observation about the codebase | Yes — `@ path:line` |
-| `OPEN` | Unresolved question or ambiguity you discovered | No (but preferred) |
+| Tag | When to use | Citation required? | SRC required? |
+|-----|-------------|-------------------|---------------|
+| `CLAIM` | Factual observation about the codebase | Yes — `@ path:line` | Yes — `[SRC:code]` |
+| `OPEN` | Unresolved question or ambiguity you discovered | No (but preferred) | No |
 
 You primarily emit `CLAIM` lines. `OPEN` is for questions you couldn't resolve during exploration.
 
@@ -71,15 +71,15 @@ Do **not** emit `COUNTER` or `CONFIRM` — those are for the falsifier agent.
 **Examples:**
 
 ```
-CLAIM: Redaction pipeline has 3 layers (generic, format-specific, token) @ redact.py:45
-CLAIM: Format-specific redaction handles YAML, JSON, TOML independently @ redact_formats.py:11
-CLAIM: Generic token redaction runs unconditionally after format-specific @ redact.py:78
-CLAIM: 969 tests across 23 test files cover the context injection system @ tests/conftest.py:1
-CLAIM: Checkpoint serialization uses HMAC-signed tokens @ checkpoint.py:89
+CLAIM: Redaction pipeline has 3 layers (generic, format-specific, token) @ redact.py:45 [SRC:code]
+CLAIM: Format-specific redaction handles YAML, JSON, TOML independently @ redact_formats.py:11 [SRC:code]
+CLAIM: Generic token redaction runs unconditionally after format-specific @ redact.py:78 [SRC:code]
+CLAIM: 969 tests across 23 test files cover the context injection system @ tests/conftest.py:1 [SRC:code]
+CLAIM: Checkpoint serialization uses HMAC-signed tokens @ checkpoint.py:89 [SRC:code]
 OPEN: Whether format-specific redaction adds value given generic runs unconditionally
 ```
 
-Every `CLAIM` must include a citation (`@ path:line`). Lines without citations are discarded by the assembler.
+Every `CLAIM` must include a citation (`@ path:line`) and a provenance tag (`[SRC:code]`). Lines without citations are discarded by the assembler. Lines without provenance tags are assigned `[SRC:unknown]` by the assembler.
 
 ## Constraints
 

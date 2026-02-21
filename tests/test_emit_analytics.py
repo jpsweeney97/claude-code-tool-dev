@@ -390,6 +390,56 @@ class TestBuildDialogueOutcome:
         assert event["convergence_reason_code"] == "scope_breach"
         assert event["termination_reason"] == "scope_breach"
 
+    def test_provenance_unknown_count_from_pipeline(self) -> None:
+        """provenance_unknown_count flows from pipeline when provided."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 3}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["provenance_unknown_count"] == 3
+
+    def test_provenance_unknown_count_none_when_absent(self) -> None:
+        """provenance_unknown_count defaults to None when not in pipeline."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["provenance_unknown_count"] is None
+
+    def test_schema_version_bumps_with_provenance(self) -> None:
+        """schema_version auto-bumps to 0.2.0 when provenance_unknown_count is non-null."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 0}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["schema_version"] == "0.2.0"
+
+    def test_schema_version_stays_without_provenance(self) -> None:
+        """schema_version stays 0.1.0 when provenance_unknown_count is None."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["schema_version"] == "0.1.0"
+
+    def test_provenance_unknown_count_explicit_none_schema_stays(self) -> None:
+        """schema_version stays 0.1.0 when provenance_unknown_count is explicitly None."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": None}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["schema_version"] == "0.1.0"
+        assert event["provenance_unknown_count"] is None
+
+    def test_provenance_unknown_count_bool_pipeline_no_schema_bump(self) -> None:
+        """Bool pipeline.provenance_unknown_count does NOT trigger schema bump."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": True}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        # Helper rejects bool — schema stays at base version
+        assert event["schema_version"] == "0.1.0"
+
+    def test_provenance_unknown_count_string_pipeline_no_schema_bump(self) -> None:
+        """String pipeline.provenance_unknown_count does NOT trigger schema bump."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": "3"}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        # Helper rejects string — schema stays at base version
+        assert event["schema_version"] == "0.1.0"
+
+    def test_provenance_unknown_count_float_pipeline_no_schema_bump(self) -> None:
+        """Float pipeline.provenance_unknown_count does NOT trigger schema bump."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 0.0}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        # Helper rejects float — schema stays at base version
+        assert event["schema_version"] == "0.1.0"
+
 
 # ---------------------------------------------------------------------------
 # TestBuildConsultationOutcome
@@ -417,6 +467,31 @@ class TestBuildConsultationOutcome:
     def test_thread_id_from_pipeline(self) -> None:
         event = MODULE.build_consultation_outcome(_consultation_input())
         assert event["thread_id"] == "thread-xyz-789"
+
+
+# ---------------------------------------------------------------------------
+# TestIsNonNegativeInt
+# ---------------------------------------------------------------------------
+
+
+class TestIsNonNegativeInt:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            (0, True),
+            (1, True),
+            (100, True),
+            (-1, False),
+            (True, False),
+            (False, False),
+            (0.0, False),
+            (3.5, False),
+            ("5", False),
+            (None, False),
+        ],
+    )
+    def test_is_non_negative_int(self, value: object, expected: bool) -> None:
+        assert MODULE._is_non_negative_int(value) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -639,10 +714,64 @@ class TestValidate:
             MODULE.validate(event, "dialogue_outcome")
 
     def test_low_seed_confidence_reasons_valid(self) -> None:
-        """Valid list of strings passes."""
+        """Valid list of enum strings passes."""
         event = MODULE.build_dialogue_outcome(_dialogue_input())
-        event["low_seed_confidence_reasons"] = ["narrow scope", "few files"]
+        event["low_seed_confidence_reasons"] = ["thin_citations", "few_files"]
         MODULE.validate(event, "dialogue_outcome")  # no exception
+
+    def test_invalid_low_seed_confidence_reason_rejected(self) -> None:
+        """Only enum values from §2.4a are accepted."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["low_seed_confidence_reasons"] = ["narrow_scope"]
+        with pytest.raises(ValueError, match="invalid low_seed_confidence_reasons"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_all_low_seed_confidence_reasons_accepted(self) -> None:
+        """All four enum values pass validation together."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["low_seed_confidence_reasons"] = [
+            "thin_citations", "few_files", "zero_output", "provenance_violations"
+        ]
+        MODULE.validate(event, "dialogue_outcome")  # no exception
+
+    @pytest.mark.parametrize("reasons", [
+        ["few_files", "bad_reason"],
+        ["thin_citations", "provenance_violations", "oops"],
+        ["bad_reason", "few_files"],
+    ])
+    def test_mixed_valid_invalid_low_seed_confidence_reasons_rejected(
+        self, reasons: list[str]
+    ) -> None:
+        """Mixed valid and invalid low_seed_confidence_reasons are rejected."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["low_seed_confidence_reasons"] = reasons
+        with pytest.raises(ValueError, match="invalid low_seed_confidence_reasons"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_provenance_unknown_count_negative_rejected(self) -> None:
+        """provenance_unknown_count must be non-negative (via _COUNT_FIELDS)."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 3}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        event["provenance_unknown_count"] = -1
+        with pytest.raises(ValueError, match="non-negative int"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_provenance_unknown_count_bool_rejected(self) -> None:
+        """provenance_unknown_count bool must be rejected (via _COUNT_FIELDS)."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 3}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        event["provenance_unknown_count"] = True
+        with pytest.raises(ValueError, match="non-negative int"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_provenance_schema_version_cross_field_invariant(self) -> None:
+        """schema_version must be 0.2.0 when provenance_unknown_count is set."""
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 3}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["schema_version"] == "0.2.0"  # build sets it correctly
+        event["schema_version"] = "0.1.0"  # simulate mutation
+        with pytest.raises(ValueError, match="provenance_unknown_count is set"):
+            MODULE.validate(event, "dialogue_outcome")
 
 
 # ---------------------------------------------------------------------------
@@ -717,6 +846,25 @@ class TestMain:
         assert event["event"] == "dialogue_outcome"
         assert event["schema_version"] == "0.1.0"
         assert event["resolved_count"] == 5
+
+    def test_dialogue_provenance_end_to_end(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """E2E: provenance_unknown_count triggers schema_version 0.2.0 in log."""
+        log_path = tmp_path / "events.jsonl"
+        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 5}
+        input_file = tmp_path / "input.json"
+        input_file.write_text(json.dumps(_dialogue_input(pipeline=pipeline)))
+        monkeypatch.setattr("sys.argv", ["emit_analytics.py", str(input_file)])
+
+        exit_code = MODULE.main()
+        assert exit_code == 0
+
+        event = json.loads(log_path.read_text().strip())
+        assert event["schema_version"] == "0.2.0"
+        assert event["provenance_unknown_count"] == 5
 
     def test_consultation_end_to_end(self, tmp_path, monkeypatch) -> None:
         log_path = tmp_path / "events.jsonl"
