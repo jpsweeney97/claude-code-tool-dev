@@ -156,6 +156,11 @@ def _consultation_input(pipeline: dict | None = None) -> dict:
             "turn_budget": 1,
             "profile_name": None,
             "mode": "server_assisted",
+            "provenance_unknown_count": None,
+            "question_shaped": None,
+            "shape_confidence": None,
+            "assumptions_generated_count": None,
+            "ambiguity_count": None,
         },
     }
 
@@ -168,20 +173,22 @@ def _consultation_input(pipeline: dict | None = None) -> dict:
 class TestSplitSections:
     def test_basic_split(self) -> None:
         text = "### Section One\ncontent one\n### Section Two\ncontent two\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         assert "section one" in result
         assert "section two" in result
+        assert truncated is False
 
     def test_case_normalized_keys(self) -> None:
         text = "### Synthesis Checkpoint\nstuff\n### Synthesis checkpoint\nmore\n"
-        result = MODULE._split_sections(text)
+        result, _ = MODULE._split_sections(text)
         assert "synthesis checkpoint" in result
 
     def test_strips_fenced_blocks(self) -> None:
         text = "### Outer\n```\n## Inner Header\ncontent\n```\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         assert "inner header" not in result
         assert "outer" in result
+        assert truncated is False  # matched pair, not truncation
 
     def test_nested_fence_with_level2_header(self) -> None:
         """Regression: ## Synthesis Checkpoint inside code fence must not create section."""
@@ -192,7 +199,7 @@ class TestSplitSections:
             "RESOLVED: item [confidence: High]\n"
             "```\n"
         )
-        result = MODULE._split_sections(text)
+        result, _ = MODULE._split_sections(text)
         # Only one section, from the ### header
         assert len(result) == 1
         assert "synthesis checkpoint" in result
@@ -200,31 +207,35 @@ class TestSplitSections:
     def test_unclosed_fence_stripped(self) -> None:
         """Unclosed fence should not create spurious section headers."""
         text = "### Before\ncontent\n```\n## Inside Unclosed\nmore\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         assert "inside unclosed" not in result
         assert "before" in result
+        assert truncated is True
 
     def test_unclosed_fence_no_content_loss(self) -> None:
         """Content before an unclosed fence is preserved."""
         text = "### Summary\nreal content\n```\n## Fake\ngarbage\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         assert "real content" in result.get("summary", "")
+        assert truncated is True
 
     def test_unclosed_fence_with_lang_stripped(self) -> None:
         """Unclosed fence with language specifier is also stripped."""
         text = "### Before\ncontent\n```python\n## Inside\ncode\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         assert "inside" not in result
         assert "before" in result
+        assert truncated is True
 
     def test_multiple_unclosed_fences_stripped(self) -> None:
         """Multiple unclosed fences: first pass pairs them, second pass catches remainder."""
         text = "### Before\ncontent\n```\nmid\n```\n## After Pair\nok\n```\n## Trailing\nlost\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         # The paired fences are stripped by pass 1, "After Pair" survives,
         # the trailing unclosed fence and "Trailing" are stripped by pass 2.
         assert "trailing" not in result
         assert "before" in result
+        assert truncated is True
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +359,18 @@ class TestParseSynthesis:
         assert result["converged"] is True
         assert result["turn_count"] == 5
         assert result["scout_count"] == 2
+        assert result["parse_truncated"] is True
+
+    def test_parse_truncated_false_for_clean_synthesis(self) -> None:
+        """Clean synthesis without unclosed fences has parse_truncated=False."""
+        text = (
+            "### Conversation Summary\n"
+            "- **Converged:** Yes\n"
+            "- **Turns:** 3 of 6\n"
+            "- **Evidence:** 1 scout / 3 turns\n"
+        )
+        result = MODULE.parse_synthesis(text)
+        assert result["parse_truncated"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +438,7 @@ class TestBuildDialogueOutcome:
             "question_shaped", "shape_confidence",
             "assumptions_generated_count", "ambiguity_count",
             "provenance_unknown_count", "episode_id",
+            "parse_truncated",
         }
         assert set(event.keys()) == expected_fields
 
@@ -623,6 +647,17 @@ class TestBuildDialogueOutcome:
         event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         assert event["assumptions_generated_count"] == "3"
 
+    def test_mode_from_pipeline(self) -> None:
+        """mode field propagates from pipeline input."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["mode"] == "server_assisted"
+
+    def test_mode_manual_legacy(self) -> None:
+        """manual_legacy mode propagates correctly."""
+        pipeline = {**SAMPLE_PIPELINE, "mode": "manual_legacy"}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["mode"] == "manual_legacy"
+
 
 # ---------------------------------------------------------------------------
 # TestBuildConsultationOutcome
@@ -632,7 +667,7 @@ class TestBuildDialogueOutcome:
 class TestBuildConsultationOutcome:
     def test_field_count(self) -> None:
         event = MODULE.build_consultation_outcome(_consultation_input())
-        assert len(event) == 13
+        assert len(event) == 18
 
     def test_converged_null(self) -> None:
         event = MODULE.build_consultation_outcome(_consultation_input())
@@ -652,7 +687,7 @@ class TestBuildConsultationOutcome:
         assert event["thread_id"] == "thread-xyz-789"
 
     def test_schema_version_base(self) -> None:
-        """Consultation events always use base schema 0.1.0."""
+        """Consultation events default to base schema 0.1.0 when feature-flag fields are absent."""
         event = MODULE.build_consultation_outcome(_consultation_input())
         assert event["schema_version"] == "0.1.0"
 
@@ -675,6 +710,80 @@ class TestBuildConsultationOutcome:
     def test_mode_from_pipeline(self) -> None:
         event = MODULE.build_consultation_outcome(_consultation_input())
         assert event["mode"] == "server_assisted"
+
+    def test_mode_manual_legacy(self) -> None:
+        """manual_legacy mode propagates through consultation_outcome."""
+        pipeline = {
+            "posture": "collaborative",
+            "thread_id": None,
+            "turn_count": 1,
+            "turn_budget": 1,
+            "profile_name": None,
+            "mode": "manual_legacy",
+            "provenance_unknown_count": None,
+            "question_shaped": None,
+            "shape_confidence": None,
+            "assumptions_generated_count": None,
+            "ambiguity_count": None,
+        }
+        event = MODULE.build_consultation_outcome(_consultation_input(pipeline))
+        assert event["mode"] == "manual_legacy"
+
+    def test_schema_version_uses_resolver(self) -> None:
+        """consultation_outcome uses _resolve_schema_version like dialogue_outcome."""
+        pipeline = {
+            "posture": "collaborative",
+            "thread_id": "thread-xyz-789",
+            "turn_count": 1,
+            "turn_budget": 1,
+            "profile_name": None,
+            "mode": "server_assisted",
+            "provenance_unknown_count": 0,
+            "question_shaped": None,
+            "shape_confidence": None,
+            "assumptions_generated_count": None,
+            "ambiguity_count": None,
+        }
+        event = MODULE.build_consultation_outcome(_consultation_input(pipeline))
+        # With provenance_unknown_count=0 (non-negative int), resolver returns 0.2.0
+        assert event["schema_version"] == "0.2.0"
+
+    def test_reverse_invariant_consultation(self) -> None:
+        """Stray shape_confidence without question_shaped triggers validation error."""
+        pipeline = {
+            "posture": "collaborative",
+            "thread_id": None,
+            "turn_count": 1,
+            "turn_budget": 1,
+            "profile_name": None,
+            "mode": "server_assisted",
+            "provenance_unknown_count": None,
+            "question_shaped": None,
+            "shape_confidence": "high",
+            "assumptions_generated_count": None,
+            "ambiguity_count": None,
+        }
+        event = MODULE.build_consultation_outcome(_consultation_input(pipeline))
+        with pytest.raises(ValueError, match="shape_confidence"):
+            MODULE.validate(event, "consultation_outcome")
+
+    def test_schema_version_with_planning(self) -> None:
+        """consultation_outcome bumps to 0.3.0 when question_shaped is set."""
+        pipeline = {
+            "posture": "collaborative",
+            "thread_id": None,
+            "turn_count": 1,
+            "turn_budget": 1,
+            "profile_name": "planning",
+            "mode": "server_assisted",
+            "provenance_unknown_count": None,
+            "question_shaped": True,
+            "shape_confidence": "high",
+            "assumptions_generated_count": 3,
+            "ambiguity_count": 1,
+        }
+        event = MODULE.build_consultation_outcome(_consultation_input(pipeline))
+        assert event["schema_version"] == "0.3.0"
 
 
 # ---------------------------------------------------------------------------
@@ -710,7 +819,9 @@ class TestPipelineCompleteness:
         pipeline = _consultation_input()["pipeline"]
         builder_keys = {
             "thread_id", "posture", "turn_count", "turn_budget",
-            "profile_name", "mode",
+            "profile_name", "mode", "provenance_unknown_count",
+            "question_shaped", "shape_confidence",
+            "assumptions_generated_count", "ambiguity_count",
         }
         assert builder_keys.issubset(set(pipeline.keys())), (
             f"Missing pipeline keys: {builder_keys - set(pipeline.keys())}"
@@ -1142,6 +1253,17 @@ class TestValidate:
         with pytest.raises(ValueError, match="ambiguity_count"):
             MODULE.validate(event, "dialogue_outcome")
 
+    def test_null_episode_id_passes_validation(self) -> None:
+        """episode_id=None should not cause validation errors (reserved nullable)."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["episode_id"] is None
+        # Validation should pass — episode_id is not in _DIALOGUE_REQUIRED
+        MODULE.validate(event, "dialogue_outcome")  # no exception = pass
+
+    def test_episode_id_not_required(self) -> None:
+        """episode_id must NOT be in _DIALOGUE_REQUIRED (reserved nullable)."""
+        assert "episode_id" not in MODULE._DIALOGUE_REQUIRED
+
 
 # ---------------------------------------------------------------------------
 # TestAppendLog
@@ -1181,13 +1303,16 @@ class TestAppendLog:
         assert MODULE._append_log({"test": True}) is False
         (tmp_path / "readonly").chmod(0o755)  # cleanup
 
-    def test_typeerror_returns_false(self, tmp_path, monkeypatch) -> None:
-        """json.dumps TypeError on non-serializable values returns False (degraded)."""
+    def test_typeerror_propagates(self, tmp_path, monkeypatch) -> None:
+        """json.dumps TypeError on non-serializable values propagates (code bug, not I/O)."""
         from pathlib import Path
+
+        import pytest
 
         log_path = tmp_path / "events.jsonl"
         monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
-        assert MODULE._append_log({"path": Path("/tmp")}) is False
+        with pytest.raises(TypeError):
+            MODULE._append_log({"path": Path("/tmp")})
 
 
 # ---------------------------------------------------------------------------
@@ -1347,3 +1472,128 @@ class TestMain:
 
         MODULE.main()
         assert not input_file.exists()  # cleaned up despite error
+
+
+# ---------------------------------------------------------------------------
+# TestReplayConformance
+# ---------------------------------------------------------------------------
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+
+
+def _load_fixture(name: str) -> dict:
+    with open(FIXTURE_DIR / name) as f:
+        return json.load(f)
+
+
+class TestReplayConformance:
+    """Replay realistic dialogue/consultation inputs through the emitter.
+
+    These fixtures simulate actual codex-dialogue outputs, validating that
+    emit_analytics.py produces correct events for real-world scenarios.
+    """
+
+    def test_converged_dialogue_turn_count(self) -> None:
+        fixture = _load_fixture("dialogue_converged.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["turn_count"] == 6
+        assert event["turn_budget"] == 8
+        assert event["turn_count"] >= 1, "multi-turn dialogue must have turn_count >= 1"
+
+    def test_converged_dialogue_thread_id(self) -> None:
+        fixture = _load_fixture("dialogue_converged.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["thread_id"] == "019c819e-dc16-79d3-825b-0d54b23627ea"
+        assert event["thread_id"] is not None, "converged dialogue should have thread_id"
+
+    def test_converged_dialogue_convergence(self) -> None:
+        fixture = _load_fixture("dialogue_converged.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["converged"] is True
+        assert event["convergence_reason_code"] == "natural_convergence"
+        assert event["resolved_count"] == 7
+        assert event["unresolved_count"] == 1
+        assert event["emerged_count"] == 2
+
+    def test_all_resolved_dialogue_convergence(self) -> None:
+        """Fixture with 0 UNRESOLVED lines produces all_resolved."""
+        fixture = _load_fixture("dialogue_converged.json")
+        # Patch synthesis to have 0 UNRESOLVED lines
+        fixture["synthesis_text"] = fixture["synthesis_text"].replace(
+            "UNRESOLVED: Learning card retrieval failure interaction [raised: turn 3]\n",
+            "",
+        )
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["converged"] is True
+        assert event["convergence_reason_code"] == "all_resolved"
+        assert event["unresolved_count"] == 0
+
+    def test_converged_dialogue_schema_version(self) -> None:
+        fixture = _load_fixture("dialogue_converged.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        # provenance_unknown_count=0 (non-negative int) -> 0.2.0
+        assert event["schema_version"] == "0.2.0"
+
+    def test_converged_dialogue_validates(self) -> None:
+        fixture = _load_fixture("dialogue_converged.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        MODULE.validate(event, "dialogue_outcome")  # no exception = pass
+
+    def test_scope_breach_convergence(self) -> None:
+        fixture = _load_fixture("dialogue_scope_breach.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["converged"] is False
+        assert event["convergence_reason_code"] == "scope_breach"
+        assert event["termination_reason"] == "scope_breach"
+        assert event["turn_count"] == 1
+
+    def test_scope_breach_validates(self) -> None:
+        fixture = _load_fixture("dialogue_scope_breach.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        MODULE.validate(event, "dialogue_outcome")
+
+    def test_planning_schema_version(self) -> None:
+        fixture = _load_fixture("dialogue_with_planning.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["question_shaped"] is True
+        assert event["schema_version"] == "0.3.0"
+        assert event["shape_confidence"] == "high"
+        assert event["assumptions_generated_count"] == 3
+        assert event["ambiguity_count"] == 1
+
+    def test_planning_validates(self) -> None:
+        fixture = _load_fixture("dialogue_with_planning.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        MODULE.validate(event, "dialogue_outcome")
+
+    def test_manual_legacy_mode(self) -> None:
+        fixture = _load_fixture("dialogue_manual_legacy.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["mode"] == "manual_legacy"
+        assert event["seed_confidence"] == "low"
+
+    def test_manual_legacy_validates(self) -> None:
+        fixture = _load_fixture("dialogue_manual_legacy.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        MODULE.validate(event, "dialogue_outcome")
+
+    def test_consultation_simple(self) -> None:
+        fixture = _load_fixture("consultation_simple.json")
+        event = MODULE.build_consultation_outcome(fixture)
+        assert event["turn_count"] == 1
+        assert event["turn_budget"] == 1
+        assert event["mode"] == "server_assisted"
+        assert event["schema_version"] == "0.1.0"
+
+    def test_consultation_simple_validates(self) -> None:
+        fixture = _load_fixture("consultation_simple.json")
+        event = MODULE.build_consultation_outcome(fixture)
+        MODULE.validate(event, "consultation_outcome")
+
+    def test_all_fixtures_load(self) -> None:
+        """Verify all fixture files are loadable JSON."""
+        fixture_files = sorted(FIXTURE_DIR.glob("*.json"))
+        assert len(fixture_files) >= 5, f"expected >= 5 fixtures, got {len(fixture_files)}"
+        for f in fixture_files:
+            data = json.loads(f.read_text())
+            assert "event_type" in data or "pipeline" in data

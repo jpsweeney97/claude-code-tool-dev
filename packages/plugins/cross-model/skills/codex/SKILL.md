@@ -81,6 +81,8 @@ Validation behavior:
 Error format:
 `argument parsing failed: {reason}. Got: {input!r:.100}`
 
+**Learning retrieval (§17):** Before building the briefing, attempt to read learning cards per consultation contract §17. Fail-soft: missing store does not block consultation.
+
 ## Step 1: Build Context Briefing
 
 Briefing structure is defined in [consultation-contract.md](../../references/consultation-contract.md) § Briefing Contract (§5). This file is not normative for briefing format.
@@ -222,6 +224,8 @@ After capturing diagnostics, emit a `consultation_outcome` event via the analyti
 
 Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json`:
 
+**Mode:** `/codex` is always `server_assisted` — it uses the Codex MCP tools directly (no fallback to manual_legacy). The codex-dialogue agent determines its own mode; `/codex` does not delegate to that agent.
+
 ```json
 {
   "event_type": "consultation_outcome",
@@ -231,7 +235,12 @@ Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json`:
     "turn_count": 1,
     "turn_budget": 1,
     "profile_name": null,
-    "mode": "server_assisted"
+    "mode": "server_assisted",
+    "provenance_unknown_count": null,
+    "question_shaped": null,
+    "shape_confidence": null,
+    "assumptions_generated_count": null,
+    "ambiguity_count": null
   }
 }
 ```

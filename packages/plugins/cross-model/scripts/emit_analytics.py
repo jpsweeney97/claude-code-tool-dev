@@ -154,7 +154,7 @@ def _append_log(entry: dict) -> bool:
         with open(_LOG_PATH, "a") as f:
             f.write(json.dumps(entry) + "\n")
         return True
-    except (OSError, TypeError) as exc:
+    except OSError as exc:
         print(f"log write failed: {exc}", file=sys.stderr)
         return False
 
@@ -173,8 +173,12 @@ def _session_id() -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _strip_fenced_blocks(text: str) -> str:
-    """Remove fenced code blocks to prevent parsing headers inside them."""
+def _strip_fenced_blocks(text: str) -> tuple[str, bool]:
+    """Remove fenced code blocks to prevent parsing headers inside them.
+
+    Returns (cleaned_text, truncated). truncated is True when an unclosed
+    fence was detected and content after it was discarded.
+    """
     # First pass: matched pairs
     text = re.sub(r"^```.*?^```", "", text, flags=re.MULTILINE | re.DOTALL)
     # Second pass: unclosed fence (opening ``` with no matching close) — strip to EOF.
@@ -182,18 +186,20 @@ def _strip_fenced_blocks(text: str) -> str:
     # leaving it would create spurious section headers in _split_sections.
     before = text
     text = re.sub(r"^```.*", "", text, flags=re.MULTILINE | re.DOTALL)
-    if text != before:
+    truncated = text != before
+    if truncated:
         print("_strip_fenced_blocks: unclosed fence detected, content after fence discarded", file=sys.stderr)
-    return text
+    return text, truncated
 
 
-def _split_sections(text: str) -> dict[str, str]:
+def _split_sections(text: str) -> tuple[dict[str, str], bool]:
     """Split synthesis text into named sections using ## or ### headers.
 
-    Returns a dict mapping lowercase section name to section content.
-    Strips fenced code blocks first to prevent matching headers inside them.
+    Returns (sections, truncated). sections maps lowercase section name
+    to section content. truncated is True when an unclosed fence caused
+    content loss during pre-processing.
     """
-    cleaned = _strip_fenced_blocks(text)
+    cleaned, truncated = _strip_fenced_blocks(text)
     sections: dict[str, str] = {}
     pattern = re.compile(r"^#{2,3}\s+(.+)$", re.MULTILINE)
     matches = list(pattern.finditer(cleaned))
@@ -204,7 +210,7 @@ def _split_sections(text: str) -> dict[str, str]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(cleaned)
         sections[name] = cleaned[start:end]
 
-    return sections
+    return sections, truncated
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +233,7 @@ def parse_synthesis(text: str) -> dict:
     - strings: None
     - booleans: False
     """
-    sections = _split_sections(text)
+    sections, truncated = _split_sections(text)
 
     summary = sections.get("conversation summary", "")
     continuation = sections.get("continuation", "")
@@ -281,6 +287,7 @@ def parse_synthesis(text: str) -> dict:
         "turn_count": turn_count,
         "thread_id": thread_id,
         "scout_count": scout_count,
+        "parse_truncated": truncated,
     }
 
 
@@ -400,8 +407,12 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "ambiguity_count": pipeline.get("ambiguity_count"),
         # Provenance (nullable)
         "provenance_unknown_count": pipeline.get("provenance_unknown_count"),
-        # Linkage (nullable)
+        # Episode linkage: reserved nullable. Not populated at emit time.
+        # E-LEARNING will use append-only episode_link events for post-hoc
+        # linkage via consultation_id. Do not add to _DIALOGUE_REQUIRED.
         "episode_id": None,
+        # Parse diagnostics: True when unclosed fence caused content loss
+        "parse_truncated": parsed["parse_truncated"],
     }
 
     # Schema version auto-bump (§4.4): unified resolver
@@ -414,11 +425,8 @@ def build_consultation_outcome(input_data: dict) -> dict:
     """Build a consultation_outcome event from input JSON."""
     pipeline = input_data.get("pipeline", {})
 
-    # Consultation events use base schema (0.1.0) unconditionally.
-    # If provenance or planning fields are added to consultations,
-    # this must call _resolve_schema_version() like build_dialogue_outcome.
-    return {
-        "schema_version": _SCHEMA_VERSION,
+    event = {
+        "schema_version": _SCHEMA_VERSION,  # placeholder; resolved below
         "consultation_id": str(uuid.uuid4()),
         "thread_id": pipeline.get("thread_id"),
         "session_id": _session_id(),
@@ -431,7 +439,18 @@ def build_consultation_outcome(input_data: dict) -> dict:
         "mode": pipeline.get("mode", "server_assisted"),
         "converged": None,
         "termination_reason": "complete",
+        # Nullable feature-flag fields (propagated from pipeline when present)
+        "provenance_unknown_count": pipeline.get("provenance_unknown_count"),
+        "question_shaped": pipeline.get("question_shaped"),
+        "shape_confidence": pipeline.get("shape_confidence"),
+        "assumptions_generated_count": pipeline.get("assumptions_generated_count"),
+        "ambiguity_count": pipeline.get("ambiguity_count"),
     }
+
+    # Schema version auto-bump: unified resolver (same as build_dialogue_outcome)
+    event["schema_version"] = _resolve_schema_version(event)
+
+    return event
 
 
 # ---------------------------------------------------------------------------

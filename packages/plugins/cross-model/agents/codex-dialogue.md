@@ -515,6 +515,7 @@ If any cross-reference is missing, add it before returning output.
 - **Converged:** [yes — reason / no — hit turn limit or error]
 - **Trajectory:** `T1:delta(tags) → T2:delta(tags) → ...` (one entry per turn)
 - **Evidence:** [X scouts / Y turns, entities: ..., impacts: ...]
+- **Mode:** `server_assisted` or `manual_legacy` — the actual mode used for this conversation. Set once at conversation start (server_assisted if context injection tools available, manual_legacy otherwise). Do not change mid-conversation.
 
 ### Key Outcomes
 

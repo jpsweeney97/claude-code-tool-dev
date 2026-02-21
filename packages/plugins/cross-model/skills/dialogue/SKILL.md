@@ -183,6 +183,8 @@ Task(
 
 **Timeout handling:** If a gatherer times out (120s), treat as 0 parseable lines. Proceed to the low-output retry in Step 3.
 
+**Learning retrieval (§17):** Before briefing assembly, attempt to read learning cards per consultation contract §17. Fail-soft: missing store does not block consultation.
+
 ### Step 3: Assemble briefing
 
 Perform **deterministic, non-LLM assembly** of gatherer outputs. Reference: `references/tag-grammar.md` for full grammar and edge cases.
@@ -381,7 +383,7 @@ Pipeline fields to include:
 | `shape_confidence` | Step 0 | string or null |
 | `assumptions_generated_count` | Step 0 | int or null |
 | `ambiguity_count` | Step 0 | int or null |
-| `mode` | Args | `"server_assisted"` or `"manual_legacy"` |
+| `mode` | Step 5 agent return | `"server_assisted"` or `"manual_legacy"`. Read from the `codex-dialogue` agent's explicit mode field in its return value. Do not infer or hardcode. |
 
 **7b. Run emitter**
 

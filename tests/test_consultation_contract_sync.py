@@ -72,8 +72,7 @@ def test_multiple_broken_refs_caught_together() -> None:
 
 def test_missing_contract_section_is_caught() -> None:
     """check_section_count flags when a section number is absent."""
-    # Contract has §1-§16; simulate §6 missing
-    sections_missing_6 = set(range(1, 17)) - {6}
+    sections_missing_6 = set(range(1, 18)) - {6}
     errors = MODULE.check_section_count(sections_missing_6)
     assert len(errors) == 1
     assert "6" in errors[0]
@@ -82,16 +81,16 @@ def test_missing_contract_section_is_caught() -> None:
 
 def test_extra_contract_section_is_caught() -> None:
     """check_section_count flags when an unexpected section number is present."""
-    sections_with_extra = set(range(1, 17)) | {17}
+    sections_with_extra = set(range(1, 18)) | {18}
     errors = MODULE.check_section_count(sections_with_extra)
     assert len(errors) == 1
-    assert "17" in errors[0]
+    assert "18" in errors[0]
     assert "unexpected" in errors[0]
 
 
-def test_complete_16_sections_pass() -> None:
-    """check_section_count passes when all 16 sections are present."""
-    all_sections = set(range(1, 17))
+def test_complete_17_sections_pass() -> None:
+    """check_section_count passes when all 17 sections are present."""
+    all_sections = set(range(1, 18))
     errors = MODULE.check_section_count(all_sections)
     assert errors == []
 
