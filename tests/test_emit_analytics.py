@@ -173,20 +173,22 @@ def _consultation_input(pipeline: dict | None = None) -> dict:
 class TestSplitSections:
     def test_basic_split(self) -> None:
         text = "### Section One\ncontent one\n### Section Two\ncontent two\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         assert "section one" in result
         assert "section two" in result
+        assert truncated is False
 
     def test_case_normalized_keys(self) -> None:
         text = "### Synthesis Checkpoint\nstuff\n### Synthesis checkpoint\nmore\n"
-        result = MODULE._split_sections(text)
+        result, _ = MODULE._split_sections(text)
         assert "synthesis checkpoint" in result
 
     def test_strips_fenced_blocks(self) -> None:
         text = "### Outer\n```\n## Inner Header\ncontent\n```\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         assert "inner header" not in result
         assert "outer" in result
+        assert truncated is False  # matched pair, not truncation
 
     def test_nested_fence_with_level2_header(self) -> None:
         """Regression: ## Synthesis Checkpoint inside code fence must not create section."""
@@ -197,7 +199,7 @@ class TestSplitSections:
             "RESOLVED: item [confidence: High]\n"
             "```\n"
         )
-        result = MODULE._split_sections(text)
+        result, _ = MODULE._split_sections(text)
         # Only one section, from the ### header
         assert len(result) == 1
         assert "synthesis checkpoint" in result
@@ -205,31 +207,35 @@ class TestSplitSections:
     def test_unclosed_fence_stripped(self) -> None:
         """Unclosed fence should not create spurious section headers."""
         text = "### Before\ncontent\n```\n## Inside Unclosed\nmore\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         assert "inside unclosed" not in result
         assert "before" in result
+        assert truncated is True
 
     def test_unclosed_fence_no_content_loss(self) -> None:
         """Content before an unclosed fence is preserved."""
         text = "### Summary\nreal content\n```\n## Fake\ngarbage\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         assert "real content" in result.get("summary", "")
+        assert truncated is True
 
     def test_unclosed_fence_with_lang_stripped(self) -> None:
         """Unclosed fence with language specifier is also stripped."""
         text = "### Before\ncontent\n```python\n## Inside\ncode\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         assert "inside" not in result
         assert "before" in result
+        assert truncated is True
 
     def test_multiple_unclosed_fences_stripped(self) -> None:
         """Multiple unclosed fences: first pass pairs them, second pass catches remainder."""
         text = "### Before\ncontent\n```\nmid\n```\n## After Pair\nok\n```\n## Trailing\nlost\n"
-        result = MODULE._split_sections(text)
+        result, truncated = MODULE._split_sections(text)
         # The paired fences are stripped by pass 1, "After Pair" survives,
         # the trailing unclosed fence and "Trailing" are stripped by pass 2.
         assert "trailing" not in result
         assert "before" in result
+        assert truncated is True
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +359,18 @@ class TestParseSynthesis:
         assert result["converged"] is True
         assert result["turn_count"] == 5
         assert result["scout_count"] == 2
+        assert result["parse_truncated"] is True
+
+    def test_parse_truncated_false_for_clean_synthesis(self) -> None:
+        """Clean synthesis without unclosed fences has parse_truncated=False."""
+        text = (
+            "### Conversation Summary\n"
+            "- **Converged:** Yes\n"
+            "- **Turns:** 3 of 6\n"
+            "- **Evidence:** 1 scout / 3 turns\n"
+        )
+        result = MODULE.parse_synthesis(text)
+        assert result["parse_truncated"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +438,7 @@ class TestBuildDialogueOutcome:
             "question_shaped", "shape_confidence",
             "assumptions_generated_count", "ambiguity_count",
             "provenance_unknown_count", "episode_id",
+            "parse_truncated",
         }
         assert set(event.keys()) == expected_fields
 
