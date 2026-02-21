@@ -527,6 +527,14 @@ class TestBuildDialogueOutcome:
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         assert MODULE._resolve_schema_version(event) == "0.1.0"
 
+    def test_resolve_schema_version_planning_over_provenance(self) -> None:
+        """_resolve_schema_version returns 0.3.0 when both planning and provenance present."""
+        pipeline = _pipeline_with_planning(provenance_unknown_count=3)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert MODULE._resolve_schema_version(event) == "0.3.0"
+        # Verify provenance field is also present (not just planning winning by absence)
+        assert event["provenance_unknown_count"] == 3
+
     # --- Planning hardening tests ---
 
     def test_planning_bool_shape_confidence_passes_through(self) -> None:
@@ -908,6 +916,15 @@ class TestValidate:
         with pytest.raises(ValueError, match="ambiguity_count is required"):
             MODULE.validate(event, "dialogue_outcome")
 
+    def test_planning_tri_state_false_missing_companion(self) -> None:
+        """question_shaped=False also requires companion fields (not just True)."""
+        pipeline = _pipeline_with_planning(
+            question_shaped=False, shape_confidence=None
+        )
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        with pytest.raises(ValueError, match="shape_confidence is required"):
+            MODULE.validate(event, "dialogue_outcome")
+
     def test_planning_invalid_shape_confidence(self) -> None:
         """shape_confidence must be in valid set."""
         pipeline = _pipeline_with_planning(shape_confidence="very_high")
@@ -989,6 +1006,13 @@ class TestValidate:
         pipeline = _pipeline_with_planning(assumptions_generated_count=-1)
         event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         with pytest.raises(ValueError, match="assumptions_generated_count"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_planning_float_ambiguity_count_rejected(self) -> None:
+        """Float ambiguity_count fails _COUNT_FIELDS validation (must be int >= 0)."""
+        pipeline = _pipeline_with_planning(ambiguity_count=1.5)
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        with pytest.raises(ValueError, match="ambiguity_count"):
             MODULE.validate(event, "dialogue_outcome")
 
 

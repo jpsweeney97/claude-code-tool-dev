@@ -486,8 +486,7 @@ def validate(event: dict, event_type: str) -> None:
                     f"(got {event.get(pf)!r})"
                 )
 
-    # Independent enum validation for nullable shape_confidence;
-    # validate whenever non-null regardless of question_shaped branch
+    # Validate shape_confidence enum values when non-null
     sc = event.get("shape_confidence")
     if sc is not None and sc not in _VALID_SHAPE_CONFIDENCE:
         raise ValueError(f"invalid shape_confidence: {sc!r}")
@@ -583,7 +582,7 @@ def _process(input_path: Path) -> int:
         else:
             print(_result("error", f"unknown event_type: {event_type!r}"))
             return 1
-    except (KeyError, TypeError) as exc:
+    except (KeyError, TypeError, AttributeError) as exc:
         print(traceback.format_exc(), file=sys.stderr)
         print(_result("error", f"build failed: {exc}"))
         return 1

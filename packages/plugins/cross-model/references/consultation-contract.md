@@ -196,7 +196,7 @@ Resolve execution controls before dispatch:
 | `approval-policy` | `never` if `read-only`; `on-failure` if `workspace-write` or `danger-full-access` |
 | `model_reasoning_effort` | `xhigh` |
 
-**Delegated precedence:** When the delegation envelope (§6) includes `reasoning_effort`, the agent uses it directly — no re-resolution of profile files. The delegating skill is responsible for resolution order (explicit flag > profile > §8 default). The agent's §8 resolver is the fallback when the delegation envelope omits the field.
+**Delegated precedence:** When the delegation envelope (§6) includes `reasoning_effort`, the agent uses it directly — no re-resolution of profile files. The delegating skill is responsible for resolution order (currently profile > §8 default; explicit `-t` flag is deferred). The agent's §8 resolver is the fallback when the delegation envelope omits the field.
 
 **Hard rejects (fail-closed):**
 - `danger-full-access` combined with `approval-policy=never`: return `policy mismatch: danger-full-access requires explicit approval-policy. Got: never`. Do not dispatch.

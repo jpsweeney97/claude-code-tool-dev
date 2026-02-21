@@ -89,7 +89,7 @@ ambiguities:
 
 After normalization, validate each routing field independently:
 - `planning_question`: must be a non-empty string. If invalid → fallback to raw question.
-- `assumptions`: must be a non-empty list of strings. If invalid → Step 1 extracts from `planning_question`.
+- `assumptions`: must be a non-empty list of strings. If invalid → Step 1 resolves from `planning_question`.
 - `key_terms`: must be a non-empty list of strings. If invalid → Step 2 Gatherer A derives normally.
 - `shape_confidence`: must be `"high"`, `"medium"`, or `"low"`. If invalid → default to `"low"`.
 - `ambiguities`: must be a list of strings. If invalid → empty list.
@@ -428,7 +428,7 @@ On `error` or `degraded`, warn the user: `"Analytics emission failed: {reason}. 
 
 **User:** `/dialogue -p adversarial "Is our redaction pipeline over-engineered? The format-specific layer seems redundant."`
 
-**Step 1 — Extract assumptions:**
+**Step 1 — Resolve assumptions:**
 - `A1: "The generic redaction layer catches everything the format-specific layer catches"`
 - `A2: "The format-specific layer is redundant"`
 
