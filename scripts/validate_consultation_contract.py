@@ -6,7 +6,7 @@
 """Validate the consultation contract against skill and agent stub references.
 
 Checks:
-1. Contract has all 16 expected sections (## N. Title headers).
+1. Contract has all 17 expected sections (## N. Title headers).
 2. All (§N) stub references in SKILL.md and codex-dialogue.md resolve to
    real contract sections.
 3. SKILL.md governance rule count matches §15 in the contract (both must be 7).
@@ -23,7 +23,7 @@ import re
 import sys
 from pathlib import Path
 
-EXPECTED_SECTION_COUNT = 16
+EXPECTED_SECTION_COUNT = 17
 EXPECTED_GOVERNANCE_RULE_COUNT = 7
 
 # Matches (§N) in stub prose — the canonical stub reference format

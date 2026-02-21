@@ -15,7 +15,7 @@ This contract governs interaction between:
 
 **In scope:** Briefing assembly, pre-dispatch safety checks, transport parameters, continuity state, relay output obligations, conformance verification.
 
-**Out of scope:** The context injection protocol (see `context-injection-contract.md`), subagent orchestration, event persistence, profile UX flag parsing, and learning injection.
+**Out of scope:** The context injection protocol (see `context-injection-contract.md`), subagent orchestration, event persistence, and profile UX flag parsing.
 
 ---
 
@@ -397,3 +397,44 @@ An implementation is conformant when all items pass:
 **Governance (§15)**
 - [ ] All 7 governance locks present in implementation
 - [ ] Local rule list matches §15 exactly
+
+**Learning Retrieval (§17)**
+- [ ] Learning store read attempted before briefing assembly
+- [ ] Missing/empty store handled gracefully (fail-soft)
+- [ ] Cards capped at 5 per consultation
+- [ ] Cards injected at correct point (§17.2)
+- [ ] No credentials or raw Codex responses in injected cards
+
+---
+
+## 17. Learning Retrieval and Injection (Normative)
+
+Pre-consultation retrieval of relevant learning cards from prior Codex conversations. Both `/codex` and `/dialogue` paths MUST execute this step before briefing assembly.
+
+### 17.1 Retrieval Protocol
+
+1. **Read learning store:** Read from `docs/learnings/learnings.md` (or the configured learning store path).
+2. **Filter by relevance:** Select learning cards whose tags or content overlap with the consultation question. Relevance filtering is best-effort — false positives (including an irrelevant card) are preferable to false negatives (excluding a relevant one).
+3. **Cap:** Include at most 5 learning cards per consultation to avoid context dilution.
+4. **Fail-soft:** If the learning store is missing, empty, or unreadable, proceed without learning cards. Do not block the consultation.
+
+### 17.2 Injection Point
+
+- **`/dialogue` path:** Inject selected cards into the assembled briefing (Step 3h) as a `## Prior Learnings` section between `## Context` and `## Material`.
+- **`/codex` path:** Inject selected cards into the briefing's `## Context` section before the question.
+- **`manual_legacy` fallback:** Pre-briefing injection covers this path — no mid-conversation injection required for MVP.
+
+### 17.3 Card Format
+
+Each injected card MUST include:
+- **Source consultation_id** (for provenance tracing)
+- **Tags** (for relevance matching)
+- **Insight text** (the learning content)
+
+Cards MUST NOT include raw Codex responses, credentials, or session-specific identifiers.
+
+### 17.4 Non-Goals (Deferred)
+
+- Mid-dialogue adaptive injection (re-querying the learning store based on conversation turns)
+- Automated relevance scoring (machine-learned models for card selection)
+- Learning card write-back (creating new cards from consultation outcomes — covered by E-LEARNING Phase 0+)

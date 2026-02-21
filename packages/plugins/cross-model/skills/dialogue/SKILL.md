@@ -334,6 +334,8 @@ Relay the `codex-dialogue` agent's synthesis to the user. Include:
 2. The Synthesis Checkpoint block (RESOLVED/UNRESOLVED/EMERGED)
 3. Your own assessment of the dialogue outcomes
 
+**Learning retrieval (S17):** Before briefing assembly, attempt to read learning cards per consultation contract §17. Fail-soft: missing store does not block consultation.
+
 ### Step 7: Emit analytics
 
 After presenting synthesis to the user, emit a `dialogue_outcome` event via the analytics emitter script. Analytics is best-effort — failures do not block the user from seeing the synthesis.

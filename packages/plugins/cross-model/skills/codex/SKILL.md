@@ -214,6 +214,8 @@ After each Codex consultation, capture these non-secret diagnostics:
 
 Do not log prompt bodies or Codex response text by default. Prompt/log retention is debug-gated opt-in only.
 
+**Learning retrieval (S17):** Before consultation, attempt to read learning cards per consultation contract §17. Fail-soft: missing store does not block consultation.
+
 ### Analytics Emission
 
 After capturing diagnostics, emit a `consultation_outcome` event via the analytics emitter script. Analytics is best-effort — failures do not block the consultation response.
