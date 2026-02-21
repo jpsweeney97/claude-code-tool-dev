@@ -381,7 +381,7 @@ Pipeline fields to include:
 | `shape_confidence` | Step 0 | string or null |
 | `assumptions_generated_count` | Step 0 | int or null |
 | `ambiguity_count` | Step 0 | int or null |
-| `mode` | Args | `"server_assisted"` or `"manual_legacy"` |
+| `mode` | Step 5 agent return | `"server_assisted"` or `"manual_legacy"`. Read from the `codex-dialogue` agent's explicit mode field in its return value. Do not infer or hardcode. |
 
 **7b. Run emitter**
 

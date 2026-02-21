@@ -222,6 +222,8 @@ After capturing diagnostics, emit a `consultation_outcome` event via the analyti
 
 Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json`:
 
+**Mode:** `/codex` is always `server_assisted` — it uses the Codex MCP tools directly (no fallback to manual_legacy). The codex-dialogue agent determines its own mode; `/codex` does not delegate to that agent.
+
 ```json
 {
   "event_type": "consultation_outcome",

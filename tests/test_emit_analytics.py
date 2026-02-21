@@ -628,6 +628,17 @@ class TestBuildDialogueOutcome:
         event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         assert event["assumptions_generated_count"] == "3"
 
+    def test_mode_from_pipeline(self) -> None:
+        """mode field propagates from pipeline input."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["mode"] == "server_assisted"
+
+    def test_mode_manual_legacy(self) -> None:
+        """manual_legacy mode propagates correctly."""
+        pipeline = {**SAMPLE_PIPELINE, "mode": "manual_legacy"}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
+        assert event["mode"] == "manual_legacy"
+
 
 # ---------------------------------------------------------------------------
 # TestBuildConsultationOutcome
@@ -680,6 +691,24 @@ class TestBuildConsultationOutcome:
     def test_mode_from_pipeline(self) -> None:
         event = MODULE.build_consultation_outcome(_consultation_input())
         assert event["mode"] == "server_assisted"
+
+    def test_mode_manual_legacy(self) -> None:
+        """manual_legacy mode propagates through consultation_outcome."""
+        pipeline = {
+            "posture": "collaborative",
+            "thread_id": None,
+            "turn_count": 1,
+            "turn_budget": 1,
+            "profile_name": None,
+            "mode": "manual_legacy",
+            "provenance_unknown_count": None,
+            "question_shaped": None,
+            "shape_confidence": None,
+            "assumptions_generated_count": None,
+            "ambiguity_count": None,
+        }
+        event = MODULE.build_consultation_outcome(_consultation_input(pipeline))
+        assert event["mode"] == "manual_legacy"
 
     def test_schema_version_uses_resolver(self) -> None:
         """consultation_outcome uses _resolve_schema_version like dialogue_outcome."""
