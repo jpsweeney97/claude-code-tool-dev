@@ -97,6 +97,8 @@ Perform **deterministic, non-LLM assembly** of gatherer outputs. Reference: `ref
 
 **3b. Low-output retry:** After parsing, if a gatherer produced fewer than 4 parseable tagged lines, re-launch that gatherer once with a prompt reinforcing the output format: "Emit findings as prefix-tagged lines per the output format. Each CLAIM must include `@ path:line` citation and `[SRC:code]` or `[SRC:docs]` provenance tag. Each COUNTER must include `@ path:line` citation, `AID:<id>`, and `TYPE:<type>`." Parse the retry output (3a) and merge with the original lines: non-duplicate lines are combined (both kept). For duplicate claim keys (same tag type + normalized citation): retry-wins — prefer the SRC-tagged version from retry output over the untagged original. Tie-break: if both original and retry have valid SRC tags (`code` or `docs`), keep the retry version. (This both-tagged tie-break fills a gap in the spec, which does not address the case where both versions carry valid SRC tags.) If still below 4 after retry, proceed with available output.
 
+**Content conflict tracking:** When the retry-wins rule resolves a duplicate (same tag type + normalized citation, different content text), increment `content_conflict_count` (pipeline-local diagnostic counter, initialized to `0`). This counter is not emitted to analytics in the current schema — it exists for pipeline observability only.
+
 **3c. Zero-output fallback:** If total parseable lines across both gatherers is 0 after retries:
 
 ```
