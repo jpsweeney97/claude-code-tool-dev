@@ -1450,3 +1450,128 @@ class TestMain:
 
         MODULE.main()
         assert not input_file.exists()  # cleaned up despite error
+
+
+# ---------------------------------------------------------------------------
+# TestReplayConformance
+# ---------------------------------------------------------------------------
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+
+
+def _load_fixture(name: str) -> dict:
+    with open(FIXTURE_DIR / name) as f:
+        return json.load(f)
+
+
+class TestReplayConformance:
+    """Replay realistic dialogue/consultation inputs through the emitter.
+
+    These fixtures simulate actual codex-dialogue outputs, validating that
+    emit_analytics.py produces correct events for real-world scenarios.
+    """
+
+    def test_converged_dialogue_turn_count(self) -> None:
+        fixture = _load_fixture("dialogue_converged.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["turn_count"] == 6
+        assert event["turn_budget"] == 8
+        assert event["turn_count"] >= 1, "multi-turn dialogue must have turn_count >= 1"
+
+    def test_converged_dialogue_thread_id(self) -> None:
+        fixture = _load_fixture("dialogue_converged.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["thread_id"] == "019c819e-dc16-79d3-825b-0d54b23627ea"
+        assert event["thread_id"] is not None, "converged dialogue should have thread_id"
+
+    def test_converged_dialogue_convergence(self) -> None:
+        fixture = _load_fixture("dialogue_converged.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["converged"] is True
+        assert event["convergence_reason_code"] == "natural_convergence"
+        assert event["resolved_count"] == 7
+        assert event["unresolved_count"] == 1
+        assert event["emerged_count"] == 2
+
+    def test_all_resolved_dialogue_convergence(self) -> None:
+        """Fixture with 0 UNRESOLVED lines produces all_resolved."""
+        fixture = _load_fixture("dialogue_converged.json")
+        # Patch synthesis to have 0 UNRESOLVED lines
+        fixture["synthesis_text"] = fixture["synthesis_text"].replace(
+            "UNRESOLVED: Learning card retrieval failure interaction [raised: turn 3]\n",
+            "",
+        )
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["converged"] is True
+        assert event["convergence_reason_code"] == "all_resolved"
+        assert event["unresolved_count"] == 0
+
+    def test_converged_dialogue_schema_version(self) -> None:
+        fixture = _load_fixture("dialogue_converged.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        # provenance_unknown_count=0 (non-negative int) -> 0.2.0
+        assert event["schema_version"] == "0.2.0"
+
+    def test_converged_dialogue_validates(self) -> None:
+        fixture = _load_fixture("dialogue_converged.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        MODULE.validate(event, "dialogue_outcome")  # no exception = pass
+
+    def test_scope_breach_convergence(self) -> None:
+        fixture = _load_fixture("dialogue_scope_breach.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["converged"] is False
+        assert event["convergence_reason_code"] == "scope_breach"
+        assert event["termination_reason"] == "scope_breach"
+        assert event["turn_count"] == 1
+
+    def test_scope_breach_validates(self) -> None:
+        fixture = _load_fixture("dialogue_scope_breach.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        MODULE.validate(event, "dialogue_outcome")
+
+    def test_planning_schema_version(self) -> None:
+        fixture = _load_fixture("dialogue_with_planning.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["question_shaped"] is True
+        assert event["schema_version"] == "0.3.0"
+        assert event["shape_confidence"] == "high"
+        assert event["assumptions_generated_count"] == 3
+        assert event["ambiguity_count"] == 1
+
+    def test_planning_validates(self) -> None:
+        fixture = _load_fixture("dialogue_with_planning.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        MODULE.validate(event, "dialogue_outcome")
+
+    def test_manual_legacy_mode(self) -> None:
+        fixture = _load_fixture("dialogue_manual_legacy.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        assert event["mode"] == "manual_legacy"
+        assert event["seed_confidence"] == "low"
+
+    def test_manual_legacy_validates(self) -> None:
+        fixture = _load_fixture("dialogue_manual_legacy.json")
+        event = MODULE.build_dialogue_outcome(fixture)
+        MODULE.validate(event, "dialogue_outcome")
+
+    def test_consultation_simple(self) -> None:
+        fixture = _load_fixture("consultation_simple.json")
+        event = MODULE.build_consultation_outcome(fixture)
+        assert event["turn_count"] == 1
+        assert event["turn_budget"] == 1
+        assert event["mode"] == "server_assisted"
+        assert event["schema_version"] == "0.1.0"
+
+    def test_consultation_simple_validates(self) -> None:
+        fixture = _load_fixture("consultation_simple.json")
+        event = MODULE.build_consultation_outcome(fixture)
+        MODULE.validate(event, "consultation_outcome")
+
+    def test_all_fixtures_load(self) -> None:
+        """Verify all fixture files are loadable JSON."""
+        fixture_files = sorted(FIXTURE_DIR.glob("*.json"))
+        assert len(fixture_files) >= 5, f"expected >= 5 fixtures, got {len(fixture_files)}"
+        for f in fixture_files:
+            data = json.loads(f.read_text())
+            assert "event_type" in data or "pipeline" in data
