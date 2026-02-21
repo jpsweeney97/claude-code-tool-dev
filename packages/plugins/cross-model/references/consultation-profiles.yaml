@@ -66,3 +66,15 @@ profiles:
     reasoning_effort: high
     posture: evaluative
     turn_budget: 4
+
+  planning:
+    description: >
+      Plan review and architectural design. Evaluative posture with proactive
+      question shaping. Use when reviewing plans, making architectural decisions,
+      or exploring design trade-offs. Pairs with --plan flag for Step 0 question
+      decomposition.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: xhigh
+    posture: evaluative
+    turn_budget: 8
