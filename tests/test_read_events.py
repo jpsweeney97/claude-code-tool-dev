@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import tempfile  # noqa: F401
 from pathlib import Path
 
 import pytest  # noqa: F401
@@ -97,19 +96,22 @@ class TestReadAll:
     def test_reads_all_events(self, tmp_path: Path) -> None:
         path = tmp_path / "events.jsonl"
         _write_jsonl([DIALOGUE_EVENT, CONSULTATION_EVENT, BLOCK_EVENT], path)
-        events = MODULE.read_all(path)
+        events, skipped = MODULE.read_all(path)
         assert len(events) == 3
+        assert skipped == 0
 
     def test_empty_file(self, tmp_path: Path) -> None:
         path = tmp_path / "events.jsonl"
         path.write_text("")
-        events = MODULE.read_all(path)
+        events, skipped = MODULE.read_all(path)
         assert events == []
+        assert skipped == 0
 
     def test_missing_file(self, tmp_path: Path) -> None:
         path = tmp_path / "nonexistent.jsonl"
-        events = MODULE.read_all(path)
+        events, skipped = MODULE.read_all(path)
         assert events == []
+        assert skipped == 0
 
     def test_malformed_line_skipped(self, tmp_path: Path) -> None:
         path = tmp_path / "events.jsonl"
@@ -117,8 +119,9 @@ class TestReadAll:
             f.write(json.dumps(DIALOGUE_EVENT) + "\n")
             f.write("not valid json\n")
             f.write(json.dumps(CONSULTATION_EVENT) + "\n")
-        events = MODULE.read_all(path)
+        events, skipped = MODULE.read_all(path)
         assert len(events) == 2
+        assert skipped == 1
 
     def test_blank_lines_skipped(self, tmp_path: Path) -> None:
         path = tmp_path / "events.jsonl"
@@ -127,36 +130,60 @@ class TestReadAll:
             f.write("\n")
             f.write("   \n")
             f.write(json.dumps(CONSULTATION_EVENT) + "\n")
-        events = MODULE.read_all(path)
+        events, skipped = MODULE.read_all(path)
         assert len(events) == 2
+        assert skipped == 0  # blank lines are not counted as skipped
+
+    def test_non_dict_json_lines_skipped(self, tmp_path: Path) -> None:
+        """Valid JSON that is not an object (null, [], 42, "str") is skipped."""
+        path = tmp_path / "events.jsonl"
+        with open(path, "w") as f:
+            f.write(json.dumps(DIALOGUE_EVENT) + "\n")
+            f.write("null\n")
+            f.write("42\n")
+            f.write("[1, 2, 3]\n")
+            f.write('"just a string"\n')
+            f.write("true\n")
+            f.write(json.dumps(CONSULTATION_EVENT) + "\n")
+        events, skipped = MODULE.read_all(path)
+        assert len(events) == 2
+        assert skipped == 5
 
 
 class TestFilterByType:
     def test_filter_dialogue_only(self, tmp_path: Path) -> None:
         path = tmp_path / "events.jsonl"
         _write_jsonl([DIALOGUE_EVENT, CONSULTATION_EVENT, BLOCK_EVENT], path)
-        events = MODULE.read_by_type(path, "dialogue_outcome")
+        events, _ = MODULE.read_by_type(path, "dialogue_outcome")
         assert len(events) == 1
         assert events[0]["event"] == "dialogue_outcome"
 
     def test_filter_consultation_only(self, tmp_path: Path) -> None:
         path = tmp_path / "events.jsonl"
         _write_jsonl([DIALOGUE_EVENT, CONSULTATION_EVENT], path)
-        events = MODULE.read_by_type(path, "consultation_outcome")
+        events, _ = MODULE.read_by_type(path, "consultation_outcome")
         assert len(events) == 1
         assert events[0]["event"] == "consultation_outcome"
 
     def test_filter_no_matches(self, tmp_path: Path) -> None:
         path = tmp_path / "events.jsonl"
         _write_jsonl([BLOCK_EVENT], path)
-        events = MODULE.read_by_type(path, "dialogue_outcome")
+        events, _ = MODULE.read_by_type(path, "dialogue_outcome")
         assert events == []
+
+    def test_filter_unstructured_type(self, tmp_path: Path) -> None:
+        """Filtering by unstructured event types (block, shadow) works."""
+        path = tmp_path / "events.jsonl"
+        _write_jsonl([BLOCK_EVENT, SHADOW_EVENT, DIALOGUE_EVENT], path)
+        events, _ = MODULE.read_by_type(path, "block")
+        assert len(events) == 1
+        assert events[0]["event"] == "block"
 
     def test_unknown_event_type_passes_through(self, tmp_path: Path) -> None:
         unknown = {"event": "future_event_type", "ts": "2026-01-01T00:00:00Z"}
         path = tmp_path / "events.jsonl"
         _write_jsonl([unknown, DIALOGUE_EVENT], path)
-        all_events = MODULE.read_all(path)
+        all_events, _ = MODULE.read_all(path)
         assert len(all_events) == 2
 
 
@@ -244,4 +271,12 @@ class TestSchemaParityWithEmitter:
         emitter_required = emitter._CONSULTATION_REQUIRED
         assert reader_required <= emitter_required, (
             f"Reader has fields not in emitter: {reader_required - emitter_required}"
+        )
+
+    def test_emitter_event_types_covered_by_reader(self) -> None:
+        """Reader must have schemas for all structured event types the emitter produces."""
+        emitter_event_types = {"dialogue_outcome", "consultation_outcome"}
+        reader_event_types = set(MODULE._REQUIRED_FIELDS.keys())
+        assert emitter_event_types <= reader_event_types, (
+            f"Emitter types not in reader: {emitter_event_types - reader_event_types}"
         )

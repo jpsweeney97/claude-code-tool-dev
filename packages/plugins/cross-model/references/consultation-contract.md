@@ -420,7 +420,7 @@ Pre-consultation retrieval of relevant learning cards from prior Codex conversat
 
 ### 17.2 Injection Point
 
-- **`/dialogue` path:** Inject selected cards into the assembled briefing (Step 3h) as a `## Prior Learnings` section between `## Context` and `## Material`.
+- **`/dialogue` path:** Inject selected cards into the assembled briefing (Step 3h) as a `## Prior Learnings` section between `## Context` and `## Material`. This section appears only in the outbound briefing to Codex — it is not expected in the agent's synthesis output.
 - **`/codex` path:** Inject selected cards into the briefing's `## Context` section before the question.
 - **`manual_legacy` fallback:** Pre-briefing injection covers this path — no mid-conversation injection required for MVP.
 

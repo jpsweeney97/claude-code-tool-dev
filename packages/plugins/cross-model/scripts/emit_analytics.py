@@ -154,7 +154,7 @@ def _append_log(entry: dict) -> bool:
         with open(_LOG_PATH, "a") as f:
             f.write(json.dumps(entry) + "\n")
         return True
-    except (OSError, TypeError) as exc:
+    except OSError as exc:
         print(f"log write failed: {exc}", file=sys.stderr)
         return False
 

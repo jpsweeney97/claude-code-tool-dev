@@ -183,6 +183,8 @@ Task(
 
 **Timeout handling:** If a gatherer times out (120s), treat as 0 parseable lines. Proceed to the low-output retry in Step 3.
 
+**Learning retrieval (§17):** Before briefing assembly, attempt to read learning cards per consultation contract §17. Fail-soft: missing store does not block consultation.
+
 ### Step 3: Assemble briefing
 
 Perform **deterministic, non-LLM assembly** of gatherer outputs. Reference: `references/tag-grammar.md` for full grammar and edge cases.
@@ -333,8 +335,6 @@ Relay the `codex-dialogue` agent's synthesis to the user. Include:
 1. The narrative synthesis (convergence, concessions, emergent ideas, open questions)
 2. The Synthesis Checkpoint block (RESOLVED/UNRESOLVED/EMERGED)
 3. Your own assessment of the dialogue outcomes
-
-**Learning retrieval (S17):** Before briefing assembly, attempt to read learning cards per consultation contract §17. Fail-soft: missing store does not block consultation.
 
 ### Step 7: Emit analytics
 

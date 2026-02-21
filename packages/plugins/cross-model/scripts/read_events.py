@@ -88,31 +88,47 @@ def validate_event(event: dict) -> list[str]:
     return []
 
 
-def read_all(path: Path | None = None) -> list[dict]:
-    """Read all events from the JSONL file. Skips malformed lines.
+def read_all(path: Path | None = None) -> tuple[list[dict], int]:
+    """Read all events from the JSONL file. Skips malformed and non-object lines.
 
-    Returns empty list if file does not exist.
+    Returns (events, skipped_count). Skipped counts malformed JSON
+    and valid JSON that is not an object (e.g. null, [], 42).
+    Blank lines are silently ignored and not counted.
+
+    Returns ([], 0) if file does not exist.
     """
     path = path or _DEFAULT_PATH
     if not path.exists():
-        return []
+        return [], 0
 
     events: list[dict] = []
+    skipped = 0
     with open(path) as f:
-        for line in f:
+        for lineno, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
             try:
-                events.append(json.loads(line))
+                parsed = json.loads(line)
             except json.JSONDecodeError:
+                skipped += 1
+                print(f"line {lineno}: skipped (malformed JSON)", file=sys.stderr)
                 continue
-    return events
+            if not isinstance(parsed, dict):
+                skipped += 1
+                print(
+                    f"line {lineno}: skipped (expected object, got {type(parsed).__name__})",
+                    file=sys.stderr,
+                )
+                continue
+            events.append(parsed)
+    return events, skipped
 
 
-def read_by_type(path: Path | None = None, event_type: str = "dialogue_outcome") -> list[dict]:
-    """Read events filtered by type."""
-    return [e for e in read_all(path) if classify(e) == event_type]
+def read_by_type(path: Path | None = None, event_type: str = "dialogue_outcome") -> tuple[list[dict], int]:
+    """Read events filtered by type. Returns (filtered_events, skipped_count)."""
+    events, skipped = read_all(path)
+    return [e for e in events if classify(e) == event_type], skipped
 
 
 def main() -> None:
@@ -126,7 +142,20 @@ def main() -> None:
     args = parser.parse_args()
 
     path = Path(args.path)
-    events = read_by_type(path, args.event_type) if args.event_type else read_all(path)
+
+    if not path.exists():
+        print(f"file not found: {path}", file=sys.stderr)
+        print(json.dumps({"events": 0, "errors": 0, "skipped": 0}))
+        sys.exit(0)
+
+    try:
+        if args.event_type:
+            events, skipped = read_by_type(path, args.event_type)
+        else:
+            events, skipped = read_all(path)
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"read failed: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     if args.validate:
         total_errors = 0
@@ -134,14 +163,16 @@ def main() -> None:
             errors = validate_event(event)
             if errors:
                 total_errors += len(errors)
-                eid = event.get("consultation_id", f"line-{i}")
+                eid = event.get("consultation_id", f"event-{i}")
                 for err in errors:
                     print(f"[{eid}] {err}", file=sys.stderr)
-        print(json.dumps({"events": len(events), "errors": total_errors}))
+        print(json.dumps({"events": len(events), "errors": total_errors, "skipped": skipped}))
         sys.exit(1 if total_errors > 0 else 0)
     else:
         for event in events:
             print(json.dumps(event))
+        if skipped:
+            print(f"{skipped} line(s) skipped", file=sys.stderr)
 
 
 if __name__ == "__main__":

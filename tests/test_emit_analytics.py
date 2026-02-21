@@ -1284,13 +1284,16 @@ class TestAppendLog:
         assert MODULE._append_log({"test": True}) is False
         (tmp_path / "readonly").chmod(0o755)  # cleanup
 
-    def test_typeerror_returns_false(self, tmp_path, monkeypatch) -> None:
-        """json.dumps TypeError on non-serializable values returns False (degraded)."""
+    def test_typeerror_propagates(self, tmp_path, monkeypatch) -> None:
+        """json.dumps TypeError on non-serializable values propagates (code bug, not I/O)."""
         from pathlib import Path
+
+        import pytest
 
         log_path = tmp_path / "events.jsonl"
         monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
-        assert MODULE._append_log({"path": Path("/tmp")}) is False
+        with pytest.raises(TypeError):
+            MODULE._append_log({"path": Path("/tmp")})
 
 
 # ---------------------------------------------------------------------------
