@@ -39,6 +39,7 @@ _SCHEMA_VERSION = "0.1.0"
 
 _VALID_POSTURES = {"adversarial", "collaborative", "exploratory", "evaluative"}
 _VALID_SEED_CONFIDENCE = {"normal", "low"}
+_VALID_SHAPE_CONFIDENCE = {"high", "medium", "low"}
 _VALID_CONVERGENCE_CODES = {
     "all_resolved",
     "natural_convergence",
@@ -67,6 +68,19 @@ def _is_non_negative_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+def _resolve_schema_version(event: dict) -> str:
+    """Determine schema version from feature-flag fields.
+
+    Precedence: planning (0.3.0) > provenance (0.2.0) > base (0.1.0).
+    Used in both build (auto-set) and validate (exact equality check).
+    """
+    if event.get("question_shaped") is not None:
+        return "0.3.0"
+    if _is_non_negative_int(event.get("provenance_unknown_count")):
+        return "0.2.0"
+    return _SCHEMA_VERSION
+
+
 _COUNT_FIELDS = {
     "turn_count",
     "turn_budget",
@@ -88,6 +102,8 @@ _COUNT_FIELDS = {
     "scout_count",
     "scope_root_count",
     "provenance_unknown_count",
+    "assumptions_generated_count",
+    "ambiguity_count",
 }
 
 _DIALOGUE_REQUIRED = {
@@ -352,20 +368,19 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "source_classes": pipeline.get("source_classes", []),
         "scope_root_count": pipeline.get("scope_root_count", 0),
         "scope_roots_fingerprint": pipeline.get("scope_roots_fingerprint"),
-        # Planning (nullable)
-        "question_shaped": None,
-        "shape_confidence": None,
-        "assumptions_generated_count": None,
-        "ambiguity_count": None,
+        # Planning (nullable — populated when --plan is used)
+        "question_shaped": pipeline.get("question_shaped"),
+        "shape_confidence": pipeline.get("shape_confidence"),
+        "assumptions_generated_count": pipeline.get("assumptions_generated_count"),
+        "ambiguity_count": pipeline.get("ambiguity_count"),
         # Provenance (nullable)
         "provenance_unknown_count": pipeline.get("provenance_unknown_count"),
         # Linkage (nullable)
         "episode_id": None,
     }
 
-    # Schema version auto-bump (§4.4): valid provenance count → 0.2.0
-    if _is_non_negative_int(event.get("provenance_unknown_count")):
-        event["schema_version"] = "0.2.0"
+    # Schema version auto-bump (§4.4): unified resolver
+    event["schema_version"] = _resolve_schema_version(event)
 
     return event
 
