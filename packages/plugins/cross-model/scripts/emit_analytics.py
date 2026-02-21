@@ -462,18 +462,49 @@ def validate(event: dict, event_type: str) -> None:
     if mode not in _VALID_MODES:
         raise ValueError(f"invalid mode: {mode!r}")
 
+    # Tri-state planning invariant: question_shaped drives field requirements
+    qs = event.get("question_shaped")
+    if qs is not None:
+        if not isinstance(qs, bool):
+            raise ValueError(
+                f"question_shaped must be bool or None, got {type(qs).__name__}"
+            )
+        # Forward: when question_shaped is set (true or false), remaining planning
+        # fields must be non-None (failure telemetry is preserved even on false)
+        for pf in ("shape_confidence", "assumptions_generated_count", "ambiguity_count"):
+            if event.get(pf) is None:
+                raise ValueError(
+                    f"{pf} is required when question_shaped is set (got None)"
+                )
+    else:
+        # Reverse: when question_shaped is None (--plan not used or debug gate
+        # skip), all companion fields must also be None
+        for pf in ("shape_confidence", "assumptions_generated_count", "ambiguity_count"):
+            if event.get(pf) is not None:
+                raise ValueError(
+                    f"{pf} must be None when question_shaped is None "
+                    f"(got {event.get(pf)!r})"
+                )
+
+    # Independent enum validation for nullable shape_confidence;
+    # validate whenever non-null regardless of question_shaped branch
+    sc = event.get("shape_confidence")
+    if sc is not None and sc not in _VALID_SHAPE_CONFIDENCE:
+        raise ValueError(f"invalid shape_confidence: {sc!r}")
+
     # Count fields >= 0
     for field in _COUNT_FIELDS:
         value = event.get(field)
         if value is not None and not _is_non_negative_int(value):
             raise ValueError(f"{field} must be non-negative int, got {value!r}")
 
-    # Cross-field: provenance count requires schema 0.2.0
-    prov = event.get("provenance_unknown_count")
-    if _is_non_negative_int(prov) and event.get("schema_version") != "0.2.0":
+    # Cross-field: schema_version must match feature-flag state
+    expected_version = _resolve_schema_version(event)
+    actual_version = event.get("schema_version")
+    if actual_version != expected_version:
         raise ValueError(
-            f"provenance_unknown_count is set ({prov}) but schema_version "
-            f"is {event.get('schema_version')!r}, expected '0.2.0'"
+            f"schema_version mismatch: expected {expected_version!r} "
+            f"(from feature flags), got {actual_version!r}"
         )
 
     # Cross-field invariants
