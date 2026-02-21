@@ -104,6 +104,9 @@ SAMPLE_PIPELINE = {
     "source_classes": ["code", "docs"],
     "scope_root_count": 3,
     "scope_roots_fingerprint": None,
+    "provenance_unknown_count": 0,
+    "scout_count": 3,
+    "mode": "server_assisted",
     # Planning fields (None = --plan not used)
     "question_shaped": None,
     "shape_confidence": None,
@@ -193,6 +196,35 @@ class TestSplitSections:
         # Only one section, from the ### header
         assert len(result) == 1
         assert "synthesis checkpoint" in result
+
+    def test_unclosed_fence_stripped(self) -> None:
+        """Unclosed fence should not create spurious section headers."""
+        text = "### Before\ncontent\n```\n## Inside Unclosed\nmore\n"
+        result = MODULE._split_sections(text)
+        assert "inside unclosed" not in result
+        assert "before" in result
+
+    def test_unclosed_fence_no_content_loss(self) -> None:
+        """Content before an unclosed fence is preserved."""
+        text = "### Summary\nreal content\n```\n## Fake\ngarbage\n"
+        result = MODULE._split_sections(text)
+        assert "real content" in result.get("summary", "")
+
+    def test_unclosed_fence_with_lang_stripped(self) -> None:
+        """Unclosed fence with language specifier is also stripped."""
+        text = "### Before\ncontent\n```python\n## Inside\ncode\n"
+        result = MODULE._split_sections(text)
+        assert "inside" not in result
+        assert "before" in result
+
+    def test_multiple_unclosed_fences_stripped(self) -> None:
+        """Multiple unclosed fences: first pass pairs them, second pass catches remainder."""
+        text = "### Before\ncontent\n```\nmid\n```\n## After Pair\nok\n```\n## Trailing\nlost\n"
+        result = MODULE._split_sections(text)
+        # The paired fences are stripped by pass 1, "After Pair" survives,
+        # the trailing unclosed fence and "Trailing" are stripped by pass 2.
+        assert "trailing" not in result
+        assert "before" in result
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +332,23 @@ class TestParseSynthesis:
         result = MODULE.parse_synthesis(text)
         assert result["scout_count"] == 0
 
+    def test_unclosed_fence_does_not_corrupt_fields(self) -> None:
+        """Unclosed fence should not corrupt converged/turn_count/scout_count."""
+        text = (
+            "### Conversation Summary\n"
+            "- **Converged:** Yes\n"
+            "- **Turns:** 5 of 8\n"
+            "- **Evidence:** 2 scouts / 5 turns\n"
+            "\n```\n"
+            "## Fake Section\n"
+            "- **Converged:** No\n"
+            "- **Turns:** 99 of 100\n"
+        )
+        result = MODULE.parse_synthesis(text)
+        assert result["converged"] is True
+        assert result["turn_count"] == 5
+        assert result["scout_count"] == 2
+
 
 # ---------------------------------------------------------------------------
 # TestMapConvergence
@@ -325,8 +374,13 @@ class TestMapConvergence:
             "budget",
         )
 
-    def test_error(self) -> None:
+    def test_error_zero_unresolved(self) -> None:
+        """Error fallback: not converged, zero unresolved, under budget."""
         assert MODULE.map_convergence(False, 0, 3, 8) == ("error", "error")
+
+    def test_error_nonzero_unresolved(self) -> None:
+        """Error fallback: not converged, unresolved remain, under budget."""
+        assert MODULE.map_convergence(False, 5, 3, 8) == ("error", "error")
 
     def test_scope_breach_overrides(self) -> None:
         """scope_breach takes priority even if converged=True."""
@@ -392,6 +446,12 @@ class TestBuildDialogueOutcome:
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         assert event["session_id"] is None
 
+    def test_session_id_empty_string(self, monkeypatch) -> None:
+        """Empty string CLAUDE_SESSION_ID is normalized to None."""
+        monkeypatch.setenv("CLAUDE_SESSION_ID", "")
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["session_id"] is None
+
     def test_pipeline_fields_passed_through(self) -> None:
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         assert event["posture"] == "evaluative"
@@ -402,7 +462,6 @@ class TestBuildDialogueOutcome:
     def test_nullable_fields_are_none(self) -> None:
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         assert event["question_shaped"] is None
-        assert event["provenance_unknown_count"] is None
         assert event["episode_id"] is None
 
     def test_scope_breach_event(self) -> None:
@@ -420,7 +479,8 @@ class TestBuildDialogueOutcome:
 
     def test_provenance_unknown_count_none_when_absent(self) -> None:
         """provenance_unknown_count defaults to None when not in pipeline."""
-        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": None}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         assert event["provenance_unknown_count"] is None
 
     def test_schema_version_bumps_with_provenance(self) -> None:
@@ -431,7 +491,8 @@ class TestBuildDialogueOutcome:
 
     def test_schema_version_stays_without_provenance(self) -> None:
         """schema_version stays 0.1.0 when provenance_unknown_count is None."""
-        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": None}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         assert event["schema_version"] == "0.1.0"
 
     def test_provenance_unknown_count_explicit_none_schema_stays(self) -> None:
@@ -524,7 +585,8 @@ class TestBuildDialogueOutcome:
 
     def test_resolve_schema_version_base(self) -> None:
         """_resolve_schema_version returns 0.1.0 with no feature flags."""
-        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": None}
+        event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         assert MODULE._resolve_schema_version(event) == "0.1.0"
 
     def test_resolve_schema_version_planning_over_provenance(self) -> None:
@@ -588,6 +650,71 @@ class TestBuildConsultationOutcome:
     def test_thread_id_from_pipeline(self) -> None:
         event = MODULE.build_consultation_outcome(_consultation_input())
         assert event["thread_id"] == "thread-xyz-789"
+
+    def test_schema_version_base(self) -> None:
+        """Consultation events always use base schema 0.1.0."""
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        assert event["schema_version"] == "0.1.0"
+
+    def test_session_id_propagated(self, monkeypatch) -> None:
+        monkeypatch.setenv("CLAUDE_SESSION_ID", "sess-consult-456")
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        assert event["session_id"] == "sess-consult-456"
+
+    def test_ts_format(self) -> None:
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        assert event["ts"].endswith("Z")
+        assert "T" in event["ts"]
+
+    def test_consultation_id_is_uuid(self) -> None:
+        import uuid as uuid_mod
+
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        uuid_mod.UUID(event["consultation_id"])  # raises on invalid
+
+    def test_mode_from_pipeline(self) -> None:
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        assert event["mode"] == "server_assisted"
+
+
+# ---------------------------------------------------------------------------
+# TestPipelineCompleteness
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineCompleteness:
+    """Verify test helpers produce complete pipeline dicts matching builder expectations."""
+
+    def test_dialogue_pipeline_keys_cover_builder(self) -> None:
+        """All pipeline.get() keys in build_dialogue_outcome have explicit values."""
+        pipeline = _dialogue_input()["pipeline"]
+        builder_keys = {
+            "posture", "turn_budget", "profile_name", "seed_confidence",
+            "low_seed_confidence_reasons", "assumption_count",
+            "no_assumptions_fallback", "gatherer_a_lines", "gatherer_b_lines",
+            "gatherer_a_retry", "gatherer_b_retry", "citations_total",
+            "unique_files_total", "gatherer_a_unique_paths",
+            "gatherer_b_unique_paths", "shared_citation_paths",
+            "counter_count", "confirm_count", "open_count", "claim_count",
+            "scout_count", "source_classes", "scope_root_count",
+            "scope_roots_fingerprint", "question_shaped", "shape_confidence",
+            "assumptions_generated_count", "ambiguity_count",
+            "provenance_unknown_count", "mode",
+        }
+        assert builder_keys.issubset(set(pipeline.keys())), (
+            f"Missing pipeline keys: {builder_keys - set(pipeline.keys())}"
+        )
+
+    def test_consultation_pipeline_keys_cover_builder(self) -> None:
+        """All pipeline.get() keys in build_consultation_outcome have explicit values."""
+        pipeline = _consultation_input()["pipeline"]
+        builder_keys = {
+            "thread_id", "posture", "turn_count", "turn_budget",
+            "profile_name", "mode",
+        }
+        assert builder_keys.issubset(set(pipeline.keys())), (
+            f"Missing pipeline keys: {builder_keys - set(pipeline.keys())}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1086,7 +1213,7 @@ class TestMain:
 
         event = json.loads(log_path.read_text().strip())
         assert event["event"] == "dialogue_outcome"
-        assert event["schema_version"] == "0.1.0"
+        assert event["schema_version"] == "0.2.0"  # SAMPLE_PIPELINE has provenance_unknown_count=0
         assert event["resolved_count"] == 5
 
     def test_dialogue_provenance_end_to_end(

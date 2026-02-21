@@ -145,6 +145,8 @@ When the assembled briefing is received (via the `<!-- dialogue-orchestrated-bri
 
 **Extraction:** Scan the briefing `## Material` section for lines containing `[SRC:unknown]`. For each such line, parse the citation from the `@ path:line` annotation and extract the path component only (strip the `:line` suffix). Normalize: strip leading `./`, collapse `//` to `/`. Store the resulting set in `unknown_claim_paths` in conversation state.
 
+If the `## Material` section is present but contains no lines (or only the `(none)` placeholder from Step 3c), the extraction yields an empty set: `unknown_claim_paths = ∅`.
+
 **Standalone mode:** If no sentinel is detected (standalone invocation, not from `/dialogue`), initialize `unknown_claim_paths = ∅`. No unknown claims can exist because non-orchestrated briefings have no `[SRC:unknown]` tags (no gatherer pipeline runs in standalone mode).
 
 If `unknown_claim_paths` is non-empty, prioritize verifying those claims via mid-dialogue scouting:
@@ -374,7 +376,7 @@ Build the follow-up from these inputs. Priority order for choosing what to ask:
 
 1. **Scout evidence** (if Step 4 produced results): Frame a question around `evidence_wrapper` using the evidence shape below
 2. **Unresolved items** from `validated_entry.unresolved`
-3. **Unknown-provenance claims** (if `unknown_claim_paths` is non-empty): Challenge the specific `[SRC:unknown]` claim text from the briefing. Frame the question to probe the claim's evidence surface — the goal is to verify or refute the untagged claim, not to ask a general question. When scout evidence comes from an unknown-provenance-triggered scout, the follow-up must target that specific claim. Source: `unknown_claim_paths` from the briefing, not `validated_entry.unresolved`.
+3. **Unknown-provenance claims** (if `unknown_claim_paths` is non-empty): Re-scan the `## Material` section of the briefing for lines containing `[SRC:unknown]` whose `@ path:line` citation path matches an entry in `unknown_claim_paths`. Use the matched line's full text (the claim content between the tag prefix and the first metadata field) as the claim to challenge. Frame the question to probe the claim's evidence surface — the goal is to verify or refute the untagged claim, not to ask a general question. When scout evidence comes from an unknown-provenance-triggered scout, the follow-up must target that specific claim. Source: re-scan of briefing `## Material` section, matched via `unknown_claim_paths`.
 4. **Unprobed claims** tagged `new` in `validated_entry.claims`
 5. **Weakest claim** derived from accumulated `turn_history` claim records (least-supported, highest-impact). Scan `validated_entry.claims` across all turns in `turn_history` — the weakest claim is the one with the fewest `reinforced` statuses across all turns in `turn_history`, not a value derived from aggregate counters in `cumulative`
 6. **Posture-driven probe** from the patterns table
