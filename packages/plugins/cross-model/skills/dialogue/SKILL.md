@@ -111,7 +111,7 @@ Perform **deterministic, non-LLM assembly** of gatherer outputs. Reference: `ref
 {user's question, verbatim}
 ```
 
-Set `seed_confidence` to `low` with `low_seed_confidence_reasons: ["zero_output"]`. Skip steps 3d through 3h (including 3h-bis), Step 4, and Step 4b.
+Set `seed_confidence` to `low` with `low_seed_confidence_reasons: ["zero_output"]`. Set `provenance_unknown_count` to `null` (3h-bis is skipped, so provenance validation never ran). Skip steps 3d through 3h (including 3h-bis), Step 4, and Step 4b.
 
 **3c as terminal exception:** Step 3c is a terminal early-exit that bypasses the normal pipeline entirely. Step 4b is the "sole authority" for `seed_confidence` within its jurisdiction (the normal path where Steps 3d through 3h-bis, 4, and 4b all run). When 3c fires, it sets both `seed_confidence` and `low_seed_confidence_reasons` directly because the composition step (4b) is skipped. The `zero_output` row in Step 4b's reason table documents the reason's semantics, not its runtime origin — in the 3c path, the reason is set by 3c itself, not collected by 4b.
 
