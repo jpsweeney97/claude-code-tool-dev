@@ -688,6 +688,20 @@ class TestValidate:
         ]
         MODULE.validate(event, "dialogue_outcome")  # no exception
 
+    @pytest.mark.parametrize("reasons", [
+        ["few_files", "bad_reason"],
+        ["thin_citations", "provenance_violations", "oops"],
+        ["bad_reason", "few_files"],
+    ])
+    def test_mixed_valid_invalid_low_seed_confidence_reasons_rejected(
+        self, reasons: list[str]
+    ) -> None:
+        """Mixed valid and invalid low_seed_confidence_reasons are rejected."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["low_seed_confidence_reasons"] = reasons
+        with pytest.raises(ValueError, match="invalid low_seed_confidence_reasons"):
+            MODULE.validate(event, "dialogue_outcome")
+
     def test_provenance_unknown_count_negative_rejected(self) -> None:
         """provenance_unknown_count must be non-negative (via _COUNT_FIELDS)."""
         pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 3}
