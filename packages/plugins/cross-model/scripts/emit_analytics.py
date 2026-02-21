@@ -39,6 +39,7 @@ _SCHEMA_VERSION = "0.1.0"
 
 _VALID_POSTURES = {"adversarial", "collaborative", "exploratory", "evaluative"}
 _VALID_SEED_CONFIDENCE = {"normal", "low"}
+_VALID_SHAPE_CONFIDENCE = {"high", "medium", "low"}
 _VALID_CONVERGENCE_CODES = {
     "all_resolved",
     "natural_convergence",
@@ -67,6 +68,19 @@ def _is_non_negative_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+def _resolve_schema_version(event: dict) -> str:
+    """Determine schema version from feature-flag fields.
+
+    Precedence: planning (0.3.0) > provenance (0.2.0) > base (0.1.0).
+    Used in both build (auto-set) and validate (exact equality check).
+    """
+    if event.get("question_shaped") is not None:
+        return "0.3.0"
+    if _is_non_negative_int(event.get("provenance_unknown_count")):
+        return "0.2.0"
+    return _SCHEMA_VERSION
+
+
 _COUNT_FIELDS = {
     "turn_count",
     "turn_budget",
@@ -88,6 +102,8 @@ _COUNT_FIELDS = {
     "scout_count",
     "scope_root_count",
     "provenance_unknown_count",
+    "assumptions_generated_count",
+    "ambiguity_count",
 }
 
 _DIALOGUE_REQUIRED = {
@@ -352,20 +368,19 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "source_classes": pipeline.get("source_classes", []),
         "scope_root_count": pipeline.get("scope_root_count", 0),
         "scope_roots_fingerprint": pipeline.get("scope_roots_fingerprint"),
-        # Planning (nullable)
-        "question_shaped": None,
-        "shape_confidence": None,
-        "assumptions_generated_count": None,
-        "ambiguity_count": None,
+        # Planning (nullable — populated when --plan is used)
+        "question_shaped": pipeline.get("question_shaped"),
+        "shape_confidence": pipeline.get("shape_confidence"),
+        "assumptions_generated_count": pipeline.get("assumptions_generated_count"),
+        "ambiguity_count": pipeline.get("ambiguity_count"),
         # Provenance (nullable)
         "provenance_unknown_count": pipeline.get("provenance_unknown_count"),
         # Linkage (nullable)
         "episode_id": None,
     }
 
-    # Schema version auto-bump (§4.4): valid provenance count → 0.2.0
-    if _is_non_negative_int(event.get("provenance_unknown_count")):
-        event["schema_version"] = "0.2.0"
+    # Schema version auto-bump (§4.4): unified resolver
+    event["schema_version"] = _resolve_schema_version(event)
 
     return event
 
@@ -447,18 +462,48 @@ def validate(event: dict, event_type: str) -> None:
     if mode not in _VALID_MODES:
         raise ValueError(f"invalid mode: {mode!r}")
 
+    # Tri-state planning invariant: question_shaped drives field requirements
+    qs = event.get("question_shaped")
+    if qs is not None:
+        if not isinstance(qs, bool):
+            raise ValueError(
+                f"question_shaped must be bool or None, got {type(qs).__name__}"
+            )
+        # Forward: when question_shaped is set (true or false), remaining planning
+        # fields must be non-None (failure telemetry is preserved even on false)
+        for pf in ("shape_confidence", "assumptions_generated_count", "ambiguity_count"):
+            if event.get(pf) is None:
+                raise ValueError(
+                    f"{pf} is required when question_shaped is set (got None)"
+                )
+    else:
+        # Reverse: when question_shaped is None (--plan not used or debug gate
+        # skip), all companion fields must also be None
+        for pf in ("shape_confidence", "assumptions_generated_count", "ambiguity_count"):
+            if event.get(pf) is not None:
+                raise ValueError(
+                    f"{pf} must be None when question_shaped is None "
+                    f"(got {event.get(pf)!r})"
+                )
+
+    # Validate shape_confidence enum values when non-null
+    sc = event.get("shape_confidence")
+    if sc is not None and sc not in _VALID_SHAPE_CONFIDENCE:
+        raise ValueError(f"invalid shape_confidence: {sc!r}")
+
     # Count fields >= 0
     for field in _COUNT_FIELDS:
         value = event.get(field)
         if value is not None and not _is_non_negative_int(value):
             raise ValueError(f"{field} must be non-negative int, got {value!r}")
 
-    # Cross-field: provenance count requires schema 0.2.0
-    prov = event.get("provenance_unknown_count")
-    if _is_non_negative_int(prov) and event.get("schema_version") != "0.2.0":
+    # Cross-field: schema_version must match feature-flag state
+    expected_version = _resolve_schema_version(event)
+    actual_version = event.get("schema_version")
+    if actual_version != expected_version:
         raise ValueError(
-            f"provenance_unknown_count is set ({prov}) but schema_version "
-            f"is {event.get('schema_version')!r}, expected '0.2.0'"
+            f"schema_version mismatch: expected {expected_version!r} "
+            f"(from feature flags), got {actual_version!r}"
         )
 
     # Cross-field invariants
@@ -537,7 +582,7 @@ def _process(input_path: Path) -> int:
         else:
             print(_result("error", f"unknown event_type: {event_type!r}"))
             return 1
-    except (KeyError, TypeError) as exc:
+    except (KeyError, TypeError, AttributeError) as exc:
         print(traceback.format_exc(), file=sys.stderr)
         print(_result("error", f"build failed: {exc}"))
         return 1

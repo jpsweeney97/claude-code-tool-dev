@@ -1,7 +1,7 @@
 ---
 name: dialogue
 description: "Multi-turn Codex consultation with proactive context gathering. Launches parallel codebase explorers, assembles a structured briefing, and delegates to codex-dialogue. Use when you need a thorough, evidence-backed consultation, deep codebase analysis before asking Codex, or when the user says 'deep review', 'explore and discuss', or 'thorough consultation'. For quick single-turn questions, use /codex."
-argument-hint: '"question" [-p posture] [-n turns] [--profile name]'
+argument-hint: '"question" [-p posture] [-n turns] [--profile name] [--plan]'
 user-invocable: true
 ---
 
@@ -28,26 +28,115 @@ Parse flags from `$ARGUMENTS`:
 | `--posture` | `-p` | `adversarial`, `collaborative`, `exploratory`, `evaluative` | `collaborative` |
 | `--turns` | `-n` | 1-15 | 8 |
 | `--profile` | — | Named preset from [`consultation-profiles.yaml`](../../references/consultation-profiles.yaml) | none |
+| `--plan` | — | boolean | false |
 
 Everything after flags is the **question** (required).
 
 **Resolution order:** explicit flags > profile values > defaults.
 
-**Profile resolution:** Profiles set `posture` and `turn_budget` only. Execution controls (`sandbox`, `approval_policy`, `reasoning_effort`) use consultation contract defaults.
+**Profile resolution:** Profiles set `posture`, `turn_budget`, and `reasoning_effort`. Execution controls (`sandbox`, `approval_policy`) use consultation contract defaults.
 
 **Validation:**
 1. Reject unknown flags.
 2. Reject invalid enum values for `--posture`.
 3. Reject `--turns` outside 1-15.
 4. If question is empty after flag extraction, ask the user: "What would you like to discuss with Codex?"
+5. If `--plan` is present without a question/problem statement, ask the user: "What problem would you like to plan?"
 
 Error format: `argument parsing failed: {reason}. Got: {input!r:.100}`
 
 ## Pipeline
 
-### Step 1: Extract assumptions
+### Step 0: Question shaping (when `--plan` is set)
 
-From the user's question, identify testable assumptions and assign IDs:
+Skip this step if `--plan` is not set. Proceed directly to Step 1.
+
+**Debug gate:** Before decomposition, check if the question is a debugging question. If ANY of these artifact signals appear in the question (case-insensitive): `traceback`, `stack trace`, `exception`, `panic`, `segfault` — OR if an intent signal (`how do I fix`, `how do we fix`, `debug`, `root cause`, `why does`) appears together with an unsuppressed failure lexeme (`fail`, `failing`, `failed`, `failure`, `error`, `bug`, `crash`, `broken`) — then skip Step 0 entirely. Set all planning pipeline fields to null. Proceed to Step 1 with the raw question.
+
+Architecture phrase suppressions (these phrases suppress adjacent failure lexemes): `error handling`, `failure mode`, `failure modes`, `fault tolerance`, `error budget`, `recovery strategy`, `retry policy`, `crash-only design`.
+
+Example: "How should we design error handling for the API?" → NOT a debugging question (failure lexeme "error" is suppressed by "error handling"). "Why does the API error on startup?" → IS a debugging question (intent "why does" + unsuppressed "error").
+
+**Decomposition:** Run Claude-locally (no Codex). Decompose the user's problem statement using this template:
+
+````
+Given this problem statement: "{raw_input}"
+
+Decompose into:
+1. A focused, answerable question (one sentence)
+2. 2-5 testable assumptions (things that could be true or false about the codebase)
+3. 3-8 search terms (function names, module names, file patterns, concepts)
+4. Your confidence that this decomposition captures the user's intent (high/medium/low)
+5. 0-3 ambiguities that could change the decomposition
+
+Format:
+planning_question: ...
+assumptions:
+- A1: "..."
+- A2: "..."
+key_terms: [term1, term2, ...]
+shape_confidence: high|medium|low
+ambiguities:
+- ...
+````
+
+**Validation:** Parse the decomposition output. For each field, apply tolerant normalization:
+- Key aliases: accept `question` as alias for `planning_question`, `confidence` for `shape_confidence`
+- List parsing: accept both YAML list and comma-separated formats for `assumptions`, `key_terms`, `ambiguities`
+- Assumption ID repair: if IDs are missing (e.g., bare strings), assign A1, A2, ... sequentially
+- Dedup: remove duplicate assumptions (normalized text match)
+- Cap: maximum 5 assumptions, 8 key_terms, 3 ambiguities
+
+After normalization, validate each routing field independently:
+- `planning_question`: must be a non-empty string. If invalid → fallback to raw question.
+- `assumptions`: must be a non-empty list of strings. If invalid → Step 1 resolves from `planning_question`.
+- `key_terms`: must be a non-empty list of strings. If invalid → Step 2 Gatherer A derives normally.
+- `shape_confidence`: must be `"high"`, `"medium"`, or `"low"`. If invalid → default to `"low"`.
+- `ambiguities`: must be a list of strings. If invalid → empty list.
+
+**Tri-state `question_shaped`:**
+- `null`: `--plan` was not set (all planning pipeline fields are null)
+- `true`: `--plan` was set AND ≥ 1 routing field (`planning_question`, `assumptions`, `key_terms`) was accepted after validation
+- `false`: `--plan` was set AND 0 routing fields were accepted (complete decomposition failure)
+
+**shape_confidence downgrade:** For each routing field that falls back:
+- `assumptions` fallback: downgrade `shape_confidence` one level (high→medium, medium→low)
+- `key_terms` fallback: downgrade `shape_confidence` one level
+- Minimum is `low` (no further downgrade)
+
+**UX output:** Always show `planning_question` and `shape_confidence` to the user. Show full detail (assumptions, key_terms, ambiguities) only when:
+- `shape_confidence` is `medium` or `low`, OR
+- Any routing field triggered fallback
+
+If `shape_confidence` is `low`, emit a note: "Question decomposition has low confidence. Consider clarifying: {ambiguities}."
+
+**Pipeline state:** Initialize all planning pipeline fields before Step 0:
+- `question_shaped`: null
+- `shape_confidence`: null
+- `assumptions_generated_count`: null
+- `ambiguity_count`: null
+
+**Atomic Step 0 finalization:** After Step 0 completes, set all planning pipeline fields atomically. There are exactly two post-decomposition terminal states (the debug gate skip is a separate pre-decomposition path that leaves all fields at null):
+
+**Success** (`question_shaped=true`, ≥1 routing field accepted):
+- `question_shaped`: true
+- `shape_confidence`: resolved value after downgrades
+- `assumptions_generated_count`: number of assumptions in Step 0 raw output (before fallback)
+- `ambiguity_count`: number of ambiguities in Step 0 output
+
+**Failure** (`question_shaped=false`, 0 routing fields accepted OR unrecoverable decomposition error):
+- `question_shaped`: false
+- `shape_confidence`: "low"
+- `assumptions_generated_count`: parsed raw count if available, else 0
+- `ambiguity_count`: parsed raw count if available, else 0
+
+This atomic finalization prevents stale-companion states where `pipeline.get()` reads partially-set fields after a mid-Step-0 exception. The debug gate skip is a separate path — it leaves all fields at their initialized null values (not false).
+
+### Step 1: Resolve assumptions
+
+**If Step 0 provided valid assumptions:** Use them directly. Skip extraction.
+
+**Otherwise (no `--plan`, or Step 0 assumptions fell back):** From the question (which may be `planning_question` from Step 0 or the raw question), identify testable assumptions and assign IDs:
 
 - Read the question and list statements that could be true or false about the codebase.
 - Assign sequential IDs: A1, A2, A3, ...
@@ -74,6 +163,8 @@ Task(
   timeout: 120000
 )
 ```
+
+When `--plan` is set and Step 0 provided valid `key_terms`, use those as `{extracted_terms}`. Otherwise, derive terms from the question as usual.
 
 **Gatherer B (falsifier):**
 ```
@@ -217,12 +308,15 @@ Task(
     Posture: {resolved posture}
     Budget: {resolved turn count}
     seed_confidence: {normal or low}
+    reasoning_effort: {resolved from profile or contract default}
     scope_envelope: {scope from §3 preflight — allowed roots and source classes}
 
     {assembled briefing with sentinel}
   """
 )
 ```
+
+**`reasoning_effort` resolution:** profile value > consultation contract §8 default (`xhigh`). When `--plan` is used without `--profile`, reasoning_effort falls through to the contract default (`xhigh`). Pass the resolved value in the envelope — the `codex-dialogue` agent uses it directly without re-resolving profiles. (A `-t` flag for explicit override is deferred — profile propagation covers the immediate need.)
 
 **`scope_envelope` construction:** Before delegation, run the consultation contract §3 preflight to determine allowed roots and source classes. Pass the resulting scope envelope to `codex-dialogue`. The scope is immutable once set — on scope breach, the dialogue agent stops and returns a resume capsule per contract §6.
 
@@ -278,6 +372,10 @@ Pipeline fields to include:
 | `source_classes` | Step 5 | list of strings |
 | `scope_root_count` | Step 5 | int |
 | `scope_roots_fingerprint` | Step 5 | string or null |
+| `question_shaped` | Step 0 | bool or null |
+| `shape_confidence` | Step 0 | string or null |
+| `assumptions_generated_count` | Step 0 | int or null |
+| `ambiguity_count` | Step 0 | int or null |
 | `mode` | Args | `"server_assisted"` or `"manual_legacy"` |
 
 **7b. Run emitter**
@@ -330,7 +428,7 @@ On `error` or `degraded`, warn the user: `"Analytics emission failed: {reason}. 
 
 **User:** `/dialogue -p adversarial "Is our redaction pipeline over-engineered? The format-specific layer seems redundant."`
 
-**Step 1 — Extract assumptions:**
+**Step 1 — Resolve assumptions:**
 - `A1: "The generic redaction layer catches everything the format-specific layer catches"`
 - `A2: "The format-specific layer is redundant"`
 

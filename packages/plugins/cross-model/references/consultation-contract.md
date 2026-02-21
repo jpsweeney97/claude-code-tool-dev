@@ -115,6 +115,7 @@ When a skill delegates to the `codex-dialogue` agent, it passes a delegation env
 | `turn_budget` | No | Maximum Codex turns. Default: 8, max: 15 |
 | `scope_envelope` | Yes | Immutable scope set from §3 preflight |
 | `seed_confidence` | No | Quality signal from pre-dialogue context gathering. Values: `normal` (default), `low`. When omitted, treated as `normal`. |
+| `reasoning_effort` | No | Resolved from profile or flag. Values: `minimal`, `low`, `medium`, `high`, `xhigh`. When omitted, use §8 default (`xhigh`). |
 
 **Scope envelope (immutable):** Set at delegation time. Contains allowed roots and source classes from §3. On scope breach, the agent MUST:
 1. Stop the consultation immediately
@@ -194,6 +195,8 @@ Resolve execution controls before dispatch:
 | `sandbox` | `read-only` |
 | `approval-policy` | `never` if `read-only`; `on-failure` if `workspace-write` or `danger-full-access` |
 | `model_reasoning_effort` | `xhigh` |
+
+**Delegated precedence:** When the delegation envelope (§6) includes `reasoning_effort`, the agent uses it directly — no re-resolution of profile files. The delegating skill is responsible for resolution order (currently profile > §8 default; explicit `-t` flag is deferred). The agent's §8 resolver is the fallback when the delegation envelope omits the field.
 
 **Hard rejects (fail-closed):**
 - `danger-full-access` combined with `approval-policy=never`: return `policy mismatch: danger-full-access requires explicit approval-policy. Got: never`. Do not dispatch.

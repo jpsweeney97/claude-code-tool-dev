@@ -29,7 +29,7 @@ CONTRACT_PATH = REPO_ROOT / "packages/plugins/cross-model/references/consultatio
 def test_validate_passes_on_current_codebase() -> None:
     """validate() returns no errors against the actual codebase."""
     errors = MODULE.validate(repo_root=REPO_ROOT)
-    assert errors == [], f"expected no errors, got:\n" + "\n".join(f"  - {e}" for e in errors)
+    assert errors == [], "expected no errors, got:\n" + "\n".join(f"  - {e}" for e in errors)
 
 
 # ---------------------------------------------------------------------------
