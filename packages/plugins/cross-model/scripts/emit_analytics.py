@@ -61,6 +61,12 @@ _VALID_TERMINATION_REASONS = {
     "complete",
 }
 
+
+def _is_non_negative_int(value: object) -> bool:
+    """Check value is a non-negative int, excluding bool."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 _COUNT_FIELDS = {
     "turn_count",
     "turn_budget",
@@ -357,8 +363,8 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "episode_id": None,
     }
 
-    # Schema version auto-bump (§4.4): non-null provenance → 0.2.0
-    if event.get("provenance_unknown_count") is not None:
+    # Schema version auto-bump (§4.4): valid provenance count → 0.2.0
+    if _is_non_negative_int(event.get("provenance_unknown_count")):
         event["schema_version"] = "0.2.0"
 
     return event
@@ -444,9 +450,7 @@ def validate(event: dict, event_type: str) -> None:
     # Count fields >= 0
     for field in _COUNT_FIELDS:
         value = event.get(field)
-        if value is not None and (
-            isinstance(value, bool) or not isinstance(value, int) or value < 0
-        ):
+        if value is not None and not _is_non_negative_int(value):
             raise ValueError(f"{field} must be non-negative int, got {value!r}")
 
     # Cross-field invariants
