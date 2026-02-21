@@ -77,6 +77,8 @@ When the prompt contains `<!-- dialogue-orchestrated-briefing -->` on a line bef
 
 The sentinel `<!-- dialogue-orchestrated-briefing -->` is injected by the `/dialogue` skill and never appears in standalone invocations.
 
+For orchestrated briefings with `[SRC:unknown]` lines, see "Unknown-provenance claims" in Phase 2 below — extraction runs once before the per-turn loop begins.
+
 ### Token safety (Normative Contract)
 
 Safety rules are defined in [consultation-contract.md](../references/consultation-contract.md) § Safety Pipeline (§7). This file is not normative for credential patterns.
@@ -112,6 +114,7 @@ Initialize after starting the conversation:
 | `evidence_count` | `0` | Scouts executed (for synthesis statistics) |
 | `turn_history` | `[]` | Per-turn list of `{validated_entry, cumulative, scout_outcomes}` — append in Step 3 on every successful `process_turn` response, before the budget gate check |
 | `seed_confidence` | `normal` | From delegation envelope. Values: `normal`, `low`. Controls early-turn scouting bias. |
+| `unknown_claim_paths` | `∅` | Set of file paths (without line numbers) from `[SRC:unknown]` briefing lines. Populated once at briefing parse (before Step 1 of per-turn loop). Cleared per-path after successful scout verification. |
 
 **Per-turn state retention:** On every successful `process_turn` response, append to `turn_history` **before** checking the budget gate:
 - `validated_entry` — the server-validated ledger entry for this turn
@@ -135,13 +138,31 @@ When `seed_confidence` is `normal` or absent: no change to existing behavior.
 
 ### Unknown-provenance claims
 
-When the assembled briefing is received (via the `<!-- dialogue-orchestrated-briefing -->` sentinel), extract `unknown_claim_paths` — the set of citation paths (`@ path:line`) from any briefing line containing `[SRC:unknown]`.
+When the assembled briefing is received (via the `<!-- dialogue-orchestrated-briefing -->` sentinel), extract `unknown_claim_paths` from any briefing line containing `[SRC:unknown]`. This extraction runs once before Step 1 of the per-turn loop, after the briefing is available.
+
+**Extraction:** Scan the briefing `## Material` section for lines containing `[SRC:unknown]`. For each such line, parse the citation from the `@ path:line` annotation and extract the path component only (strip the `:line` suffix). Normalize: strip leading `./`, collapse `//` to `/`. Store the resulting set in `unknown_claim_paths` in conversation state.
+
+**Standalone mode:** If no sentinel is detected (standalone invocation, not from `/dialogue`), initialize `unknown_claim_paths = ∅`. No unknown claims can exist because non-orchestrated briefings have no `[SRC:unknown]` tags (no gatherer pipeline runs in standalone mode).
 
 If `unknown_claim_paths` is non-empty, prioritize verifying those claims via mid-dialogue scouting:
 
-- **Briefing parse (Phase 1):** After detecting the sentinel, scan the briefing `## Material` section for lines containing `[SRC:unknown]`. Extract each cited `path:line` into the `unknown_claim_paths` set. Store this set in conversation state.
-- **Step 4 (Scout):** When selecting among `template_candidates`, prefer candidates whose `entity_key` matches a path in `unknown_claim_paths`. If multiple candidates match, prefer the highest-ranked (lowest `rank` value).
-- **Step 6 (Compose follow-up):** Treat unknown-provenance claims as higher priority than unprobed `new` claims — insert between priority items 2 (Unresolved items) and 3 (Unprobed claims) in the existing follow-up composition list.
+- **Step 4 (Scout — entity resolution):** When selecting among `template_candidates`, build an entity lookup from the `entities` array in the current `process_turn` response (`entity.id` → `Entity` object). For each candidate, resolve `candidate.entity_id` to its `Entity`. Compare the entity's `canonical` path against paths in `unknown_claim_paths` using tiered matching:
+
+  1. **Exact path:** `Entity.canonical` equals an `unknown_claim_paths` entry (case-insensitive)
+  2. **Component-boundary suffix:** `Entity.canonical` ends with an `unknown_claim_paths` entry at a `/` boundary (e.g., canonical `src/config/types.py` matches entry `config/types.py`)
+  3. **Basename:** `Entity.canonical` basename equals the basename of an `unknown_claim_paths` entry
+
+  **Normalization (both sides):** Strip leading `./`, collapse `//` to `/`, compare case-insensitively.
+
+  **Tie-break:** Match tier (lower = stronger) → `rank` (lowest wins).
+
+  **No match:** If no candidates match any `unknown_claim_paths` entry, fall back to normal priority ranking.
+
+  **Selection tracking:** When a candidate is selected via unknown-provenance priority, persist `matched_unknown_path` (the specific `unknown_claim_paths` entry that caused the priority boost) in per-turn state.
+
+- **Step 4 (Scout — clearing):** After a successful scout execution (Step 4f success path), if `matched_unknown_path` is set for this turn, remove that specific entry from `unknown_claim_paths`. Only clear the entry that caused the priority boost — do not clear based on coincidental entity path matches from normal-ranked scouts. Note: `unknown_claim_paths` stores paths, not individual claims. Multiple `[SRC:unknown]` claims citing the same file are coalesced at path level — one successful scout retires priority for that file. This is intentional; claim-level granularity is deferred.
+
+- **Step 6 (Compose follow-up):** See unknown-provenance sub-item in Step 6 priority list below.
 
 `[SRC:unknown]` is an assembler-assigned tag indicating the gatherer did not follow its output format. Scouting converts this quality signal into dialogue-level recovery — the agent verifies the claim's evidence surface directly rather than relying on incorrect metadata.
 
@@ -273,7 +294,8 @@ Call `mcp__plugin_cross-model_context-injection__process_turn` with:
 | `cumulative` | Stored in `turn_history` (see data capture above). Running totals: `total_claims`, `reinforced`, `revised`, `conceded`, `unresolved_open`. Use for conversation awareness. |
 | `action` | **Directive:** `continue_dialogue`, `closing_probe`, or `conclude`. See Step 5. (Skip if budget gate fired.) |
 | `action_reason` | Human-readable explanation. Include in your internal reasoning. |
-| `template_candidates` | Available scout options for evidence gathering. See Step 4. Fields per candidate: `rank`, `template_id`, `entity_key`, `scout_options` (each with `id`, `scout_token`). Note: `turn_request_ref` is NOT part of `template_candidates` — it is agent-derived in Step 4. |
+| `entities` | List of extracted entities from focus and claims. Each has `id`, `type` (file_loc, file_path, file_name, symbol, ...), `canonical` (normalized form), `resolved_to` (alias target or null). Used by unknown-provenance scouting to resolve `entity_id` → entity path. |
+| `template_candidates` | Available scout options for evidence gathering. See Step 4. Fields per candidate: `rank`, `template_id`, `entity_id`, `scout_options` (each with `id`, `scout_token`). Note: `turn_request_ref` is NOT part of `template_candidates` — it is agent-derived in Step 4. |
 | `budget` | `scout_available` (bool), `evidence_count`, `evidence_remaining`. |
 | `ledger_summary` | Compact trajectory summary. Use in follow-up composition. |
 | `state_checkpoint` | Stored above (see data capture). Pass in next turn's request. |
@@ -349,6 +371,7 @@ Build the follow-up from these inputs. Priority order for choosing what to ask:
 
 1. **Scout evidence** (if Step 4 produced results): Frame a question around `evidence_wrapper` using the evidence shape below
 2. **Unresolved items** from `validated_entry.unresolved`
+   - **Unknown-provenance claims** (if `unknown_claim_paths` is non-empty): Challenge the specific `[SRC:unknown]` claim text from the briefing. Frame the question to probe the claim's evidence surface — the goal is to verify or refute the untagged claim, not to ask a general question. When scout evidence comes from an unknown-provenance-triggered scout, the follow-up must target that specific claim. Note: unknown-provenance claims are sourced from the briefing (`unknown_claim_paths`), not from `validated_entry.unresolved`.
 3. **Unprobed claims** tagged `new` in `validated_entry.claims`
 4. **Weakest claim** derived from accumulated `turn_history` claim records (least-supported, highest-impact). Scan `validated_entry.claims` across all turns in `turn_history` — the weakest claim is the one with the fewest `reinforced` statuses across all turns in `turn_history`, not a value derived from aggregate counters in `cumulative`
 5. **Posture-driven probe** from the patterns table
