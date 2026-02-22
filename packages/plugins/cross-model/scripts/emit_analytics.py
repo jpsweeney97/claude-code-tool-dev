@@ -476,7 +476,8 @@ def validate(event: dict, event_type: str) -> None:
             f"event field mismatch: expected {event_type!r}, got {event.get('event')!r}"
         )
 
-    # Enum checks
+    # Enum checks — each uses isinstance(str) guard before set membership
+    # to prevent TypeError on non-hashable values (dicts, lists from JSON).
     posture = event.get("posture")
     if posture is None:
         raise ValueError("posture is required")
@@ -486,7 +487,9 @@ def validate(event: dict, event_type: str) -> None:
     code = event.get("convergence_reason_code")
     if event_type == "dialogue_outcome" and code is None:
         raise ValueError("convergence_reason_code required for dialogue_outcome")
-    if code is not None and (not isinstance(code, str) or code not in _VALID_CONVERGENCE_CODES):
+    if code is not None and (
+        not isinstance(code, str) or code not in _VALID_CONVERGENCE_CODES
+    ):
         raise ValueError(f"invalid convergence_reason_code: {code!r}")
 
     reason = event.get("termination_reason")
@@ -498,7 +501,9 @@ def validate(event: dict, event_type: str) -> None:
     seed = event.get("seed_confidence")
     if event_type == "dialogue_outcome" and seed is None:
         raise ValueError("seed_confidence required for dialogue_outcome")
-    if seed is not None and (not isinstance(seed, str) or seed not in _VALID_SEED_CONFIDENCE):
+    if seed is not None and (
+        not isinstance(seed, str) or seed not in _VALID_SEED_CONFIDENCE
+    ):
         raise ValueError(f"invalid seed_confidence: {seed!r}")
 
     mode = event.get("mode")
@@ -507,16 +512,14 @@ def validate(event: dict, event_type: str) -> None:
     if not isinstance(mode, str) or mode not in _VALID_MODES:
         raise ValueError(f"invalid mode: {mode!r}")
 
-    # mode_source enum (dialogue_outcome only, nullable)
+    # mode_source enum (dialogue_outcome only, nullable; rejected on other event types)
     ms = event.get("mode_source")
     if event_type == "dialogue_outcome":
         if ms is not None:
             if not isinstance(ms, str) or ms not in _VALID_MODE_SOURCES:
                 raise ValueError(f"invalid mode_source: {ms!r}")
-    elif ms is not None:
-        raise ValueError(
-            f"mode_source must be absent or None on {event_type}, got {ms!r}"
-        )
+    elif "mode_source" in event:
+        raise ValueError(f"mode_source must not be present on {event_type}, got {ms!r}")
 
     # Tri-state planning invariant: question_shaped drives field requirements
     qs = event.get("question_shaped")
@@ -552,7 +555,9 @@ def validate(event: dict, event_type: str) -> None:
 
     # Validate shape_confidence enum values when non-null
     sc = event.get("shape_confidence")
-    if sc is not None and (not isinstance(sc, str) or sc not in _VALID_SHAPE_CONFIDENCE):
+    if sc is not None and (
+        not isinstance(sc, str) or sc not in _VALID_SHAPE_CONFIDENCE
+    ):
         raise ValueError(f"invalid shape_confidence: {sc!r}")
 
     # Count fields >= 0

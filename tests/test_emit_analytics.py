@@ -1370,7 +1370,7 @@ class TestValidate:
         inp = _consultation_input()
         event = MODULE.build_consultation_outcome(inp)
         event["mode_source"] = "epilogue"  # manually inject
-        with pytest.raises(ValueError, match="mode_source"):
+        with pytest.raises(ValueError, match="mode_source must not be present"):
             MODULE.validate(event, "consultation_outcome")
 
     def test_mode_source_valid_values_pass_validation(self) -> None:
@@ -1380,6 +1380,19 @@ class TestValidate:
             inp = _dialogue_input(pipeline=pipeline)
             event = MODULE.build_dialogue_outcome(inp)
             MODULE.validate(event, "dialogue_outcome")  # should not raise
+
+    def test_mode_source_none_passes_validation(self) -> None:
+        """mode_source=None on dialogue_outcome passes validation (reserved nullable)."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["mode_source"] is None
+        MODULE.validate(event, "dialogue_outcome")  # should not raise
+
+    def test_mode_source_null_injected_on_consultation_rejected(self) -> None:
+        """mode_source=None manually injected on consultation_outcome is rejected."""
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        event["mode_source"] = None
+        with pytest.raises(ValueError, match="mode_source must not be present"):
+            MODULE.validate(event, "consultation_outcome")
 
     def test_mode_source_non_hashable_raises_value_error(self) -> None:
         """Non-hashable mode_source (e.g. dict) raises ValueError, not TypeError."""

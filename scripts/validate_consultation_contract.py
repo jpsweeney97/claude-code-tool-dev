@@ -46,7 +46,7 @@ def read_file(path: Path) -> str:
     try:
         return path.read_text()
     except OSError as e:
-        raise type(e)(f"cannot read {path} ({type(e).__name__}): {e}") from e
+        raise OSError(f"cannot read {path} ({type(e).__name__}): {e}") from e
 
 
 def extract_contract_sections(contract_text: str) -> set[int]:

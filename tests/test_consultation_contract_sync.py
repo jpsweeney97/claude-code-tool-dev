@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import pytest
+import pytest
 
 # ---------------------------------------------------------------------------
 # Module import
@@ -399,6 +397,28 @@ def test_read_file_permission_error(
     errors = MODULE.check_agent_governance_count(target, 7)
     assert len(errors) == 1
     assert "PermissionError" in errors[0]
+
+
+def test_read_file_preserves_oserror_on_permission_denied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """read_file re-raises as OSError with descriptive message, preserving original via __cause__."""
+    target = tmp_path / "unreadable.md"
+    target.write_text("content")
+
+    original_read_text = Path.read_text
+
+    def patched_read_text(self: Path, **kwargs: str | None) -> str:
+        if self == target:
+            raise PermissionError(f"Permission denied: {self}")
+        return original_read_text(self, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", patched_read_text)
+
+    with pytest.raises(OSError, match="cannot read") as exc_info:
+        MODULE.read_file(target)
+    assert "PermissionError" in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, PermissionError)
 
 
 # ---------------------------------------------------------------------------
