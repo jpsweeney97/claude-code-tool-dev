@@ -392,7 +392,7 @@ Pipeline fields to include:
 | `shape_confidence` | Step 0 | string or null |
 | `assumptions_generated_count` | Step 0 | int or null |
 | `ambiguity_count` | Step 0 | int or null |
-| `mode` | Step 5 agent return | `"server_assisted"` or `"manual_legacy"`. Read from the `codex-dialogue` agent's explicit mode field in its return value. Do not infer or hardcode. |
+| `mode` | Step 5 agent return | `"server_assisted"` or `"manual_legacy"`. Parse from the agent's `<!-- pipeline-data -->` JSON epilogue block. Extract the JSON object from the fenced block following the sentinel. If the epilogue is missing, fall back to `"server_assisted"` and log a warning. |
 
 **7b. Run emitter**
 

@@ -578,6 +578,28 @@ EMERGED: <idea> [source: dialogue-born]
 
 Include all items from the narrative — this block must be consistent with the narrative sections per the consistency rules in Phase 3.
 
+### Pipeline Data (JSON epilogue)
+
+After the markdown synthesis, emit a fenced JSON block with structured fields for downstream consumers. This block is machine-parsed by the `/dialogue` skill — do not omit fields.
+
+```json
+<!-- pipeline-data -->
+{
+  "mode": "server_assisted",
+  "thread_id": "{threadId or null}",
+  "turn_count": "{actual turns used}",
+  "converged": "{true or false}",
+  "convergence_reason_code": "{code or null}",
+  "termination_reason": "{reason}",
+  "scout_count": "{evidence_count}",
+  "resolved_count": "{from synthesis checkpoint}",
+  "unresolved_count": "{from synthesis checkpoint}",
+  "emerged_count": "{from synthesis checkpoint}"
+}
+```
+
+The `<!-- pipeline-data -->` sentinel marks this block for machine parsing. The `/dialogue` skill extracts `mode` and other fields from this block instead of parsing narrative text.
+
 ### Example
 
 Complete example showing all required fields:
