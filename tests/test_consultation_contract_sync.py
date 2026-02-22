@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Module import
 # ---------------------------------------------------------------------------
@@ -365,4 +367,177 @@ def test_dialogue_skill_stub_refs_resolve() -> None:
     )
     assert errors == [], "expected no errors, got:\n" + "\n".join(
         f"  - {e}" for e in errors
+    )
+
+
+# ---------------------------------------------------------------------------
+# OSError handling (S4)
+# ---------------------------------------------------------------------------
+
+
+def test_read_file_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """read_file catches PermissionError (via OSError widening), not just FileNotFoundError."""
+    target = tmp_path / "unreadable.md"
+    target.write_text("content")
+
+    # Monkeypatch Path.read_text to raise PermissionError
+    original_read_text = Path.read_text
+
+    def patched_read_text(self: Path, **kwargs: str | None) -> str:
+        if self == target:
+            raise PermissionError(f"Permission denied: {self}")
+        return original_read_text(self, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", patched_read_text)
+
+    # Before S4 fix: this raises uncaught PermissionError
+    # After S4 fix: this returns a descriptive error string
+    errors = MODULE.check_agent_governance_count(target, 7)
+    assert len(errors) == 1
+    assert "PermissionError" in errors[0]
+
+
+def test_read_file_preserves_oserror_on_permission_denied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """read_file re-raises as OSError with descriptive message, preserving original via __cause__."""
+    target = tmp_path / "unreadable.md"
+    target.write_text("content")
+
+    original_read_text = Path.read_text
+
+    def patched_read_text(self: Path, **kwargs: str | None) -> str:
+        if self == target:
+            raise PermissionError(f"Permission denied: {self}")
+        return original_read_text(self, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", patched_read_text)
+
+    with pytest.raises(OSError, match="cannot read") as exc_info:
+        MODULE.read_file(target)
+    assert "PermissionError" in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, PermissionError)
+
+
+# ---------------------------------------------------------------------------
+# Scope-breach conformance (I7)
+# ---------------------------------------------------------------------------
+
+
+def test_termination_reasons_match_contract() -> None:
+    """§13's Valid termination reasons must match emit_analytics._VALID_TERMINATION_REASONS."""
+    import re as re_mod
+    import importlib.util as ilu
+
+    # Import _VALID_TERMINATION_REASONS from emit_analytics
+    emit_path = REPO_ROOT / "packages/plugins/cross-model/scripts/emit_analytics.py"
+    spec = ilu.spec_from_file_location("emit_analytics", emit_path)
+    assert spec is not None and spec.loader is not None
+    emit_mod = ilu.module_from_spec(spec)
+    spec.loader.exec_module(emit_mod)
+    code_reasons = emit_mod._VALID_TERMINATION_REASONS
+
+    # Parse §13's "### Valid termination reasons" subsection
+    contract_text = CONTRACT_PATH.read_text()
+    section_13 = MODULE.extract_section_text(contract_text, "## 13.")
+    assert section_13 is not None, "§13 not found in contract"
+
+    # Find the subsection body after "### Valid termination reasons"
+    sub_start = section_13.find("### Valid termination reasons")
+    assert sub_start != -1, "§13 missing '### Valid termination reasons' subsection"
+
+    # Extract text until next ### or end
+    sub_text = section_13[sub_start:]
+    next_sub = sub_text.find("\n### ", len("### Valid termination reasons"))
+    if next_sub != -1:
+        sub_text = sub_text[:next_sub]
+
+    # Extract backtick-delimited values
+    contract_reasons = set(re_mod.findall(r"`([^`]+)`", sub_text))
+
+    assert contract_reasons == code_reasons, (
+        f"termination reason mismatch: contract has {sorted(contract_reasons)}, "
+        f"code has {sorted(code_reasons)}"
+    )
+
+
+def test_scope_breach_referenced_in_section_6() -> None:
+    """§6 must reference termination_reason: scope_breach for scope enforcement."""
+    contract_text = CONTRACT_PATH.read_text()
+    section_6 = MODULE.extract_section_text(contract_text, "## 6.")
+    assert section_6 is not None, "§6 not found in contract"
+    assert "scope_breach" in section_6, (
+        "§6 must reference 'scope_breach' as a termination reason"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test coverage gaps (round 2)
+# ---------------------------------------------------------------------------
+
+
+def test_agent_governance_missing_file(tmp_path: Path) -> None:
+    """check_agent_governance_count returns error for non-existent agent file."""
+    missing_path = tmp_path / "nonexistent-agent.md"
+    errors = MODULE.check_agent_governance_count(missing_path, 7)
+    assert len(errors) == 1
+    assert "cannot read" in errors[0] or "check_agent_governance failed" in errors[0]
+
+
+def test_event_types_missing_section() -> None:
+    """check_event_types_in_contract returns error when §13 is absent."""
+    contract_without_13 = "\n".join(
+        [
+            "## 12. Previous Section",
+            "",
+            "Some content.",
+            "",
+            "## 14. Next Section",
+            "",
+            "More content.",
+        ]
+    )
+    errors = MODULE.check_event_types_in_contract(contract_without_13)
+    assert len(errors) == 1
+    assert "§13" in errors[0]
+    assert "not found" in errors[0]
+
+
+def test_multiple_simultaneous_errors() -> None:
+    """validate() accumulates errors from multiple failing checks."""
+    # Use a repo root that doesn't exist — all file reads will fail
+    fake_root = Path("/nonexistent/repo/root")
+    errors = MODULE.validate(repo_root=fake_root)
+    # 4 file-read errors + 3 unconditional agent governance checks = 7 minimum
+    assert len(errors) >= 7, (
+        f"expected at least 7 accumulated errors from missing files, got {len(errors)}:\n"
+        + "\n".join(f"  - {e}" for e in errors)
+    )
+    # Verify errors are accumulated, not just the first one
+    error_text = "\n".join(errors)
+    assert "contract" in error_text.lower()
+    assert "skill" in error_text.lower()
+
+
+def test_validate_catches_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """validate() catches PermissionError (OSError subclass) during file reads."""
+    original_read_file = MODULE.read_file
+
+    def patched_read_file(path: Path) -> str:
+        if "consultation-contract" in path.name:
+            raise PermissionError(f"Permission denied: {path}")
+        return original_read_file(path)
+
+    monkeypatch.setattr(MODULE, "read_file", patched_read_file)
+    errors = MODULE.validate(repo_root=tmp_path)
+    permission_errors = [
+        e for e in errors if "PermissionError" in e or "Permission denied" in e
+    ]
+    assert len(permission_errors) >= 1, (
+        "expected PermissionError in accumulated errors, got:\n"
+        + "\n".join(f"  - {e}" for e in errors)
     )

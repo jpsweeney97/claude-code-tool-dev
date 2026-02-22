@@ -433,6 +433,7 @@ class TestBuildDialogueOutcome:
             "turn_budget",
             "profile_name",
             "mode",
+            "mode_source",
             "converged",
             "convergence_reason_code",
             "termination_reason",
@@ -683,6 +684,30 @@ class TestBuildDialogueOutcome:
         pipeline = {**SAMPLE_PIPELINE, "mode": "manual_legacy"}
         event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         assert event["mode"] == "manual_legacy"
+
+    def test_mode_source_epilogue_propagated(self) -> None:
+        """mode_source='epilogue' is propagated from pipeline input."""
+        pipeline = {**SAMPLE_PIPELINE, "mode_source": "epilogue"}
+        inp = _dialogue_input(pipeline=pipeline)
+        event = MODULE.build_dialogue_outcome(inp)
+        assert event["mode_source"] == "epilogue"
+
+    def test_mode_source_fallback_propagated(self) -> None:
+        """mode_source='fallback' is propagated from pipeline input."""
+        pipeline = {**SAMPLE_PIPELINE, "mode_source": "fallback"}
+        inp = _dialogue_input(pipeline=pipeline)
+        event = MODULE.build_dialogue_outcome(inp)
+        assert event["mode_source"] == "fallback"
+
+    def test_mode_source_none_when_omitted(self) -> None:
+        """mode_source defaults to None when not in pipeline input."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["mode_source"] is None
+
+    def test_mode_source_absent_from_consultation_outcome(self) -> None:
+        """mode_source must not be present in consultation_outcome events (D1: absent, not None)."""
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        assert "mode_source" not in event
 
 
 # ---------------------------------------------------------------------------
@@ -1330,6 +1355,80 @@ class TestValidate:
         pipeline = _pipeline_with_planning(ambiguity_count=1.5)
         event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         with pytest.raises(ValueError, match="ambiguity_count"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_mode_source_invalid_value_rejected(self) -> None:
+        """Invalid mode_source enum value is rejected."""
+        pipeline = {**SAMPLE_PIPELINE, "mode_source": "invented"}
+        inp = _dialogue_input(pipeline=pipeline)
+        event = MODULE.build_dialogue_outcome(inp)
+        with pytest.raises(ValueError, match="invalid mode_source"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_mode_source_rejected_on_consultation(self) -> None:
+        """Non-None mode_source on consultation_outcome is rejected."""
+        inp = _consultation_input()
+        event = MODULE.build_consultation_outcome(inp)
+        event["mode_source"] = "epilogue"  # manually inject
+        with pytest.raises(ValueError, match="mode_source must not be present"):
+            MODULE.validate(event, "consultation_outcome")
+
+    def test_mode_source_valid_values_pass_validation(self) -> None:
+        """Valid mode_source values ('epilogue', 'fallback') pass validation without error."""
+        for ms in ("epilogue", "fallback"):
+            pipeline = {**SAMPLE_PIPELINE, "mode_source": ms}
+            inp = _dialogue_input(pipeline=pipeline)
+            event = MODULE.build_dialogue_outcome(inp)
+            MODULE.validate(event, "dialogue_outcome")  # should not raise
+
+    def test_mode_source_none_passes_validation(self) -> None:
+        """mode_source=None on dialogue_outcome passes validation (reserved nullable)."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["mode_source"] is None
+        MODULE.validate(event, "dialogue_outcome")  # should not raise
+
+    def test_mode_source_null_injected_on_consultation_rejected(self) -> None:
+        """mode_source=None manually injected on consultation_outcome is rejected."""
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        event["mode_source"] = None
+        with pytest.raises(ValueError, match="mode_source must not be present"):
+            MODULE.validate(event, "consultation_outcome")
+
+    def test_mode_source_non_hashable_raises_value_error(self) -> None:
+        """Non-hashable mode_source (e.g. dict) raises ValueError, not TypeError."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["mode_source"] = {"nested": "object"}
+        with pytest.raises(ValueError, match="invalid mode_source"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    @pytest.mark.parametrize(
+        "field,bad_value,match",
+        [
+            ("posture", ["a", "list"], "invalid posture"),
+            ("convergence_reason_code", {"k": "v"}, "invalid convergence_reason_code"),
+            ("termination_reason", 42, "invalid termination_reason"),
+            ("seed_confidence", True, "invalid seed_confidence"),
+            ("mode", {"nested": True}, "invalid mode"),
+        ],
+    )
+    def test_enum_non_string_raises_value_error(
+        self, field: str, bad_value: object, match: str
+    ) -> None:
+        """Non-string enum values raise ValueError, not TypeError from set membership."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event[field] = bad_value
+        with pytest.raises(ValueError, match=match):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_shape_confidence_non_string_raises_value_error(self) -> None:
+        """Non-string shape_confidence raises ValueError, not TypeError."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        # Set question_shaped + companions so tri-state invariant passes
+        event["question_shaped"] = True
+        event["shape_confidence"] = [1, 2]
+        event["assumptions_generated_count"] = 3
+        event["ambiguity_count"] = 0
+        with pytest.raises(ValueError, match="invalid shape_confidence"):
             MODULE.validate(event, "dialogue_outcome")
 
     def test_null_episode_id_passes_validation(self) -> None:

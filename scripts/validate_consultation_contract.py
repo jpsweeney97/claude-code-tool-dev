@@ -42,10 +42,11 @@ GOVERNANCE_RULE_PATTERN = re.compile(r"^\d+\. \*\*", re.MULTILINE)
 
 
 def read_file(path: Path) -> str:
-    """Read a file. Raises FileNotFoundError with descriptive message on failure."""
-    if not path.exists():
-        raise FileNotFoundError(f"file not found: {path}")
-    return path.read_text()
+    """Read a file. Raises OSError with descriptive message on failure."""
+    try:
+        return path.read_text()
+    except OSError as e:
+        raise OSError(f"cannot read {path} ({type(e).__name__}): {e}") from e
 
 
 def extract_contract_sections(contract_text: str) -> set[int]:
@@ -106,7 +107,7 @@ def check_agent_governance_count(agent_path: Path, expected_count: int) -> list[
     """Verify an agent file has the expected number of governance rules."""
     try:
         agent_text = read_file(agent_path)
-    except FileNotFoundError as e:
+    except OSError as e:
         return [f"check_agent_governance failed: {e}"]
 
     section_text = extract_section_text(agent_text, "## Governance")
@@ -203,22 +204,22 @@ def validate(repo_root: Path | None = None) -> list[str]:
 
     try:
         contract_text = read_file(contract_path)
-    except FileNotFoundError as e:
+    except OSError as e:
         errors.append(f"validate failed: cannot read contract. Got: {str(e)!r:.100}")
 
     try:
         skill_text = read_file(skill_path)
-    except FileNotFoundError as e:
+    except OSError as e:
         errors.append(f"validate failed: cannot read skill. Got: {str(e)!r:.100}")
 
     try:
         agent_text = read_file(agent_path)
-    except FileNotFoundError as e:
+    except OSError as e:
         errors.append(f"validate failed: cannot read agent. Got: {str(e)!r:.100}")
 
     try:
         dialogue_skill_text = read_file(dialogue_skill_path)
-    except FileNotFoundError as e:
+    except OSError as e:
         errors.append(
             f"validate failed: cannot read dialogue skill. Got: {str(e)!r:.100}"
         )
@@ -250,9 +251,7 @@ def validate(repo_root: Path | None = None) -> list[str]:
 
     if agent_text is not None:
         errors.extend(
-            check_agent_governance_count(
-                agent_path, EXPECTED_AGENT_GOVERNANCE_COUNT
-            )
+            check_agent_governance_count(agent_path, EXPECTED_AGENT_GOVERNANCE_COUNT)
         )
     errors.extend(
         check_agent_governance_count(

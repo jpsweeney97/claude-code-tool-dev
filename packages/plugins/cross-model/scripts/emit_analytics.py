@@ -48,6 +48,7 @@ _VALID_CONVERGENCE_CODES = {
     "scope_breach",
 }
 _VALID_MODES = {"server_assisted", "manual_legacy"}
+_VALID_MODE_SOURCES = {"epilogue", "fallback"}
 _VALID_LOW_SEED_CONFIDENCE_REASONS = {
     "thin_citations",
     "few_files",
@@ -188,7 +189,10 @@ def _strip_fenced_blocks(text: str) -> tuple[str, bool]:
     text = re.sub(r"^```.*", "", text, flags=re.MULTILINE | re.DOTALL)
     truncated = text != before
     if truncated:
-        print("_strip_fenced_blocks: unclosed fence detected, content after fence discarded", file=sys.stderr)
+        print(
+            "_strip_fenced_blocks: unclosed fence detected, content after fence discarded",
+            file=sys.stderr,
+        )
     return text, truncated
 
 
@@ -241,15 +245,11 @@ def parse_synthesis(text: str) -> dict:
     # --- Counts from original text (not section-scoped) ---
     # Checkpoint content lives inside fenced code blocks in the agent
     # output, so searching the original text is correct here.
-    resolved_count = len(
-        re.findall(r"^RESOLVED:", text, re.MULTILINE | re.IGNORECASE)
-    )
+    resolved_count = len(re.findall(r"^RESOLVED:", text, re.MULTILINE | re.IGNORECASE))
     unresolved_count = len(
         re.findall(r"^UNRESOLVED:", text, re.MULTILINE | re.IGNORECASE)
     )
-    emerged_count = len(
-        re.findall(r"^EMERGED:", text, re.MULTILINE | re.IGNORECASE)
-    )
+    emerged_count = len(re.findall(r"^EMERGED:", text, re.MULTILINE | re.IGNORECASE))
 
     # --- Converged from Summary (tolerant) ---
     converged = False
@@ -366,6 +366,7 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "turn_budget": turn_budget,
         "profile_name": pipeline.get("profile_name"),
         "mode": pipeline.get("mode", "server_assisted"),
+        "mode_source": pipeline.get("mode_source"),
         # Outcome
         "converged": parsed["converged"],
         "convergence_reason_code": code,
@@ -375,9 +376,7 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "emerged_count": parsed["emerged_count"],
         # Context quality
         "seed_confidence": pipeline.get("seed_confidence", "normal"),
-        "low_seed_confidence_reasons": pipeline.get(
-            "low_seed_confidence_reasons", []
-        ),
+        "low_seed_confidence_reasons": pipeline.get("low_seed_confidence_reasons", []),
         "assumption_count": pipeline.get("assumption_count", 0),
         "no_assumptions_fallback": pipeline.get("no_assumptions_fallback", False),
         # Gatherer metrics
@@ -474,40 +473,53 @@ def validate(event: dict, event_type: str) -> None:
     # Event type
     if event.get("event") != event_type:
         raise ValueError(
-            f"event field mismatch: expected {event_type!r}, "
-            f"got {event.get('event')!r}"
+            f"event field mismatch: expected {event_type!r}, got {event.get('event')!r}"
         )
 
-    # Enum checks
+    # Enum checks — each uses isinstance(str) guard before set membership
+    # to prevent TypeError on non-hashable values (dicts, lists from JSON).
     posture = event.get("posture")
     if posture is None:
         raise ValueError("posture is required")
-    if posture not in _VALID_POSTURES:
+    if not isinstance(posture, str) or posture not in _VALID_POSTURES:
         raise ValueError(f"invalid posture: {posture!r}")
 
     code = event.get("convergence_reason_code")
     if event_type == "dialogue_outcome" and code is None:
         raise ValueError("convergence_reason_code required for dialogue_outcome")
-    if code is not None and code not in _VALID_CONVERGENCE_CODES:
+    if code is not None and (
+        not isinstance(code, str) or code not in _VALID_CONVERGENCE_CODES
+    ):
         raise ValueError(f"invalid convergence_reason_code: {code!r}")
 
     reason = event.get("termination_reason")
     if reason is None:
         raise ValueError("termination_reason is required")
-    if reason not in _VALID_TERMINATION_REASONS:
+    if not isinstance(reason, str) or reason not in _VALID_TERMINATION_REASONS:
         raise ValueError(f"invalid termination_reason: {reason!r}")
 
     seed = event.get("seed_confidence")
     if event_type == "dialogue_outcome" and seed is None:
         raise ValueError("seed_confidence required for dialogue_outcome")
-    if seed is not None and seed not in _VALID_SEED_CONFIDENCE:
+    if seed is not None and (
+        not isinstance(seed, str) or seed not in _VALID_SEED_CONFIDENCE
+    ):
         raise ValueError(f"invalid seed_confidence: {seed!r}")
 
     mode = event.get("mode")
     if mode is None:
         raise ValueError("mode is required")
-    if mode not in _VALID_MODES:
+    if not isinstance(mode, str) or mode not in _VALID_MODES:
         raise ValueError(f"invalid mode: {mode!r}")
+
+    # mode_source enum (dialogue_outcome only, nullable; rejected on other event types)
+    ms = event.get("mode_source")
+    if event_type == "dialogue_outcome":
+        if ms is not None:
+            if not isinstance(ms, str) or ms not in _VALID_MODE_SOURCES:
+                raise ValueError(f"invalid mode_source: {ms!r}")
+    elif "mode_source" in event:
+        raise ValueError(f"mode_source must not be present on {event_type}, got {ms!r}")
 
     # Tri-state planning invariant: question_shaped drives field requirements
     qs = event.get("question_shaped")
@@ -518,7 +530,11 @@ def validate(event: dict, event_type: str) -> None:
             )
         # Forward: when question_shaped is set (true or false), remaining planning
         # fields must be non-None (failure telemetry is preserved even on false)
-        for pf in ("shape_confidence", "assumptions_generated_count", "ambiguity_count"):
+        for pf in (
+            "shape_confidence",
+            "assumptions_generated_count",
+            "ambiguity_count",
+        ):
             if event.get(pf) is None:
                 raise ValueError(
                     f"{pf} is required when question_shaped is set (got None)"
@@ -526,7 +542,11 @@ def validate(event: dict, event_type: str) -> None:
     else:
         # Reverse: when question_shaped is None (--plan not used or debug gate
         # skip), all companion fields must also be None
-        for pf in ("shape_confidence", "assumptions_generated_count", "ambiguity_count"):
+        for pf in (
+            "shape_confidence",
+            "assumptions_generated_count",
+            "ambiguity_count",
+        ):
             if event.get(pf) is not None:
                 raise ValueError(
                     f"{pf} must be None when question_shaped is None "
@@ -535,7 +555,9 @@ def validate(event: dict, event_type: str) -> None:
 
     # Validate shape_confidence enum values when non-null
     sc = event.get("shape_confidence")
-    if sc is not None and sc not in _VALID_SHAPE_CONFIDENCE:
+    if sc is not None and (
+        not isinstance(sc, str) or sc not in _VALID_SHAPE_CONFIDENCE
+    ):
         raise ValueError(f"invalid shape_confidence: {sc!r}")
 
     # Count fields >= 0
@@ -555,7 +577,11 @@ def validate(event: dict, event_type: str) -> None:
 
     # Cross-field invariants
     turn_budget = event.get("turn_budget")
-    if turn_budget is None or isinstance(turn_budget, bool) or not isinstance(turn_budget, int):
+    if (
+        turn_budget is None
+        or isinstance(turn_budget, bool)
+        or not isinstance(turn_budget, int)
+    ):
         raise ValueError(f"turn_budget must be a positive int, got {turn_budget!r}")
     if turn_budget < 1:
         raise ValueError(f"turn_budget must be >= 1, got {turn_budget}")
@@ -566,9 +592,7 @@ def validate(event: dict, event_type: str) -> None:
         and event.get("termination_reason") != "error"
         and turn_count > turn_budget
     ):
-        raise ValueError(
-            f"turn_count ({turn_count}) > turn_budget ({turn_budget})"
-        )
+        raise ValueError(f"turn_count ({turn_count}) > turn_budget ({turn_budget})")
 
     # Type checks
     converged = event.get("converged")

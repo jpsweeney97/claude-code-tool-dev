@@ -394,7 +394,8 @@ Pipeline fields to include:
 | `shape_confidence` | Step 0 | string or null |
 | `assumptions_generated_count` | Step 0 | int or null |
 | `ambiguity_count` | Step 0 | int or null |
-| `mode` | Step 5 agent return | `"server_assisted"` or `"manual_legacy"`. Parse from the agent's `<!-- pipeline-data -->` JSON epilogue block. Extract the JSON object from the fenced block following the sentinel. If the epilogue is missing, fall back to `"server_assisted"` and log a warning. |
+| `mode` | Step 5 agent return | `"server_assisted"` or `"manual_legacy"`. Parse from the agent's `<!-- pipeline-data -->` JSON epilogue block: extract the JSON object from the fenced code block immediately after the sentinel, stopping at the first closing code fence (`` ``` ``). If the epilogue is missing, unparseable, missing the `mode` key, or has an invalid mode value, fall back to `"server_assisted"` and set `mode_source` to `"fallback"`. |
+| `mode_source` | Step 5 agent return | `"epilogue"`, `"fallback"`, or `null`. **Dialogue-outcome only — do not include in consultation-outcome pipeline data.** Set to `"epilogue"` when `mode` was successfully parsed from the agent's pipeline-data epilogue. Set to `"fallback"` when the epilogue was missing, unparseable, or contained an invalid mode value — signals that `mode` is a default, not an observed value. Reserved nullable: not in `_DIALOGUE_REQUIRED`. |
 
 **7b. Run emitter**
 
