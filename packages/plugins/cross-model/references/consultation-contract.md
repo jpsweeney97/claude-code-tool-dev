@@ -1,6 +1,6 @@
 # Consultation Contract
 
-**Version:** 0.1.0
+**Version:** 1.1.0
 **Status:** Draft
 **Purpose:** Define the normative protocol for Codex consultations — shared by the `/codex` skill and the `codex-dialogue` agent. Both reference this document as the single source of truth for briefing structure, safety rules, transport parameters, continuity logic, and relay obligations.
 
@@ -266,6 +266,8 @@ On scope breach during a delegated consultation, return:
 
 After every Codex response, present output using this required 3-part structure. This section is normative — skill and agent stubs must defer to it.
 
+**Applicability:** This relay format applies at the **skill layer** (`/codex` Step 4, `/dialogue` Step 6), not inside the `codex-dialogue` agent. The agent's synthesis output (Phase 3) uses a different multi-section format designed for the skill to relay. The skill is responsible for wrapping the agent's synthesis in the §11 3-part structure.
+
 **1. Codex Position**
 - Summarize Codex's answer in 1-3 bullets.
 - If Codex reports uncertainty or requests more context, state that explicitly.
@@ -398,9 +400,9 @@ An implementation is conformant when all items pass:
 - [ ] All 7 governance locks present in implementation
 - [ ] Local rule list matches §15 exactly
 
-**Learning Retrieval (§17)**
+**Learning Retrieval (§17)** *(deferred — stubs in place, full implementation pending E-LEARNING Phase 0)*
 - [ ] Learning store read attempted before briefing assembly
-- [ ] Missing/empty store handled gracefully (fail-soft)
+- [ ] Missing/empty store handled gracefully (fail-soft) ✓ *(stub passes — returns empty)*
 - [ ] Cards capped at 5 per consultation
 - [ ] Cards injected at correct point (§17.2)
 - [ ] No credentials or raw Codex responses in injected cards

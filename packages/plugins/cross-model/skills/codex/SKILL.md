@@ -224,6 +224,8 @@ After capturing diagnostics, emit a `consultation_outcome` event via the analyti
 
 Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json`:
 
+**Note:** `profile_name` is always `null` for `/codex` events — the `/codex` skill has no `--profile` flag. The field exists for schema parity with `dialogue_outcome` events.
+
 **Mode:** `/codex` is always `server_assisted` — it uses the Codex MCP tools directly (no fallback to manual_legacy). The codex-dialogue agent determines its own mode; `/codex` does not delegate to that agent.
 
 ```json
