@@ -32,13 +32,13 @@ EXPECTED_AGENT_GOVERNANCE_COUNT = 7
 EXPECTED_GATHERER_GOVERNANCE_COUNT = 3
 
 # Matches (§N) in stub prose — the canonical stub reference format
-STUB_REF_PATTERN = re.compile(r'\(§(\d+)\)')
+STUB_REF_PATTERN = re.compile(r"\(§(\d+)\)")
 
 # Matches ## N. in contract — the section definition format
-CONTRACT_SECTION_PATTERN = re.compile(r'^## (\d+)\.', re.MULTILINE)
+CONTRACT_SECTION_PATTERN = re.compile(r"^## (\d+)\.", re.MULTILINE)
 
 # Matches numbered governance rules with bold headings: "N. **Heading:**"
-GOVERNANCE_RULE_PATTERN = re.compile(r'^\d+\. \*\*', re.MULTILINE)
+GOVERNANCE_RULE_PATTERN = re.compile(r"^\d+\. \*\*", re.MULTILINE)
 
 
 def read_file(path: Path) -> str:
@@ -175,13 +175,23 @@ def validate(repo_root: Path | None = None) -> list[str]:
     if repo_root is None:
         repo_root = Path(__file__).resolve().parents[1]
 
-    contract_path = repo_root / "packages/plugins/cross-model/references/consultation-contract.md"
+    contract_path = (
+        repo_root / "packages/plugins/cross-model/references/consultation-contract.md"
+    )
     skill_path = repo_root / "packages/plugins/cross-model/skills/codex/SKILL.md"
-    dialogue_skill_path = repo_root / "packages/plugins/cross-model/skills/dialogue/SKILL.md"
+    dialogue_skill_path = (
+        repo_root / "packages/plugins/cross-model/skills/dialogue/SKILL.md"
+    )
     agent_path = repo_root / "packages/plugins/cross-model/agents/codex-dialogue.md"
-    codex_reviewer_path = repo_root / "packages/plugins/cross-model/agents/codex-reviewer.md"
-    gatherer_code_path = repo_root / "packages/plugins/cross-model/agents/context-gatherer-code.md"
-    gatherer_falsifier_path = repo_root / "packages/plugins/cross-model/agents/context-gatherer-falsifier.md"
+    codex_reviewer_path = (
+        repo_root / "packages/plugins/cross-model/agents/codex-reviewer.md"
+    )
+    gatherer_code_path = (
+        repo_root / "packages/plugins/cross-model/agents/context-gatherer-code.md"
+    )
+    gatherer_falsifier_path = (
+        repo_root / "packages/plugins/cross-model/agents/context-gatherer-falsifier.md"
+    )
 
     try:
         contract_text = read_file(contract_path)
@@ -208,15 +218,35 @@ def validate(repo_root: Path | None = None) -> list[str]:
     errors: list[str] = []
     errors.extend(check_section_count(contract_sections))
     errors.extend(check_stub_references("SKILL.md", skill_text, contract_sections))
-    errors.extend(check_stub_references("dialogue/SKILL.md", dialogue_skill_text, contract_sections))
-    errors.extend(check_stub_references("codex-dialogue.md", agent_text, contract_sections))
+    errors.extend(
+        check_stub_references(
+            "dialogue/SKILL.md", dialogue_skill_text, contract_sections
+        )
+    )
+    errors.extend(
+        check_stub_references("codex-dialogue.md", agent_text, contract_sections)
+    )
     errors.extend(check_governance_rule_count(skill_text, contract_text))
     errors.extend(check_event_types_in_contract(contract_text))
     errors.extend(check_deferred_annotations(contract_text))
-    errors.extend(check_agent_governance_count(agent_path, EXPECTED_AGENT_GOVERNANCE_COUNT))
-    errors.extend(check_agent_governance_count(codex_reviewer_path, EXPECTED_AGENT_GOVERNANCE_COUNT))
-    errors.extend(check_agent_governance_count(gatherer_code_path, EXPECTED_GATHERER_GOVERNANCE_COUNT))
-    errors.extend(check_agent_governance_count(gatherer_falsifier_path, EXPECTED_GATHERER_GOVERNANCE_COUNT))
+    errors.extend(
+        check_agent_governance_count(agent_path, EXPECTED_AGENT_GOVERNANCE_COUNT)
+    )
+    errors.extend(
+        check_agent_governance_count(
+            codex_reviewer_path, EXPECTED_AGENT_GOVERNANCE_COUNT
+        )
+    )
+    errors.extend(
+        check_agent_governance_count(
+            gatherer_code_path, EXPECTED_GATHERER_GOVERNANCE_COUNT
+        )
+    )
+    errors.extend(
+        check_agent_governance_count(
+            gatherer_falsifier_path, EXPECTED_GATHERER_GOVERNANCE_COUNT
+        )
+    )
     return errors
 
 
