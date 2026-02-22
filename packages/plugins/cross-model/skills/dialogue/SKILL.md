@@ -3,6 +3,7 @@ name: dialogue
 description: "Multi-turn Codex consultation with proactive context gathering. Launches parallel codebase explorers, assembles a structured briefing, and delegates to codex-dialogue. Use when you need a thorough, evidence-backed consultation, deep codebase analysis before asking Codex, or when the user says 'deep review', 'explore and discuss', or 'thorough consultation'. For quick single-turn questions, use /codex."
 argument-hint: '"question" [-p posture] [-n turns] [--profile name] [--plan]'
 user-invocable: true
+allowed-tools: mcp__plugin_cross-model_codex__codex, mcp__plugin_cross-model_codex__codex-reply, mcp__plugin_cross-model_context-injection__process_turn, mcp__plugin_cross-model_context-injection__execute_scout
 ---
 
 # Dialogue — Orchestrated Codex Consultation
