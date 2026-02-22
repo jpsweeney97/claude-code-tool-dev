@@ -480,31 +480,31 @@ def validate(event: dict, event_type: str) -> None:
     posture = event.get("posture")
     if posture is None:
         raise ValueError("posture is required")
-    if posture not in _VALID_POSTURES:
+    if not isinstance(posture, str) or posture not in _VALID_POSTURES:
         raise ValueError(f"invalid posture: {posture!r}")
 
     code = event.get("convergence_reason_code")
     if event_type == "dialogue_outcome" and code is None:
         raise ValueError("convergence_reason_code required for dialogue_outcome")
-    if code is not None and code not in _VALID_CONVERGENCE_CODES:
+    if code is not None and (not isinstance(code, str) or code not in _VALID_CONVERGENCE_CODES):
         raise ValueError(f"invalid convergence_reason_code: {code!r}")
 
     reason = event.get("termination_reason")
     if reason is None:
         raise ValueError("termination_reason is required")
-    if reason not in _VALID_TERMINATION_REASONS:
+    if not isinstance(reason, str) or reason not in _VALID_TERMINATION_REASONS:
         raise ValueError(f"invalid termination_reason: {reason!r}")
 
     seed = event.get("seed_confidence")
     if event_type == "dialogue_outcome" and seed is None:
         raise ValueError("seed_confidence required for dialogue_outcome")
-    if seed is not None and seed not in _VALID_SEED_CONFIDENCE:
+    if seed is not None and (not isinstance(seed, str) or seed not in _VALID_SEED_CONFIDENCE):
         raise ValueError(f"invalid seed_confidence: {seed!r}")
 
     mode = event.get("mode")
     if mode is None:
         raise ValueError("mode is required")
-    if mode not in _VALID_MODES:
+    if not isinstance(mode, str) or mode not in _VALID_MODES:
         raise ValueError(f"invalid mode: {mode!r}")
 
     # mode_source enum (dialogue_outcome only, nullable)
@@ -552,7 +552,7 @@ def validate(event: dict, event_type: str) -> None:
 
     # Validate shape_confidence enum values when non-null
     sc = event.get("shape_confidence")
-    if sc is not None and sc not in _VALID_SHAPE_CONFIDENCE:
+    if sc is not None and (not isinstance(sc, str) or sc not in _VALID_SHAPE_CONFIDENCE):
         raise ValueError(f"invalid shape_confidence: {sc!r}")
 
     # Count fields >= 0

@@ -1388,6 +1388,36 @@ class TestValidate:
         with pytest.raises(ValueError, match="invalid mode_source"):
             MODULE.validate(event, "dialogue_outcome")
 
+    @pytest.mark.parametrize(
+        "field,bad_value,match",
+        [
+            ("posture", ["a", "list"], "invalid posture"),
+            ("convergence_reason_code", {"k": "v"}, "invalid convergence_reason_code"),
+            ("termination_reason", 42, "invalid termination_reason"),
+            ("seed_confidence", True, "invalid seed_confidence"),
+            ("mode", {"nested": True}, "invalid mode"),
+        ],
+    )
+    def test_enum_non_string_raises_value_error(
+        self, field: str, bad_value: object, match: str
+    ) -> None:
+        """Non-string enum values raise ValueError, not TypeError from set membership."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event[field] = bad_value
+        with pytest.raises(ValueError, match=match):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_shape_confidence_non_string_raises_value_error(self) -> None:
+        """Non-string shape_confidence raises ValueError, not TypeError."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        # Set question_shaped + companions so tri-state invariant passes
+        event["question_shaped"] = True
+        event["shape_confidence"] = [1, 2]
+        event["assumptions_generated_count"] = 3
+        event["ambiguity_count"] = 0
+        with pytest.raises(ValueError, match="invalid shape_confidence"):
+            MODULE.validate(event, "dialogue_outcome")
+
     def test_null_episode_id_passes_validation(self) -> None:
         """episode_id=None should not cause validation errors (reserved nullable)."""
         event = MODULE.build_dialogue_outcome(_dialogue_input())
