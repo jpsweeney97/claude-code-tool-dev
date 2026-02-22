@@ -376,7 +376,10 @@ def test_dialogue_skill_stub_refs_resolve() -> None:
 # OSError handling (S4)
 # ---------------------------------------------------------------------------
 
-def test_read_file_permission_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_read_file_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """read_file catches PermissionError (via OSError widening), not just FileNotFoundError."""
     target = tmp_path / "unreadable.md"
     target.write_text("content")
@@ -409,10 +412,7 @@ def test_termination_reasons_match_contract() -> None:
     import importlib.util as ilu
 
     # Import _VALID_TERMINATION_REASONS from emit_analytics
-    emit_path = (
-        REPO_ROOT
-        / "packages/plugins/cross-model/scripts/emit_analytics.py"
-    )
+    emit_path = REPO_ROOT / "packages/plugins/cross-model/scripts/emit_analytics.py"
     spec = ilu.spec_from_file_location("emit_analytics", emit_path)
     assert spec is not None and spec.loader is not None
     emit_mod = ilu.module_from_spec(spec)
@@ -501,7 +501,9 @@ def test_multiple_simultaneous_errors() -> None:
     assert "skill" in error_text.lower()
 
 
-def test_validate_catches_permission_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_validate_catches_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """validate() catches PermissionError (OSError subclass) during file reads."""
     original_read_file = MODULE.read_file
 
@@ -512,8 +514,10 @@ def test_validate_catches_permission_error(tmp_path: Path, monkeypatch: pytest.M
 
     monkeypatch.setattr(MODULE, "read_file", patched_read_file)
     errors = MODULE.validate(repo_root=tmp_path)
-    permission_errors = [e for e in errors if "PermissionError" in e or "Permission denied" in e]
+    permission_errors = [
+        e for e in errors if "PermissionError" in e or "Permission denied" in e
+    ]
     assert len(permission_errors) >= 1, (
-        f"expected PermissionError in accumulated errors, got:\n"
+        "expected PermissionError in accumulated errors, got:\n"
         + "\n".join(f"  - {e}" for e in errors)
     )

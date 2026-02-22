@@ -189,7 +189,10 @@ def _strip_fenced_blocks(text: str) -> tuple[str, bool]:
     text = re.sub(r"^```.*", "", text, flags=re.MULTILINE | re.DOTALL)
     truncated = text != before
     if truncated:
-        print("_strip_fenced_blocks: unclosed fence detected, content after fence discarded", file=sys.stderr)
+        print(
+            "_strip_fenced_blocks: unclosed fence detected, content after fence discarded",
+            file=sys.stderr,
+        )
     return text, truncated
 
 
@@ -242,15 +245,11 @@ def parse_synthesis(text: str) -> dict:
     # --- Counts from original text (not section-scoped) ---
     # Checkpoint content lives inside fenced code blocks in the agent
     # output, so searching the original text is correct here.
-    resolved_count = len(
-        re.findall(r"^RESOLVED:", text, re.MULTILINE | re.IGNORECASE)
-    )
+    resolved_count = len(re.findall(r"^RESOLVED:", text, re.MULTILINE | re.IGNORECASE))
     unresolved_count = len(
         re.findall(r"^UNRESOLVED:", text, re.MULTILINE | re.IGNORECASE)
     )
-    emerged_count = len(
-        re.findall(r"^EMERGED:", text, re.MULTILINE | re.IGNORECASE)
-    )
+    emerged_count = len(re.findall(r"^EMERGED:", text, re.MULTILINE | re.IGNORECASE))
 
     # --- Converged from Summary (tolerant) ---
     converged = False
@@ -377,9 +376,7 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "emerged_count": parsed["emerged_count"],
         # Context quality
         "seed_confidence": pipeline.get("seed_confidence", "normal"),
-        "low_seed_confidence_reasons": pipeline.get(
-            "low_seed_confidence_reasons", []
-        ),
+        "low_seed_confidence_reasons": pipeline.get("low_seed_confidence_reasons", []),
         "assumption_count": pipeline.get("assumption_count", 0),
         "no_assumptions_fallback": pipeline.get("no_assumptions_fallback", False),
         # Gatherer metrics
@@ -476,8 +473,7 @@ def validate(event: dict, event_type: str) -> None:
     # Event type
     if event.get("event") != event_type:
         raise ValueError(
-            f"event field mismatch: expected {event_type!r}, "
-            f"got {event.get('event')!r}"
+            f"event field mismatch: expected {event_type!r}, got {event.get('event')!r}"
         )
 
     # Enum checks
@@ -530,7 +526,11 @@ def validate(event: dict, event_type: str) -> None:
             )
         # Forward: when question_shaped is set (true or false), remaining planning
         # fields must be non-None (failure telemetry is preserved even on false)
-        for pf in ("shape_confidence", "assumptions_generated_count", "ambiguity_count"):
+        for pf in (
+            "shape_confidence",
+            "assumptions_generated_count",
+            "ambiguity_count",
+        ):
             if event.get(pf) is None:
                 raise ValueError(
                     f"{pf} is required when question_shaped is set (got None)"
@@ -538,7 +538,11 @@ def validate(event: dict, event_type: str) -> None:
     else:
         # Reverse: when question_shaped is None (--plan not used or debug gate
         # skip), all companion fields must also be None
-        for pf in ("shape_confidence", "assumptions_generated_count", "ambiguity_count"):
+        for pf in (
+            "shape_confidence",
+            "assumptions_generated_count",
+            "ambiguity_count",
+        ):
             if event.get(pf) is not None:
                 raise ValueError(
                     f"{pf} must be None when question_shaped is None "
@@ -567,7 +571,11 @@ def validate(event: dict, event_type: str) -> None:
 
     # Cross-field invariants
     turn_budget = event.get("turn_budget")
-    if turn_budget is None or isinstance(turn_budget, bool) or not isinstance(turn_budget, int):
+    if (
+        turn_budget is None
+        or isinstance(turn_budget, bool)
+        or not isinstance(turn_budget, int)
+    ):
         raise ValueError(f"turn_budget must be a positive int, got {turn_budget!r}")
     if turn_budget < 1:
         raise ValueError(f"turn_budget must be >= 1, got {turn_budget}")
@@ -578,9 +586,7 @@ def validate(event: dict, event_type: str) -> None:
         and event.get("termination_reason") != "error"
         and turn_count > turn_budget
     ):
-        raise ValueError(
-            f"turn_count ({turn_count}) > turn_budget ({turn_budget})"
-        )
+        raise ValueError(f"turn_count ({turn_count}) > turn_budget ({turn_budget})")
 
     # Type checks
     converged = event.get("converged")

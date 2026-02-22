@@ -251,9 +251,7 @@ def validate(repo_root: Path | None = None) -> list[str]:
 
     if agent_text is not None:
         errors.extend(
-            check_agent_governance_count(
-                agent_path, EXPECTED_AGENT_GOVERNANCE_COUNT
-            )
+            check_agent_governance_count(agent_path, EXPECTED_AGENT_GOVERNANCE_COUNT)
         )
     errors.extend(
         check_agent_governance_count(
