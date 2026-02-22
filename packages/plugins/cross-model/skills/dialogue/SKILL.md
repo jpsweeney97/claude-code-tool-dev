@@ -328,6 +328,14 @@ Task(
 
 **`scope_envelope` construction:** Before delegation, run the consultation contract §3 preflight to determine allowed roots and source classes. Pass the resulting scope envelope to `codex-dialogue`. The scope is immutable once set — on scope breach, the dialogue agent stops and returns a resume capsule per contract §6.
 
+**Re-consent triggers (§3):** If any of these 5 conditions arise during the dialogue, the agent must stop and request re-consent:
+
+1. A new root path not in the original allowed set would be included
+2. A new source class not in the original allowed set would be included
+3. Estimated outbound bytes exceed the session budget
+4. A path adjacent to a known secret file (`auth.json`, `.env`, `*.pem`) is in scope
+5. Sandbox mode would escalate from `read-only` to higher privilege
+
 The agent detects the sentinel, skips briefing assembly, and runs the multi-turn conversation.
 
 ### Step 6: Present synthesis

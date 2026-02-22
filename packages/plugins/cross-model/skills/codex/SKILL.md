@@ -155,6 +155,16 @@ Before any outbound Codex dispatch:
 2. Run sanitizer/redaction on every outbound payload.
 3. If the Safety Pipeline cannot be read or applied, block dispatch and return: `pre-dispatch gate failed: contract unavailable. Got: {input!r:.100}`.
 
+### Re-consent triggers (§3)
+
+If any of these 5 conditions arise mid-consultation, stop and re-present the egress manifest before continuing:
+
+1. A new root path not in the original allowed set would be included
+2. A new source class not in the original allowed set would be included
+3. Estimated outbound bytes exceed the session budget
+4. A path adjacent to a known secret file (`auth.json`, `.env`, `*.pem`) is in scope
+5. Sandbox mode would escalate from `read-only` to higher privilege
+
 ### New conversation
 
 Call `mcp__plugin_cross-model_codex__codex` with parameters from [consultation-contract.md](../../references/consultation-contract.md) § Codex Transport Adapter (§9) and § Policy Resolver Contract (§8). Always pass resolved `sandbox`, `approval-policy`, and `config` — do not rely on upstream defaults.
