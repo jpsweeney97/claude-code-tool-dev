@@ -396,3 +396,58 @@ def test_read_file_permission_error(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     errors = MODULE.check_agent_governance_count(target, 7)
     assert len(errors) == 1
     assert "PermissionError" in errors[0]
+
+
+# ---------------------------------------------------------------------------
+# Scope-breach conformance (I7)
+# ---------------------------------------------------------------------------
+
+
+def test_termination_reasons_match_contract() -> None:
+    """§13's Valid termination reasons must match emit_analytics._VALID_TERMINATION_REASONS."""
+    import re as re_mod
+    import importlib.util as ilu
+
+    # Import _VALID_TERMINATION_REASONS from emit_analytics
+    emit_path = (
+        REPO_ROOT
+        / "packages/plugins/cross-model/scripts/emit_analytics.py"
+    )
+    spec = ilu.spec_from_file_location("emit_analytics", emit_path)
+    assert spec is not None and spec.loader is not None
+    emit_mod = ilu.module_from_spec(spec)
+    spec.loader.exec_module(emit_mod)
+    code_reasons = emit_mod._VALID_TERMINATION_REASONS
+
+    # Parse §13's "### Valid termination reasons" subsection
+    contract_text = CONTRACT_PATH.read_text()
+    section_13 = MODULE.extract_section_text(contract_text, "## 13.")
+    assert section_13 is not None, "§13 not found in contract"
+
+    # Find the subsection body after "### Valid termination reasons"
+    sub_start = section_13.find("### Valid termination reasons")
+    assert sub_start != -1, "§13 missing '### Valid termination reasons' subsection"
+
+    # Extract text until next ### or end
+    sub_text = section_13[sub_start:]
+    next_sub = sub_text.find("\n### ", len("### Valid termination reasons"))
+    if next_sub != -1:
+        sub_text = sub_text[:next_sub]
+
+    # Extract backtick-delimited values
+    contract_reasons = set(re_mod.findall(r"`([^`]+)`", sub_text))
+
+    assert contract_reasons == code_reasons, (
+        f"termination reason mismatch: contract has {sorted(contract_reasons)}, "
+        f"code has {sorted(code_reasons)}"
+    )
+
+
+def test_scope_breach_referenced_in_section_6() -> None:
+    """§6 must reference termination_reason: scope_breach for scope enforcement."""
+    contract_text = CONTRACT_PATH.read_text()
+    section_6 = MODULE.extract_section_text(contract_text, "## 6.")
+    assert section_6 is not None, "§6 not found in contract"
+    assert "scope_breach" in section_6, (
+        "§6 must reference 'scope_breach' as a termination reason"
+    )
