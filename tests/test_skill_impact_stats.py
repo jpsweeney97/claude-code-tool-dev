@@ -11,7 +11,9 @@ import pytest
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "skill_impact_stats.py"
 SPEC = importlib.util.spec_from_file_location("skill_impact_stats_module", MODULE_PATH)
 if SPEC is None or SPEC.loader is None:
-    raise RuntimeError(f"test import failed: unable to load module spec. Got: {str(MODULE_PATH)!r}")
+    raise RuntimeError(
+        f"test import failed: unable to load module spec. Got: {str(MODULE_PATH)!r}"
+    )
 MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
@@ -61,7 +63,9 @@ def test_all_ties_is_reported_as_no_effective_sample() -> None:
 
 def test_alpha_must_be_smaller_than_suggestive_alpha() -> None:
     with pytest.raises(ValueError, match="alpha must be smaller than suggestive_alpha"):
-        MODULE.compute_skill_impact_stats(wins=12, losses=5, ties=0, alpha=0.1, suggestive_alpha=0.1)
+        MODULE.compute_skill_impact_stats(
+            wins=12, losses=5, ties=0, alpha=0.1, suggestive_alpha=0.1
+        )
 
 
 def test_render_report_lines_infers_statistical_verdict() -> None:
@@ -79,7 +83,10 @@ def test_render_report_lines_infers_statistical_verdict() -> None:
         holdout_stats=None,
     )
 
-    assert "- Win rate: 76.5% (13 wins / 17 non-tied tasks), Wilson 95% CI: [52.7%, 90.4%]" in report
+    assert (
+        "- Win rate: 76.5% (13 wins / 17 non-tied tasks), Wilson 95% CI: [52.7%, 90.4%]"
+        in report
+    )
     assert "- Primary comparison: test vs baseline" in report
     assert "- Sign test: p_help = 0.0245 (significant); p_harm = 0.9936" in report
     assert "- Holdout (if run): not run" in report

@@ -90,7 +90,12 @@ class TestContextualPatterns:
         assert MODULE.handle_pre(_pre("Authorization: Bearer " + "x" * 30)) == 2
 
     def test_url_userinfo_blocks(self) -> None:
-        assert MODULE.handle_pre(_pre("Connect to postgres://user:s3cr3tp@ss@db.host/mydb")) == 2
+        assert (
+            MODULE.handle_pre(
+                _pre("Connect to postgres://user:s3cr3tp@ss@db.host/mydb")
+            )
+            == 2
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -100,15 +105,25 @@ class TestContextualPatterns:
 
 class TestPlaceholderSuppression:
     def test_openai_key_format_discussion_allowed(self) -> None:
-        prompt = "OpenAI API keys look like sk- followed by 40 characters. Example: sk-" + "x" * 40
+        prompt = (
+            "OpenAI API keys look like sk- followed by 40 characters. Example: sk-"
+            + "x" * 40
+        )
         assert MODULE.handle_pre(_pre(prompt)) == 0
 
     def test_github_token_example_allowed(self) -> None:
         token = "ghp_" + "A" * 36
-        assert MODULE.handle_pre(_pre(f"An example GitHub PAT looks like: {token}")) == 0
+        assert (
+            MODULE.handle_pre(_pre(f"An example GitHub PAT looks like: {token}")) == 0
+        )
 
     def test_redacted_placeholder_allowed(self) -> None:
-        assert MODULE.handle_pre(_pre("Use [REDACTED: credential material] in place of real tokens")) == 0
+        assert (
+            MODULE.handle_pre(
+                _pre("Use [REDACTED: credential material] in place of real tokens")
+            )
+            == 0
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +136,14 @@ class TestCleanPrompts:
         assert MODULE.handle_pre(_pre("What is the capital of France?")) == 0
 
     def test_code_review_prompt_allowed(self) -> None:
-        assert MODULE.handle_pre(_pre("Review this Python function for bugs:\n\ndef add(a, b):\n    return a + b")) == 0
+        assert (
+            MODULE.handle_pre(
+                _pre(
+                    "Review this Python function for bugs:\n\ndef add(a, b):\n    return a + b"
+                )
+            )
+            == 0
+        )
 
     def test_empty_prompt_allowed(self) -> None:
         assert MODULE.handle_pre(_pre("")) == 0
@@ -145,7 +167,10 @@ class TestFailClosed:
         assert result == 2
 
     def test_missing_tool_input_allows(self) -> None:
-        data = {"hook_event_name": "PreToolUse", "tool_name": "mcp__plugin_cross-model_codex__codex"}
+        data = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "mcp__plugin_cross-model_codex__codex",
+        }
         assert MODULE.handle_pre(data) == 0
 
 
@@ -168,7 +193,9 @@ class TestPostToolUse:
         data["tool_name"] = "mcp__plugin_cross-model_codex__codex-reply"
         assert MODULE.handle_post(data) == 0
 
-    def test_post_thread_id_from_structured_content(self, tmp_path, monkeypatch) -> None:
+    def test_post_thread_id_from_structured_content(
+        self, tmp_path, monkeypatch
+    ) -> None:
         """thread_id_present is True when threadId is in structuredContent."""
         monkeypatch.setattr(MODULE, "_LOG_PATH", tmp_path / "events.jsonl")
         data = _post()
@@ -180,7 +207,9 @@ class TestPostToolUse:
         log = json.loads((tmp_path / "events.jsonl").read_text().strip())
         assert log["thread_id_present"] is True
 
-    def test_post_thread_id_from_top_level_response(self, tmp_path, monkeypatch) -> None:
+    def test_post_thread_id_from_top_level_response(
+        self, tmp_path, monkeypatch
+    ) -> None:
         """thread_id_present is True when threadId is at top level of tool_response."""
         monkeypatch.setattr(MODULE, "_LOG_PATH", tmp_path / "events.jsonl")
         data = _post()

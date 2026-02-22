@@ -10,7 +10,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "packages" / "plugins" / "cross-model"
+PLUGIN_ROOT = (
+    Path(__file__).resolve().parent.parent / "packages" / "plugins" / "cross-model"
+)
 SKILL_PATH = PLUGIN_ROOT / "skills" / "dialogue" / "SKILL.md"
 PROFILES_PATH = PLUGIN_ROOT / "references" / "consultation-profiles.yaml"
 CONTRACT_PATH = PLUGIN_ROOT / "references" / "consultation-contract.md"
@@ -50,7 +52,9 @@ class TestEPlanningSpecSync:
             content,
             re.MULTILINE,
         )
-        assert planning_match, "consultation-profiles.yaml missing planning profile block"
+        assert planning_match, (
+            "consultation-profiles.yaml missing planning profile block"
+        )
         block = planning_match.group(1)
         posture_match = re.search(r"posture:\s*(\w+)", block)
         assert posture_match and posture_match.group(1) == "evaluative", (
@@ -71,9 +75,7 @@ class TestEPlanningSpecSync:
     def test_reasoning_effort_in_agent_parse_table(self) -> None:
         """codex-dialogue agent Phase 1 parse table includes reasoning_effort."""
         content = AGENT_PATH.read_text()
-        parse_table_match = re.search(
-            r"\|[^\n]*`reasoning_effort`[^\n]*\|", content
-        )
+        parse_table_match = re.search(r"\|[^\n]*`reasoning_effort`[^\n]*\|", content)
         assert parse_table_match, (
             "codex-dialogue.md Phase 1 parse table missing reasoning_effort row"
         )

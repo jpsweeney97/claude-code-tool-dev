@@ -422,22 +422,50 @@ class TestBuildDialogueOutcome:
     def test_all_fields_present(self) -> None:
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         expected_fields = {
-            "schema_version", "consultation_id", "thread_id", "session_id",
-            "event", "ts", "posture", "turn_count", "turn_budget",
-            "profile_name", "mode", "converged", "convergence_reason_code",
-            "termination_reason", "resolved_count", "unresolved_count",
-            "emerged_count", "seed_confidence", "low_seed_confidence_reasons",
-            "assumption_count", "no_assumptions_fallback",
-            "gatherer_a_lines", "gatherer_b_lines",
-            "gatherer_a_retry", "gatherer_b_retry",
-            "citations_total", "unique_files_total",
-            "gatherer_a_unique_paths", "gatherer_b_unique_paths",
-            "shared_citation_paths", "counter_count", "confirm_count",
-            "open_count", "claim_count", "scout_count",
-            "source_classes", "scope_root_count", "scope_roots_fingerprint",
-            "question_shaped", "shape_confidence",
-            "assumptions_generated_count", "ambiguity_count",
-            "provenance_unknown_count", "episode_id",
+            "schema_version",
+            "consultation_id",
+            "thread_id",
+            "session_id",
+            "event",
+            "ts",
+            "posture",
+            "turn_count",
+            "turn_budget",
+            "profile_name",
+            "mode",
+            "converged",
+            "convergence_reason_code",
+            "termination_reason",
+            "resolved_count",
+            "unresolved_count",
+            "emerged_count",
+            "seed_confidence",
+            "low_seed_confidence_reasons",
+            "assumption_count",
+            "no_assumptions_fallback",
+            "gatherer_a_lines",
+            "gatherer_b_lines",
+            "gatherer_a_retry",
+            "gatherer_b_retry",
+            "citations_total",
+            "unique_files_total",
+            "gatherer_a_unique_paths",
+            "gatherer_b_unique_paths",
+            "shared_citation_paths",
+            "counter_count",
+            "confirm_count",
+            "open_count",
+            "claim_count",
+            "scout_count",
+            "source_classes",
+            "scope_root_count",
+            "scope_roots_fingerprint",
+            "question_shaped",
+            "shape_confidence",
+            "assumptions_generated_count",
+            "ambiguity_count",
+            "provenance_unknown_count",
+            "episode_id",
             "parse_truncated",
         }
         assert set(event.keys()) == expected_fields
@@ -489,9 +517,7 @@ class TestBuildDialogueOutcome:
         assert event["episode_id"] is None
 
     def test_scope_breach_event(self) -> None:
-        event = MODULE.build_dialogue_outcome(
-            _dialogue_input(scope_breach=True)
-        )
+        event = MODULE.build_dialogue_outcome(_dialogue_input(scope_breach=True))
         assert event["convergence_reason_code"] == "scope_breach"
         assert event["termination_reason"] == "scope_breach"
 
@@ -798,17 +824,36 @@ class TestPipelineCompleteness:
         """All pipeline.get() keys in build_dialogue_outcome have explicit values."""
         pipeline = _dialogue_input()["pipeline"]
         builder_keys = {
-            "posture", "turn_budget", "profile_name", "seed_confidence",
-            "low_seed_confidence_reasons", "assumption_count",
-            "no_assumptions_fallback", "gatherer_a_lines", "gatherer_b_lines",
-            "gatherer_a_retry", "gatherer_b_retry", "citations_total",
-            "unique_files_total", "gatherer_a_unique_paths",
-            "gatherer_b_unique_paths", "shared_citation_paths",
-            "counter_count", "confirm_count", "open_count", "claim_count",
-            "scout_count", "source_classes", "scope_root_count",
-            "scope_roots_fingerprint", "question_shaped", "shape_confidence",
-            "assumptions_generated_count", "ambiguity_count",
-            "provenance_unknown_count", "mode",
+            "posture",
+            "turn_budget",
+            "profile_name",
+            "seed_confidence",
+            "low_seed_confidence_reasons",
+            "assumption_count",
+            "no_assumptions_fallback",
+            "gatherer_a_lines",
+            "gatherer_b_lines",
+            "gatherer_a_retry",
+            "gatherer_b_retry",
+            "citations_total",
+            "unique_files_total",
+            "gatherer_a_unique_paths",
+            "gatherer_b_unique_paths",
+            "shared_citation_paths",
+            "counter_count",
+            "confirm_count",
+            "open_count",
+            "claim_count",
+            "scout_count",
+            "source_classes",
+            "scope_root_count",
+            "scope_roots_fingerprint",
+            "question_shaped",
+            "shape_confidence",
+            "assumptions_generated_count",
+            "ambiguity_count",
+            "provenance_unknown_count",
+            "mode",
         }
         assert builder_keys.issubset(set(pipeline.keys())), (
             f"Missing pipeline keys: {builder_keys - set(pipeline.keys())}"
@@ -818,10 +863,17 @@ class TestPipelineCompleteness:
         """All pipeline.get() keys in build_consultation_outcome have explicit values."""
         pipeline = _consultation_input()["pipeline"]
         builder_keys = {
-            "thread_id", "posture", "turn_count", "turn_budget",
-            "profile_name", "mode", "provenance_unknown_count",
-            "question_shaped", "shape_confidence",
-            "assumptions_generated_count", "ambiguity_count",
+            "thread_id",
+            "posture",
+            "turn_count",
+            "turn_budget",
+            "profile_name",
+            "mode",
+            "provenance_unknown_count",
+            "question_shaped",
+            "shape_confidence",
+            "assumptions_generated_count",
+            "ambiguity_count",
         }
         assert builder_keys.issubset(set(pipeline.keys())), (
             f"Missing pipeline keys: {builder_keys - set(pipeline.keys())}"
@@ -915,7 +967,9 @@ class TestValidate:
     def test_consultation_multi_turn_valid(self) -> None:
         """Multi-turn /codex: turn_count > turn_budget is valid."""
         event = MODULE.build_consultation_outcome(
-            _consultation_input({"posture": "collaborative", "turn_count": 3, "turn_budget": 1})
+            _consultation_input(
+                {"posture": "collaborative", "turn_count": 3, "turn_budget": 1}
+            )
         )
         MODULE.validate(event, "consultation_outcome")  # no exception
 
@@ -1013,7 +1067,9 @@ class TestValidate:
     def test_source_classes_non_string_items(self) -> None:
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         event["source_classes"] = [1, 2]
-        with pytest.raises(ValueError, match="source_classes must contain only strings"):
+        with pytest.raises(
+            ValueError, match="source_classes must contain only strings"
+        ):
             MODULE.validate(event, "dialogue_outcome")
 
     def test_none_mode_rejected_dialogue(self) -> None:
@@ -1062,14 +1118,18 @@ class TestValidate:
         """low_seed_confidence_reasons must be a list, not a string."""
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         event["low_seed_confidence_reasons"] = "insufficient coverage"
-        with pytest.raises(ValueError, match="low_seed_confidence_reasons must be a list"):
+        with pytest.raises(
+            ValueError, match="low_seed_confidence_reasons must be a list"
+        ):
             MODULE.validate(event, "dialogue_outcome")
 
     def test_low_seed_confidence_reasons_non_string_items(self) -> None:
         """low_seed_confidence_reasons items must be strings."""
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         event["low_seed_confidence_reasons"] = [1, 2]
-        with pytest.raises(ValueError, match="low_seed_confidence_reasons must contain only strings"):
+        with pytest.raises(
+            ValueError, match="low_seed_confidence_reasons must contain only strings"
+        ):
             MODULE.validate(event, "dialogue_outcome")
 
     def test_low_seed_confidence_reasons_valid(self) -> None:
@@ -1089,15 +1149,21 @@ class TestValidate:
         """All four enum values pass validation together."""
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         event["low_seed_confidence_reasons"] = [
-            "thin_citations", "few_files", "zero_output", "provenance_violations"
+            "thin_citations",
+            "few_files",
+            "zero_output",
+            "provenance_violations",
         ]
         MODULE.validate(event, "dialogue_outcome")  # no exception
 
-    @pytest.mark.parametrize("reasons", [
-        ["few_files", "bad_reason"],
-        ["thin_citations", "provenance_violations", "oops"],
-        ["bad_reason", "few_files"],
-    ])
+    @pytest.mark.parametrize(
+        "reasons",
+        [
+            ["few_files", "bad_reason"],
+            ["thin_citations", "provenance_violations", "oops"],
+            ["bad_reason", "few_files"],
+        ],
+    )
     def test_mixed_valid_invalid_low_seed_confidence_reasons_rejected(
         self, reasons: list[str]
     ) -> None:
@@ -1156,9 +1222,7 @@ class TestValidate:
 
     def test_planning_tri_state_false_missing_companion(self) -> None:
         """question_shaped=False also requires companion fields (not just True)."""
-        pipeline = _pipeline_with_planning(
-            question_shaped=False, shape_confidence=None
-        )
+        pipeline = _pipeline_with_planning(question_shaped=False, shape_confidence=None)
         event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         with pytest.raises(ValueError, match="shape_confidence is required"):
             MODULE.validate(event, "dialogue_outcome")
@@ -1172,7 +1236,13 @@ class TestValidate:
 
     def test_planning_question_shaped_wrong_type(self) -> None:
         """question_shaped must be bool when non-None."""
-        pipeline = {**SAMPLE_PIPELINE, "question_shaped": "yes", "shape_confidence": "high", "assumptions_generated_count": 3, "ambiguity_count": 1}
+        pipeline = {
+            **SAMPLE_PIPELINE,
+            "question_shaped": "yes",
+            "shape_confidence": "high",
+            "assumptions_generated_count": 3,
+            "ambiguity_count": 1,
+        }
         event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         with pytest.raises(ValueError, match="question_shaped must be bool"):
             MODULE.validate(event, "dialogue_outcome")
@@ -1205,21 +1275,30 @@ class TestValidate:
         """question_shaped=None with stray shape_confidence rejects."""
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         event["shape_confidence"] = "high"
-        with pytest.raises(ValueError, match="shape_confidence must be None when question_shaped is None"):
+        with pytest.raises(
+            ValueError,
+            match="shape_confidence must be None when question_shaped is None",
+        ):
             MODULE.validate(event, "dialogue_outcome")
 
     def test_reverse_invariant_stray_assumptions_count(self) -> None:
         """question_shaped=None with stray assumptions_generated_count rejects."""
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         event["assumptions_generated_count"] = 3
-        with pytest.raises(ValueError, match="assumptions_generated_count must be None when question_shaped is None"):
+        with pytest.raises(
+            ValueError,
+            match="assumptions_generated_count must be None when question_shaped is None",
+        ):
             MODULE.validate(event, "dialogue_outcome")
 
     def test_reverse_invariant_stray_ambiguity_count(self) -> None:
         """question_shaped=None with stray ambiguity_count rejects."""
         event = MODULE.build_dialogue_outcome(_dialogue_input())
         event["ambiguity_count"] = 1
-        with pytest.raises(ValueError, match="ambiguity_count must be None when question_shaped is None"):
+        with pytest.raises(
+            ValueError,
+            match="ambiguity_count must be None when question_shaped is None",
+        ):
             MODULE.validate(event, "dialogue_outcome")
 
     # --- Error precedence test ---
@@ -1338,12 +1417,12 @@ class TestMain:
 
         event = json.loads(log_path.read_text().strip())
         assert event["event"] == "dialogue_outcome"
-        assert event["schema_version"] == "0.2.0"  # SAMPLE_PIPELINE has provenance_unknown_count=0
+        assert (
+            event["schema_version"] == "0.2.0"
+        )  # SAMPLE_PIPELINE has provenance_unknown_count=0
         assert event["resolved_count"] == 5
 
-    def test_dialogue_provenance_end_to_end(
-        self, tmp_path, monkeypatch
-    ) -> None:
+    def test_dialogue_provenance_end_to_end(self, tmp_path, monkeypatch) -> None:
         """E2E: provenance_unknown_count triggers schema_version 0.2.0 in log."""
         log_path = tmp_path / "events.jsonl"
         monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
@@ -1504,7 +1583,9 @@ class TestReplayConformance:
         fixture = _load_fixture("dialogue_converged.json")
         event = MODULE.build_dialogue_outcome(fixture)
         assert event["thread_id"] == "019c819e-dc16-79d3-825b-0d54b23627ea"
-        assert event["thread_id"] is not None, "converged dialogue should have thread_id"
+        assert event["thread_id"] is not None, (
+            "converged dialogue should have thread_id"
+        )
 
     def test_converged_dialogue_convergence(self) -> None:
         fixture = _load_fixture("dialogue_converged.json")
@@ -1593,7 +1674,9 @@ class TestReplayConformance:
     def test_all_fixtures_load(self) -> None:
         """Verify all fixture files are loadable JSON."""
         fixture_files = sorted(FIXTURE_DIR.glob("*.json"))
-        assert len(fixture_files) >= 5, f"expected >= 5 fixtures, got {len(fixture_files)}"
+        assert len(fixture_files) >= 5, (
+            f"expected >= 5 fixtures, got {len(fixture_files)}"
+        )
         for f in fixture_files:
             data = json.loads(f.read_text())
             assert "event_type" in data or "pipeline" in data

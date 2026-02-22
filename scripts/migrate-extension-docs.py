@@ -170,8 +170,14 @@ def migrate(dry_run: bool) -> int:
         agent_path,
         [
             ("extension-docs-researcher", "claude-code-docs-researcher"),
-            ("mcp__extension-docs__search_extension_docs", "mcp__claude-code-docs__search_docs"),
-            ("mcp__extension-docs__reload_extension_docs", "mcp__claude-code-docs__reload_docs"),
+            (
+                "mcp__extension-docs__search_extension_docs",
+                "mcp__claude-code-docs__search_docs",
+            ),
+            (
+                "mcp__extension-docs__reload_extension_docs",
+                "mcp__claude-code-docs__reload_docs",
+            ),
             ("extension-docs MCP server", "claude-code-docs MCP server"),
         ],
         dry_run,
@@ -190,8 +196,14 @@ def migrate(dry_run: bool) -> int:
         skill_path,
         [
             ("name: extension-docs", "name: claude-code-docs"),
-            ("mcp__extension-docs__search_extension_docs", "mcp__claude-code-docs__search_docs"),
-            ("mcp__extension-docs__reload_extension_docs", "mcp__claude-code-docs__reload_docs"),
+            (
+                "mcp__extension-docs__search_extension_docs",
+                "mcp__claude-code-docs__search_docs",
+            ),
+            (
+                "mcp__extension-docs__reload_extension_docs",
+                "mcp__claude-code-docs__reload_docs",
+            ),
             ("extension-docs MCP server", "claude-code-docs MCP server"),
             ("search_extension_docs", "search_docs"),
             ("reload_extension_docs", "reload_docs"),
@@ -204,7 +216,10 @@ def migrate(dry_run: bool) -> int:
     if update_text_file(
         repo_root / ".claude/settings.local.json",
         [
-            ("mcp__extension-docs__search_extension_docs", "mcp__claude-code-docs__search_docs"),
+            (
+                "mcp__extension-docs__search_extension_docs",
+                "mcp__claude-code-docs__search_docs",
+            ),
         ],
         dry_run,
     ):
@@ -222,13 +237,17 @@ def migrate(dry_run: bool) -> int:
             elif "mcpServers" in data and "extension-docs" in data["mcpServers"]:
                 if dry_run:
                     dry_log(f"Would update: {claude_json}")
-                    dry_log("  - mcpServers.extension-docs → mcpServers.claude-code-docs")
+                    dry_log(
+                        "  - mcpServers.extension-docs → mcpServers.claude-code-docs"
+                    )
                 else:
                     # Backup before modifying
                     backup_path = claude_json.with_suffix(".json.bak")
                     backup_path.write_text(content)
                     apply_log(f"Backed up: {claude_json} → {backup_path}")
-                    data["mcpServers"]["claude-code-docs"] = data["mcpServers"].pop("extension-docs")
+                    data["mcpServers"]["claude-code-docs"] = data["mcpServers"].pop(
+                        "extension-docs"
+                    )
                     write_file(claude_json, json.dumps(data, indent=2) + "\n")
                     apply_log(f"Updated: {claude_json}")
                 changes += 1
@@ -241,7 +260,9 @@ def migrate(dry_run: bool) -> int:
     if home_old_skill.exists():
         if rename_path(home_old_skill, home_new_skill, dry_run):
             changes += 1
-        skill_md = (home_new_skill if home_new_skill.exists() else home_old_skill) / "SKILL.md"
+        skill_md = (
+            home_new_skill if home_new_skill.exists() else home_old_skill
+        ) / "SKILL.md"
         if skill_md.exists():
             if update_text_file(
                 skill_md,
@@ -290,11 +311,15 @@ def migrate(dry_run: bool) -> int:
     print()
     if dry_run:
         print(f"Summary: {changes} change(s) would be made")
-        print("\nTo apply changes, run: uv run scripts/migrate-extension-docs.py --apply")
+        print(
+            "\nTo apply changes, run: uv run scripts/migrate-extension-docs.py --apply"
+        )
     else:
         print(f"Summary: {changes} change(s) made")
         print("\nNext steps:")
-        print("1. Rebuild MCP server: cd packages/mcp-servers/claude-code-docs && npm run build")
+        print(
+            "1. Rebuild MCP server: cd packages/mcp-servers/claude-code-docs && npm run build"
+        )
         print("2. Restart Claude Code to pick up new MCP server config")
         print("3. Delete orphaned cache: rm -rf ~/.cache/extension-docs/")
 

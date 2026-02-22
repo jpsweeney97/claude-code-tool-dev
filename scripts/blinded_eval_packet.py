@@ -9,8 +9,12 @@ from pathlib import Path
 from typing import Iterable
 
 
-CONDITION_WORDS_RE = re.compile(r"\b(baseline|target|placebo|proxy|harmful|control)\b", re.I)
-FILENAME_CONDITION_TOKENS_RE = re.compile(r"__baseline__|__target__|__placebo__|__proxy|__harmful|__control")
+CONDITION_WORDS_RE = re.compile(
+    r"\b(baseline|target|placebo|proxy|harmful|control)\b", re.I
+)
+FILENAME_CONDITION_TOKENS_RE = re.compile(
+    r"__baseline__|__target__|__placebo__|__proxy|__harmful|__control"
+)
 
 # Redact injected-body tokens if they appear inside extracted content.
 # Include lowercase, dots, and hyphens because versioned tokens often use suffixes like `_v0.1.0`.
@@ -51,7 +55,11 @@ def _is_stub(output: str) -> bool:
     if not output.strip():
         return True
     lower = output.lower()
-    return ("empty stub" in lower) or ("not executed" in lower) or ("raw output or pointer to artifact" in lower)
+    return (
+        ("empty stub" in lower)
+        or ("not executed" in lower)
+        or ("raw output or pointer to artifact" in lower)
+    )
 
 
 def _candidate_id(scenario_id: str, run_record_name: str) -> str:
@@ -85,9 +93,13 @@ def _extract_framework_rubric_yaml_blocks(framework_text: str) -> dict[str, str]
 
 
 def build_scenario_contexts(repo_root: Path) -> dict[str, ScenarioContext]:
-    framework_path = repo_root / "docs/frameworks/simulation-effectiveness-benchmark_v0.1.0.md"
+    framework_path = (
+        repo_root / "docs/frameworks/simulation-effectiveness-benchmark_v0.1.0.md"
+    )
     if not framework_path.exists():
-        raise SystemExit(f"context build failed: framework doc missing. Got: {str(framework_path)!r}")
+        raise SystemExit(
+            f"context build failed: framework doc missing. Got: {str(framework_path)!r}"
+        )
     framework_text = framework_path.read_text()
     yaml_by_id = _extract_framework_rubric_yaml_blocks(framework_text)
 
@@ -95,7 +107,9 @@ def build_scenario_contexts(repo_root: Path) -> dict[str, ScenarioContext]:
     for scenario_id, yaml_block in yaml_by_id.items():
         # Redact any injected-body tokens that might appear in notes/elsewhere.
         redacted = _redact_for_blinding(yaml_block)
-        contexts[scenario_id] = ScenarioContext(scenario_id=scenario_id, task_and_criteria=redacted)
+        contexts[scenario_id] = ScenarioContext(
+            scenario_id=scenario_id, task_and_criteria=redacted
+        )
     return contexts
 
 
@@ -108,7 +122,9 @@ def build_candidates(run_records_dir: Path, include_stubs: bool) -> list[Candida
         output = _redact_for_blinding(output)
         if not include_stubs and _is_stub(output):
             continue
-        candidates.append(Candidate(scenario_id=scenario_id, run_record_name=path.name, output=output))
+        candidates.append(
+            Candidate(scenario_id=scenario_id, run_record_name=path.name, output=output)
+        )
     candidates.sort(key=lambda c: (c.scenario_id, c.run_record_name))
     return candidates
 
@@ -128,7 +144,9 @@ def write_packet(
     lines.append("- Candidate IDs are condition-free.")
     lines.append("- Content includes only extracted rubric-run `## Output` sections.")
     lines.append("- Condition words are redacted to `[REDACTED_CONDITION]`.")
-    lines.append("- Injected-body tokens are redacted to `BENCH_[REDACTED]` / `CONTROL_[REDACTED]` when they appear in extracted output.")
+    lines.append(
+        "- Injected-body tokens are redacted to `BENCH_[REDACTED]` / `CONTROL_[REDACTED]` when they appear in extracted output."
+    )
     lines.append("")
 
     current_scenario: str | None = None
@@ -150,7 +168,9 @@ def write_packet(
             else:
                 lines.append("### Task + Criteria (authoritative excerpt)")
                 lines.append("")
-                lines.append("_Missing: scenario context not found in framework doc YAML blocks._")
+                lines.append(
+                    "_Missing: scenario context not found in framework doc YAML blocks._"
+                )
                 lines.append("")
 
         cid = _candidate_id(candidate.scenario_id, candidate.run_record_name)
@@ -168,11 +188,15 @@ def write_mapping(run_id: str, out_path: Path, candidates: list[Candidate]) -> N
     lines.append("")
     lines.append(f"**Run ID:** `{run_id}`")
     lines.append("")
-    lines.append("This file maps condition-free candidate IDs to run-record files. Do not share with the blinded evaluator.")
+    lines.append(
+        "This file maps condition-free candidate IDs to run-record files. Do not share with the blinded evaluator."
+    )
     lines.append("")
     for candidate in candidates:
         cid = _candidate_id(candidate.scenario_id, candidate.run_record_name)
-        lines.append(f"- `{cid}` -> `docs/benchmarks/runs/{run_id}/run-records/{candidate.run_record_name}`")
+        lines.append(
+            f"- `{cid}` -> `docs/benchmarks/runs/{run_id}/run-records/{candidate.run_record_name}`"
+        )
     out_path.write_text("\n".join(lines).rstrip() + "\n")
 
 
@@ -181,25 +205,49 @@ def verify_packet(packet_path: Path) -> None:
 
     forbidden_tokens = FILENAME_CONDITION_TOKENS_RE.findall(text)
     if forbidden_tokens:
-        raise SystemExit(f"verify_packet failed: forbidden filename condition tokens present. Got: {sorted(set(forbidden_tokens))!r}")
+        raise SystemExit(
+            f"verify_packet failed: forbidden filename condition tokens present. Got: {sorted(set(forbidden_tokens))!r}"
+        )
 
     if CONDITION_WORDS_RE.search(text):
-        raise SystemExit("verify_packet failed: condition words present after redaction.")
+        raise SystemExit(
+            "verify_packet failed: condition words present after redaction."
+        )
 
     # Allow BENCH_[REDACTED], CONTROL_[REDACTED], and BENCH_* (literal phrase).
     bench_leaks = re.findall(r"\bBENCH_(?!\[REDACTED\]|\*)[A-Za-z0-9_.-]+\b", text)
     ctrl_leaks = re.findall(r"\bCONTROL_(?!\[REDACTED\])[A-Za-z0-9_.-]+\b", text)
     if bench_leaks or ctrl_leaks:
-        raise SystemExit(f"verify_packet failed: injected-body token leaks. Got: BENCH={bench_leaks[:10]!r} CONTROL={ctrl_leaks[:10]!r}")
+        raise SystemExit(
+            f"verify_packet failed: injected-body token leaks. Got: BENCH={bench_leaks[:10]!r} CONTROL={ctrl_leaks[:10]!r}"
+        )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build fully blinded rubric evaluation packet + private mapping.")
-    parser.add_argument("--run-id", required=True, help="Benchmark run id, e.g. 2026-02-06_benchmark-v0_initial")
+    parser = argparse.ArgumentParser(
+        description="Build fully blinded rubric evaluation packet + private mapping."
+    )
+    parser.add_argument(
+        "--run-id",
+        required=True,
+        help="Benchmark run id, e.g. 2026-02-06_benchmark-v0_initial",
+    )
     parser.add_argument("--repo-root", default=".", help="Repo root (default: .)")
-    parser.add_argument("--out-dir", default=None, help="Output dir (default: docs/benchmarks/runs/<run-id>/blinded_eval/)")
-    parser.add_argument("--include-stubs", action="store_true", help="Include empty stubs as <NO OUTPUT> entries")
-    parser.add_argument("--verify-only", action="store_true", help="Verify an existing packet (no writes)")
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help="Output dir (default: docs/benchmarks/runs/<run-id>/blinded_eval/)",
+    )
+    parser.add_argument(
+        "--include-stubs",
+        action="store_true",
+        help="Include empty stubs as <NO OUTPUT> entries",
+    )
+    parser.add_argument(
+        "--verify-only",
+        action="store_true",
+        help="Verify an existing packet (no writes)",
+    )
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
@@ -207,7 +255,9 @@ def main() -> None:
 
     base_dir = repo_root / "docs/benchmarks/runs" / run_id
     run_records_dir = base_dir / "run-records"
-    out_dir = Path(args.out_dir).resolve() if args.out_dir else (base_dir / "blinded_eval")
+    out_dir = (
+        Path(args.out_dir).resolve() if args.out_dir else (base_dir / "blinded_eval")
+    )
 
     packet_path = out_dir / "blinded_eval_packet.md"
     mapping_path = out_dir / "blinded_eval_mapping_private.md"
@@ -218,7 +268,9 @@ def main() -> None:
         return
 
     if not run_records_dir.exists():
-        raise SystemExit(f"build failed: run-records dir missing. Got: {str(run_records_dir)!r}")
+        raise SystemExit(
+            f"build failed: run-records dir missing. Got: {str(run_records_dir)!r}"
+        )
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
