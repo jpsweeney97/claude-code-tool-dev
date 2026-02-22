@@ -42,6 +42,7 @@ The prompt from the caller contains:
 | Turn budget | No | Maximum Codex turns. Default: **8** |
 | `seed_confidence` | No | Quality signal from pre-dialogue context gathering. Values: `normal` (default), `low`. Read from delegation envelope. |
 | `reasoning_effort` | No | Resolved reasoning effort for Codex calls. Values: `minimal`, `low`, `medium`, `high`, `xhigh`. When omitted, use consultation contract §8 default (`xhigh`). Passed from delegation envelope. |
+| `scope_envelope` | No | Immutable scope set from §3 preflight. Contains `allowed_roots` (list of path prefixes) and `source_classes` (list of allowed source types). When present, the agent must not read files outside allowed roots during scouting. When absent, treated as unrestricted (backwards compatibility). |
 
 If the prompt references files without inlining them, read those files before assembling the briefing.
 
@@ -117,6 +118,8 @@ Initialize after starting the conversation:
 | `evidence_count` | `0` | Scouts executed (for synthesis statistics) |
 | `turn_history` | `[]` | Per-turn list of `{validated_entry, cumulative, scout_outcomes}` — append in Step 3 on every successful `process_turn` response, before the budget gate check |
 | `seed_confidence` | `normal` | From delegation envelope. Values: `normal`, `low`. Controls early-turn scouting bias. |
+| `scope_envelope` | From delegation or `null` | Immutable. Contains `allowed_roots` and `source_classes`. |
+| `scope_breach_count` | `0` | Counter incremented on each scope breach during scouting. |
 | `unknown_claim_paths` | `∅` | Set of file paths (without line numbers) from `[SRC:unknown]` briefing lines. Populated once at briefing parse (before Step 1 of per-turn loop). Cleared per-path after successful scout verification. |
 
 **Per-turn state retention:** On every successful `process_turn` response, append to `turn_history` **before** checking the budget gate:
@@ -352,6 +355,24 @@ If `template_candidates` is non-empty:
    - Note updated `budget`
 4g. On error: continue without evidence. Do not retry.
 
+### Scope breach detection
+
+Before executing any scout (file read via `execute_scout`), check the target path against `scope_envelope.allowed_roots`:
+
+1. If `scope_envelope` is absent or `allowed_roots` is empty: no restriction (backwards compatibility).
+2. If `scope_envelope` is present: the scout's target path must start with at least one entry in `allowed_roots`.
+3. If the path is outside all allowed roots: **do not execute the scout**. Log: `scope breach: scout target {path} outside allowed roots`. Increment a `scope_breach_count` counter.
+4. If `scope_breach_count` reaches 3 in a single conversation: **terminate the dialogue immediately** with `termination_reason: scope_breach`.
+
+On scope breach termination:
+- Skip remaining turns
+- Proceed directly to Phase 3 synthesis
+- Set `converged: false`
+- Set `termination_reason: scope_breach`
+- Set `convergence_reason_code: scope_breach`
+- Include `scope_breach_count` in the Pipeline Data JSON epilogue
+- Note in the synthesis: "Dialogue terminated due to scope breach — scout targets exceeded allowed roots."
+
 #### Step 5: Act on action
 
 | Action | Do this |
@@ -496,6 +517,17 @@ Cross-reference requirements:
 
 If any cross-reference is missing, add it before returning output.
 
+## Governance (Decision-Locked)
+
+These rules are non-negotiable (consultation contract §15):
+1. **Prompt/log retention:** debug-gated opt-in only. Never log prompts or responses by default.
+2. **Redaction failures are fail-closed:** if redaction cannot be confirmed, block dispatch. Over-redact rather than under-redact.
+3. **No auto-escalation:** never upgrade sandbox from `read-only` without explicit user flag (`-s`).
+4. **Strategy default:** when uncertain, use direct invocation (single-turn).
+5. **Reply continuity:** `threadId` is canonical; `conversationId` is a deprecated compatibility alias.
+6. **Egress sanitization:** no outbound payload to Codex without a sanitizer pass. `sanitizer_status` must be `pass_clean` or `pass_redacted`.
+7. **Consent required for scope expansion:** any scope change after initial preflight requires explicit re-consent.
+
 ## Constraints
 
 - **Read-only** — Do not modify files. Use Bash only for git commands if needed for context.
@@ -566,6 +598,43 @@ EMERGED: <idea> [source: dialogue-born]
 ```
 
 Include all items from the narrative — this block must be consistent with the narrative sections per the consistency rules in Phase 3.
+
+### Pipeline Data (JSON epilogue)
+
+After the markdown synthesis, emit a fenced JSON block with structured fields for downstream consumers. This block is machine-parsed by the `/dialogue` skill — do not omit fields.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mode` | string | `"server_assisted"` or `"manual_legacy"` |
+| `thread_id` | string or null | Codex thread ID, null if manual_legacy |
+| `turn_count` | int | Actual Codex turns used |
+| `converged` | bool | Whether dialogue converged |
+| `convergence_reason_code` | string or null | Code from synthesis checkpoint |
+| `termination_reason` | string | `"convergence"`, `"budget"`, `"scope_breach"`, or `"error"` (dialogue only — `/codex` also uses `"complete"`) |
+| `scout_count` | int | `evidence_count` from state |
+| `resolved_count` | int | From synthesis checkpoint |
+| `unresolved_count` | int | From synthesis checkpoint |
+| `emerged_count` | int | From synthesis checkpoint |
+| `scope_breach_count` | int | 0 unless scope breach occurred |
+
+```json
+<!-- pipeline-data -->
+{
+  "mode": "server_assisted",
+  "thread_id": null,
+  "turn_count": 0,
+  "converged": false,
+  "convergence_reason_code": null,
+  "termination_reason": "convergence",
+  "scout_count": 0,
+  "resolved_count": 0,
+  "unresolved_count": 0,
+  "emerged_count": 0,
+  "scope_breach_count": 0
+}
+```
+
+The `<!-- pipeline-data -->` sentinel marks this block for machine parsing. The `/dialogue` skill extracts fields from this block. Substitute actual values from conversation state — the template above shows types and defaults.
 
 ### Example
 

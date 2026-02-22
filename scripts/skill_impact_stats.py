@@ -41,7 +41,9 @@ class SkillImpactStats:
 
 def _binom_tail_ge(n_eff: int, wins: int) -> float:
     if n_eff < 0 or wins < 0:
-        raise ValueError(f"binomial tail failed: invalid n_eff/wins. Got: {(n_eff, wins)!r}")
+        raise ValueError(
+            f"binomial tail failed: invalid n_eff/wins. Got: {(n_eff, wins)!r}"
+        )
     if wins > n_eff:
         return 0.0
     denominator = 2**n_eff
@@ -51,7 +53,9 @@ def _binom_tail_ge(n_eff: int, wins: int) -> float:
 
 def _binom_tail_le(n_eff: int, wins: int) -> float:
     if n_eff < 0 or wins < 0:
-        raise ValueError(f"binomial cdf failed: invalid n_eff/wins. Got: {(n_eff, wins)!r}")
+        raise ValueError(
+            f"binomial cdf failed: invalid n_eff/wins. Got: {(n_eff, wins)!r}"
+        )
     if wins >= n_eff:
         return 1.0
     denominator = 2**n_eff
@@ -59,11 +63,15 @@ def _binom_tail_le(n_eff: int, wins: int) -> float:
     return numerator / denominator
 
 
-def _wilson_interval(wins: int, n_eff: int, confidence: float = 0.95) -> WilsonInterval | None:
+def _wilson_interval(
+    wins: int, n_eff: int, confidence: float = 0.95
+) -> WilsonInterval | None:
     if n_eff == 0:
         return None
     if not (0 < confidence < 1):
-        raise ValueError(f"wilson interval failed: confidence must be in (0, 1). Got: {confidence!r}")
+        raise ValueError(
+            f"wilson interval failed: confidence must be in (0, 1). Got: {confidence!r}"
+        )
 
     z = NormalDist().inv_cdf(0.5 + confidence / 2)
     phat = wins / n_eff
@@ -71,7 +79,11 @@ def _wilson_interval(wins: int, n_eff: int, confidence: float = 0.95) -> WilsonI
     denominator = 1 + z2_over_n
     center = (phat + (z2_over_n / 2)) / denominator
     margin = z * math.sqrt((phat * (1 - phat) + (z2_over_n / 4)) / n_eff) / denominator
-    return WilsonInterval(confidence=confidence, lower=max(0.0, center - margin), upper=min(1.0, center + margin))
+    return WilsonInterval(
+        confidence=confidence,
+        lower=max(0.0, center - margin),
+        upper=min(1.0, center + margin),
+    )
 
 
 def _help_threshold(n_eff: int, alpha: float) -> int | None:
@@ -102,11 +114,15 @@ def compute_skill_impact_stats(
     suggestive_alpha: float = 0.10,
 ) -> SkillImpactStats:
     if wins < 0 or losses < 0 or ties < 0:
-        raise ValueError(f"stats input failed: wins/losses/ties must be non-negative. Got: {(wins, losses, ties)!r}")
+        raise ValueError(
+            f"stats input failed: wins/losses/ties must be non-negative. Got: {(wins, losses, ties)!r}"
+        )
     if not (0 < alpha < 1):
         raise ValueError(f"stats input failed: alpha must be in (0, 1). Got: {alpha!r}")
     if not (0 < suggestive_alpha < 1):
-        raise ValueError(f"stats input failed: suggestive_alpha must be in (0, 1). Got: {suggestive_alpha!r}")
+        raise ValueError(
+            f"stats input failed: suggestive_alpha must be in (0, 1). Got: {suggestive_alpha!r}"
+        )
     if alpha >= suggestive_alpha:
         raise ValueError(
             f"stats input failed: alpha must be smaller than suggestive_alpha. Got: {(alpha, suggestive_alpha)!r}"
@@ -118,7 +134,9 @@ def compute_skill_impact_stats(
     wilson_95_ci = _wilson_interval(wins=wins, n_eff=n_eff, confidence=confidence)
     p_help = None if n_eff == 0 else _binom_tail_ge(n_eff=n_eff, wins=wins)
     p_harm = None if n_eff == 0 else _binom_tail_le(n_eff=n_eff, wins=wins)
-    p_two_sided = None if p_help is None or p_harm is None else min(1.0, 2 * min(p_help, p_harm))
+    p_two_sided = (
+        None if p_help is None or p_harm is None else min(1.0, 2 * min(p_help, p_harm))
+    )
     thresholds = SignTestThresholds(
         n_eff=n_eff,
         help_significant_min_wins=_help_threshold(n_eff=n_eff, alpha=alpha),
@@ -160,7 +178,9 @@ def _format_threshold(threshold: int | None, n_eff: int) -> str:
     return f"{threshold} wins ({_format_percent(threshold / n_eff)})"
 
 
-def _p_help_label(*, p_help: float | None, n_eff: int, alpha: float, suggestive_alpha: float) -> str:
+def _p_help_label(
+    *, p_help: float | None, n_eff: int, alpha: float, suggestive_alpha: float
+) -> str:
     if p_help is None or n_eff < 12:
         return "inconclusive"
     if p_help < alpha:
@@ -212,7 +232,12 @@ def render_report_lines(
     tie_rate = None if stats.total_tasks == 0 else (stats.ties / stats.total_tasks)
     tie_rate_text = _format_percent(tie_rate)
     ci_low, ci_high = _format_ci_percent(stats.wilson_95_ci)
-    p_help_label = _p_help_label(p_help=stats.p_help, n_eff=stats.n_eff, alpha=alpha, suggestive_alpha=suggestive_alpha)
+    p_help_label = _p_help_label(
+        p_help=stats.p_help,
+        n_eff=stats.n_eff,
+        alpha=alpha,
+        suggestive_alpha=suggestive_alpha,
+    )
     verdict = verdict_override or infer_verdict(
         stats=stats,
         primary_comparison=primary_comparison,
@@ -226,7 +251,9 @@ def render_report_lines(
         f"Wilson 95% CI: [{ci_low}, {ci_high}]"
     )
     lines.append(f"- Primary comparison: test vs {primary_comparison}")
-    lines.append(f"- Ties: {stats.ties}/{stats.total_tasks} tasks (tie rate: {tie_rate_text})")
+    lines.append(
+        f"- Ties: {stats.ties}/{stats.total_tasks} tasks (tie rate: {tie_rate_text})"
+    )
     lines.append(
         f"- Sign test: p_help = {_format_float(stats.p_help)} ({p_help_label}); "
         f"p_harm = {_format_float(stats.p_harm)}"
@@ -248,12 +275,16 @@ def render_report_lines(
             f"verdict = {holdout_verdict}"
         )
 
-    lines.append(f"- Tier 1: {tier1_result} | Tier 2: {tier2_result} | Tier 3: {tier3_result}")
+    lines.append(
+        f"- Tier 1: {tier1_result} | Tier 2: {tier2_result} | Tier 3: {tier3_result}"
+    )
     lines.append(f"- Verdict: {verdict}")
     return "\n".join(lines)
 
 
-def render_text(stats: SkillImpactStats, *, alpha: float, suggestive_alpha: float) -> str:
+def render_text(
+    stats: SkillImpactStats, *, alpha: float, suggestive_alpha: float
+) -> str:
     lines: list[str] = []
     lines.append(
         f"Input: wins={stats.wins}, losses={stats.losses}, ties={stats.ties}, "
@@ -265,7 +296,9 @@ def render_text(stats: SkillImpactStats, *, alpha: float, suggestive_alpha: floa
         lines.append("Wilson CI: N/A (no non-tied tasks)")
         lines.append("Sign test: N/A (no non-tied tasks)")
     else:
-        lines.append(f"Win rate: {_format_float(stats.win_rate)} ({_format_percent(stats.win_rate)})")
+        lines.append(
+            f"Win rate: {_format_float(stats.win_rate)} ({_format_percent(stats.win_rate)})"
+        )
         if stats.wilson_95_ci is None:
             lines.append("Wilson CI: N/A")
         else:
@@ -299,7 +332,9 @@ def render_text(stats: SkillImpactStats, *, alpha: float, suggestive_alpha: floa
     )
 
     if stats.n_eff < 12:
-        lines.append("Warning: N_eff < 12; assessment is likely underpowered/inconclusive per spec.")
+        lines.append(
+            "Warning: N_eff < 12; assessment is likely underpowered/inconclusive per spec."
+        )
 
     return "\n".join(lines)
 
@@ -311,11 +346,30 @@ def main() -> None:
             "p_help, p_harm, two-sided p, Wilson CI, and sign-test thresholds."
         )
     )
-    parser.add_argument("--wins", type=int, required=True, help="Treatment task wins (non-negative integer).")
-    parser.add_argument("--losses", type=int, required=True, help="Treatment task losses (non-negative integer).")
-    parser.add_argument("--ties", type=int, required=True, help="Task ties (non-negative integer).")
-    parser.add_argument("--confidence", type=float, default=0.95, help="Wilson CI confidence level (default: 0.95).")
-    parser.add_argument("--alpha", type=float, default=0.05, help="Significance alpha (default: 0.05).")
+    parser.add_argument(
+        "--wins",
+        type=int,
+        required=True,
+        help="Treatment task wins (non-negative integer).",
+    )
+    parser.add_argument(
+        "--losses",
+        type=int,
+        required=True,
+        help="Treatment task losses (non-negative integer).",
+    )
+    parser.add_argument(
+        "--ties", type=int, required=True, help="Task ties (non-negative integer)."
+    )
+    parser.add_argument(
+        "--confidence",
+        type=float,
+        default=0.95,
+        help="Wilson CI confidence level (default: 0.95).",
+    )
+    parser.add_argument(
+        "--alpha", type=float, default=0.05, help="Significance alpha (default: 0.05)."
+    )
     parser.add_argument(
         "--suggestive-alpha",
         type=float,
@@ -359,14 +413,24 @@ def main() -> None:
         default=None,
         help="Optional explicit verdict override for report-lines mode.",
     )
-    parser.add_argument("--holdout-wins", type=int, default=None, help="Optional holdout wins for report-lines mode.")
+    parser.add_argument(
+        "--holdout-wins",
+        type=int,
+        default=None,
+        help="Optional holdout wins for report-lines mode.",
+    )
     parser.add_argument(
         "--holdout-losses",
         type=int,
         default=None,
         help="Optional holdout losses for report-lines mode.",
     )
-    parser.add_argument("--holdout-ties", type=int, default=None, help="Optional holdout ties for report-lines mode.")
+    parser.add_argument(
+        "--holdout-ties",
+        type=int,
+        default=None,
+        help="Optional holdout ties for report-lines mode.",
+    )
     args = parser.parse_args()
 
     stats = compute_skill_impact_stats(

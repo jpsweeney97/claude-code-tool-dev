@@ -1,6 +1,6 @@
 # Consultation Contract
 
-**Version:** 0.1.0
+**Version:** 0.2.0
 **Status:** Draft
 **Purpose:** Define the normative protocol for Codex consultations — shared by the `/codex` skill and the `codex-dialogue` agent. Both reference this document as the single source of truth for briefing structure, safety rules, transport parameters, continuity logic, and relay obligations.
 
@@ -113,14 +113,15 @@ When a skill delegates to the `codex-dialogue` agent, it passes a delegation env
 | `goal` | Yes | Desired consultation outcome |
 | `posture` | No | Conversation posture. Default: `collaborative` |
 | `turn_budget` | No | Maximum Codex turns. Default: 8, max: 15 |
-| `scope_envelope` | Yes | Immutable scope set from §3 preflight |
+| `scope_envelope` | No | Immutable scope set from §3 preflight. When absent, treated as unrestricted (backwards compatibility). |
 | `seed_confidence` | No | Quality signal from pre-dialogue context gathering. Values: `normal` (default), `low`. When omitted, treated as `normal`. |
 | `reasoning_effort` | No | Resolved from profile or flag. Values: `minimal`, `low`, `medium`, `high`, `xhigh`. When omitted, use §8 default (`xhigh`). |
 
 **Scope envelope (immutable):** Set at delegation time. Contains allowed roots and source classes from §3. On scope breach, the agent MUST:
 1. Stop the consultation immediately
-2. Return a resume capsule (see §10)
-3. Not continue without explicit re-consent
+2. Proceed to Phase 3 synthesis with `termination_reason: scope_breach` in the pipeline-data epilogue
+
+*(Full §10 behavior deferred: resume capsule return and re-consent gating. When implemented, item 2 becomes "return a resume capsule" and a third item "not continue without explicit re-consent" is added. See §10.)*
 
 ---
 
@@ -266,6 +267,8 @@ On scope breach during a delegated consultation, return:
 
 After every Codex response, present output using this required 3-part structure. This section is normative — skill and agent stubs must defer to it.
 
+**Applicability:** This relay format applies at the **skill layer** (`/codex` Step 4, `/dialogue` Step 6), not inside the `codex-dialogue` agent. The agent's synthesis output (Phase 3) uses a different multi-section format designed for the skill to relay. The skill is responsible for wrapping the agent's synthesis in the §11 3-part structure.
+
 **1. Codex Position**
 - Summarize Codex's answer in 1-3 bullets.
 - If Codex reports uncertainty or requests more context, state that explicitly.
@@ -301,23 +304,38 @@ All failures use this format: `"{operation} failed: {reason}. Got: {input!r:.100
 | Gate failure | `GATE_FAILURE` | No |
 | Thread invalid or expired | `THREAD_EXPIRED` | Yes — new conversation with rebuilt briefing |
 | MCP tool unavailable | `MCP_UNAVAILABLE` | No — report + troubleshooting guidance |
+| Scope breach | `SCOPE_BREACH` | No — stop consultation, return termination with `scope_breach` reason |
 
 ---
 
 ## 13. Event Contract
 
-Implementors SHOULD emit these 6 events. Events are append-only; do not overwrite prior records.
+Implementors SHOULD emit outcome events after each consultation. Events are append-only to `~/.claude/.codex-events.jsonl`; do not overwrite prior records.
 
-| Event | Trigger | Required Fields |
-|-------|---------|-----------------|
-| `consultation.started` | Consultation begins | `timestamp`, `strategy`, `sandbox`, `approval_policy`, `reasoning_effort` |
-| `briefing.validated` | Briefing passes §3 preflight | `timestamp`, `source_classes`, `byte_estimate`, `consent_granted` |
-| `turn.processed` | Codex turn completes | `timestamp`, `turn_number`, `thread_id`, `delta`, `evidence_count` |
-| `synthesis.emitted` | Synthesis returned | `timestamp`, `turn_count`, `converged`, `evidence_count` |
-| `consultation.failed` | Fails before synthesis | `timestamp`, `failure_code`, `reason` |
-| `consultation.aborted` | Consent stop or scope breach | `timestamp`, `trigger`, `turn_at_abort`, `resume_capsule_available` |
+### Event types
 
-**Consent telemetry:** When `consultation.aborted` fires due to scope breach, log the trigger class and root. Do not log prompt bodies (governance lock #1 — debug-gated only).
+| Event | Emitter | Trigger |
+|-------|---------|---------|
+| `dialogue_outcome` | `/dialogue` skill via `emit_analytics.py` | Multi-turn dialogue completes (convergence, budget, error, or scope breach) |
+| `consultation_outcome` | `/codex` skill via `emit_analytics.py` | Single-turn consultation completes |
+
+### dialogue_outcome required fields
+
+`schema_version`, `consultation_id`, `event`, `ts`, `posture`, `turn_count`, `turn_budget`, `converged`, `convergence_reason_code`, `termination_reason`, `resolved_count`, `unresolved_count`, `emerged_count`, `seed_confidence`, `mode`.
+
+Schema versions: `0.1.0` (base), `0.2.0` (adds `provenance_unknown_count`), `0.3.0` (adds `question_shaped`, `shape_confidence`, `assumptions_generated_count`, `ambiguity_count`). Version is auto-resolved by feature-flag fields.
+
+### consultation_outcome required fields
+
+`schema_version`, `consultation_id`, `event`, `ts`, `posture`, `turn_count`, `turn_budget`, `termination_reason`, `mode`.
+
+### Valid termination reasons
+
+`convergence`, `budget`, `error`, `scope_breach`, `complete`.
+
+### Consent telemetry
+
+When a dialogue terminates due to scope breach (`termination_reason: scope_breach`), log the trigger class and root. Do not log prompt bodies (governance lock #1 — debug-gated only).
 
 ---
 
@@ -398,9 +416,9 @@ An implementation is conformant when all items pass:
 - [ ] All 7 governance locks present in implementation
 - [ ] Local rule list matches §15 exactly
 
-**Learning Retrieval (§17)**
+**Learning Retrieval (§17)** *(deferred — stubs in place, full implementation pending E-LEARNING Phase 0)*
 - [ ] Learning store read attempted before briefing assembly
-- [ ] Missing/empty store handled gracefully (fail-soft)
+- [ ] Missing/empty store handled gracefully (fail-soft) ✓ *(stub passes — returns empty)*
 - [ ] Cards capped at 5 per consultation
 - [ ] Cards injected at correct point (§17.2)
 - [ ] No credentials or raw Codex responses in injected cards

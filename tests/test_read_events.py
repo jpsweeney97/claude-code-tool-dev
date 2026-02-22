@@ -247,7 +247,11 @@ class TestSchemaParityWithEmitter:
         """Reader's dialogue required fields must be a subset of emitter's."""
         emitter_path = (
             Path(__file__).resolve().parents[1]
-            / "packages" / "plugins" / "cross-model" / "scripts" / "emit_analytics.py"
+            / "packages"
+            / "plugins"
+            / "cross-model"
+            / "scripts"
+            / "emit_analytics.py"
         )
         spec = importlib.util.spec_from_file_location("emit_analytics", emitter_path)
         emitter = importlib.util.module_from_spec(spec)
@@ -262,7 +266,11 @@ class TestSchemaParityWithEmitter:
         """Reader's consultation required fields must be a subset of emitter's."""
         emitter_path = (
             Path(__file__).resolve().parents[1]
-            / "packages" / "plugins" / "cross-model" / "scripts" / "emit_analytics.py"
+            / "packages"
+            / "plugins"
+            / "cross-model"
+            / "scripts"
+            / "emit_analytics.py"
         )
         spec = importlib.util.spec_from_file_location("emit_analytics", emitter_path)
         emitter = importlib.util.module_from_spec(spec)

@@ -3,6 +3,7 @@ name: dialogue
 description: "Multi-turn Codex consultation with proactive context gathering. Launches parallel codebase explorers, assembles a structured briefing, and delegates to codex-dialogue. Use when you need a thorough, evidence-backed consultation, deep codebase analysis before asking Codex, or when the user says 'deep review', 'explore and discuss', or 'thorough consultation'. For quick single-turn questions, use /codex."
 argument-hint: '"question" [-p posture] [-n turns] [--profile name] [--plan]'
 user-invocable: true
+allowed-tools: mcp__plugin_cross-model_codex__codex, mcp__plugin_cross-model_codex__codex-reply, mcp__plugin_cross-model_context-injection__process_turn, mcp__plugin_cross-model_context-injection__execute_scout
 ---
 
 # Dialogue — Orchestrated Codex Consultation
@@ -325,7 +326,17 @@ Task(
 
 **`reasoning_effort` resolution:** profile value > consultation contract §8 default (`xhigh`). When `--plan` is used without `--profile`, reasoning_effort falls through to the contract default (`xhigh`). Pass the resolved value in the envelope — the `codex-dialogue` agent uses it directly without re-resolving profiles. (A `-t` flag for explicit override is deferred — profile propagation covers the immediate need.)
 
-**`scope_envelope` construction:** Before delegation, run the consultation contract §3 preflight to determine allowed roots and source classes. Pass the resulting scope envelope to `codex-dialogue`. The scope is immutable once set — on scope breach, the dialogue agent stops and returns a resume capsule per contract §6.
+**`scope_envelope` construction:** Before delegation, run the consultation contract §3 preflight to determine allowed roots and source classes. Pass the resulting scope envelope to `codex-dialogue`. The scope is immutable once set — on scope breach, the dialogue agent terminates and produces a synthesis with `termination_reason: scope_breach` in the pipeline-data epilogue (see contract §6).
+
+**Scope validation (§3):** Before delegation, verify these 5 conditions against the scope envelope. If any would be violated, do not delegate — inform the user and request updated consent:
+
+1. No root path outside the original allowed set
+2. No source class outside the original allowed set
+3. Estimated outbound bytes within session budget
+4. No path adjacent to known secret files (`auth.json`, `.env`, `*.pem`)
+5. No sandbox mode escalation from `read-only` to higher privilege
+
+Mid-dialogue scope breaches are handled differently: the agent terminates and produces a synthesis with `termination_reason: scope_breach` (see §6). Re-consent gating (§10) is deferred.
 
 The agent detects the sentinel, skips briefing assembly, and runs the multi-turn conversation.
 
@@ -348,7 +359,7 @@ Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json` contai
 |-------|------|--------|
 | `event_type` | `"dialogue_outcome"` | Literal |
 | `synthesis_text` | string | Full raw output from the `codex-dialogue` agent's Task tool return value |
-| `scope_breach` | bool | Determined during Step 5-6 delegation. `true` if the codex-dialogue agent returned a resume capsule instead of a synthesis (per consultation contract §6 scope breach protocol). `false` otherwise. Passed through as pipeline state — not inferred from synthesis text. |
+| `scope_breach` | bool | Determined during Step 5-6 delegation. `true` if the codex-dialogue agent's `<!-- pipeline-data -->` epilogue contains `termination_reason: scope_breach` or `scope_breach_count > 0`. `false` otherwise. Derived from epilogue fields — not from output shape (the agent always returns a synthesis, even on scope breach). If the epilogue is missing or unparseable, default to `false` and log a warning. |
 | `pipeline` | object | Pipeline state accumulated during Steps 1-6 (see field table below) |
 
 Pipeline fields to include:
@@ -383,7 +394,7 @@ Pipeline fields to include:
 | `shape_confidence` | Step 0 | string or null |
 | `assumptions_generated_count` | Step 0 | int or null |
 | `ambiguity_count` | Step 0 | int or null |
-| `mode` | Step 5 agent return | `"server_assisted"` or `"manual_legacy"`. Read from the `codex-dialogue` agent's explicit mode field in its return value. Do not infer or hardcode. |
+| `mode` | Step 5 agent return | `"server_assisted"` or `"manual_legacy"`. Parse from the agent's `<!-- pipeline-data -->` JSON epilogue block. Extract the JSON object from the fenced block following the sentinel. If the epilogue is missing, fall back to `"server_assisted"` and log a warning. |
 
 **7b. Run emitter**
 

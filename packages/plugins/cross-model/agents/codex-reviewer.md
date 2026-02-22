@@ -94,10 +94,11 @@ Call `mcp__plugin_cross-model_codex__codex` with:
 | Parameter | Value |
 |-----------|-------|
 | `prompt` | Assembled briefing from Step 2 |
-| `model` | `"gpt-5.2"` |
 | `sandbox` | `read-only` |
 | `approval-policy` | `never` |
 | `config` | `{"model_reasoning_effort": "xhigh"}` |
+
+Do NOT set the `model` parameter — omit it entirely so the Codex server uses its default. Setting model names from training knowledge causes API failures. See consultation contract §9.
 
 After receiving Codex's response:
 - If high-severity issues need clarification, send **one** follow-up via `mcp__plugin_cross-model_codex__codex-reply` using `threadId` from the response
@@ -115,6 +116,17 @@ Critically assess each Codex finding:
 - Are any findings false positives based on context Codex may lack?
 
 Do not parrot Codex's response. Add independent judgment.
+
+## Governance (Decision-Locked)
+
+These rules are non-negotiable (consultation contract §15):
+1. **Prompt/log retention:** debug-gated opt-in only. Never log prompts or responses by default.
+2. **Redaction failures are fail-closed:** if redaction cannot be confirmed, block dispatch. Over-redact rather than under-redact.
+3. **No auto-escalation:** never upgrade sandbox from `read-only` without explicit user flag (`-s`).
+4. **Strategy default:** when uncertain, use direct invocation (single-turn).
+5. **Reply continuity:** `threadId` is canonical; `conversationId` is a deprecated compatibility alias.
+6. **Egress sanitization:** no outbound payload to Codex without a sanitizer pass. `sanitizer_status` must be `pass_clean` or `pass_redacted`.
+7. **Consent required for scope expansion:** any scope change after initial preflight requires explicit re-consent.
 
 ## Constraints
 

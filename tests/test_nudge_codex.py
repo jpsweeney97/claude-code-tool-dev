@@ -40,7 +40,13 @@ def _event(tool: str = "Bash", session_id: str = "test-session") -> dict:
     }
 
 
-def _run_main(monkeypatch, event: dict, *, env_nudge: str | None = "1", state_dir: Path | None = None) -> None:
+def _run_main(
+    monkeypatch,
+    event: dict,
+    *,
+    env_nudge: str | None = "1",
+    state_dir: Path | None = None,
+) -> None:
     """Run nudge_codex.main() with controlled stdin and env.
 
     Raises SystemExit when main() calls sys.exit().
@@ -51,7 +57,9 @@ def _run_main(monkeypatch, event: dict, *, env_nudge: str | None = "1", state_di
     else:
         monkeypatch.delenv("CROSS_MODEL_NUDGE", raising=False)
     if state_dir is not None:
-        monkeypatch.setattr(MODULE, "state_path", lambda sid: state_dir / f"claude-nudge-{sid}")
+        monkeypatch.setattr(
+            MODULE, "state_path", lambda sid: state_dir / f"claude-nudge-{sid}"
+        )
     MODULE.main()
 
 
@@ -96,7 +104,9 @@ class TestToolFilter:
 
 
 class TestCounter:
-    def test_counter_increments_below_threshold(self, monkeypatch, tmp_path, capsys) -> None:
+    def test_counter_increments_below_threshold(
+        self, monkeypatch, tmp_path, capsys
+    ) -> None:
         """First failure → count=1, no stdout output."""
         with pytest.raises(SystemExit) as exc_info:
             _run_main(monkeypatch, _event(), state_dir=tmp_path)
@@ -106,7 +116,9 @@ class TestCounter:
         state_file = tmp_path / "claude-nudge-test-session"
         assert state_file.read_text() == "1"
 
-    def test_counter_reaches_threshold_nudges(self, monkeypatch, tmp_path, capsys) -> None:
+    def test_counter_reaches_threshold_nudges(
+        self, monkeypatch, tmp_path, capsys
+    ) -> None:
         """3rd failure → additionalContext JSON on stdout, counter resets to 0."""
         state_file = tmp_path / "claude-nudge-test-session"
         state_file.write_text("2")  # simulate 2 prior failures
@@ -156,7 +168,9 @@ class TestCounter:
 
 
 class TestErrorHandling:
-    def test_corrupt_state_file_resets_to_one(self, monkeypatch, tmp_path, capsys) -> None:
+    def test_corrupt_state_file_resets_to_one(
+        self, monkeypatch, tmp_path, capsys
+    ) -> None:
         """Non-integer state file content → count defaults to 1, stderr warning."""
         state_file = tmp_path / "claude-nudge-test-session"
         state_file.write_text("not-a-number")

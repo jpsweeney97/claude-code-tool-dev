@@ -36,16 +36,22 @@ def _iter_run_dirs(runs_root: Path) -> Iterable[Path]:
 def _latest_run_dir(runs_root: Path) -> Path:
     run_dirs = sorted(_iter_run_dirs(runs_root), key=lambda p: p.name)
     if not run_dirs:
-        raise SystemExit(f"resume failed: no benchmark-v0 run dirs found. Got: {str(runs_root)!r}")
+        raise SystemExit(
+            f"resume failed: no benchmark-v0 run dirs found. Got: {str(runs_root)!r}"
+        )
     return run_dirs[-1]
 
 
 def _extract_planned_runs_from_suite(suite_text: str) -> list[PlannedRun]:
     # Minimal deterministic parsing for Benchmark v0 v0.1.0:
     # We use the “Scenario-by-scenario matrix” table with N=3/N=1 markers.
-    scenario_rows = re.findall(r"^\|\s*`(?P<scenario>v0-[^`]+)`\s*\|\s*(?P<row>.+)\|$", suite_text, flags=re.M)
+    scenario_rows = re.findall(
+        r"^\|\s*`(?P<scenario>v0-[^`]+)`\s*\|\s*(?P<row>.+)\|$", suite_text, flags=re.M
+    )
     if not scenario_rows:
-        raise SystemExit("resume failed: could not locate scenario-by-scenario matrix rows in suite spec.")
+        raise SystemExit(
+            "resume failed: could not locate scenario-by-scenario matrix rows in suite spec."
+        )
 
     # Header order from suite spec table:
     # | scenario_id | baseline | target | placebo | irrelevant | harmful (no tools) | harmful (brevity) | proxy-gaming |
@@ -71,7 +77,13 @@ def _extract_planned_runs_from_suite(suite_text: str) -> list[PlannedRun]:
 
         def add_runs(condition: str, n: int) -> None:
             for i in range(1, n + 1):
-                planned.append(PlannedRun(scenario_id=scenario_id, condition=condition, replicate=f"run-{i}"))
+                planned.append(
+                    PlannedRun(
+                        scenario_id=scenario_id,
+                        condition=condition,
+                        replicate=f"run-{i}",
+                    )
+                )
 
         add_runs("baseline", baseline_n)
         add_runs("target", target_n)
@@ -95,14 +107,20 @@ def _is_executed_run_record(run_record_path: Path) -> bool:
     if not output:
         return False
     lower = output.lower()
-    if "empty stub" in lower or "not executed" in lower or "raw output or pointer to artifact" in lower:
+    if (
+        "empty stub" in lower
+        or "not executed" in lower
+        or "raw output or pointer to artifact" in lower
+    ):
         return False
     # Heuristic: at least some substantial content
     return len(output.split()) > 30
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Resume helper for Benchmark v0 orchestration.")
+    parser = argparse.ArgumentParser(
+        description="Resume helper for Benchmark v0 orchestration."
+    )
     parser.add_argument(
         "--repo-root",
         default=None,
@@ -153,7 +171,9 @@ def main() -> None:
         repo_root / "docs/benchmarks/suites/benchmark-v0_v0.1.0.md",
         repo_root / "docs/benchmarks/suites/benchmark-v0.md",
     ]
-    suite_path = next((candidate for candidate in suite_candidates if candidate.exists()), None)
+    suite_path = next(
+        (candidate for candidate in suite_candidates if candidate.exists()), None
+    )
     runs_root = repo_root / "docs/benchmarks/runs"
 
     if suite_path is None:
@@ -169,7 +189,9 @@ def main() -> None:
     run_id = run_dir.name
     run_records_dir = run_dir / "run-records"
     if not run_records_dir.exists():
-        raise SystemExit(f"resume failed: run-records dir missing. Got: {str(run_records_dir)!r}")
+        raise SystemExit(
+            f"resume failed: run-records dir missing. Got: {str(run_records_dir)!r}"
+        )
 
     suite_text = suite_path.read_text()
     planned = _extract_planned_runs_from_suite(suite_text)
@@ -196,12 +218,18 @@ def main() -> None:
         print(f"scenario_id: {next_run.scenario_id}")
         print(f"condition: {next_run.condition}")
         print(f"replicate: {next_run.replicate}")
-        print(f"run_record_stub: docs/benchmarks/runs/{run_id}/run-records/{next_run.filename}")
+        print(
+            f"run_record_stub: docs/benchmarks/runs/{run_id}/run-records/{next_run.filename}"
+        )
     else:
         print("next_action: blinded_scoring_and_report_updates")
         print(f"blinded_packet_cmd: ./scripts/blinded_eval_packet.py --run-id {run_id}")
-        print(f"blinded_packet_verify_cmd: ./scripts/blinded_eval_packet.py --run-id {run_id} --verify-only")
-        print(f"blinded_packet_share: docs/benchmarks/runs/{run_id}/blinded_eval/blinded_eval_packet.md")
+        print(
+            f"blinded_packet_verify_cmd: ./scripts/blinded_eval_packet.py --run-id {run_id} --verify-only"
+        )
+        print(
+            f"blinded_packet_share: docs/benchmarks/runs/{run_id}/blinded_eval/blinded_eval_packet.md"
+        )
         print(f"blinded_scores_out: docs/benchmarks/runs/{run_id}/blinded_scores.md")
         print(f"scores_md: docs/benchmarks/runs/{run_id}/scores.md")
         print(f"report_md: docs/benchmarks/runs/{run_id}/report.md")

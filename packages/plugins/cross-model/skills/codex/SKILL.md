@@ -127,6 +127,9 @@ Task(
     Goal: Challenge the caching strategy assumptions.
     Posture: adversarial
     Budget: 5
+    scope_envelope:
+      allowed_roots: [src/, docs/, tests/]
+      source_classes: [repo_code, repo_doc]
 
     ## Context
     [Current caching approach, decisions made, trade-offs considered]
@@ -154,6 +157,16 @@ Before any outbound Codex dispatch:
 1. Read and apply the Safety Pipeline (§7) in full.
 2. Run sanitizer/redaction on every outbound payload.
 3. If the Safety Pipeline cannot be read or applied, block dispatch and return: `pre-dispatch gate failed: contract unavailable. Got: {input!r:.100}`.
+
+### Re-consent triggers (§3)
+
+If any of these 5 conditions arise mid-consultation, stop and re-present the egress manifest before continuing:
+
+1. A new root path not in the original allowed set would be included
+2. A new source class not in the original allowed set would be included
+3. Estimated outbound bytes exceed the session budget
+4. A path adjacent to a known secret file (`auth.json`, `.env`, `*.pem`) is in scope
+5. Sandbox mode would escalate from `read-only` to higher privilege
 
 ### New conversation
 
@@ -223,6 +236,8 @@ After capturing diagnostics, emit a `consultation_outcome` event via the analyti
 **Write input file**
 
 Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json`:
+
+**Note:** `profile_name` is always `null` for `/codex` events — the `/codex` skill has no `--profile` flag. The field exists for schema parity with `dialogue_outcome` events.
 
 **Mode:** `/codex` is always `server_assisted` — it uses the Codex MCP tools directly (no fallback to manual_legacy). The codex-dialogue agent determines its own mode; `/codex` does not delegate to that agent.
 
