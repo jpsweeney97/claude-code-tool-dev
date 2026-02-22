@@ -122,6 +122,8 @@ When a skill delegates to the `codex-dialogue` agent, it passes a delegation env
 2. Return a resume capsule (see §10)
 3. Not continue without explicit re-consent
 
+*(§10 resume capsule deferred — minimum viable scope enforcement terminates the dialogue on breach rather than pausing for re-consent. Implement §10 if scope breaches require continuation.)*
+
 ---
 
 ## 7. Safety Pipeline (Normative)
@@ -303,23 +305,38 @@ All failures use this format: `"{operation} failed: {reason}. Got: {input!r:.100
 | Gate failure | `GATE_FAILURE` | No |
 | Thread invalid or expired | `THREAD_EXPIRED` | Yes — new conversation with rebuilt briefing |
 | MCP tool unavailable | `MCP_UNAVAILABLE` | No — report + troubleshooting guidance |
+| Scope breach | `SCOPE_BREACH` | No — stop consultation, return termination with `scope_breach` reason |
 
 ---
 
 ## 13. Event Contract
 
-Implementors SHOULD emit these 6 events. Events are append-only; do not overwrite prior records.
+Implementors SHOULD emit outcome events after each consultation. Events are append-only to `~/.claude/.codex-events.jsonl`; do not overwrite prior records.
 
-| Event | Trigger | Required Fields |
-|-------|---------|-----------------|
-| `consultation.started` | Consultation begins | `timestamp`, `strategy`, `sandbox`, `approval_policy`, `reasoning_effort` |
-| `briefing.validated` | Briefing passes §3 preflight | `timestamp`, `source_classes`, `byte_estimate`, `consent_granted` |
-| `turn.processed` | Codex turn completes | `timestamp`, `turn_number`, `thread_id`, `delta`, `evidence_count` |
-| `synthesis.emitted` | Synthesis returned | `timestamp`, `turn_count`, `converged`, `evidence_count` |
-| `consultation.failed` | Fails before synthesis | `timestamp`, `failure_code`, `reason` |
-| `consultation.aborted` | Consent stop or scope breach | `timestamp`, `trigger`, `turn_at_abort`, `resume_capsule_available` |
+### Event types
 
-**Consent telemetry:** When `consultation.aborted` fires due to scope breach, log the trigger class and root. Do not log prompt bodies (governance lock #1 — debug-gated only).
+| Event | Emitter | Trigger |
+|-------|---------|---------|
+| `dialogue_outcome` | `/dialogue` skill via `emit_analytics.py` | Multi-turn dialogue completes (convergence, budget, error, or scope breach) |
+| `consultation_outcome` | `/codex` skill via `emit_analytics.py` | Single-turn consultation completes |
+
+### dialogue_outcome required fields
+
+`schema_version`, `consultation_id`, `event`, `ts`, `posture`, `turn_count`, `turn_budget`, `converged`, `convergence_reason_code`, `termination_reason`, `resolved_count`, `unresolved_count`, `emerged_count`, `seed_confidence`, `mode`.
+
+Schema versions: `0.1.0` (base), `0.2.0` (adds `provenance_unknown_count`), `0.3.0` (adds `question_shaped`, `shape_confidence`, `assumptions_generated_count`, `ambiguity_count`). Version is auto-resolved by feature-flag fields.
+
+### consultation_outcome required fields
+
+`schema_version`, `consultation_id`, `event`, `ts`, `posture`, `turn_count`, `turn_budget`, `termination_reason`, `mode`.
+
+### Valid termination reasons
+
+`convergence`, `budget`, `error`, `scope_breach`, `complete`.
+
+### Consent telemetry
+
+When a dialogue terminates due to scope breach (`termination_reason: scope_breach`), log the trigger class and root. Do not log prompt bodies (governance lock #1 — debug-gated only).
 
 ---
 
