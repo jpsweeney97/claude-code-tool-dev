@@ -300,6 +300,61 @@ def test_deferred_sections_annotated() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_missing_event_type_is_caught() -> None:
+    """§13 missing 'dialogue_outcome' is flagged."""
+    contract_text = "\n".join(
+        [
+            "## 13. Event Contract",
+            "",
+            "Events emitted: `consultation_outcome`.",
+            "",
+            "## 14. Next Section",
+        ]
+    )
+    errors = MODULE.check_event_types_in_contract(contract_text)
+    assert len(errors) >= 1
+    assert any("dialogue_outcome" in e for e in errors)
+
+
+def test_missing_deferred_annotation_is_caught() -> None:
+    """§16 referencing §17 without 'deferred' annotation is flagged."""
+    contract_text = "\n".join(
+        [
+            "## 16. Conformance Checklist",
+            "",
+            "- [ ] §17 Cross-Model Learning items implemented",
+            "",
+            "## 17. Next Section",
+        ]
+    )
+    errors = MODULE.check_deferred_annotations(contract_text)
+    assert len(errors) >= 1
+    assert any("deferred" in e.lower() for e in errors)
+
+
+def test_agent_governance_count_mismatch_is_caught(tmp_path: Path) -> None:
+    """Agent file with 2 governance rules flagged when 7 expected."""
+    agent_file = tmp_path / "fake-agent.md"
+    agent_file.write_text(
+        "\n".join(
+            [
+                "# Fake Agent",
+                "",
+                "## Governance",
+                "",
+                "1. **Rule one:** text",
+                "2. **Rule two:** text",
+                "",
+                "## Next Section",
+            ]
+        )
+    )
+    errors = MODULE.check_agent_governance_count(agent_file, 7)
+    assert len(errors) == 1
+    assert "2" in errors[0]
+    assert "7" in errors[0]
+
+
 def test_dialogue_skill_stub_refs_resolve() -> None:
     """dialogue/SKILL.md stub references must resolve to contract sections."""
     contract_text = CONTRACT_PATH.read_text()

@@ -326,7 +326,7 @@ Task(
 
 **`reasoning_effort` resolution:** profile value > consultation contract §8 default (`xhigh`). When `--plan` is used without `--profile`, reasoning_effort falls through to the contract default (`xhigh`). Pass the resolved value in the envelope — the `codex-dialogue` agent uses it directly without re-resolving profiles. (A `-t` flag for explicit override is deferred — profile propagation covers the immediate need.)
 
-**`scope_envelope` construction:** Before delegation, run the consultation contract §3 preflight to determine allowed roots and source classes. Pass the resulting scope envelope to `codex-dialogue`. The scope is immutable once set — on scope breach, the dialogue agent stops and returns a resume capsule per contract §6.
+**`scope_envelope` construction:** Before delegation, run the consultation contract §3 preflight to determine allowed roots and source classes. Pass the resulting scope envelope to `codex-dialogue`. The scope is immutable once set — on scope breach, the dialogue agent terminates and produces a synthesis with `termination_reason: scope_breach` in the pipeline-data epilogue (see contract §6).
 
 **Re-consent triggers (§3):** If any of these 5 conditions arise during the dialogue, the agent must stop and request re-consent:
 
@@ -357,7 +357,7 @@ Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json` contai
 |-------|------|--------|
 | `event_type` | `"dialogue_outcome"` | Literal |
 | `synthesis_text` | string | Full raw output from the `codex-dialogue` agent's Task tool return value |
-| `scope_breach` | bool | Determined during Step 5-6 delegation. `true` if the codex-dialogue agent returned a resume capsule instead of a synthesis (per consultation contract §6 scope breach protocol). `false` otherwise. Passed through as pipeline state — not inferred from synthesis text. |
+| `scope_breach` | bool | Determined during Step 5-6 delegation. `true` if the codex-dialogue agent's `<!-- pipeline-data -->` epilogue contains `termination_reason: scope_breach` or `scope_breach_count > 0`. `false` otherwise. Derived from epilogue fields — not from output shape (the agent always returns a synthesis, even on scope breach). |
 | `pipeline` | object | Pipeline state accumulated during Steps 1-6 (see field table below) |
 
 Pipeline fields to include:

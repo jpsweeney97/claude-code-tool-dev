@@ -603,24 +603,38 @@ Include all items from the narrative — this block must be consistent with the 
 
 After the markdown synthesis, emit a fenced JSON block with structured fields for downstream consumers. This block is machine-parsed by the `/dialogue` skill — do not omit fields.
 
+| Field | Type | Description |
+|-------|------|-------------|
+| `mode` | string | `"server_assisted"` or `"manual_legacy"` |
+| `thread_id` | string or null | Codex thread ID, null if manual_legacy |
+| `turn_count` | int | Actual Codex turns used |
+| `converged` | bool | Whether dialogue converged |
+| `convergence_reason_code` | string or null | Code from synthesis checkpoint |
+| `termination_reason` | string | `"convergence"`, `"budget"`, `"scope_breach"`, or `"error"` |
+| `scout_count` | int | `evidence_count` from state |
+| `resolved_count` | int | From synthesis checkpoint |
+| `unresolved_count` | int | From synthesis checkpoint |
+| `emerged_count` | int | From synthesis checkpoint |
+| `scope_breach_count` | int | 0 unless scope breach occurred |
+
 ```json
 <!-- pipeline-data -->
 {
   "mode": "server_assisted",
-  "thread_id": "{threadId or null}",
-  "turn_count": "{actual turns used}",
-  "converged": "{true or false}",
-  "convergence_reason_code": "{code or null}",
-  "termination_reason": "{reason}",
-  "scout_count": "{evidence_count}",
-  "resolved_count": "{from synthesis checkpoint}",
-  "unresolved_count": "{from synthesis checkpoint}",
-  "emerged_count": "{from synthesis checkpoint}",
-  "scope_breach_count": "{count or 0}"
+  "thread_id": null,
+  "turn_count": 0,
+  "converged": false,
+  "convergence_reason_code": null,
+  "termination_reason": "convergence",
+  "scout_count": 0,
+  "resolved_count": 0,
+  "unresolved_count": 0,
+  "emerged_count": 0,
+  "scope_breach_count": 0
 }
 ```
 
-The `<!-- pipeline-data -->` sentinel marks this block for machine parsing. The `/dialogue` skill extracts `mode` and other fields from this block instead of parsing narrative text.
+The `<!-- pipeline-data -->` sentinel marks this block for machine parsing. The `/dialogue` skill extracts fields from this block. Substitute actual values from conversation state — the template above shows types and defaults.
 
 ### Example
 

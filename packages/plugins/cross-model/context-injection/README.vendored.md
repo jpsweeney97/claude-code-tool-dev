@@ -10,7 +10,7 @@ To make changes:
 
 ## Tests
 
-Tests for the context injection system live in the source package at `packages/context-injection/tests/` (969 tests). They are intentionally excluded from this vendored copy. Run them from the source package:
+Tests for the context injection system live in the source package at `packages/context-injection/tests/`. They are intentionally excluded from this vendored copy. Run them from the source package:
 
 ```bash
 cd packages/context-injection && uv run pytest

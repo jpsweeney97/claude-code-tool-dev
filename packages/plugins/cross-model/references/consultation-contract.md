@@ -1,6 +1,6 @@
 # Consultation Contract
 
-**Version:** 1.1.0
+**Version:** 0.2.0
 **Status:** Draft
 **Purpose:** Define the normative protocol for Codex consultations — shared by the `/codex` skill and the `codex-dialogue` agent. Both reference this document as the single source of truth for briefing structure, safety rules, transport parameters, continuity logic, and relay obligations.
 
@@ -113,7 +113,7 @@ When a skill delegates to the `codex-dialogue` agent, it passes a delegation env
 | `goal` | Yes | Desired consultation outcome |
 | `posture` | No | Conversation posture. Default: `collaborative` |
 | `turn_budget` | No | Maximum Codex turns. Default: 8, max: 15 |
-| `scope_envelope` | Yes | Immutable scope set from §3 preflight |
+| `scope_envelope` | No | Immutable scope set from §3 preflight. When absent, treated as unrestricted (backwards compatibility). |
 | `seed_confidence` | No | Quality signal from pre-dialogue context gathering. Values: `normal` (default), `low`. When omitted, treated as `normal`. |
 | `reasoning_effort` | No | Resolved from profile or flag. Values: `minimal`, `low`, `medium`, `high`, `xhigh`. When omitted, use §8 default (`xhigh`). |
 

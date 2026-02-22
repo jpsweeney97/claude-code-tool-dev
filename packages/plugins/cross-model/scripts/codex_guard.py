@@ -19,7 +19,7 @@ Design: docs/plans/2026-02-18-codex-plugin-design.md
 
 Note: registered for both PreToolUse and PostToolUse in hooks.json with
 identical entries. This script dispatches on hook_event_name at runtime
-(line 258). Both registrations must be updated together.
+(see main()). Both registrations must be updated together.
 
 Exit codes:
   0  Allow (or all PostToolUse events)

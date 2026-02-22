@@ -193,42 +193,60 @@ def validate(repo_root: Path | None = None) -> list[str]:
         repo_root / "packages/plugins/cross-model/agents/context-gatherer-falsifier.md"
     )
 
+    errors: list[str] = []
+
+    contract_text: str | None = None
+    skill_text: str | None = None
+    agent_text: str | None = None
+    dialogue_skill_text: str | None = None
+
     try:
         contract_text = read_file(contract_path)
     except FileNotFoundError as e:
-        return [f"validate failed: cannot read contract. Got: {str(e)!r:.100}"]
+        errors.append(f"validate failed: cannot read contract. Got: {str(e)!r:.100}")
 
     try:
         skill_text = read_file(skill_path)
     except FileNotFoundError as e:
-        return [f"validate failed: cannot read skill. Got: {str(e)!r:.100}"]
+        errors.append(f"validate failed: cannot read skill. Got: {str(e)!r:.100}")
 
     try:
         agent_text = read_file(agent_path)
     except FileNotFoundError as e:
-        return [f"validate failed: cannot read agent. Got: {str(e)!r:.100}"]
+        errors.append(f"validate failed: cannot read agent. Got: {str(e)!r:.100}")
 
     try:
         dialogue_skill_text = read_file(dialogue_skill_path)
     except FileNotFoundError as e:
-        return [f"validate failed: cannot read dialogue skill. Got: {str(e)!r:.100}"]
-
-    contract_sections = extract_contract_sections(contract_text)
-
-    errors: list[str] = []
-    errors.extend(check_section_count(contract_sections))
-    errors.extend(check_stub_references("SKILL.md", skill_text, contract_sections))
-    errors.extend(
-        check_stub_references(
-            "dialogue/SKILL.md", dialogue_skill_text, contract_sections
+        errors.append(
+            f"validate failed: cannot read dialogue skill. Got: {str(e)!r:.100}"
         )
-    )
-    errors.extend(
-        check_stub_references("codex-dialogue.md", agent_text, contract_sections)
-    )
-    errors.extend(check_governance_rule_count(skill_text, contract_text))
-    errors.extend(check_event_types_in_contract(contract_text))
-    errors.extend(check_deferred_annotations(contract_text))
+
+    if contract_text is not None:
+        contract_sections = extract_contract_sections(contract_text)
+        errors.extend(check_section_count(contract_sections))
+        if skill_text is not None:
+            errors.extend(
+                check_stub_references("SKILL.md", skill_text, contract_sections)
+            )
+        if dialogue_skill_text is not None:
+            errors.extend(
+                check_stub_references(
+                    "dialogue/SKILL.md", dialogue_skill_text, contract_sections
+                )
+            )
+        if agent_text is not None:
+            errors.extend(
+                check_stub_references(
+                    "codex-dialogue.md", agent_text, contract_sections
+                )
+            )
+        errors.extend(check_event_types_in_contract(contract_text))
+        errors.extend(check_deferred_annotations(contract_text))
+
+    if skill_text is not None and contract_text is not None:
+        errors.extend(check_governance_rule_count(skill_text, contract_text))
+
     errors.extend(
         check_agent_governance_count(agent_path, EXPECTED_AGENT_GOVERNANCE_COUNT)
     )
