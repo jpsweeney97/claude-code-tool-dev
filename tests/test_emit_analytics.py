@@ -1381,6 +1381,13 @@ class TestValidate:
             event = MODULE.build_dialogue_outcome(inp)
             MODULE.validate(event, "dialogue_outcome")  # should not raise
 
+    def test_mode_source_non_hashable_raises_value_error(self) -> None:
+        """Non-hashable mode_source (e.g. dict) raises ValueError, not TypeError."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        event["mode_source"] = {"nested": "object"}
+        with pytest.raises(ValueError, match="invalid mode_source"):
+            MODULE.validate(event, "dialogue_outcome")
+
     def test_null_episode_id_passes_validation(self) -> None:
         """episode_id=None should not cause validation errors (reserved nullable)."""
         event = MODULE.build_dialogue_outcome(_dialogue_input())

@@ -510,8 +510,9 @@ def validate(event: dict, event_type: str) -> None:
     # mode_source enum (dialogue_outcome only, nullable)
     ms = event.get("mode_source")
     if event_type == "dialogue_outcome":
-        if ms is not None and ms not in _VALID_MODE_SOURCES:
-            raise ValueError(f"invalid mode_source: {ms!r}")
+        if ms is not None:
+            if not isinstance(ms, str) or ms not in _VALID_MODE_SOURCES:
+                raise ValueError(f"invalid mode_source: {ms!r}")
     elif ms is not None:
         raise ValueError(
             f"mode_source must be absent or None on {event_type}, got {ms!r}"
