@@ -127,6 +127,9 @@ Task(
     Goal: Challenge the caching strategy assumptions.
     Posture: adversarial
     Budget: 5
+    scope_envelope:
+      allowed_roots: [src/, docs/, tests/]
+      source_classes: [repo_code, repo_doc]
 
     ## Context
     [Current caching approach, decisions made, trade-offs considered]
