@@ -165,6 +165,7 @@ def check_deferred_annotations(contract_text: str) -> list[str]:
     if section is None:
         return ["contract: §16 Conformance Checklist not found"]
     errors: list[str] = []
+    # Heuristic: checks "deferred" appears near §17 refs. May need refinement if §16 grows.
     if "§17" in section and "deferred" not in section.lower():
         errors.append("contract §16: §17 items present but not annotated as deferred")
     return errors
@@ -247,9 +248,12 @@ def validate(repo_root: Path | None = None) -> list[str]:
     if skill_text is not None and contract_text is not None:
         errors.extend(check_governance_rule_count(skill_text, contract_text))
 
-    errors.extend(
-        check_agent_governance_count(agent_path, EXPECTED_AGENT_GOVERNANCE_COUNT)
-    )
+    if agent_text is not None:
+        errors.extend(
+            check_agent_governance_count(
+                agent_path, EXPECTED_AGENT_GOVERNANCE_COUNT
+            )
+        )
     errors.extend(
         check_agent_governance_count(
             codex_reviewer_path, EXPECTED_AGENT_GOVERNANCE_COUNT

@@ -328,13 +328,15 @@ Task(
 
 **`scope_envelope` construction:** Before delegation, run the consultation contract §3 preflight to determine allowed roots and source classes. Pass the resulting scope envelope to `codex-dialogue`. The scope is immutable once set — on scope breach, the dialogue agent terminates and produces a synthesis with `termination_reason: scope_breach` in the pipeline-data epilogue (see contract §6).
 
-**Re-consent triggers (§3):** If any of these 5 conditions arise during the dialogue, the agent must stop and request re-consent:
+**Scope validation (§3):** Before delegation, verify these 5 conditions against the scope envelope. If any would be violated, do not delegate — inform the user and request updated consent:
 
-1. A new root path not in the original allowed set would be included
-2. A new source class not in the original allowed set would be included
-3. Estimated outbound bytes exceed the session budget
-4. A path adjacent to a known secret file (`auth.json`, `.env`, `*.pem`) is in scope
-5. Sandbox mode would escalate from `read-only` to higher privilege
+1. No root path outside the original allowed set
+2. No source class outside the original allowed set
+3. Estimated outbound bytes within session budget
+4. No path adjacent to known secret files (`auth.json`, `.env`, `*.pem`)
+5. No sandbox mode escalation from `read-only` to higher privilege
+
+Mid-dialogue scope breaches are handled differently: the agent terminates and produces a synthesis with `termination_reason: scope_breach` (see §6). Re-consent gating (§10) is deferred.
 
 The agent detects the sentinel, skips briefing assembly, and runs the multi-turn conversation.
 
@@ -357,7 +359,7 @@ Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json` contai
 |-------|------|--------|
 | `event_type` | `"dialogue_outcome"` | Literal |
 | `synthesis_text` | string | Full raw output from the `codex-dialogue` agent's Task tool return value |
-| `scope_breach` | bool | Determined during Step 5-6 delegation. `true` if the codex-dialogue agent's `<!-- pipeline-data -->` epilogue contains `termination_reason: scope_breach` or `scope_breach_count > 0`. `false` otherwise. Derived from epilogue fields — not from output shape (the agent always returns a synthesis, even on scope breach). |
+| `scope_breach` | bool | Determined during Step 5-6 delegation. `true` if the codex-dialogue agent's `<!-- pipeline-data -->` epilogue contains `termination_reason: scope_breach` or `scope_breach_count > 0`. `false` otherwise. Derived from epilogue fields — not from output shape (the agent always returns a synthesis, even on scope breach). If the epilogue is missing or unparseable, default to `false` and log a warning. |
 | `pipeline` | object | Pipeline state accumulated during Steps 1-6 (see field table below) |
 
 Pipeline fields to include:

@@ -119,10 +119,9 @@ When a skill delegates to the `codex-dialogue` agent, it passes a delegation env
 
 **Scope envelope (immutable):** Set at delegation time. Contains allowed roots and source classes from §3. On scope breach, the agent MUST:
 1. Stop the consultation immediately
-2. Return a resume capsule (see §10)
-3. Not continue without explicit re-consent
+2. Proceed to Phase 3 synthesis with `termination_reason: scope_breach` in the pipeline-data epilogue
 
-*(§10 resume capsule deferred — minimum viable scope enforcement terminates the dialogue on breach rather than pausing for re-consent. Implement §10 if scope breaches require continuation.)*
+*(Full §10 behavior deferred: resume capsule return and re-consent gating. When implemented, item 2 becomes "return a resume capsule" and a third item "not continue without explicit re-consent" is added. See §10.)*
 
 ---
 

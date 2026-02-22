@@ -610,7 +610,7 @@ After the markdown synthesis, emit a fenced JSON block with structured fields fo
 | `turn_count` | int | Actual Codex turns used |
 | `converged` | bool | Whether dialogue converged |
 | `convergence_reason_code` | string or null | Code from synthesis checkpoint |
-| `termination_reason` | string | `"convergence"`, `"budget"`, `"scope_breach"`, or `"error"` |
+| `termination_reason` | string | `"convergence"`, `"budget"`, `"scope_breach"`, or `"error"` (dialogue only — `/codex` also uses `"complete"`) |
 | `scout_count` | int | `evidence_count` from state |
 | `resolved_count` | int | From synthesis checkpoint |
 | `unresolved_count` | int | From synthesis checkpoint |
