@@ -433,6 +433,7 @@ class TestBuildDialogueOutcome:
             "turn_budget",
             "profile_name",
             "mode",
+            "mode_source",
             "converged",
             "convergence_reason_code",
             "termination_reason",
@@ -683,6 +684,30 @@ class TestBuildDialogueOutcome:
         pipeline = {**SAMPLE_PIPELINE, "mode": "manual_legacy"}
         event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         assert event["mode"] == "manual_legacy"
+
+    def test_mode_source_epilogue_propagated(self) -> None:
+        """mode_source='epilogue' is propagated from pipeline input."""
+        pipeline = {**SAMPLE_PIPELINE, "mode_source": "epilogue"}
+        inp = _dialogue_input(pipeline=pipeline)
+        event = MODULE.build_dialogue_outcome(inp)
+        assert event["mode_source"] == "epilogue"
+
+    def test_mode_source_fallback_propagated(self) -> None:
+        """mode_source='fallback' is propagated from pipeline input."""
+        pipeline = {**SAMPLE_PIPELINE, "mode_source": "fallback"}
+        inp = _dialogue_input(pipeline=pipeline)
+        event = MODULE.build_dialogue_outcome(inp)
+        assert event["mode_source"] == "fallback"
+
+    def test_mode_source_none_when_omitted(self) -> None:
+        """mode_source defaults to None when not in pipeline input."""
+        event = MODULE.build_dialogue_outcome(_dialogue_input())
+        assert event["mode_source"] is None
+
+    def test_mode_source_absent_from_consultation_outcome(self) -> None:
+        """mode_source must not be present in consultation_outcome events (D1: absent, not None)."""
+        event = MODULE.build_consultation_outcome(_consultation_input())
+        assert "mode_source" not in event
 
 
 # ---------------------------------------------------------------------------
@@ -1331,6 +1356,30 @@ class TestValidate:
         event = MODULE.build_dialogue_outcome(_dialogue_input(pipeline=pipeline))
         with pytest.raises(ValueError, match="ambiguity_count"):
             MODULE.validate(event, "dialogue_outcome")
+
+    def test_mode_source_invalid_value_rejected(self) -> None:
+        """Invalid mode_source enum value is rejected."""
+        pipeline = {**SAMPLE_PIPELINE, "mode_source": "invented"}
+        inp = _dialogue_input(pipeline=pipeline)
+        event = MODULE.build_dialogue_outcome(inp)
+        with pytest.raises(ValueError, match="invalid mode_source"):
+            MODULE.validate(event, "dialogue_outcome")
+
+    def test_mode_source_rejected_on_consultation(self) -> None:
+        """Non-None mode_source on consultation_outcome is rejected."""
+        inp = _consultation_input()
+        event = MODULE.build_consultation_outcome(inp)
+        event["mode_source"] = "epilogue"  # manually inject
+        with pytest.raises(ValueError, match="mode_source"):
+            MODULE.validate(event, "consultation_outcome")
+
+    def test_mode_source_valid_values_pass_validation(self) -> None:
+        """Valid mode_source values ('epilogue', 'fallback') pass validation without error."""
+        for ms in ("epilogue", "fallback"):
+            pipeline = {**SAMPLE_PIPELINE, "mode_source": ms}
+            inp = _dialogue_input(pipeline=pipeline)
+            event = MODULE.build_dialogue_outcome(inp)
+            MODULE.validate(event, "dialogue_outcome")  # should not raise
 
     def test_null_episode_id_passes_validation(self) -> None:
         """episode_id=None should not cause validation errors (reserved nullable)."""

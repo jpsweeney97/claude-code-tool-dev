@@ -48,6 +48,7 @@ _VALID_CONVERGENCE_CODES = {
     "scope_breach",
 }
 _VALID_MODES = {"server_assisted", "manual_legacy"}
+_VALID_MODE_SOURCES = {"epilogue", "fallback"}
 _VALID_LOW_SEED_CONFIDENCE_REASONS = {
     "thin_citations",
     "few_files",
@@ -366,6 +367,7 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "turn_budget": turn_budget,
         "profile_name": pipeline.get("profile_name"),
         "mode": pipeline.get("mode", "server_assisted"),
+        "mode_source": pipeline.get("mode_source"),
         # Outcome
         "converged": parsed["converged"],
         "convergence_reason_code": code,
@@ -508,6 +510,16 @@ def validate(event: dict, event_type: str) -> None:
         raise ValueError("mode is required")
     if mode not in _VALID_MODES:
         raise ValueError(f"invalid mode: {mode!r}")
+
+    # mode_source enum (dialogue_outcome only, nullable)
+    ms = event.get("mode_source")
+    if event_type == "dialogue_outcome":
+        if ms is not None and ms not in _VALID_MODE_SOURCES:
+            raise ValueError(f"invalid mode_source: {ms!r}")
+    elif ms is not None:
+        raise ValueError(
+            f"mode_source must be absent or None on {event_type}, got {ms!r}"
+        )
 
     # Tri-state planning invariant: question_shaped drives field requirements
     qs = event.get("question_shaped")
