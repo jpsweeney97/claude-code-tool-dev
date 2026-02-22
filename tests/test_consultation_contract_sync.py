@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pytest
 
 # ---------------------------------------------------------------------------
 # Module import
@@ -366,3 +370,29 @@ def test_dialogue_skill_stub_refs_resolve() -> None:
     assert errors == [], "expected no errors, got:\n" + "\n".join(
         f"  - {e}" for e in errors
     )
+
+
+# ---------------------------------------------------------------------------
+# OSError handling (S4)
+# ---------------------------------------------------------------------------
+
+def test_read_file_permission_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_file catches PermissionError (via OSError widening), not just FileNotFoundError."""
+    target = tmp_path / "unreadable.md"
+    target.write_text("content")
+
+    # Monkeypatch Path.read_text to raise PermissionError
+    original_read_text = Path.read_text
+
+    def patched_read_text(self: Path, **kwargs: str | None) -> str:
+        if self == target:
+            raise PermissionError(f"Permission denied: {self}")
+        return original_read_text(self, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", patched_read_text)
+
+    # Before S4 fix: this raises uncaught PermissionError
+    # After S4 fix: this returns a descriptive error string
+    errors = MODULE.check_agent_governance_count(target, 7)
+    assert len(errors) == 1
+    assert "PermissionError" in errors[0]
