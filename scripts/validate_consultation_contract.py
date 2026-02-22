@@ -7,9 +7,12 @@
 
 Checks:
 1. Contract has all 17 expected sections (## N. Title headers).
-2. All (§N) stub references in SKILL.md and codex-dialogue.md resolve to
-   real contract sections.
+2. All (§N) stub references in SKILL.md, dialogue/SKILL.md, and codex-dialogue.md
+   resolve to real contract sections.
 3. SKILL.md governance rule count matches §15 in the contract (both must be 7).
+4. §13 Event Contract references actual event types (dialogue_outcome,
+   consultation_outcome).
+5. §16 Conformance Checklist annotates §17 items as deferred.
 
 Usage:
     uv run scripts/validate_consultation_contract.py
@@ -144,6 +147,29 @@ def check_governance_rule_count(skill_text: str, contract_text: str) -> list[str
     return []
 
 
+def check_event_types_in_contract(contract_text: str) -> list[str]:
+    """Verify §13 references the actual event types emitted by emit_analytics.py."""
+    section = extract_section_text(contract_text, "## 13.")
+    if section is None:
+        return ["contract: §13 Event Contract section not found"]
+    errors: list[str] = []
+    for event_type in ("dialogue_outcome", "consultation_outcome"):
+        if event_type not in section:
+            errors.append(f"contract §13 missing reference to '{event_type}'")
+    return errors
+
+
+def check_deferred_annotations(contract_text: str) -> list[str]:
+    """Verify that unimplemented sections are annotated as deferred in §16."""
+    section = extract_section_text(contract_text, "## 16.")
+    if section is None:
+        return ["contract: §16 Conformance Checklist not found"]
+    errors: list[str] = []
+    if "§17" in section and "deferred" not in section.lower():
+        errors.append("contract §16: §17 items present but not annotated as deferred")
+    return errors
+
+
 def validate(repo_root: Path | None = None) -> list[str]:
     """Run all checks. Returns list of error strings — empty list means all pass."""
     if repo_root is None:
@@ -151,6 +177,7 @@ def validate(repo_root: Path | None = None) -> list[str]:
 
     contract_path = repo_root / "packages/plugins/cross-model/references/consultation-contract.md"
     skill_path = repo_root / "packages/plugins/cross-model/skills/codex/SKILL.md"
+    dialogue_skill_path = repo_root / "packages/plugins/cross-model/skills/dialogue/SKILL.md"
     agent_path = repo_root / "packages/plugins/cross-model/agents/codex-dialogue.md"
     codex_reviewer_path = repo_root / "packages/plugins/cross-model/agents/codex-reviewer.md"
     gatherer_code_path = repo_root / "packages/plugins/cross-model/agents/context-gatherer-code.md"
@@ -171,13 +198,21 @@ def validate(repo_root: Path | None = None) -> list[str]:
     except FileNotFoundError as e:
         return [f"validate failed: cannot read agent. Got: {str(e)!r:.100}"]
 
+    try:
+        dialogue_skill_text = read_file(dialogue_skill_path)
+    except FileNotFoundError as e:
+        return [f"validate failed: cannot read dialogue skill. Got: {str(e)!r:.100}"]
+
     contract_sections = extract_contract_sections(contract_text)
 
     errors: list[str] = []
     errors.extend(check_section_count(contract_sections))
     errors.extend(check_stub_references("SKILL.md", skill_text, contract_sections))
+    errors.extend(check_stub_references("dialogue/SKILL.md", dialogue_skill_text, contract_sections))
     errors.extend(check_stub_references("codex-dialogue.md", agent_text, contract_sections))
     errors.extend(check_governance_rule_count(skill_text, contract_text))
+    errors.extend(check_event_types_in_contract(contract_text))
+    errors.extend(check_deferred_annotations(contract_text))
     errors.extend(check_agent_governance_count(agent_path, EXPECTED_AGENT_GOVERNANCE_COUNT))
     errors.extend(check_agent_governance_count(codex_reviewer_path, EXPECTED_AGENT_GOVERNANCE_COUNT))
     errors.extend(check_agent_governance_count(gatherer_code_path, EXPECTED_GATHERER_GOVERNANCE_COUNT))

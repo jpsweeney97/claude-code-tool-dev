@@ -241,3 +241,43 @@ def test_context_gatherer_falsifier_has_governance_section() -> None:
     """context-gatherer-falsifier.md must have a Governance section with 3 rules."""
     count = _count_governance_rules(AGENTS_DIR / "context-gatherer-falsifier.md")
     assert count == 3, f"expected 3 governance rules, got {count}"
+
+
+# ---------------------------------------------------------------------------
+# §13 event type checks
+# ---------------------------------------------------------------------------
+
+DIALOGUE_SKILL_PATH = REPO_ROOT / "packages/plugins/cross-model/skills/dialogue/SKILL.md"
+
+
+def test_event_types_match_contract() -> None:
+    """§13 must reference actual event types from emit_analytics.py."""
+    contract_text = CONTRACT_PATH.read_text()
+    errors = MODULE.check_event_types_in_contract(contract_text)
+    assert errors == [], "expected no errors, got:\n" + "\n".join(f"  - {e}" for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# §16 deferred annotation checks
+# ---------------------------------------------------------------------------
+
+
+def test_deferred_sections_annotated() -> None:
+    """§16 must annotate unimplemented sections as deferred."""
+    contract_text = CONTRACT_PATH.read_text()
+    errors = MODULE.check_deferred_annotations(contract_text)
+    assert errors == [], "expected no errors, got:\n" + "\n".join(f"  - {e}" for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# dialogue/SKILL.md stub reference checks
+# ---------------------------------------------------------------------------
+
+
+def test_dialogue_skill_stub_refs_resolve() -> None:
+    """dialogue/SKILL.md stub references must resolve to contract sections."""
+    contract_text = CONTRACT_PATH.read_text()
+    dialogue_skill_text = DIALOGUE_SKILL_PATH.read_text()
+    contract_sections = MODULE.extract_contract_sections(contract_text)
+    errors = MODULE.check_stub_references("dialogue/SKILL.md", dialogue_skill_text, contract_sections)
+    assert errors == [], "expected no errors, got:\n" + "\n".join(f"  - {e}" for e in errors)
