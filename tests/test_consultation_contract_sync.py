@@ -198,3 +198,46 @@ def test_extract_stub_refs_returns_correct_numbers() -> None:
     text = "See §5 (§5), §7 (§7), and §11 (§11). Also (§9) here."
     refs = MODULE.extract_stub_refs(text)
     assert refs == {5, 7, 9, 11}
+
+
+# ---------------------------------------------------------------------------
+# Agent governance checks
+# ---------------------------------------------------------------------------
+
+AGENTS_DIR = REPO_ROOT / "packages/plugins/cross-model/agents"
+
+
+def _count_governance_rules(agent_path: Path) -> int:
+    """Read an agent file and count governance rules matching the pattern."""
+    import re
+    pattern = re.compile(r"^\d+\. \*\*", re.MULTILINE)
+    text = agent_path.read_text()
+    start = text.find("## Governance")
+    assert start != -1, f"{agent_path.name}: Governance section not found"
+    next_section = text.find("\n## ", start + len("## Governance"))
+    section = text[start:next_section] if next_section != -1 else text[start:]
+    return len(pattern.findall(section))
+
+
+def test_codex_dialogue_has_governance_section() -> None:
+    """codex-dialogue.md must have a Governance section with 7 rules."""
+    count = _count_governance_rules(AGENTS_DIR / "codex-dialogue.md")
+    assert count == 7, f"expected 7 governance rules, got {count}"
+
+
+def test_codex_reviewer_has_governance_section() -> None:
+    """codex-reviewer.md must have a Governance section with 7 rules."""
+    count = _count_governance_rules(AGENTS_DIR / "codex-reviewer.md")
+    assert count == 7, f"expected 7 governance rules, got {count}"
+
+
+def test_context_gatherer_code_has_governance_section() -> None:
+    """context-gatherer-code.md must have a Governance section with 3 rules."""
+    count = _count_governance_rules(AGENTS_DIR / "context-gatherer-code.md")
+    assert count == 3, f"expected 3 governance rules, got {count}"
+
+
+def test_context_gatherer_falsifier_has_governance_section() -> None:
+    """context-gatherer-falsifier.md must have a Governance section with 3 rules."""
+    count = _count_governance_rules(AGENTS_DIR / "context-gatherer-falsifier.md")
+    assert count == 3, f"expected 3 governance rules, got {count}"

@@ -25,6 +25,8 @@ from pathlib import Path
 
 EXPECTED_SECTION_COUNT = 17
 EXPECTED_GOVERNANCE_RULE_COUNT = 7
+EXPECTED_AGENT_GOVERNANCE_COUNT = 7
+EXPECTED_GATHERER_GOVERNANCE_COUNT = 3
 
 # Matches (§N) in stub prose — the canonical stub reference format
 STUB_REF_PATTERN = re.compile(r'\(§(\d+)\)')
@@ -97,6 +99,26 @@ def check_stub_references(
     ]
 
 
+def check_agent_governance_count(agent_path: Path, expected_count: int) -> list[str]:
+    """Verify an agent file has the expected number of governance rules."""
+    try:
+        agent_text = read_file(agent_path)
+    except FileNotFoundError as e:
+        return [f"check_agent_governance failed: {e}"]
+
+    section_text = extract_section_text(agent_text, "## Governance")
+    if section_text is None:
+        return [f"{agent_path.name}: Governance section not found"]
+
+    count = count_governance_rules(section_text)
+    if count != expected_count:
+        return [
+            f"{agent_path.name}: governance rule count wrong: "
+            f"expected {expected_count}, got {count}"
+        ]
+    return []
+
+
 def check_governance_rule_count(skill_text: str, contract_text: str) -> list[str]:
     """Verify SKILL.md governance rule count matches §15 in the contract."""
     skill_section = extract_section_text(skill_text, "## Governance")
@@ -130,6 +152,9 @@ def validate(repo_root: Path | None = None) -> list[str]:
     contract_path = repo_root / "packages/plugins/cross-model/references/consultation-contract.md"
     skill_path = repo_root / "packages/plugins/cross-model/skills/codex/SKILL.md"
     agent_path = repo_root / "packages/plugins/cross-model/agents/codex-dialogue.md"
+    codex_reviewer_path = repo_root / "packages/plugins/cross-model/agents/codex-reviewer.md"
+    gatherer_code_path = repo_root / "packages/plugins/cross-model/agents/context-gatherer-code.md"
+    gatherer_falsifier_path = repo_root / "packages/plugins/cross-model/agents/context-gatherer-falsifier.md"
 
     try:
         contract_text = read_file(contract_path)
@@ -153,6 +178,10 @@ def validate(repo_root: Path | None = None) -> list[str]:
     errors.extend(check_stub_references("SKILL.md", skill_text, contract_sections))
     errors.extend(check_stub_references("codex-dialogue.md", agent_text, contract_sections))
     errors.extend(check_governance_rule_count(skill_text, contract_text))
+    errors.extend(check_agent_governance_count(agent_path, EXPECTED_AGENT_GOVERNANCE_COUNT))
+    errors.extend(check_agent_governance_count(codex_reviewer_path, EXPECTED_AGENT_GOVERNANCE_COUNT))
+    errors.extend(check_agent_governance_count(gatherer_code_path, EXPECTED_GATHERER_GOVERNANCE_COUNT))
+    errors.extend(check_agent_governance_count(gatherer_falsifier_path, EXPECTED_GATHERER_GOVERNANCE_COUNT))
     return errors
 
 

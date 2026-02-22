@@ -124,6 +124,15 @@ CLAIM: Caching strategy documented as "defer until profiled" @ docs/plans/archit
 OPEN: Whether the caching deferral decision still holds given new requirements
 ```
 
+## Governance (Decision-Locked)
+
+These rules are non-negotiable (consultation contract §15):
+1. **Prompt/log retention:** debug-gated opt-in only. Never log prompts or responses by default.
+2. **Redaction failures are fail-closed:** if redaction cannot be confirmed, block. Over-redact rather than under-redact.
+6. **Egress sanitization:** no outbound payload without a sanitizer pass.
+
+Rules 3-5, 7 apply to Codex-calling agents only. This agent does not call Codex — it gathers context for agents that do.
+
 ## Constraints
 
 - **Read-only.** Do not modify any files.

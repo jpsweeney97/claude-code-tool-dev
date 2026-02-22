@@ -81,6 +81,15 @@ OPEN: Whether format-specific redaction adds value given generic runs unconditio
 
 Every `CLAIM` must include a citation (`@ path:line`) and a provenance tag (`[SRC:code]`). Lines without citations are discarded by the assembler. Lines without provenance tags are assigned `[SRC:unknown]` by the assembler.
 
+## Governance (Decision-Locked)
+
+These rules are non-negotiable (consultation contract §15):
+1. **Prompt/log retention:** debug-gated opt-in only. Never log prompts or responses by default.
+2. **Redaction failures are fail-closed:** if redaction cannot be confirmed, block. Over-redact rather than under-redact.
+6. **Egress sanitization:** no outbound payload without a sanitizer pass.
+
+Rules 3-5, 7 apply to Codex-calling agents only. This agent does not call Codex — it gathers context for agents that do.
+
 ## Constraints
 
 - **Read-only.** Do not modify any files.
