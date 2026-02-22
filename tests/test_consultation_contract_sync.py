@@ -451,3 +451,69 @@ def test_scope_breach_referenced_in_section_6() -> None:
     assert "scope_breach" in section_6, (
         "§6 must reference 'scope_breach' as a termination reason"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test coverage gaps (round 2)
+# ---------------------------------------------------------------------------
+
+
+def test_agent_governance_missing_file(tmp_path: Path) -> None:
+    """check_agent_governance_count returns error for non-existent agent file."""
+    missing_path = tmp_path / "nonexistent-agent.md"
+    errors = MODULE.check_agent_governance_count(missing_path, 7)
+    assert len(errors) == 1
+    assert "cannot read" in errors[0] or "check_agent_governance failed" in errors[0]
+
+
+def test_event_types_missing_section() -> None:
+    """check_event_types_in_contract returns error when §13 is absent."""
+    contract_without_13 = "\n".join(
+        [
+            "## 12. Previous Section",
+            "",
+            "Some content.",
+            "",
+            "## 14. Next Section",
+            "",
+            "More content.",
+        ]
+    )
+    errors = MODULE.check_event_types_in_contract(contract_without_13)
+    assert len(errors) == 1
+    assert "§13" in errors[0]
+    assert "not found" in errors[0]
+
+
+def test_multiple_simultaneous_errors() -> None:
+    """validate() accumulates errors from multiple failing checks."""
+    # Use a repo root that doesn't exist — all file reads will fail
+    fake_root = Path("/nonexistent/repo/root")
+    errors = MODULE.validate(repo_root=fake_root)
+    # 4 file-read errors + 3 unconditional agent governance checks = 7 minimum
+    assert len(errors) >= 7, (
+        f"expected at least 7 accumulated errors from missing files, got {len(errors)}:\n"
+        + "\n".join(f"  - {e}" for e in errors)
+    )
+    # Verify errors are accumulated, not just the first one
+    error_text = "\n".join(errors)
+    assert "contract" in error_text.lower()
+    assert "skill" in error_text.lower()
+
+
+def test_validate_catches_permission_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """validate() catches PermissionError (OSError subclass) during file reads."""
+    original_read_file = MODULE.read_file
+
+    def patched_read_file(path: Path) -> str:
+        if "consultation-contract" in path.name:
+            raise PermissionError(f"Permission denied: {path}")
+        return original_read_file(path)
+
+    monkeypatch.setattr(MODULE, "read_file", patched_read_file)
+    errors = MODULE.validate(repo_root=tmp_path)
+    permission_errors = [e for e in errors if "PermissionError" in e or "Permission denied" in e]
+    assert len(permission_errors) >= 1, (
+        f"expected PermissionError in accumulated errors, got:\n"
+        + "\n".join(f"  - {e}" for e in errors)
+    )
