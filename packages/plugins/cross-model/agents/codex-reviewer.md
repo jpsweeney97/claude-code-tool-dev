@@ -94,10 +94,11 @@ Call `mcp__plugin_cross-model_codex__codex` with:
 | Parameter | Value |
 |-----------|-------|
 | `prompt` | Assembled briefing from Step 2 |
-| `model` | `"gpt-5.2"` |
 | `sandbox` | `read-only` |
 | `approval-policy` | `never` |
 | `config` | `{"model_reasoning_effort": "xhigh"}` |
+
+Do NOT set the `model` parameter — omit it entirely so the Codex server uses its default. Setting model names from training knowledge causes API failures. See consultation contract §9.
 
 After receiving Codex's response:
 - If high-severity issues need clarification, send **one** follow-up via `mcp__plugin_cross-model_codex__codex-reply` using `threadId` from the response
