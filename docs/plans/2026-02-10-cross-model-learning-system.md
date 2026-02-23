@@ -1393,3 +1393,48 @@ Bootstrap entries are identifiable by date (all 2026-02-18) and do not count tow
 #### Relationship to Original Gate
 
 The original "capture 10 insights, report 3 useful" (A4.1) is replaced by this three-gate structure. The capture threshold is calibrated to the same rate over a shorter window. The "3 useful" self-rating is replaced by Gates 2 and 3, which separate quality maintenance from re-injection value.
+
+### A9. Phase 1a Implementation (forward-reference)
+
+**Date:** 2026-02-23
+**Source:** 6 Codex dialogues (32 turns, 59 resolved items) reviewing the Phase 1a implementation plan.
+
+Phase 1a implementation establishes structured episode logging. This amendment documents forward-references from the plan to the spec, and records where 1a implementation detail supersedes spec-level descriptions.
+
+#### 1. Generation-time validation gate
+
+`scripts/validate_episode.py` performs 13 structural checks at episode creation time. This is distinct from the Gate 1 card linter described in §5 (which operates at promotion time in Phase 1b). The generation-time validator checks syntactic structural validity only — well-formed YAML, valid enum members, required sections present and non-empty. Semantic correctness is handled by mandatory user confirmation.
+
+#### 2. `/learn` routing table
+
+| First token | Route |
+|-------------|-------|
+| `log` | Episode Logging (structured, validated) |
+| `promote` | Reject: "Not yet available" (Phase 1b) |
+| *(else)* | Phase 0 Unstructured Capture |
+
+#### 3. Authoritative schema location
+
+The episode schema is defined in `.claude/skills/learn/references/episode-schema.md`. The episode sub-schema in §4 is superseded for field-level detail (enum values, conditional body rules, inference guidance). The card schema in §4 remains authoritative and is not affected by this amendment.
+
+#### 4. `decided_by` Phase 1a restriction
+
+Phase 1a accepts only `decided_by: user`. The values `auto-verify` and `debate` are deferred to Phase 1b when the calibration pipeline can assess automated decisions.
+
+#### 5. Deferred harmonization
+
+The following are implemented in 1a but formally documented in a 1b amendment: `source_type` conditional body rules, `task_type` 10-value enum alignment with `applies_to.task_types`, and the `concepts` field (deferred entirely — not in 1a schema).
+
+#### 6. Upgrade choreography (atomic cutover)
+
+Schema version transitions use atomic cutover, not dual-version acceptance windows. Protocol for 1b:
+
+1. Open 1b A-series amendment entry (schema delta + migration scope)
+2. Perform A9 supersession scope review as explicit decision
+3. Update episode schema reference to v2 (**prerequisite gate** — validator changes cannot begin until complete)
+4. Add `scripts/migrate_episodes.py` (idempotent, `--dry-run`, summary counts: total/migrated/unchanged/failed; fail-fast on first error)
+5. Run migration dry-run; resolve blockers
+6. Run migration in one pass (atomic cutover; interrupted migration requires rerun-to-clean before validator switch)
+7. Switch validator to strict v2-only (`schema_version == 2`, exact match)
+8. Full corpus validation + CI; completion criteria: zero v1 episodes, all pass v2
+9. Record cutover outcome in 1b notes (before/after counts, failed=0, timestamp)
