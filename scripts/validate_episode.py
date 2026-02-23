@@ -152,6 +152,8 @@ def validate(filepath: Path, *, skip_id_sequence: bool = False) -> list[str]:
         filepath: Path to the episode .md file.
         skip_id_sequence: If True, skip ID sequence check (useful for testing
             individual files without the full episode directory).
+            Note: ID sequence check deferred to Phase 1b. Parameter
+            retained for CLI/API stability.
     """
     errors: list[str] = []
 
