@@ -66,10 +66,14 @@ The handoff plugin treats every save-state operation as a full handoff: load syn
 
 ## Acceptance Criteria
 
-- [ ] `/handoff checkpoint` (or equivalent) produces a checkpoint file
-- [ ] Checkpoint loads ≤150 lines of skill context (vs ~570 for full handoff)
-- [ ] Checkpoint output is 50-150 lines (vs 300+ for full handoff)
+- [ ] `/checkpoint` produces a checkpoint file
+- [ ] Checkpoint loads ≤180 lines total context (skill ~100-120 + shared contract ~60)
+- [ ] Checkpoint output is 22-55 lines body (37-70 total with frontmatter)
+- [ ] All 5 required sections present (Current Task, In Progress, Active Files, Next Action, Verification Snapshot)
 - [ ] Checkpoint frontmatter includes `type: checkpoint`
+- [ ] Chain protocol works: state file read → checkpoint write → state file cleanup
 - [ ] `/resume` handles checkpoints transparently (loads, archives, chains)
 - [ ] `/list-handoffs` shows type column (checkpoint vs handoff)
-- [ ] Existing `/handoff` flow unchanged
+- [ ] Existing `/handoff` flow unchanged (now loads shared contract)
+- [ ] Consecutive checkpoint guardrail triggers at N=3
+- [ ] `cleanup.py` uses `trash` instead of `unlink()`

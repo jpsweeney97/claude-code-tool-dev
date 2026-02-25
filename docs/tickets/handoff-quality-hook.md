@@ -64,9 +64,11 @@ The creating-handoffs skill specifies a 300-line minimum, required frontmatter f
 
 - [ ] PostToolUse hook fires on Write to `~/.claude/handoffs/`
 - [ ] Warns when full handoff is under 300 lines
+- [ ] Warns when checkpoint is under 20 lines (missing required sections)
+- [ ] Warns when checkpoint exceeds 80 lines (drifting toward handoff territory)
 - [ ] Warns when required frontmatter fields are missing
-- [ ] Warns when fewer than 4 sections present
-- [ ] Does NOT warn for checkpoints under 300 lines (uses checkpoint thresholds)
+- [ ] Warns when fewer than 4 sections present (handoff) or 5 sections (checkpoint)
+- [ ] Uses `type` field to select threshold set (checkpoint: 20-80, handoff: 300+)
 - [ ] Warning appears as `additionalContext` system reminder
 - [ ] Hook completes in under 2 seconds
 - [ ] Hook never blocks session or tool execution (exit 0 always)
