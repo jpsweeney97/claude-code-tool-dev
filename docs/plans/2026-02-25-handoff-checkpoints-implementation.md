@@ -4,7 +4,7 @@
 
 **Goal:** Add `/checkpoint` command to the handoff plugin for fast, lightweight state saves during context-pressure session cycling.
 
-**Architecture:** Separate `checkpointing` skill (~130-150 lines) + shared `handoff-contract.md` (~80-100 lines) loaded by all three handoff skills. Contract defines frontmatter schema, chain protocol, storage conventions, precedence rules, and known limitations. Checkpoint output targets 22-55 lines body.
+**Architecture:** Separate `checkpointing` skill (~130-150 lines target, ≤160 acceptance) + shared `handoff-contract.md` (~80-100 lines target, ≤110 acceptance) loaded by all three handoff skills. Total checkpoint context ≤230 lines (enforced acceptance threshold). Contract defines frontmatter schema, chain protocol, storage conventions, precedence rules, schema drift guidance, and known limitations. Checkpoint output targets 22-55 lines body.
 
 **Tech Stack:** Markdown skills, Python (cleanup.py fix), Claude Code plugin system
 
@@ -12,7 +12,9 @@
 
 **Plugin root:** `packages/plugins/handoff/`
 
-**Codex review (adversarial-challenge, 5 turns):** Plan revised to incorporate 12 findings. Key changes: chain-walk replaces Glob scan for N≥3 guardrail (critical correctness fix), inline chain protocol removed from creating-handoffs (design doc compliance), triple-authority schema resolved with precedence rules, cleanup.py error handling added, smoke test expanded to 12-item design verification checklist. See commit history for pre-review version.
+**Codex review round 1 (adversarial-challenge, 5 turns):** Plan revised to incorporate 12 findings. Key changes: chain-walk replaces Glob scan for N≥3 guardrail (critical correctness fix), inline chain protocol removed from creating-handoffs (design doc compliance), triple-authority schema resolved with precedence rules, cleanup.py error handling added, smoke test expanded to 12-item design verification checklist. See commit history for pre-review version.
+
+**Codex review round 2 (adversarial-challenge, 5 turns, converged):** Plan revised to incorporate 9 additional findings (1 critical, 3 high, 4 medium, 1 low). Key changes: off-by-one fix in chain-walk guardrail (critical — threshold changed from `count >= 3` to `prior_checkpoint_count >= 2`), guardrail scope limitation documented (resume-chain-only), Task 4 step numbering clarified with pre-edit/post-edit labels, `files:` field population defined for checkpoints, smoke test items 10-11 wording fixed, context budget threshold labeled, schema drift maintenance note added.
 
 ---
 
@@ -109,6 +111,8 @@ If `~/.claude/handoffs/<project>/` is not writable (or cannot be created), **STO
 
 This contract is canonical for cross-skill invariants: frontmatter field definitions, type semantics, chain protocol, and storage/retention. `format-reference.md` is canonical for section content guidance, depth targets, quality calibration, and examples. If `format-reference.md` conflicts with this contract, **this contract wins**.
 
+**Schema drift note:** Skills may contain partial field lists in Definition of Done tables and Verification checklists. These are non-canonical summaries — this contract governs. If a skill's field list diverges from this schema, update the skill to match the contract.
+
 ## Known Limitations
 
 Three inherited issues from the current chain protocol design. These are pre-existing — not introduced by the checkpoint tier.
@@ -193,17 +197,20 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
    - If exists, set `resumed_from` to its content
 
 5. **Check consecutive checkpoint count via chain walk:**
+   - Initialize `prior_checkpoint_count = 0`
    - If `resumed_from` was set in step 4, read the archived file it points to
-   - Check its `type:` frontmatter field. If `checkpoint`, increment count and follow its `resumed_from` (if present)
-   - Stop at first `type: handoff`, missing `type`, missing file, or count ≥ 3
-   - This is bounded to 3-4 file reads maximum — faster than Glob and correct across the resume/archive lifecycle (Glob scan of active directory fails because `/resume` archives files to `.archive/`)
+   - Check its `type:` frontmatter field. If `checkpoint`, increment `prior_checkpoint_count` and follow its `resumed_from` (if present)
+   - Stop at first `type: handoff`, missing `type`, missing file, or `prior_checkpoint_count >= 2`
+   - This is bounded to 2-3 file reads maximum — faster than Glob and correct across the resume/archive lifecycle (Glob scan of active directory fails because `/resume` archives files to `.archive/`)
    - If `resumed_from` was NOT set (no state file — e.g., TTL race, first checkpoint of session): skip the guardrail. Emit no warning — lack of state file is not evidence of checkpoint streaking.
-   - If count ≥ 3: prompt "You've created 3 checkpoints in a row without a full /handoff. Consider /handoff to capture decisions, codebase knowledge, and session narrative before they decay. Continue with checkpoint anyway?"
+   - If `prior_checkpoint_count >= 2`: prompt "Detected 2 prior checkpoints; this would be your 3rd consecutive checkpoint. Consider /handoff to capture decisions, codebase knowledge, and session narrative before they decay. Continue with checkpoint anyway?"
    - If user wants full handoff, **STOP** and suggest they run `/handoff`.
+   - **Scope limitation:** The guardrail only detects consecutive checkpoints within a single resume chain (connected via `resumed_from`). A user who checkpoints, closes the session, opens a new session without resuming, and checkpoints again will not trigger the guardrail because the chain is broken. This is by design — the guardrail is advisory, not a hard gate, and cross-chain detection would require scanning all archived files (O(n) reads).
 
 6. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_checkpoint-<slug>.md`
    - Use frontmatter from [handoff-contract.md](../../references/handoff-contract.md) with `type: checkpoint`
    - Title: `"Checkpoint: <descriptive-title>"`
+   - Populate frontmatter `files:` from file paths listed in the Active Files section (the body section and frontmatter field serve complementary purposes: frontmatter enables machine-readable queries, body provides human-readable context)
    - Required sections (5) are always included — use placeholder content for thin sessions (e.g., "No commands run yet" for Verification Snapshot). Conditional sections (3) are omitted when not applicable.
 
 7. **Cleanup state file** per chain protocol:
@@ -322,7 +329,9 @@ git commit -m "feat(handoff): add /checkpoint command wrapper"
 **Files:**
 - Modify: `packages/plugins/handoff/skills/creating-handoffs/SKILL.md`
 
-Six changes: (a) add contract reference, (b) add `type: handoff` to procedure step 7, (c) replace inline chain protocol in steps 7-9 with contract references, (d) update Definition of Done to include `type` and `session_id`, (e) update Verification checklist to include `type`, (f) fix `rm` → `trash` in Troubleshooting section.
+Six changes: (a) add contract reference, (b) add `type: handoff` to procedure step 7 ("Generate markdown"), (c) replace inline chain protocol in steps 7 and 9 with contract references, (d) update Definition of Done to include `type` and `session_id`, (e) update Verification checklist to include `type`, (f) fix `rm` → `trash` in Troubleshooting section.
+
+**Note on step numbering:** The current creating-handoffs SKILL.md procedure has: step 7 = "Generate markdown" (includes inline state file check at lines 145-147), step 8 = "Write file", step 9 = "Clean up state file". Steps 2 and 3 below both target procedure step 7 but different parts of it — Step 2 modifies the header/references, Step 3 replaces the inline state file check bullets with a contract reference.
 
 **Step 1: Add contract reference after the Session ID line**
 
@@ -332,13 +341,11 @@ At line 6 of SKILL.md (after `**Session ID:** ${CLAUDE_SESSION_ID}`), add:
 **Read [handoff-contract.md](../../references/handoff-contract.md) for:** frontmatter schema, chain protocol, storage conventions.
 ```
 
-**Step 2: Add `type: handoff` to the frontmatter schema**
+**Step 2: Add `type: handoff` and contract reference to procedure step 7 header**
 
-In the Outputs section (around line 59 in the frontmatter example within format-reference), the creating-handoffs skill references `format-reference.md` for the schema. The contract now also has the schema with the `type` field. No inline schema change needed in SKILL.md itself — the contract and format-reference define it.
+Procedure step 7 ("Generate markdown", line 143) currently references only format-reference.md. Update the header to also reference the contract, and add `type: handoff`:
 
-But we need to ensure step 7 of the procedure explicitly includes `type: handoff`:
-
-At the procedure step 7 (line 143), change:
+At procedure step 7 (line 143), change:
 ```
 7. **Generate markdown** with frontmatter per [format-reference.md](../../references/format-reference.md):
    - Include `session_id:` with the UUID from step 2
@@ -351,26 +358,24 @@ To:
    - Include `type: handoff` in frontmatter
 ```
 
-**Step 3: Replace inline chain protocol with contract references**
+**Step 3: Replace inline state file check in step 7 + step 9 with contract references**
 
-The design doc requires removing inline chain protocol from creating-handoffs (now defined in the contract). The current SKILL.md implements chain protocol inline at procedure steps 7 and 9. Replace the inline mechanics with contract references:
+The design doc requires removing inline chain protocol (now defined in the contract). The current procedure step 7 embeds the state file check inline (lines 145-147). Replace those bullets with a contract reference, and update step 9 similarly:
 
-In procedure step 7 (currently "Check for state file"), replace the inline implementation:
+Within procedure step 7 (lines 145-147), replace the inline state file check bullets:
 ```
-7. **Check for state file** at `~/.claude/.session-state/handoff-<session_id>`:
-   - If found, read the archive path and use it as `resumed_from` in frontmatter
+   - Check for `~/.claude/.session-state/handoff-<session_id>` (using the UUID from step 2)
+   - If state file exists, read path and include as `resumed_from`
 ```
 
 With:
 ```
-7. **Check state file** per chain protocol in [handoff-contract.md](../../references/handoff-contract.md):
-   - Read `~/.claude/.session-state/handoff-<session_id>`
-   - If exists, set `resumed_from` to its content
+   - Per chain protocol in [handoff-contract.md](../../references/handoff-contract.md): read `~/.claude/.session-state/handoff-<session_id>` — if exists, set `resumed_from` to its content
 ```
 
-In procedure step 9 (currently "trash the state file"), replace:
+In procedure step 9 ("Clean up state file", line 151), replace:
 ```
-9. `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` (if it exists)
+9. **Clean up state file** (use `trash` to remove `~/.claude/.session-state/handoff-<session_id>` if exists)
 ```
 
 With:
@@ -418,11 +423,13 @@ touch ~/.claude/handoffs/test && trash ~/.claude/handoffs/test
 **Step 7: Verify changes**
 
 - Contract reference appears near top of skill
-- `type: handoff` explicitly mentioned in procedure step 8 (generate markdown)
-- Inline chain protocol replaced with contract references at steps 7 and 9
+- `type: handoff` explicitly mentioned in procedure step 7 ("Generate markdown")
+- Inline state file check in step 7 replaced with contract reference (lines 145-147 → single contract-referencing bullet)
+- Step 9 ("Clean up state file") references contract instead of inline implementation
 - Definition of Done includes `session_id` and `type`
 - Verification checklist includes `type: handoff` and `session_id`
 - Troubleshooting uses `trash` not `rm`
+- Required-field lists in DoD and Verification are non-canonical summaries; contract governs on conflict
 
 **Step 8: Commit**
 
@@ -438,7 +445,7 @@ git commit -m "feat(handoff): add type field, contract reference, remove inline 
 **Files:**
 - Modify: `packages/plugins/handoff/skills/resuming-handoffs/SKILL.md`
 
-Three changes: (a) add contract reference, (b) display type on resume, (c) add type column to `/list-handoffs`.
+Four changes: (a) add contract reference after Session ID, (b) display type on resume, (c) add type column to `/list-handoffs`, (d) update Storage section to reference contract (currently points only to format-reference.md, creating split authority for storage conventions).
 
 **Step 1: Add contract reference after Session ID line**
 
@@ -491,18 +498,33 @@ Add to the checklist:
 
 Also ensure the `/resume <path>` code path (not just the "most recent" path) also reads and displays the type from frontmatter. Both branches should display the type label.
 
-**Step 5: Verify changes**
+**Step 5: Update Storage section to reference contract**
 
-- Contract reference present
+In the Storage section of resuming-handoffs SKILL.md (around line 139-144), the current text references only format-reference.md. Add a contract reference:
+
+After:
+```
+See [format-reference.md](../../references/format-reference.md) for:
+```
+
+Add:
+```
+See also [handoff-contract.md](../../references/handoff-contract.md) for storage conventions, retention policies, and filename format.
+```
+
+**Step 6: Verify changes**
+
+- Contract reference present (after Session ID line AND in Storage section)
 - Resume displays type label (both "most recent" and "path provided" branches)
 - List-handoffs shows type column with backwards compatibility (missing type → `handoff`)
 - Verification checklist includes type display check
+- Storage section references both format-reference and contract
 
-**Step 6: Commit**
+**Step 7: Commit**
 
 ```bash
 git add packages/plugins/handoff/skills/resuming-handoffs/SKILL.md
-git commit -m "feat(handoff): add type display to resume and list-handoffs"
+git commit -m "feat(handoff): add type display, contract references to resume and list-handoffs"
 ```
 
 ---
@@ -631,7 +653,7 @@ To:
 
 Run: `which trash`
 
-Expected: `/opt/homebrew/bin/trash` or similar path (macOS `trash` CLI). If absent, cleanup will silently skip deletions — this is acceptable (files expire naturally).
+Expected: `/opt/homebrew/bin/trash` or similar path (macOS `trash` CLI). If absent, cleanup will silently skip deletions — retention enforcement is disabled when `trash` is unavailable. Files accumulate until `trash` is installed or a manual cleanup is performed. This is strictly better than data loss via `unlink()`.
 
 **Step 3: Test cleanup script runs without error**
 
@@ -699,10 +721,10 @@ wc -l packages/plugins/handoff/skills/checkpointing/SKILL.md
 wc -l packages/plugins/handoff/references/handoff-contract.md
 ```
 
-Expected:
-- `checkpointing/SKILL.md`: ≤150 lines
-- `handoff-contract.md`: ≤100 lines
-- Total checkpoint context: ≤230 lines
+Expected (architecture estimates / acceptance thresholds):
+- `checkpointing/SKILL.md`: ~130-150 lines (architecture estimate), must be ≤160 lines (acceptance)
+- `handoff-contract.md`: ~80-100 lines (architecture estimate), must be ≤110 lines (acceptance)
+- Total checkpoint context: ≤230 lines (enforced acceptance threshold — this is intentionally stricter than the sum of architecture estimate ceilings)
 
 **Step 3: Verify contract references**
 
@@ -747,7 +769,7 @@ Then in a new session, run through the full design verification checklist:
 
 **Basic checkpoint creation:**
 1. Run `/checkpoint` — should produce a file at `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_checkpoint-*.md`
-2. Verify generated file frontmatter contains: `type: checkpoint`, `session_id`, `date`, `time`, `created_at`, `project`, `title` (with "Checkpoint:" prefix)
+2. Verify generated file frontmatter contains: `type: checkpoint`, `session_id`, `date`, `time`, `created_at`, `project`, `title` (with "Checkpoint:" prefix), `files:` (populated from Active Files section)
 3. Verify body has all 5 required sections (Current Task, In Progress, Active Files, Next Action, Verification Snapshot)
 4. Verify body is 22-55 lines (target range)
 5. Run `/checkpoint my-title` — verify title argument is used
@@ -761,11 +783,13 @@ Then in a new session, run through the full design verification checklist:
 9. Run `/handoff` — should include `type: handoff` in frontmatter and `resumed_from` pointing to the archived checkpoint
 
 **Multi-hop chain (design doc verification):**
-10. Create a chain: `/checkpoint` → `/resume` → `/checkpoint` → `/resume` → `/checkpoint` — verify each has `resumed_from` linking to the previous archived file
-11. Verify the N≥3 guardrail triggers on the 3rd consecutive checkpoint (chain-walk should detect 2 prior checkpoints via `resumed_from`)
+10. Create a chain: `/checkpoint` → `/resume` → `/checkpoint` → `/resume` → `/checkpoint` — verify each has `resumed_from` linking to the previous archived file, except the first checkpoint in the chain which has no predecessor
+11. Verify the N≥3 guardrail triggers when creating the 3rd consecutive checkpoint (chain-walk detects 2 prior checkpoints with `type: checkpoint` via `resumed_from`, yielding `prior_checkpoint_count >= 2`)
 
-**Contract references:**
+**Contract references and inline protocol removal:**
 12. Verify all three skills reference handoff-contract.md: `grep -l "handoff-contract.md" packages/plugins/handoff/skills/*/SKILL.md`
+13. Verify creating-handoffs step 7 no longer contains inline state file check logic — should reference contract instead of implementing inline. The state file path (`~/.claude/.session-state/`) should appear only once in step 7 (as context), not as inline procedure logic.
+14. Verify resuming-handoffs Storage section references both format-reference.md and handoff-contract.md
 
 ---
 
@@ -773,12 +797,12 @@ Then in a new session, run through the full design verification checklist:
 
 | Task | What | Files | Est. |
 |------|------|-------|------|
-| 1 | Shared contract | Create `references/handoff-contract.md` | ~90 lines |
-| 2 | Checkpoint skill | Create `skills/checkpointing/SKILL.md` | ~140 lines |
+| 1 | Shared contract | Create `references/handoff-contract.md` | ~95 lines (added schema drift note) |
+| 2 | Checkpoint skill | Create `skills/checkpointing/SKILL.md` | ~150 lines (off-by-one fix, scope limitation, files: population) |
 | 3 | Command wrapper | Create `commands/checkpoint.md` | ~7 lines |
-| 4 | Update creating-handoffs | Type + contract ref + remove inline protocol + DoD + rm fix | ~20 line changes |
-| 5 | Update resuming-handoffs | Type display + contract ref + verification update | ~12 line changes |
+| 4 | Update creating-handoffs | Type + contract ref + remove inline protocol + DoD + rm fix | ~20 line changes (step numbering clarified) |
+| 5 | Update resuming-handoffs | Type display + contract refs (2 locations) + verification | ~15 line changes (added Storage section update) |
 | 6 | Update format-reference | Schema + examples + precedence + checkpoint section | ~45 lines |
-| 7 | Fix cleanup.py | `unlink` → `trash` with error handling | ~12 line changes |
+| 7 | Fix cleanup.py | `unlink` → `trash` with error handling | ~12 line changes (wording fix) |
 | 8 | Version bump | `plugin.json` | 1 line change |
-| 9 | Integration verification | Full design checklist smoke test (12 checks) | No changes |
+| 9 | Integration verification | Full design checklist smoke test (14 checks) | No changes |
