@@ -187,7 +187,7 @@ def test_date_wrong_format(tmp_path: Path) -> None:
     content = VALID_SOLO_EPISODE.replace("date: 2026-02-23", "date: 02-23-2026")
     path = _write_episode(tmp_path, content)
     errors = MODULE.validate(path)
-    assert any("invalid date format" in e for e in errors)
+    assert any("invalid date" in e for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +340,28 @@ def test_missing_evidence_section(tmp_path: Path) -> None:
     assert any("Evidence" in e for e in errors)
 
 
+def test_empty_summary_section_rejected(tmp_path: Path) -> None:
+    """Summary section present but with no content is rejected."""
+    content = VALID_SOLO_EPISODE.replace(
+        "## Summary\nA test episode to verify validator behavior.",
+        "## Summary\n",
+    )
+    path = _write_episode(tmp_path, content)
+    errors = MODULE.validate(path)
+    assert any("Summary" in e and "empty" in e for e in errors)
+
+
+def test_empty_evidence_section_rejected(tmp_path: Path) -> None:
+    """Evidence section present but with no content is rejected."""
+    content = VALID_SOLO_EPISODE.replace(
+        "## Evidence\nTest results confirmed the behavior.",
+        "## Evidence\n",
+    )
+    path = _write_episode(tmp_path, content)
+    errors = MODULE.validate(path)
+    assert any("Evidence" in e and "empty" in e for e in errors)
+
+
 # ---------------------------------------------------------------------------
 # Check 11: Resolution conditionality (Verification cases 22-25, 35-36)
 # ---------------------------------------------------------------------------
@@ -405,6 +427,17 @@ def test_dialogue_position_present_but_empty_rejected(tmp_path: Path) -> None:
     path = _write_episode(tmp_path, content)
     errors = MODULE.validate(path)
     assert any("Claude Position" in e and "empty" in e for e in errors)
+
+
+def test_dialogue_codex_position_empty_rejected(tmp_path: Path) -> None:
+    """Codex Position header present but empty content is rejected."""
+    content = VALID_DIALOGUE_EPISODE.replace(
+        "## Codex Position\nCodex argued for approach B because of Y.",
+        "## Codex Position\n",
+    )
+    path = _write_episode(tmp_path, content)
+    errors = MODULE.validate(path)
+    assert any("Codex Position" in e and "empty" in e for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +524,29 @@ def test_cli_invalid_episode(tmp_path: Path) -> None:
     finally:
         sys.argv = original_argv
     assert exit_code == 1
+
+
+def test_cli_no_arguments(monkeypatch, capsys) -> None:
+    """CLI with no arguments prints usage and returns 1."""
+    monkeypatch.setattr("sys.argv", ["validate_episode.py"])
+    exit_code = MODULE.main()
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Usage:" in captured.err
+
+
+def test_cli_skip_id_sequence_flag(tmp_path: Path) -> None:
+    """CLI --skip-id-sequence flag is accepted and validation still runs."""
+    path = _write_episode(tmp_path, VALID_SOLO_EPISODE)
+    import sys
+
+    original_argv = sys.argv
+    try:
+        sys.argv = ["validate_episode.py", str(path), "--skip-id-sequence"]
+        exit_code = MODULE.main()
+    finally:
+        sys.argv = original_argv
+    assert exit_code == 0
 
 
 def test_cli_skip_validation_env_var(monkeypatch) -> None:

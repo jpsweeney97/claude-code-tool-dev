@@ -129,7 +129,7 @@ Based on `source_type` and `decision`, draft the appropriate sections:
 - **Summary:** One sentence summarizing the episode. Self-contained — a future session should understand without the original conversation.
 - **Claude Position** (dialogue only): Claude's argument or recommendation.
 - **Codex Position** (dialogue only): Codex's counter-argument or alternative.
-- **Resolution** (required when `decision != deferred`): What was decided and why.
+- **Resolution** (required when decision is `applied` or `rejected`): What was decided and why.
 - **Evidence:** Supporting data — test results, patterns, code references.
 
 If the user provided a hint (e.g., `/learn log the thing about scale`), focus the body content on that topic.

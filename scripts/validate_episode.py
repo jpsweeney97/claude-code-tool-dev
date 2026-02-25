@@ -12,6 +12,7 @@ semantic correctness of classification — that is handled by user confirmation.
 Usage:
     uv run scripts/validate_episode.py docs/learnings/episodes/EP-0001.md
     uv run scripts/validate_episode.py --skip-id-sequence path/to/episode.md
+        (Note: --skip-id-sequence is a Phase 1b feature; currently a no-op.)
 
 Exit codes: 0 = valid, 1 = one or more errors.
 """
@@ -22,6 +23,7 @@ import json
 import os
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -63,7 +65,6 @@ REQUIRED_FIELDS: set[str] = {
 
 # Regex patterns
 ID_PATTERN = re.compile(r"^EP-\d{4}$")
-DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SECTION_HEADER_PATTERN = re.compile(r"^## (.+)$", re.MULTILINE)
 
 # ---------------------------------------------------------------------------
@@ -212,11 +213,15 @@ def validate(filepath: Path, *, skip_id_sequence: bool = False) -> list[str]:
         if not ID_PATTERN.match(id_val):
             errors.append(f"invalid id format: {id_val!r}. Expected: EP-NNNN")
 
-    # Check 5: Date format
+    # Check 5: Date format and calendar validity
     if "date" in fm:
         date_val = str(fm["date"])
-        if not DATE_PATTERN.match(date_val):
-            errors.append(f"invalid date format: {date_val!r}. Expected: YYYY-MM-DD")
+        try:
+            datetime.strptime(date_val, "%Y-%m-%d")
+        except ValueError:
+            errors.append(
+                f"invalid date: {date_val!r}. Expected: YYYY-MM-DD (valid calendar date)"
+            )
 
     # Check 6: schema_version exact match
     if "schema_version" in fm and fm["schema_version"] != 1:
