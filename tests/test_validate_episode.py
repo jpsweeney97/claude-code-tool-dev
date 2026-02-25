@@ -535,8 +535,22 @@ def test_cli_no_arguments(monkeypatch, capsys) -> None:
     assert "Usage:" in captured.err
 
 
-def test_cli_skip_id_sequence_flag(tmp_path: Path) -> None:
-    """CLI --skip-id-sequence flag is accepted and validation still runs."""
+def test_cli_skip_id_sequence_flag_before_path(tmp_path: Path) -> None:
+    """CLI --skip-id-sequence before path works (documented invocation order)."""
+    path = _write_episode(tmp_path, VALID_SOLO_EPISODE)
+    import sys
+
+    original_argv = sys.argv
+    try:
+        sys.argv = ["validate_episode.py", "--skip-id-sequence", str(path)]
+        exit_code = MODULE.main()
+    finally:
+        sys.argv = original_argv
+    assert exit_code == 0
+
+
+def test_cli_skip_id_sequence_flag_after_path(tmp_path: Path) -> None:
+    """CLI --skip-id-sequence after path also works."""
     path = _write_episode(tmp_path, VALID_SOLO_EPISODE)
     import sys
 

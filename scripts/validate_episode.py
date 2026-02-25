@@ -302,8 +302,13 @@ def main() -> int:
         return 1
 
     try:
-        filepath = Path(sys.argv[1])
-        skip_id = "--skip-id-sequence" in sys.argv
+        args = sys.argv[1:]
+        skip_id = "--skip-id-sequence" in args
+        positional = [a for a in args if not a.startswith("--")]
+        if not positional:
+            print("Usage: validate_episode.py <path-to-episode.md>", file=sys.stderr)
+            return 1
+        filepath = Path(positional[0])
 
         errors = validate(filepath, skip_id_sequence=skip_id)
 
