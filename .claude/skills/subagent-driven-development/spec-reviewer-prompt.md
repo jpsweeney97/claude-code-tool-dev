@@ -55,14 +55,7 @@ Task tool (general-purpose):
 
     **Verify by reading code, not by trusting report.**
 
-    ## Report Format
-
-    You MUST produce a text report. When done, report:
-
-    - **Verdict:** ✅ Spec compliant or ❌ Issues found
-    - **Files inspected:** List each file you read with line counts
-    - **Requirements checklist:** Each requirement from the spec — ✅ present, ❌ missing, or ⚠️ different than expected
-    - **Extra work:** Anything built that was not requested (or "None")
-    - **Tracker cross-reference:** Verify committed artifacts match tracker expectations (if tracker provided)
-    - **Concerns:** Any notes, risks, or observations
+    Report:
+    - ✅ Spec compliant (if everything matches after code inspection)
+    - ❌ Issues found: [list specifically what's missing or extra, with file:line references]
 ```
