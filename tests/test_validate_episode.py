@@ -3,15 +3,12 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-import pytest
 
 # ---------------------------------------------------------------------------
 # Module import (same pattern as test_consultation_contract_sync.py)
 # ---------------------------------------------------------------------------
 
-MODULE_PATH = (
-    Path(__file__).resolve().parents[1] / "scripts" / "validate_episode.py"
-)
+MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_episode.py"
 SPEC = importlib.util.spec_from_file_location("validate_episode", MODULE_PATH)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError(
@@ -161,7 +158,7 @@ def test_invalid_source_type(tmp_path: Path) -> None:
 
 def test_safety_string_not_boolean(tmp_path: Path) -> None:
     """safety as quoted string 'false' is rejected (must be boolean)."""
-    content = VALID_SOLO_EPISODE.replace('safety: false', 'safety: "false"')
+    content = VALID_SOLO_EPISODE.replace("safety: false", 'safety: "false"')
     path = _write_episode(tmp_path, content)
     errors = MODULE.validate(path)
     assert any("safety must be boolean" in e for e in errors)
@@ -310,7 +307,7 @@ def test_solo_with_quoted_header_in_evidence(tmp_path: Path) -> None:
     """
     content = VALID_SOLO_EPISODE.replace(
         "Test results confirmed the behavior.",
-        'Test results confirmed the behavior.\nThe `## Claude Position` header was discussed.',
+        "Test results confirmed the behavior.\nThe `## Claude Position` header was discussed.",
     )
     path = _write_episode(tmp_path, content)
     errors = MODULE.validate(path)
@@ -450,6 +447,17 @@ def test_unreadable_file(tmp_path: Path) -> None:
     assert any("read failed" in e for e in errors)
 
 
+def test_frontmatter_line_without_colon_warns(tmp_path: Path) -> None:
+    """Frontmatter line without colon produces a validation warning."""
+    content = VALID_SOLO_EPISODE.replace(
+        "task_type: debugging",
+        "task_type debugging",  # missing colon — should warn, not silently drop
+    )
+    path = _write_episode(tmp_path, content)
+    errors = MODULE.validate(path)
+    assert any("unparseable frontmatter" in e for e in errors)
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -460,6 +468,7 @@ def test_cli_valid_episode(tmp_path: Path) -> None:
     path = _write_episode(tmp_path, VALID_SOLO_EPISODE)
     # Test via module's main() by patching sys.argv
     import sys
+
     original_argv = sys.argv
     try:
         sys.argv = ["validate_episode.py", str(path)]
@@ -474,6 +483,7 @@ def test_cli_invalid_episode(tmp_path: Path) -> None:
     content = VALID_SOLO_EPISODE.replace("task_type: debugging", "task_type: invalid")
     path = _write_episode(tmp_path, content)
     import sys
+
     original_argv = sys.argv
     try:
         sys.argv = ["validate_episode.py", str(path)]
@@ -481,3 +491,11 @@ def test_cli_invalid_episode(tmp_path: Path) -> None:
     finally:
         sys.argv = original_argv
     assert exit_code == 1
+
+
+def test_cli_skip_validation_env_var(monkeypatch) -> None:
+    """EPISODE_SKIP_VALIDATION=1 skips validation and returns 0."""
+    monkeypatch.setenv("EPISODE_SKIP_VALIDATION", "1")
+    monkeypatch.setattr("sys.argv", ["validate_episode.py", "nonexistent.md"])
+    exit_code = MODULE.main()
+    assert exit_code == 0

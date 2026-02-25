@@ -71,11 +71,11 @@ SECTION_HEADER_PATTERN = re.compile(r"^## (.+)$", re.MULTILINE)
 # ---------------------------------------------------------------------------
 
 
-def parse_frontmatter(text: str) -> tuple[dict[str, object], str]:
+def parse_frontmatter(text: str) -> tuple[dict[str, object], str, list[str]]:
     """Parse YAML frontmatter and body from episode text.
 
-    Returns (frontmatter_dict, body_text). Raises ValueError on parse failure.
-    Uses a simple line-by-line parser — no PyYAML dependency.
+    Returns (frontmatter_dict, body_text, warnings). Raises ValueError on
+    parse failure. Uses a simple line-by-line parser — no PyYAML dependency.
     """
     lines = text.strip().splitlines()
     if not lines or lines[0].strip() != "---":
@@ -90,10 +90,14 @@ def parse_frontmatter(text: str) -> tuple[dict[str, object], str]:
         raise ValueError("episode missing closing '---' frontmatter delimiter")
 
     fm: dict[str, object] = {}
+    warnings: list[str] = []
     for line in lines[1:end_idx]:
         if not line.strip() or line.strip().startswith("#"):
             continue
         if ":" not in line:
+            warnings.append(
+                f"unparseable frontmatter line (no colon): {line.strip()!r}"
+            )
             continue
         key, _, value = line.partition(":")
         key = key.strip()
@@ -105,7 +109,7 @@ def parse_frontmatter(text: str) -> tuple[dict[str, object], str]:
         elif value.lower() == "false":
             fm[key] = False
         # Parse integers
-        elif value.isdigit():
+        elif re.fullmatch(r"-?[0-9]+", value):
             fm[key] = int(value)
         # Parse lists: [item1, item2, ...]
         elif value.startswith("[") and value.endswith("]"):
@@ -124,7 +128,7 @@ def parse_frontmatter(text: str) -> tuple[dict[str, object], str]:
             fm[key] = value
 
     body = "\n".join(lines[end_idx + 1 :])
-    return fm, body
+    return fm, body, warnings
 
 
 def extract_body_sections(body: str) -> dict[str, str]:
@@ -158,13 +162,16 @@ def validate(filepath: Path, *, skip_id_sequence: bool = False) -> list[str]:
     errors: list[str] = []
 
     try:
-        text = filepath.read_text()
+        text = filepath.read_text(encoding="utf-8")
     except OSError as e:
         return [f"read failed: {e}"]
+    except UnicodeDecodeError as e:
+        return [f"read failed: file is not valid UTF-8: {e}"]
 
     # Parse frontmatter
     try:
-        fm, body = parse_frontmatter(text)
+        fm, body, parse_warnings = parse_frontmatter(text)
+        errors.extend(parse_warnings)
     except ValueError as e:
         return [f"parse failed: {e}"]
 
@@ -176,8 +183,7 @@ def validate(filepath: Path, *, skip_id_sequence: bool = False) -> list[str]:
     # Check 2: Enum validation
     if "task_type" in fm and fm["task_type"] not in VALID_TASK_TYPES:
         errors.append(
-            f"invalid task_type: {fm['task_type']!r}. "
-            f"Valid: {sorted(VALID_TASK_TYPES)}"
+            f"invalid task_type: {fm['task_type']!r}. Valid: {sorted(VALID_TASK_TYPES)}"
         )
     if "source_type" in fm and fm["source_type"] not in VALID_SOURCE_TYPES:
         errors.append(
@@ -186,13 +192,12 @@ def validate(filepath: Path, *, skip_id_sequence: bool = False) -> list[str]:
         )
     if "decision" in fm and fm["decision"] not in VALID_DECISIONS:
         errors.append(
-            f"invalid decision: {fm['decision']!r}. "
-            f"Valid: {sorted(VALID_DECISIONS)}"
+            f"invalid decision: {fm['decision']!r}. Valid: {sorted(VALID_DECISIONS)}"
         )
     if "decided_by" in fm and fm["decided_by"] not in VALID_DECIDED_BY:
         errors.append(
             f"invalid decided_by: {fm['decided_by']!r}. "
-            f"Phase 1a accepts: {sorted(VALID_DECIDED_BY)}"
+            f"Valid: {sorted(VALID_DECIDED_BY)}"
         )
 
     # Check 3: Boolean type for safety
@@ -225,8 +230,7 @@ def validate(filepath: Path, *, skip_id_sequence: bool = False) -> list[str]:
     unknown = {k for k in fm if k not in known_fields and not k.startswith("x_")}
     if unknown:
         errors.append(
-            f"unknown fields: {sorted(unknown)}. "
-            f"Use x_* prefix for extensions"
+            f"unknown fields: {sorted(unknown)}. Use x_* prefix for extensions"
         )
 
     # Check 8: Keyword count (1-5 entries)
@@ -235,9 +239,7 @@ def validate(filepath: Path, *, skip_id_sequence: bool = False) -> list[str]:
         if not isinstance(kw, list):
             errors.append(f"keywords must be a list, got {type(kw).__name__}")
         elif len(kw) < 1 or len(kw) > 5:
-            errors.append(
-                f"keywords must have 1-5 entries, got {len(kw)}"
-            )
+            errors.append(f"keywords must have 1-5 entries, got {len(kw)}")
 
     # Parse body sections
     sections = extract_body_sections(body)
@@ -251,9 +253,7 @@ def validate(filepath: Path, *, skip_id_sequence: bool = False) -> list[str]:
                     f"source_type 'dialogue' requires '## {required}' section"
                 )
             elif not sections[required]:
-                errors.append(
-                    f"'## {required}' section is present but empty"
-                )
+                errors.append(f"'## {required}' section is present but empty")
     elif source_type == "solo":
         for forbidden in ("Claude Position", "Codex Position"):
             if forbidden in sections:
@@ -272,13 +272,9 @@ def validate(filepath: Path, *, skip_id_sequence: bool = False) -> list[str]:
     decision = fm.get("decision")
     if decision in ("applied", "rejected"):
         if "Resolution" not in sections:
-            errors.append(
-                f"decision '{decision}' requires '## Resolution' section"
-            )
+            errors.append(f"decision '{decision}' requires '## Resolution' section")
         elif not sections["Resolution"]:
-            errors.append(
-                "'## Resolution' section is present but empty"
-            )
+            errors.append("'## Resolution' section is present but empty")
     # deferred: Resolution is optional (either present or absent is fine)
 
     return errors
@@ -292,6 +288,7 @@ def validate(filepath: Path, *, skip_id_sequence: bool = False) -> list[str]:
 def main() -> int:
     """Run validation on a single episode file."""
     if os.environ.get("EPISODE_SKIP_VALIDATION") == "1":
+        print("WARN: EPISODE_SKIP_VALIDATION=1, skipping all checks", file=sys.stderr)
         print('{"status": "skipped"}')
         return 0
 
@@ -299,18 +296,22 @@ def main() -> int:
         print("Usage: validate_episode.py <path-to-episode.md>", file=sys.stderr)
         return 1
 
-    filepath = Path(sys.argv[1])
-    skip_id = "--skip-id-sequence" in sys.argv
+    try:
+        filepath = Path(sys.argv[1])
+        skip_id = "--skip-id-sequence" in sys.argv
 
-    errors = validate(filepath, skip_id_sequence=skip_id)
+        errors = validate(filepath, skip_id_sequence=skip_id)
 
-    if errors:
-        for error in errors:
-            print(f"ERROR: {error}", file=sys.stderr)
+        if errors:
+            for error in errors:
+                print(f"ERROR: {error}", file=sys.stderr)
+            return 1
+
+        print(json.dumps({"status": "ok"}))
+        return 0
+    except Exception as e:
+        print(f"ERROR: unexpected failure: {e}", file=sys.stderr)
         return 1
-
-    print(json.dumps({"status": "ok"}))
-    return 0
 
 
 if __name__ == "__main__":

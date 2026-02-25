@@ -1403,7 +1403,7 @@ Phase 1a implementation establishes structured episode logging. This amendment d
 
 #### 1. Generation-time validation gate
 
-`scripts/validate_episode.py` performs 13 structural checks at episode creation time. This is distinct from the Gate 1 card linter described in §5 (which operates at promotion time in Phase 1b). The generation-time validator checks syntactic structural validity only — well-formed YAML, valid enum members, required sections present and non-empty. Semantic correctness is handled by mandatory user confirmation.
+`scripts/validate_episode.py` performs 11 structural checks at episode creation time. This is distinct from the Gate 1 card linter described in §5 (which operates at promotion time in Phase 1b). The generation-time validator checks syntactic structural validity only — well-formed YAML, valid enum members, required sections present and non-empty. Semantic correctness is handled by mandatory user confirmation.
 
 #### 2. `/learn` routing table
 
