@@ -260,6 +260,22 @@ class TestSearchHandoffs:
         results = search_handoffs(tmp_path, "option (A)")
         assert len(results) == 1
 
+    def test_unreadable_file_reported_in_skipped(self, tmp_path: Path) -> None:
+        """Unreadable files are reported via skipped parameter, not silently dropped."""
+        _make_handoff(
+            tmp_path, "Good", "2026-02-25",
+            "## Goal\n\nSearchable content.\n"
+        )
+        bad_file = tmp_path / "2026-02-24_00-00_bad.md"
+        bad_file.write_bytes(b"---\ntitle: Bad\n---\n\n## Goal\n\n\xff\xfe invalid\n")
+
+        skipped: list[dict] = []
+        results = search_handoffs(tmp_path, "content", skipped=skipped)
+        assert len(results) == 1
+        assert len(skipped) == 1
+        assert "bad.md" in skipped[0]["file"]
+        assert skipped[0]["reason"]  # Non-empty reason string
+
     def test_missing_directory_returns_empty(self, tmp_path: Path) -> None:
         results = search_handoffs(tmp_path / "nonexistent", "anything")
         assert results == []
@@ -328,6 +344,18 @@ class TestSearchCLI:
 
         result = json.loads(output)
         assert result["total_matches"] == 1
+
+    def test_skipped_files_in_json_output(self, tmp_path: Path) -> None:
+        """JSON output includes skipped field."""
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+
+        with patch("scripts.search.get_handoffs_dir", return_value=handoffs_dir):
+            output = search_main(["anything"])
+
+        result = json.loads(output)
+        assert "skipped" in result
+        assert result["skipped"] == []
 
     def test_direct_execution_via_subprocess(self) -> None:
         """A9: Verify __main__ path works under direct script execution."""

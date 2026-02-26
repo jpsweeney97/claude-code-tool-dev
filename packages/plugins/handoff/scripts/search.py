@@ -157,6 +157,7 @@ def search_handoffs(
     query: str,
     *,
     regex: bool = False,
+    skipped: list[dict] | None = None,
 ) -> list[dict]:
     """Search handoff files for matching sections.
 
@@ -192,7 +193,9 @@ def search_handoffs(
     for path, archived in md_files:
         try:
             handoff = parse_handoff(path)
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            if skipped is not None:
+                skipped.append({"file": path.name, "reason": str(e)})
             continue  # Skip unreadable or malformed files
 
         for section in handoff.sections:
@@ -234,15 +237,17 @@ def main(argv: list[str] | None = None) -> str:
         try:
             re.compile(args.query)
         except re.error as e:
-            return json.dumps({"query": args.query, "total_matches": 0, "results": [], "error": f"Invalid regex: {e}"})
+            return json.dumps({"query": args.query, "total_matches": 0, "results": [], "skipped": [], "error": f"Invalid regex: {e}"})
 
     handoffs_dir = get_handoffs_dir()
-    results = search_handoffs(handoffs_dir, args.query, regex=args.regex)
+    skipped_files: list[dict] = []
+    results = search_handoffs(handoffs_dir, args.query, regex=args.regex, skipped=skipped_files)
 
     return json.dumps({
         "query": args.query,
         "total_matches": len(results),
         "results": results,
+        "skipped": skipped_files,
         "error": None,
     })
 
