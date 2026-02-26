@@ -1,0 +1,619 @@
+"""Tests for quality_check.py — handoff quality validation hook."""
+
+from __future__ import annotations
+
+import io
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+from scripts.quality_check import (
+    CHECKPOINT_MAX_LINES,
+    CHECKPOINT_MIN_LINES,
+    CONTENT_REQUIRED_SECTIONS,
+    HANDOFF_MIN_LINES,
+    REQUIRED_CHECKPOINT_SECTIONS,
+    REQUIRED_HANDOFF_SECTIONS,
+    VALID_TYPES,
+    Issue,
+    count_body_lines,
+    format_output,
+    is_handoff_path,
+    main,
+    parse_frontmatter,
+    parse_sections,
+    validate,
+    validate_frontmatter,
+    validate_line_count,
+    validate_sections,
+)
+
+
+# --- Test helpers ---
+
+
+def _make_frontmatter(
+    overrides: dict[str, str] | None = None,
+    *,
+    omit: list[str] | None = None,
+) -> dict[str, str]:
+    """Build a valid frontmatter dict with optional overrides/omissions."""
+    base = {
+        "date": "2026-02-26",
+        "time": "16:00",
+        "created_at": "2026-02-26T16:00:00Z",
+        "session_id": "test-session-id",
+        "project": "test-project",
+        "title": "Test Handoff",
+        "type": "handoff",
+    }
+    if overrides:
+        base.update(overrides)
+    if omit:
+        for key in omit:
+            base.pop(key, None)
+    return base
+
+
+def _make_content(
+    *,
+    frontmatter: dict[str, str] | None = None,
+    sections: list[str] | None = None,
+    lines_per_section: int = 30,
+    empty_sections: list[str] | None = None,
+) -> str:
+    """Build a synthetic handoff/checkpoint document.
+
+    Default: valid handoff with all 13 required sections, ~450 lines.
+    """
+    if frontmatter is None:
+        frontmatter = _make_frontmatter()
+    if sections is None:
+        sections = list(REQUIRED_HANDOFF_SECTIONS)
+
+    lines = ["---"]
+    for key, value in frontmatter.items():
+        if key in ("time", "created_at", "title"):
+            lines.append(f'{key}: "{value}"')
+        else:
+            lines.append(f"{key}: {value}")
+    lines.append("---")
+    lines.append("")
+    lines.append("# Test Document")
+    lines.append("")
+
+    empty = set(empty_sections or [])
+    for section in sections:
+        lines.append(f"## {section}")
+        lines.append("")
+        if section not in empty:
+            for i in range(lines_per_section):
+                lines.append(f"Content line {i + 1} for {section}.")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+def _run_main(input_data: dict) -> tuple[int, str]:
+    """Run main() with mock stdin and capture stdout."""
+    with (
+        patch("sys.stdin", io.StringIO(json.dumps(input_data))),
+        patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+    ):
+        result = main()
+    return result, mock_stdout.getvalue()
+
+
+def _make_hook_input(file_path: str, content: str) -> dict:
+    """Build a PostToolUse hook input dict for Write tool."""
+    return {
+        "tool_name": "Write",
+        "tool_input": {"file_path": file_path, "content": content},
+        "tool_response": {"filePath": file_path, "success": True},
+        "hook_event_name": "PostToolUse",
+    }
+
+
+HANDOFF_PATH = str(
+    Path.home()
+    / ".claude"
+    / "handoffs"
+    / "test-project"
+    / "2026-02-26_16-00_test.md"
+)
+
+
+# --- Frontmatter parsing ---
+
+
+class TestParseFrontmatter:
+    """Tests for parse_frontmatter — YAML extraction."""
+
+    def test_extracts_fields(self) -> None:
+        content = _make_content()
+        fm = parse_frontmatter(content)
+        assert fm["date"] == "2026-02-26"
+        assert fm["type"] == "handoff"
+        assert fm["title"] == "Test Handoff"
+
+    def test_strips_quotes(self) -> None:
+        content = '---\ntitle: "Quoted Value"\nother: \'single\'\n---\n'
+        fm = parse_frontmatter(content)
+        assert fm["title"] == "Quoted Value"
+        assert fm["other"] == "single"
+
+    def test_no_frontmatter(self) -> None:
+        assert parse_frontmatter("# Just a heading\nContent.") == {}
+
+    def test_unclosed_frontmatter(self) -> None:
+        assert parse_frontmatter("---\ndate: 2026-01-01\n# No closing") == {}
+
+
+# --- Frontmatter validation ---
+
+
+class TestValidateFrontmatter:
+    """Tests for validate_frontmatter — field presence and value checks."""
+
+    def test_valid_handoff(self) -> None:
+        assert validate_frontmatter(_make_frontmatter(), "handoff") == []
+
+    def test_missing_field(self) -> None:
+        issues = validate_frontmatter(
+            _make_frontmatter(omit=["session_id"]), "handoff"
+        )
+        assert len(issues) == 1
+        assert issues[0].severity == "error"
+        assert "session_id" in issues[0].message
+
+    def test_multiple_missing_fields(self) -> None:
+        issues = validate_frontmatter(
+            _make_frontmatter(omit=["date", "time"]), "handoff"
+        )
+        assert len(issues) == 1  # Single error listing both fields
+        assert "date" in issues[0].message
+        assert "time" in issues[0].message
+
+    def test_checkpoint_title_missing_prefix(self) -> None:
+        fm = _make_frontmatter(
+            overrides={"type": "checkpoint", "title": "No Prefix"}
+        )
+        issues = validate_frontmatter(fm, "checkpoint")
+        assert any("Checkpoint:" in i.message for i in issues)
+
+    def test_checkpoint_title_valid(self) -> None:
+        fm = _make_frontmatter(
+            overrides={"type": "checkpoint", "title": "Checkpoint: Valid"}
+        )
+        assert validate_frontmatter(fm, "checkpoint") == []
+
+
+# --- Section parsing ---
+
+
+class TestParseSections:
+    """Tests for parse_sections — ## heading extraction."""
+
+    def test_extracts_sections(self) -> None:
+        content = _make_content(
+            sections=["Goal", "Next Steps"], lines_per_section=3
+        )
+        sections = parse_sections(content)
+        assert len(sections) == 2
+        assert sections[0]["heading"] == "Goal"
+        assert sections[1]["heading"] == "Next Steps"
+
+    def test_content_between_headings(self) -> None:
+        content = _make_content(sections=["Goal"], lines_per_section=3)
+        sections = parse_sections(content)
+        assert "Content line 1 for Goal." in sections[0]["content"]
+
+    def test_ignores_h3_subheadings(self) -> None:
+        content = (
+            "---\ntype: handoff\n---\n## Goal\nContent\n### Sub\nMore"
+        )
+        sections = parse_sections(content)
+        assert len(sections) == 1
+        assert "Sub" not in sections[0]["heading"]
+        assert "More" in sections[0]["content"]
+
+    def test_no_frontmatter(self) -> None:
+        content = "## Section One\nContent\n## Section Two\nMore"
+        sections = parse_sections(content)
+        assert len(sections) == 2
+
+    def test_ignores_headings_inside_code_fences(self) -> None:
+        """## Heading inside a code block is not a section boundary."""
+        content = (
+            "---\ntype: handoff\n---\n"
+            "## Real Section\n"
+            "Some content\n"
+            "```markdown\n"
+            "## Fake Section\n"
+            "This is inside a code fence\n"
+            "```\n"
+            "More content after fence\n"
+            "## Another Real Section\n"
+            "Final content"
+        )
+        sections = parse_sections(content)
+        assert len(sections) == 2
+        assert sections[0]["heading"] == "Real Section"
+        assert sections[1]["heading"] == "Another Real Section"
+        assert "Fake Section" not in [s["heading"] for s in sections]
+        assert "inside a code fence" in sections[0]["content"]
+
+
+# --- Section validation ---
+
+
+class TestValidateSections:
+    """Tests for validate_sections — required sections and empty checks."""
+
+    def test_all_handoff_sections_present(self) -> None:
+        sections = [
+            {"heading": s, "content": "text"}
+            for s in REQUIRED_HANDOFF_SECTIONS
+        ]
+        assert validate_sections(sections, "handoff") == []
+
+    def test_missing_section(self) -> None:
+        sections = [
+            {"heading": s, "content": "text"}
+            for s in REQUIRED_HANDOFF_SECTIONS
+            if s != "Goal"
+        ]
+        issues = validate_sections(sections, "handoff")
+        assert any("Goal" in i.message for i in issues)
+
+    def test_all_checkpoint_sections_present(self) -> None:
+        sections = [
+            {"heading": s, "content": "text"}
+            for s in REQUIRED_CHECKPOINT_SECTIONS
+        ]
+        assert validate_sections(sections, "checkpoint") == []
+
+    def test_empty_section_warned(self) -> None:
+        sections = [{"heading": "Goal", "content": ""}]
+        issues = validate_sections(sections, "handoff")
+        assert any(
+            i.severity == "warning" and "Goal" in i.message for i in issues
+        )
+
+    def test_whitespace_only_is_empty(self) -> None:
+        sections = [{"heading": "Goal", "content": "   \n  \n  "}]
+        issues = validate_sections(sections, "handoff")
+        assert any(
+            i.severity == "warning" and "Empty" in i.message for i in issues
+        )
+
+    def test_extra_sections_allowed(self) -> None:
+        sections = [
+            {"heading": s, "content": "text"}
+            for s in REQUIRED_HANDOFF_SECTIONS
+        ]
+        sections.append(
+            {"heading": "Conversation Highlights", "content": "text"}
+        )
+        assert validate_sections(sections, "handoff") == []
+
+    def test_hollow_handoff_guardrail(self) -> None:
+        """All 13 sections present but Decisions/Changes/Learnings all empty."""
+        sections = []
+        for s in REQUIRED_HANDOFF_SECTIONS:
+            if s in CONTENT_REQUIRED_SECTIONS:
+                sections.append({"heading": s, "content": "No changes."})
+            else:
+                sections.append({"heading": s, "content": "text"})
+        # Replace content-required sections with placeholder-only
+        for i, sec in enumerate(sections):
+            if sec["heading"] in CONTENT_REQUIRED_SECTIONS:
+                sections[i] = {"heading": sec["heading"], "content": ""}
+        issues = validate_sections(sections, "handoff")
+        assert any(
+            i.severity == "error" and "Decisions" in i.message
+            for i in issues
+        )
+
+    def test_hollow_handoff_passes_with_one_content_section(self) -> None:
+        """Guardrail passes when at least one of {Decisions, Changes, Learnings} has content."""
+        sections = []
+        for s in REQUIRED_HANDOFF_SECTIONS:
+            if s == "Decisions":
+                sections.append({"heading": s, "content": "Chose X over Y."})
+            elif s in CONTENT_REQUIRED_SECTIONS:
+                sections.append({"heading": s, "content": ""})
+            else:
+                sections.append({"heading": s, "content": "text"})
+        issues = validate_sections(sections, "handoff")
+        # Should have empty-section warnings but no guardrail error
+        assert not any(
+            "Decisions, Changes, Learnings" in i.message for i in issues
+        )
+
+    def test_hollow_guardrail_skipped_when_sections_absent(self) -> None:
+        """When content-required sections are entirely absent, only missing-sections fires."""
+        sections = [
+            {"heading": s, "content": "text"}
+            for s in REQUIRED_HANDOFF_SECTIONS
+            if s not in CONTENT_REQUIRED_SECTIONS
+        ]
+        issues = validate_sections(sections, "handoff")
+        # Missing-sections error should fire
+        assert any("Missing required sections" in i.message for i in issues)
+        # Hollow-handoff guardrail should NOT fire (sections absent, not empty)
+        assert not any("Hollow handoff" in i.message for i in issues)
+
+
+# --- Line count validation ---
+
+
+class TestValidateLineCount:
+    """Tests for validate_line_count — range enforcement."""
+
+    def test_handoff_above_minimum(self) -> None:
+        content = "\n".join(["line"] * 450)
+        assert validate_line_count(content, "handoff") == []
+
+    def test_handoff_below_minimum(self) -> None:
+        content = "\n".join(["line"] * 200)
+        issues = validate_line_count(content, "handoff")
+        assert len(issues) == 1
+        assert issues[0].severity == "error"
+        assert "200" in issues[0].message
+
+    def test_handoff_at_exact_minimum(self) -> None:
+        content = "\n".join(["line"] * HANDOFF_MIN_LINES)
+        assert validate_line_count(content, "handoff") == []
+
+    def test_checkpoint_within_range(self) -> None:
+        content = "\n".join(["line"] * 50)
+        assert validate_line_count(content, "checkpoint") == []
+
+    def test_checkpoint_below_minimum(self) -> None:
+        content = "\n".join(["line"] * 15)
+        issues = validate_line_count(content, "checkpoint")
+        assert len(issues) == 1
+        assert "15" in issues[0].message
+
+    def test_checkpoint_above_maximum(self) -> None:
+        content = "\n".join(["line"] * 100)
+        issues = validate_line_count(content, "checkpoint")
+        assert len(issues) == 1
+        assert "100" in issues[0].message
+
+    def test_checkpoint_at_exact_boundaries(self) -> None:
+        at_min = "\n".join(["line"] * CHECKPOINT_MIN_LINES)
+        at_max = "\n".join(["line"] * CHECKPOINT_MAX_LINES)
+        assert validate_line_count(at_min, "checkpoint") == []
+        assert validate_line_count(at_max, "checkpoint") == []
+
+
+# --- Body line counting ---
+
+
+class TestCountBodyLines:
+    """Tests for count_body_lines — frontmatter-aware line counting."""
+
+    def test_with_frontmatter(self) -> None:
+        content = "---\ntype: handoff\ndate: 2026-01-01\n---\nLine 1\nLine 2\nLine 3"
+        assert count_body_lines(content) == 3
+
+    def test_without_frontmatter(self) -> None:
+        content = "Line 1\nLine 2\nLine 3"
+        assert count_body_lines(content) == 3
+
+    def test_trailing_newline(self) -> None:
+        """Trailing newline should not inflate the count."""
+        with_newline = "---\ntype: handoff\n---\nLine 1\nLine 2\n"
+        without_newline = "---\ntype: handoff\n---\nLine 1\nLine 2"
+        assert count_body_lines(with_newline) == count_body_lines(without_newline)
+
+    def test_unclosed_frontmatter(self) -> None:
+        """Unclosed frontmatter means all lines are body."""
+        content = "---\ntype: handoff\nLine 1\nLine 2"
+        assert count_body_lines(content) == 4
+
+
+# --- Top-level validate ---
+
+
+class TestValidate:
+    """Tests for validate — full document validation."""
+
+    def test_valid_handoff(self) -> None:
+        assert validate(_make_content()) == []
+
+    def test_valid_checkpoint(self) -> None:
+        content = _make_content(
+            frontmatter=_make_frontmatter(
+                overrides={
+                    "type": "checkpoint",
+                    "title": "Checkpoint: Test",
+                }
+            ),
+            sections=list(REQUIRED_CHECKPOINT_SECTIONS),
+            lines_per_section=5,
+        )
+        assert validate(content) == []
+
+    def test_no_frontmatter(self) -> None:
+        issues = validate("# No frontmatter\n## Goal\nContent")
+        assert len(issues) == 1
+        assert "frontmatter" in issues[0].message.lower()
+
+    def test_defaults_to_handoff_when_type_missing(self) -> None:
+        """Missing type field is an error but doc still validates as handoff."""
+        content = _make_content(frontmatter=_make_frontmatter(omit=["type"]))
+        issues = validate(content)
+        assert any("type" in i.message for i in issues)
+
+    def test_invalid_type_errors(self) -> None:
+        """type: foo should produce an error and stop — no section/line-count errors."""
+        content = _make_content(
+            frontmatter=_make_frontmatter(overrides={"type": "foo"}),
+        )
+        issues = validate(content)
+        assert len(issues) == 1, f"Expected exactly 1 issue (type error), got {len(issues)}: {issues}"
+        assert issues[0].severity == "error"
+        assert "foo" in issues[0].message
+        assert all(t in issues[0].message for t in sorted(VALID_TYPES))
+
+    def test_accumulates_multiple_issues(self) -> None:
+        content = _make_content(
+            frontmatter=_make_frontmatter(omit=["session_id"]),
+            sections=["Goal", "Next Steps"],
+            lines_per_section=5,
+        )
+        issues = validate(content)
+        # Missing field + missing sections + under line count
+        assert len(issues) >= 3
+
+
+# --- Path filtering ---
+
+
+class TestIsHandoffPath:
+    """Tests for is_handoff_path — file path detection."""
+
+    def test_valid_path(self) -> None:
+        assert is_handoff_path(HANDOFF_PATH) is True
+
+    def test_archive_rejected(self) -> None:
+        path = str(
+            Path.home()
+            / ".claude"
+            / "handoffs"
+            / "proj"
+            / ".archive"
+            / "test.md"
+        )
+        assert is_handoff_path(path) is False
+
+    def test_non_handoff_directory(self) -> None:
+        assert is_handoff_path("/tmp/random/file.md") is False
+
+    def test_non_md_file(self) -> None:
+        path = str(
+            Path.home() / ".claude" / "handoffs" / "proj" / "file.txt"
+        )
+        assert is_handoff_path(path) is False
+
+    def test_nested_too_deep(self) -> None:
+        path = str(
+            Path.home()
+            / ".claude"
+            / "handoffs"
+            / "proj"
+            / "sub"
+            / "file.md"
+        )
+        assert is_handoff_path(path) is False
+
+    def test_directly_in_handoffs_dir(self) -> None:
+        """File at handoffs/ level (no project dir) is rejected."""
+        path = str(Path.home() / ".claude" / "handoffs" / "file.md")
+        assert is_handoff_path(path) is False
+
+
+# --- Output formatting ---
+
+
+class TestFormatOutput:
+    """Tests for format_output — message generation."""
+
+    def test_errors_and_warnings(self) -> None:
+        issues = [
+            Issue("error", "Missing field: date"),
+            Issue("warning", "Empty section: Goal"),
+        ]
+        msg = format_output(issues)
+        assert "1 error(s)" in msg
+        assert "1 warning(s)" in msg
+        assert "Missing field: date" in msg
+        assert "Empty section: Goal" in msg
+
+    def test_errors_only(self) -> None:
+        issues = [Issue("error", "Test error")]
+        msg = format_output(issues)
+        assert "Errors:" in msg
+        assert "Warnings:" not in msg
+        assert "Fix the errors" in msg
+
+    def test_warnings_only_no_fix_instruction(self) -> None:
+        """Warnings-only output should NOT say 'Fix the errors and rewrite'."""
+        issues = [Issue("warning", "Test warning")]
+        msg = format_output(issues)
+        assert "Warnings:" in msg
+        assert "Errors:" not in msg
+        assert "Fix the errors" not in msg
+        assert "review" in msg.lower()  # Softer language for warnings
+
+
+# --- Hook integration ---
+
+
+class TestMain:
+    """Tests for main — PostToolUse hook entry point."""
+
+    def test_non_handoff_path_silent(self) -> None:
+        """Non-handoff file produces no output."""
+        result, output = _run_main(
+            _make_hook_input("/tmp/test.py", "print('hello')")
+        )
+        assert result == 0
+        assert output == ""
+
+    def test_valid_handoff_silent(self) -> None:
+        """Valid handoff produces no output."""
+        result, output = _run_main(
+            _make_hook_input(HANDOFF_PATH, _make_content())
+        )
+        assert result == 0
+        assert output == ""
+
+    def test_invalid_handoff_outputs_context(self) -> None:
+        """Invalid handoff produces additionalContext JSON with correct contract."""
+        content = "---\ntype: handoff\n---\n## Goal\nShort."
+        result, output = _run_main(
+            _make_hook_input(HANDOFF_PATH, content)
+        )
+        assert result == 0
+        parsed = json.loads(output)
+        hook_output = parsed["hookSpecificOutput"]
+        assert hook_output["hookEventName"] == "PostToolUse"
+        assert "error" in hook_output["additionalContext"].lower()
+
+    def test_malformed_json_silent(self) -> None:
+        """Malformed stdin JSON produces no output, exit 0."""
+        with (
+            patch("sys.stdin", io.StringIO("not json")),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            result = main()
+        assert result == 0
+        assert mock_stdout.getvalue() == ""
+
+    def test_empty_content_silent(self) -> None:
+        """Empty content field produces no output."""
+        result, output = _run_main(
+            _make_hook_input(HANDOFF_PATH, "")
+        )
+        assert result == 0
+        assert output == ""
+
+    def test_archive_path_silent(self) -> None:
+        """Archive path is not validated."""
+        archive_path = str(
+            Path.home()
+            / ".claude"
+            / "handoffs"
+            / "test-project"
+            / ".archive"
+            / "old.md"
+        )
+        result, output = _run_main(
+            _make_hook_input(archive_path, "---\ntype: handoff\n---\nShort")
+        )
+        assert result == 0
+        assert output == ""
