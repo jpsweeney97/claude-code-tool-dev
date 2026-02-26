@@ -22,6 +22,8 @@ When user runs `/handoff:search <query>`:
 
    If user passed `--regex`, append `--regex` to the command.
 
+   **Note:** Literal search is case-insensitive. Regex search is case-sensitive by default — users can add `(?i)` to their pattern for case-insensitive regex (e.g., `(?i)merge.*strategy`).
+
    If `${CLAUDE_PLUGIN_ROOT}` is not set (e.g., running from the development repo), use:
    ```bash
    python3 "$(git rev-parse --show-toplevel)/packages/plugins/handoff/scripts/search.py" '<query>'
@@ -34,6 +36,8 @@ When user runs `/handoff:search <query>`:
 3. **Handle errors:**
    - If `error` is non-null: display the error message and stop.
    - If `total_matches` is 0: "No handoffs matched `<query>`."
+   - If `skipped` is non-empty: mention "N files could not be read" after results.
+   - If `project_source` is `"cwd"`: mention "Note: project name resolved from directory name (git not available)."
 
 4. **Present results:**
    - **1-5 results:** For each result, show:

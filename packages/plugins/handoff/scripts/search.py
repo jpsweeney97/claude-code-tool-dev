@@ -169,7 +169,8 @@ def search_handoffs(
     Args:
         handoffs_dir: Directory containing handoff .md files (with optional .archive/ subdirectory)
         query: Search string or regex pattern
-        regex: If True, treat query as regex. If False, literal case-insensitive match.
+        regex: If True, treat query as regex (case-sensitive). If False, literal case-insensitive match.
+            Users can embed (?i) in their regex for case-insensitive regex search.
 
     Returns:
         List of result dicts sorted by date descending. Each dict contains:
