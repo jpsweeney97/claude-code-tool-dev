@@ -108,10 +108,9 @@ When user runs `/resume [path]`:
 2. **Locate handoff:**
    - If path provided: validate it exists, use that handoff
    - If no path:
-     1. Use Glob with `pattern="*.md"` and `path` set to the absolute path `$HOME/.claude/handoffs/<project>/` (expand `$HOME` — tilde `~` doesn't expand in Glob patterns)
-     2. Filter results to exclude any paths containing `.archive/`
-     3. If no results remain after filtering, report "No handoffs found for this project" and **STOP**
-     4. Select most recent by filename (format: `YYYY-MM-DD_HH-MM_*.md`)
+     1. Use Bash: `ls $HOME/.claude/handoffs/<project>/*.md 2>/dev/null` (shell glob is non-recursive — unlike the Glob tool, it won't descend into `.archive/`)
+     2. If no output, report "No handoffs found for this project" and **STOP**
+     3. Select most recent by filename (format: `YYYY-MM-DD_HH-MM_*.md`)
 
 3. **Read handoff content**
 
@@ -133,9 +132,9 @@ When user runs `/resume [path]`:
 
 When user runs `/list-handoffs`:
 
-1. Use Glob with `pattern="*.md"` and `path` set to the absolute path `$HOME/.claude/handoffs/<project>/` (expand `$HOME` — tilde `~` doesn't expand in Glob patterns)
-2. Filter results to exclude any paths containing `.archive/`
-3. Read frontmatter from each remaining file
+1. Use Bash: `ls $HOME/.claude/handoffs/<project>/*.md 2>/dev/null` (shell glob is non-recursive — unlike the Glob tool, it won't descend into `.archive/`)
+2. If no output, report "No handoffs found for this project" and **STOP**
+3. Read frontmatter from each file
 4. Format as table: date, title, type, branch
    - `type` comes from frontmatter `type` field. If missing, display as `handoff` (backwards compatibility).
 
