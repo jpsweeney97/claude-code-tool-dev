@@ -4,6 +4,7 @@ description: Used when user says "wrap this up", "new session", "almost out of c
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
+**Read [handoff-contract.md](../../references/handoff-contract.md) for:** frontmatter schema, chain protocol, storage conventions.
 
 # Creating Handoffs
 
@@ -65,7 +66,7 @@ Create comprehensive session reports that preserve the full context future-Claud
 |-------|----------|
 | File exists at expected path | `ls ~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_*.md` returns file |
 | Frontmatter parses as valid YAML | No YAML syntax errors |
-| Required fields present | `date`, `time`, `created_at`, `project`, `title` all have values |
+| Required fields present | `date`, `time`, `created_at`, `session_id`, `project`, `title`, `type` all have values |
 | Body line count | >=300 for simple sessions, >=500 for complex |
 | Decision depth | Every decision has all 8 elements (choice, driver, alternatives, rejection reasons, trade-offs, confidence, reversibility, change triggers) |
 | Evidence density | Every factual claim has file:line, quote, or output reference |
@@ -140,15 +141,16 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
    - If `~/.claude/handoffs/<project>/` is not writable, **STOP** and ask for alternative path
    - If project name is ambiguous (not in git, generic directory name), ask user to specify
 
-7. **Generate markdown** with frontmatter per [format-reference.md](../../references/format-reference.md):
+7. **Generate markdown** with frontmatter per [format-reference.md](../../references/format-reference.md) and [handoff-contract.md](../../references/handoff-contract.md):
    - Include `session_id:` with the UUID from step 2
-   - Check for `~/.claude/.session-state/handoff-<session_id>` (using the UUID from step 2)
-   - If state file exists, read path and include as `resumed_from`
+   - Include `type: handoff` in frontmatter
+   - Per chain protocol in [handoff-contract.md](../../references/handoff-contract.md): read `~/.claude/.session-state/handoff-<session_id>` — if exists, set `resumed_from` to its content
    - Use fallbacks for optional fields (see Inputs → Constraints/Assumptions)
 
 8. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
 
-9. **Clean up state file** (use `trash` to remove `~/.claude/.session-state/handoff-<session_id>` if exists)
+9. **Cleanup state file** per chain protocol in [handoff-contract.md](../../references/handoff-contract.md):
+   - `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` if it exists
 
 10. **Verify and confirm (brief summary only):**
     - Check file exists and frontmatter is valid
@@ -162,6 +164,8 @@ After creating handoff, verify:
 - [ ] File exists at `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
 - [ ] Frontmatter parses as valid YAML
 - [ ] Required fields present: date, time, created_at, project, title
+- [ ] `type: handoff` present in generated frontmatter
+- [ ] `session_id` present in generated frontmatter
 - [ ] At least one section has content
 
 **Quick check:** Run `ls ~/.claude/handoffs/<project>/` and confirm new file appears. If not, check write permissions.
@@ -181,7 +185,7 @@ After creating handoff, verify:
 
 **Next steps:**
 1. Check if `~/.claude/handoffs/` exists: `ls -la ~/.claude/handoffs/`
-2. Check write permissions: `touch ~/.claude/handoffs/test && rm ~/.claude/handoffs/test`
+2. Check write permissions: `touch ~/.claude/handoffs/test && trash ~/.claude/handoffs/test`
 3. If permissions issue, ask user for alternative path
 4. If project undetermined, ask user to specify project name
 
