@@ -148,6 +148,12 @@ class TestParseFrontmatter:
     def test_unclosed_frontmatter(self) -> None:
         assert parse_frontmatter("---\ndate: 2026-01-01\n# No closing") == {}
 
+    def test_value_with_colons(self) -> None:
+        """Values containing colons (e.g., timestamps) are preserved."""
+        content = "---\ncreated_at: 2026-02-26T16:00:00Z\n---\n"
+        fm = parse_frontmatter(content)
+        assert fm["created_at"] == "2026-02-26T16:00:00Z"
+
 
 # --- Frontmatter validation ---
 
@@ -289,6 +295,25 @@ class TestParseSections:
         assert "Real Section" in headings
         assert "Another Real Section" in headings
 
+    def test_ignores_headings_inside_tilde_fences(self) -> None:
+        """~~~ fences are valid per CommonMark — headings inside are ignored."""
+        content = (
+            "---\ntype: handoff\n---\n"
+            "## Real Section\n"
+            "Some content\n"
+            "~~~\n"
+            "## Fake Inside Tilde Fence\n"
+            "~~~\n"
+            "## Another Real Section\n"
+            "Final content"
+        )
+        sections = parse_sections(content)
+        headings = [s["heading"] for s in sections]
+        assert len(sections) == 2
+        assert "Fake Inside Tilde Fence" not in headings
+        assert "Real Section" in headings
+        assert "Another Real Section" in headings
+
     def test_four_space_indent_not_a_fence(self) -> None:
         """4+ space indent is NOT a valid fence — headings inside should parse."""
         content = (
@@ -393,6 +418,14 @@ class TestValidateSections:
             "Decisions, Changes, Learnings" in i.message for i in issues
         )
 
+    def test_hollow_guardrail_not_applied_to_checkpoints(self) -> None:
+        """Hollow-handoff guardrail is handoff-only."""
+        sections = [
+            {"heading": s, "content": ""} for s in REQUIRED_CHECKPOINT_SECTIONS
+        ]
+        issues = validate_sections(sections, "checkpoint")
+        assert not any("Hollow" in i.message for i in issues)
+
     def test_hollow_guardrail_skipped_when_sections_absent(self) -> None:
         """When content-required sections are entirely absent, only missing-sections fires."""
         sections = [
@@ -475,6 +508,15 @@ class TestCountBodyLines:
         """Unclosed frontmatter means all lines are body."""
         content = "---\ntype: handoff\nLine 1\nLine 2"
         assert count_body_lines(content) == 4
+
+    def test_empty_string(self) -> None:
+        """Empty string has 0 body lines."""
+        assert count_body_lines("") == 0
+
+    def test_trailing_newline_does_not_inflate(self) -> None:
+        """Trailing newline with frontmatter doesn't inflate count (splitlines contract)."""
+        content = "---\ntype: handoff\n---\n" + "x\n" * 400
+        assert count_body_lines(content) == 400
 
 
 # --- Top-level validate ---
@@ -676,6 +718,52 @@ class TestMain:
         )
         result, output = _run_main(
             _make_hook_input(archive_path, "---\ntype: handoff\n---\nShort")
+        )
+        assert result == 0
+        assert output == ""
+
+    def test_missing_tool_input_key_silent(self) -> None:
+        """Hook payload with no tool_input key produces no output."""
+        result, output = _run_main({"hook_event_name": "PostToolUse"})
+        assert result == 0
+        assert output == ""
+
+    def test_tool_input_none_silent(self) -> None:
+        """Hook payload with tool_input: null doesn't crash."""
+        result, output = _run_main({"tool_input": None})
+        assert result == 0
+        assert output == ""
+
+    def test_content_none_silent(self) -> None:
+        """Hook payload with content: null doesn't crash."""
+        result, output = _run_main({
+            "tool_input": {"file_path": HANDOFF_PATH, "content": None},
+        })
+        assert result == 0
+        assert output == ""
+
+    def test_file_path_none_silent(self) -> None:
+        """Hook payload with file_path: null doesn't crash."""
+        result, output = _run_main({
+            "tool_input": {"file_path": None, "content": "test"},
+        })
+        assert result == 0
+        assert output == ""
+
+    def test_valid_checkpoint_end_to_end_silent(self) -> None:
+        """Valid checkpoint through full main() pipeline produces no output."""
+        content = _make_content(
+            frontmatter=_make_frontmatter(
+                overrides={
+                    "type": "checkpoint",
+                    "title": "Checkpoint: Test",
+                }
+            ),
+            sections=list(REQUIRED_CHECKPOINT_SECTIONS),
+            lines_per_section=5,
+        )
+        result, output = _run_main(
+            _make_hook_input(HANDOFF_PATH, content)
         )
         assert result == 0
         assert output == ""

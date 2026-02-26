@@ -218,9 +218,9 @@ After creating handoff, verify:
 
 | Complexity | Target Lines | Required Sections |
 |------------|-------------|-------------------|
-| All sessions | 400+ | All 13 required: Goal, Session Narrative, Decisions, Changes, Codebase Knowledge, Context, Learnings, Next Steps, In Progress, Open Questions, Risks, References, Gotchas |
-| Moderate (decisions, exploration) | 500+ | Above + Conversation Highlights, User Preferences |
-| Complex (pivots, design work, discovery) | 500-700+ | All sections fully populated, including Rejected Approaches |
+| All sessions | 400+ | All 13 required (hook-enforced): Goal, Session Narrative, Decisions, Changes, Codebase Knowledge, Context, Learnings, Next Steps, In Progress, Open Questions, Risks, References, Gotchas |
+| Moderate (decisions, exploration) | 500+ | Above + Conversation Highlights, User Preferences (quality targets, not hook-enforced) |
+| Complex (pivots, design work, discovery) | 500-700+ | All sections fully populated, including Rejected Approaches (quality targets, not hook-enforced) |
 
 ## Related Skills
 

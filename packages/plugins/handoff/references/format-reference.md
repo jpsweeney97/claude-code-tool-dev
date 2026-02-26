@@ -735,7 +735,7 @@ Checkpoints are lightweight state captures for context-pressure session cycling.
 |--------|--------|
 | Body lines | 20-80 |
 | Required sections | 5 (Current Task, In Progress, Active Files, Next Action, Verification Snapshot) |
-| Warning: under | 20 lines (likely missing sections) |
+| Error: under | 20 lines (likely missing sections) |
 | Warning: over | 80 lines (drifting toward handoff) |
 
 ### Filename Convention

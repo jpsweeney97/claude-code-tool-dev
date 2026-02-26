@@ -3,10 +3,12 @@
 
 Reads PostToolUse JSON from stdin. If the written file is a handoff or
 checkpoint (path under ~/.claude/handoffs/<project>/), validates:
-- Required frontmatter fields present and valid
+- Required frontmatter fields present, non-blank, and valid
 - Required sections present (13 for handoffs, 5 for checkpoints)
 - Line count within range (400+ for handoffs, 20-80 for checkpoints)
 - No empty sections
+- At least 1 of {Decisions, Changes, Learnings} has substantive content
+  (hollow-handoff guardrail, handoffs only)
 
 Outputs additionalContext via JSON stdout when issues are found.
 Always exits 0 — PostToolUse hooks cannot block (file already written).
@@ -90,7 +92,7 @@ def parse_frontmatter(content: str) -> dict[str, str]:
     Returns empty dict if no valid frontmatter block found (no opening
     or no closing ---).
     """
-    lines = content.split("\n")
+    lines = content.splitlines()
     if not lines or lines[0].strip() != "---":
         return {}
 
@@ -120,7 +122,7 @@ def parse_sections(content: str) -> list[dict[str, str]]:
     Skips frontmatter block if present.
     Tracks code fences to avoid false headings inside code blocks.
     """
-    lines = content.split("\n")
+    lines = content.splitlines()
 
     # Skip frontmatter
     body_start = 0
@@ -136,10 +138,12 @@ def parse_sections(content: str) -> list[dict[str, str]]:
     inside_fence: bool = False
 
     for line in lines[body_start:]:
-        # Track code fences (CommonMark allows 0-3 spaces of indentation)
+        # Track code fences (CommonMark: backtick or tilde, 0-3 spaces indent)
         stripped = line.lstrip(" ")
         indent = len(line) - len(stripped)
-        if indent <= 3 and stripped.startswith("```"):
+        if indent <= 3 and (
+            stripped.startswith("```") or stripped.startswith("~~~")
+        ):
             inside_fence = not inside_fence
 
         if (
@@ -191,9 +195,6 @@ def validate_frontmatter(frontmatter: dict[str, str], doc_type: str) -> list[Iss
         issues.append(Issue(
             "error", f"Blank required frontmatter: {', '.join(blank)}"
         ))
-
-    # Type allowlist is checked in validate(), not here.
-    # This function only checks type-specific constraints.
 
     if doc_type == "checkpoint" and "title" in frontmatter:
         title = frontmatter["title"]
@@ -312,8 +313,8 @@ def validate(content: str) -> list[Issue]:
     """Validate a handoff or checkpoint document. Returns list of issues.
 
     Parses frontmatter, validates type against allowlist (error on
-    invalid), defaults to "handoff" for backwards compatibility,
-    then runs all validators.
+    invalid), defaults to "handoff" for backwards compatibility
+    (still reports missing 'type' as error), then runs all validators.
     """
     frontmatter = parse_frontmatter(content)
 
@@ -407,31 +408,48 @@ def main() -> int:
     """PostToolUse hook entry point. Always returns 0."""
     try:
         hook_input = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError, ValueError):
+    except (json.JSONDecodeError, EOFError, ValueError) as exc:
+        print(f"quality_check: stdin parse failed: {exc}", file=sys.stderr)
         return 0
 
-    file_path = hook_input.get("tool_input", {}).get("file_path", "")
+    tool_input = hook_input.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        return 0
+
+    file_path = tool_input.get("file_path", "")
+    if not isinstance(file_path, str) or not file_path:
+        return 0
 
     if not is_handoff_path(file_path):
         return 0
 
-    content = hook_input.get("tool_input", {}).get("content", "")
-    if not content:
+    content = tool_input.get("content", "")
+    if not isinstance(content, str) or not content:
         return 0
 
-    issues = validate(content)
+    try:
+        issues = validate(content)
+    except Exception as exc:
+        print(f"quality_check: validation failed: {exc}", file=sys.stderr)
+        return 0
 
     if not issues:
         return 0
 
-    output = {
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "additionalContext": format_output(issues),
+    try:
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": format_output(issues),
+            }
         }
-    }
+        json.dump(output, sys.stdout)
+    except Exception as exc:
+        print(
+            f"quality_check: output serialization failed: {exc}",
+            file=sys.stderr,
+        )
 
-    json.dump(output, sys.stdout)
     return 0
 
 
