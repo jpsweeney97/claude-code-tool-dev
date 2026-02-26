@@ -84,7 +84,7 @@ class TestParseHandoff:
         assert result.path == str(handoff)
 
     def test_headings_inside_code_fences_ignored(self, tmp_path: Path) -> None:
-        """A3: ## lines inside fenced code blocks must not create sections."""
+        """A3 (handoff-search-implementation): ## lines inside fenced code blocks must not create sections."""
         handoff = tmp_path / "test.md"
         handoff.write_text(
             "---\ntitle: Test\n---\n"
@@ -124,7 +124,7 @@ class TestParseHandoff:
         assert result.sections[0].heading == "## Goal"
 
     def test_unterminated_fence_does_not_crash(self, tmp_path: Path) -> None:
-        """A8: Unterminated fence suppresses subsequent sections (graceful degradation)."""
+        """A8 (handoff-search-implementation): Unterminated fence suppresses subsequent sections (graceful degradation)."""
         handoff = tmp_path / "test.md"
         handoff.write_text(
             "---\ntitle: Test\n---\n"
@@ -395,7 +395,7 @@ class TestSearchCLI:
         assert result["project_source"] == "cwd"
 
     def test_direct_execution_via_subprocess(self) -> None:
-        """A9: Verify __main__ path works under direct script execution."""
+        """A9 (handoff-search-implementation): Verify __main__ path works under direct script execution."""
         import subprocess
 
         script = Path(__file__).parent.parent / "scripts" / "search.py"

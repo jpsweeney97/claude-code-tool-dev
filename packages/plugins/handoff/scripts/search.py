@@ -20,7 +20,6 @@ class Section:
     heading: str
     level: int
     content: str
-    line_start: int
 
 
 @dataclass
@@ -83,7 +82,6 @@ def parse_sections(text: str) -> list[Section]:
     lines = text.splitlines(keepends=True)
     current_heading = ""
     current_lines: list[str] = []
-    current_start = 0
     inside_fence = False
 
     for i, line in enumerate(lines):
@@ -98,11 +96,9 @@ def parse_sections(text: str) -> list[Section]:
                     heading=current_heading,
                     level=2,
                     content=content,
-                    line_start=current_start,
                 ))
             current_heading = line.strip()
             current_lines = []
-            current_start = i + 1  # 1-indexed
         elif current_heading:
             current_lines.append(line)
 
@@ -113,7 +109,6 @@ def parse_sections(text: str) -> list[Section]:
             heading=current_heading,
             level=2,
             content=content,
-            line_start=current_start,
         ))
 
     return sections
