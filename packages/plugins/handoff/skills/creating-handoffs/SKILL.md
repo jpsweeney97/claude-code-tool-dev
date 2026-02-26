@@ -163,8 +163,10 @@ After creating handoff, verify:
 
 - [ ] File exists at `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
 - [ ] Frontmatter parses as valid YAML
-- [ ] Required fields present: date, time, created_at, session_id, project, title, type (per contract)
-- [ ] At least one section has content
+- [ ] Required fields present and non-blank: date, time, created_at, session_id, project, title, type (hook-enforced)
+- [ ] All 13 required sections present (hook-enforced)
+- [ ] At least 1 of {Decisions, Changes, Learnings} has substantive content (hook-enforced)
+- [ ] Body line count >= 400 (hook-enforced)
 
 **Quick check:** Run `ls ~/.claude/handoffs/<project>/` and confirm new file appears. If not, check write permissions.
 

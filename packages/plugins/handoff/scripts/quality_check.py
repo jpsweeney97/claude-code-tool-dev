@@ -414,6 +414,10 @@ def main() -> int:
 
     tool_input = hook_input.get("tool_input") or {}
     if not isinstance(tool_input, dict):
+        print(
+            f"quality_check: tool_input is {type(tool_input).__name__}, expected dict",
+            file=sys.stderr,
+        )
         return 0
 
     file_path = tool_input.get("file_path", "")
@@ -425,12 +429,19 @@ def main() -> int:
 
     content = tool_input.get("content", "")
     if not isinstance(content, str) or not content:
+        print(
+            f"quality_check: content is {type(content).__name__}, expected str",
+            file=sys.stderr,
+        )
         return 0
 
     try:
         issues = validate(content)
     except Exception as exc:
-        print(f"quality_check: validation failed: {exc}", file=sys.stderr)
+        print(
+            f"quality_check: validation failed ({type(exc).__name__}): {exc}",
+            file=sys.stderr,
+        )
         return 0
 
     if not issues:

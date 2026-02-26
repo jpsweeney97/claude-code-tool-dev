@@ -750,6 +750,49 @@ class TestMain:
         assert result == 0
         assert output == ""
 
+    def test_tool_input_non_dict_truthy_silent(self) -> None:
+        """tool_input as truthy non-dict (e.g., string) doesn't crash."""
+        result, output = _run_main({"tool_input": "Write"})
+        assert result == 0
+        assert output == ""
+
+    def test_validate_exception_swallowed(self) -> None:
+        """Internal validation crash is caught — hook exits 0, no stdout."""
+        with patch(
+            "scripts.quality_check.validate", side_effect=RuntimeError("boom")
+        ):
+            result, output = _run_main(
+                _make_hook_input(HANDOFF_PATH, "---\ntype: handoff\n---\ncontent")
+            )
+        assert result == 0
+        assert output == ""
+
+    def test_malformed_json_logs_to_stderr(self) -> None:
+        """Malformed stdin JSON logs diagnostic to stderr."""
+        with (
+            patch("sys.stdin", io.StringIO("not json")),
+            patch("sys.stdout", new_callable=io.StringIO),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            result = main()
+        assert result == 0
+        assert "stdin parse failed" in mock_stderr.getvalue()
+
+    def test_validate_exception_logs_to_stderr(self) -> None:
+        """Validation exception logs diagnostic to stderr with type name."""
+        with (
+            patch("sys.stdin", io.StringIO(json.dumps(
+                _make_hook_input(HANDOFF_PATH, "---\ntype: handoff\n---\ncontent")
+            ))),
+            patch("sys.stdout", new_callable=io.StringIO),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch("scripts.quality_check.validate", side_effect=RuntimeError("boom")),
+        ):
+            result = main()
+        assert result == 0
+        assert "validation failed" in mock_stderr.getvalue()
+        assert "RuntimeError" in mock_stderr.getvalue()
+
     def test_valid_checkpoint_end_to_end_silent(self) -> None:
         """Valid checkpoint through full main() pipeline produces no output."""
         content = _make_content(
