@@ -163,9 +163,7 @@ After creating handoff, verify:
 
 - [ ] File exists at `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
 - [ ] Frontmatter parses as valid YAML
-- [ ] Required fields present: date, time, created_at, project, title
-- [ ] `type: handoff` present in generated frontmatter
-- [ ] `session_id` present in generated frontmatter
+- [ ] Required fields present: date, time, created_at, session_id, project, title, type (per contract)
 - [ ] At least one section has content
 
 **Quick check:** Run `ls ~/.claude/handoffs/<project>/` and confirm new file appears. If not, check write permissions.

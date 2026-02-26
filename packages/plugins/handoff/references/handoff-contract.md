@@ -46,9 +46,9 @@ The chain protocol enables `resumed_from` tracking across sessions. Three skills
 **Create/Checkpoint (creating-handoffs, checkpointing) — reads and cleans state:**
 1. **Read:** Check `~/.claude/.session-state/handoff-<session_id>` — if exists, include path as `resumed_from` in frontmatter
 2. **Write:** Write the new handoff/checkpoint file
-3. **Cleanup:** Use `trash` to remove state file at `~/.claude/.session-state/handoff-<session_id>` (if exists)
+3. **Cleanup:** Use `trash` to remove state file at `~/.claude/.session-state/handoff-<session_id>` (if exists). If `trash` fails, warn the user that the state file persists but do not block handoff/checkpoint creation — the 24-hour TTL will clean it up.
 
-**Invariant:** State files are created by resume and consumed by the next create/checkpoint. A state file that persists beyond 24 hours is stale (cleanup.py prunes these).
+**Invariant:** State files are created by resume; the next create/checkpoint reads them to populate `resumed_from`, then attempts cleanup via `trash`. If cleanup fails, the file may persist until TTL pruning (24 hours). A state file that persists beyond 24 hours is stale.
 
 ## Storage
 
@@ -85,7 +85,7 @@ This contract is canonical for cross-skill invariants: frontmatter field definit
 
 Three inherited issues from the current chain protocol design. These are pre-existing — not introduced by the checkpoint tier.
 
-1. **Resume-consume recovery:** If a session resumes a handoff but crashes before creating a new one, the state file is consumed but no successor exists. The chain has a gap. No automated recovery — the archived file is intact and can be manually re-resumed.
+1. **Resume-crash recovery:** If a session resumes a handoff but crashes before creating a new one, the state file persists but no successor handoff references the archived file. The chain has a gap. No automated recovery — the archived file is intact and can be manually re-resumed. The orphaned state file is pruned by the 24-hour TTL.
 
 2. **Archive-failure chain poisoning:** If archive creation fails but the state file is written, the `resumed_from` path in the next handoff/checkpoint points to a non-existent file. Skills should not fail on a missing `resumed_from` target — treat as informational metadata.
 

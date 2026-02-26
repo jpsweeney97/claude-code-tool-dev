@@ -48,16 +48,16 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
    - If `resumed_from` was set in step 4, read the archived file it points to
    - Check its `type:` frontmatter field. If `checkpoint`, increment `prior_checkpoint_count` and follow its `resumed_from` (if present)
    - Stop at first `type: handoff`, missing `type`, missing file, or `prior_checkpoint_count >= 2`
-   - This is bounded to 2-3 file reads maximum — faster than Glob and correct across the resume/archive lifecycle (Glob scan of active directory fails because `/resume` archives files to `.archive/`)
+   - Walk the `resumed_from` chain; do not scan the active directory (archived files are not in it)
    - If `resumed_from` was NOT set (no state file — e.g., TTL race, first checkpoint of session): skip the guardrail. Emit no warning — lack of state file is not evidence of checkpoint streaking.
    - If `prior_checkpoint_count >= 2`: prompt "Detected 2 prior checkpoints; this would be your 3rd consecutive checkpoint. Consider /handoff to capture decisions, codebase knowledge, and session narrative before they decay. Continue with checkpoint anyway?"
    - If user wants full handoff, **STOP** and suggest they run `/handoff`.
-   - **Scope limitation:** The guardrail only detects consecutive checkpoints within a single resume chain (connected via `resumed_from`). A user who checkpoints, closes the session, opens a new session without resuming, and checkpoints again will not trigger the guardrail because the chain is broken. This is by design — the guardrail is advisory, not a hard gate, and cross-chain detection would require scanning all archived files (O(n) reads).
+   - **Scope limitation:** The guardrail only detects consecutive checkpoints within a single resume chain (connected via `resumed_from`). Cross-session checkpoints without `/resume` between them do not trigger the guardrail.
 
 6. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_checkpoint-<slug>.md`
    - Use frontmatter from [handoff-contract.md](../../references/handoff-contract.md) with `type: checkpoint`
    - Title: `"Checkpoint: <descriptive-title>"`
-   - Populate frontmatter `files:` from file paths listed in the Active Files section (the body section and frontmatter field serve complementary purposes: frontmatter enables machine-readable queries, body provides human-readable context)
+   - Populate frontmatter `files:` from file paths listed in the Active Files section
    - Required sections (5) are always included — use placeholder content for thin sessions (e.g., "No commands run yet" for Verification Snapshot). Conditional sections (3) are omitted when not applicable.
 
 7. **Cleanup state file** per chain protocol:
@@ -114,4 +114,4 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
 - Previous session crashed before writing state file
 
 **Next steps:**
-- This is informational — the chain link is skipped. No data loss. See contract Known Limitations §3.
+- This is informational — the chain link is skipped. No data loss. See contract Known Limitations: State-file TTL race.
