@@ -107,24 +107,25 @@ When user runs `/resume [path]`:
 
 2. **Locate handoff:**
    - If path provided: validate it exists, use that handoff
-   - If no path: use Glob with `pattern="*.md"` and `path` set to the absolute path `$HOME/.claude/handoffs/<project>/` (expand `$HOME` — tilde `~` doesn't expand in Glob patterns)
-   - Select most recent by filename (format: `YYYY-MM-DD_HH-MM_*.md`)
+   - If no path:
+     1. Use Glob with `pattern="*.md"` and `path` set to the absolute path `$HOME/.claude/handoffs/<project>/` (expand `$HOME` — tilde `~` doesn't expand in Glob patterns)
+     2. Filter results to exclude any paths containing `.archive/`
+     3. If no results remain after filtering, report "No handoffs found for this project" and **STOP**
+     4. Select most recent by filename (format: `YYYY-MM-DD_HH-MM_*.md`)
 
-3. **If no handoffs found:** Report "No handoffs found for this project" and **STOP**
+3. **Read handoff content**
 
-4. **Read handoff content**
-
-5. **Display and summarize:**
+4. **Display and summarize:**
    - Show full handoff/checkpoint content
    - Note the type: "Resuming from **checkpoint**: ..." or "Resuming from **handoff**: ..."
    - Summarize key points: goal/current task, decisions, next steps/next action
    - Offer: "Continue with [first next step/action]?"
 
-6. **Archive the handoff:**
+5. **Archive the handoff:**
    - Create `~/.claude/handoffs/<project>/.archive/` if needed
    - Move handoff to `.archive/<filename>`
 
-7. **Write state file:**
+6. **Write state file:**
    - Create `~/.claude/.session-state/` if needed
    - Write archive path to `~/.claude/.session-state/handoff-<session_id>` (using UUID from step 1)
 
@@ -132,9 +133,10 @@ When user runs `/resume [path]`:
 
 When user runs `/list-handoffs`:
 
-1. Use Glob with `pattern="*.md"` and `path` set to the absolute path `$HOME/.claude/handoffs/<project>/` (excludes `.archive/` subdirectory; expand `$HOME`)
-2. Read frontmatter from each file
-3. Format as table: date, title, type, branch
+1. Use Glob with `pattern="*.md"` and `path` set to the absolute path `$HOME/.claude/handoffs/<project>/` (expand `$HOME` — tilde `~` doesn't expand in Glob patterns)
+2. Filter results to exclude any paths containing `.archive/`
+3. Read frontmatter from each remaining file
+4. Format as table: date, title, type, branch
    - `type` comes from frontmatter `type` field. If missing, display as `handoff` (backwards compatibility).
 
 ## Storage
