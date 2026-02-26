@@ -1178,12 +1178,12 @@ def main() -> int:
 **Step 5: Run tests to verify they pass**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_quality_check.py -v`
-Expected: All 44 tests PASS
+Expected: All 55 tests PASS
 
 **Step 6: Run full test suite to verify no regressions**
 
 Run: `cd packages/plugins/handoff && uv run pytest -v`
-Expected: All 73 tests PASS (55 existing + 18... wait)
+Expected: All 110 tests PASS (55 existing + 55 new)
 
 Actually the existing count is 55 (26 cleanup + 29 search). We're adding 44. Total expected: 99 tests. But that's only if I have exactly 44 tests. Let me count from the test file:
 - TestParseFrontmatter: 4
@@ -1200,17 +1200,18 @@ New counts after Codex review fixes:
 - TestParseFrontmatter: 4
 - TestValidateFrontmatter: 5 (removed test_wrong_type — dead code)
 - TestParseSections: 5 (added code fence test)
-- TestValidateSections: 8 (added 2 hollow-handoff guardrail tests)
+- TestValidateSections: 9 (added 2 hollow-handoff guardrail + 1 double-fire regression)
+- TestCountBodyLines: 4 (new — frontmatter/no-frontmatter/trailing-newline/unclosed)
 - TestValidateLineCount: 7
 - TestValidate: 6 (added invalid type test)
 - TestIsHandoffPath: 6
 - TestFormatOutput: 3 (updated warnings_only test)
 - TestMain: 6
 
-Total: 50 tests. Plus 55 existing = 105 total.
+Total: 55 tests. Plus 55 existing = 110 total.
 
 Run: `cd packages/plugins/handoff && uv run pytest -v`
-Expected: All tests PASS (55 existing + 50 new = 105 total)
+Expected: All tests PASS (55 existing + 55 new = 110 total)
 
 **Step 7: Commit**
 
@@ -1500,7 +1501,7 @@ git commit -m "docs(handoff): update quality requirements to match hook
 **Step 1: Run full test suite**
 
 Run: `cd packages/plugins/handoff && uv run pytest -v`
-Expected: All tests PASS (55 existing + 50 new = 105 total)
+Expected: All tests PASS (55 existing + 55 new = 110 total)
 
 **Step 2: Run lint**
 
@@ -1537,7 +1538,7 @@ Expected: No output (non-handoff path, fast exit).
 | Default type | `"handoff"` when `type` field missing | Backwards compatibility per handoff-contract.md. Missing `type` is still reported as an error. |
 | Type allowlist | Error on `type` not in `{handoff, checkpoint}` before branching | Prevents untrusted input controlling which validation rules apply. Eliminates dead-code mismatch branch. (Codex review) |
 | Code fence tracking | `parse_sections` tracks ``` fences | Prevents false-pass where `## Gotchas` inside a code block satisfies the section check. Pattern from `search.py:85-91`. (Codex review) |
-| Body line count | Count lines after frontmatter closing `---` | Quality targets (400, 22-55) refer to body lines. Counting total lines inflated by ~15 frontmatter lines. (Codex review) |
+| Body line count | Count lines after frontmatter closing `---` | Quality targets (400, 20-80) refer to body lines. Counting total lines inflated by ~15 frontmatter lines. (Codex review) |
 | Hollow-handoff guardrail | Require ≥1 non-empty from {Decisions, Changes, Learnings} | Catches structurally complete but content-empty handoffs. (Codex review) |
 | Conditional tail message | "Fix the errors and rewrite" only when errors present | "Fix errors" is misleading for warnings-only output. (Codex review) |
 | Exit code | Always 0 | PostToolUse cannot block. Non-zero exits are non-blocking errors that only show in verbose mode. |
