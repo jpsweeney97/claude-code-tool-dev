@@ -1185,18 +1185,7 @@ Expected: All 55 tests PASS
 Run: `cd packages/plugins/handoff && uv run pytest -v`
 Expected: All 110 tests PASS (55 existing + 55 new)
 
-Actually the existing count is 55 (26 cleanup + 29 search). We're adding 44. Total expected: 99 tests. But that's only if I have exactly 44 tests. Let me count from the test file:
-- TestParseFrontmatter: 4
-- TestValidateFrontmatter: 6
-- TestParseSections: 4
-- TestValidateSections: 6
-- TestValidateLineCount: 7
-- TestValidate: 5
-- TestIsHandoffPath: 6
-- TestFormatOutput: 3
-- TestMain: 6
-
-New counts after Codex review fixes:
+Corrected counts after Codex review fixes:
 - TestParseFrontmatter: 4
 - TestValidateFrontmatter: 5 (removed test_wrong_type — dead code)
 - TestParseSections: 5 (added code fence test)
@@ -1229,7 +1218,7 @@ PostToolUse hook script validates handoff/checkpoint quality:
 - Checkpoint title prefix validation
 - Conditional error/warning messaging
 
-50 tests covering parsing, validation, path filtering, and hook integration."
+55 tests covering parsing, validation, path filtering, and hook integration."
 ```
 
 ---
@@ -1388,7 +1377,7 @@ New:
 
 **Step 2: Update format-reference.md**
 
-Two edits:
+Three edits:
 
 **Edit A — Lines 30-32:** Update section policy.
 
@@ -1430,6 +1419,17 @@ New:
 | Complex (pivots, design work, discovery) | 500-700+ | All sections fully populated, deep decision analysis with trade-off matrices, architecture maps, conversation highlights with quotes |
 
 A handoff under 400 lines almost certainly has significant information loss. Re-examine the session for: implicit decisions, codebase knowledge gained, conversation dynamics, exploration arc, and files that produced understanding worth preserving.
+```
+
+**Edit C — Line 736:** Update checkpoint calibration to match code constants.
+
+Old:
+```
+| Body lines | 22-55 |
+```
+New:
+```
+| Body lines | 20-80 |
 ```
 
 **Step 3: Update ticket**
@@ -1533,7 +1533,7 @@ Expected: No output (non-handoff path, fast exit).
 | Hook matcher | `Write` only (not `Edit\|Write`) | Handoffs are created with Write. If Claude fixes issues, it rewrites (Write again). Matching Edit would fire on every file edit session-wide. |
 | Content source | `tool_input.content` from stdin | Available for Write tool, no disk I/O. Faster and more reliable than reading from disk. |
 | Output format | `additionalContext` in `hookSpecificOutput` | Confirmed working pattern (A1 from audit). Appears as system-reminder in Claude's context. |
-| Frontmatter parser | Duplicate from search.py | Shared modules break hook invocation (accepted trade-off from Enhancement #1, Finding #6). |
+| Frontmatter parser | Simplified parser inspired by search.py (intentional divergence — `partition` is sufficient for validation) | Shared modules break hook invocation (accepted trade-off from Enhancement #1, Finding #6). |
 | Section matching | Exact case-sensitive heading names | Matches convention in SKILL.md and all existing handoffs. Typos are caught as "missing section." |
 | Default type | `"handoff"` when `type` field missing | Backwards compatibility per handoff-contract.md. Missing `type` is still reported as an error. |
 | Type allowlist | Error on `type` not in `{handoff, checkpoint}` before branching | Prevents untrusted input controlling which validation rules apply. Eliminates dead-code mismatch branch. (Codex review) |
