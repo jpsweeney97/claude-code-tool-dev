@@ -21,6 +21,21 @@ import time
 from pathlib import Path
 
 
+def _trash(path: Path) -> bool:
+    """Attempt to move a file to trash. Returns True on success, False on failure.
+
+    Failures are silent by design — this runs during SessionStart cleanup where
+    blocking the session is worse than skipping a deletion.
+    """
+    try:
+        subprocess.run(["trash", str(path)], capture_output=True, timeout=5, check=True)
+        return True
+    except FileNotFoundError:
+        return False  # trash binary not installed — skip deletion
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False  # PermissionError, trash failure, or timeout — skip
+
+
 def get_project_name() -> str:
     """Get project name from git root directory or current directory."""
     try:
@@ -55,22 +70,18 @@ def prune_old_handoffs(handoffs_dir: Path, max_age_days: int = 30) -> list[Path]
     for handoff in handoffs_dir.glob("*.md"):
         try:
             if handoff.stat().st_mtime < cutoff:
-                try:
-                    subprocess.run(["trash", str(handoff)], capture_output=True, timeout=5, check=True)
-                except FileNotFoundError:
-                    pass  # trash binary not installed — skip deletion, don't fall back to unlink
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                    pass  # trash failed or timed out — skip, don't block session start
-                deleted.append(handoff)
+                if _trash(handoff):
+                    deleted.append(handoff)
         except OSError:
             pass  # Silently ignore errors during cleanup
 
     return deleted
 
 
-def prune_old_state_files(max_age_hours: int = 24) -> list[Path]:
+def prune_old_state_files(max_age_hours: int = 24, *, state_dir: Path | None = None) -> list[Path]:
     """Delete state files older than max_age_hours. Returns list of deleted files."""
-    state_dir = Path.home() / ".claude" / ".session-state"
+    if state_dir is None:
+        state_dir = Path.home() / ".claude" / ".session-state"
     if not state_dir.exists():
         return []
 
@@ -80,13 +91,8 @@ def prune_old_state_files(max_age_hours: int = 24) -> list[Path]:
     for state_file in state_dir.glob("handoff-*"):
         try:
             if state_file.stat().st_mtime < cutoff:
-                try:
-                    subprocess.run(["trash", str(state_file)], capture_output=True, timeout=5, check=True)
-                except FileNotFoundError:
-                    pass  # trash binary not installed — skip deletion
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                    pass  # trash failed or timed out — skip
-                deleted.append(state_file)
+                if _trash(state_file):
+                    deleted.append(state_file)
         except OSError:
             pass  # Silently ignore errors during cleanup
 

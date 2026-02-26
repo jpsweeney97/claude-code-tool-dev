@@ -9,8 +9,10 @@ from unittest.mock import patch
 import pytest
 
 from scripts.cleanup import (
+    _trash,
     get_project_name,
     prune_old_handoffs,
+    prune_old_state_files,
 )
 
 
@@ -91,3 +93,123 @@ class TestPruneOldHandoffs:
             result = prune_old_handoffs(tmp_path, max_age_days=30)
         assert hit is True, "Patch must exercise the target file's stat() path"
         assert result == []
+
+    def test_failed_trash_not_in_deleted(self, tmp_path: Path) -> None:
+        """C1 regression: files not trashed must not appear in deleted list."""
+        old = tmp_path / "old.md"
+        old.write_text("content")
+        old_time = time.time() - (31 * 24 * 60 * 60)
+        os.utime(old, (old_time, old_time))
+        with patch("scripts.cleanup._trash", return_value=False):
+            result = prune_old_handoffs(tmp_path, max_age_days=30)
+        assert result == [], "File should not be in deleted list when trash fails"
+
+    def test_old_files_deleted(self, tmp_path: Path) -> None:
+        old = tmp_path / "old.md"
+        old.write_text("content")
+        old_time = time.time() - (31 * 24 * 60 * 60)
+        os.utime(old, (old_time, old_time))
+        with patch("scripts.cleanup._trash", return_value=True) as mock_trash:
+            result = prune_old_handoffs(tmp_path, max_age_days=30)
+        assert result == [old]
+        mock_trash.assert_called_once_with(old)
+
+
+class TestTrash:
+    """Tests for _trash helper."""
+
+    def test_success_returns_true(self, tmp_path: Path) -> None:
+        target = tmp_path / "file.md"
+        target.write_text("content")
+        with patch("scripts.cleanup.subprocess.run") as mock_run:
+            assert _trash(target) is True
+            mock_run.assert_called_once_with(
+                ["trash", str(target)],
+                capture_output=True,
+                timeout=5,
+                check=True,
+            )
+
+    def test_binary_not_found_returns_false(self, tmp_path: Path) -> None:
+        target = tmp_path / "file.md"
+        with patch(
+            "scripts.cleanup.subprocess.run", side_effect=FileNotFoundError
+        ):
+            assert _trash(target) is False
+
+    def test_trash_failure_returns_false(self, tmp_path: Path) -> None:
+        target = tmp_path / "file.md"
+        with patch(
+            "scripts.cleanup.subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, "trash"),
+        ):
+            assert _trash(target) is False
+
+    def test_timeout_returns_false(self, tmp_path: Path) -> None:
+        target = tmp_path / "file.md"
+        with patch(
+            "scripts.cleanup.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("trash", 5),
+        ):
+            assert _trash(target) is False
+
+    def test_oserror_returns_false(self, tmp_path: Path) -> None:
+        """R4: PermissionError (OSError subclass) must not escape _trash."""
+        target = tmp_path / "file.md"
+        with patch(
+            "scripts.cleanup.subprocess.run",
+            side_effect=PermissionError("not executable"),
+        ):
+            assert _trash(target) is False
+
+
+class TestPruneOldStateFiles:
+    """Tests for prune_old_state_files."""
+
+    def test_nonexistent_dir_returns_empty(self, tmp_path: Path) -> None:
+        assert prune_old_state_files(state_dir=tmp_path / "nope") == []
+
+    def test_old_state_files_deleted(self, tmp_path: Path) -> None:
+        state_dir = tmp_path / "session-state"
+        state_dir.mkdir()
+        old = state_dir / "handoff-abc123"
+        old.write_text("/some/archive/path")
+        old_time = time.time() - (25 * 60 * 60)  # 25 hours ago
+        os.utime(old, (old_time, old_time))
+        with patch("scripts.cleanup._trash", return_value=True):
+            result = prune_old_state_files(max_age_hours=24, state_dir=state_dir)
+        assert result == [old]
+
+    def test_failed_trash_not_in_deleted(self, tmp_path: Path) -> None:
+        """C1 regression: state files not trashed must not appear in deleted list (B3)."""
+        state_dir = tmp_path / "session-state"
+        state_dir.mkdir()
+        old = state_dir / "handoff-abc123"
+        old.write_text("/some/archive/path")
+        old_time = time.time() - (25 * 60 * 60)
+        os.utime(old, (old_time, old_time))
+        with patch("scripts.cleanup._trash", return_value=False):
+            result = prune_old_state_files(max_age_hours=24, state_dir=state_dir)
+        assert result == [], "State file should not be in deleted list when trash fails"
+
+    def test_recent_state_files_not_deleted(self, tmp_path: Path) -> None:
+        state_dir = tmp_path / "session-state"
+        state_dir.mkdir()
+        recent = state_dir / "handoff-def456"
+        recent.write_text("/some/archive/path")
+        with patch("scripts.cleanup._trash") as mock_trash:
+            result = prune_old_state_files(max_age_hours=24, state_dir=state_dir)
+        assert result == []
+        mock_trash.assert_not_called()
+
+    def test_non_handoff_files_ignored(self, tmp_path: Path) -> None:
+        state_dir = tmp_path / "session-state"
+        state_dir.mkdir()
+        other = state_dir / "other-file"
+        other.write_text("content")
+        old_time = time.time() - (25 * 60 * 60)
+        os.utime(other, (old_time, old_time))
+        with patch("scripts.cleanup._trash") as mock_trash:
+            result = prune_old_state_files(max_age_hours=24, state_dir=state_dir)
+        assert result == []
+        mock_trash.assert_not_called()
