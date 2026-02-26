@@ -11,6 +11,7 @@ import pytest
 from scripts.cleanup import (
     _trash,
     get_project_name,
+    main,
     prune_old_handoffs,
     prune_old_state_files,
 )
@@ -213,3 +214,28 @@ class TestPruneOldStateFiles:
             result = prune_old_state_files(max_age_hours=24, state_dir=state_dir)
         assert result == []
         mock_trash.assert_not_called()
+
+
+class TestMain:
+    """Tests for main entry point."""
+
+    def test_always_returns_zero(self) -> None:
+        """B4: main() must return 0 even when internals raise."""
+        with patch("scripts.cleanup.get_handoffs_dir", side_effect=RuntimeError("unexpected")):
+            assert main() == 0
+
+    def test_calls_both_prune_functions(self, tmp_path: Path) -> None:
+        """R7: main() must call prune_old_handoffs twice and prune_old_state_files once."""
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+        with (
+            patch("scripts.cleanup.get_handoffs_dir", return_value=handoffs_dir),
+            patch("scripts.cleanup.prune_old_handoffs") as mock_handoffs,
+            patch("scripts.cleanup.prune_old_state_files") as mock_state,
+        ):
+            result = main()
+        assert result == 0
+        assert mock_handoffs.call_count == 2
+        mock_handoffs.assert_any_call(handoffs_dir, max_age_days=30)
+        mock_handoffs.assert_any_call(handoffs_dir / ".archive", max_age_days=90)
+        mock_state.assert_called_once_with(max_age_hours=24)
