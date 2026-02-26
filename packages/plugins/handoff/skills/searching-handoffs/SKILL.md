@@ -15,14 +15,16 @@ When user runs `/handoff:search <query>`:
 1. **Run the search script:**
 
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/search.py" "<query>"
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/search.py" '<query>'
    ```
+
+   **Query quoting:** Wrap the query in single quotes to prevent shell expansion. If the query contains single quotes, escape each `'` as `'\''`.
 
    If user passed `--regex`, append `--regex` to the command.
 
    If `${CLAUDE_PLUGIN_ROOT}` is not set (e.g., running from the development repo), use:
    ```bash
-   python3 "$(git rev-parse --show-toplevel)/packages/plugins/handoff/scripts/search.py" "<query>"
+   python3 "$(git rev-parse --show-toplevel)/packages/plugins/handoff/scripts/search.py" '<query>'
    ```
 
    **Important:** Do NOT `cd` into the plugin directory before running. `get_project_name()` resolves the project from the current working directory — changing CWD to the plugin directory would resolve to the plugin's repo name instead of the user's project.
