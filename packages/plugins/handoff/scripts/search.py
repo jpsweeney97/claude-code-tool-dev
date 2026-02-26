@@ -238,13 +238,6 @@ def main(argv: list[str] | None = None) -> str:
     args = parser.parse_args(argv)
     _, project_source = get_project_name()
 
-    # Validate regex before searching
-    if args.regex:
-        try:
-            re.compile(args.query)
-        except re.error as e:
-            return json.dumps({"query": args.query, "total_matches": 0, "results": [], "skipped": [], "project_source": project_source, "error": f"Invalid regex: {e}"})
-
     handoffs_dir = get_handoffs_dir()
 
     if not handoffs_dir.exists():
@@ -258,7 +251,17 @@ def main(argv: list[str] | None = None) -> str:
         })
 
     skipped_files: list[dict] = []
-    results = search_handoffs(handoffs_dir, args.query, regex=args.regex, skipped=skipped_files)
+    try:
+        results = search_handoffs(handoffs_dir, args.query, regex=args.regex, skipped=skipped_files)
+    except re.error as e:
+        return json.dumps({
+            "query": args.query,
+            "total_matches": 0,
+            "results": [],
+            "skipped": skipped_files,
+            "project_source": project_source,
+            "error": f"Invalid regex: {e}",
+        })
 
     return json.dumps({
         "query": args.query,
