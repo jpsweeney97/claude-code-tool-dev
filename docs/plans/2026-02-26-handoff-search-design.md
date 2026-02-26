@@ -2,11 +2,13 @@
 
 ```yaml
 date: 2026-02-26
-status: approved
+status: superseded-by-implementation-plan
 enhancement: "#1 Search/Query"
 ticket: docs/tickets/handoff-search.md
 plugin: packages/plugins/handoff/
 ```
+
+> **Superseded:** The architecture described here was amended during Codex review. The implementation plan (`docs/plans/2026-02-26-handoff-search-implementation.md`) is the authoritative reference. Key changes: `lib/project.py` extraction was dropped (P1a), invocation changed from `uv run` to `python3` direct execution (A6).
 
 ## Overview
 
@@ -21,7 +23,7 @@ Add `/handoff:search <query>` to search across handoff history for decisions, le
 | Result limits | Show all, Claude summarizes | No artificial cap. Skill handles presentation: full display for ≤5, table + top 3 for 6+. |
 | Search scope | Always both (active + archived) | No flags. Simplest UX — search everything. |
 | Invocation | Hybrid (script + skill) | Script handles deterministic search/parsing. Skill handles presentation. Testable + flexible. |
-| Shared code | Extract to `lib/project.py` | `get_project_name()` and `get_handoffs_dir()` used by both `cleanup.py` and `search.py`. Enhancement #2 will also need them. |
+| Shared code | Inline in search.py (amended: lib/ extraction dropped -- see implementation plan) | `get_project_name()` and `get_handoffs_dir()` used by both `cleanup.py` and `search.py`. Enhancement #2 will also need them. |
 
 ## Architecture
 
@@ -141,9 +143,7 @@ Under 80 lines. Thin wrapper: run script, format results. No search logic in the
 
 ## Shared Module (`lib/project.py`)
 
-Extract from `cleanup.py`:
-- `get_project_name() -> str` — git root dir name or cwd fallback
-- `get_handoffs_dir() -> Path` — `~/.claude/handoffs/<project>/`
+> Superseded: shared module was dropped. Functions are inlined in search.py. See implementation plan Amendment A1.
 
 ## File Changes
 
