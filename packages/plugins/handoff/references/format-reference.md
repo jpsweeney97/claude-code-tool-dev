@@ -17,10 +17,15 @@ project: <project-name>             # Git root or directory name
 branch: <branch-name>               # Current git branch (optional)
 commit: <short-hash>                # Short commit hash (optional)
 title: <descriptive-title>          # Handoff title
+type: <handoff|checkpoint>          # Required: distinguishes file type
 files:
   - <key files touched>             # List of relevant files
 ---
 ```
+
+**Type field:** `handoff` for full handoffs, `checkpoint` for checkpoints. Files without a `type` field are treated as `handoff` for backwards compatibility.
+
+**Precedence:** If this file conflicts with [handoff-contract.md](handoff-contract.md), the contract wins. This file is canonical for section content guidance, depth targets, and quality calibration.
 
 ## Section Checklist
 
@@ -78,6 +83,7 @@ project: api-gateway
 branch: feat/rate-limiting
 commit: 8709e5d
 title: Rate limiting system — architecture and initial implementation
+type: handoff
 files:
   - src/api/ratelimit/__init__.py
   - src/api/ratelimit/limiter.py
@@ -505,6 +511,7 @@ project: api-gateway
 branch: feat/rate-limiting
 commit: c3d4e5f
 title: Rate limiting — Redis sync and config integration
+type: handoff
 files:
   - src/api/ratelimit/sync.py
   - src/api/config.py
@@ -704,3 +711,33 @@ latency impact.
 | Complex (pivots, design work, discovery) | 500-700+ | All sections fully populated, deep decision analysis with trade-off matrices, architecture maps, conversation highlights with quotes |
 
 A handoff under 300 lines almost certainly has significant information loss. Re-examine the session for: implicit decisions, codebase knowledge gained, conversation dynamics, exploration arc, and files that produced understanding worth preserving.
+
+## Checkpoint Format
+
+Checkpoints are lightweight state captures for context-pressure session cycling. They use the same frontmatter schema as full handoffs (see above) with `type: checkpoint`.
+
+### Checkpoint Sections
+
+| Section | Required? | Depth | Purpose |
+|---------|-----------|-------|---------|
+| **Current Task** | Yes | 3-5 lines | What we're working on and why |
+| **In Progress** | Yes | 5-15 lines | Approach, working/broken, immediate next action |
+| **Active Files** | Yes | 2-10 lines | Files modified or key files read, with purpose |
+| **Next Action** | Yes | 2-5 lines | The literal next thing to do on resume |
+| **Verification Snapshot** | Yes | 1-3 lines | Last command/test and result |
+| **Don't Retry** | If applicable | 1-3 lines/item | "Tried X, failed because Y" |
+| **Key Finding** | If applicable | 2-5 lines | Codebase discovery worth preserving |
+| **Decisions** | If applicable | 3-5 lines/decision | Choice + driver only |
+
+### Checkpoint Quality Calibration
+
+| Metric | Target |
+|--------|--------|
+| Body lines | 22-55 |
+| Required sections | 5 (Current Task, In Progress, Active Files, Next Action, Verification Snapshot) |
+| Warning: under | 20 lines (likely missing sections) |
+| Warning: over | 80 lines (drifting toward handoff) |
+
+### Filename Convention
+
+Checkpoint filenames use `checkpoint-` prefix in slug: `YYYY-MM-DD_HH-MM_checkpoint-<slug>.md`
