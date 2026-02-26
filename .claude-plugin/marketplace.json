@@ -1,7 +1,8 @@
 {
-  "name": "cross-model",
+  "name": "turbo-mode",
   "owner": { "name": "JP" },
   "plugins": [
-    { "name": "cross-model", "source": "./packages/plugins/cross-model" }
+    { "name": "cross-model", "source": "./packages/plugins/cross-model" },
+    { "name": "handoff", "source": "./packages/plugins/handoff" }
   ]
 }
