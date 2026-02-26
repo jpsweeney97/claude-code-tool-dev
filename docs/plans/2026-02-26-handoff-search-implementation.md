@@ -10,7 +10,7 @@
 
 **Design doc:** `docs/plans/2026-02-26-handoff-search-design.md`
 
-**Amendments:** This plan was revised after an adversarial Codex review (5 turns, 9 findings). Key changes: dropped `lib/` extraction (P1a: breaks hook execution), added code-fence tracking (P2a), fixed mock patch targets (P0), added `UnicodeDecodeError` handling (P1b).
+**Amendments:** This plan was revised after an adversarial Codex review (5 turns, 9 findings) and a subsequent evaluative deep review (6 turns, 11 resolved). Key changes from adversarial review: dropped `lib/` extraction (P1a: breaks hook execution), added code-fence tracking (P2a), fixed mock patch targets (P0), added `UnicodeDecodeError` handling (P1b). Key changes from deep review: fixed skill CWD bug (A6: P0), fixed heading duplication (A7), added unterminated fence test (A8), added `__main__` subprocess test (A9).
 
 ---
 
@@ -19,7 +19,7 @@
 Before starting, verify:
 - Branch: `feature/handoff-search` (create from `main`)
 - Working directory: `packages/plugins/handoff/`
-- Tests pass: `cd packages/plugins/handoff && uv run pytest -v` (26 tests)
+- Tests pass: `cd packages/plugins/handoff && uv run pytest -v` (26 cleanup tests)
 
 ---
 
@@ -168,6 +168,29 @@ class TestParseHandoff:
         assert len(result.sections) == 1
         assert result.sections[0].heading == "## Real Section"
         assert "Fake Section Inside Fence" in result.sections[0].content
+
+    def test_unterminated_fence_does_not_crash(self, tmp_path: Path) -> None:
+        """A8: Unterminated fence suppresses subsequent sections (graceful degradation)."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\n---\n"
+            "\n"
+            "## Before Fence\n"
+            "\n"
+            "Content before.\n"
+            "\n"
+            "```python\n"
+            "# unclosed fence\n"
+            "\n"
+            "## Suppressed Section\n"
+            "\n"
+            "This section is invisible.\n"
+        )
+        result = parse_handoff(handoff)
+        # Only the section before the unterminated fence is found.
+        # The suppressed section is absorbed — graceful degradation, not crash.
+        assert len(result.sections) == 1
+        assert result.sections[0].heading == "## Before Fence"
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -256,7 +279,8 @@ def parse_sections(text: str) -> list[Section]:
     Each section includes everything from its ## heading until the next
     ## heading or EOF. ### subsections are included within their parent.
     Code-fenced regions are tracked to avoid treating ## lines inside
-    fences as section boundaries.
+    fences as section boundaries. The heading line itself is NOT included
+    in section.content to avoid duplication when displaying heading + content.
     """
     sections: list[Section] = []
     lines = text.splitlines(keepends=True)
@@ -280,7 +304,7 @@ def parse_sections(text: str) -> list[Section]:
                     line_start=current_start,
                 ))
             current_heading = line.strip()
-            current_lines = [line]
+            current_lines = []
             current_start = i + 1  # 1-indexed
         elif current_heading:
             current_lines.append(line)
@@ -312,7 +336,7 @@ def parse_handoff(path: Path) -> HandoffFile:
 cd packages/plugins/handoff && uv run pytest tests/test_search.py -v
 ```
 
-Expected: 6 tests pass.
+Expected: 7 tests pass (6 parser + 1 unterminated fence).
 
 **Step 5: Commit**
 
@@ -524,7 +548,7 @@ Expected: 9 tests pass.
 cd packages/plugins/handoff && uv run pytest tests/test_search.py -v
 ```
 
-Expected: 15 tests pass (6 parser + 9 search).
+Expected: 16 tests pass (7 parser + 9 search).
 
 **Step 6: Commit**
 
@@ -612,6 +636,22 @@ class TestSearchCLI:
 
         result = json.loads(output)
         assert result["total_matches"] == 1
+
+    def test_direct_execution_via_subprocess(self) -> None:
+        """A9: Verify __main__ path works under direct script execution."""
+        import subprocess
+
+        script = Path(__file__).parent.parent / "scripts" / "search.py"
+        result = subprocess.run(
+            ["python3", str(script), "nonexistent_query_xyz"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert "total_matches" in output
+        assert output["error"] is None
 ```
 
 **Note:** Mock target is `scripts.search.get_handoffs_dir` (the lookup site), NOT `lib.project.get_handoffs_dir`. Python's `from` import creates a new binding in the importing module's namespace — patching the original doesn't affect the already-bound name.
@@ -704,7 +744,7 @@ if __name__ == "__main__":
 cd packages/plugins/handoff && uv run pytest tests/test_search.py::TestSearchCLI -v
 ```
 
-Expected: 4 tests pass.
+Expected: 5 tests pass (4 mock-based + 1 subprocess).
 
 **Step 5: Run full test suite**
 
@@ -712,7 +752,7 @@ Expected: 4 tests pass.
 cd packages/plugins/handoff && uv run pytest -v
 ```
 
-Expected: 45 tests pass (26 cleanup + 19 search: 6 parser + 9 search + 4 CLI).
+Expected: 47 tests pass (26 cleanup + 21 search: 7 parser + 9 search + 5 CLI).
 
 **Step 6: Lint**
 
@@ -762,15 +802,17 @@ When user runs `/handoff:search <query>`:
 1. **Run the search script:**
 
    ```bash
-   cd ${CLAUDE_PLUGIN_ROOT} && uv run scripts/search.py "<query>"
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/search.py" "<query>"
    ```
 
    If user passed `--regex`, append `--regex` to the command.
 
    If `${CLAUDE_PLUGIN_ROOT}` is not set (e.g., running from the development repo), use:
    ```bash
-   cd $(git rev-parse --show-toplevel)/packages/plugins/handoff && uv run scripts/search.py "<query>"
+   python3 "$(git rev-parse --show-toplevel)/packages/plugins/handoff/scripts/search.py" "<query>"
    ```
+
+   **Important:** Do NOT `cd` into the plugin directory before running. `get_project_name()` resolves the project from the current working directory — changing CWD to the plugin directory would resolve to the plugin's repo name instead of the user's project.
 
 2. **Parse JSON output** from stdout.
 
@@ -826,19 +868,29 @@ git commit -m "feat(handoff): add searching-handoffs skill"
 **Files:**
 - Modify: `.claude-plugin/plugin.json`
 
-**Step 1: Bump version**
+**Step 1: Bump versions**
 
 Change `"version": "1.1.1"` to `"version": "1.2.0"` in `.claude-plugin/plugin.json`.
+Change `version = "1.1.0"` to `version = "1.2.0"` in `pyproject.toml`.
 
-**Step 2: Run full test suite**
+**Step 2: Add superseded banner to design doc**
+
+Add a banner at the top of `docs/plans/2026-02-26-handoff-search-design.md` (after the YAML block) and update the stale sections:
+
+- Change `status: approved` to `status: superseded-by-implementation-plan` in the YAML block
+- Add after the YAML block: `> **Superseded:** The architecture described here was amended during Codex review. The implementation plan (`docs/plans/2026-02-26-handoff-search-implementation.md`) is the authoritative reference. Key changes: `lib/project.py` extraction was dropped (P1a), invocation changed from `uv run` to `python3` direct execution (A6).`
+- In the "Key Decisions" table (line 24): change `Extract to lib/project.py` to `Inline in search.py (amended: lib/ extraction dropped — see implementation plan)`
+- In the "Shared Module" section (lines 142-146): replace content with `> Superseded: shared module was dropped. Functions are inlined in `search.py`. See implementation plan Amendment A1.`
+
+**Step 3: Run full test suite**
 
 ```bash
 cd packages/plugins/handoff && uv run pytest -v
 ```
 
-Expected: 45 tests pass (26 cleanup + 19 search).
+Expected: 47 tests pass (26 cleanup + 21 search).
 
-**Step 3: Lint all modified files**
+**Step 4: Lint all modified files**
 
 ```bash
 cd packages/plugins/handoff && uv run ruff check scripts/ tests/
@@ -846,19 +898,19 @@ cd packages/plugins/handoff && uv run ruff check scripts/ tests/
 
 Expected: Clean.
 
-**Step 4: Manual smoke test**
+**Step 5: Manual smoke test**
 
 ```bash
-cd packages/plugins/handoff && uv run scripts/search.py "merge" | python3 -m json.tool
+cd packages/plugins/handoff && python3 scripts/search.py "merge" | python3 -m json.tool
 ```
 
-Expected: JSON output with results from real handoff files.
+Expected: JSON output with results from real handoff files. Uses `python3` direct execution (not `uv run`) to verify the `__main__` path.
 
-**Step 5: Commit**
+**Step 6: Commit**
 
 ```bash
-git add packages/plugins/handoff/.claude-plugin/plugin.json
-git commit -m "chore(handoff): bump version to 1.2.0 for search enhancement"
+git add packages/plugins/handoff/.claude-plugin/plugin.json packages/plugins/handoff/pyproject.toml docs/plans/2026-02-26-handoff-search-design.md
+git commit -m "chore(handoff): bump version to 1.2.0, mark design doc superseded"
 ```
 
 ---
@@ -867,21 +919,23 @@ git commit -m "chore(handoff): bump version to 1.2.0 for search enhancement"
 
 After all tasks complete:
 
-- [ ] `uv run pytest -v` — 45 tests pass (26 cleanup + 19 search)
+- [ ] `uv run pytest -v` — 47 tests pass (26 cleanup + 21 search)
 - [ ] `uv run ruff check scripts/ tests/` — clean
-- [ ] `uv run scripts/search.py "merge"` — returns valid JSON
-- [ ] `uv run scripts/search.py "[invalid" --regex` — returns error JSON
-- [ ] `python3 scripts/search.py "merge"` — works under direct execution (no import errors)
+- [ ] `python3 scripts/search.py "merge"` — returns valid JSON (direct execution)
+- [ ] `python3 scripts/search.py "[invalid" --regex` — returns error JSON
 - [ ] `python3 scripts/cleanup.py` — still works (untouched)
 - [ ] Skill file exists at `skills/searching-handoffs/SKILL.md`
+- [ ] Skill does NOT `cd` into plugin directory (uses `python3` with absolute path)
 - [ ] `scripts/cleanup.py` is NOT modified (no import changes)
 - [ ] `plugin.json` version is `1.2.0`
+- [ ] `pyproject.toml` version is `1.2.0`
+- [ ] Design doc `status` is `superseded-by-implementation-plan`
 
 ---
 
 ## Codex Review Amendments
 
-This plan incorporates 5 amendments from an adversarial Codex dialogue (5/10 turns, 9 resolved findings):
+### Round 1: Adversarial Review (5/10 turns, 9 resolved)
 
 | ID | Severity | Finding | Amendment |
 |----|----------|---------|-----------|
@@ -890,3 +944,23 @@ This plan incorporates 5 amendments from an adversarial Codex dialogue (5/10 tur
 | A3 | P2a | `parse_sections` splits on `## ` with no code-fence tracking — creates ghost sections from code blocks. | Added `inside_fence` toggle in `parse_sections`. Added fence test. Removed redundant `### ` guard. |
 | A4 | P1b | `UnicodeDecodeError` is a `ValueError`, not `OSError` — one malformed file crashes entire search. | Changed `except OSError` to `except (OSError, UnicodeDecodeError)`. |
 | A5 | Cleanup | `not line.startswith("### ")` guard is dead code — `"### "` never starts with `"## "`. | Removed (folded into A3). |
+
+### Round 2: Evaluative Deep Review (6/8 turns, 11 resolved)
+
+| ID | Severity | Finding | Amendment |
+|----|----------|---------|-----------|
+| A6 | P0 (Blocking) | Skill's `cd ${CLAUDE_PLUGIN_ROOT}` changes CWD to plugin directory, causing `get_project_name()` to resolve to the plugin's repo name instead of the user's project. Search returns wrong/empty results silently. | Changed skill invocation to `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/search.py"` (no `cd`). Matches `hooks.json` pattern. |
+| A7 | P2 (UX) | `current_lines = [line]` includes heading in `section.content`. When skill displays `heading + content`, heading appears twice. | Changed `current_lines = [line]` to `current_lines = []`. Heading stored in `section.heading` only. |
+| A8 | P2 | Unterminated code fence leaves `inside_fence = True` for rest of file, silently suppressing all subsequent `## ` sections. No test coverage. | Added `test_unterminated_fence_does_not_crash` to parser tests. Graceful degradation is acceptable (controlled authoring environment). |
+| A9 | P2 | `if __name__ == "__main__"` path is only manual-smoke-tested. Direct execution was the critical A1 concern but has no automated test. | Added `test_direct_execution_via_subprocess` using `subprocess.run(["python3", ...])`. |
+| — | Docs | Design doc (`docs/plans/2026-02-26-handoff-search-design.md`) still shows `lib/project.py` architecture with `status: approved`. Actively misleading since plan links to it. | Added superseded banner. Updated stale sections. Changed status to `superseded-by-implementation-plan`. |
+| — | Chore | `pyproject.toml` version (`1.1.0`) out of sync with `plugin.json` (`1.1.1`). Plan only bumped `plugin.json`. | Added `pyproject.toml` version bump to Task 5. |
+
+### Deferred (P3 — not blocking)
+
+| Finding | Rationale for deferral |
+|---------|----------------------|
+| BOM (`\ufeff`) corrupts frontmatter parsing | `cleanup.py` has same gap. Handoffs are written by plugin (no BOMs). Revisit if Windows contributors appear. |
+| Tilde fences (`~~~`) not tracked | Valid CommonMark but not used in any handoff file. Revisit if format changes. |
+| Shell-escaping of queries with double quotes | Claude Code provides quoting; failure is visible (syntax error), not silent. Revisit if user reports. |
+| Import staging across Task 1 and Task 3 | Implementer can concatenate snippets. Plan is clear enough. |
