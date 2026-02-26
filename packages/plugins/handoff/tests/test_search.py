@@ -106,6 +106,23 @@ class TestParseHandoff:
         assert result.sections[0].heading == "## Real Section"
         assert "Fake Section Inside Fence" in result.sections[0].content
 
+    def test_unclosed_frontmatter_treated_as_no_frontmatter(self, tmp_path: Path) -> None:
+        """Opening --- with no closing --- is treated as no frontmatter."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\n"
+            "title: Broken\n"
+            "no closing delimiter\n"
+            "\n"
+            "## Goal\n"
+            "\n"
+            "Do something.\n"
+        )
+        result = parse_handoff(handoff)
+        assert result.frontmatter == {}
+        assert len(result.sections) == 1
+        assert result.sections[0].heading == "## Goal"
+
     def test_unterminated_fence_does_not_crash(self, tmp_path: Path) -> None:
         """A8: Unterminated fence suppresses subsequent sections (graceful degradation)."""
         handoff = tmp_path / "test.md"
@@ -220,6 +237,28 @@ class TestSearchHandoffs:
         txt.write_text("## Decisions\n\nSomething about merging.\n")
         results = search_handoffs(tmp_path, "merging")
         assert results == []
+
+    def test_regex_is_case_sensitive(self, tmp_path: Path) -> None:
+        """Regex mode is case-sensitive (flags=0), unlike literal mode."""
+        _make_handoff(
+            tmp_path, "Test", "2026-02-25",
+            "## Decisions\n\nChose Regular Merge.\n"
+        )
+        # Literal: case-insensitive — matches
+        assert len(search_handoffs(tmp_path, "regular merge")) == 1
+        # Regex: case-sensitive — lowercase doesn't match titlecase
+        assert len(search_handoffs(tmp_path, "regular merge", regex=True)) == 0
+        # Regex: exact case — matches
+        assert len(search_handoffs(tmp_path, "Regular Merge", regex=True)) == 1
+
+    def test_literal_escapes_regex_metacharacters(self, tmp_path: Path) -> None:
+        """Literal search escapes regex metacharacters via re.escape()."""
+        _make_handoff(
+            tmp_path, "Test", "2026-02-25",
+            "## Decisions\n\nChose option (A) over option (B).\n"
+        )
+        results = search_handoffs(tmp_path, "option (A)")
+        assert len(results) == 1
 
     def test_missing_directory_returns_empty(self, tmp_path: Path) -> None:
         results = search_handoffs(tmp_path / "nonexistent", "anything")
