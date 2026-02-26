@@ -21,8 +21,29 @@ import time
 from pathlib import Path
 
 
+def _trash(path: Path) -> bool:
+    """Attempt to move a file to trash. Returns True on success, False on failure.
+
+    Failures are silent by design — this runs during SessionStart cleanup where
+    blocking the session is worse than skipping a deletion.
+    """
+    try:
+        subprocess.run(["trash", str(path)], capture_output=True, timeout=5, check=True)
+        return True
+    except FileNotFoundError:
+        return False  # trash binary not installed — skip deletion
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False  # PermissionError, trash failure, or timeout — skip
+
+
 def get_project_name() -> str:
-    """Get project name from git root directory or current directory."""
+    """Get project name from git root directory, falling back to current directory name.
+
+    Fallback is intentional for non-git directories. For corrupted repos or
+    missing git binary, the fallback may resolve to the wrong project name —
+    accepted because cleanup targets are scoped to individual files with
+    age-based pruning (misidentification doesn't delete wrong-age files).
+    """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -32,10 +53,13 @@ def get_project_name() -> str:
         )
         if result.returncode == 0:
             return Path(result.stdout.strip()).name
+        # Non-zero return: not a git repo, or git error. Fall back to cwd.
     except subprocess.TimeoutExpired:
-        pass
+        pass  # Git hanging (disk issue, corrupted repo). Fall back to cwd.
     except FileNotFoundError:
-        pass
+        pass  # Git binary not installed. Fall back to cwd.
+    except OSError:
+        pass  # PermissionError or other OS-level issue. Fall back to cwd.
     return Path.cwd().name
 
 
@@ -55,17 +79,18 @@ def prune_old_handoffs(handoffs_dir: Path, max_age_days: int = 30) -> list[Path]
     for handoff in handoffs_dir.glob("*.md"):
         try:
             if handoff.stat().st_mtime < cutoff:
-                handoff.unlink(missing_ok=True)
-                deleted.append(handoff)
+                if _trash(handoff):
+                    deleted.append(handoff)
         except OSError:
-            pass  # Silently ignore errors during cleanup
+            pass  # Handles stat() TOCTOU: file removed between glob() and stat()
 
     return deleted
 
 
-def prune_old_state_files(max_age_hours: int = 24) -> list[Path]:
+def prune_old_state_files(max_age_hours: int = 24, *, state_dir: Path | None = None) -> list[Path]:
     """Delete state files older than max_age_hours. Returns list of deleted files."""
-    state_dir = Path.home() / ".claude" / ".session-state"
+    if state_dir is None:
+        state_dir = Path.home() / ".claude" / ".session-state"
     if not state_dir.exists():
         return []
 
@@ -75,10 +100,10 @@ def prune_old_state_files(max_age_hours: int = 24) -> list[Path]:
     for state_file in state_dir.glob("handoff-*"):
         try:
             if state_file.stat().st_mtime < cutoff:
-                state_file.unlink(missing_ok=True)
-                deleted.append(state_file)
+                if _trash(state_file):
+                    deleted.append(state_file)
         except OSError:
-            pass  # Silently ignore errors during cleanup
+            pass  # Handles stat() TOCTOU: file removed between glob() and stat()
 
     return deleted
 
@@ -90,18 +115,23 @@ def main() -> int:
     Users must explicitly run /resume to load handoffs.
 
     Returns:
-        0 on success
+        0 on best-effort completion. A SessionStart hook must never block
+        session start. Only BaseException subclasses (e.g., KeyboardInterrupt,
+        SystemExit) propagate — these indicate process-level termination.
     """
-    handoffs_dir = get_handoffs_dir()
+    try:
+        handoffs_dir = get_handoffs_dir()
 
-    # Prune active handoffs older than 30 days
-    prune_old_handoffs(handoffs_dir, max_age_days=30)
+        # Prune active handoffs older than 30 days
+        prune_old_handoffs(handoffs_dir, max_age_days=30)
 
-    # Prune archived handoffs older than 90 days
-    prune_old_handoffs(handoffs_dir / ".archive", max_age_days=90)
+        # Prune archived handoffs older than 90 days
+        prune_old_handoffs(handoffs_dir / ".archive", max_age_days=90)
 
-    # Prune stale state files older than 24 hours
-    prune_old_state_files(max_age_hours=24)
+        # Prune stale state files older than 24 hours
+        prune_old_state_files(max_age_hours=24)
+    except Exception:
+        pass  # Never block session start — cleanup is best-effort
 
     return 0
 
