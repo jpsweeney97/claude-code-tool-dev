@@ -370,6 +370,30 @@ class TestSearchCLI:
         assert str(nonexistent) in result["error"]
         assert result["total_matches"] == 0
 
+    def test_project_source_git(self, tmp_path: Path) -> None:
+        """JSON output includes project_source when resolved via git."""
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+
+        with patch("scripts.search.get_project_name", return_value=("test", "git")):
+            with patch("scripts.search.get_handoffs_dir", return_value=handoffs_dir):
+                output = search_main(["anything"])
+
+        result = json.loads(output)
+        assert result["project_source"] == "git"
+
+    def test_project_source_cwd_fallback(self, tmp_path: Path) -> None:
+        """JSON output shows project_source='cwd' when git fails."""
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+
+        with patch("scripts.search.get_project_name", return_value=("test", "cwd")):
+            with patch("scripts.search.get_handoffs_dir", return_value=handoffs_dir):
+                output = search_main(["anything"])
+
+        result = json.loads(output)
+        assert result["project_source"] == "cwd"
+
     def test_direct_execution_via_subprocess(self) -> None:
         """A9: Verify __main__ path works under direct script execution."""
         import subprocess

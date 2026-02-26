@@ -127,8 +127,12 @@ def parse_handoff(path: Path) -> HandoffFile:
     return HandoffFile(path=str(path), frontmatter=frontmatter, sections=sections)
 
 
-def get_project_name() -> str:
-    """Get project name from git root directory, falling back to current directory name."""
+def get_project_name() -> tuple[str, str]:
+    """Get project name from git root directory, falling back to current directory name.
+
+    Returns:
+        (project_name, source) where source is "git" or "cwd".
+    """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -137,19 +141,20 @@ def get_project_name() -> str:
             timeout=5,
         )
         if result.returncode == 0:
-            return Path(result.stdout.strip()).name
+            return Path(result.stdout.strip()).name, "git"
     except subprocess.TimeoutExpired:
         pass
     except FileNotFoundError:
         pass
     except OSError:
         pass
-    return Path.cwd().name
+    return Path.cwd().name, "cwd"
 
 
 def get_handoffs_dir() -> Path:
     """Get handoffs directory: ~/.claude/handoffs/<project>/"""
-    return Path.home() / ".claude" / "handoffs" / get_project_name()
+    name, _ = get_project_name()
+    return Path.home() / ".claude" / "handoffs" / name
 
 
 def search_handoffs(
@@ -231,13 +236,14 @@ def main(argv: list[str] | None = None) -> str:
     parser.add_argument("query", help="Search query (text or regex)")
     parser.add_argument("--regex", action="store_true", help="Treat query as regex")
     args = parser.parse_args(argv)
+    _, project_source = get_project_name()
 
     # Validate regex before searching
     if args.regex:
         try:
             re.compile(args.query)
         except re.error as e:
-            return json.dumps({"query": args.query, "total_matches": 0, "results": [], "skipped": [], "error": f"Invalid regex: {e}"})
+            return json.dumps({"query": args.query, "total_matches": 0, "results": [], "skipped": [], "project_source": project_source, "error": f"Invalid regex: {e}"})
 
     handoffs_dir = get_handoffs_dir()
 
@@ -247,6 +253,7 @@ def main(argv: list[str] | None = None) -> str:
             "total_matches": 0,
             "results": [],
             "skipped": [],
+            "project_source": project_source,
             "error": f"Handoffs directory not found: {handoffs_dir}",
         })
 
@@ -258,6 +265,7 @@ def main(argv: list[str] | None = None) -> str:
         "total_matches": len(results),
         "results": results,
         "skipped": skipped_files,
+        "project_source": project_source,
         "error": None,
     })
 
