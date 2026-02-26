@@ -122,3 +122,64 @@ def parse_handoff(path: Path) -> HandoffFile:
     frontmatter, body = parse_frontmatter(text)
     sections = parse_sections(body)
     return HandoffFile(path=str(path), frontmatter=frontmatter, sections=sections)
+
+
+def search_handoffs(
+    handoffs_dir: Path,
+    query: str,
+    *,
+    regex: bool = False,
+) -> list[dict]:
+    """Search handoff files for matching sections.
+
+    Args:
+        handoffs_dir: Directory containing handoff .md files (with optional .archive/ subdirectory)
+        query: Search string or regex pattern
+        regex: If True, treat query as regex. If False, literal case-insensitive match.
+
+    Returns:
+        List of result dicts sorted by date descending. Each dict contains:
+        file, title, date, type, archived, section_heading, section_content
+    """
+    if not handoffs_dir.exists():
+        return []
+
+    # Compile search pattern
+    flags = 0 if regex else re.IGNORECASE
+    if not regex:
+        query = re.escape(query)
+    pattern = re.compile(query, flags)
+
+    results: list[dict] = []
+
+    # Collect .md files from top-level and .archive/
+    md_files: list[tuple[Path, bool]] = []
+    for f in handoffs_dir.glob("*.md"):
+        md_files.append((f, False))
+    archive_dir = handoffs_dir / ".archive"
+    if archive_dir.exists():
+        for f in archive_dir.glob("*.md"):
+            md_files.append((f, True))
+
+    for path, archived in md_files:
+        try:
+            handoff = parse_handoff(path)
+        except (OSError, UnicodeDecodeError):
+            continue  # Skip unreadable or malformed files
+
+        for section in handoff.sections:
+            search_text = f"{section.heading}\n{section.content}"
+            if pattern.search(search_text):
+                results.append({
+                    "file": path.name,
+                    "title": handoff.frontmatter.get("title", path.stem),
+                    "date": handoff.frontmatter.get("date", ""),
+                    "type": handoff.frontmatter.get("type", "handoff"),
+                    "archived": archived,
+                    "section_heading": section.heading,
+                    "section_content": section.content,
+                })
+
+    # Sort by date descending
+    results.sort(key=lambda r: r["date"], reverse=True)
+    return results
