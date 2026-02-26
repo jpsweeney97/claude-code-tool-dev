@@ -155,7 +155,8 @@ The plugin's SessionStart hook runs silently at session start:
 
 1. Prunes handoffs older than 30 days
 2. Prunes archived handoffs older than 90 days
-3. Produces no output (no auto-inject, no prompts)
+3. Prunes state files older than 24 hours
+4. Produces no output (no auto-inject, no prompts)
 
 This is automatic — no user action required.
 

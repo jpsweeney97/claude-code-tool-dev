@@ -150,7 +150,7 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
 8. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
 
 9. **Cleanup state file** per chain protocol in [handoff-contract.md](../../references/handoff-contract.md):
-   - `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` if it exists
+   - `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
 
 10. **Verify and confirm (brief summary only):**
     - Check file exists and frontmatter is valid

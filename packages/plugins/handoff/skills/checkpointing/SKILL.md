@@ -61,7 +61,7 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
    - Required sections (5) are always included — use placeholder content for thin sessions (e.g., "No commands run yet" for Verification Snapshot). Conditional sections (3) are omitted when not applicable.
 
 7. **Cleanup state file** per chain protocol:
-   - `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` if it exists
+   - `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
 
 8. **Verify:** Confirm file exists and frontmatter is valid (required fields present per contract). Report: "Checkpoint saved: `<path>`"
    - Do NOT reproduce content in chat. The file is the deliverable.
