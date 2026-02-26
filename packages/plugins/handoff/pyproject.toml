@@ -1,0 +1,10 @@
+[project]
+name = "handoff-plugin"
+version = "1.1.0"
+description = "Session handoff and resume plugin for Claude Code"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
