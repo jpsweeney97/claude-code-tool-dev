@@ -116,8 +116,8 @@ def main() -> int:
 
     Returns:
         0 on best-effort completion. A SessionStart hook must never block
-        session start. Returns 0 unless process-level termination (e.g.
-        SIGKILL, KeyboardInterrupt) interrupts execution.
+        session start. Only BaseException subclasses (e.g., KeyboardInterrupt,
+        SystemExit) propagate — these indicate process-level termination.
     """
     try:
         handoffs_dir = get_handoffs_dir()
