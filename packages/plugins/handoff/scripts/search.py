@@ -240,6 +240,16 @@ def main(argv: list[str] | None = None) -> str:
             return json.dumps({"query": args.query, "total_matches": 0, "results": [], "skipped": [], "error": f"Invalid regex: {e}"})
 
     handoffs_dir = get_handoffs_dir()
+
+    if not handoffs_dir.exists():
+        return json.dumps({
+            "query": args.query,
+            "total_matches": 0,
+            "results": [],
+            "skipped": [],
+            "error": f"Handoffs directory not found: {handoffs_dir}",
+        })
+
     skipped_files: list[dict] = []
     results = search_handoffs(handoffs_dir, args.query, regex=args.regex, skipped=skipped_files)
 

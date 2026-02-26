@@ -357,6 +357,19 @@ class TestSearchCLI:
         assert "skipped" in result
         assert result["skipped"] == []
 
+    def test_missing_directory_reports_error(self, tmp_path: Path) -> None:
+        """Missing handoffs directory reports error, not silent empty results."""
+        nonexistent = tmp_path / "nonexistent"
+
+        with patch("scripts.search.get_handoffs_dir", return_value=nonexistent):
+            output = search_main(["anything"])
+
+        result = json.loads(output)
+        assert result["error"] is not None
+        assert "not found" in result["error"].lower()
+        assert str(nonexistent) in result["error"]
+        assert result["total_matches"] == 0
+
     def test_direct_execution_via_subprocess(self) -> None:
         """A9: Verify __main__ path works under direct script execution."""
         import subprocess
