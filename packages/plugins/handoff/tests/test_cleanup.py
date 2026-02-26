@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from scripts.cleanup import (
     _trash,
+    get_handoffs_dir,
     get_project_name,
     main,
     prune_old_handoffs,
@@ -52,6 +53,16 @@ class TestGetProjectName:
         )
         with patch("scripts.cleanup.subprocess.run", return_value=mock_result):
             assert get_project_name() == Path.cwd().name
+
+
+class TestGetHandoffsDir:
+    """Tests for get_handoffs_dir path composition."""
+
+    def test_composes_path_from_project_name(self) -> None:
+        """T1: Verify path composition logic — ~/.claude/handoffs/<project>/."""
+        with patch("scripts.cleanup.get_project_name", return_value="my-project"):
+            result = get_handoffs_dir()
+        assert result == Path.home() / ".claude" / "handoffs" / "my-project"
 
 
 class TestPruneOldHandoffs:
@@ -220,6 +231,46 @@ class TestPruneOldStateFiles:
             result = prune_old_state_files(max_age_hours=24, state_dir=state_dir)
         assert result == []
         mock_trash.assert_not_called()
+
+    def test_stat_oserror_skipped(self, tmp_path: Path) -> None:
+        """T2: stat() failure on individual state files doesn't crash the function."""
+        state_dir = tmp_path / "session-state"
+        state_dir.mkdir()
+        target = state_dir / "handoff-abc123"
+        target.write_text("content")
+        target_str = str(target)
+
+        orig_stat = Path.stat
+        hit = False
+
+        def selective_stat(self_path: Path, *args: object, **kwargs: object) -> os.stat_result:
+            nonlocal hit
+            if str(self_path) == target_str:
+                hit = True
+                raise OSError("permission denied")
+            return orig_stat(self_path, *args, **kwargs)
+
+        with patch("scripts.cleanup.Path.stat", autospec=True, side_effect=selective_stat):
+            result = prune_old_state_files(max_age_hours=24, state_dir=state_dir)
+        assert hit is True, "Patch must exercise the target file's stat() path"
+        assert result == []
+
+    def test_default_state_dir_uses_home(self, tmp_path: Path) -> None:
+        """T3: When state_dir is None, resolves to ~/.claude/.session-state."""
+        fake_home = tmp_path / "fakehome"
+        state_dir = fake_home / ".claude" / ".session-state"
+        state_dir.mkdir(parents=True)
+        old = state_dir / "handoff-abc123"
+        old.write_text("content")
+        old_time = time.time() - (25 * 60 * 60)
+        os.utime(old, (old_time, old_time))
+        with (
+            patch("scripts.cleanup.Path.home", return_value=fake_home),
+            patch("scripts.cleanup._trash", return_value=True) as mock_trash,
+        ):
+            result = prune_old_state_files(max_age_hours=24)
+        assert result == [old]
+        mock_trash.assert_called_once_with(old)
 
 
 class TestMain:
