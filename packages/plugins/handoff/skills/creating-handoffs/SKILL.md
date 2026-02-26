@@ -58,7 +58,7 @@ Create comprehensive session reports that preserve the full context future-Claud
 **Artifacts:**
 - Markdown file at `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
 - Frontmatter with session metadata (date, time, created_at, project, title, files)
-- Body with relevant sections from checklist (only non-empty sections included)
+- Body with all 13 required sections (placeholder content when not applicable)
 
 **Definition of Done:**
 
@@ -67,7 +67,7 @@ Create comprehensive session reports that preserve the full context future-Claud
 | File exists at expected path | `ls ~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_*.md` returns file |
 | Frontmatter parses as valid YAML | No YAML syntax errors |
 | Required fields present | `date`, `time`, `created_at`, `session_id`, `project`, `title`, `type` all have values |
-| Body line count | >=300 for simple sessions, >=500 for complex |
+| Body line count | >=400 for all sessions, >=500 for complex |
 | Decision depth | Every decision has all 8 elements (choice, driver, alternatives, rejection reasons, trade-offs, confidence, reversibility, change triggers) |
 | Evidence density | Every factual claim has file:line, quote, or output reference |
 | Codebase knowledge | All files explored are listed with patterns, architecture, and key locations |
@@ -127,14 +127,14 @@ When user runs `/handoff [title]` or confirms a signal phrase offer:
 
 5. **Select relevant sections** using the checklist in [format-reference.md](../../references/format-reference.md)
    - If no sections have content, **STOP** and ask: "I don't see anything to hand off. What should I capture?"
-   - Omit empty sections from output
+   - Include all 13 required sections. Use brief placeholder content (e.g., "No risks identified this session.") for sections that genuinely don't apply
    - **Calibration:** Distinguish verified facts (explicitly discussed) from inferred conclusions (reasonable next steps) from assumed context (background not verified this session)
 
 5b. **Depth check before writing:**
-   - Verify minimum 6 body sections with content (most sessions should populate 8+)
+   - Verify all 13 required sections present: Goal, Session Narrative, Decisions, Changes, Codebase Knowledge, Context, Learnings, Next Steps, In Progress, Open Questions, Risks, References, Gotchas
    - Verify each Decision entry has all 8 elements from the synthesis prompts
-   - Estimate body line count — target 300-700 depending on session complexity
-   - If estimate is under 300, you are almost certainly under-capturing. Re-examine: implicit decisions, codebase knowledge gained, conversation dynamics, exploration arc, files read that produced understanding.
+   - Estimate body line count — target 400-700 depending on session complexity
+   - If estimate is under 400, you are almost certainly under-capturing. Re-examine: implicit decisions, codebase knowledge gained, conversation dynamics, exploration arc, files read that produced understanding.
    - **Default to inclusion.** If you're unsure whether something belongs, include it.
 
 6. **Determine output path:**
@@ -208,7 +208,7 @@ After creating handoff, verify:
 | Handoff for trivial sessions | Noise accumulation | Skip if no meaningful decisions/progress |
 | Listing files without purpose or detail | Future-Claude can't act on bare filenames | Each file gets purpose, approach, and key implementation details |
 | Single-sentence decisions | Missing reasoning makes decisions non-actionable | Every decision needs: choice, driver, alternatives, trade-offs, confidence, implications |
-| Handoffs under 300 lines | Indicates significant information loss | Re-examine session for under-capture — implicit decisions, codebase knowledge, conversation dynamics |
+| Handoffs under 400 lines | Indicates significant information loss | Re-examine session for under-capture — implicit decisions, codebase knowledge, conversation dynamics |
 | Paraphrasing user preferences | Paraphrase loses nuance that makes preferences actionable | Use verbatim quotes for every user preference and correction |
 | Missing decisions/rationale | Just listing changes isn't useful | Always capture at least one "why" |
 | Re-prompting after user declines | Annoying, ignores user intent | Respect "no" and move on |
@@ -218,9 +218,9 @@ After creating handoff, verify:
 
 | Complexity | Target Lines | Required Sections |
 |------------|-------------|-------------------|
-| Simple (pure execution of known plan) | 300+ | Goal, Decisions, Changes, Codebase Knowledge, Session Narrative, Next Steps |
-| Moderate (decisions, exploration) | 400-500 | Above + Context, Learnings, Conversation Highlights, User Preferences |
-| Complex (pivots, design work, discovery) | 500-700+ | All sections fully populated, including Rejected Approaches, Open Questions, Risks, References |
+| All sessions | 400+ | All 13 required: Goal, Session Narrative, Decisions, Changes, Codebase Knowledge, Context, Learnings, Next Steps, In Progress, Open Questions, Risks, References, Gotchas |
+| Moderate (decisions, exploration) | 500+ | Above + Conversation Highlights, User Preferences |
+| Complex (pivots, design work, discovery) | 500-700+ | All sections fully populated, including Rejected Approaches |
 
 ## Related Skills
 

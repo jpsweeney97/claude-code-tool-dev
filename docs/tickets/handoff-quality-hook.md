@@ -3,7 +3,7 @@
 ```yaml
 id: handoff-quality-hook
 date: 2026-02-24
-status: planning
+status: implementing
 priority: medium
 blocked_by: [handoff-checkpoints]
 blocks: []
@@ -63,12 +63,21 @@ The creating-handoffs skill specifies a 300-line minimum, required frontmatter f
 ## Acceptance Criteria
 
 - [ ] PostToolUse hook fires on Write to `~/.claude/handoffs/`
-- [ ] Warns when full handoff is under 300 lines
-- [ ] Warns when checkpoint is under 20 lines (missing required sections)
-- [ ] Warns when checkpoint exceeds 80 lines (drifting toward handoff territory)
-- [ ] Warns when required frontmatter fields are missing
-- [ ] Warns when fewer than 4 sections present (handoff) or 5 sections (checkpoint)
-- [ ] Uses `type` field to select threshold set (checkpoint: 20-80, handoff: 300+)
+- [ ] Warns when full handoff is under 400 lines
+- [ ] Warns when checkpoint is under 20 lines
+- [ ] Warns when checkpoint exceeds 80 lines
+- [ ] Warns when any of 7 required frontmatter fields are missing
+- [ ] Warns when any of 13 required sections missing (handoff) or 5 sections (checkpoint)
+- [ ] Warns when sections have no content (empty heading)
+- [ ] Uses `type` field to select threshold set (checkpoint: 20-80, handoff: 400+)
+- [ ] Validates checkpoint title starts with "Checkpoint:"
 - [ ] Warning appears as `additionalContext` system reminder
+- [ ] Type validated against {handoff, checkpoint} allowlist before branching
+- [ ] Code fence-aware section parsing (## inside ``` not counted)
+- [ ] Hollow-handoff guardrail: >=1 non-empty from {Decisions, Changes, Learnings}
+- [ ] Body line count (after frontmatter), not total line count
+- [ ] Conditional tail message (errors -> "fix and rewrite", warnings -> "review")
 - [ ] Hook completes in under 2 seconds
 - [ ] Hook never blocks session or tool execution (exit 0 always)
+- [ ] SKILL.md updated: 13 required sections, 400-line minimum
+- [ ] format-reference.md updated to match new quality definition

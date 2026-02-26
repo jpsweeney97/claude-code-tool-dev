@@ -29,7 +29,7 @@ files:
 
 ## Section Checklist
 
-Include sections relevant to the session. Empty sections are omitted. Depth targets are minimums — exceed them when the session warrants it.
+**Required sections (13):** Goal, Session Narrative, Decisions, Changes, Codebase Knowledge, Context, Learnings, Next Steps, In Progress, Open Questions, Risks, References, Gotchas. All must be present. Use placeholder content (e.g., "No risks identified this session.") when a section genuinely doesn't apply. Depth targets are minimums — exceed them when the session warrants it.
 
 | Section | When to Include | Expected Depth |
 |---------|-----------------|----------------|
@@ -706,11 +706,11 @@ latency impact.
 
 | Complexity | Target Lines | Characteristics |
 |------------|-------------|-----------------|
-| Simple (pure execution of known plan) | 300+ | Detailed changes, codebase knowledge, session narrative, next steps with approach suggestions |
-| Moderate (decisions, exploration) | 400-500 | Full decisions with reasoning chains, session narrative with pivots, learnings with mechanisms, context |
+| All sessions | 400+ | All 13 required sections present with meaningful content |
+| Moderate (decisions, exploration) | 500+ | Deep decisions with reasoning chains, learnings with mechanisms, rich context |
 | Complex (pivots, design work, discovery) | 500-700+ | All sections fully populated, deep decision analysis with trade-off matrices, architecture maps, conversation highlights with quotes |
 
-A handoff under 300 lines almost certainly has significant information loss. Re-examine the session for: implicit decisions, codebase knowledge gained, conversation dynamics, exploration arc, and files that produced understanding worth preserving.
+A handoff under 400 lines almost certainly has significant information loss. Re-examine the session for: implicit decisions, codebase knowledge gained, conversation dynamics, exploration arc, and files that produced understanding worth preserving.
 
 ## Checkpoint Format
 
@@ -733,7 +733,7 @@ Checkpoints are lightweight state captures for context-pressure session cycling.
 
 | Metric | Target |
 |--------|--------|
-| Body lines | 22-55 |
+| Body lines | 20-80 |
 | Required sections | 5 (Current Task, In Progress, Active Files, Next Action, Verification Snapshot) |
 | Warning: under | 20 lines (likely missing sections) |
 | Warning: over | 80 lines (drifting toward handoff) |
