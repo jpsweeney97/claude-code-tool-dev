@@ -567,6 +567,19 @@ class TestValidateSections:
             "Decisions, Changes, Learnings" in i.message for i in issues
         )
 
+    def test_hollow_guardrail_skipped_when_sections_absent(self) -> None:
+        """When content-required sections are entirely absent, only missing-sections fires."""
+        sections = [
+            {"heading": s, "content": "text"}
+            for s in REQUIRED_HANDOFF_SECTIONS
+            if s not in CONTENT_REQUIRED_SECTIONS
+        ]
+        issues = validate_sections(sections, "handoff")
+        # Missing-sections error should fire
+        assert any("Missing required sections" in i.message for i in issues)
+        # Hollow-handoff guardrail should NOT fire (sections absent, not empty)
+        assert not any("Hollow handoff" in i.message for i in issues)
+
 
 # --- Line count validation ---
 
@@ -612,6 +625,32 @@ class TestValidateLineCount:
         assert validate_line_count(at_max, "checkpoint") == []
 
 
+# --- Body line counting ---
+
+
+class TestCountBodyLines:
+    """Tests for count_body_lines — frontmatter-aware line counting."""
+
+    def test_with_frontmatter(self) -> None:
+        content = "---\ntype: handoff\ndate: 2026-01-01\n---\nLine 1\nLine 2\nLine 3"
+        assert count_body_lines(content) == 3
+
+    def test_without_frontmatter(self) -> None:
+        content = "Line 1\nLine 2\nLine 3"
+        assert count_body_lines(content) == 3
+
+    def test_trailing_newline(self) -> None:
+        """Trailing newline should not inflate the count."""
+        with_newline = "---\ntype: handoff\n---\nLine 1\nLine 2\n"
+        without_newline = "---\ntype: handoff\n---\nLine 1\nLine 2"
+        assert count_body_lines(with_newline) == count_body_lines(without_newline)
+
+    def test_unclosed_frontmatter(self) -> None:
+        """Unclosed frontmatter means all lines are body."""
+        content = "---\ntype: handoff\nLine 1\nLine 2"
+        assert count_body_lines(content) == 4
+
+
 # --- Top-level validate ---
 
 
@@ -646,14 +685,15 @@ class TestValidate:
         assert any("type" in i.message for i in issues)
 
     def test_invalid_type_errors(self) -> None:
-        """type: foo should produce an error, not silently validate."""
+        """type: foo should produce an error and stop — no section/line-count errors."""
         content = _make_content(
             frontmatter=_make_frontmatter(overrides={"type": "foo"}),
         )
         issues = validate(content)
-        assert any(
-            i.severity == "error" and "foo" in i.message for i in issues
-        )
+        assert len(issues) == 1, f"Expected exactly 1 issue (type error), got {len(issues)}: {issues}"
+        assert issues[0].severity == "error"
+        assert "foo" in issues[0].message
+        assert all(t in issues[0].message for t in sorted(VALID_TYPES))
 
     def test_accumulates_multiple_issues(self) -> None:
         content = _make_content(
@@ -769,15 +809,16 @@ class TestMain:
         assert output == ""
 
     def test_invalid_handoff_outputs_context(self) -> None:
-        """Invalid handoff produces additionalContext JSON."""
+        """Invalid handoff produces additionalContext JSON with correct contract."""
         content = "---\ntype: handoff\n---\n## Goal\nShort."
         result, output = _run_main(
             _make_hook_input(HANDOFF_PATH, content)
         )
         assert result == 0
         parsed = json.loads(output)
-        ctx = parsed["hookSpecificOutput"]["additionalContext"]
-        assert "error" in ctx.lower()
+        hook_output = parsed["hookSpecificOutput"]
+        assert hook_output["hookEventName"] == "PostToolUse"
+        assert "error" in hook_output["additionalContext"].lower()
 
     def test_malformed_json_silent(self) -> None:
         """Malformed stdin JSON produces no output, exit 0."""
