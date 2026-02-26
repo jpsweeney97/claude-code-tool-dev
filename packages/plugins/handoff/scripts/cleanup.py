@@ -58,6 +58,8 @@ def get_project_name() -> str:
         pass  # Git hanging (disk issue, corrupted repo). Fall back to cwd.
     except FileNotFoundError:
         pass  # Git binary not installed. Fall back to cwd.
+    except OSError:
+        pass  # PermissionError or other OS-level issue. Fall back to cwd.
     return Path.cwd().name
 
 

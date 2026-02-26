@@ -6,8 +6,6 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from scripts.cleanup import (
     _trash,
     get_project_name,
@@ -37,6 +35,14 @@ class TestGetProjectName:
         with patch(
             "scripts.cleanup.subprocess.run",
             side_effect=subprocess.TimeoutExpired("git", 5),
+        ):
+            assert get_project_name() == Path.cwd().name
+
+    def test_git_oserror_falls_back(self) -> None:
+        """I2: PermissionError on git binary must not escape to main()."""
+        with patch(
+            "scripts.cleanup.subprocess.run",
+            side_effect=PermissionError("not executable"),
         ):
             assert get_project_name() == Path.cwd().name
 
