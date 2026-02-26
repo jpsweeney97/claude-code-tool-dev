@@ -7,7 +7,10 @@ and outputs structured JSON results.
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -124,6 +127,31 @@ def parse_handoff(path: Path) -> HandoffFile:
     return HandoffFile(path=str(path), frontmatter=frontmatter, sections=sections)
 
 
+def get_project_name() -> str:
+    """Get project name from git root directory, falling back to current directory name."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return Path(result.stdout.strip()).name
+    except subprocess.TimeoutExpired:
+        pass
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+    return Path.cwd().name
+
+
+def get_handoffs_dir() -> Path:
+    """Get handoffs directory: ~/.claude/handoffs/<project>/"""
+    return Path.home() / ".claude" / "handoffs" / get_project_name()
+
+
 def search_handoffs(
     handoffs_dir: Path,
     query: str,
@@ -183,3 +211,42 @@ def search_handoffs(
     # Sort by date descending
     results.sort(key=lambda r: r["date"], reverse=True)
     return results
+
+
+def main(argv: list[str] | None = None) -> str:
+    """CLI entry point. Returns JSON string.
+
+    Args:
+        argv: Command-line arguments (defaults to sys.argv[1:] if None).
+
+    Returns:
+        JSON string with search results.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Search handoff history")
+    parser.add_argument("query", help="Search query (text or regex)")
+    parser.add_argument("--regex", action="store_true", help="Treat query as regex")
+    args = parser.parse_args(argv)
+
+    # Validate regex before searching
+    if args.regex:
+        try:
+            re.compile(args.query)
+        except re.error as e:
+            return json.dumps({"query": args.query, "total_matches": 0, "results": [], "error": f"Invalid regex: {e}"})
+
+    handoffs_dir = get_handoffs_dir()
+    results = search_handoffs(handoffs_dir, args.query, regex=args.regex)
+
+    return json.dumps({
+        "query": args.query,
+        "total_matches": len(results),
+        "results": results,
+        "error": None,
+    })
+
+
+if __name__ == "__main__":
+    print(main())
+    sys.exit(0)

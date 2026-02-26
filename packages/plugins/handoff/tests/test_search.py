@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.search import HandoffFile, Section, parse_handoff, search_handoffs
+from scripts.search import main as search_main, parse_handoff, search_handoffs
 
 
 class TestParseHandoff:
@@ -224,3 +224,84 @@ class TestSearchHandoffs:
     def test_missing_directory_returns_empty(self, tmp_path: Path) -> None:
         results = search_handoffs(tmp_path / "nonexistent", "anything")
         assert results == []
+
+
+class TestSearchCLI:
+    """Integration tests for the CLI entry point."""
+
+    def test_end_to_end_json_output(self, tmp_path: Path) -> None:
+        """Full pipeline: create handoffs, run search, verify JSON."""
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+        _make_handoff(
+            handoffs_dir, "Session One", "2026-02-20",
+            "## Decisions\n\n### Chose Python\n\nPython over Rust for speed of dev.\n"
+        )
+        archive = handoffs_dir / ".archive"
+        archive.mkdir()
+        _make_handoff(
+            archive, "Old Session", "2026-01-15",
+            "## Learnings\n\nPython parsing is fast enough.\n"
+        )
+
+        with patch("scripts.search.get_handoffs_dir", return_value=handoffs_dir):
+            output = search_main(["Python"])
+
+        result = json.loads(output)
+        assert result["query"] == "Python"
+        assert result["total_matches"] == 2
+        assert result["results"][0]["date"] == "2026-02-20"
+        assert result["results"][1]["archived"] is True
+        assert result["error"] is None
+
+    def test_no_results(self, tmp_path: Path) -> None:
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+
+        with patch("scripts.search.get_handoffs_dir", return_value=handoffs_dir):
+            output = search_main(["nonexistent_query"])
+
+        result = json.loads(output)
+        assert result["total_matches"] == 0
+        assert result["results"] == []
+
+    def test_invalid_regex_returns_error(self, tmp_path: Path) -> None:
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+
+        with patch("scripts.search.get_handoffs_dir", return_value=handoffs_dir):
+            output = search_main(["[invalid", "--regex"])
+
+        result = json.loads(output)
+        assert result["error"] is not None
+        assert "Invalid regex" in result["error"]
+
+    def test_regex_flag(self, tmp_path: Path) -> None:
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+        _make_handoff(
+            handoffs_dir, "Test", "2026-02-25",
+            "## Decisions\n\nChose option-A over option-B.\n"
+        )
+
+        with patch("scripts.search.get_handoffs_dir", return_value=handoffs_dir):
+            output = search_main([r"option-[AB]", "--regex"])
+
+        result = json.loads(output)
+        assert result["total_matches"] == 1
+
+    def test_direct_execution_via_subprocess(self) -> None:
+        """A9: Verify __main__ path works under direct script execution."""
+        import subprocess
+
+        script = Path(__file__).parent.parent / "scripts" / "search.py"
+        result = subprocess.run(
+            ["python3", str(script), "nonexistent_query_xyz"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert "total_matches" in output
+        assert output["error"] is None
