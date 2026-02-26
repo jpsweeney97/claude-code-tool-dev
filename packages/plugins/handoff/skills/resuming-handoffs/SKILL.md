@@ -4,6 +4,7 @@ description: Used when continuing from a previous session; when user runs `/resu
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
+**Read [handoff-contract.md](../../references/handoff-contract.md) for:** frontmatter schema, chain protocol, storage conventions.
 
 # Resuming Handoffs
 
@@ -114,9 +115,10 @@ When user runs `/resume [path]`:
 4. **Read handoff content**
 
 5. **Display and summarize:**
-   - Show full handoff content
-   - Summarize key points: goal, decisions, next steps
-   - Offer: "Continue with [first next step]?"
+   - Show full handoff/checkpoint content
+   - Note the type: "Resuming from **checkpoint**: ..." or "Resuming from **handoff**: ..."
+   - Summarize key points: goal/current task, decisions, next steps/next action
+   - Offer: "Continue with [first next step/action]?"
 
 6. **Archive the handoff:**
    - Create `~/.claude/handoffs/<project>/.archive/` if needed
@@ -132,7 +134,8 @@ When user runs `/list-handoffs`:
 
 1. Use Glob with `pattern="*.md"` and `path` set to the absolute path `$HOME/.claude/handoffs/<project>/` (excludes `.archive/` subdirectory; expand `$HOME`)
 2. Read frontmatter from each file
-3. Format as table: date, title, branch
+3. Format as table: date, title, type, branch
+   - `type` comes from frontmatter `type` field. If missing, display as `handoff` (backwards compatibility).
 
 ## Storage
 
@@ -141,6 +144,8 @@ See [format-reference.md](../../references/format-reference.md) for:
 - Filename format (`YYYY-MM-DD_HH-MM_<slug>.md`)
 - Archive location (`~/.claude/handoffs/<project>/.archive/`)
 - Retention policies (30 days active, 90 days archive)
+
+See also [handoff-contract.md](../../references/handoff-contract.md) for storage conventions, retention policies, and filename format.
 
 ## Background Cleanup (SessionStart Hook)
 
@@ -159,6 +164,7 @@ After resuming, verify:
 - [ ] Handoff content displayed to user
 - [ ] Original file moved to `.archive/`
 - [ ] State file exists at `~/.claude/.session-state/handoff-<session_id>`
+- [ ] Type displayed on resume ("Resuming from **checkpoint**:" or "Resuming from **handoff**:")
 - [ ] User offered continuation prompt
 
 **Quick check:** `ls ~/.claude/handoffs/<project>/.archive/` shows the archived file.
