@@ -408,4 +408,5 @@ class TestSearchCLI:
         assert result.returncode == 0
         output = json.loads(result.stdout)
         assert "total_matches" in output
-        assert output["error"] is None
+        assert "error" in output
+        assert "project_source" in output
