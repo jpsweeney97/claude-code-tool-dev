@@ -4,11 +4,13 @@
 
 **Goal:** Add `/handoff:search <query>` — section-aware search across handoff history with structured JSON results.
 
-**Architecture:** Python search script parses handoff markdown into section trees, searches within sections, outputs JSON. Skill wrapper invokes script and formats results. Shared `lib/project.py` module extracted from `cleanup.py` provides `get_project_name()` and `get_handoffs_dir()`.
+**Architecture:** Python search script parses handoff markdown into section trees, searches within sections, outputs JSON. Skill wrapper invokes script and formats results. Project utility functions (`get_project_name`, `get_handoffs_dir`) are inlined in `search.py` (duplicated from `cleanup.py`). No shared modules — avoids `sys.path` issues with direct script execution.
 
 **Tech Stack:** Python 3.11+, pytest, dataclasses, re, json, argparse
 
 **Design doc:** `docs/plans/2026-02-26-handoff-search-design.md`
+
+**Amendments:** This plan was revised after an adversarial Codex review (5 turns, 9 findings). Key changes: dropped `lib/` extraction (P1a: breaks hook execution), added code-fence tracking (P2a), fixed mock patch targets (P0), added `UnicodeDecodeError` handling (P1b).
 
 ---
 
@@ -24,126 +26,14 @@ Before starting, verify:
 ## Dependency Graph
 
 ```
-Task 1 (extract lib/) ──► Task 2 (parser) ──► Task 3 (search logic) ──► Task 4 (CLI) ──► Task 5 (skill) ──► Task 6 (version bump)
+Task 1 (parser) ──► Task 2 (search logic) ──► Task 3 (CLI) ──► Task 4 (skill) ──► Task 5 (version bump)
 ```
 
-All tasks are sequential. Task 1 modifies existing files; all later tasks build on it.
+All tasks are sequential. `scripts/cleanup.py` and `tests/test_cleanup.py` are NOT modified.
 
 ---
 
-### Task 1: Extract Shared Module (`lib/project.py`)
-
-**Files:**
-- Create: `lib/__init__.py`
-- Create: `lib/project.py`
-- Modify: `scripts/cleanup.py`
-- Modify: `tests/test_cleanup.py`
-
-**Step 1: Create `lib/__init__.py`**
-
-```bash
-mkdir -p packages/plugins/handoff/lib
-touch packages/plugins/handoff/lib/__init__.py
-```
-
-Empty file. Just makes `lib` an importable package.
-
-**Step 2: Create `lib/project.py`**
-
-Move `get_project_name()` and `get_handoffs_dir()` from `cleanup.py`:
-
-```python
-"""Shared project utilities for the handoff plugin."""
-
-import subprocess
-from pathlib import Path
-
-
-def get_project_name() -> str:
-    """Get project name from git root directory, falling back to current directory name.
-
-    Fallback is intentional for non-git directories. For corrupted repos or
-    missing git binary, the fallback may resolve to the wrong project name —
-    accepted because cleanup targets are scoped to individual files with
-    age-based pruning (misidentification doesn't delete wrong-age files).
-    """
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            return Path(result.stdout.strip()).name
-        # Non-zero return: not a git repo, or git error. Fall back to cwd.
-    except subprocess.TimeoutExpired:
-        pass  # Git hanging (disk issue, corrupted repo). Fall back to cwd.
-    except FileNotFoundError:
-        pass  # Git binary not installed. Fall back to cwd.
-    except OSError:
-        pass  # PermissionError or other OS-level issue. Fall back to cwd.
-    return Path.cwd().name
-
-
-def get_handoffs_dir() -> Path:
-    """Get handoffs directory: ~/.claude/handoffs/<project>/"""
-    return Path.home() / ".claude" / "handoffs" / get_project_name()
-```
-
-**Step 3: Update `scripts/cleanup.py`**
-
-Replace the local `get_project_name()` and `get_handoffs_dir()` definitions with imports:
-
-Remove: Lines 39-68 (both function definitions)
-Add at top (after existing imports):
-
-```python
-from lib.project import get_handoffs_dir, get_project_name  # noqa: F401
-```
-
-Keep `get_project_name` imported even though `cleanup.py` doesn't call it directly — it's used via `get_handoffs_dir()`. The `noqa: F401` is for `get_project_name` which isn't referenced directly in cleanup.py but was previously defined here.
-
-Wait — actually `cleanup.py` doesn't call `get_project_name` directly. It only calls `get_handoffs_dir()`. So the import should just be:
-
-```python
-from lib.project import get_handoffs_dir
-```
-
-**Step 4: Update `tests/test_cleanup.py`**
-
-Update all mock paths from `scripts.cleanup.*` to `lib.project.*` for the moved functions:
-
-1. `TestGetProjectName`: All `patch("scripts.cleanup.subprocess.run", ...)` → `patch("lib.project.subprocess.run", ...)`
-2. `TestGetProjectName`: All `patch("scripts.cleanup.subprocess.run", ...)` → `patch("lib.project.subprocess.run", ...)`
-3. `TestGetHandoffsDir.test_composes_path_from_project_name`: `patch("scripts.cleanup.get_project_name", ...)` → `patch("lib.project.get_project_name", ...)`
-
-Also update imports — remove `get_project_name` and `get_handoffs_dir` from the `scripts.cleanup` import block and add:
-
-```python
-from lib.project import get_handoffs_dir, get_project_name
-```
-
-Keep importing `_trash`, `main`, `prune_old_handoffs`, `prune_old_state_files` from `scripts.cleanup`.
-
-**Step 5: Run tests to verify extraction didn't break anything**
-
-```bash
-cd packages/plugins/handoff && uv run pytest -v
-```
-
-Expected: 26 tests pass. Zero failures. The extraction is a pure refactor.
-
-**Step 6: Commit**
-
-```bash
-git add packages/plugins/handoff/lib/ packages/plugins/handoff/scripts/cleanup.py packages/plugins/handoff/tests/test_cleanup.py
-git commit -m "refactor(handoff): extract get_project_name, get_handoffs_dir to lib/project.py"
-```
-
----
-
-### Task 2: Markdown Parser with Tests
+### Task 1: Markdown Parser with Tests
 
 **Files:**
 - Create: `scripts/search.py` (parser portion only — no CLI yet)
@@ -255,6 +145,29 @@ class TestParseHandoff:
         handoff.write_text("---\ntitle: Test\n---\n")
         result = parse_handoff(handoff)
         assert result.path == str(handoff)
+
+    def test_headings_inside_code_fences_ignored(self, tmp_path: Path) -> None:
+        """A3: ## lines inside fenced code blocks must not create sections."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\n---\n"
+            "\n"
+            "## Real Section\n"
+            "\n"
+            "Some content.\n"
+            "\n"
+            "```markdown\n"
+            "## Fake Section Inside Fence\n"
+            "\n"
+            "This should not be a section.\n"
+            "```\n"
+            "\n"
+            "More content in real section.\n"
+        )
+        result = parse_handoff(handoff)
+        assert len(result.sections) == 1
+        assert result.sections[0].heading == "## Real Section"
+        assert "Fake Section Inside Fence" in result.sections[0].content
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -302,6 +215,10 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 
     Returns (frontmatter_dict, remaining_text). Handles simple key: value
     pairs and quoted strings. Does not depend on PyYAML.
+
+    Multiline YAML values (e.g., files: lists) are silently skipped —
+    only single-line key: value pairs are extracted. This is sufficient
+    for search (which uses title, date, type).
     """
     if not text.startswith("---"):
         return {}, text
@@ -338,15 +255,21 @@ def parse_sections(text: str) -> list[Section]:
 
     Each section includes everything from its ## heading until the next
     ## heading or EOF. ### subsections are included within their parent.
+    Code-fenced regions are tracked to avoid treating ## lines inside
+    fences as section boundaries.
     """
     sections: list[Section] = []
     lines = text.splitlines(keepends=True)
     current_heading = ""
     current_lines: list[str] = []
     current_start = 0
+    inside_fence = False
 
     for i, line in enumerate(lines):
-        if line.startswith("## ") and not line.startswith("### "):
+        stripped = line.rstrip()
+        if stripped.startswith("```"):
+            inside_fence = not inside_fence
+        if not inside_fence and line.startswith("## "):
             # Save previous section if any
             if current_heading:
                 content = "".join(current_lines).strip()
@@ -389,7 +312,7 @@ def parse_handoff(path: Path) -> HandoffFile:
 cd packages/plugins/handoff && uv run pytest tests/test_search.py -v
 ```
 
-Expected: 5 tests pass.
+Expected: 6 tests pass.
 
 **Step 5: Commit**
 
@@ -400,7 +323,7 @@ git commit -m "feat(handoff): add markdown parser for handoff files"
 
 ---
 
-### Task 3: Search Logic with Tests
+### Task 2: Search Logic with Tests
 
 **Files:**
 - Modify: `scripts/search.py` (add `search_handoffs` function)
@@ -566,8 +489,8 @@ def search_handoffs(
     for path, archived in md_files:
         try:
             handoff = parse_handoff(path)
-        except OSError:
-            continue  # Skip unreadable files
+        except (OSError, UnicodeDecodeError):
+            continue  # Skip unreadable or malformed files
 
         for section in handoff.sections:
             search_text = f"{section.heading}\n{section.content}"
@@ -601,7 +524,7 @@ Expected: 9 tests pass.
 cd packages/plugins/handoff && uv run pytest tests/test_search.py -v
 ```
 
-Expected: 14 tests pass (5 parser + 9 search).
+Expected: 15 tests pass (6 parser + 9 search).
 
 **Step 6: Commit**
 
@@ -612,10 +535,10 @@ git commit -m "feat(handoff): add section-aware search across handoff files"
 
 ---
 
-### Task 4: CLI Entry Point with Integration Test
+### Task 3: CLI Entry Point with Integration Test
 
 **Files:**
-- Modify: `scripts/search.py` (add `main()` and argparse)
+- Modify: `scripts/search.py` (add `get_project_name`, `get_handoffs_dir`, `main()`, argparse)
 - Modify: `tests/test_search.py` (add CLI/integration test)
 
 **Step 1: Write integration test**
@@ -644,7 +567,7 @@ class TestSearchCLI:
             "## Learnings\n\nPython parsing is fast enough.\n"
         )
 
-        with patch("lib.project.get_handoffs_dir", return_value=handoffs_dir):
+        with patch("scripts.search.get_handoffs_dir", return_value=handoffs_dir):
             output = search_main(["Python"])
 
         result = json.loads(output)
@@ -658,7 +581,7 @@ class TestSearchCLI:
         handoffs_dir = tmp_path / "handoffs"
         handoffs_dir.mkdir()
 
-        with patch("lib.project.get_handoffs_dir", return_value=handoffs_dir):
+        with patch("scripts.search.get_handoffs_dir", return_value=handoffs_dir):
             output = search_main(["nonexistent_query"])
 
         result = json.loads(output)
@@ -669,7 +592,7 @@ class TestSearchCLI:
         handoffs_dir = tmp_path / "handoffs"
         handoffs_dir.mkdir()
 
-        with patch("lib.project.get_handoffs_dir", return_value=handoffs_dir):
+        with patch("scripts.search.get_handoffs_dir", return_value=handoffs_dir):
             output = search_main(["[invalid", "--regex"])
 
         result = json.loads(output)
@@ -684,12 +607,14 @@ class TestSearchCLI:
             "## Decisions\n\nChose option-A over option-B.\n"
         )
 
-        with patch("lib.project.get_handoffs_dir", return_value=handoffs_dir):
+        with patch("scripts.search.get_handoffs_dir", return_value=handoffs_dir):
             output = search_main([r"option-[AB]", "--regex"])
 
         result = json.loads(output)
         assert result["total_matches"] == 1
 ```
+
+**Note:** Mock target is `scripts.search.get_handoffs_dir` (the lookup site), NOT `lib.project.get_handoffs_dir`. Python's `from` import creates a new binding in the importing module's namespace — patching the original doesn't affect the already-bound name.
 
 **Step 2: Run to verify failure**
 
@@ -699,15 +624,39 @@ cd packages/plugins/handoff && uv run pytest tests/test_search.py::TestSearchCLI
 
 Expected: FAIL — `main` not defined in `scripts.search`.
 
-**Step 3: Implement CLI in `scripts/search.py`**
+**Step 3: Add project utilities and CLI to `scripts/search.py`**
 
-Add to the end of `scripts/search.py`:
+Add to `scripts/search.py` (before `main`), inlined from `cleanup.py`:
 
 ```python
 import json
+import subprocess
 import sys
 
-from lib.project import get_handoffs_dir
+
+def get_project_name() -> str:
+    """Get project name from git root directory, falling back to current directory name."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return Path(result.stdout.strip()).name
+    except subprocess.TimeoutExpired:
+        pass
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+    return Path.cwd().name
+
+
+def get_handoffs_dir() -> Path:
+    """Get handoffs directory: ~/.claude/handoffs/<project>/"""
+    return Path.home() / ".claude" / "handoffs" / get_project_name()
 
 
 def main(argv: list[str] | None = None) -> str:
@@ -763,7 +712,7 @@ Expected: 4 tests pass.
 cd packages/plugins/handoff && uv run pytest -v
 ```
 
-Expected: 44 tests pass (26 cleanup + 18 search).
+Expected: 45 tests pass (26 cleanup + 19 search: 6 parser + 9 search + 4 CLI).
 
 **Step 6: Lint**
 
@@ -782,7 +731,7 @@ git commit -m "feat(handoff): add CLI entry point for search script"
 
 ---
 
-### Task 5: Skill (`skills/searching-handoffs/SKILL.md`)
+### Task 4: Skill (`skills/searching-handoffs/SKILL.md`)
 
 **Files:**
 - Create: `skills/searching-handoffs/SKILL.md`
@@ -813,19 +762,14 @@ When user runs `/handoff:search <query>`:
 1. **Run the search script:**
 
    ```bash
-   cd <plugin-root>/../../.. && uv run packages/plugins/handoff/scripts/search.py "<query>"
+   cd ${CLAUDE_PLUGIN_ROOT} && uv run scripts/search.py "<query>"
    ```
 
    If user passed `--regex`, append `--regex` to the command.
 
-   The script path must be run from the handoff package root. Use:
+   If `${CLAUDE_PLUGIN_ROOT}` is not set (e.g., running from the development repo), use:
    ```bash
    cd $(git rev-parse --show-toplevel)/packages/plugins/handoff && uv run scripts/search.py "<query>"
-   ```
-
-   If the package is not available locally (plugin installed from marketplace), use the cache path:
-   ```bash
-   cd ${CLAUDE_PLUGIN_ROOT} && uv run scripts/search.py "<query>"
    ```
 
 2. **Parse JSON output** from stdout.
@@ -877,7 +821,7 @@ git commit -m "feat(handoff): add searching-handoffs skill"
 
 ---
 
-### Task 6: Version Bump and Final Verification
+### Task 5: Version Bump and Final Verification
 
 **Files:**
 - Modify: `.claude-plugin/plugin.json`
@@ -892,12 +836,12 @@ Change `"version": "1.1.1"` to `"version": "1.2.0"` in `.claude-plugin/plugin.js
 cd packages/plugins/handoff && uv run pytest -v
 ```
 
-Expected: 44 tests pass (26 cleanup + 18 search).
+Expected: 45 tests pass (26 cleanup + 19 search).
 
 **Step 3: Lint all modified files**
 
 ```bash
-cd packages/plugins/handoff && uv run ruff check scripts/ tests/ lib/
+cd packages/plugins/handoff && uv run ruff check scripts/ tests/
 ```
 
 Expected: Clean.
@@ -908,7 +852,7 @@ Expected: Clean.
 cd packages/plugins/handoff && uv run scripts/search.py "merge" | python3 -m json.tool
 ```
 
-Expected: JSON output with results from real handoff files (if handoffs exist for the current project).
+Expected: JSON output with results from real handoff files.
 
 **Step 5: Commit**
 
@@ -923,11 +867,26 @@ git commit -m "chore(handoff): bump version to 1.2.0 for search enhancement"
 
 After all tasks complete:
 
-- [ ] `uv run pytest -v` — 44 tests pass (26 cleanup + 18 search)
-- [ ] `uv run ruff check scripts/ tests/ lib/` — clean
+- [ ] `uv run pytest -v` — 45 tests pass (26 cleanup + 19 search)
+- [ ] `uv run ruff check scripts/ tests/` — clean
 - [ ] `uv run scripts/search.py "merge"` — returns valid JSON
 - [ ] `uv run scripts/search.py "[invalid" --regex` — returns error JSON
+- [ ] `python3 scripts/search.py "merge"` — works under direct execution (no import errors)
+- [ ] `python3 scripts/cleanup.py` — still works (untouched)
 - [ ] Skill file exists at `skills/searching-handoffs/SKILL.md`
-- [ ] `lib/project.py` contains `get_project_name` and `get_handoffs_dir`
-- [ ] `scripts/cleanup.py` imports from `lib.project` (no local definitions)
+- [ ] `scripts/cleanup.py` is NOT modified (no import changes)
 - [ ] `plugin.json` version is `1.2.0`
+
+---
+
+## Codex Review Amendments
+
+This plan incorporates 5 amendments from an adversarial Codex dialogue (5/10 turns, 9 resolved findings):
+
+| ID | Severity | Finding | Amendment |
+|----|----------|---------|-----------|
+| A1 | P1a (Critical) | `lib/` extraction breaks cleanup hook — direct script execution sets `sys.path[0]` to `scripts/`, not package root. `cleanup.main()` swallows the `ModuleNotFoundError` silently. | Dropped `lib/` extraction entirely. Inlined `get_project_name`/`get_handoffs_dir` in `search.py`. |
+| A2 | P0 (Bug) | CLI tests patch `lib.project.get_handoffs_dir` but Python `from` imports create a separate binding — mock doesn't reach `main()`. | Changed mock target to `scripts.search.get_handoffs_dir`. |
+| A3 | P2a | `parse_sections` splits on `## ` with no code-fence tracking — creates ghost sections from code blocks. | Added `inside_fence` toggle in `parse_sections`. Added fence test. Removed redundant `### ` guard. |
+| A4 | P1b | `UnicodeDecodeError` is a `ValueError`, not `OSError` — one malformed file crashes entire search. | Changed `except OSError` to `except (OSError, UnicodeDecodeError)`. |
+| A5 | Cleanup | `not line.startswith("### ")` guard is dead code — `"### "` never starts with `"## "`. | Removed (folded into A3). |
