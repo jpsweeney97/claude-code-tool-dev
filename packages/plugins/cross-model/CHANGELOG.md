@@ -21,8 +21,8 @@
 Uninstall old plugin and install new:
 ```bash
 claude plugin uninstall codex@cross-model
-claude plugin marketplace update cross-model
-claude plugin install cross-model@cross-model
+claude plugin marketplace update turbo-mode
+claude plugin install cross-model@turbo-mode
 ```
 
 ## [0.1.0] — 2026-02-18 (originally released as the `codex` plugin)

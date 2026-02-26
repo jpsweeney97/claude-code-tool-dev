@@ -360,14 +360,14 @@ Use `strict: false` when the marketplace entry should fully define the plugin wi
 
 ### Local Development Marketplace
 
-This repo uses `.claude-plugin/marketplace.json` as the `cross-model` marketplace:
+This repo uses `.claude-plugin/marketplace.json` as the `turbo-mode` marketplace:
 
 ```bash
 # Refresh after plugin changes
-claude plugin marketplace update cross-model
+claude plugin marketplace update turbo-mode
 
 # Install/reinstall
-claude plugin install <plugin>@cross-model
+claude plugin install <plugin>@turbo-mode
 ```
 
 ### Remote Marketplaces
@@ -425,7 +425,7 @@ claude plugin validate ./packages/plugins/my-plugin
 claude --plugin-dir ./packages/plugins/my-plugin
 
 # Or install from local marketplace
-claude plugin install my-plugin@cross-model
+claude plugin install my-plugin@turbo-mode
 ```
 
 ### Debug Output
@@ -471,10 +471,10 @@ Before publishing a plugin, verify:
 # 1. Edit plugin in packages/plugins/<name>/
 # 2. Update version in .claude-plugin/plugin.json
 # 3. Refresh marketplace
-claude plugin marketplace update cross-model
+claude plugin marketplace update turbo-mode
 
 # 4. Reinstall
-claude plugin install <name>@cross-model
+claude plugin install <name>@turbo-mode
 
 # 5. Restart Claude Code (required for skills, MCP server changes)
 ```

@@ -116,11 +116,11 @@ uv run scripts/promote <type> <name>   # Validate and deploy to ~/.claude/
 
 ### Plugin Development
 
-Plugins use the `cross-model` marketplace instead of the promote script:
+Plugins use the `turbo-mode` marketplace instead of the promote script:
 
 ```bash
-claude plugin marketplace update cross-model
-claude plugin install cross-model@cross-model
+claude plugin marketplace update turbo-mode
+claude plugin install cross-model@turbo-mode
 ```
 
 ## Rules

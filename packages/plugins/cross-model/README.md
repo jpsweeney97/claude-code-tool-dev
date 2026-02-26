@@ -24,7 +24,7 @@ Cross-model consultation via OpenAI Codex, with context injection for mid-conver
 ## Installation
 
 ```bash
-claude plugin install cross-model@cross-model
+claude plugin install cross-model@turbo-mode
 ```
 
 Restart Claude Code after installing.
