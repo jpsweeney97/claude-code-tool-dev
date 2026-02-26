@@ -55,7 +55,12 @@ def prune_old_handoffs(handoffs_dir: Path, max_age_days: int = 30) -> list[Path]
     for handoff in handoffs_dir.glob("*.md"):
         try:
             if handoff.stat().st_mtime < cutoff:
-                handoff.unlink(missing_ok=True)
+                try:
+                    subprocess.run(["trash", str(handoff)], capture_output=True, timeout=5, check=True)
+                except FileNotFoundError:
+                    pass  # trash binary not installed — skip deletion, don't fall back to unlink
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    pass  # trash failed or timed out — skip, don't block session start
                 deleted.append(handoff)
         except OSError:
             pass  # Silently ignore errors during cleanup
@@ -75,7 +80,12 @@ def prune_old_state_files(max_age_hours: int = 24) -> list[Path]:
     for state_file in state_dir.glob("handoff-*"):
         try:
             if state_file.stat().st_mtime < cutoff:
-                state_file.unlink(missing_ok=True)
+                try:
+                    subprocess.run(["trash", str(state_file)], capture_output=True, timeout=5, check=True)
+                except FileNotFoundError:
+                    pass  # trash binary not installed — skip deletion
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    pass  # trash failed or timed out — skip
                 deleted.append(state_file)
         except OSError:
             pass  # Silently ignore errors during cleanup
