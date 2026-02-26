@@ -136,8 +136,10 @@ def parse_sections(content: str) -> list[dict[str, str]]:
     inside_fence: bool = False
 
     for line in lines[body_start:]:
-        # Track code fences to avoid false headings inside code blocks
-        if line.startswith("```"):
+        # Track code fences (CommonMark allows 0-3 spaces of indentation)
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        if indent <= 3 and stripped.startswith("```"):
             inside_fence = not inside_fence
 
         if (
@@ -179,6 +181,15 @@ def validate_frontmatter(frontmatter: dict[str, str], doc_type: str) -> list[Iss
     if missing:
         issues.append(Issue(
             "error", f"Missing required frontmatter: {', '.join(missing)}"
+        ))
+
+    blank = [
+        f for f in REQUIRED_FRONTMATTER_FIELDS
+        if f in frontmatter and not frontmatter[f].strip()
+    ]
+    if blank:
+        issues.append(Issue(
+            "error", f"Blank required frontmatter: {', '.join(blank)}"
         ))
 
     # Type allowlist is checked in validate(), not here.

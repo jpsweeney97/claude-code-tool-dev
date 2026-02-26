@@ -187,6 +187,33 @@ class TestValidateFrontmatter:
         )
         assert validate_frontmatter(fm, "checkpoint") == []
 
+    def test_blank_value_rejected(self) -> None:
+        """Key present but value is empty string."""
+        fm = _make_frontmatter(overrides={"title": ""})
+        issues = validate_frontmatter(fm, "handoff")
+        assert any(
+            i.severity == "error" and "title" in i.message and "Blank" in i.message
+            for i in issues
+        )
+
+    def test_whitespace_only_value_rejected(self) -> None:
+        """Key present but value is whitespace-only."""
+        fm = _make_frontmatter(overrides={"session_id": "   "})
+        issues = validate_frontmatter(fm, "handoff")
+        assert any(
+            i.severity == "error" and "session_id" in i.message
+            for i in issues
+        )
+
+    def test_multiple_blank_values_single_error(self) -> None:
+        """Multiple blank fields reported in one error."""
+        fm = _make_frontmatter(overrides={"title": "", "project": ""})
+        issues = validate_frontmatter(fm, "handoff")
+        blank_issues = [i for i in issues if "Blank" in i.message]
+        assert len(blank_issues) == 1
+        assert "title" in blank_issues[0].message
+        assert "project" in blank_issues[0].message
+
 
 # --- Section parsing ---
 
@@ -242,6 +269,41 @@ class TestParseSections:
         assert sections[1]["heading"] == "Another Real Section"
         assert "Fake Section" not in [s["heading"] for s in sections]
         assert "inside a code fence" in sections[0]["content"]
+
+    def test_ignores_headings_inside_indented_code_fences(self) -> None:
+        """Indented fences (1-3 spaces) are valid per CommonMark."""
+        content = (
+            "---\ntype: handoff\n---\n"
+            "## Real Section\n"
+            "Some content\n"
+            "   ```\n"
+            "## Fake Inside Indented Fence\n"
+            "   ```\n"
+            "## Another Real Section\n"
+            "Final content"
+        )
+        sections = parse_sections(content)
+        assert len(sections) == 2
+        headings = [s["heading"] for s in sections]
+        assert "Fake Inside Indented Fence" not in headings
+        assert "Real Section" in headings
+        assert "Another Real Section" in headings
+
+    def test_four_space_indent_not_a_fence(self) -> None:
+        """4+ space indent is NOT a valid fence — headings inside should parse."""
+        content = (
+            "---\ntype: handoff\n---\n"
+            "## Real Section\n"
+            "Some content\n"
+            "    ```\n"
+            "## Should Be Parsed\n"
+            "    ```\n"
+            "## Another Real Section\n"
+            "Final content"
+        )
+        sections = parse_sections(content)
+        headings = [s["heading"] for s in sections]
+        assert "Should Be Parsed" in headings
 
 
 # --- Section validation ---
