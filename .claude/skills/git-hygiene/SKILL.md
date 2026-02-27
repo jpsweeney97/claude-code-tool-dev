@@ -1,5 +1,5 @@
 ---
-name: cleaning-git-repos
+name: git-hygiene
 description: Use when git status shows clutter (untracked files, mixed changes, stale branches), to organize uncommitted work into coherent commits, or when user says "clean up git", "git hygiene", or "tidy this repo".
 ---
 
