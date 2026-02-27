@@ -258,6 +258,43 @@ def check_exact_dup_content(content_hash: str, learnings_content: str) -> bool:
     )
 
 
+def determine_dedup_status(
+    source_uid: str,
+    content_hash: str,
+    learnings_content: str,
+) -> str:
+    """Determine dedup status by correlating source and content per record.
+
+    Checks each distill-meta entry as a whole record. Source identity match
+    takes precedence: if source_uid matches a record, that record's content
+    determines the status (EXACT_DUP_SOURCE vs UPDATED_SOURCE). Content-only
+    match (different source, same hash) yields EXACT_DUP_CONTENT.
+
+    Returns one of: EXACT_DUP_SOURCE, UPDATED_SOURCE, EXACT_DUP_CONTENT, NEW.
+    """
+    metas = _extract_distill_metas(learnings_content)
+
+    source_matched = False
+    content_matched = False
+
+    for meta in metas:
+        has_source = meta.get("source_uid") == source_uid
+        has_content = meta.get("content_sha256") == content_hash
+
+        if has_source and has_content:
+            return "EXACT_DUP_SOURCE"
+        if has_source:
+            source_matched = True
+        if has_content:
+            content_matched = True
+
+    if source_matched:
+        return "UPDATED_SOURCE"
+    if content_matched:
+        return "EXACT_DUP_CONTENT"
+    return "NEW"
+
+
 # Sections to extract candidates from
 _DISTILL_SECTIONS: tuple[str, ...] = ("Decisions", "Learnings", "Codebase Knowledge", "Gotchas")
 
@@ -354,17 +391,10 @@ def extract_candidates(
             source_uid = compute_source_uid(doc_id, name, sub.heading, heading_ix=ix)
             content_hash = compute_content_hash(sub.raw_markdown)
 
-            # Determine dedup status (4-state matrix)
-            source_match = check_exact_dup_source(source_uid, learnings_content)
-            content_match = check_exact_dup_content(content_hash, learnings_content)
-            if source_match and content_match:
-                dedup_status = "EXACT_DUP_SOURCE"
-            elif source_match and not content_match:
-                dedup_status = "UPDATED_SOURCE"
-            elif not source_match and content_match:
-                dedup_status = "EXACT_DUP_CONTENT"
-            else:
-                dedup_status = "NEW"
+            # Determine dedup status (4-state matrix, per-record correlated)
+            dedup_status = determine_dedup_status(
+                source_uid, content_hash, learnings_content
+            )
 
             candidate: dict = {
                 "source_section": name,

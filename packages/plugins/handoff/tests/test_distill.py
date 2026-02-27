@@ -8,6 +8,7 @@ import pytest
 from scripts.distill import (
     Subsection,
     classify_durability,
+    determine_dedup_status,
     extract_candidates,
     extract_signals,
     parse_subsections,
@@ -271,6 +272,61 @@ class TestExactDedup:
             '<!-- distill-meta {"v": 1, "source_uid": "sha256:abc123full"} -->\n'
         )
         assert check_exact_dup_source("sha256:abc123", learnings) is False
+
+
+class TestDetermineDedup:
+    """Tests for determine_dedup_status — per-record correlated dedup."""
+
+    def test_same_row_exact_dup(self) -> None:
+        learnings = '<!-- distill-meta {"v": 1, "source_uid": "sha256:src_A", "content_sha256": "sha256:content_A"} -->\n'
+        assert determine_dedup_status("sha256:src_A", "sha256:content_A", learnings) == "EXACT_DUP_SOURCE"
+
+    def test_source_match_content_differs_is_updated(self) -> None:
+        learnings = '<!-- distill-meta {"v": 1, "source_uid": "sha256:src_A", "content_sha256": "sha256:old"} -->\n'
+        assert determine_dedup_status("sha256:src_A", "sha256:new", learnings) == "UPDATED_SOURCE"
+
+    def test_content_only_match(self) -> None:
+        learnings = '<!-- distill-meta {"v": 1, "source_uid": "sha256:other", "content_sha256": "sha256:content_A"} -->\n'
+        assert determine_dedup_status("sha256:src_A", "sha256:content_A", learnings) == "EXACT_DUP_CONTENT"
+
+    def test_no_matches_is_new(self) -> None:
+        learnings = '<!-- distill-meta {"v": 1, "source_uid": "sha256:other", "content_sha256": "sha256:other"} -->\n'
+        assert determine_dedup_status("sha256:src_A", "sha256:content_A", learnings) == "NEW"
+
+    def test_empty_learnings_is_new(self) -> None:
+        assert determine_dedup_status("sha256:src", "sha256:content", "") == "NEW"
+
+    def test_cross_row_source_and_content_not_conflated(self) -> None:
+        """When source_uid matches entry A and content_sha256 matches entry B,
+        source identity takes precedence: UPDATED_SOURCE (not EXACT_DUP_SOURCE)."""
+        learnings = (
+            '<!-- distill-meta {"v": 1, "source_uid": "sha256:src_A", "content_sha256": "sha256:old_content"} -->\n'
+            '<!-- distill-meta {"v": 1, "source_uid": "sha256:src_B", "content_sha256": "sha256:new_content"} -->\n'
+        )
+        status = determine_dedup_status("sha256:src_A", "sha256:new_content", learnings)
+        assert status == "UPDATED_SOURCE"
+
+
+class TestCrossRowDedupIntegration:
+    """Integration test: cross-row misclassification prevented in extract_candidates."""
+
+    def test_cross_row_does_not_produce_false_exact_dup(self, tmp_path: Path) -> None:
+        """A candidate whose source matches entry A and content matches entry B
+        must be UPDATED_SOURCE, not EXACT_DUP_SOURCE."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: cross-row-1\n---\n\n"
+            "## Decisions\n\n### Chose Python\n\n**Choice:** Python for new reasons.\n\n"
+        )
+        uid = compute_source_uid("cross-row-1", "Decisions", "Chose Python", heading_ix=0)
+        candidate_hash = compute_content_hash("**Choice:** Python for new reasons.")
+        # Entry A: same source, old content. Entry B: different source, same content.
+        learnings = (
+            f'<!-- distill-meta {{"v": 1, "source_uid": "{uid}", "content_sha256": "sha256:old_content"}} -->\n'
+            f'<!-- distill-meta {{"v": 1, "source_uid": "sha256:unrelated", "content_sha256": "{candidate_hash}"}} -->\n'
+        )
+        result = extract_candidates(str(handoff), learnings)
+        assert result["candidates"][0]["dedup_status"] == "UPDATED_SOURCE"
 
 
 class TestExtractSignals:
