@@ -10,7 +10,7 @@
 
 **Source:** Codex dialogue (2026-02-27, 5 turns, collaborative, all 5 design questions resolved)
 
-**Review:** Adversarial Codex dialogue (2026-02-27, 5 turns, 11 amendments). Evaluative Codex dialogue (2026-02-27, 5 turns, 14 amendments + 3 from design dialogue). Final evaluative Codex dialogue (2026-02-27, 6 turns, 5 fixes: B1 session_id fixtures, test count 57→55, call site count, Path import clarification, C1 cross-row dedup documentation). Design: heading_ix with canonical JSON hashing (Task 5), session_id-only identity (Task 5), 4-state dedup with UPDATED_SOURCE (Tasks 5/7).
+**Review:** Adversarial Codex dialogue (2026-02-27, 5 turns, 11 amendments). Evaluative Codex dialogue (2026-02-27, 5 turns, 14 amendments + 3 from design dialogue). Final evaluative Codex dialogue (2026-02-27, 6 turns, 5 fixes: B1 session_id fixtures, test count 57→55, call site count, Path import clarification, C1 cross-row dedup documentation). Stress-test adversarial Codex dialogue (2026-02-27, 5/12 turns, early convergence, 22 amendments: 6A+11B+5C — A1 dict key fix, A2 sequential 4→5, A3 parse_handoff error handling, A4 --include-section CLI, A5 missing import, A6 tautology rewrite; B1 preamble merge, B2 UPDATED_SOURCE lookup, B3 dependency graph, B4 learnings warning, B5 test descriptions, +9 net-new tests, test count 55→64). Design: heading_ix with canonical JSON hashing (Task 5), session_id-only identity (Task 5), 4-state dedup with UPDATED_SOURCE (Tasks 5/7).
 
 ---
 
@@ -473,7 +473,7 @@ Add to the search test class in `tests/test_search.py`:
 
 ```python
     def test_backtick_fence_prevents_section_split(self, tmp_path: Path) -> None:
-        """Fence regression: backtick fences must not create sections (pre-migration baseline)."""
+        """Fence regression: backtick fences must not create false sections."""
         handoff = tmp_path / "test.md"
         handoff.write_text(
             "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
@@ -481,11 +481,11 @@ Add to the search test class in `tests/test_search.py`:
             "```\n## Fake Section\n```\n\nMore content.\n"
         )
         results = search_handoffs(tmp_path, "content")
-        sections_found = {r["section"] for r in results}
+        sections_found = {r["section_heading"] for r in results}
         assert "## Fake Section" not in sections_found
 
     def test_unterminated_fence_behavior(self, tmp_path: Path) -> None:
-        """Fence regression: unterminated fence suppresses subsequent sections (pre-migration baseline)."""
+        """Fence regression: unterminated fence suppresses subsequent sections."""
         handoff = tmp_path / "test.md"
         handoff.write_text(
             "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
@@ -493,11 +493,11 @@ Add to the search test class in `tests/test_search.py`:
             "```\n## Suppressed\n\nStill suppressed.\n"
         )
         results = search_handoffs(tmp_path, "content")
-        sections_found = {r["section"] for r in results}
+        sections_found = {r["section_heading"] for r in results}
         assert "## Suppressed" not in sections_found
 ```
 
-> Note: These tests document backtick fence behavior. After migration to `handoff_parsing.py`, they continue to pass. Tilde fence handling is new behavior introduced by the shared module — not a regression.
+> Note: These tests document backtick fence behavior after migration to `handoff_parsing.py`. Tilde fence handling and same-type-only fence parity are new behaviors introduced by the shared module — not regressions from `search.py`'s toggle-based fence logic. The `test_fence_parity_close_on_same_type_only` test in `test_handoff_parsing.py` covers the new fence parity behavior.
 
 **Step 3: Run ALL existing tests to verify no regressions**
 
@@ -845,14 +845,18 @@ class TestProvenance:
         uid2 = compute_source_uid("session-abc-123", "Learnings", "Sub A", heading_ix=0)
         assert uid1 != uid2
 
-    def test_source_uid_stable_across_paths(self) -> None:
-        """source_uid uses document identity, not filesystem path.
+    def test_source_uid_uses_identity_not_path(self) -> None:
+        """source_uid is driven by document_identity, not filesystem path.
 
-        The same handoff moved to .archive/ must produce the same UID.
+        Verified by showing: same identity → same UID, different identity →
+        different UID. The integration test (Task 6) exercises this with
+        actual handoff files at different paths.
         """
         uid1 = compute_source_uid("session-abc-123", "Decisions", "Sub A", heading_ix=0)
         uid2 = compute_source_uid("session-abc-123", "Decisions", "Sub A", heading_ix=0)
-        assert uid1 == uid2  # Same identity = same UID regardless of path
+        uid_different = compute_source_uid("different-session", "Decisions", "Sub A", heading_ix=0)
+        assert uid1 == uid2  # Same identity = same UID
+        assert uid1 != uid_different  # Different identity = different UID
 
     def test_content_hash_deterministic(self) -> None:
         h1 = compute_content_hash("Some content here.")
@@ -1061,7 +1065,7 @@ def make_distill_meta(
         "content_sha256": content_sha256,
         "distilled_at": distilled_at,
     }
-    return f"<!-- distill-meta {json_mod.dumps(meta)} -->"
+    return f"<!-- distill-meta {json_mod.dumps(meta, sort_keys=True)} -->"
 
 
 _DISTILL_META_RE = re.compile(r'<!--\s*distill-meta\s+(\{.*?\})\s*-->')
@@ -1102,7 +1106,7 @@ def check_exact_dup_content(content_hash: str, learnings_content: str) -> bool:
 **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_distill.py -v`
-Expected: All 33 tests PASS (14 prior + 19 new)
+Expected: All 33 tests PASS (14 prior + 19 new — `test_source_uid_uses_identity_not_path` replaces tautological `test_source_uid_stable_across_paths`)
 
 **Step 5: Commit**
 
@@ -1130,7 +1134,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.distill import extract_signals, extract_candidates, main as distill_main
+from scripts.distill import extract_signals, extract_candidates, make_distill_meta, main as distill_main
 
 
 class TestExtractSignals:
@@ -1323,7 +1327,12 @@ class TestDistillCLI:
         assert result["error"] is not None
 
     def test_unreadable_learnings_returns_error(self, tmp_path: Path) -> None:
-        """OSError reading learnings must return structured error, not silently disable dedup."""
+        """OSError reading learnings must return structured error, not silently disable dedup.
+
+        Note: chmod(0o000) does not block root. This test is fragile on CI
+        systems that run as root. If flaky on CI, guard with:
+        @pytest.mark.skipif(os.getuid() == 0, reason="chmod ineffective as root")
+        """
         handoff = tmp_path / "test.md"
         handoff.write_text(
             "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
@@ -1430,6 +1439,141 @@ class TestGotchasExtraction:
         result = extract_candidates(str(handoff), "")
         assert len(result["candidates"]) == 1
         assert result["candidates"][0]["source_section"] == "Gotchas"
+
+
+class TestPreambleMerge:
+    """Preamble (leading text before first ###) is merged into first headed subsection."""
+
+    def test_preamble_merged_into_first_subsection(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: preamble-1\n---\n\n"
+            "## Decisions\n\n"
+            "Some introductory context about decisions.\n\n"
+            "### Chose A\n\n**Choice:** A over B.\n\n"
+            "### Chose C\n\n**Choice:** C over D.\n\n"
+        )
+        result = extract_candidates(str(handoff), "")
+        assert len(result["candidates"]) == 2
+        # Preamble merged into first candidate, not dropped
+        assert "Some introductory context" in result["candidates"][0]["raw_markdown"]
+        assert result["candidates"][0]["subsection_heading"] == "Chose A"
+
+    def test_no_preamble_no_change(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: preamble-2\n---\n\n"
+            "## Decisions\n\n"
+            "### Chose A\n\n**Choice:** A.\n\n"
+        )
+        result = extract_candidates(str(handoff), "")
+        assert len(result["candidates"]) == 1
+        assert "Some introductory" not in result["candidates"][0]["raw_markdown"]
+
+
+class TestIncludeSection:
+    """--include-section adds extra sections to extraction scope."""
+
+    def test_context_section_extracted_when_included(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: context-1\n---\n\n"
+            "## Context\n\n### Environment setup\n\nRun on Python 3.11.\n\n"
+            "## Decisions\n\n### Chose A\n\n**Choice:** A.\n\n"
+        )
+        # Without --include-section: Context not extracted
+        result_default = extract_candidates(str(handoff), "")
+        sections = {c["source_section"] for c in result_default["candidates"]}
+        assert "Context" not in sections
+
+        # With --include-section Context: Context extracted
+        result_include = extract_candidates(str(handoff), "", extra_sections=("Context",))
+        sections = {c["source_section"] for c in result_include["candidates"]}
+        assert "Context" in sections
+        assert len(result_include["candidates"]) == 2
+
+    def test_include_section_cli(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: context-2\n---\n\n"
+            "## Context\n\n### Setup\n\nDetails.\n\n"
+        )
+        output = distill_main([str(handoff), "--include-section", "Context"])
+        result = json.loads(output)
+        assert len(result["candidates"]) == 1
+        assert result["candidates"][0]["source_section"] == "Context"
+
+
+class TestHandoffReadError:
+    """extract_candidates handles OSError/UnicodeDecodeError from parse_handoff."""
+
+    def test_unreadable_handoff_returns_error(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text("content")
+        handoff.chmod(0o000)
+        try:
+            result = extract_candidates(str(handoff), "")
+            assert result["error"] is not None
+            assert result["error_code"] == "HANDOFF_UNREADABLE"
+        finally:
+            handoff.chmod(0o644)
+
+    def test_binary_handoff_returns_error(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_bytes(b'\x80\x81\x82\xff' * 100)
+        result = extract_candidates(str(handoff), "")
+        # Binary file may raise UnicodeDecodeError or produce garbage —
+        # either an error result or a no-candidates result is acceptable
+        assert result["error"] is not None or len(result["candidates"]) == 0
+
+
+class TestLearningsWarning:
+    """--learnings with nonexistent path warns instead of silent dedup disable."""
+
+    def test_nonexistent_learnings_still_runs(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: warn-1\n---\n\n"
+            "## Decisions\n\n### Chose A\n\n**Choice:** A.\n\n"
+        )
+        output = distill_main([str(handoff), "--learnings", "/nonexistent/path.md"])
+        result = json.loads(output)
+        # Should still produce candidates (dedup disabled with warning)
+        assert len(result["candidates"]) == 1
+        assert result["candidates"][0]["dedup_status"] == "NEW"
+
+
+class TestPathIndependence:
+    """Integration test: source_uid is stable across filesystem paths."""
+
+    def test_same_handoff_different_paths_same_uid(self, tmp_path: Path) -> None:
+        """source_uid uses session_id, not filesystem path.
+
+        Same handoff content at two different paths (simulating move to
+        .archive/) must produce identical source_uid values.
+        """
+        content = (
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: stable-uid-test\n---\n\n"
+            "## Decisions\n\n### Chose A\n\n**Choice:** A.\n\n"
+        )
+        path_a = tmp_path / "handoff.md"
+        path_b = tmp_path / ".archive" / "handoff.md"
+        path_b.parent.mkdir()
+        path_a.write_text(content)
+        path_b.write_text(content)
+        result_a = extract_candidates(str(path_a), "")
+        result_b = extract_candidates(str(path_b), "")
+        assert result_a["candidates"][0]["source_uid"] == result_b["candidates"][0]["source_uid"]
+
+
+class TestMakeAnchorEdgeCases:
+    """Edge cases for _make_anchor."""
+
+    def test_empty_heading_produces_valid_anchor(self) -> None:
+        from scripts.distill import _make_anchor
+        anchor = _make_anchor("handoff.md", "Decisions", "")
+        # Empty heading → empty slug → anchor is "handoff.md#decisions/"
+        assert anchor == "handoff.md#decisions/"
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -1490,14 +1634,30 @@ def _make_anchor(handoff_filename: str, section_name: str, subsection_heading: s
 def extract_candidates(
     handoff_path: str,
     learnings_content: str,
+    extra_sections: tuple[str, ...] = (),
 ) -> dict:
     """Extract distill candidates from a handoff file.
 
     Returns a dict with handoff metadata and a list of candidates, each
     containing raw_markdown, signals, provenance hashes, and dedup status.
+
+    extra_sections: additional section names to extract (e.g., ("Context",)
+    when --include-section Context is passed). Merged with _DISTILL_SECTIONS.
     """
+    active_sections = _DISTILL_SECTIONS + extra_sections
     path = Path(handoff_path)
-    handoff = parse_handoff(path)
+    try:
+        handoff = parse_handoff(path)
+    except (OSError, UnicodeDecodeError) as exc:
+        return {
+            "handoff_path": handoff_path,
+            "handoff_date": "",
+            "handoff_title": "",
+            "candidates": [],
+            "output_version": 1,
+            "error": f"Failed to read handoff file: {exc}",
+            "error_code": "HANDOFF_UNREADABLE",
+        }
     try:
         doc_id = _document_identity(handoff.frontmatter)
     except ValueError as exc:
@@ -1515,7 +1675,7 @@ def extract_candidates(
 
     for section in handoff.sections:
         name = _section_name(section.heading)
-        if name not in _DISTILL_SECTIONS:
+        if name not in active_sections:
             continue
 
         subsections = parse_subsections(section.content)
@@ -1525,8 +1685,16 @@ def extract_candidates(
             # Skip empty or heading-only subsections
             if not sub.raw_markdown.strip():
                 continue
-            # Skip leading text before first ### (no heading = preamble)
+            # Merge preamble (leading text before first ###) into first
+            # headed subsection to avoid silent information loss.
+            # Preamble often contains introductory context that belongs
+            # with the first subsection rather than being dropped.
             if not sub.heading and any(s.heading for s in subsections):
+                # Find first headed subsection and prepend preamble
+                for other in subsections:
+                    if other.heading:
+                        other.raw_markdown = sub.raw_markdown.strip() + "\n\n" + other.raw_markdown
+                        break
                 continue
 
             ix = heading_counts.get(sub.heading, 0)
@@ -1588,6 +1756,12 @@ def main(argv: list[str] | None = None) -> str:
     parser = argparse.ArgumentParser(description="Extract knowledge candidates from a handoff")
     parser.add_argument("handoff", help="Path to handoff markdown file")
     parser.add_argument("--learnings", help="Path to learnings.md for dedup checking", default="")
+    parser.add_argument(
+        "--include-section",
+        action="append",
+        default=[],
+        help="Additional section names to extract (e.g., Context). May be repeated.",
+    )
     args = parser.parse_args(argv)
 
     handoff_path = args.handoff
@@ -1605,7 +1779,14 @@ def main(argv: list[str] | None = None) -> str:
     learnings_content = ""
     if args.learnings:
         learnings_path = Path(args.learnings)
-        if learnings_path.exists():
+        if not learnings_path.exists():
+            import sys as _sys
+            print(
+                f"Warning: learnings file not found: {args.learnings}. "
+                "Dedup checking disabled.",
+                file=_sys.stderr,
+            )
+        else:
             try:
                 learnings_content = learnings_path.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError) as exc:
@@ -1619,7 +1800,10 @@ def main(argv: list[str] | None = None) -> str:
                     "error_code": "LEARNINGS_UNREADABLE",
                 })
 
-    result = extract_candidates(handoff_path, learnings_content)
+    result = extract_candidates(
+        handoff_path, learnings_content,
+        extra_sections=tuple(args.include_section),
+    )
     return json_mod.dumps(result, indent=2)
 
 
@@ -1631,10 +1815,10 @@ if __name__ == "__main__":
 **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_distill.py -v`
-Expected: All 55 tests PASS (33 prior + 22 new)
+Expected: All 64 tests PASS (33 prior + 22 original + 9 net-new from review 4)
 
 Run full suite: `cd packages/plugins/handoff && uv run pytest -v`
-Expected: All tests PASS (129 existing + 55 new distill tests)
+Expected: All tests PASS (129 existing + 64 new distill tests)
 
 **Step 5: Commit**
 
@@ -1670,7 +1854,7 @@ The SKILL.md must contain these sections with complete content:
 **Procedure (numbered steps):**
 
 1. **Locate handoff:** If path provided, validate it exists. If no path, find most recent handoff via `ls ~/.claude/handoffs/<project>/*.md`.
-2. **Run distill.py:** Execute `python3 {plugin_root}/scripts/distill.py <handoff_path> --learnings <learnings_path>`. Parse JSON output. If `error` is non-null, display error and stop.
+2. **Run distill.py:** Execute `python3 {plugin_root}/scripts/distill.py <handoff_path> --learnings <learnings_path>`. If user passed `--include-section`, add `--include-section <name>` to the command (may be repeated). Parse JSON output. If `error` is non-null, display error and stop.
 3. **Group candidates by script status.** Display summary table with 4 states:
    - `EXACT_DUP_SOURCE` — same source, same content → terminal (auto-skip)
    - `EXACT_DUP_CONTENT` — different source, same content → terminal (auto-skip)
@@ -1687,7 +1871,7 @@ The SKILL.md must contain these sections with complete content:
    - Proposed Phase 0 text (the synthesized paragraph)
    - Tags (inferred from section type and content)
 7. **User confirmation** — varies by state:
-   - **UPDATED_SOURCE**: show diff (old vs new content). Options: `replace | keep both | skip`. Default: `replace`.
+   - **UPDATED_SOURCE**: locate the existing entry in `learnings.md` by scanning for a `<!-- distill-meta` comment whose `source_uid` matches the candidate's `source_uid`. Extract the text between the `###` heading and the `<!-- distill-meta` comment as old content. Show diff (old vs new content). Options: `replace | keep both | skip`. Default: `replace`. To perform a replace: delete the old `###` entry (heading through `<!-- distill-meta` comment inclusive) and append the new entry at the end of the file.
    - **UNIQUE_NEW** (NEW after semantic dedup finds no match): `append | skip`
    - **LIKELY_DUPLICATE** (NEW but semantically similar to existing): `merge | replace | keep both | skip`
    - EXACT_DUP_SOURCE and EXACT_DUP_CONTENT are NOT shown (terminal at step 3).
@@ -1805,21 +1989,21 @@ git commit -m "docs: update knowledge graduation ticket status"
 
 ```
 Task 1 (shared parsing)
-  └─> Task 3 (migrate search.py)
-       └─> Task 6 (distill main pipeline)
+  ├─> Task 3 (migrate search.py)
+  │    └─> Task 6 (distill main pipeline)
+  └─> Task 6 (distill main pipeline)  [direct: extract_candidates imports parse_handoff]
 
 Task 2 (shared paths)
   └─> Task 3 (migrate search.py)
 
-Task 4 (subsections + durability) ──> Task 6 (distill main pipeline)
-Task 5 (provenance + dedup) ──────> Task 6 (distill main pipeline)
+Task 4 (subsections + durability) ──> Task 5 (provenance + dedup) ──> Task 6 (distill main pipeline)
 
 Task 6 (distill pipeline) ──> Task 7 (skill)
 Task 7 (skill) ──> Task 8 (version bump)
 Task 8 (version bump) ──> Task 9 (ticket update)
 ```
 
-Tasks 1+2 can run in parallel. Tasks 4+5 can run in parallel (independent of Task 1 — their dependency on `handoff_parsing.py` only materializes in Task 6 when `extract_candidates` imports `parse_handoff`). Task 3 requires Tasks 1+2. Task 6 requires Tasks 3+4+5. Tasks 7-9 are sequential.
+Tasks 1+2 can run in parallel. Tasks 4 and 5 are **sequential** — both modify `distill.py` and `test_distill.py`, so parallel execution would create merge conflicts. Task 3 requires Tasks 1+2. Task 6 requires Tasks 3+4+5 and also has a direct dependency on Task 1 (`extract_candidates` imports `parse_handoff` from `handoff_parsing.py`). Tasks 7-9 are sequential.
 
 ---
 
