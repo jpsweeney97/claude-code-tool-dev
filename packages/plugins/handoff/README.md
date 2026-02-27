@@ -41,6 +41,19 @@ Fast checkpoint for context-pressure session cycling:
 
 Search active and archived handoffs for decisions, learnings, and context.
 
+### `/distill [path]`
+
+Extract durable knowledge from handoffs into Phase 0 learnings.
+
+- `/distill` — distills the most recent handoff
+- `/distill <path>` — distills a specific handoff
+
+**What it extracts:** Decisions, Learnings, Codebase Knowledge, and Gotchas that pass durability filtering (session-specific details are excluded).
+
+**Output:** Phase 0 entries appended to `docs/learnings/learnings.md`.
+
+**Dedup:** Exact (source + content hash) and semantic (Claude comparison) deduplication prevents redundant entries.
+
 ### `/list-handoffs`
 
 List available handoffs for the current project (part of `load` skill).
@@ -64,5 +77,6 @@ This plugin splits what was a monolithic skill (758 lines) into focused skills:
 | `/load` | ~220 (skill only) |
 | `/quicksave` | ~120 (skill + contract) |
 | `/search` | ~75 (skill only) |
+| `/distill` | ~210 (skill only) |
 
 Resume operations load 71% less context than before.
