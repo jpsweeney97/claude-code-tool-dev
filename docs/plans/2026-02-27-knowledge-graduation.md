@@ -10,6 +10,8 @@
 
 **Source:** Codex dialogue (2026-02-27, 5 turns, collaborative, all 5 design questions resolved)
 
+**Review:** Adversarial Codex dialogue (2026-02-27, 5 turns, 11 amendments). Blocking: fence parity (Tasks 1/4), stable source_uid (Task 5), full SKILL.md (Task 7). High-priority: import contract (Task 3), `####` granularity lock (Task 4), comment-scoped dedup (Task 5), no-autodrop invariant (Task 6), OSError handling (Task 6), Gotchas inclusion (Task 6), distill-meta write invariants (Tasks 5/7).
+
 ---
 
 ## Prerequisites
@@ -100,11 +102,22 @@ class TestParseSections:
         assert "Decision A" in sections[0].content
         assert "Decision B" in sections[0].content
 
-    def test_code_fences_prevent_false_headings(self) -> None:
+    def test_backtick_fences_prevent_false_headings(self) -> None:
         text = "## Real\n\nContent.\n\n```\n## Fake\n```\n\nMore content.\n"
         sections = parse_sections(text)
         assert len(sections) == 1
         assert sections[0].heading == "## Real"
+
+    def test_tilde_fences_prevent_false_headings(self) -> None:
+        text = "## Real\n\nContent.\n\n~~~\n## Fake\n~~~\n\nMore content.\n"
+        sections = parse_sections(text)
+        assert len(sections) == 1
+        assert sections[0].heading == "## Real"
+
+    def test_mixed_fences(self) -> None:
+        text = "## A\n\n~~~\n```\n## Fake\n```\n~~~\n\n## B\n\nReal.\n"
+        sections = parse_sections(text)
+        assert len(sections) == 2
 
     def test_empty_text_returns_empty(self) -> None:
         assert parse_sections("") == []
@@ -205,20 +218,26 @@ def parse_sections(text: str) -> list[Section]:
 
     Each section includes everything from its ## heading until the next
     ## heading or EOF. ### subsections are included within their parent.
-    Code-fenced regions are tracked to avoid treating ## lines inside
-    fences as section boundaries. The heading line itself is NOT included
-    in section.content to avoid duplication.
+    Code-fenced regions (both backtick ``` and tilde ~~~) are tracked to
+    avoid treating ## lines inside fences as section boundaries. The
+    heading line itself is NOT included in section.content to avoid
+    duplication.
     """
     sections: list[Section] = []
     lines = text.splitlines(keepends=True)
     current_heading = ""
     current_lines: list[str] = []
     inside_fence = False
+    fence_marker = ""  # Track which fence type opened (``` or ~~~)
 
     for line in lines:
         stripped = line.rstrip()
-        if stripped.startswith("```"):
-            inside_fence = not inside_fence
+        if not inside_fence and (stripped.startswith("```") or stripped.startswith("~~~")):
+            inside_fence = True
+            fence_marker = stripped[:3]
+        elif inside_fence and stripped.startswith(fence_marker):
+            inside_fence = False
+            fence_marker = ""
         if not inside_fence and line.startswith("## "):
             if current_heading:
                 content = "".join(current_lines).strip()
@@ -254,7 +273,7 @@ def parse_handoff(path: Path) -> HandoffFile:
 **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_handoff_parsing.py -v`
-Expected: All 10 tests PASS
+Expected: All 12 tests PASS
 
 **Step 5: Commit**
 
@@ -380,6 +399,8 @@ git commit -m "feat(handoff): extract shared project_paths module"
 
 **Context:** Replace the inline implementations of `parse_frontmatter`, `parse_sections`, `Section`, `HandoffFile`, `parse_handoff`, `get_project_name`, and `get_handoffs_dir` with imports from the shared modules. The 29 existing search tests must all pass unchanged — they validate behavior, not implementation.
 
+**Import contract (from review):** After migration, `parse_handoff` remains importable from `scripts.search` via Python's implicit re-export (it's imported at module level). This is intentional — add a comment documenting the re-export and a regression test to protect it from accidental removal during future refactors.
+
 **Step 1: Rewrite search.py imports**
 
 Replace the inline dataclasses, `parse_frontmatter`, `parse_sections`, `parse_handoff`, `get_project_name`, and `get_handoffs_dir` with imports. Keep `search_handoffs` and `main` in search.py (search-specific logic).
@@ -400,6 +421,8 @@ import re
 import sys
 from pathlib import Path
 
+# Re-exported for backward compatibility — test_search.py imports these from
+# scripts.search. Do not remove without updating downstream imports.
 from scripts.handoff_parsing import HandoffFile, Section, parse_handoff
 from scripts.project_paths import get_handoffs_dir, get_project_name
 
@@ -425,18 +448,29 @@ if __name__ == "__main__":
 
 Remove from search.py: `Section` class, `HandoffFile` class, `parse_frontmatter` function, `parse_sections` function, `parse_handoff` function, `get_project_name` function, `get_handoffs_dir` function, and the `subprocess` and `dataclasses` imports.
 
-**Step 2: Run ALL existing tests to verify no regressions**
+**Step 2: Add re-export regression test**
+
+Add to `tests/test_search.py` (or `tests/test_handoff_parsing.py`):
+
+```python
+def test_search_module_reexports_parse_handoff() -> None:
+    """Verify parse_handoff is importable from scripts.search (backward compat)."""
+    from scripts.search import parse_handoff  # noqa: F811
+    assert callable(parse_handoff)
+```
+
+**Step 3: Run ALL existing tests to verify no regressions**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_search.py -v`
-Expected: All 29 tests PASS
+Expected: All 30 tests PASS (29 existing + 1 re-export regression)
 
 Also run: `cd packages/plugins/handoff && uv run pytest -v`
-Expected: All 129 tests PASS (search + quality_check + cleanup)
+Expected: All 130+ tests PASS (search + quality_check + cleanup + handoff_parsing + project_paths)
 
-**Step 3: Commit**
+**Step 4: Commit**
 
 ```bash
-git add packages/plugins/handoff/scripts/search.py
+git add packages/plugins/handoff/scripts/search.py packages/plugins/handoff/tests/test_search.py
 git commit -m "refactor(handoff): migrate search.py to shared parsing modules"
 ```
 
@@ -497,7 +531,7 @@ class TestParseSubsections:
         assert "Some intro text." in subs[0].raw_markdown
         assert subs[1].heading == "Sub A"
 
-    def test_code_fences_do_not_split(self) -> None:
+    def test_backtick_fences_do_not_split(self) -> None:
         content = (
             "### Real\n\n"
             "```\n### Fake\n```\n\n"
@@ -507,6 +541,40 @@ class TestParseSubsections:
         assert len(subs) == 1
         assert subs[0].heading == "Real"
         assert "### Fake" in subs[0].raw_markdown
+
+    def test_tilde_fences_do_not_split(self) -> None:
+        content = (
+            "### Real\n\n"
+            "~~~\n### Fake\n~~~\n\n"
+            "More content.\n"
+        )
+        subs = parse_subsections(content)
+        assert len(subs) == 1
+        assert subs[0].heading == "Real"
+        assert "### Fake" in subs[0].raw_markdown
+
+    def test_level4_headings_stay_in_parent(self) -> None:
+        """#### headings are NOT split — they remain inside the ### parent.
+
+        Extraction granularity is ### only. #### is typically file-inventory
+        or sub-detail content that belongs with its parent subsection.
+        """
+        content = (
+            "### Decision A\n\n"
+            "**Choice:** Chose A.\n\n"
+            "#### Supporting detail\n\n"
+            "Some detail.\n\n"
+            "#### Another detail\n\n"
+            "More detail.\n\n"
+            "### Decision B\n\n"
+            "**Choice:** Chose B.\n"
+        )
+        subs = parse_subsections(content)
+        assert len(subs) == 2
+        assert subs[0].heading == "Decision A"
+        assert "#### Supporting detail" in subs[0].raw_markdown
+        assert "#### Another detail" in subs[0].raw_markdown
+        assert subs[1].heading == "Decision B"
 
     def test_empty_content_returns_empty(self) -> None:
         subs = parse_subsections("")
@@ -612,7 +680,9 @@ def parse_subsections(content: str) -> list[Subsection]:
     the full content. Leading text before the first ### heading is
     returned as a Subsection with empty heading.
 
-    Code fences are tracked to avoid false splits on ### inside fences.
+    Code fences (both backtick ``` and tilde ~~~) are tracked to avoid
+    false splits on ### inside fences. #### headings are NOT split —
+    extraction granularity is ### only.
     """
     if not content:
         return [Subsection(heading="", raw_markdown="")]
@@ -622,11 +692,16 @@ def parse_subsections(content: str) -> list[Subsection]:
     current_heading = ""
     current_lines: list[str] = []
     inside_fence = False
+    fence_marker = ""  # Track which fence type opened (``` or ~~~)
 
     for line in lines:
         stripped = line.rstrip()
-        if stripped.startswith("```"):
-            inside_fence = not inside_fence
+        if not inside_fence and (stripped.startswith("```") or stripped.startswith("~~~")):
+            inside_fence = True
+            fence_marker = stripped[:3]
+        elif inside_fence and stripped.startswith(fence_marker):
+            inside_fence = False
+            fence_marker = ""
 
         if not inside_fence and line.startswith("### "):
             # Save previous subsection
@@ -683,7 +758,7 @@ def classify_durability(heading: str, content: str) -> str:
 **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_distill.py -v`
-Expected: All 12 tests PASS
+Expected: All 15 tests PASS
 
 **Step 5: Commit**
 
@@ -720,15 +795,24 @@ class TestProvenance:
     """Tests for provenance computation."""
 
     def test_source_uid_deterministic(self) -> None:
-        uid1 = compute_source_uid("handoff.md", "Decisions", "Token bucket")
-        uid2 = compute_source_uid("handoff.md", "Decisions", "Token bucket")
+        uid1 = compute_source_uid("session-abc-123", "Decisions", "Token bucket")
+        uid2 = compute_source_uid("session-abc-123", "Decisions", "Token bucket")
         assert uid1 == uid2
         assert uid1.startswith("sha256:")
 
     def test_source_uid_differs_by_section(self) -> None:
-        uid1 = compute_source_uid("handoff.md", "Decisions", "Sub A")
-        uid2 = compute_source_uid("handoff.md", "Learnings", "Sub A")
+        uid1 = compute_source_uid("session-abc-123", "Decisions", "Sub A")
+        uid2 = compute_source_uid("session-abc-123", "Learnings", "Sub A")
         assert uid1 != uid2
+
+    def test_source_uid_stable_across_paths(self) -> None:
+        """source_uid uses document identity, not filesystem path.
+
+        The same handoff moved to .archive/ must produce the same UID.
+        """
+        uid1 = compute_source_uid("session-abc-123", "Decisions", "Sub A")
+        uid2 = compute_source_uid("session-abc-123", "Decisions", "Sub A")
+        assert uid1 == uid2  # Same identity = same UID regardless of path
 
     def test_content_hash_deterministic(self) -> None:
         h1 = compute_content_hash("Some content here.")
@@ -789,6 +873,26 @@ class TestExactDedup:
     def test_empty_learnings(self) -> None:
         assert check_exact_dup_source("sha256:abc", "") is False
         assert check_exact_dup_content("sha256:abc", "") is False
+
+    def test_prose_containing_json_not_false_positive(self) -> None:
+        """Prose that contains JSON key-value patterns should not match.
+
+        Only content inside <!-- distill-meta ... --> comments counts.
+        """
+        learnings = (
+            "### 2026-02-27 [test]\n\n"
+            'The check uses `"source_uid": "sha256:abc123"` for matching.\n'
+        )
+        assert check_exact_dup_source("sha256:abc123", learnings) is False
+
+    def test_prefix_uid_not_false_positive(self) -> None:
+        """A source_uid that is a prefix of another should not match."""
+        learnings = (
+            "### 2026-02-27 [test]\n\n"
+            "Some learning.\n"
+            '<!-- distill-meta {"v": 1, "source_uid": "sha256:abc123full"} -->\n'
+        )
+        assert check_exact_dup_source("sha256:abc123", learnings) is False
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -798,20 +902,42 @@ Expected: FAIL with `ImportError`
 
 **Step 3: Implement provenance and dedup**
 
-Add to `distill.py`:
+Add to `distill.py` imports:
 
 ```python
 import hashlib
 import json as json_mod  # avoid shadowing
+from pathlib import Path
 
-def compute_source_uid(handoff_path: str, section_name: str, subsection_heading: str) -> str:
-    """Compute deterministic source UID from handoff + section + subsection.
+def _document_identity(frontmatter: dict[str, str], filename: str) -> str:
+    """Derive a stable document identity from frontmatter.
 
-    Format: sha256:<hex>. The UID identifies the source location, not the
-    content — the same source location always produces the same UID even
-    if the content changes.
+    Priority: session_id (UUID, unique per session) > hash of
+    created_at|date|title > hash of filename. This ensures the identity
+    is stable across filesystem moves (e.g., active → .archive/).
     """
-    key = f"{handoff_path}:{section_name}:{subsection_heading}"
+    session_id = frontmatter.get("session_id", "")
+    if session_id:
+        return session_id
+    # Fallback: composite of date fields + title
+    composite = "|".join(
+        frontmatter.get(k, "") for k in ("created_at", "date", "title")
+    )
+    if composite.strip("|"):
+        return hashlib.sha256(composite.encode("utf-8")).hexdigest()[:16]
+    # Final fallback: filename stem
+    return Path(filename).stem
+
+
+def compute_source_uid(document_identity: str, section_name: str, subsection_heading: str) -> str:
+    """Compute deterministic source UID from document identity + section + subsection.
+
+    Format: sha256:<hex>. Uses document_identity (from frontmatter, not
+    filesystem path) so the UID remains stable when handoffs are archived
+    or moved between machines. The same source location always produces
+    the same UID even if the content changes.
+    """
+    key = f"{document_identity}:{section_name}:{subsection_heading}"
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"
 
@@ -831,35 +957,65 @@ def make_distill_meta(
     source_uid: str,
     source_anchor: str,
     content_sha256: str,
+    distilled_at: str = "",
 ) -> str:
     """Create a distill-meta HTML comment for provenance tracking.
 
     Format: <!-- distill-meta {"v": 1, "source_uid": "...", ...} -->
+
+    The skill MUST pass a non-empty distilled_at (ISO date) at append time.
+    The script produces candidates with distilled_at="" as a placeholder;
+    the skill fills it before writing to learnings.md.
     """
     meta = {
         "v": 1,
         "source_uid": source_uid,
         "source_anchor": source_anchor,
         "content_sha256": content_sha256,
-        "distilled_at": "",  # Filled at append time by the skill
+        "distilled_at": distilled_at,
     }
     return f"<!-- distill-meta {json_mod.dumps(meta)} -->"
 
 
+_DISTILL_META_RE = re.compile(r'<!--\s*distill-meta\s+(\{.*?\})\s*-->')
+
+
+def _extract_distill_metas(learnings_content: str) -> list[dict]:
+    """Extract all distill-meta JSON payloads from HTML comments.
+
+    Only searches inside <!-- distill-meta ... --> comments to avoid
+    false positives from prose that happens to contain JSON key-value
+    patterns.
+    """
+    metas: list[dict] = []
+    for match in _DISTILL_META_RE.finditer(learnings_content):
+        try:
+            metas.append(json_mod.loads(match.group(1)))
+        except (json_mod.JSONDecodeError, ValueError):
+            continue
+    return metas
+
+
 def check_exact_dup_source(source_uid: str, learnings_content: str) -> bool:
     """Check if source_uid already exists in learnings.md distill-meta comments."""
-    return f'"source_uid": "{source_uid}"' in learnings_content
+    return any(
+        m.get("source_uid") == source_uid
+        for m in _extract_distill_metas(learnings_content)
+    )
 
 
 def check_exact_dup_content(content_hash: str, learnings_content: str) -> bool:
     """Check if content_hash already exists in learnings.md distill-meta comments."""
-    return f'"content_sha256": "{content_hash}"' in learnings_content
+    return any(
+        m.get("content_sha256") == content_hash
+        for m in _extract_distill_metas(learnings_content)
+    )
 ```
 
 **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_distill.py -v`
-Expected: All 23 tests PASS (12 prior + 11 new)
+Expected: All 29 tests PASS (15 prior + 14 new)
 
 **Step 5: Commit**
 
@@ -876,7 +1032,7 @@ git commit -m "feat(handoff): add provenance tracking and exact dedup to distill
 - Modify: `packages/plugins/handoff/scripts/distill.py`
 - Modify: `packages/plugins/handoff/tests/test_distill.py`
 
-**Context:** The main pipeline reads a handoff, extracts candidates from Decisions, Learnings, and Codebase Knowledge sections, adds signals (confidence, reversibility) from bold-labeled fields, checks exact dedup against learnings.md, and outputs JSON. This is the CLI entry point.
+**Context:** The main pipeline reads a handoff, extracts candidates from Decisions, Learnings, Codebase Knowledge, and Gotchas sections, adds signals (confidence, reversibility) from bold-labeled fields, checks exact dedup against learnings.md, and outputs JSON. This is the CLI entry point.
 
 **Step 1: Write the failing tests**
 
@@ -956,14 +1112,14 @@ class TestExtractCandidates:
     def test_exact_dup_detected(self, tmp_path: Path) -> None:
         handoff = tmp_path / "test.md"
         handoff.write_text(
-            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-session-123\n---\n\n"
             "## Decisions\n\n"
             "### Chose Python\n\n"
             "**Choice:** Python.\n\n"
         )
-        # Compute what the source UID would be
+        # Compute what the source UID would be (using document identity, not path)
         from scripts.distill import compute_source_uid
-        uid = compute_source_uid(str(handoff), "Decisions", "Chose Python")
+        uid = compute_source_uid("test-session-123", "Decisions", "Chose Python")
         learnings = f'<!-- distill-meta {{"v": 1, "source_uid": "{uid}"}} -->\n'
 
         result = extract_candidates(str(handoff), learnings)
@@ -1014,6 +1170,71 @@ class TestDistillCLI:
         output = distill_main(["/nonexistent/path.md"])
         result = json.loads(output)
         assert result["error"] is not None
+
+    def test_unreadable_learnings_returns_error(self, tmp_path: Path) -> None:
+        """OSError reading learnings must return structured error, not silently disable dedup."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "## Decisions\n\n### Chose A\n\n**Choice:** A.\n\n"
+        )
+        learnings = tmp_path / "learnings.md"
+        learnings.write_text("content")
+        learnings.chmod(0o000)
+        try:
+            output = distill_main([str(handoff), "--learnings", str(learnings)])
+            result = json.loads(output)
+            assert result["error"] is not None
+            assert "Failed to read" in result["error"]
+        finally:
+            learnings.chmod(0o644)
+
+
+class TestNoAutodropInvariant:
+    """Dedup status is a LABEL, not a filter. All candidates are returned."""
+
+    def test_exact_dup_source_still_in_output(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: abc-123\n---\n\n"
+            "## Decisions\n\n### Chose Python\n\n**Choice:** Python.\n\n"
+        )
+        from scripts.distill import compute_source_uid
+        uid = compute_source_uid("abc-123", "Decisions", "Chose Python")
+        learnings = f'<!-- distill-meta {{"v": 1, "source_uid": "{uid}"}} -->\n'
+        result = extract_candidates(str(handoff), learnings)
+        # Candidate is present with EXACT_DUP_SOURCE status — NOT filtered out
+        assert len(result["candidates"]) == 1
+        assert result["candidates"][0]["dedup_status"] == "EXACT_DUP_SOURCE"
+
+    def test_exact_dup_content_still_in_output(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "## Decisions\n\n### Chose Python\n\n**Choice:** Python.\n\n"
+        )
+        from scripts.distill import compute_content_hash
+        h = compute_content_hash("**Choice:** Python.")
+        learnings = f'<!-- distill-meta {{"v": 1, "content_sha256": "{h}"}} -->\n'
+        result = extract_candidates(str(handoff), learnings)
+        assert len(result["candidates"]) == 1
+        assert result["candidates"][0]["dedup_status"] == "EXACT_DUP_CONTENT"
+
+
+class TestGotchasExtraction:
+    """Gotchas section should be extracted as candidates."""
+
+    def test_gotchas_extracted(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "## Gotchas\n\n"
+            "### Heredoc substitution unreliable\n\n"
+            "zsh heredoc fails silently.\n\n"
+        )
+        result = extract_candidates(str(handoff), "")
+        assert len(result["candidates"]) == 1
+        assert result["candidates"][0]["source_section"] == "Gotchas"
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -1028,12 +1249,14 @@ Add to `distill.py`:
 ```python
 import argparse
 import sys
-from pathlib import Path
+# Note: pathlib.Path already imported in Task 5
 
 from scripts.handoff_parsing import parse_handoff
 
-# Sections to extract candidates from
-_DISTILL_SECTIONS: tuple[str, ...] = ("Decisions", "Learnings", "Codebase Knowledge")
+# Sections to extract candidates from (Gotchas added per review — contains
+# durable workaround/pattern knowledge. Context excluded by default; opt-in
+# via --include-section Context)
+_DISTILL_SECTIONS: tuple[str, ...] = ("Decisions", "Learnings", "Codebase Knowledge", "Gotchas")
 
 
 def extract_signals(raw_markdown: str) -> dict[str, str]:
@@ -1081,6 +1304,7 @@ def extract_candidates(
     """
     path = Path(handoff_path)
     handoff = parse_handoff(path)
+    doc_id = _document_identity(handoff.frontmatter, path.name)
 
     candidates: list[dict] = []
 
@@ -1099,7 +1323,7 @@ def extract_candidates(
             if not sub.heading and any(s.heading for s in subsections):
                 continue
 
-            source_uid = compute_source_uid(handoff_path, name, sub.heading)
+            source_uid = compute_source_uid(doc_id, name, sub.heading)
             content_hash = compute_content_hash(sub.raw_markdown)
 
             # Determine dedup status (priority: source > content > new)
@@ -1121,8 +1345,8 @@ def extract_candidates(
                 "dedup_status": dedup_status,
             }
 
-            # Add durability hint for Codebase Knowledge only
-            if name == "Codebase Knowledge":
+            # Add durability hint for Codebase Knowledge and Gotchas
+            if name in ("Codebase Knowledge", "Gotchas"):
                 candidate["durability_hint"] = classify_durability(
                     sub.heading, sub.raw_markdown
                 )
@@ -1156,8 +1380,19 @@ def main(argv: list[str] | None = None) -> str:
         })
 
     learnings_content = ""
-    if args.learnings and Path(args.learnings).exists():
-        learnings_content = Path(args.learnings).read_text(encoding="utf-8")
+    if args.learnings:
+        learnings_path = Path(args.learnings)
+        if learnings_path.exists():
+            try:
+                learnings_content = learnings_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                return json_mod.dumps({
+                    "handoff_path": handoff_path,
+                    "handoff_date": "",
+                    "handoff_title": "",
+                    "candidates": [],
+                    "error": f"Failed to read learnings file: {exc}",
+                })
 
     result = extract_candidates(handoff_path, learnings_content)
     return json_mod.dumps(result, indent=2)
@@ -1171,10 +1406,10 @@ if __name__ == "__main__":
 **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_distill.py -v`
-Expected: All 34 tests PASS (23 prior + 11 new)
+Expected: All 45+ tests PASS (29 prior + new tests)
 
 Run full suite: `cd packages/plugins/handoff && uv run pytest -v`
-Expected: All tests PASS (129 existing + new distill tests)
+Expected: All tests PASS (130+ existing + new distill tests)
 
 **Step 5: Commit**
 
@@ -1194,24 +1429,76 @@ git commit -m "feat(handoff): add signal extraction and main pipeline to distill
 
 **Step 1: Create the skill**
 
-Create `packages/plugins/handoff/skills/distill/SKILL.md` — this is the full skill file. Reference the contract, format-reference, and ticket for format details.
+Create `packages/plugins/handoff/skills/distill/SKILL.md` with the full content below. This was expanded from an intent list per adversarial review — the SKILL.md must be complete and machine-parseable, matching the quality standard of Tasks 1-6.
 
-The skill should:
-1. Accept `/distill [path]` (optional path, defaults to most recent handoff)
-2. Run `distill.py` to get candidates JSON
-3. For each NEW candidate: synthesize raw_markdown → Phase 0 paragraph (6-8 sentences, max 10)
-4. For each NEW candidate: semantic dedup against existing learnings.md entries
-5. Display candidates with status (NEW, LIKELY_DUPLICATE, EXACT_DUP) and proposed text
-6. Ask user for confirmation per candidate (append/skip/edit)
-7. Append confirmed entries to learnings.md with distill-meta HTML comment
-8. Fill in `distilled_at` date in the distill-meta comment at append time
+The SKILL.md must contain these sections with complete content:
 
-**Key content for the SKILL.md:**
-- Frontmatter: name `distill`, description with trigger phrases
-- Procedure section with numbered steps matching the above
-- Format mapping guidance: Decision fields (choice → what, driver → why, alternatives → context, trade-offs → limitations, confidence → certainty level), Learning fields (mechanism → what, evidence → proof, implication → takeaway, watch-for → caveat)
-- Tag mapping: Decisions → `[architecture]` or `[workflow]` by default; Learnings → infer from content; Codebase Knowledge → `[pattern]` or `[architecture]`
-- Phase 0 format: `### YYYY-MM-DD [tag1, tag2]\n\n<paragraph>\n<!-- distill-meta {...} -->`
+**Frontmatter:**
+- `name: distill`
+- `description:` with trigger phrases (`/distill`, "distill handoff", "extract knowledge", "graduate knowledge")
+
+**Inputs:**
+- `/distill` — most recent handoff (use shell glob on handoffs dir, skip `.archive/`)
+- `/distill <path>` — specific handoff file
+- Optional `--include-section Context` — add Context section to extraction scope
+
+**Procedure (numbered steps):**
+
+1. **Locate handoff:** If path provided, validate it exists. If no path, find most recent handoff via `ls ~/.claude/handoffs/<project>/*.md`.
+2. **Run distill.py:** Execute `python3 {plugin_root}/scripts/distill.py <handoff_path> --learnings <learnings_path>`. Parse JSON output. If `error` is non-null, display error and stop.
+3. **Group candidates by status:** Display summary table: count of NEW, EXACT_DUP_SOURCE, EXACT_DUP_CONTENT candidates. Skip EXACT_DUP_SOURCE and EXACT_DUP_CONTENT candidates (already distilled or content-identical).
+4. **For each NEW candidate — synthesize:** Convert `raw_markdown` into a Phase 0 paragraph following format mapping (below). Target 6-8 sentences, maximum 10. Preserve the reasoning chain — a decision's "why" must stay with its "what."
+5. **For each NEW candidate — semantic dedup:** Compare the synthesized paragraph against existing entries in `docs/learnings/learnings.md`. If the candidate covers the same insight as an existing entry (same concept, different wording), annotate as `LIKELY_DUPLICATE` and show the matched existing entry. Semantic dedup is advisory — the user decides.
+6. **Present candidates:** Show each candidate with:
+   - Source: `{section}/{subsection_heading}` from handoff
+   - Status: NEW or LIKELY_DUPLICATE (with matched entry if duplicate)
+   - Durability hint (for Codebase Knowledge/Gotchas only)
+   - Proposed Phase 0 text (the synthesized paragraph)
+   - Tags (inferred from section type and content)
+7. **User confirmation:** For each candidate, ask: `merge | replace | keep both | skip`
+   - `merge`: Combine with existing entry (for LIKELY_DUPLICATE)
+   - `replace`: Replace existing entry with new synthesis
+   - `keep both`: Append as new entry alongside existing
+   - `skip`: Do not append
+8. **Append confirmed entries:** For each confirmed entry, append to `docs/learnings/learnings.md`:
+   ```
+   ### YYYY-MM-DD [tag1, tag2]
+
+   <synthesized paragraph>
+   <!-- distill-meta {"v": 1, "source_uid": "...", "source_anchor": "...", "content_sha256": "...", "distilled_at": "YYYY-MM-DD"} -->
+   ```
+   **MUST populate `distilled_at` with today's ISO date (YYYY-MM-DD).** Never leave it empty.
+
+**Format mapping guidance (embed in SKILL.md):**
+
+| Source section | Source fields | Target in paragraph |
+|---------------|-------------|-------------------|
+| Decisions | `**Choice:**` | What was decided |
+| Decisions | `**Driver:**` | Why — the evidence or reasoning |
+| Decisions | `**Alternatives considered:**` | Context (what else was evaluated, briefly) |
+| Decisions | `**Trade-offs accepted:**` | Limitations acknowledged |
+| Decisions | `**Confidence:**` | Certainty level |
+| Learnings | `**Mechanism:**` | What/how it works |
+| Learnings | `**Evidence:**` | Proof it's true |
+| Learnings | `**Implication:**` | Takeaway for future work |
+| Learnings | `**Watch for:**` | Caveat or edge case |
+| Codebase Knowledge | (raw markdown) | Pattern or convention described |
+| Gotchas | (raw markdown) | Workaround or pitfall described |
+
+**Tag mapping:**
+- Decisions → `[architecture]` or `[workflow]` by default; infer from content
+- Learnings → infer from content (common: `[debugging]`, `[testing]`, `[pattern]`, `[workflow]`)
+- Codebase Knowledge → `[pattern]` or `[architecture]`
+- Gotchas → `[debugging]` or `[workflow]`
+
+**Failure modes (embed in SKILL.md):**
+
+| Failure | Recovery |
+|---------|----------|
+| distill.py returns error JSON | Display error message, stop |
+| No NEW candidates | Report "All candidates already distilled or content-identical" |
+| learnings.md not found | Create with header `# Learnings\n\nProject insights captured from consultations.` |
+| Handoff has no extractable sections | Report "No Decisions, Learnings, Codebase Knowledge, or Gotchas sections found" |
 
 **Step 2: Verify skill loads**
 
@@ -1309,6 +1596,8 @@ After all tasks complete:
 
 1. Run full test suite: `cd packages/plugins/handoff && uv run pytest -v`
 2. Grep for stray old function references: `rg "from scripts.search import.*parse_frontmatter" packages/plugins/handoff/`
-3. Test the full flow: run `/distill` on a real handoff from `.archive/`
-4. Code review via `/superpowers:requesting-code-review`
-5. Merge to main and update plugin cache
+3. Verify re-export contract: `cd packages/plugins/handoff && uv run pytest tests/test_search.py::test_search_module_reexports_parse_handoff -v`
+4. Test the full flow: run `/distill` on a real handoff from `.archive/`
+5. Verify Gotchas extraction: ensure a handoff with Gotchas section produces candidates
+6. Code review via `/superpowers:requesting-code-review`
+7. Merge to main and update plugin cache
