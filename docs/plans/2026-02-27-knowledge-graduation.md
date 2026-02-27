@@ -10,7 +10,7 @@
 
 **Source:** Codex dialogue (2026-02-27, 5 turns, collaborative, all 5 design questions resolved)
 
-**Review:** Adversarial Codex dialogue (2026-02-27, 5 turns, 11 amendments). Blocking: fence parity (Tasks 1/4), stable source_uid (Task 5), full SKILL.md (Task 7). High-priority: import contract (Task 3), `####` granularity lock (Task 4), comment-scoped dedup (Task 5), no-autodrop invariant (Task 6), OSError handling (Task 6), Gotchas inclusion (Task 6), distill-meta write invariants (Tasks 5/7).
+**Review:** Adversarial Codex dialogue (2026-02-27, 5 turns, 11 amendments). Evaluative Codex dialogue (2026-02-27, 5 turns, 14 amendments + 3 from design dialogue). Final evaluative Codex dialogue (2026-02-27, 6 turns, 5 fixes: B1 session_id fixtures, test count 57→55, call site count, Path import clarification, C1 cross-row dedup documentation). Design: heading_ix with canonical JSON hashing (Task 5), session_id-only identity (Task 5), 4-state dedup with UPDATED_SOURCE (Tasks 5/7).
 
 ---
 
@@ -119,6 +119,14 @@ class TestParseSections:
         sections = parse_sections(text)
         assert len(sections) == 2
 
+    def test_fence_parity_close_on_same_type_only(self) -> None:
+        """~~~ fence is NOT closed by ``` — only same marker type closes."""
+        text = "## A\n\n~~~\n```\n## Fake\n```\n## Also Fake\n~~~\n\n## B\n\nReal.\n"
+        sections = parse_sections(text)
+        assert len(sections) == 2
+        assert sections[0].heading == "## A"
+        assert sections[1].heading == "## B"
+
     def test_empty_text_returns_empty(self) -> None:
         assert parse_sections("") == []
 
@@ -129,7 +137,7 @@ class TestParseHandoff:
     def test_parses_file(self, tmp_path: Path) -> None:
         f = tmp_path / "test.md"
         f.write_text(
-            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
             "## Goal\n\nDo something.\n\n## Decisions\n\nChose A.\n"
         )
         result = parse_handoff(f)
@@ -273,7 +281,7 @@ def parse_handoff(path: Path) -> HandoffFile:
 **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_handoff_parsing.py -v`
-Expected: All 12 tests PASS
+Expected: All 13 tests PASS
 
 **Step 5: Commit**
 
@@ -459,10 +467,42 @@ def test_search_module_reexports_parse_handoff() -> None:
     assert callable(parse_handoff)
 ```
 
+**Step 2b: Add fence regression tests**
+
+Add to the search test class in `tests/test_search.py`:
+
+```python
+    def test_backtick_fence_prevents_section_split(self, tmp_path: Path) -> None:
+        """Fence regression: backtick fences must not create sections (pre-migration baseline)."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
+            "## Real Section\n\nContent.\n\n"
+            "```\n## Fake Section\n```\n\nMore content.\n"
+        )
+        results = search_handoffs(tmp_path, "content")
+        sections_found = {r["section"] for r in results}
+        assert "## Fake Section" not in sections_found
+
+    def test_unterminated_fence_behavior(self, tmp_path: Path) -> None:
+        """Fence regression: unterminated fence suppresses subsequent sections (pre-migration baseline)."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
+            "## Before\n\nContent.\n\n"
+            "```\n## Suppressed\n\nStill suppressed.\n"
+        )
+        results = search_handoffs(tmp_path, "content")
+        sections_found = {r["section"] for r in results}
+        assert "## Suppressed" not in sections_found
+```
+
+> Note: These tests document backtick fence behavior. After migration to `handoff_parsing.py`, they continue to pass. Tilde fence handling is new behavior introduced by the shared module — not a regression.
+
 **Step 3: Run ALL existing tests to verify no regressions**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_search.py -v`
-Expected: All 30 tests PASS (29 existing + 1 re-export regression)
+Expected: All 32 tests PASS (29 existing + 1 re-export + 2 fence regression)
 
 Also run: `cd packages/plugins/handoff && uv run pytest -v`
 Expected: All 130+ tests PASS (search + quality_check + cleanup + handoff_parsing + project_paths)
@@ -758,7 +798,7 @@ def classify_durability(heading: str, content: str) -> str:
 **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_distill.py -v`
-Expected: All 15 tests PASS
+Expected: All 14 tests PASS
 
 **Step 5: Commit**
 
@@ -795,14 +835,14 @@ class TestProvenance:
     """Tests for provenance computation."""
 
     def test_source_uid_deterministic(self) -> None:
-        uid1 = compute_source_uid("session-abc-123", "Decisions", "Token bucket")
-        uid2 = compute_source_uid("session-abc-123", "Decisions", "Token bucket")
+        uid1 = compute_source_uid("session-abc-123", "Decisions", "Token bucket", heading_ix=0)
+        uid2 = compute_source_uid("session-abc-123", "Decisions", "Token bucket", heading_ix=0)
         assert uid1 == uid2
         assert uid1.startswith("sha256:")
 
     def test_source_uid_differs_by_section(self) -> None:
-        uid1 = compute_source_uid("session-abc-123", "Decisions", "Sub A")
-        uid2 = compute_source_uid("session-abc-123", "Learnings", "Sub A")
+        uid1 = compute_source_uid("session-abc-123", "Decisions", "Sub A", heading_ix=0)
+        uid2 = compute_source_uid("session-abc-123", "Learnings", "Sub A", heading_ix=0)
         assert uid1 != uid2
 
     def test_source_uid_stable_across_paths(self) -> None:
@@ -810,8 +850,8 @@ class TestProvenance:
 
         The same handoff moved to .archive/ must produce the same UID.
         """
-        uid1 = compute_source_uid("session-abc-123", "Decisions", "Sub A")
-        uid2 = compute_source_uid("session-abc-123", "Decisions", "Sub A")
+        uid1 = compute_source_uid("session-abc-123", "Decisions", "Sub A", heading_ix=0)
+        uid2 = compute_source_uid("session-abc-123", "Decisions", "Sub A", heading_ix=0)
         assert uid1 == uid2  # Same identity = same UID regardless of path
 
     def test_content_hash_deterministic(self) -> None:
@@ -825,6 +865,18 @@ class TestProvenance:
         h2 = compute_content_hash("content here")
         assert h1 == h2
 
+    def test_source_uid_disambiguates_duplicate_headings(self) -> None:
+        uid0 = compute_source_uid("session-abc", "Decisions", "Sub A", heading_ix=0)
+        uid1 = compute_source_uid("session-abc", "Decisions", "Sub A", heading_ix=1)
+        assert uid0 != uid1
+
+    def test_source_uid_canonical_json_is_deterministic(self) -> None:
+        """Verify UID is deterministic (canonical JSON guarantees field order)."""
+        uid1 = compute_source_uid("sess-1", "Decisions", "Sub A", heading_ix=0)
+        uid2 = compute_source_uid("sess-1", "Decisions", "Sub A", heading_ix=0)
+        assert uid1 == uid2
+        assert uid1.startswith("sha256:")
+
     def test_distill_meta_format(self) -> None:
         meta = make_distill_meta(
             source_uid="sha256:abc123",
@@ -835,6 +887,30 @@ class TestProvenance:
         assert meta.endswith(" -->")
         assert '"v": 1' in meta
         assert '"source_uid": "sha256:abc123"' in meta
+
+
+class TestDocumentIdentity:
+    """Tests for _document_identity — session_id enforcement."""
+
+    def test_returns_session_id(self) -> None:
+        from scripts.distill import _document_identity
+        assert _document_identity({"session_id": "abc-123"}) == "abc-123"
+
+    def test_strips_whitespace(self) -> None:
+        from scripts.distill import _document_identity
+        assert _document_identity({"session_id": "  abc-123  "}) == "abc-123"
+
+    def test_rejects_missing_session_id(self) -> None:
+        from scripts.distill import _document_identity
+        import pytest
+        with pytest.raises(ValueError, match="No session_id"):
+            _document_identity({})
+
+    def test_rejects_blank_session_id(self) -> None:
+        from scripts.distill import _document_identity
+        import pytest
+        with pytest.raises(ValueError, match="No session_id"):
+            _document_identity({"session_id": "  "})
 
 
 class TestExactDedup:
@@ -909,36 +985,47 @@ import hashlib
 import json as json_mod  # avoid shadowing
 from pathlib import Path
 
-def _document_identity(frontmatter: dict[str, str], filename: str) -> str:
-    """Derive a stable document identity from frontmatter.
+def _document_identity(frontmatter: dict[str, str]) -> str:
+    """Extract session_id from frontmatter as document identity.
 
-    Priority: session_id (UUID, unique per session) > hash of
-    created_at|date|title > hash of filename. This ensures the identity
-    is stable across filesystem moves (e.g., active → .archive/).
+    Requires session_id — raises ValueError if absent or blank.
+    The quality_check hook reports missing session_id but cannot prevent
+    a handoff from being written without it (PostToolUse hooks always
+    exit 0). This function enforces the invariant.
     """
-    session_id = frontmatter.get("session_id", "")
-    if session_id:
-        return session_id
-    # Fallback: composite of date fields + title
-    composite = "|".join(
-        frontmatter.get(k, "") for k in ("created_at", "date", "title")
-    )
-    if composite.strip("|"):
-        return hashlib.sha256(composite.encode("utf-8")).hexdigest()[:16]
-    # Final fallback: filename stem
-    return Path(filename).stem
+    session_id = frontmatter.get("session_id", "").strip()
+    if not session_id:
+        raise ValueError(
+            "No session_id in frontmatter. Cannot compute stable "
+            "document identity. Handoff may pre-date session_id requirement."
+        )
+    return session_id
 
 
-def compute_source_uid(document_identity: str, section_name: str, subsection_heading: str) -> str:
-    """Compute deterministic source UID from document identity + section + subsection.
+def compute_source_uid(
+    document_identity: str,
+    section_name: str,
+    subsection_heading: str,
+    heading_ix: int,
+) -> str:
+    """Compute deterministic source UID from location identity.
 
-    Format: sha256:<hex>. Uses document_identity (from frontmatter, not
-    filesystem path) so the UID remains stable when handoffs are archived
-    or moved between machines. The same source location always produces
-    the same UID even if the content changes.
+    Uses heading_ix (0-based occurrence count of this heading within the
+    section) to disambiguate duplicate ### headings. Always included —
+    conditional disambiguation causes multiplicity churn when headings
+    change between unique and duplicated.
+
+    Uses canonical JSON hashing for unambiguous key composition (avoids
+    delimiter collision if components contain ':'). Format: sha256:<hex>.
     """
-    key = f"{document_identity}:{section_name}:{subsection_heading}"
-    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    payload = json_mod.dumps({
+        "v": 1,
+        "doc": document_identity,
+        "section": section_name,
+        "heading": subsection_heading,
+        "heading_ix": heading_ix,
+    }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"
 
 
@@ -1015,7 +1102,7 @@ def check_exact_dup_content(content_hash: str, learnings_content: str) -> bool:
 **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_distill.py -v`
-Expected: All 29 tests PASS (15 prior + 14 new)
+Expected: All 33 tests PASS (14 prior + 19 new)
 
 **Step 5: Commit**
 
@@ -1076,7 +1163,7 @@ class TestExtractCandidates:
     def test_extracts_decisions_and_learnings(self, tmp_path: Path) -> None:
         handoff = tmp_path / "test.md"
         handoff.write_text(
-            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
             "## Decisions\n\n"
             "### Chose Python\n\n"
             "**Choice:** Python over Rust.\n\n"
@@ -1097,7 +1184,7 @@ class TestExtractCandidates:
     def test_codebase_knowledge_gets_durability_hint(self, tmp_path: Path) -> None:
         handoff = tmp_path / "test.md"
         handoff.write_text(
-            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
             "## Codebase Knowledge\n\n"
             "### Plugin hook naming pattern\n\n"
             "Hooks use `mcp__plugin_<name>__<tool>` format.\n\n"
@@ -1119,7 +1206,7 @@ class TestExtractCandidates:
         )
         # Compute what the source UID would be (using document identity, not path)
         from scripts.distill import compute_source_uid
-        uid = compute_source_uid("test-session-123", "Decisions", "Chose Python")
+        uid = compute_source_uid("test-session-123", "Decisions", "Chose Python", heading_ix=0)
         learnings = f'<!-- distill-meta {{"v": 1, "source_uid": "{uid}"}} -->\n'
 
         result = extract_candidates(str(handoff), learnings)
@@ -1128,12 +1215,76 @@ class TestExtractCandidates:
     def test_empty_sections_produce_no_candidates(self, tmp_path: Path) -> None:
         handoff = tmp_path / "test.md"
         handoff.write_text(
-            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
             "## Decisions\n\n"
             "## Learnings\n\n"
         )
         result = extract_candidates(str(handoff), "")
         assert len(result["candidates"]) == 0
+
+
+class TestRoundTripIdempotence:
+    """Extract → write meta → re-extract must produce EXACT_DUP_SOURCE."""
+
+    def test_extract_write_reextract_is_exact_dup(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: round-trip-1\n---\n\n"
+            "## Decisions\n\n### Chose Python\n\n**Choice:** Python.\n\n"
+        )
+        result1 = extract_candidates(str(handoff), "")
+        candidate = result1["candidates"][0]
+        assert candidate["dedup_status"] == "NEW"
+
+        meta = make_distill_meta(
+            source_uid=candidate["source_uid"],
+            source_anchor=candidate["source_anchor"],
+            content_sha256=candidate["content_sha256"],
+            distilled_at="2026-02-27",
+        )
+        learnings = f"### 2026-02-27 [architecture]\n\nSynthesized.\n{meta}\n"
+
+        result2 = extract_candidates(str(handoff), learnings)
+        assert result2["candidates"][0]["dedup_status"] == "EXACT_DUP_SOURCE"
+
+
+class TestOutputContract:
+    """Verify the script/skill interface contract."""
+
+    def test_required_top_level_keys(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: contract-1\n---\n\n"
+            "## Decisions\n\n### Sub\n\n**Choice:** A.\n\n"
+        )
+        result = extract_candidates(str(handoff), "")
+        required = {"handoff_path", "handoff_date", "handoff_title",
+                     "candidates", "error", "output_version", "error_code"}
+        assert required.issubset(result.keys())
+        assert result["output_version"] == 1
+
+    def test_candidate_required_keys(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: contract-2\n---\n\n"
+            "## Decisions\n\n### Sub\n\n**Choice:** A.\n\n"
+        )
+        result = extract_candidates(str(handoff), "")
+        candidate = result["candidates"][0]
+        required = {"source_section", "subsection_heading", "raw_markdown", "signals",
+                     "source_uid", "content_sha256", "source_anchor", "dedup_status"}
+        assert required.issubset(candidate.keys())
+
+    def test_dedup_status_is_known_enum(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: contract-3\n---\n\n"
+            "## Decisions\n\n### Sub\n\n**Choice:** A.\n\n"
+        )
+        result = extract_candidates(str(handoff), "")
+        allowed = {"NEW", "EXACT_DUP_SOURCE", "EXACT_DUP_CONTENT", "UPDATED_SOURCE"}
+        for c in result["candidates"]:
+            assert c["dedup_status"] in allowed
 
 
 class TestDistillCLI:
@@ -1142,7 +1293,7 @@ class TestDistillCLI:
     def test_json_output(self, tmp_path: Path) -> None:
         handoff = tmp_path / "test.md"
         handoff.write_text(
-            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
             "## Decisions\n\n"
             "### Chose A\n\n"
             "**Choice:** A over B.\n\n"
@@ -1155,7 +1306,7 @@ class TestDistillCLI:
     def test_with_learnings_file(self, tmp_path: Path) -> None:
         handoff = tmp_path / "test.md"
         handoff.write_text(
-            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
             "## Learnings\n\n"
             "### Important thing\n\n"
             "**Mechanism:** Works like this.\n\n"
@@ -1175,7 +1326,7 @@ class TestDistillCLI:
         """OSError reading learnings must return structured error, not silently disable dedup."""
         handoff = tmp_path / "test.md"
         handoff.write_text(
-            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
             "## Decisions\n\n### Chose A\n\n**Choice:** A.\n\n"
         )
         learnings = tmp_path / "learnings.md"
@@ -1190,6 +1341,33 @@ class TestDistillCLI:
             learnings.chmod(0o644)
 
 
+class TestEdgeCases:
+    """Edge case tests from evaluative review."""
+
+    def test_no_heading_subsection_is_candidate(self, tmp_path: Path) -> None:
+        """Section with no ### headings: the whole body is one candidate."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: edge-1\n---\n\n"
+            "## Learnings\n\nStandalone learning without a ### heading.\n"
+        )
+        result = extract_candidates(str(handoff), "")
+        assert len(result["candidates"]) == 1
+        assert result["candidates"][0]["subsection_heading"] == ""
+
+    def test_malformed_distill_meta_does_not_crash(self) -> None:
+        """Bad JSON in distill-meta comments must be silently skipped."""
+        from scripts.distill import _extract_distill_metas
+        learnings = (
+            '<!-- distill-meta {broken json here -->\n'
+            '<!-- distill-meta {"v": 1, "source_uid": "sha256:good"} -->\n'
+            '<!-- distill-meta not-even-braces -->\n'
+        )
+        metas = _extract_distill_metas(learnings)
+        assert len(metas) == 1
+        assert metas[0]["source_uid"] == "sha256:good"
+
+
 class TestNoAutodropInvariant:
     """Dedup status is a LABEL, not a filter. All candidates are returned."""
 
@@ -1200,7 +1378,7 @@ class TestNoAutodropInvariant:
             "## Decisions\n\n### Chose Python\n\n**Choice:** Python.\n\n"
         )
         from scripts.distill import compute_source_uid
-        uid = compute_source_uid("abc-123", "Decisions", "Chose Python")
+        uid = compute_source_uid("abc-123", "Decisions", "Chose Python", heading_ix=0)
         learnings = f'<!-- distill-meta {{"v": 1, "source_uid": "{uid}"}} -->\n'
         result = extract_candidates(str(handoff), learnings)
         # Candidate is present with EXACT_DUP_SOURCE status — NOT filtered out
@@ -1210,7 +1388,7 @@ class TestNoAutodropInvariant:
     def test_exact_dup_content_still_in_output(self, tmp_path: Path) -> None:
         handoff = tmp_path / "test.md"
         handoff.write_text(
-            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
             "## Decisions\n\n### Chose Python\n\n**Choice:** Python.\n\n"
         )
         from scripts.distill import compute_content_hash
@@ -1221,13 +1399,30 @@ class TestNoAutodropInvariant:
         assert result["candidates"][0]["dedup_status"] == "EXACT_DUP_CONTENT"
 
 
+class TestUpdatedSource:
+    """UPDATED_SOURCE: same source_uid, different content_sha256."""
+
+    def test_updated_source_detected(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: update-test\n---\n\n"
+            "## Decisions\n\n### Chose Python\n\n**Choice:** Python for speed.\n\n"
+        )
+        from scripts.distill import compute_source_uid
+        uid = compute_source_uid("update-test", "Decisions", "Chose Python", heading_ix=0)
+        # Learnings has same source_uid but different content hash
+        learnings = f'<!-- distill-meta {{"v": 1, "source_uid": "{uid}", "content_sha256": "sha256:old_hash"}} -->\n'
+        result = extract_candidates(str(handoff), learnings)
+        assert result["candidates"][0]["dedup_status"] == "UPDATED_SOURCE"
+
+
 class TestGotchasExtraction:
     """Gotchas section should be extracted as candidates."""
 
     def test_gotchas_extracted(self, tmp_path: Path) -> None:
         handoff = tmp_path / "test.md"
         handoff.write_text(
-            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
             "## Gotchas\n\n"
             "### Heredoc substitution unreliable\n\n"
             "zsh heredoc fails silently.\n\n"
@@ -1249,7 +1444,6 @@ Add to `distill.py`:
 ```python
 import argparse
 import sys
-# Note: pathlib.Path already imported in Task 5
 
 from scripts.handoff_parsing import parse_handoff
 
@@ -1304,7 +1498,18 @@ def extract_candidates(
     """
     path = Path(handoff_path)
     handoff = parse_handoff(path)
-    doc_id = _document_identity(handoff.frontmatter, path.name)
+    try:
+        doc_id = _document_identity(handoff.frontmatter)
+    except ValueError as exc:
+        return {
+            "handoff_path": handoff_path,
+            "handoff_date": "",
+            "handoff_title": "",
+            "candidates": [],
+            "output_version": 1,
+            "error": str(exc),
+            "error_code": "NO_DOCUMENT_IDENTITY",
+        }
 
     candidates: list[dict] = []
 
@@ -1314,6 +1519,7 @@ def extract_candidates(
             continue
 
         subsections = parse_subsections(section.content)
+        heading_counts: dict[str, int] = {}
 
         for sub in subsections:
             # Skip empty or heading-only subsections
@@ -1323,13 +1529,26 @@ def extract_candidates(
             if not sub.heading and any(s.heading for s in subsections):
                 continue
 
-            source_uid = compute_source_uid(doc_id, name, sub.heading)
+            ix = heading_counts.get(sub.heading, 0)
+            heading_counts[sub.heading] = ix + 1
+            source_uid = compute_source_uid(doc_id, name, sub.heading, heading_ix=ix)
             content_hash = compute_content_hash(sub.raw_markdown)
 
-            # Determine dedup status (priority: source > content > new)
-            if check_exact_dup_source(source_uid, learnings_content):
+            # Determine dedup status (4-state matrix)
+            # NOTE: source_match and content_match are checked independently
+            # across ALL distill-meta entries. If source_uid matches row A and
+            # content_sha256 coincidentally matches row B (different row), this
+            # classifies as EXACT_DUP_SOURCE when it should be UPDATED_SOURCE.
+            # This cross-row misclassification does not self-heal (no row written).
+            # Known limitation for V1 — V1.1 should use row-aware matching:
+            # compare content within the row that matched source_uid first.
+            source_match = check_exact_dup_source(source_uid, learnings_content)
+            content_match = check_exact_dup_content(content_hash, learnings_content)
+            if source_match and content_match:
                 dedup_status = "EXACT_DUP_SOURCE"
-            elif check_exact_dup_content(content_hash, learnings_content):
+            elif source_match and not content_match:
+                dedup_status = "UPDATED_SOURCE"
+            elif not source_match and content_match:
                 dedup_status = "EXACT_DUP_CONTENT"
             else:
                 dedup_status = "NEW"
@@ -1358,7 +1577,9 @@ def extract_candidates(
         "handoff_date": handoff.frontmatter.get("date", ""),
         "handoff_title": handoff.frontmatter.get("title", path.stem),
         "candidates": candidates,
+        "output_version": 1,
         "error": None,
+        "error_code": None,
     }
 
 
@@ -1376,7 +1597,9 @@ def main(argv: list[str] | None = None) -> str:
             "handoff_date": "",
             "handoff_title": "",
             "candidates": [],
+            "output_version": 1,
             "error": f"Handoff file not found: {handoff_path}",
+            "error_code": "HANDOFF_NOT_FOUND",
         })
 
     learnings_content = ""
@@ -1391,7 +1614,9 @@ def main(argv: list[str] | None = None) -> str:
                     "handoff_date": "",
                     "handoff_title": "",
                     "candidates": [],
+                    "output_version": 1,
                     "error": f"Failed to read learnings file: {exc}",
+                    "error_code": "LEARNINGS_UNREADABLE",
                 })
 
     result = extract_candidates(handoff_path, learnings_content)
@@ -1406,10 +1631,10 @@ if __name__ == "__main__":
 **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/plugins/handoff && uv run pytest tests/test_distill.py -v`
-Expected: All 45+ tests PASS (29 prior + new tests)
+Expected: All 55 tests PASS (33 prior + 22 new)
 
 Run full suite: `cd packages/plugins/handoff && uv run pytest -v`
-Expected: All tests PASS (130+ existing + new distill tests)
+Expected: All tests PASS (129 existing + 55 new distill tests)
 
 **Step 5: Commit**
 
@@ -1446,20 +1671,26 @@ The SKILL.md must contain these sections with complete content:
 
 1. **Locate handoff:** If path provided, validate it exists. If no path, find most recent handoff via `ls ~/.claude/handoffs/<project>/*.md`.
 2. **Run distill.py:** Execute `python3 {plugin_root}/scripts/distill.py <handoff_path> --learnings <learnings_path>`. Parse JSON output. If `error` is non-null, display error and stop.
-3. **Group candidates by status:** Display summary table: count of NEW, EXACT_DUP_SOURCE, EXACT_DUP_CONTENT candidates. Skip EXACT_DUP_SOURCE and EXACT_DUP_CONTENT candidates (already distilled or content-identical).
+3. **Group candidates by script status.** Display summary table with 4 states:
+   - `EXACT_DUP_SOURCE` — same source, same content → terminal (auto-skip)
+   - `EXACT_DUP_CONTENT` — different source, same content → terminal (auto-skip)
+   - `UPDATED_SOURCE` — same source, content changed → prompt user
+   - `NEW` — never distilled → synthesize
+   For terminal states: display one-line summary (section/heading + 'already distilled' or 'content-identical'). No synthesis, no confirmation.
 4. **For each NEW candidate — synthesize:** Convert `raw_markdown` into a Phase 0 paragraph following format mapping (below). Target 6-8 sentences, maximum 10. Preserve the reasoning chain — a decision's "why" must stay with its "what."
 5. **For each NEW candidate — semantic dedup:** Compare the synthesized paragraph against existing entries in `docs/learnings/learnings.md`. If the candidate covers the same insight as an existing entry (same concept, different wording), annotate as `LIKELY_DUPLICATE` and show the matched existing entry. Semantic dedup is advisory — the user decides.
 6. **Present candidates:** Show each candidate with:
    - Source: `{section}/{subsection_heading}` from handoff
    - Status: NEW or LIKELY_DUPLICATE (with matched entry if duplicate)
    - Durability hint (for Codebase Knowledge/Gotchas only)
+   - If `subsection_heading` is empty, display as `(section body)` in the source line
    - Proposed Phase 0 text (the synthesized paragraph)
    - Tags (inferred from section type and content)
-7. **User confirmation:** For each candidate, ask: `merge | replace | keep both | skip`
-   - `merge`: Combine with existing entry (for LIKELY_DUPLICATE)
-   - `replace`: Replace existing entry with new synthesis
-   - `keep both`: Append as new entry alongside existing
-   - `skip`: Do not append
+7. **User confirmation** — varies by state:
+   - **UPDATED_SOURCE**: show diff (old vs new content). Options: `replace | keep both | skip`. Default: `replace`.
+   - **UNIQUE_NEW** (NEW after semantic dedup finds no match): `append | skip`
+   - **LIKELY_DUPLICATE** (NEW but semantically similar to existing): `merge | replace | keep both | skip`
+   - EXACT_DUP_SOURCE and EXACT_DUP_CONTENT are NOT shown (terminal at step 3).
 8. **Append confirmed entries:** For each confirmed entry, append to `docs/learnings/learnings.md`:
    ```
    ### YYYY-MM-DD [tag1, tag2]
@@ -1484,6 +1715,8 @@ The SKILL.md must contain these sections with complete content:
 | Learnings | `**Watch for:**` | Caveat or edge case |
 | Codebase Knowledge | (raw markdown) | Pattern or convention described |
 | Gotchas | (raw markdown) | Workaround or pitfall described |
+
+> Note: `extract_signals` returns lowercase keys (`confidence`, `reversibility`). The table above references source markdown labels (`**Confidence:**`, `**Reversibility:**`) — the key names in the signals dict are the lowercase equivalents.
 
 **Tag mapping:**
 - Decisions → `[architecture]` or `[workflow]` by default; infer from content
@@ -1586,7 +1819,7 @@ Task 7 (skill) ──> Task 8 (version bump)
 Task 8 (version bump) ──> Task 9 (ticket update)
 ```
 
-Tasks 1+2 can run in parallel. Tasks 4+5 can run in parallel (after Task 1). Task 3 requires Tasks 1+2. Task 6 requires Tasks 3+4+5. Tasks 7-9 are sequential.
+Tasks 1+2 can run in parallel. Tasks 4+5 can run in parallel (independent of Task 1 — their dependency on `handoff_parsing.py` only materializes in Task 6 when `extract_candidates` imports `parse_handoff`). Task 3 requires Tasks 1+2. Task 6 requires Tasks 3+4+5. Tasks 7-9 are sequential.
 
 ---
 
