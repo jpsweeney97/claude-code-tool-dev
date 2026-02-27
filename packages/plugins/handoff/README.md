@@ -11,7 +11,7 @@ claude plugin install handoff@handoff-dev
 
 ## Skills
 
-### `/handoff:creating-handoffs [title]`
+### `/save [title]`
 
 Create a handoff document capturing session context:
 - Decisions made and their rationale
@@ -21,7 +21,7 @@ Create a handoff document capturing session context:
 
 Includes a synthesis process to ensure thorough context capture.
 
-### `/handoff:resuming-handoffs [path]`
+### `/load [path]`
 
 Resume from the most recent handoff:
 - Loads handoff content into context
@@ -30,9 +30,20 @@ Resume from the most recent handoff:
 
 Lightweight — does not load the synthesis guide.
 
+### `/quicksave [title]`
+
+Fast checkpoint for context-pressure session cycling:
+- Captures current task, in-progress state, and next action
+- 22-55 line documents — minimum needed to resume
+- Guardrail warns after 2 consecutive quicksaves without a full `/save`
+
+### `/search <query> [--regex]`
+
+Search active and archived handoffs for decisions, learnings, and context.
+
 ### `/list-handoffs`
 
-List available handoffs for the current project (part of `resuming-handoffs` skill).
+List available handoffs for the current project (part of `load` skill).
 
 ## Storage
 
@@ -49,7 +60,9 @@ This plugin splits what was a monolithic skill (758 lines) into focused skills:
 
 | Operation | Lines Loaded |
 |-----------|-------------|
-| `/handoff:creating-handoffs` | ~570 (skill + synthesis guide) |
-| `/handoff:resuming-handoffs` | ~220 (skill only) |
+| `/save` | ~570 (skill + synthesis guide) |
+| `/load` | ~220 (skill only) |
+| `/quicksave` | ~120 (skill + contract) |
+| `/search` | ~75 (skill only) |
 
 Resume operations load 71% less context than before.

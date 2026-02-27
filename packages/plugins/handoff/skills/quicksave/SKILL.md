@@ -1,11 +1,11 @@
 ---
-name: checkpointing
-description: Used when user runs /checkpoint to save session state quickly under context pressure. Fast, lightweight alternative to /handoff. Use when user says "checkpoint", "save state", "quick save", or is running low on context.
+name: quicksave
+description: Used when user runs /quicksave to save session state quickly under context pressure. Fast, lightweight alternative to /save. Use when user says "quicksave", "checkpoint", "save state", "quick save", or is running low on context.
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
 
-# Checkpointing
+# Quicksave
 
 Fast state capture for context-pressure session cycling. Produces 22-55 line documents — the minimum needed to resume without re-exploration.
 
@@ -13,14 +13,14 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
 
 ## When to Use
 
-- User runs `/checkpoint` or `/checkpoint <title>`
-- User says "save state", "quick save", or "checkpoint"
+- User runs `/quicksave` or `/quicksave <title>`
+- User says "save state", "quick save", "quicksave", or "checkpoint"
 - Session is under context pressure and needs to cycle
 
 ## When NOT to Use
 
-- **Full knowledge capture needed** — use `/handoff` instead
-- **Natural stopping point** (PR merged, plan written) — use `/handoff` instead
+- **Full knowledge capture needed** — use `/save` instead
+- **Natural stopping point** (PR merged, plan written) — use `/save` instead
 - **Session was trivial** — skip
 
 ## Procedure
@@ -28,7 +28,7 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
 1. **Check prerequisites:**
    - Determine project name per [handoff-contract.md](../../references/handoff-contract.md) (git root name or cwd name).
    - Verify `~/.claude/handoffs/<project>/` is writable. If not writable and cannot be created, **STOP** per contract Write Permission section.
-   - If session has no work done (no files read, no changes, no progress), ask: "Nothing to checkpoint — create one anyway?"
+   - If session has no work done (no files read, no changes, no progress), ask: "Nothing to quicksave — create one anyway?"
    - If user declines, **STOP**.
 
 2. **Note session ID** from the "Session ID:" line above (substituted at load time)
@@ -50,9 +50,9 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
    - Stop at first `type: handoff`, missing `type`, missing file, or `prior_checkpoint_count >= 2`
    - Walk the `resumed_from` chain; do not scan the active directory (archived files are not in it)
    - If `resumed_from` was NOT set (no state file — e.g., TTL race, first checkpoint of session): skip the guardrail. Emit no warning — lack of state file is not evidence of checkpoint streaking.
-   - If `prior_checkpoint_count >= 2`: prompt "Detected 2 prior checkpoints; this would be your 3rd consecutive checkpoint. Consider /handoff to capture decisions, codebase knowledge, and session narrative before they decay. Continue with checkpoint anyway?"
-   - If user wants full handoff, **STOP** and suggest they run `/handoff`.
-   - **Scope limitation:** The guardrail only detects consecutive checkpoints within a single resume chain (connected via `resumed_from`). Cross-session checkpoints without `/resume` between them do not trigger the guardrail.
+   - If `prior_checkpoint_count >= 2`: prompt "Detected 2 prior checkpoints; this would be your 3rd consecutive checkpoint. Consider /save to capture decisions, codebase knowledge, and session narrative before they decay. Continue with quicksave anyway?"
+   - If user wants full handoff, **STOP** and suggest they run `/save`.
+   - **Scope limitation:** The guardrail only detects consecutive checkpoints within a single resume chain (connected via `resumed_from`). Cross-session checkpoints without `/load` between them do not trigger the guardrail.
 
 6. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_checkpoint-<slug>.md`
    - Use frontmatter from [handoff-contract.md](../../references/handoff-contract.md) with `type: checkpoint`
@@ -63,7 +63,7 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
 7. **Cleanup state file** per chain protocol:
    - `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
 
-8. **Verify:** Confirm file exists and frontmatter is valid (required fields present per contract). Report: "Checkpoint saved: `<path>`"
+8. **Verify:** Confirm file exists and frontmatter is valid (required fields present per contract). Report: "Quicksave saved: `<path>`"
    - Do NOT reproduce content in chat. The file is the deliverable.
 
 ## Sections
@@ -79,22 +79,22 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
 | **Key Finding** | If applicable | 2-5 lines | Codebase discovery worth preserving |
 | **Decisions** | If applicable | 3-5 lines/decision | Choice + driver only |
 
-**Output target:** 22-55 lines body. If exceeding ~80 lines, note: "This checkpoint is getting long. Consider `/handoff` for a full capture."
+**Output target:** 22-55 lines body. If exceeding ~80 lines, note: "This quicksave is getting long. Consider `/save` for a full capture."
 
 ## Anti-Patterns
 
 | Avoid | Why | Instead |
 |-------|-----|---------|
 | Writing session narrative | Too expensive under context pressure | Capture state, not story |
-| Full decision analysis (8 elements) | That's /handoff's job | Choice + driver only |
-| Codebase knowledge dumps | Checkpoint isn't a knowledge base | Key findings only |
+| Full decision analysis (8 elements) | That's /save's job | Choice + driver only |
+| Codebase knowledge dumps | Quicksave isn't a knowledge base | Key findings only |
 | Reproducing content in chat | File is the deliverable | Brief confirmation only |
 
 ## Troubleshooting
 
 ### File not created
 
-**Symptoms:** Checkpoint command completes but no file appears
+**Symptoms:** Quicksave command completes but no file appears
 
 **Likely causes:**
 - Project name detection failed (not in a git repo, ambiguous directory)

@@ -1,34 +1,34 @@
 ---
-name: resuming-handoffs
-description: Used when continuing from a previous session; when user runs `/resume` to load the most recent handoff, or `/resume <path>` for a specific handoff.
+name: load
+description: Used when continuing from a previous session; when user runs `/load` to load the most recent handoff, or `/load <path>` for a specific handoff.
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
 **Read [handoff-contract.md](../../references/handoff-contract.md) for:** frontmatter schema, chain protocol, storage conventions.
 
-# Resuming Handoffs
+# Load
 
 Continue work from a previous handoff.
 
-**Core Promise:** One action to resume (`/resume`).
+**Core Promise:** One action to resume (`/load`).
 
 ## When to Use
 
-- User explicitly runs `/resume` or `/resume <path>`
+- User explicitly runs `/load` or `/load <path>`
 - User says "continue from where we left off" or "pick up where I stopped"
 - Starting a new session that should continue previous work
 
 ## When NOT to Use
 
-- **Creating a new handoff** — use the `creating-handoffs` skill instead
+- **Creating a new handoff** — use the `save` skill instead
 - Session has no prior handoffs for this project
 - User wants to start fresh without prior context
 
 **Non-goals (this skill does NOT):**
-- Create handoffs (that's the `creating-handoffs` skill)
-- Auto-inject handoffs at session start (explicit resume only)
+- Create handoffs (that's the `save` skill)
+- Auto-inject handoffs at session start (explicit load only)
 - Suggest handoffs (user must request)
-- Load the synthesis guide (not needed for resume)
+- Load the synthesis guide (not needed for load)
 
 ## Inputs
 
@@ -36,7 +36,7 @@ Continue work from a previous handoff.
 - Project context (determined from git root or current directory)
 
 **Optional:**
-- `path` argument for `/resume <path>` — specific handoff to load
+- `path` argument for `/load <path>` — specific handoff to load
 
 **Constraints/Assumptions:**
 
@@ -68,8 +68,8 @@ Continue work from a previous handoff.
 
 | Command | Action |
 |---------|--------|
-| `/resume` | Load most recent handoff for this project |
-| `/resume <path>` | Load specific handoff by path |
+| `/load` | Load most recent handoff for this project |
+| `/load <path>` | Load specific handoff by path |
 | `/list-handoffs` | List available handoffs for project |
 
 ## Decision Points
@@ -99,9 +99,9 @@ Continue work from a previous handoff.
 
 ## Procedure
 
-### Resume (`/resume [path]`)
+### Load (`/load [path]`)
 
-When user runs `/resume [path]`:
+When user runs `/load [path]`:
 
 1. **Note the session ID** from the "Session ID:" line at the top of this skill (substituted by Claude Code at load time)
 
@@ -161,21 +161,21 @@ This is automatic — no user action required.
 
 ## Verification
 
-After resuming, verify:
+After loading, verify:
 
 - [ ] Handoff content displayed to user
 - [ ] Original file moved to `.archive/`
 - [ ] State file exists at `~/.claude/.session-state/handoff-<session_id>`
-- [ ] Type displayed on resume ("Resuming from **checkpoint**:" or "Resuming from **handoff**:")
+- [ ] Type displayed on load ("Resuming from **checkpoint**:" or "Resuming from **handoff**:")
 - [ ] User offered continuation prompt
 
 **Quick check:** `ls ~/.claude/handoffs/<project>/.archive/` shows the archived file.
 
 ## Troubleshooting
 
-### Resume not finding handoff
+### Load not finding handoff
 
-**Symptoms:** `/resume` says "No handoffs found" or finds wrong handoff
+**Symptoms:** `/load` says "No handoffs found" or finds wrong handoff
 
 **Likely causes:**
 - Handoff older than 30 days (auto-pruned by retention policy)
@@ -185,11 +185,11 @@ After resuming, verify:
 **Next steps:**
 1. Run `/list-handoffs` to see available handoffs for current project
 2. Check `~/.claude/handoffs/` directly: `ls ~/.claude/handoffs/`
-3. If found in different project, use `/resume <full-path>`
+3. If found in different project, use `/load <full-path>`
 
 ### Archive directory not created
 
-**Symptoms:** Resume fails when trying to archive
+**Symptoms:** Load fails when trying to archive
 
 **Likely causes:**
 - Permission denied on handoffs directory
@@ -215,13 +215,13 @@ After resuming, verify:
 
 | Avoid | Why | Instead |
 |-------|-----|---------|
-| Auto-injecting handoffs | Stale handoffs clutter unrelated sessions | Explicit `/resume` only |
-| Suggesting old handoffs | Context may be irrelevant | User decides when to resume |
-| Loading synthesis guide | Not needed for resume, wastes context | Resume skill is lightweight |
+| Auto-injecting handoffs | Stale handoffs clutter unrelated sessions | Explicit `/load` only |
+| Suggesting old handoffs | Context may be irrelevant | User decides when to load |
+| Loading synthesis guide | Not needed for load, wastes context | Load skill is lightweight |
 | Modifying handoff content | Handoffs are immutable snapshots | Create new handoff if needed |
 
 ## Related Skills
 
 | Skill | Relationship |
 |-------|--------------|
-| `creating-handoffs` | Complementary: creating-handoffs creates, resuming-handoffs loads |
+| `save` | Complementary: save creates, load resumes |

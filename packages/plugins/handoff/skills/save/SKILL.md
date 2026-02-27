@@ -1,21 +1,21 @@
 ---
-name: creating-handoffs
-description: Used when user says "wrap this up", "new session", "almost out of context", "next session", or "handoff"; when stopping work with context to preserve.
+name: save
+description: Used when user says "wrap this up", "new session", "almost out of context", "save", "next session", or "handoff"; when stopping work with context to preserve.
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
 **Read [handoff-contract.md](../../references/handoff-contract.md) for:** frontmatter schema, chain protocol, storage conventions.
 
-# Creating Handoffs
+# Save
 
 Create comprehensive session reports that preserve the full context future-Claude needs to continue without re-exploration.
 
-**Core Promise:** One action to save (`/handoff`).
+**Core Promise:** One action to save (`/save`).
 
 ## When to Use
 
-- User explicitly runs `/handoff` or `/handoff <title>`
-- User says signal phrases: "wrap this up", "new session", "handoff"
+- User explicitly runs `/save` or `/save <title>`
+- User says signal phrases: "wrap this up", "new session", "save", "handoff"
 - Session contains at least one of: decision made, file changed, gotcha discovered, next step identified
 - User is stopping work and wants to resume later with context
 
@@ -25,10 +25,10 @@ Create comprehensive session reports that preserve the full context future-Claud
 - User explicitly declines handoff offer
 - Context is already captured elsewhere (PR description, committed docs, issue tracker)
 - Session is exploratory research with no actionable next steps
-- **Resuming from a handoff** — use the `resuming-handoffs` skill instead
+- **Resuming from a handoff** — use the `load` skill instead
 
 **Non-goals (this skill does NOT):**
-- Resume from handoffs (that's the `resuming-handoffs` skill)
+- Resume from handoffs (that's the `load` skill)
 - Replace proper documentation (handoffs are ephemeral, docs are permanent)
 - Reproduce the raw conversation transcript — but decisions, reasoning chains, codebase knowledge, and user preferences should be captured with enough depth and evidence to be fully actionable
 - Work across different machines (handoffs are local to `~/.claude/`)
@@ -41,7 +41,7 @@ Create comprehensive session reports that preserve the full context future-Claud
 - Session context (gathered from conversation history)
 
 **Optional:**
-- `title` argument for `/handoff <title>` — if omitted, Claude generates a descriptive title
+- `title` argument for `/save <title>` — if omitted, Claude generates a descriptive title
 
 **Constraints/Assumptions:**
 
@@ -81,13 +81,13 @@ Create comprehensive session reports that preserve the full context future-Claud
 
 | Command | Action |
 |---------|--------|
-| `/handoff` | Create handoff (Claude generates title) |
-| `/handoff <title>` | Create handoff with specified title |
+| `/save` | Create handoff (Claude generates title) |
+| `/save <title>` | Create handoff with specified title |
 
 ## Decision Points
 
 1. **Signal phrase detected:**
-   - If user says "wrap this up", "new session", or "handoff", then offer: "Create a handoff before ending?"
+   - If user says "wrap this up", "new session", "save", or "handoff", then offer: "Create a handoff before ending?"
    - If user declines, **STOP**. Do not re-prompt or proceed.
 
 2. **Session content assessment:**
@@ -108,7 +108,7 @@ Create comprehensive session reports that preserve the full context future-Claud
 
 ## Procedure
 
-When user runs `/handoff [title]` or confirms a signal phrase offer:
+When user runs `/save [title]` or confirms a signal phrase offer:
 
 1. **Check prerequisites:**
    - If session appears trivial (no decisions, changes, or learnings), ask: "This session seems light — create a handoff anyway?"
@@ -176,7 +176,7 @@ After creating handoff, verify:
 
 ### Handoff file not created
 
-**Symptoms:** `/handoff` completes but no file appears at `~/.claude/handoffs/<project>/`
+**Symptoms:** `/save` completes but no file appears at `~/.claude/handoffs/<project>/`
 
 **Likely causes:**
 - Permission denied on `~/.claude/` directory
@@ -228,4 +228,4 @@ After creating handoff, verify:
 
 | Skill | Relationship |
 |-------|--------------|
-| `resuming-handoffs` | Complementary: creating-handoffs creates, resuming-handoffs loads |
+| `load` | Complementary: save creates, load resumes |

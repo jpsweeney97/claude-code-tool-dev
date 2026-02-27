@@ -1,16 +1,16 @@
 ---
-name: searching-handoffs
-description: Search across handoff history for decisions, learnings, and context. Use when user says "search handoffs", "find in handoffs", "what did we decide about", or runs /handoff:search.
+name: search
+description: Search across handoff history for decisions, learnings, and context. Use when user says "search handoffs", "find in handoffs", "what did we decide about", or runs /search.
 argument-hint: "<query> [--regex]"
 ---
 
-# Search Handoffs
+# Search
 
 Search active and archived handoffs for the current project. Returns full matching sections.
 
 ## Procedure
 
-When user runs `/handoff:search <query>`:
+When user runs `/search <query>`:
 
 1. **Run the search script:**
 
@@ -54,7 +54,7 @@ When user runs `/handoff:search <query>`:
 
 ## Examples
 
-**User:** `/handoff:search merge strategy`
+**User:** `/search merge strategy`
 
 **Result (1 match):**
 > **PR #26 reviewed, merged** (2026-02-25, handoff) — ## Decisions
@@ -64,10 +64,10 @@ When user runs `/handoff:search <query>`:
 > **Choice:** Regular merge preserving all 22 commits.
 > ...
 
-**User:** `/handoff:search --regex "option-[AB]"`
+**User:** `/search --regex "option-[AB]"`
 
 Searches using regex pattern.
 
-**User:** `/handoff:search nonexistent_thing`
+**User:** `/search nonexistent_thing`
 
 > No handoffs matched `nonexistent_thing`.
