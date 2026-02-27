@@ -8,11 +8,15 @@ skill to synthesize into Phase 0 learning entries.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json as json_mod  # avoid shadowing
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from scripts.handoff_parsing import parse_handoff
 
 
 @dataclass
@@ -252,3 +256,202 @@ def check_exact_dup_content(content_hash: str, learnings_content: str) -> bool:
         m.get("content_sha256") == content_hash
         for m in _extract_distill_metas(learnings_content)
     )
+
+
+# Sections to extract candidates from
+_DISTILL_SECTIONS: tuple[str, ...] = ("Decisions", "Learnings", "Codebase Knowledge", "Gotchas")
+
+
+def extract_signals(raw_markdown: str) -> dict[str, str]:
+    """Extract confidence and reversibility signals from bold-labeled fields."""
+    signals: dict[str, str] = {}
+    for field in ("Confidence", "Reversibility"):
+        pattern = rf'\*\*{field}:\*\*\s*(.+)'
+        match = re.search(pattern, raw_markdown)
+        if match:
+            signals[field.lower()] = match.group(1).strip()
+    return signals
+
+
+def _section_name(heading: str) -> str:
+    """Extract bare section name from ## heading."""
+    if heading.startswith("## "):
+        return heading[3:].strip()
+    return heading.strip()
+
+
+def _make_anchor(handoff_filename: str, section_name: str, subsection_heading: str) -> str:
+    """Create a source anchor for provenance."""
+    slug = re.sub(r'[^a-z0-9]+', '-', subsection_heading.lower()).strip('-')
+    return f"{handoff_filename}#{section_name.lower()}/{slug}"
+
+
+def extract_candidates(
+    handoff_path: str,
+    learnings_content: str,
+    extra_sections: tuple[str, ...] = (),
+) -> dict:
+    """Extract distill candidates from a handoff file.
+
+    Returns a dict with handoff metadata and a list of candidates, each
+    containing raw_markdown, signals, provenance hashes, and dedup status.
+
+    extra_sections: additional section names to extract (e.g., ("Context",)
+    when --include-section Context is passed). Merged with _DISTILL_SECTIONS.
+    """
+    active_sections = _DISTILL_SECTIONS + extra_sections
+    path = Path(handoff_path)
+    try:
+        handoff = parse_handoff(path)
+    except (OSError, UnicodeDecodeError) as exc:
+        return {
+            "handoff_path": handoff_path,
+            "handoff_date": "",
+            "handoff_title": "",
+            "candidates": [],
+            "output_version": 1,
+            "error": f"Failed to read handoff file: {exc}",
+            "error_code": "HANDOFF_UNREADABLE",
+        }
+    try:
+        doc_id = _document_identity(handoff.frontmatter)
+    except ValueError as exc:
+        return {
+            "handoff_path": handoff_path,
+            "handoff_date": "",
+            "handoff_title": "",
+            "candidates": [],
+            "output_version": 1,
+            "error": str(exc),
+            "error_code": "NO_DOCUMENT_IDENTITY",
+        }
+
+    candidates: list[dict] = []
+
+    for section in handoff.sections:
+        name = _section_name(section.heading)
+        if name not in active_sections:
+            continue
+
+        subsections = parse_subsections(section.content)
+        heading_counts: dict[str, int] = {}
+
+        for sub in subsections:
+            # Skip empty or heading-only subsections
+            if not sub.raw_markdown.strip():
+                continue
+            # Merge preamble (leading text before first ###) into first
+            # headed subsection to avoid silent information loss.
+            if not sub.heading and any(s.heading for s in subsections):
+                for other in subsections:
+                    if other.heading:
+                        other.raw_markdown = sub.raw_markdown.strip() + "\n\n" + other.raw_markdown
+                        break
+                continue
+
+            ix = heading_counts.get(sub.heading, 0)
+            heading_counts[sub.heading] = ix + 1
+            source_uid = compute_source_uid(doc_id, name, sub.heading, heading_ix=ix)
+            content_hash = compute_content_hash(sub.raw_markdown)
+
+            # Determine dedup status (4-state matrix)
+            source_match = check_exact_dup_source(source_uid, learnings_content)
+            content_match = check_exact_dup_content(content_hash, learnings_content)
+            if source_match and content_match:
+                dedup_status = "EXACT_DUP_SOURCE"
+            elif source_match and not content_match:
+                dedup_status = "UPDATED_SOURCE"
+            elif not source_match and content_match:
+                dedup_status = "EXACT_DUP_CONTENT"
+            else:
+                dedup_status = "NEW"
+
+            candidate: dict = {
+                "source_section": name,
+                "subsection_heading": sub.heading,
+                "raw_markdown": sub.raw_markdown,
+                "signals": extract_signals(sub.raw_markdown),
+                "source_uid": source_uid,
+                "content_sha256": content_hash,
+                "source_anchor": _make_anchor(path.name, name, sub.heading),
+                "dedup_status": dedup_status,
+            }
+
+            # Add durability hint for Codebase Knowledge and Gotchas
+            if name in ("Codebase Knowledge", "Gotchas"):
+                candidate["durability_hint"] = classify_durability(
+                    sub.heading, sub.raw_markdown
+                )
+
+            candidates.append(candidate)
+
+    return {
+        "handoff_path": handoff_path,
+        "handoff_date": handoff.frontmatter.get("date", ""),
+        "handoff_title": handoff.frontmatter.get("title", path.stem),
+        "candidates": candidates,
+        "output_version": 1,
+        "error": None,
+        "error_code": None,
+    }
+
+
+def main(argv: list[str] | None = None) -> str:
+    """CLI entry point. Returns JSON string."""
+    parser = argparse.ArgumentParser(description="Extract knowledge candidates from a handoff")
+    parser.add_argument("handoff", help="Path to handoff markdown file")
+    parser.add_argument("--learnings", help="Path to learnings.md for dedup checking", default="")
+    parser.add_argument(
+        "--include-section",
+        action="append",
+        default=[],
+        help="Additional section names to extract (e.g., Context). May be repeated.",
+    )
+    args = parser.parse_args(argv)
+
+    handoff_path = args.handoff
+    if not Path(handoff_path).exists():
+        return json_mod.dumps({
+            "handoff_path": handoff_path,
+            "handoff_date": "",
+            "handoff_title": "",
+            "candidates": [],
+            "output_version": 1,
+            "error": f"Handoff file not found: {handoff_path}",
+            "error_code": "HANDOFF_NOT_FOUND",
+        })
+
+    learnings_content = ""
+    if args.learnings:
+        learnings_path = Path(args.learnings)
+        if not learnings_path.exists():
+            import sys as _sys
+            print(
+                f"Warning: learnings file not found: {args.learnings}. "
+                "Dedup checking disabled.",
+                file=_sys.stderr,
+            )
+        else:
+            try:
+                learnings_content = learnings_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                return json_mod.dumps({
+                    "handoff_path": handoff_path,
+                    "handoff_date": "",
+                    "handoff_title": "",
+                    "candidates": [],
+                    "output_version": 1,
+                    "error": f"Failed to read learnings file: {exc}",
+                    "error_code": "LEARNINGS_UNREADABLE",
+                })
+
+    result = extract_candidates(
+        handoff_path, learnings_content,
+        extra_sections=tuple(args.include_section),
+    )
+    return json_mod.dumps(result, indent=2)
+
+
+if __name__ == "__main__":
+    print(main())
+    sys.exit(0)
