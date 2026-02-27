@@ -8,7 +8,11 @@ skill to synthesize into Phase 0 learning entries.
 
 from __future__ import annotations
 
+import hashlib
+import json as json_mod  # avoid shadowing
+import re
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -134,3 +138,117 @@ def classify_durability(heading: str, content: str) -> str:
             return "likely_durable"
 
     return "unknown"
+
+
+def _document_identity(frontmatter: dict[str, str]) -> str:
+    """Extract session_id from frontmatter as document identity.
+
+    Requires session_id — raises ValueError if absent or blank.
+    The quality_check hook reports missing session_id but cannot prevent
+    a handoff from being written without it (PostToolUse hooks always
+    exit 0). This function enforces the invariant.
+    """
+    session_id = frontmatter.get("session_id", "").strip()
+    if not session_id:
+        raise ValueError(
+            "No session_id in frontmatter. Cannot compute stable "
+            "document identity. Handoff may pre-date session_id requirement."
+        )
+    return session_id
+
+
+def compute_source_uid(
+    document_identity: str,
+    section_name: str,
+    subsection_heading: str,
+    heading_ix: int,
+) -> str:
+    """Compute deterministic source UID from location identity.
+
+    Uses heading_ix (0-based occurrence count of this heading within the
+    section) to disambiguate duplicate ### headings. Always included —
+    conditional disambiguation causes multiplicity churn when headings
+    change between unique and duplicated.
+
+    Uses canonical JSON hashing for unambiguous key composition (avoids
+    delimiter collision if components contain ':'). Format: sha256:<hex>.
+    """
+    payload = json_mod.dumps({
+        "v": 1,
+        "doc": document_identity,
+        "section": section_name,
+        "heading": subsection_heading,
+        "heading_ix": heading_ix,
+    }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def compute_content_hash(content: str) -> str:
+    """Compute normalized content hash.
+
+    Normalizes whitespace (collapse runs, strip) before hashing so that
+    formatting-only changes don't create false non-duplicates.
+    """
+    normalized = re.sub(r'\s+', ' ', content).strip()
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def make_distill_meta(
+    source_uid: str,
+    source_anchor: str,
+    content_sha256: str,
+    distilled_at: str = "",
+) -> str:
+    """Create a distill-meta HTML comment for provenance tracking.
+
+    Format: <!-- distill-meta {"v": 1, "source_uid": "...", ...} -->
+
+    The skill MUST pass a non-empty distilled_at (ISO date) at append time.
+    The script produces candidates with distilled_at="" as a placeholder;
+    the skill fills it before writing to learnings.md.
+    """
+    meta = {
+        "v": 1,
+        "source_uid": source_uid,
+        "source_anchor": source_anchor,
+        "content_sha256": content_sha256,
+        "distilled_at": distilled_at,
+    }
+    return f"<!-- distill-meta {json_mod.dumps(meta, sort_keys=True)} -->"
+
+
+_DISTILL_META_RE = re.compile(r'<!--\s*distill-meta\s+(\{.*?\})\s*-->')
+
+
+def _extract_distill_metas(learnings_content: str) -> list[dict]:
+    """Extract all distill-meta JSON payloads from HTML comments.
+
+    Only searches inside <!-- distill-meta ... --> comments to avoid
+    false positives from prose that happens to contain JSON key-value
+    patterns.
+    """
+    metas: list[dict] = []
+    for match in _DISTILL_META_RE.finditer(learnings_content):
+        try:
+            metas.append(json_mod.loads(match.group(1)))
+        except (json_mod.JSONDecodeError, ValueError):
+            continue
+    return metas
+
+
+def check_exact_dup_source(source_uid: str, learnings_content: str) -> bool:
+    """Check if source_uid already exists in learnings.md distill-meta comments."""
+    return any(
+        m.get("source_uid") == source_uid
+        for m in _extract_distill_metas(learnings_content)
+    )
+
+
+def check_exact_dup_content(content_hash: str, learnings_content: str) -> bool:
+    """Check if content_hash already exists in learnings.md distill-meta comments."""
+    return any(
+        m.get("content_sha256") == content_hash
+        for m in _extract_distill_metas(learnings_content)
+    )
