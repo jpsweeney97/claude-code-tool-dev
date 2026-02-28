@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from scripts.distill import (
@@ -582,7 +581,7 @@ class TestDistillCLI:
         finally:
             learnings.chmod(0o644)
 
-    def test_error_response_includes_warnings_key(self, tmp_path: Path) -> None:
+    def test_error_response_includes_warnings_key(self) -> None:
         """Error responses must include warnings key to prevent KeyError in callers."""
         output = distill_main(["/nonexistent/file.md"])
         result = json.loads(output)
