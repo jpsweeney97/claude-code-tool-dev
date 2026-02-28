@@ -495,6 +495,90 @@ class TestEnumCoercionWarning:
         assert any("effort" in str(x.message) and "XXL" in str(x.message) for x in w)
 
 
+class TestPriorityEffortValidation:
+    """T2: P1-9 fix — invalid priority/effort falls back to defaults."""
+
+    def test_invalid_priority_falls_back_to_medium(self) -> None:
+        import warnings
+
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "priority": "urgent",
+        }
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = render_ticket(candidate)
+        # "urgent" is not in _VALID_PRIORITIES, should fall back to "medium"
+        assert "priority: medium" in result or 'priority: "medium"' in result
+
+    def test_invalid_effort_falls_back_to_s(self) -> None:
+        import warnings
+
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "effort": "XXL",
+        }
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = render_ticket(candidate)
+        assert "effort: S" in result or 'effort: "S"' in result
+
+    def test_valid_critical_priority_preserved(self) -> None:
+        """C6 companion: 'critical' is a valid priority, must not be coerced."""
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "priority": "critical",
+        }
+        result = render_ticket(candidate)
+        assert "priority: critical" in result or 'priority: "critical"' in result
+
+    def test_all_valid_efforts_accepted(self) -> None:
+        import warnings
+
+        from scripts.defer import render_ticket
+
+        for effort in ("XS", "S", "M", "L", "XL"):
+            candidate = {
+                "id": "T-20260228-01",
+                "date": "2026-02-28",
+                "summary": "Test",
+                "problem": "P",
+                "source_text": "S",
+                "proposed_approach": "A",
+                "acceptance_criteria": ["Done"],
+                "effort": effort,
+            }
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                render_ticket(candidate)
+            effort_warns = [x for x in w if "effort" in str(x.message)]
+            assert len(effort_warns) == 0, f"Valid effort {effort!r} should not warn"
+
+
 class TestEndToEnd:
     """Integration test: write_ticket -> allocate_id -> parse_ticket round-trip."""
 
