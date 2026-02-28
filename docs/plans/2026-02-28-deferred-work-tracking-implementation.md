@@ -16,7 +16,7 @@
 
 ## Amendments (Codex Deep Review — 2026-02-28)
 
-Applied after evaluative Codex dialogue (thread `019ca324-61ae-7640-b256-5c7a86bbfb47`, 4/8 turns, converged). 19 resolved findings, 2 unresolved, 2 emerged.
+Applied after evaluative Codex dialogue (thread `019ca324-61ae-7640-b256-5c7a86bbfb47`, 4/8 turns, converged). 20 resolved findings, 2 unresolved, 2 emerged.
 
 ### P0 — Hard failures (3)
 
@@ -37,7 +37,7 @@ Applied after evaluative Codex dialogue (thread `019ca324-61ae-7640-b256-5c7a86b
 | P1-5 | 6 | Manual YAML rendering lacks escaping for values with colons | Quote all string values in YAML output with `yaml.dump` for the provenance block; quote `source_ref` |
 | P1-6 | 6 | `defer.py` batch write loop has no error handling | Wrap per-item write in try/except, return `partial_success` on partial failure |
 
-### P2 — Test gaps (5)
+### P2 — Test gaps (6)
 
 | # | Task | Finding | Fix |
 |---|------|---------|-----|
@@ -46,6 +46,7 @@ Applied after evaluative Codex dialogue (thread `019ca324-61ae-7640-b256-5c7a86b
 | P2-3 | 6 | `write_ticket()` only tested in Task 13 integration, no unit test | Add `TestWriteTicket` class in Task 6 tests |
 | P2-4 | 14 | No defer→triage round-trip integration test | Add round-trip test: `write_ticket()` → `generate_report()` → verify match |
 | P2-5 | 1 | `pyproject.toml` TOML snippet ambiguous (could create duplicate `[project]`) | Clarify: add field to existing `[project]` section |
+| P2-6 | 10,11 | SKILL.md needs structural verification (frontmatter keys, required sections) | Add verification checklist step before commit in Tasks 10 and 11 |
 
 ### P3 — Cosmetic (4)
 
@@ -63,8 +64,56 @@ Applied after evaluative Codex dialogue (thread `019ca324-61ae-7640-b256-5c7a86b
 
 ### Emerged (2)
 
-- **PyYAML date normalization as architectural pattern:** Any `yaml.safe_load` result with date-like string fields needs post-load normalization. Applies to all future YAML parsing in this plugin.
+- **PyYAML date normalization for top-level ticket fields:** Top-level string fields in ticket YAML may contain date-like values that PyYAML auto-converts to `datetime.date`. `_normalize_yaml_scalars` normalizes these back to `str`. Does not recurse into nested dicts — ticket schema only uses date-like values at top level. (P1-8 narrowed scope from original "architectural pattern" claim.)
 - **UID match reclassification:** `uid_match` is a session-level weak correlation signal, not an item-level strong match. Design doc terminology unchanged but implementation documents this.
+
+---
+
+## Amendments (Codex Adversarial Review — 2026-02-28)
+
+Applied after adversarial Codex dialogue (thread `019ca346-e54d-7c90-9727-cf23681fbb71`, 5/10 turns, converged). 16 findings (5 P1, 7 P2, 4 P3). Prerequisite: all 19 deep-review amendments above must be applied first.
+
+### P1 — Functional breakage (5)
+
+| # | Task | Finding | Fix |
+|---|------|---------|-----|
+| P1-7 | 4,6,8 | `session_matches("","")` returns `True` — false-positive uid_match when both handoff and ticket lack session_id (empty string vs None). 3-place fix required. | Guard with `if not ticket_session or not handoff_session` in `session_matches`; use truthiness check in `read_provenance`; guard empty `session_id` in `render_ticket` provenance. Add `test_empty_string_returns_false`. |
+| P1-8 | 2 | `_normalize_yaml_scalars` scope contradicts "architectural pattern" emerged claim — function normalizes top-level only but emerged text says "any yaml.safe_load result" | Narrow emerged claim to "top-level ticket fields". Add docstring caveat: "Does not recurse into nested dicts." |
+| P1-9 | 6 | `render_ticket` produces unvalidated YAML — `priority` and `effort` bypass `_quote()`, manual assembly → `parse_ticket` returns `None` → `allocate_id` silent skip → ID collision chain | Apply `_quote()` to `priority` and `effort`. Add `_VALID_PRIORITIES` and `_VALID_EFFORTS` enum sets as primary defense. Add round-trip test in Task 6. |
+| P1-10 | 9 | 30-day lookback tests all pass because `tmp_path` files have fresh mtimes — exclusion path completely untested | Add `test_excludes_old_files` that sets mtime to 31 days ago via `os.utime()`. |
+| P1-11 | 8 | `handoff-\w+` regex misses hyphenated IDs — `handoff-quality-hook` matched as `handoff-quality`, item falls to `manual_review` | Change pattern to `handoff-[\w-]+`. Add `test_hyphenated_handoff_id_match`. |
+
+### P2 — Correctness/quality gaps (7)
+
+| # | Task | Finding | Fix |
+|---|------|---------|-----|
+| P2-6 | 10,11 | SKILL.md structural verification step referenced as "P2-6" in Tasks 10/11 but no P2-6 entry in deep-review amendments table | Add formal P2-6 entry to deep-review P2 table (doc fix). |
+| P2-7 | 8 | `next(iter(matched))` set iteration non-deterministic — violates deterministic-scripts architecture | Replace with `sorted(matched)[0]` for alphabetic determinism. |
+| P2-8 | 9 | P2-2 test uses `>= 1` assertion — masks empty-string false positives; should assert exact expected values for deterministic fixture | Tighten to exact counts: `uid_match == 5`, `id_ref == 0`, `manual_review == 0` for the test fixture. |
+| P2-9 | 6 | `render_ticket` writes empty backtick pairs (`Branch: \`\`. Session: \`\`.`) for empty values — misleading display | Guard: omit `Branch:`/`Session:` lines when values are empty. |
+| P2-10 | 8 | `uid_match` selection non-deterministic with multiple tickets sharing session — unsorted glob + first-hit return | Sort glob in `_load_tickets_for_matching` by path for deterministic iteration. |
+| P2-11 | 6 | `allocate_id` silently skips malformed tickets — can produce duplicate sequence numbers | Add `warnings.warn()` when `parse_ticket` returns `None` during ID allocation scan. |
+| P2-12 | 3 | Effort format — design says `XS\|S\|M\|L\|XL` enum but `validate_schema` only checks `str` type | Deferred — add format validation in follow-up. Document gap in `validate_schema` docstring. |
+
+### P3 — Low-risk (4)
+
+| # | Task | Finding | Fix |
+|---|------|---------|-----|
+| P3-5 | 8 | `T-[A-F]` regex upper bound covers only current legacy scope (A–F), not future extensions | Deferred — current corpus uses A-F only. Add inline comment documenting the bound. |
+| P3-6 | 9 | `generate_report` parses ticket files twice per triage run (`read_open_tickets` + `_load_tickets_for_matching`) | Deferred — correctness unaffected. Add comment noting optimization opportunity. |
+| P3-7 | 7 | `read_open_tickets` uses `path.stem` as summary instead of ticket title from frontmatter | Deferred — summary is presentational, not used in matching. |
+| P3-8 | 4 | `render_defer_meta` regex `{.*?}` (non-greedy) would truncate if JSON payload contains `-->` | Deferred — `source_ref` values are human text (e.g., "PR #29"), extremely unlikely to contain `-->`. |
+
+### Unresolved (3)
+
+- **Recursive normalization scope:** Should `_normalize_yaml_scalars` recurse into nested dicts (future-proofing) or should the scope be top-level only? Narrowed to top-level for now (P1-8). Revisit if provenance subdict ever contains date-like values.
+- **YAML rendering strategy:** Should `render_ticket` switch to `yaml.dump()` for the entire YAML block vs. fixing `_quote()` coverage? Manual assembly with expanded `_quote()` chosen (P1-9). `yaml.dump` would be safer but changes output format.
+- **F15 timing:** `allocate_id` silent skip is P2-11 with `warnings.warn()`. May be promoted to fix-now if warning proves insufficient.
+
+### Emerged (2)
+
+- **3-place session_matches hardening:** Empty-string false positives propagate through `render_ticket` → `read_provenance` → `session_matches`. All three must guard falsy values, not just `None`. Guard pattern: `if not value` (catches both `None` and `""`), not `value is None`.
+- **Test coverage meta-finding:** Only 6-8 of ~77 planned tests are high-signal for amended behavior. Fix-now amendments add ~10 targeted tests to close this gap.
 
 ---
 
@@ -336,7 +385,10 @@ def _normalize_yaml_scalars(data: dict[str, Any]) -> dict[str, Any]:
     """Normalize yaml.safe_load auto-conversions back to strings.
 
     PyYAML converts unquoted date-like values (e.g., 2026-02-28) to
-    datetime.date objects. This normalizes known string fields back to str.
+    datetime.date objects. This normalizes top-level string fields back to str.
+
+    Note: Does not recurse into nested dicts (e.g., provenance subdict).
+    Ticket schema only uses date-like values at top level. (P1-8)
     """
     import datetime
 
@@ -729,6 +781,14 @@ class TestSessionMatch:
 
         assert not session_matches(None, "5136e38e-efc5-403f-ad5e-49516f47884b")
         assert not session_matches("5136e38e-efc5-403f-ad5e-49516f47884b", None)
+
+    def test_empty_string_returns_false(self) -> None:
+        """P1-7 fix: empty strings must not match each other."""
+        from scripts.provenance import session_matches
+
+        assert not session_matches("", "")
+        assert not session_matches("", "5136e38e-efc5-403f-ad5e-49516f47884b")
+        assert not session_matches("5136e38e-efc5-403f-ad5e-49516f47884b", "")
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -801,7 +861,8 @@ def read_provenance(
     indicating where data came from ('yaml' or 'comment').
     Returns None if no provenance found.
     """
-    if provenance_yaml and "source_session" in provenance_yaml:
+    # P1-7 fix: truthiness check — guard both None and empty string
+    if provenance_yaml and provenance_yaml.get("source_session"):
         return {**provenance_yaml, "source": "yaml"}
 
     comment_data = parse_defer_meta(body_text)
@@ -818,8 +879,10 @@ def session_matches(
     """Check if a ticket's source_session matches a handoff's session_id.
 
     Full UUID comparison — no truncation.
+    P1-7 fix: guard both None AND empty string to prevent false-positive
+    uid_match when neither side has a session_id.
     """
-    if ticket_session is None or handoff_session is None:
+    if not ticket_session or not handoff_session:
         return False
     return ticket_session == handoff_session
 ```
@@ -1145,9 +1208,11 @@ def allocate_id(date_str: str, tickets_dir: Path) -> str:
     max_seq = 0
 
     if tickets_dir.exists():
-        for path in tickets_dir.glob("*.md"):
+        for path in sorted(tickets_dir.glob("*.md")):  # P2-10: deterministic order
             ticket = parse_ticket(path)
             if ticket is None:
+                import warnings
+                warnings.warn(f"Skipping malformed ticket: {path}", stacklevel=2)  # P2-11
                 continue
             tid = ticket.frontmatter.get("id", "")
             m = _DATE_ID_RE.match(str(tid))
@@ -1173,6 +1238,10 @@ def filename_slug(ticket_id: str, summary: str) -> str:
     return f"{date_part}-{ticket_id}-{slug}.md"
 
 
+_VALID_PRIORITIES = {"low", "medium", "high", "critical"}  # P1-9
+_VALID_EFFORTS = {"XS", "S", "M", "L", "XL"}  # P1-9
+
+
 def render_ticket(candidate: dict[str, Any]) -> str:
     """Render a ticket markdown file from a candidate dict."""
     tid = candidate["id"]
@@ -1189,6 +1258,12 @@ def render_ticket(candidate: dict[str, Any]) -> str:
     session_id = candidate.get("session_id", "")
     effort = candidate.get("effort", "S")
     files = candidate.get("files", [])
+
+    # P1-9 fix: validate enum values before rendering
+    if priority not in _VALID_PRIORITIES:
+        priority = "medium"
+    if effort not in _VALID_EFFORTS:
+        effort = "S"
 
     def _quote(val: str) -> str:
         """Quote a YAML string value if it contains special characters.
@@ -1208,13 +1283,13 @@ def render_ticket(candidate: dict[str, Any]) -> str:
         f"id: {tid}",
         f"date: \"{date}\"",
         "status: deferred",
-        f"priority: {priority}",
+        f"priority: {_quote(priority)}",  # P1-9 fix: quote to prevent invalid YAML
         f"source_type: {_quote(source_type)}",
         f"source_ref: {_quote(source_ref)}",
         f"branch: {_quote(branch)}",
         "blocked_by: []",
         "blocks: []",
-        f"effort: {effort}",
+        f"effort: {_quote(effort)}",  # P1-9 fix: quote to prevent invalid YAML
     ]
 
     if files:
@@ -1223,7 +1298,11 @@ def render_ticket(candidate: dict[str, Any]) -> str:
             yaml_lines.append(f"  - {_quote(f)}")
 
     yaml_lines.append("provenance:")
-    yaml_lines.append(f'  source_session: "{session_id}"')
+    # P1-7 fix: write null instead of empty string for session_id
+    if session_id:
+        yaml_lines.append(f'  source_session: "{session_id}"')
+    else:
+        yaml_lines.append("  source_session: ~")
     yaml_lines.append(f"  source_type: {_quote(source_type)}")
     yaml_lines.append("  created_by: defer-skill")
 
@@ -1232,6 +1311,14 @@ def render_ticket(candidate: dict[str, Any]) -> str:
     # Build body sections
     criteria_lines = "\n".join(f"- [ ] {c}" for c in criteria)
     meta_comment = render_defer_meta(session_id, source_type, source_ref)
+
+    # P2-9 fix: omit empty Branch:/Session: lines instead of rendering empty backticks
+    source_suffix_parts: list[str] = []
+    if branch:
+        source_suffix_parts.append(f"Branch: `{branch}`.")
+    if session_id:
+        source_suffix_parts.append(f"Session: `{session_id}`.")
+    source_suffix = " ".join(source_suffix_parts)
 
     return f"""\
 # {tid}: {summary}
@@ -1247,7 +1334,7 @@ def render_ticket(candidate: dict[str, Any]) -> str:
 ## Source
 
 {source_text}
-Branch: `{branch}`. Session: `{session_id}`.
+{source_suffix}
 
 ## Proposed Approach
 
@@ -1788,6 +1875,26 @@ class TestMatchOrphans:
         assert result["match_type"] == "id_ref"
 
 
+    def test_hyphenated_handoff_id_match(self, tmp_path: Path) -> None:
+        """P1-11 fix: handoff-quality-hook should match, not truncate to handoff-quality."""
+        from scripts.triage import match_orphan_item
+
+        # Create a ticket with a hyphenated handoff-style ID
+        handoff_ticket = TICKET_DEFERRED.replace("T-20260228-01", "handoff-quality-hook")
+        (tmp_path / "hqh.md").write_text(handoff_ticket)
+        tickets = _load_all_tickets(tmp_path)
+
+        item = {
+            "text": "handoff-quality-hook needs review",
+            "section": "Open Questions",
+            "session_id": "no-match",
+            "handoff": "test.md",
+        }
+        result = match_orphan_item(item, tickets)
+        assert result["match_type"] == "id_ref"
+        assert result["matched_ticket"] == "handoff-quality-hook"
+
+
 def _load_all_tickets(tickets_dir: Path) -> list[dict]:
     """Helper to load all tickets for matching tests."""
     from scripts.triage import _load_tickets_for_matching
@@ -1810,8 +1917,8 @@ import re
 _TICKET_ID_PATTERNS = [
     r"T-\d{8}-\d{2}",      # new: T-20260228-01
     r"T-\d{3}",             # legacy numeric: T-004
-    r"T-[A-F]",             # legacy alpha: T-A
-    r"handoff-\w+",         # legacy noun: handoff-distill
+    r"T-[A-F]",             # legacy alpha: T-A (P3-5: covers current A-F corpus only)
+    r"handoff-[\w-]+",      # P1-11 fix: legacy noun — supports hyphens (handoff-quality-hook)
 ]
 _TICKET_ID_RE = re.compile(r"\b(?:" + "|".join(_TICKET_ID_PATTERNS) + r")\b")
 
@@ -1884,7 +1991,7 @@ def _load_tickets_for_matching(tickets_dir: Path) -> list[dict[str, Any]]:
     if not tickets_dir.exists():
         return results
 
-    for path in tickets_dir.glob("*.md"):
+    for path in sorted(tickets_dir.glob("*.md")):  # P2-10 fix: deterministic iteration order
         ticket = parse_ticket(path)
         if ticket is None:
             continue
@@ -1928,7 +2035,7 @@ def match_orphan_item(
     if matched:
         return {
             "match_type": "id_ref",
-            "matched_ticket": next(iter(matched)),
+            "matched_ticket": sorted(matched)[0],  # P2-7 fix: deterministic alphabetic order
             "item": item,
         }
 
@@ -2002,10 +2109,12 @@ class TestGenerateReport:
 
         report = generate_report(tickets_dir, handoffs_dir)
         counts = report["match_counts"]
-        # HANDOFF_WITH_OPEN_QUESTIONS has session_id matching TICKET_WITH_PROVENANCE
-        # → all 5 items get uid_match (session-level, P1-2)
-        # Items referencing T-20260228-01 and T-004 match by id_ref but uid_match takes priority
-        assert counts["uid_match"] >= 1, "Should have at least 1 uid_match from session correlation"
+        # HANDOFF_WITH_OPEN_QUESTIONS has 5 items (3 Open Questions + 2 Risks)
+        # Session_id matches TICKET_WITH_PROVENANCE → all 5 items get uid_match
+        # P2-8 fix: exact counts for deterministic fixture, not >= 1
+        assert counts["uid_match"] == 5, "All 5 items should uid_match via session correlation"
+        assert counts["id_ref"] == 0, "uid_match takes priority over id_ref"
+        assert counts["manual_review"] == 0, "All items matched via uid_match"
         # P1-1: orphaned_items only contains manual_review items
         assert len(report["orphaned_items"]) == counts["manual_review"]
         # matched_items contains uid_match + id_ref
@@ -2033,6 +2142,28 @@ class TestGenerateReport:
         report = generate_report(tickets_dir, handoffs_dir)
         # Should find items from archived handoff (all manual_review since no matching tickets)
         assert len(report["orphaned_items"]) > 0
+
+    def test_excludes_old_files(self, tmp_path: Path) -> None:
+        """P1-10 fix: files older than 30 days should be excluded by mtime filter."""
+        import os
+        import time
+
+        from scripts.triage import generate_report
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+        old_file = handoffs_dir / "old.md"
+        old_file.write_text(HANDOFF_WITH_OPEN_QUESTIONS)
+
+        # Set mtime to 31 days ago
+        old_mtime = time.time() - (31 * 86400)
+        os.utime(old_file, (old_mtime, old_mtime))
+
+        report = generate_report(tickets_dir, handoffs_dir)
+        assert len(report["orphaned_items"]) == 0, "Files older than 30 days should be excluded"
 
 
 class TestMain:
@@ -2102,6 +2233,9 @@ def generate_report(
 
     P1-1 fix: orphaned_items contains only manual_review items.
     Matched items (uid_match, id_ref) go to matched_items.
+
+    Note: read_open_tickets and _load_tickets_for_matching both scan tickets_dir,
+    parsing each file twice. Acceptable for current corpus size. (P3-6)
     """
     open_tickets = read_open_tickets(tickets_dir)
     tickets_for_matching = _load_tickets_for_matching(tickets_dir)
@@ -2385,20 +2519,22 @@ git commit -m "test(handoff): add end-to-end integration test for triage pipelin
 | Task | Component | Tests | Files | Amendments |
 |------|-----------|-------|-------|------------|
 | 1 | Setup + PyYAML | 0 | 2 | P2-5 |
-| 2 | ticket_parsing — extraction | ~9 | 2 | P0-3, P3-1 |
-| 3 | ticket_parsing — validation + TicketFile | ~12 | 2 | P0-3 (cascade) |
-| 4 | provenance — parsing + dual-read | ~10 | 2 | P3-2 |
+| 2 | ticket_parsing — extraction | ~9 | 2 | P0-3, P3-1, P1-8 |
+| 3 | ticket_parsing — validation + TicketFile | ~12 | 2 | P0-3 (cascade), P2-12 |
+| 4 | provenance — parsing + dual-read | ~11 | 2 | P3-2, P1-7 |
 | 5 | project_paths — get_archive_dir | 2 | 2 | — |
-| 6 | defer — ID allocation + rendering | ~15 | 2 | P1-5, P1-6, P2-1, P2-3 |
-| 7 | triage — reading + normalization | ~10 | 2 | — |
-| 8 | triage — scanning + orphan detection | ~10 | 2 | P0-1, P0-2, P1-2, P1-4, P3-4 |
-| 9 | triage — report + CLI | ~6 | 2 | P1-1, P1-3, P1-4, P2-2 |
+| 6 | defer — ID allocation + rendering | ~17 | 2 | P1-5, P1-6, P2-1, P2-3, P1-9, P2-9, P2-11 |
+| 7 | triage — reading + normalization | ~10 | 2 | P3-7 |
+| 8 | triage — scanning + orphan detection | ~12 | 2 | P0-1, P0-2, P1-2, P1-4, P3-4, P1-11, P2-7, P2-10, P3-5 |
+| 9 | triage — report + CLI | ~8 | 2 | P1-1, P1-3, P1-4, P2-2, P1-10, P2-8, P3-6 |
 | 10 | /defer SKILL.md | 0 | 1 | P2-6 |
 | 11 | /triage SKILL.md | 0 | 1 | P2-6 |
 | 12 | Plugin integration | 0 | 4 | — |
 | 13 | Integration test — defer | ~1 | 1 | — |
 | 14 | Integration test — triage | ~2 | 1 | P2-4 |
 
-**Total:** ~77 new tests across 4 new scripts, 2 new skills, 1 modified utility.
+**Total:** ~84 new tests across 4 new scripts, 2 new skills, 1 modified utility.
 
-**Codex deep review:** 19 findings addressed (3 P0, 6 P1, 5 P2, 4 P3). Thread `019ca324-61ae-7640-b256-5c7a86bbfb47`.
+**Codex deep review:** 19 findings addressed (3 P0, 6 P1, 6 P2, 4 P3). Thread `019ca324-61ae-7640-b256-5c7a86bbfb47`.
+
+**Codex adversarial review:** 16 findings addressed (5 P1, 7 P2, 4 P3). Thread `019ca346-e54d-7c90-9727-cf23681fbb71`. Fix-now gate: 9 items (P1-7, P1-8, P1-9, P1-10, P1-11, P2-7, P2-8, P2-9, P2-10). Deferred: P2-12, P3-5, P3-6, P3-7, P3-8.
