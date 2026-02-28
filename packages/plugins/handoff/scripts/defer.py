@@ -28,6 +28,9 @@ def allocate_id(date_str: str, tickets_dir: Path) -> str:
 
     Scans all .md files in tickets_dir, parses their YAML to extract id fields,
     finds the highest sequence number for the date, and returns the next one.
+
+    Not concurrency-safe: assumes single-writer access to tickets_dir.
+    Concurrent calls for the same date may produce duplicate IDs.
     """
     date_compact = date_str.replace("-", "")
     max_seq = 0

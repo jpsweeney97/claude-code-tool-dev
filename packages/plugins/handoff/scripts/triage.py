@@ -16,14 +16,14 @@ from typing import Any
 try:
     from scripts.ticket_parsing import parse_ticket
     from scripts.provenance import read_provenance, session_matches
-    from scripts.handoff_parsing import parse_frontmatter, parse_sections
-    from scripts.project_paths import get_handoffs_dir, get_archive_dir
+    from scripts.handoff_parsing import parse_frontmatter, parse_sections, section_name
+    from scripts.project_paths import get_handoffs_dir
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from scripts.ticket_parsing import parse_ticket  # type: ignore[no-redef]
     from scripts.provenance import read_provenance, session_matches  # type: ignore[no-redef]
-    from scripts.handoff_parsing import parse_frontmatter, parse_sections  # type: ignore[no-redef]
-    from scripts.project_paths import get_handoffs_dir, get_archive_dir  # type: ignore[no-redef]
+    from scripts.handoff_parsing import parse_frontmatter, parse_sections, section_name  # type: ignore[no-redef]
+    from scripts.project_paths import get_handoffs_dir  # type: ignore[no-redef]
 
 # 6-state enum
 _CANONICAL_STATUSES = {"deferred", "open", "in_progress", "blocked", "done", "wontfix"}
@@ -98,16 +98,6 @@ _TICKET_ID_RE = re.compile(r"\b(?:" + "|".join(_TICKET_ID_PATTERNS) + r")\b")
 _LIST_ITEM_RE = re.compile(r"^[-*]\s+(.+)$|^(\d+)\.\s+(.+)$", re.MULTILINE)
 
 
-def _section_name(heading: str) -> str:
-    """Strip the '## ' prefix from a section heading.
-
-    parse_sections stores headings as '## Open Questions' (with prefix).
-    Matches the pattern in distill.py:_section_name.
-    """
-    if heading.startswith("## "):
-        return heading[3:].strip()
-    return heading.strip()
-
 
 def extract_handoff_items(
     handoff_text: str, handoff_filename: str
@@ -136,7 +126,7 @@ def extract_handoff_items(
     skipped_prose_count = 0
     for section in sections:
         # P0-2 fix: strip '## ' prefix before comparison
-        name = _section_name(section.heading)
+        name = section_name(section.heading)
         if name not in target_sections:
             continue
         for line in section.content.strip().splitlines():
