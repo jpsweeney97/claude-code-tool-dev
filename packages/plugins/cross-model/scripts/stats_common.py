@@ -57,9 +57,9 @@ def parse_period_days(value: str) -> int:
 def parse_ts_utc(ts_string: str) -> datetime | None:
     """Parse an ISO 8601 UTC timestamp string to a datetime.
 
-    Handles both formats present in the event log:
-    - emit_analytics: "%Y-%m-%dT%H:%M:%SZ" (second precision)
-    - codex_guard: ".isoformat().replace('+00:00','Z')" (microsecond precision)
+    Handles ISO 8601 timestamps with or without microseconds, trailing Z
+    stripped before parsing. Rejects non-UTC offset timestamps (e.g.
+    "+05:00") — returns None rather than silently re-labeling.
 
     Returns None for unparseable timestamps (matches skip-malformed pattern).
     Returns timezone-aware UTC datetimes with full precision preserved.
@@ -69,6 +69,9 @@ def parse_ts_utc(ts_string: str) -> datetime | None:
     try:
         cleaned = ts_string.rstrip("Z")
         dt = datetime.fromisoformat(cleaned)
+        # Reject non-UTC offsets rather than silently re-labeling
+        if dt.tzinfo is not None and dt.tzinfo.utcoffset(None) != timedelta(0):
+            return None
         return dt.replace(tzinfo=timezone.utc)
     except (ValueError, TypeError):
         return None
@@ -128,12 +131,12 @@ def filter_by_period(
 # ---------------------------------------------------------------------------
 
 
-def parse_security_tier(reason: str) -> str:
+def parse_security_tier(reason: object) -> str:
     """Extract security tier from a block reason string.
 
-    "strict:<pattern>" -> "strict"; "" or missing -> "unknown".
+    "strict:<pattern>" -> "strict"; "" or missing or non-string -> "unknown".
     """
-    if not reason:
+    if not isinstance(reason, str) or not reason:
         return "unknown"
     colon_idx = reason.find(":")
     if colon_idx > 0:
@@ -230,8 +233,8 @@ def aggregate_low_seed_reasons(events: list[dict]) -> dict:
             no_reason_count += 1
             continue
 
-        # Per-event dedup: unique reasons only
-        unique_reasons = set(reasons)
+        # Per-event dedup: skip non-string entries (unhashable dicts, etc.)
+        unique_reasons = set(r for r in reasons if isinstance(r, str))
         if not unique_reasons:
             no_reason_count += 1
             continue

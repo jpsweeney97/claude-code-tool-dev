@@ -28,7 +28,7 @@ MODULE_PATH = (
 )
 SPEC = importlib.util.spec_from_file_location("stats_common", MODULE_PATH)
 MODULE = importlib.util.module_from_spec(SPEC)
-sys.modules["stats_common"] = MODULE  # required for @dataclass introspection
+sys.modules["stats_common"] = MODULE  # register so downstream imports resolve to this instance
 SPEC.loader.exec_module(MODULE)
 
 
@@ -114,6 +114,17 @@ class TestParseTsUtc:
 
     def test_non_string_returns_none(self) -> None:
         assert MODULE.parse_ts_utc(12345) is None
+
+    def test_non_utc_offset_returns_none(self) -> None:
+        """Non-UTC offset timestamps are rejected, not silently re-labeled."""
+        assert MODULE.parse_ts_utc("2026-02-27T12:00:00+05:00") is None
+
+    def test_explicit_utc_offset_accepted(self) -> None:
+        """Explicit +00:00 offset is accepted as UTC."""
+        result = MODULE.parse_ts_utc("2026-02-27T12:00:00+00:00")
+        assert result is not None
+        assert result.hour == 12
+        assert result.tzinfo == timezone.utc
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +226,15 @@ class TestParseSecurityTier:
 
     def test_no_colon_returns_full_string(self) -> None:
         assert MODULE.parse_security_tier("something") == "something"
+
+    def test_non_string_returns_unknown(self) -> None:
+        assert MODULE.parse_security_tier(42) == "unknown"
+
+    def test_none_returns_unknown(self) -> None:
+        assert MODULE.parse_security_tier(None) == "unknown"
+
+    def test_list_returns_unknown(self) -> None:
+        assert MODULE.parse_security_tier(["strict:pat"]) == "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +381,30 @@ class TestAggregateLowSeedReasons:
         """Low-seed event with empty reasons list increments no_reason_count."""
         events = [
             {"seed_confidence": "low", "low_seed_confidence_reasons": []},
+        ]
+        result = MODULE.aggregate_low_seed_reasons(events)
+        assert result["event_count"] == 1
+        assert result["no_reason_count"] == 1
+
+    def test_unhashable_reasons_skipped(self) -> None:
+        """Non-string entries (e.g. dicts) in reasons are filtered out."""
+        events = [
+            {
+                "seed_confidence": "low",
+                "low_seed_confidence_reasons": [{"nested": "dict"}, "valid_reason"],
+            },
+        ]
+        result = MODULE.aggregate_low_seed_reasons(events)
+        assert result["reason_counts"] == {"valid_reason": 1}
+        assert result["mentions_total"] == 1
+
+    def test_all_unhashable_reasons_counts_as_no_reason(self) -> None:
+        """If all reasons are non-string, event counts as no_reason."""
+        events = [
+            {
+                "seed_confidence": "low",
+                "low_seed_confidence_reasons": [{"nested": "dict"}, 42],
+            },
         ]
         result = MODULE.aggregate_low_seed_reasons(events)
         assert result["event_count"] == 1

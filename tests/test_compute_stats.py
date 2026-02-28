@@ -534,6 +534,7 @@ class TestCompute:
             "malformed_lines_skipped",
             "invalid_events_count",
             "timestamp_parse_failed_count",
+            "unclassified_event_count",
             "timezone",
         }
         result = MODULE.compute([], 0, 0, "all")
@@ -563,6 +564,55 @@ class TestCompute:
         assert result["security"]["block_count"] == 1
         assert result["meta"]["malformed_lines_skipped"] == 2
         assert result["meta"]["total_events_read"] == 6
+
+    def test_end_to_end_with_period_filtering(self) -> None:
+        """Full compute with period_days > 0 filters events by time window."""
+        in_window = _make_dialogue(ts="2026-02-27T12:00:00Z", converged=True, turn_count=4)
+        out_of_window = _make_dialogue(ts="2020-01-01T00:00:00Z", converged=True, turn_count=8)
+        block_in = _make_block(ts="2026-02-27T11:00:00Z")
+        events = [in_window, out_of_window, block_in]
+        result = MODULE.compute(events, 0, 7, "all")
+        assert result["usage"]["dialogues_completed_total"] == 1
+        assert result["security"]["block_count"] == 1
+        assert result["window_start"] != ""
+        assert result["window_end"] != ""
+
+    def test_unknown_event_type_counted_in_meta(self) -> None:
+        """Events with unrecognized types are counted in meta.unclassified_event_count."""
+        events = [
+            _make_dialogue(),
+            {"event": "future_type", "ts": "2026-02-15T12:00:00Z"},
+        ]
+        result = MODULE.compute(events, 0, 0, "all")
+        assert result["meta"]["unclassified_event_count"] == 1
+        assert result["usage"]["dialogues_completed_total"] == 1
+
+    def test_invalid_events_excluded_from_pipeline(self) -> None:
+        """Invalid events are excluded from metrics AND counted in meta."""
+        valid = _make_dialogue(converged=True)
+        invalid = {"event": "dialogue_outcome", "ts": "2026-02-15T12:00:00Z"}
+        result = MODULE.compute([valid, invalid], 0, 0, "all")
+        assert result["usage"]["dialogues_completed_total"] == 1
+        assert result["meta"]["invalid_events_count"] == 1
+
+    def test_templates_not_mutated_by_computation(self) -> None:
+        """Section computation must not mutate the module-level templates."""
+        events = [_make_dialogue(), _make_block(), _make_shadow(), _make_raw_call()]
+        MODULE.compute(events, 0, 0, "all")
+        assert MODULE._USAGE_TEMPLATE["included"] is False
+        assert MODULE._DIALOGUE_TEMPLATE["included"] is False
+        assert MODULE._CONTEXT_TEMPLATE["included"] is False
+        assert MODULE._SECURITY_TEMPLATE["included"] is False
+
+    def test_timestamp_parse_failed_consistent_across_modes(self) -> None:
+        """timestamp_parse_failed_count is the same for period=0 and period>0."""
+        bad_ts_dialogue = _make_dialogue(ts="garbage")
+        good_dialogue = _make_dialogue(ts="2026-02-27T12:00:00Z")
+        events = [bad_ts_dialogue, good_dialogue]
+        result_all = MODULE.compute(events, 0, 0, "all")
+        result_period = MODULE.compute(events, 0, 7, "all")
+        assert result_all["meta"]["timestamp_parse_failed_count"] == 1
+        assert result_period["meta"]["timestamp_parse_failed_count"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -633,78 +683,59 @@ class TestValidation:
 class TestCLI:
     """Tests for the main() CLI entry point."""
 
-    def test_main_with_valid_file(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_main_with_valid_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
         """main() reads a JSONL file and prints JSON output."""
         event_file = tmp_path / "events.jsonl"
         event_file.write_text(json.dumps(_make_dialogue()) + "\n")
+        monkeypatch.setattr(sys, "argv", ["compute_stats", str(event_file), "--period", "0", "--type", "all"])
 
-        original_argv = sys.argv
-        try:
-            sys.argv = ["compute_stats", str(event_file), "--period", "0", "--type", "all"]
-            MODULE.main()
-        finally:
-            sys.argv = original_argv
+        MODULE.main()
 
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["report_version"] == "1.0.0"
         assert output["usage"]["dialogues_completed_total"] == 1
 
-    def test_main_missing_file_produces_empty_report(self, tmp_path: Path, capsys) -> None:
+    def test_main_missing_file_produces_empty_report(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
         """main() produces an empty report for a missing file (read_all returns ([], 0))."""
         missing = tmp_path / "nonexistent.jsonl"
-        original_argv = sys.argv
-        try:
-            sys.argv = ["compute_stats", str(missing), "--period", "0"]
-            MODULE.main()
-        finally:
-            sys.argv = original_argv
+        monkeypatch.setattr(sys, "argv", ["compute_stats", str(missing), "--period", "0"])
+
+        MODULE.main()
 
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["meta"]["total_events_read"] == 0
         assert output["meta"]["malformed_lines_skipped"] == 0
 
-    def test_main_invalid_period_exits_2(self, tmp_path: Path) -> None:
+    def test_main_invalid_period_exits_2(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """main() exits with code 2 for invalid --period."""
         event_file = tmp_path / "events.jsonl"
         event_file.write_text(json.dumps(_make_dialogue()) + "\n")
+        monkeypatch.setattr(sys, "argv", ["compute_stats", str(event_file), "--period", "bad"])
 
-        original_argv = sys.argv
-        try:
-            sys.argv = ["compute_stats", str(event_file), "--period", "bad"]
-            with pytest.raises(SystemExit) as exc_info:
-                MODULE.main()
-            assert exc_info.value.code == 2
-        finally:
-            sys.argv = original_argv
+        with pytest.raises(SystemExit) as exc_info:
+            MODULE.main()
+        assert exc_info.value.code == 2
 
     def test_main_default_path_used(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
         """main() uses default path when none is provided."""
-        # Patch read_all to return empty events without touching the filesystem
         monkeypatch.setattr(_re_mod, "read_all", lambda path: ([], 0))
-        original_argv = sys.argv
-        try:
-            sys.argv = ["compute_stats", "--period", "0"]
-            MODULE.main()
-        finally:
-            sys.argv = original_argv
+        monkeypatch.setattr(sys, "argv", ["compute_stats", "--period", "0"])
+
+        MODULE.main()
 
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["report_version"] == "1.0.0"
 
-    def test_main_type_flag(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_main_type_flag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
         """main() respects --type flag for section inclusion."""
         event_file = tmp_path / "events.jsonl"
         event_file.write_text(json.dumps(_make_dialogue()) + "\n")
+        monkeypatch.setattr(sys, "argv", ["compute_stats", str(event_file), "--period", "0", "--type", "security"])
 
-        original_argv = sys.argv
-        try:
-            sys.argv = ["compute_stats", str(event_file), "--period", "0", "--type", "security"]
-            MODULE.main()
-        finally:
-            sys.argv = original_argv
+        MODULE.main()
 
         captured = capsys.readouterr()
         output = json.loads(captured.out)

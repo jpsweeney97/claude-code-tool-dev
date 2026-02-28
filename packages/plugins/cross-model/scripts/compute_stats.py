@@ -13,7 +13,7 @@ Usage as library:
     from compute_stats import compute
 
 Usage as script:
-    python3 compute_stats.py [--period 30] [--type all] [--json] [path]
+    python3 compute_stats.py [--period 30] [--type all] [path]
 """
 
 from __future__ import annotations
@@ -22,7 +22,8 @@ import copy
 import json
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Literal
 from pathlib import Path
 
 try:
@@ -35,8 +36,8 @@ except ModuleNotFoundError:
 
 
 # ---------------------------------------------------------------------------
-# Template dicts — frozen shape definitions for each report section.
-# Deep-copied before use; never mutated in place.
+# Template dicts — canonical shapes for each report section.
+# Deep-copied before use; callers must not mutate these directly.
 # ---------------------------------------------------------------------------
 
 _USAGE_TEMPLATE: dict = {
@@ -333,11 +334,14 @@ def _validate_events(events: list[dict]) -> tuple[list[dict], int]:
 # ---------------------------------------------------------------------------
 
 
+_SECTION_TYPE = Literal["all", "dialogue", "consultation", "security"]
+
+
 def compute(
     events: list[dict],
     skipped_count: int,
     period_days: int,
-    section_type: str,
+    section_type: _SECTION_TYPE,
 ) -> dict:
     """Compute analytics report from raw events.
 
@@ -363,12 +367,19 @@ def compute(
     # 1. Validation gate
     valid_events, invalid_count = _validate_events(events)
 
-    # 2. Classify events by type
+    # 2. Count unparseable timestamps (consistent regardless of period_days)
+    timestamp_parse_failed = sum(
+        1 for event in valid_events
+        if stats_common.parse_ts_utc(event.get("ts", "")) is None
+    )
+
+    # 3. Classify events by type
     dialogue_outcomes: list[dict] = []
     consultation_outcomes: list[dict] = []
     consultations: list[dict] = []
     blocks: list[dict] = []
     shadows: list[dict] = []
+    unclassified_count = 0
 
     for event in valid_events:
         event_type = read_events.classify(event)
@@ -382,40 +393,31 @@ def compute(
             blocks.append(event)
         elif event_type == "shadow":
             shadows.append(event)
-        # unknown types silently dropped
+        else:
+            unclassified_count += 1
 
-    # 3. Filter by period with shared `now` for consistent boundaries
+    # 4. Filter by period with shared `now` for consistent boundaries
     now = datetime.now(timezone.utc)
 
-    do_result = stats_common.filter_by_period(dialogue_outcomes, period_days, now)
-    co_result = stats_common.filter_by_period(consultation_outcomes, period_days, now)
-    cn_result = stats_common.filter_by_period(consultations, period_days, now)
-    bl_result = stats_common.filter_by_period(blocks, period_days, now)
-    sh_result = stats_common.filter_by_period(shadows, period_days, now)
+    dialogue_outcomes = stats_common.filter_by_period(dialogue_outcomes, period_days, now).events
+    consultation_outcomes = stats_common.filter_by_period(consultation_outcomes, period_days, now).events
+    consultations = stats_common.filter_by_period(consultations, period_days, now).events
+    blocks = stats_common.filter_by_period(blocks, period_days, now).events
+    shadows = stats_common.filter_by_period(shadows, period_days, now).events
 
-    dialogue_outcomes = do_result.events
-    consultation_outcomes = co_result.events
-    consultations = cn_result.events
-    blocks = bl_result.events
-    shadows = sh_result.events
-
-    timestamp_parse_failed = (
-        do_result.skipped
-        + co_result.skipped
-        + cn_result.skipped
-        + bl_result.skipped
-        + sh_result.skipped
-    )
-
-    # 4. Precompute shared counts
+    # 5. Precompute shared counts
     invocations_completed_total = len(dialogue_outcomes) + len(consultation_outcomes)
 
-    # 5. Determine window boundaries from filter results
-    # Use the first non-empty result for window start/end (all share the same `now`)
-    window_start = do_result.window_start or co_result.window_start or cn_result.window_start or bl_result.window_start or sh_result.window_start
-    window_end = do_result.window_end or co_result.window_end or cn_result.window_end or bl_result.window_end or sh_result.window_end
+    # 6. Compute window boundaries directly (all filter calls share same now/period_days)
+    if period_days > 0:
+        start = now - timedelta(days=period_days)
+        window_start = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        window_end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        window_start = ""
+        window_end = ""
 
-    # 6. Apply section inclusion matrix
+    # 7. Apply section inclusion matrix
     matrix = _SECTION_MATRIX[section_type]
 
     if matrix["usage"]:
@@ -442,7 +444,7 @@ def compute(
     else:
         security_section = copy.deepcopy(_SECURITY_TEMPLATE)
 
-    # 7. Build output envelope
+    # 8. Build output envelope
     return {
         "report_version": "1.0.0",
         "period_days": period_days,
@@ -453,6 +455,7 @@ def compute(
             "malformed_lines_skipped": skipped_count,
             "invalid_events_count": invalid_count,
             "timestamp_parse_failed_count": timestamp_parse_failed,
+            "unclassified_event_count": unclassified_count,
             "timezone": "UTC",
         },
         "usage": usage_section,
