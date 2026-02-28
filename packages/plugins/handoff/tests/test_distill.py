@@ -860,6 +860,63 @@ class TestPathIndependence:
         assert result_a["candidates"][0]["source_uid"] == result_b["candidates"][0]["source_uid"]
 
 
+class TestPreambleMergeHashStability:
+    """Preamble merge must not change content hashes — dedup depends on it."""
+
+    def test_preamble_merge_preserves_content_hash(self, tmp_path: Path) -> None:
+        """A handoff with preamble text before the first ### heading should
+        produce the same content_sha256 whether or not frozen dataclasses
+        are used — the whitespace semantics must be identical."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: hash-1\n---\n\n"
+            "## Decisions\n\n"
+            "Some preamble text before the first subsection.\n\n"
+            "### Chose A over B\n\n**Choice:** A is better.\n\n"
+        )
+        result = extract_candidates(str(handoff), "")
+        assert len(result["candidates"]) >= 1
+        first_hash = result["candidates"][0]["content_sha256"]
+
+        # Run again — hash must be identical (deterministic)
+        result2 = extract_candidates(str(handoff), "")
+        assert result2["candidates"][0]["content_sha256"] == first_hash
+
+    def test_preamble_merge_round_trip_dedup(self, tmp_path: Path) -> None:
+        """Extracting the same handoff twice with learnings from the first
+        extraction should produce EXACT_DUP_SOURCE, not UPDATED_SOURCE.
+        This gates the preamble merge refactor."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: hash-2\n---\n\n"
+            "## Decisions\n\n"
+            "Preamble context.\n\n"
+            "### Chose X\n\n**Choice:** X wins.\n\n"
+        )
+        # First extraction — no learnings
+        result1 = extract_candidates(str(handoff), "")
+        assert len(result1["candidates"]) >= 1
+        c = result1["candidates"][0]
+
+        # Build synthetic learnings with distill-meta from first extraction
+        learnings_with_meta = (
+            f"## Extracted\n\n### {c['subsection_heading']}\n\n"
+            f"{c['raw_markdown']}\n\n"
+            f"<!-- distill-meta {{"
+            f'"source_uid": "{c["source_uid"]}", '
+            f'"content_sha256": "{c["content_sha256"]}", '
+            f'"source_anchor": "{c["source_anchor"]}"'
+            f"}} -->\n"
+        )
+
+        # Second extraction — with learnings
+        result2 = extract_candidates(str(handoff), learnings_with_meta)
+        c2 = [x for x in result2["candidates"] if x["subsection_heading"] == c["subsection_heading"]][0]
+        assert c2["dedup_status"] == "EXACT_DUP_SOURCE", (
+            f"Preamble merge changed content hash! Expected EXACT_DUP_SOURCE, got {c2['dedup_status']}"
+        )
+
+
 class TestMakeAnchorEdgeCases:
     """Edge cases for _make_anchor."""
 

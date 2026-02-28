@@ -13,13 +13,13 @@ import hashlib
 import json as json_mod  # avoid shadowing
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from scripts.handoff_parsing import parse_handoff
 
 
-@dataclass
+@dataclass(frozen=True)
 class Subsection:
     """A ### subsection extracted from a ## section's content."""
 
@@ -407,9 +407,12 @@ def extract_candidates(
             # Merge preamble (leading text before first ###) into first
             # headed subsection to avoid silent information loss.
             if not sub.heading and any(s.heading for s in subsections):
-                for other in subsections:
+                for i, other in enumerate(subsections):
                     if other.heading:
-                        other.raw_markdown = sub.raw_markdown.strip() + "\n\n" + other.raw_markdown
+                        subsections[i] = replace(
+                            other,
+                            raw_markdown=sub.raw_markdown.strip() + "\n\n" + other.raw_markdown,
+                        )
                         break
                 continue
 

@@ -12,14 +12,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-@dataclass
+@dataclass(frozen=True)
 class Section:
     heading: str
     level: int
     content: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class HandoffFile:
     path: str
     frontmatter: dict[str, str]
