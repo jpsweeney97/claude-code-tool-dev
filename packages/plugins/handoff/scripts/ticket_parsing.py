@@ -61,6 +61,10 @@ def parse_yaml_frontmatter(yaml_text: str) -> dict[str, Any] | None:
         warnings.warn(f"YAML parse error: {exc}", stacklevel=2)
         return None
     if not isinstance(result, dict):
+        warnings.warn(
+            f"YAML parsed as {type(result).__name__}, expected dict",
+            stacklevel=2,
+        )
         return None
     return _normalize_yaml_scalars(result)
 

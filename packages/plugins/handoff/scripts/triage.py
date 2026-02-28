@@ -73,6 +73,10 @@ def normalize_status(raw: str) -> tuple[str, str]:
         return raw, "high"
     if raw in _NORMALIZATION_MAP:
         return _NORMALIZATION_MAP[raw]
+    warnings.warn(
+        f"Unknown status {raw!r}, defaulting to 'open' (low confidence)",
+        stacklevel=2,
+    )
     return "open", "low"
 
 
@@ -322,7 +326,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.handoffs_dir is None:
-        args.handoffs_dir = get_handoffs_dir()
+        try:
+            args.handoffs_dir = get_handoffs_dir()
+        except Exception as exc:
+            json.dump({
+                "open_tickets": [],
+                "orphaned_items": [],
+                "matched_items": [],
+                "match_counts": {"uid_match": 0, "id_ref": 0, "manual_review": 0},
+                "skipped_prose_count": 0,
+                "error": f"Cannot determine handoffs directory: {exc}",
+            }, sys.stdout)
+            return 1
 
     report = generate_report(args.tickets_dir, args.handoffs_dir)
     json.dump(report, sys.stdout, indent=2)
