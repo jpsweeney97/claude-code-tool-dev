@@ -352,6 +352,12 @@ def compute(
         Structured report dict with usage, dialogue, context, security
         sections plus metadata envelope.
     """
+    if section_type not in _SECTION_MATRIX:
+        raise ValueError(
+            f"unknown section_type: {section_type!r}. "
+            f"Expected one of {list(_SECTION_MATRIX)}"
+        )
+
     total_events_read = len(events)
 
     # 1. Validation gate
@@ -485,12 +491,6 @@ def main() -> None:
         default="all",
         choices=["dialogue", "consultation", "security", "all"],
         help="Which sections to include (default: all)",
-    )
-    parser.add_argument(
-        "--json",
-        dest="json_output",
-        action="store_true",
-        help="Output as JSON (default behavior)",
     )
     args = parser.parse_args()
 
