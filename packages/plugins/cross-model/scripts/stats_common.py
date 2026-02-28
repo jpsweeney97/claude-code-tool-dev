@@ -87,7 +87,7 @@ def filter_by_period(
     """Filter events to a closed [start, now] time window.
 
     Args:
-        events: List of event dicts, each expected to have a "timestamp" key.
+        events: List of event dicts, each expected to have a "ts" key.
         period_days: Number of days to look back. 0 means all-time (no filtering).
         now: Reference time for window end. Defaults to current UTC time.
 
@@ -108,7 +108,7 @@ def filter_by_period(
     skipped = 0
 
     for event in events:
-        ts = parse_ts_utc(event.get("timestamp", ""))
+        ts = parse_ts_utc(event.get("ts", ""))
         if ts is None:
             skipped += 1
             continue
@@ -138,7 +138,7 @@ def parse_security_tier(reason: str) -> str:
     colon_idx = reason.find(":")
     if colon_idx > 0:
         return reason[:colon_idx]
-    return reason if reason else "unknown"
+    return reason
 
 
 def safe_nonneg_int(event: dict, field: str) -> int | None:
