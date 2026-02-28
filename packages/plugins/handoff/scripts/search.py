@@ -50,6 +50,7 @@ def search_handoffs(
     if not regex:
         query = re.escape(query)
     pattern = re.compile(query, flags)
+    skipped_sink = skipped if skipped is not None else []
 
     results: list[dict] = []
 
@@ -66,8 +67,7 @@ def search_handoffs(
         try:
             handoff = parse_handoff(path)
         except (OSError, UnicodeDecodeError) as e:
-            if skipped is not None:
-                skipped.append({"file": path.name, "reason": str(e)})
+            skipped_sink.append({"file": path.name, "reason": str(e)})
             continue  # Skip unreadable or malformed files
 
         for section in handoff.sections:

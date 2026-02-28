@@ -311,6 +311,28 @@ class TestSearchHandoffs:
         assert results == []
 
 
+class TestSkippedDefault:
+    """search_handoffs should track skipped files internally even without explicit skipped param."""
+
+    def test_skipped_defaults_to_internal_tracking(self, tmp_path: Path) -> None:
+        """Calling without skipped= should not raise when files are unreadable.
+        Create one good + one unreadable file, assert only the good file returns."""
+        good_file = tmp_path / "2026-01-01_00-00_good.md"
+        good_file.write_text(
+            "---\ntitle: Good\ndate: 2026-01-01\ntype: handoff\n"
+            "session_id: good-1\n---\n\n## Decisions\n\nfindme keyword\n"
+        )
+        bad_file = tmp_path / "2026-01-01_00-00_bad.md"
+        bad_file.write_text("content")
+        bad_file.chmod(0o000)
+        try:
+            results = search_handoffs(tmp_path, "findme")
+            assert isinstance(results, list)
+            assert len(results) == 1, f"Expected 1 result (good file only), got {len(results)}"
+        finally:
+            bad_file.chmod(0o644)
+
+
 class TestSearchCLI:
     """Integration tests for the CLI entry point."""
 
