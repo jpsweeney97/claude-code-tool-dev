@@ -7,6 +7,12 @@ from unittest.mock import patch
 from scripts.search import main as search_main, parse_handoff, search_handoffs
 
 
+def test_search_module_reexports_parse_handoff() -> None:
+    """Verify parse_handoff is importable from scripts.search (backward compat)."""
+    from scripts.search import parse_handoff  # noqa: F811
+    assert callable(parse_handoff)
+
+
 class TestParseHandoff:
     """Tests for parse_handoff — markdown parsing."""
 
@@ -146,6 +152,30 @@ class TestParseHandoff:
         assert len(result.sections) == 1
         assert result.sections[0].heading == "## Before Fence"
 
+    def test_backtick_fence_prevents_section_split(self, tmp_path: Path) -> None:
+        """Fence regression: backtick fences must not create false sections."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
+            "## Real Section\n\nContent.\n\n"
+            "```\n## Fake Section\n```\n\nMore content.\n"
+        )
+        results = search_handoffs(tmp_path, "content")
+        sections_found = {r["section_heading"] for r in results}
+        assert "## Fake Section" not in sections_found
+
+    def test_unterminated_fence_behavior(self, tmp_path: Path) -> None:
+        """Fence regression: unterminated fence suppresses subsequent sections."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
+            "## Before\n\nContent.\n\n"
+            "```\n## Suppressed\n\nStill suppressed.\n"
+        )
+        results = search_handoffs(tmp_path, "content")
+        sections_found = {r["section_heading"] for r in results}
+        assert "## Suppressed" not in sections_found
+
 
 def _make_handoff(path: Path, title: str, date: str, content: str) -> Path:
     """Helper: create a synthetic handoff file."""
@@ -279,6 +309,28 @@ class TestSearchHandoffs:
     def test_missing_directory_returns_empty(self, tmp_path: Path) -> None:
         results = search_handoffs(tmp_path / "nonexistent", "anything")
         assert results == []
+
+
+class TestSkippedDefault:
+    """search_handoffs should track skipped files internally even without explicit skipped param."""
+
+    def test_skipped_defaults_to_internal_tracking(self, tmp_path: Path) -> None:
+        """Calling without skipped= should not raise when files are unreadable.
+        Create one good + one unreadable file, assert only the good file returns."""
+        good_file = tmp_path / "2026-01-01_00-00_good.md"
+        good_file.write_text(
+            "---\ntitle: Good\ndate: 2026-01-01\ntype: handoff\n"
+            "session_id: good-1\n---\n\n## Decisions\n\nfindme keyword\n"
+        )
+        bad_file = tmp_path / "2026-01-01_00-00_bad.md"
+        bad_file.write_text("content")
+        bad_file.chmod(0o000)
+        try:
+            results = search_handoffs(tmp_path, "findme")
+            assert isinstance(results, list)
+            assert len(results) == 1, f"Expected 1 result (good file only), got {len(results)}"
+        finally:
+            bad_file.chmod(0o644)
 
 
 class TestSearchCLI:

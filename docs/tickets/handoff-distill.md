@@ -3,7 +3,7 @@
 ```yaml
 id: handoff-distill
 date: 2026-02-24
-status: planning
+status: implemented
 priority: medium
 blocked_by: []
 blocks: []
@@ -45,29 +45,40 @@ The `/learn` system and `MEMORY.md` exist for persistent knowledge — but are c
 
 ## Design Space
 
-*To be filled during brainstorming. Key questions:*
+Resolved via Codex dialogue (2026-02-27, 5 turns, collaborative) + 4 review passes (55 amendments).
 
-1. **Invocation**: `/handoff:distill [path]` vs integration with `/learn`?
-2. **Selection**: Extract from specific handoff, most recent, or batch?
-3. **What to extract**: All durable sections? User-selected sections? Auto-detected?
-4. **Format mapping**: How do handoff sections map to learning entries?
-5. **Deduplication**: How to avoid extracting the same insight twice from chained handoffs?
-6. **Confirmation UX**: Show proposed entries and confirm before appending?
-7. **Should this run at archive time?** Offer distill when `/resume` archives a handoff?
+1. **Invocation**: `/distill [path]` — standalone skill. Not integrated with `/learn` (different purpose: `/learn` captures ad-hoc insights, `/distill` extracts structured knowledge from handoffs).
+2. **Selection**: Most recent handoff (default) or specific path. No batch mode in V1.
+3. **What to extract**: Decisions, Learnings, Codebase Knowledge, Gotchas by default. `--include-section Context` opt-in for additional sections.
+4. **Format mapping**: Section-specific field extraction (Choice/Driver/Confidence for Decisions, Mechanism/Evidence/Implication for Learnings). Durability hints for Codebase Knowledge (keyword heuristic). Synthesized into 6-8 sentence Phase 0 paragraphs.
+5. **Deduplication**: Three layers — exact source (SHA-256 of session_id + section + heading), exact content (SHA-256 of normalized text), semantic (Claude comparison against existing entries). 4-state matrix: NEW, EXACT_DUP_SOURCE, EXACT_DUP_CONTENT, UPDATED_SOURCE. No-autodrop invariant: all candidates returned, status is a label not a filter.
+6. **Confirmation UX**: Always confirm. Status-specific options: NEW → append/skip, UPDATED_SOURCE → replace/keep both/skip, LIKELY_DUPLICATE → merge/replace/keep both/skip. Terminal states (EXACT_DUP_SOURCE, EXACT_DUP_CONTENT) auto-skip.
+7. **Archive-time trigger**: Deferred. V1 is user-triggered only.
 
 ## Files Affected
 
 | File | Change |
 |------|--------|
-| `skills/distilling-handoffs/SKILL.md` | **New** — distill skill |
-| `commands/distill.md` | **New** — command wrapper |
-| `.claude-plugin/plugin.json` | Version bump |
+| `scripts/handoff_parsing.py` | **New** — shared parsing module (Section, HandoffFile, parse_frontmatter, parse_sections, parse_handoff) |
+| `scripts/project_paths.py` | **New** — shared path utilities (get_project_name, get_handoffs_dir) |
+| `scripts/distill.py` | **New** — extraction pipeline (subsection parser, provenance, dedup, signal extraction, CLI) |
+| `scripts/search.py` | **Modified** — migrated to shared modules, re-exports for backward compat |
+| `skills/distill/SKILL.md` | **New** — distill skill (synthesis, semantic dedup, confirmation UX) |
+| `tests/test_handoff_parsing.py` | **New** — 13 tests |
+| `tests/test_project_paths.py` | **New** — 3 tests |
+| `tests/test_distill.py` | **New** — 64 tests |
+| `tests/test_search.py` | **Modified** — 3 new tests (re-export, fence regression) |
+| `.claude-plugin/plugin.json` | Version bump 1.3.0 → 1.4.0 |
+| `pyproject.toml` | Version bump 1.3.0 → 1.4.0 |
+| `README.md` | Added /distill section |
 
 ## Acceptance Criteria
 
-- [ ] `/handoff:distill` extracts durable knowledge from a handoff
-- [ ] Produces Phase 0 format learning entries
-- [ ] Shows proposed entries to user before appending
-- [ ] Appends confirmed entries to `docs/learnings/learnings.md`
-- [ ] Does not modify the source handoff
-- [ ] Handles handoffs with no extractable knowledge gracefully
+- [x] `/distill` extracts durable knowledge from a handoff
+- [x] Produces Phase 0 format learning entries with distill-meta provenance
+- [x] Shows proposed entries to user before appending (no-autodrop invariant)
+- [x] Appends confirmed entries to `docs/learnings/learnings.md`
+- [x] Does not modify the source handoff
+- [x] Handles handoffs with no extractable knowledge gracefully
+- [x] Three-layer deduplication (exact source, exact content, semantic)
+- [x] 83 new tests (64 distill + 16 handoff_parsing + 3 project_paths), 212 total
