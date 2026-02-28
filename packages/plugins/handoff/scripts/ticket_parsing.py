@@ -7,6 +7,8 @@ for full YAML support including multiline values (files: arrays, etc.).
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -59,3 +61,71 @@ def parse_yaml_frontmatter(yaml_text: str) -> dict[str, Any] | None:
     if not isinstance(result, dict):
         return None
     return _normalize_yaml_scalars(result)
+
+
+# --- Schema validation and ticket parsing ---
+
+_REQUIRED_FIELDS = ("id", "date", "status")
+_LIST_FIELDS = ("files", "blocked_by", "blocks", "related")
+_DICT_FIELDS = ("provenance",)
+_STRING_FIELDS = ("id", "date", "status", "priority", "source_type", "source_ref", "branch", "effort")
+
+
+@dataclass(frozen=True)
+class TicketFile:
+    """Parsed ticket with typed frontmatter and markdown body."""
+
+    path: str
+    frontmatter: dict[str, Any]
+    body: str
+
+
+def validate_schema(data: dict[str, Any]) -> list[str]:
+    """Validate ticket frontmatter schema. Returns list of error messages (empty = valid)."""
+    errors: list[str] = []
+    for field in _REQUIRED_FIELDS:
+        if field not in data:
+            errors.append(f"missing required field: {field}")
+    for field in _STRING_FIELDS:
+        if field in data and not isinstance(data[field], str):
+            errors.append(f"{field} must be string, got {type(data[field]).__name__}")
+    for field in _LIST_FIELDS:
+        if field in data and not isinstance(data[field], list):
+            errors.append(f"{field} must be list, got {type(data[field]).__name__}")
+    for field in _DICT_FIELDS:
+        if field in data and not isinstance(data[field], dict):
+            errors.append(f"{field} must be dict, got {type(data[field]).__name__}")
+    return errors
+
+
+def parse_ticket(path: Path) -> TicketFile | None:
+    """Parse a ticket markdown file into a TicketFile.
+
+    Returns None if:
+    - File doesn't exist or can't be read
+    - No fenced YAML block found
+    - YAML is malformed
+    - Required fields missing (id, date, status)
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    yaml_text = extract_fenced_yaml(text)
+    if yaml_text is None:
+        return None
+
+    frontmatter = parse_yaml_frontmatter(yaml_text)
+    if frontmatter is None:
+        return None
+
+    errors = validate_schema(frontmatter)
+    if errors:
+        return None
+
+    # Body is everything after the fenced YAML block's closing ```
+    m = _FENCED_YAML_RE.search(text)
+    body = text[m.end() :].strip() if m else ""
+
+    return TicketFile(path=str(path), frontmatter=frontmatter, body=body)

@@ -1,6 +1,7 @@
 """Tests for ticket_parsing.py — fenced-YAML ticket format parser."""
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -170,4 +171,104 @@ class TestParseYamlFrontmatter:
         from scripts.ticket_parsing import parse_yaml_frontmatter
 
         result = parse_yaml_frontmatter("")
+        assert result is None
+
+
+class TestValidateSchema:
+    def test_valid_minimal(self) -> None:
+        from scripts.ticket_parsing import validate_schema
+
+        data = {"id": "T-20260228-01", "date": "2026-02-28", "status": "deferred"}
+        errors = validate_schema(data)
+        assert errors == []
+
+    def test_missing_required_field(self) -> None:
+        from scripts.ticket_parsing import validate_schema
+
+        data = {"id": "T-20260228-01", "date": "2026-02-28"}  # missing status
+        errors = validate_schema(data)
+        assert any("status" in e for e in errors)
+
+    def test_files_must_be_list(self) -> None:
+        from scripts.ticket_parsing import validate_schema
+
+        data = {"id": "T-1", "date": "2026-02-28", "status": "open", "files": "not-a-list"}
+        errors = validate_schema(data)
+        assert any("files" in e for e in errors)
+
+    def test_provenance_must_be_dict(self) -> None:
+        from scripts.ticket_parsing import validate_schema
+
+        data = {"id": "T-1", "date": "2026-02-28", "status": "open", "provenance": "bad"}
+        errors = validate_schema(data)
+        assert any("provenance" in e for e in errors)
+
+    def test_status_must_be_string(self) -> None:
+        from scripts.ticket_parsing import validate_schema
+
+        data = {"id": "T-1", "date": "2026-02-28", "status": 42}
+        errors = validate_schema(data)
+        assert any("status" in e for e in errors)
+
+
+class TestParseTicket:
+    def test_parse_minimal_ticket(self, tmp_path: Path) -> None:
+        from scripts.ticket_parsing import TicketFile, parse_ticket
+
+        ticket = tmp_path / "test.md"
+        ticket.write_text(MINIMAL_TICKET)
+        result = parse_ticket(ticket)
+        assert isinstance(result, TicketFile)
+        assert result.frontmatter["id"] == "T-20260228-01"
+        assert result.frontmatter["status"] == "deferred"
+        assert "## Problem" in result.body
+
+    def test_parse_ticket_with_lists(self, tmp_path: Path) -> None:
+        from scripts.ticket_parsing import parse_ticket
+
+        ticket = tmp_path / "test.md"
+        ticket.write_text(TICKET_WITH_LISTS)
+        result = parse_ticket(ticket)
+        assert isinstance(result.frontmatter["files"], list)
+        assert len(result.frontmatter["files"]) == 2
+
+    def test_parse_legacy_ticket(self, tmp_path: Path) -> None:
+        from scripts.ticket_parsing import parse_ticket
+
+        ticket = tmp_path / "test.md"
+        ticket.write_text(LEGACY_TICKET)
+        result = parse_ticket(ticket)
+        assert result.frontmatter["id"] == "T-A"
+        assert result.frontmatter["status"] == "complete"
+        assert isinstance(result.frontmatter["related"], list)
+
+    def test_parse_no_yaml_returns_none(self, tmp_path: Path) -> None:
+        from scripts.ticket_parsing import parse_ticket
+
+        ticket = tmp_path / "test.md"
+        ticket.write_text(NO_FENCED_YAML)
+        result = parse_ticket(ticket)
+        assert result is None
+
+    def test_parse_malformed_yaml_returns_none(self, tmp_path: Path) -> None:
+        from scripts.ticket_parsing import parse_ticket
+
+        ticket = tmp_path / "test.md"
+        ticket.write_text(MALFORMED_YAML)
+        result = parse_ticket(ticket)
+        assert result is None
+
+    def test_ticketfile_is_frozen(self, tmp_path: Path) -> None:
+        from scripts.ticket_parsing import parse_ticket
+
+        ticket = tmp_path / "test.md"
+        ticket.write_text(MINIMAL_TICKET)
+        result = parse_ticket(ticket)
+        with pytest.raises(FrozenInstanceError):
+            result.path = "other"  # type: ignore[misc]
+
+    def test_nonexistent_file_returns_none(self, tmp_path: Path) -> None:
+        from scripts.ticket_parsing import parse_ticket
+
+        result = parse_ticket(tmp_path / "nonexistent.md")
         assert result is None
