@@ -1,0 +1,173 @@
+"""Tests for ticket_parsing.py — fenced-YAML ticket format parser."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+# --- Fixtures ---
+
+MINIMAL_TICKET = """\
+# T-20260228-01: Example ticket
+
+```yaml
+id: T-20260228-01
+date: 2026-02-28
+status: deferred
+priority: medium
+```
+
+## Problem
+
+Something is wrong.
+"""
+
+TICKET_WITH_LISTS = """\
+# T-20260228-02: Ticket with lists
+
+```yaml
+id: T-20260228-02
+date: 2026-02-28
+status: open
+priority: high
+source_type: pr-review
+source_ref: "PR #29"
+branch: feature/knowledge-graduation
+blocked_by: []
+blocks: []
+effort: XS
+files:
+  - path/to/file.py
+  - path/to/other.py
+provenance:
+  source_session: "5136e38e-efc5-403f-ad5e-49516f47884b"
+  source_type: pr-review
+  created_by: defer-skill
+```
+
+## Problem
+
+Something with lists.
+"""
+
+LEGACY_TICKET = """\
+# T-A: Legacy ticket
+
+```yaml
+id: T-A
+date: 2026-02-17
+status: complete
+priority: medium
+blocked_by: []
+blocks: []
+related:
+  - T-B
+  - T-C
+plugin: packages/plugins/handoff/
+```
+
+## Summary
+
+Legacy content.
+"""
+
+NO_FENCED_YAML = """\
+# No YAML here
+
+## Problem
+
+Just markdown, no fenced YAML block.
+"""
+
+MALFORMED_YAML = """\
+# Bad YAML
+
+```yaml
+id: T-BAD
+date: 2026-02-28
+status: [invalid unclosed
+```
+
+## Problem
+
+Broken YAML.
+"""
+
+
+class TestExtractFencedYaml:
+    def test_minimal_ticket(self) -> None:
+        from scripts.ticket_parsing import extract_fenced_yaml
+
+        result = extract_fenced_yaml(MINIMAL_TICKET)
+        assert result is not None
+        assert "id: T-20260228-01" in result
+
+    def test_ticket_with_lists(self) -> None:
+        from scripts.ticket_parsing import extract_fenced_yaml
+
+        result = extract_fenced_yaml(TICKET_WITH_LISTS)
+        assert result is not None
+        assert "files:" in result
+        assert "provenance:" in result
+
+    def test_no_fenced_yaml_returns_none(self) -> None:
+        from scripts.ticket_parsing import extract_fenced_yaml
+
+        result = extract_fenced_yaml(NO_FENCED_YAML)
+        assert result is None
+
+    def test_extracts_first_yaml_block_only(self) -> None:
+        from scripts.ticket_parsing import extract_fenced_yaml
+
+        text = "```yaml\nfirst: block\n```\n\n```yaml\nsecond: block\n```"
+        result = extract_fenced_yaml(text)
+        assert result is not None
+        assert "first: block" in result
+        assert "second" not in result
+
+
+def extract_fenced_yaml_helper(text: str) -> str:
+    """Helper to extract YAML for tests that need parsed YAML input."""
+    from scripts.ticket_parsing import extract_fenced_yaml
+
+    result = extract_fenced_yaml(text)
+    assert result is not None
+    return result
+
+
+class TestParseYamlFrontmatter:
+    def test_minimal_fields(self) -> None:
+        from scripts.ticket_parsing import parse_yaml_frontmatter
+
+        result = parse_yaml_frontmatter("id: T-20260228-01\ndate: 2026-02-28\nstatus: deferred")
+        assert result["id"] == "T-20260228-01"
+        assert result["status"] == "deferred"
+
+    def test_date_normalized_to_string(self) -> None:
+        """P0-3: yaml.safe_load converts unquoted dates to datetime.date objects."""
+        from scripts.ticket_parsing import parse_yaml_frontmatter
+
+        result = parse_yaml_frontmatter("id: T-20260228-01\ndate: 2026-02-28\nstatus: deferred")
+        assert isinstance(result["date"], str), f"date must be str, got {type(result['date'])}"
+        assert result["date"] == "2026-02-28"
+
+    def test_list_fields_preserved(self) -> None:
+        from scripts.ticket_parsing import parse_yaml_frontmatter
+
+        yaml_text = extract_fenced_yaml_helper(TICKET_WITH_LISTS)
+        result = parse_yaml_frontmatter(yaml_text)
+        assert isinstance(result["files"], list)
+        assert len(result["files"]) == 2
+        assert isinstance(result["provenance"], dict)
+
+    def test_malformed_yaml_returns_none(self) -> None:
+        from scripts.ticket_parsing import parse_yaml_frontmatter
+
+        result = parse_yaml_frontmatter("id: [invalid unclosed")
+        assert result is None
+
+    def test_empty_string_returns_none(self) -> None:
+        from scripts.ticket_parsing import parse_yaml_frontmatter
+
+        result = parse_yaml_frontmatter("")
+        assert result is None
