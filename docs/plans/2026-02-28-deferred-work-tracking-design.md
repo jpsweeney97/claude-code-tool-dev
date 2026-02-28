@@ -3,9 +3,11 @@
 ```yaml
 date: 2026-02-28
 status: approved
-reviewed_by: codex-dialogue
-codex_thread: "019ca299-4a87-7b83-9192-d4f1b5411723"
-codex_outcome: converged (6/10 turns, 11 resolved, 2 emerged)
+reviewed_by: codex-dialogue (collaborative + evaluative)
+codex_threads:
+  - "019ca299-4a87-7b83-9192-d4f1b5411723"  # collaborative design (6/10 turns)
+  - "019ca2dd-edda-70a3-884a-64372b4bf260"  # evaluative deep-review (6/8 turns)
+codex_outcome: converged (22 resolved, 3 emerged, 4 P0 blockers fixed)
 plugin: packages/plugins/handoff
 ```
 
@@ -40,7 +42,7 @@ Deferred items use the exact same `docs/tickets/` format as hand-crafted tickets
 
 **Rationale:** `/triage` correctness is coupled to handoff contract semantics (section parsing, retention behavior). Lockstep versioning is a feature. Logic stays modular (`defer.py`, `triage.py`) for cheap future relocation.
 
-### 6-state status enum
+### 6-state status enum with read-time normalization
 
 ```
 deferred → open → in_progress → done
@@ -59,13 +61,23 @@ deferred → open → in_progress → done
 
 "triaged" is an event, not a durable state.
 
+**Legacy status normalization:** Existing tickets use values outside this enum (`closed`, `complete`, `implemented`, `planning`, `implementing`). `triage.py` applies read-time normalization:
+
+| Legacy value | Normalized to | Confidence |
+|-------------|---------------|------------|
+| `complete`, `implemented`, `closed` | `done` | high |
+| `planning` | `open` | medium |
+| `implementing` | `in_progress` | high |
+
+The `triage.py` JSON output includes `status_raw` (original) and `status_normalized` (mapped). No migration of existing ticket files.
+
 ### Extract-confirm-create pattern (from `/distill`)
 
 `/defer` follows the same UX contract as `/distill`: extract candidates from context, present for confirmation, create artifacts on approval. Never auto-write.
 
 ### `/save` stays untouched
 
-Deferral remains explicitly out of scope for the save skill. The save skill's contract already lists deferral as out of scope. `/defer` is the explicit mechanism.
+We are explicitly keeping `/save` unchanged. Deferral is handled by `/defer`, not embedded in the save workflow.
 
 **Interaction model:** `/defer` explicit + `/save` unchanged + `/triage` reconciles.
 
@@ -73,8 +85,8 @@ Deferral remains explicitly out of scope for the save skill. The save skill's co
 
 No lexical scoring for MVP. Three matching strategies:
 
-1. **UID match** — handoff `session_id` referenced in ticket `source_ref`
-2. **Ticket ID reference search** — handoff mentions ticket ID (e.g., "T-20260228-01")
+1. **UID match** — handoff `session_id` matched against `defer-meta.source_session` in ticket bodies (the machine join key). `source_ref` is human-readable display text only, not used for matching.
+2. **Ticket ID reference search** — handoff text contains a ticket ID pattern (`T-\d{8}-\d{2}` or legacy patterns like `T-\d{3}`, `T-[A-Z]`)
 3. **`manual_review`** — unmatched items presented to user for manual classification
 
 **Phase 1 trigger for lexical scoring:** manual-review backlog > 2 weeks, corpus > 100 tickets, or user request.
@@ -87,27 +99,47 @@ Same handoff source can produce both:
 
 Separated by intent, not location. No shared "already-extracted" registry for MVP.
 
+**Cross-skill awareness (informational only):** When processing the same handoff source, `/defer` shows "Found N distill entries from this handoff" and `/distill` shows "Found M tickets deferred from this handoff." Uses existing `distill-meta` and `defer-meta` provenance data. Never blocking — informational notices only.
+
 ## Architecture
 
 ```
 packages/plugins/handoff/
   scripts/
+    ticket_parsing.py    # Parse fenced-YAML ticket format (NOT handoff frontmatter)
+    provenance.py        # Shared join contract: defer-meta parsing, session matching
     defer.py             # Ticket creation logic (deterministic)
     triage.py            # Ticket reading + orphan detection (deterministic)
   skills/
     defer/SKILL.md       # Extract from conversation → create tickets
     triage/SKILL.md      # Review open tickets + scan handoffs
   tests/
+    test_ticket_parsing.py
+    test_provenance.py
     test_defer.py
     test_triage.py
 ```
+
+**Critical:** Existing tickets use fenced YAML (` ```yaml ... ``` `) format, NOT `---` frontmatter. `handoff_parsing.py` cannot parse tickets. `ticket_parsing.py` is a new module that handles the fenced-YAML ticket format including multiline values like `files:` arrays.
 
 ### Script responsibilities
 
 | Script | Input | Output | Side effects |
 |--------|-------|--------|--------------|
+| `ticket_parsing.py` | Ticket markdown file path | Parsed ticket (frontmatter dict + body sections) | None |
+| `provenance.py` | Ticket body text or handoff body text | Parsed `defer-meta` / `distill-meta` comments | None |
 | `defer.py` | Candidate JSON (from skill) | Ticket markdown file content | Write to `docs/tickets/` |
 | `triage.py` | `docs/tickets/` path, handoffs dir | JSON report (open tickets + orphans) | None (read-only) |
+
+### Responsibility split: SKILL.md vs script
+
+| Responsibility | Owner | Rationale |
+|---------------|-------|-----------|
+| Heuristic extraction (LLM judgment) | SKILL.md | Conversation analysis requires LLM |
+| Candidate presentation + confirmation | SKILL.md | UX interaction |
+| ID allocation, markdown rendering, file writes | `defer.py` | Deterministic, testable |
+| Ticket parsing, status normalization | `ticket_parsing.py` | Deterministic, testable |
+| Provenance matching (session join) | `provenance.py` | Shared between defer + triage |
 
 ### Skill types
 
@@ -207,7 +239,7 @@ User runs `/defer` or says "defer these", "track these for later", "create ticke
    - Auto-generate body sections (Problem, Source, Proposed Approach, Acceptance Criteria)
    - Write ticket file to `docs/tickets/`
 
-4. **Commit** — stage and commit all created tickets with message: `chore(tickets): defer N items from <source>`
+4. **Commit** — stage only newly created ticket files by name (`git add docs/tickets/T-YYYYMMDD-NN-*.md`), never `git add .`. Commit with message: `chore(tickets): defer N items from <source_type>` where `<source_type>` is the most common `source_type` among confirmed candidates (e.g., `pr-review`). If mixed, use `mixed`.
 
 ### Extraction heuristics
 
@@ -238,8 +270,8 @@ User runs `/triage` or says "what's in the backlog", "review deferred items", "a
 
 1. **Read open tickets** — scan `docs/tickets/*.md`, parse YAML frontmatter, filter by `status` not in (`done`, `wontfix`).
 
-2. **Scan recent handoffs for orphans** — read handoffs from last 30 days, extract Open Questions and Risks sections, match against existing tickets using deterministic strategies:
-   - UID match: handoff `session_id` appears in any ticket's `source_ref`
+2. **Scan recent handoffs for orphans** — read handoffs from last 30 days in both active (`~/.claude/handoffs/<project>/*.md`) and archive (`~/.claude/handoffs/<project>/.archive/*.md`) directories. Extract Open Questions and Risks sections. Match against existing tickets using deterministic strategies:
+   - UID match: handoff `session_id` matched against `defer-meta.source_session` in ticket bodies (via `provenance.py`)
    - Ticket ID reference: handoff text contains a ticket ID pattern (`T-\d{8}-\d{2}` or legacy patterns)
    - Unmatched items flagged as `manual_review`
 
@@ -266,15 +298,17 @@ User runs `/triage` or says "what's in the backlog", "review deferred items", "a
 | `status: deferred` and `blocked_by` non-empty and age > 60 days | 60 days | Flag as stale |
 | `status: open` and age > 14 days | 14 days | Flag as aging |
 
-### Triage state file
+### Triage state file (Phase 1)
 
-Triage metadata lives separately from ticket files:
+Phase 0 is stateless — `/triage` reports and exits. No persistent state.
+
+Phase 1 adds a triage state file:
 
 ```
 ~/.claude/.triage-state/<project>/last-triage.json
 ```
 
-Contains: last triage date, items reviewed, orphans found. Enables `/triage` to show "N new items since last triage" on subsequent runs. Not committed to git (session-local state).
+Contains: last triage date, items reviewed, orphans found. Enables `/triage` to show "N new items since last triage" on subsequent runs. Not committed to git (session-local state). TTL: 90 days (aligned with handoff archive retention).
 
 ### Failure modes
 
@@ -317,7 +351,10 @@ Contains: last triage date, items reviewed, orphans found. Enables `/triage` to 
 
 ## Open Questions
 
-- **Ticket ID date coupling:** `T-YYYYMMDD-NN` embeds creation date into identity. If a deferred item from February is formally created in March, the ID embeds a misleading date. Alternative: `T-NNN` auto-increment. Codex dialogue didn't probe this — decide during implementation.
+- **Ticket ID date coupling:** `T-YYYYMMDD-NN` confirmed as format (avoids legacy ID collision). Add optional `origin_date` field for cases where discovery date differs from creation date. New ID regex for detection: `\bT-\d{8}-\d{2}\b`.
+- **Legacy ticket ID regex patterns:** Exact patterns for detecting legacy IDs (T-004, T-A, handoff-distill, etc.) needed before implementation. Determine during implementation planning.
+- **30-day lookback configurability:** Hardcoded for Phase 0. Phase 1 may add `--lookback` flag if needed.
+- **`closed` normalization:** Whether `closed` maps to `done` or `wontfix` depends on specific legacy ticket context. Use `normalization_confidence: medium` for ambiguous cases.
 
 ## References
 
@@ -330,4 +367,5 @@ Contains: last triage date, items reviewed, orphans found. Enables `/triage` to 
 | `/learn` skill (pattern reference) | `.claude/skills/learn/SKILL.md` |
 | Skills guide | `docs/references/skills-guide.md` |
 | Skills rules | `.claude/rules/skills.md` |
-| Codex dialogue thread | `019ca299-4a87-7b83-9192-d4f1b5411723` |
+| Codex collaborative thread | `019ca299-4a87-7b83-9192-d4f1b5411723` |
+| Codex deep-review thread | `019ca2dd-edda-70a3-884a-64372b4bf260` |
