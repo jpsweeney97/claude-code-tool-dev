@@ -89,16 +89,25 @@ def render_ticket(candidate: dict[str, Any]) -> str:
     if effort not in _VALID_EFFORTS:
         effort = "S"
 
-    def _quote(val: str) -> str:
-        """Quote a YAML string value if it contains special characters.
+    _YAML_IMPLICIT_SCALARS = frozenset({
+        "yes", "no", "on", "off", "true", "false", "null", "~",
+        "Yes", "No", "On", "Off", "True", "False", "Null",
+        "YES", "NO", "ON", "OFF", "TRUE", "FALSE", "NULL",
+    })
+    _YAML_NUMERIC_RE = re.compile(r'^[-+]?(?:\d|\.(?:inf|nan))', re.IGNORECASE)
 
-        P1-5 fix: values with colons, quotes, or leading special chars
-        need quoting to produce valid YAML.
+    def _quote(val: str) -> str:
+        """Quote a YAML string value if it contains YAML-significant characters.
+
+        Handles colons, quotes, braces, backslashes, newlines, YAML
+        implicit scalars (yes/no/true/false/null/~ which safe_load coerces),
+        and numeric implicit scalars (octals, .inf, .nan which coerce to int/float).
+        Values without special characters pass through unquoted.
         """
         if not val:
             return '""'
-        if any(c in val for c in (':', '#', '{', '}', '[', ']', ',', '&', '*', '?', '|', '-', '<', '>', '=', '!', '%', '@', '`', '"', "'")):
-            escaped = val.replace('"', '\\"')
+        if val in _YAML_IMPLICIT_SCALARS or _YAML_NUMERIC_RE.match(val) or any(c in val for c in (':', '#', '{', '}', '[', ']', ',', '&', '*', '?', '|', '-', '<', '>', '=', '!', '%', '@', '`', '"', "'", '\\', '\n', '\r', '\t', '\x85', '\u2028', '\u2029')):
+            escaped = val.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t').replace('\x85', '\\N').replace('\u2028', '\\L').replace('\u2029', '\\P')
             return f'"{escaped}"'
         return val
 

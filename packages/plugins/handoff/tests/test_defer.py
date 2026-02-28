@@ -87,6 +87,239 @@ class TestFilenameSlugThreeDigit:
         assert "unknown" not in result
 
 
+class TestQuoteEscaping:
+    """C1/C2: _quote must escape backslashes and newlines for valid YAML."""
+
+    def test_backslash_yaml_round_trip(self) -> None:
+        import re as re_mod
+
+        import yaml
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "source_ref": "C:\\Users\\test\\file.py",
+        }
+        result = render_ticket(candidate)
+        yaml_match = re_mod.search(r"^```yaml\n(.*?)^```", result, re_mod.MULTILINE | re_mod.DOTALL)
+        assert yaml_match is not None
+        parsed = yaml.safe_load(yaml_match.group(1))
+        assert parsed["source_ref"] == "C:\\Users\\test\\file.py"
+
+    def test_newline_yaml_round_trip(self) -> None:
+        import re as re_mod
+
+        import yaml
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "source_ref": "line1\nline2",
+        }
+        result = render_ticket(candidate)
+        yaml_match = re_mod.search(r"^```yaml\n(.*?)^```", result, re_mod.MULTILINE | re_mod.DOTALL)
+        assert yaml_match is not None
+        parsed = yaml.safe_load(yaml_match.group(1))
+        assert parsed["source_ref"] == "line1\nline2"
+
+    def test_implicit_yes_yaml_round_trip(self) -> None:
+        """Codex amendment: YAML implicit scalar coercion defense."""
+        import re as re_mod
+
+        import yaml
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "source_ref": "yes",
+        }
+        result = render_ticket(candidate)
+        yaml_match = re_mod.search(r"^```yaml\n(.*?)^```", result, re_mod.MULTILINE | re_mod.DOTALL)
+        assert yaml_match is not None
+        parsed = yaml.safe_load(yaml_match.group(1))
+        assert parsed["source_ref"] == "yes"
+
+    def test_implicit_on_yaml_round_trip(self) -> None:
+        """Codex amendment: YAML implicit scalar coercion defense."""
+        import re as re_mod
+
+        import yaml
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "branch": "on",
+        }
+        result = render_ticket(candidate)
+        yaml_match = re_mod.search(r"^```yaml\n(.*?)^```", result, re_mod.MULTILINE | re_mod.DOTALL)
+        assert yaml_match is not None
+        parsed = yaml.safe_load(yaml_match.group(1))
+        # "on" must round-trip as the string "on", not boolean True
+        assert parsed["branch"] == "on"
+
+    def test_nel_yaml_round_trip(self) -> None:
+        """Codex adversarial amendment: Unicode NEL escape must round-trip."""
+        import re as re_mod
+
+        import yaml
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "source_ref": "before\x85after",
+        }
+        result = render_ticket(candidate)
+        yaml_match = re_mod.search(r"^```yaml\n(.*?)^```", result, re_mod.MULTILINE | re_mod.DOTALL)
+        assert yaml_match is not None
+        parsed = yaml.safe_load(yaml_match.group(1))
+        assert parsed["source_ref"] == "before\x85after"
+
+    def test_ls_ps_yaml_round_trip(self) -> None:
+        """Codex adversarial amendment: Unicode LS/PS escapes must round-trip."""
+        import re as re_mod
+
+        import yaml
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "source_ref": "ls\u2028ps\u2029end",
+        }
+        result = render_ticket(candidate)
+        yaml_match = re_mod.search(r"^```yaml\n(.*?)^```", result, re_mod.MULTILINE | re_mod.DOTALL)
+        assert yaml_match is not None
+        parsed = yaml.safe_load(yaml_match.group(1))
+        assert parsed["source_ref"] == "ls\u2028ps\u2029end"
+
+    def test_numeric_string_yaml_round_trip(self) -> None:
+        """Codex adversarial-challenge: bare numeric strings must round-trip."""
+        import re as re_mod
+
+        import yaml
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "source_ref": "123",
+        }
+        result = render_ticket(candidate)
+        yaml_match = re_mod.search(r"^```yaml\n(.*?)^```", result, re_mod.MULTILINE | re_mod.DOTALL)
+        assert yaml_match is not None
+        parsed = yaml.safe_load(yaml_match.group(1))
+        assert parsed["source_ref"] == "123"
+
+    def test_octal_string_yaml_round_trip(self) -> None:
+        """Codex adversarial-challenge: octal-like strings must round-trip as strings."""
+        import re as re_mod
+
+        import yaml
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "source_ref": "0777",
+        }
+        result = render_ticket(candidate)
+        yaml_match = re_mod.search(r"^```yaml\n(.*?)^```", result, re_mod.MULTILINE | re_mod.DOTALL)
+        assert yaml_match is not None
+        parsed = yaml.safe_load(yaml_match.group(1))
+        assert parsed["source_ref"] == "0777"
+
+    def test_inf_string_yaml_round_trip(self) -> None:
+        """Codex adversarial-challenge: .inf must round-trip as string."""
+        import re as re_mod
+
+        import yaml
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "source_ref": ".inf",
+        }
+        result = render_ticket(candidate)
+        yaml_match = re_mod.search(r"^```yaml\n(.*?)^```", result, re_mod.MULTILINE | re_mod.DOTALL)
+        assert yaml_match is not None
+        parsed = yaml.safe_load(yaml_match.group(1))
+        assert parsed["source_ref"] == ".inf"
+
+    def test_nan_string_yaml_round_trip(self) -> None:
+        """Codex adversarial-challenge: .nan must round-trip as string."""
+        import re as re_mod
+
+        import yaml
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "source_ref": ".nan",
+        }
+        result = render_ticket(candidate)
+        yaml_match = re_mod.search(r"^```yaml\n(.*?)^```", result, re_mod.MULTILINE | re_mod.DOTALL)
+        assert yaml_match is not None
+        parsed = yaml.safe_load(yaml_match.group(1))
+        assert parsed["source_ref"] == ".nan"
+
+
 class TestRenderTicket:
     def test_renders_minimal_ticket(self) -> None:
         from scripts.defer import render_ticket
