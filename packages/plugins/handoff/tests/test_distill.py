@@ -6,6 +6,11 @@ from unittest.mock import patch
 
 import pytest
 from scripts.distill import (
+    CandidateDict,
+    DedupStatus,
+    DurabilityHint,
+    ErrorCode,
+    ExtractionResultDict,
     Subsection,
     classify_durability,
     determine_dedup_status,

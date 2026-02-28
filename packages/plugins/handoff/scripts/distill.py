@@ -16,7 +16,50 @@ import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from typing import Literal, NotRequired, TypedDict
+
 from scripts.handoff_parsing import parse_handoff
+
+
+DedupStatus = Literal["NEW", "EXACT_DUP_SOURCE", "EXACT_DUP_CONTENT", "UPDATED_SOURCE"]
+DurabilityHint = Literal["likely_durable", "likely_ephemeral", "unknown"]
+ErrorCode = Literal[
+    "HANDOFF_UNREADABLE",
+    "NO_DOCUMENT_IDENTITY",
+    "HANDOFF_NOT_FOUND",
+    "LEARNINGS_UNREADABLE",
+]
+
+
+class CandidateDict(TypedDict):
+    """A single distill candidate extracted from a handoff subsection."""
+
+    source_section: str
+    subsection_heading: str
+    raw_markdown: str
+    signals: dict[str, str]
+    source_uid: str
+    content_sha256: str
+    source_anchor: str
+    dedup_status: DedupStatus
+    durability_hint: NotRequired[DurabilityHint]
+
+
+class ExtractionResultDict(TypedDict):
+    """Result of extract_candidates — handoff metadata + candidate list.
+
+    Shared type for both extract_candidates() and main() return dicts.
+    All return paths (success and error) must include every required field.
+    """
+
+    handoff_path: str
+    handoff_date: str
+    handoff_title: str
+    candidates: list[CandidateDict]
+    output_version: int
+    error: str | None
+    error_code: ErrorCode | None
+    warnings: list[str]
 
 
 @dataclass(frozen=True)
@@ -116,7 +159,7 @@ def parse_subsections(content: str) -> list[Subsection]:
     return subsections
 
 
-def classify_durability(heading: str, content: str) -> str:
+def classify_durability(heading: str, content: str) -> DurabilityHint:
     """Classify a subsection's durability hint.
 
     Used for Codebase Knowledge and Gotchas sections. Returns
@@ -283,7 +326,7 @@ def determine_dedup_status(
     source_uid: str,
     content_hash: str,
     learnings_content: str,
-) -> str:
+) -> DedupStatus:
     """Determine dedup status by correlating source and content per record.
 
     Checks each distill-meta entry as a whole record. Source identity match
@@ -348,7 +391,7 @@ def extract_candidates(
     handoff_path: str,
     learnings_content: str,
     extra_sections: tuple[str, ...] = (),
-) -> dict:
+) -> ExtractionResultDict:
     """Extract distill candidates from a handoff file.
 
     Returns a dict with handoff metadata and a list of candidates, each
