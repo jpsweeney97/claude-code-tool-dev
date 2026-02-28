@@ -530,11 +530,7 @@ def main(argv: list[str] | None = None) -> str:
     if args.learnings:
         learnings_path = Path(args.learnings)
         if not learnings_path.exists():
-            print(
-                f"Warning: learnings file not found: {args.learnings}. "
-                "Dedup checking disabled.",
-                file=sys.stderr,
-            )
+            pass  # Warning added to result["warnings"] below
         else:
             try:
                 learnings_content = learnings_path.read_text(encoding="utf-8")

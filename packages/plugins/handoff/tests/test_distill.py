@@ -454,7 +454,7 @@ class TestExtractCandidates:
         result = extract_candidates(str(handoff), "")
         headings = [c["subsection_heading"] for c in result["candidates"]]
         assert "Real Decision" in headings
-        # Empty Decision should either be skipped or have minimal content
+        assert "Empty Decision" not in headings, "Empty subsections should be skipped"
 
     def test_empty_sections_produce_no_candidates(self, tmp_path: Path) -> None:
         handoff = tmp_path / "test.md"
