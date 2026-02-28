@@ -75,7 +75,13 @@ _STRING_FIELDS = ("id", "date", "status", "priority", "source_type", "source_ref
 
 @dataclass(frozen=True)
 class TicketFile:
-    """Parsed ticket with typed frontmatter and markdown body."""
+    """Parsed ticket with typed frontmatter and markdown body.
+
+    Note: frozen prevents field reassignment but the frontmatter dict
+    is mutable at runtime. All production code constructs TicketFile
+    via parse_ticket() which validates schema. Direct construction
+    (e.g., in tests) bypasses validation.
+    """
 
     path: str
     frontmatter: dict[str, Any]

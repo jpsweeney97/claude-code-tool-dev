@@ -11,7 +11,7 @@ import sys
 import time
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 try:
     from scripts.ticket_parsing import parse_ticket
@@ -24,6 +24,32 @@ except ModuleNotFoundError:
     from scripts.provenance import read_provenance, session_matches  # type: ignore[no-redef]
     from scripts.handoff_parsing import parse_frontmatter, parse_sections, section_name  # type: ignore[no-redef]
     from scripts.project_paths import get_handoffs_dir  # type: ignore[no-redef]
+
+
+class OpenTicket(TypedDict):
+    id: str
+    date: str
+    priority: str
+    status_raw: str
+    status_normalized: str
+    normalization_confidence: str
+    summary: str
+    path: str
+
+
+class MatchResult(TypedDict):
+    match_type: Literal["uid_match", "id_ref", "manual_review"]
+    matched_ticket: str | None
+    item: dict[str, Any]
+
+
+class TriageReport(TypedDict):
+    open_tickets: list[OpenTicket]
+    orphaned_items: list[MatchResult]
+    matched_items: list[MatchResult]
+    match_counts: dict[str, int]
+    skipped_prose_count: int
+
 
 # 6-state enum
 _CANONICAL_STATUSES = {"deferred", "open", "in_progress", "blocked", "done", "wontfix"}
@@ -50,7 +76,7 @@ def normalize_status(raw: str) -> tuple[str, str]:
     return "open", "low"
 
 
-def read_open_tickets(tickets_dir: Path) -> list[dict[str, Any]]:
+def read_open_tickets(tickets_dir: Path) -> list[OpenTicket]:
     """Read all non-terminal tickets from a directory.
 
     Returns list of dicts with: id, date, priority, status_raw,
@@ -59,7 +85,7 @@ def read_open_tickets(tickets_dir: Path) -> list[dict[str, Any]]:
     if not tickets_dir.exists():
         return []
 
-    results: list[dict[str, Any]] = []
+    results: list[OpenTicket] = []
     for path in sorted(tickets_dir.glob("*.md")):
         ticket = parse_ticket(path)
         if ticket is None:
@@ -177,7 +203,7 @@ def _load_tickets_for_matching(tickets_dir: Path) -> list[dict[str, Any]]:
 def match_orphan_item(
     item: dict[str, Any],
     tickets: list[dict[str, Any]],
-) -> dict[str, Any]:
+) -> MatchResult:
     """Match a handoff item against existing tickets.
 
     Returns dict with match_type (uid_match, id_ref, manual_review)
@@ -239,7 +265,7 @@ def _scan_handoff_dirs(handoffs_dir: Path) -> list[Path]:
 def generate_report(
     tickets_dir: Path,
     handoffs_dir: Path,
-) -> dict[str, Any]:
+) -> TriageReport:
     """Generate a triage report: open tickets + orphaned handoff items.
 
     Returns dict with: open_tickets, orphaned_items, matched_items,
@@ -268,8 +294,8 @@ def generate_report(
         total_skipped_prose += skipped
 
     # Match each item — separate orphaned from matched (P1-1)
-    orphaned: list[dict[str, Any]] = []
-    matched: list[dict[str, Any]] = []
+    orphaned: list[MatchResult] = []
+    matched: list[MatchResult] = []
     counts = {"uid_match": 0, "id_ref": 0, "manual_review": 0}
     for item in all_items:
         result = match_orphan_item(item, tickets_for_matching)
