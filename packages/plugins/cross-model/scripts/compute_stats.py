@@ -1,0 +1,514 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+"""Analytics computation for cross-model consultation statistics.
+
+Reads classified events from the event log, applies validation and
+time-period filtering, computes section-level metrics, and produces
+a structured JSON report.
+
+Usage as library:
+    from compute_stats import compute
+
+Usage as script:
+    python3 compute_stats.py [--period 30] [--type all] [--json] [path]
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+import sys
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+
+try:
+    import read_events
+    import stats_common
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import read_events
+    import stats_common
+
+
+# ---------------------------------------------------------------------------
+# Template dicts — frozen shape definitions for each report section.
+# Deep-copied before use; never mutated in place.
+# ---------------------------------------------------------------------------
+
+_USAGE_TEMPLATE: dict = {
+    "included": False,
+    "dialogues_completed_total": 0,
+    "consultations_completed_total": 0,
+    "invocations_completed_total": 0,
+    "tool_calls_success_total": 0,
+    "tool_calls_blocked_total": 0,
+    "shadow_count": 0,
+    "active_utc_days": 0,
+    "posture_counts": {},
+    "schema_version_counts": {},
+}
+
+_DIALOGUE_TEMPLATE: dict = {
+    "included": False,
+    "converged_count": 0,
+    "not_converged_count": 0,
+    "convergence_observed_count": 0,
+    "convergence_rate": None,
+    "avg_turn_count": None,
+    "avg_turn_count_observed_count": 0,
+    "avg_turns_to_convergence": None,
+    "avg_turns_to_convergence_observed_count": 0,
+    "avg_scout_count": None,
+    "avg_scout_count_observed_count": 0,
+    "avg_resolved_count": None,
+    "avg_resolved_count_observed_count": 0,
+    "mode_counts": {},
+    "termination_counts": {},
+    "convergence_reason_counts": {},
+    "sample_size": 0,
+}
+
+_CONTEXT_TEMPLATE: dict = {
+    "included": False,
+    "seed_confidence_counts": {},
+    "low_seed_event_count": 0,
+    "low_seed_reason_counts": {},
+    "low_seed_mentions_total": 0,
+    "low_seed_no_reason_count": 0,
+    "avg_citations_total": None,
+    "avg_citations_total_observed_count": 0,
+    "avg_unique_files_total": None,
+    "avg_unique_files_total_observed_count": 0,
+    "retry_true_count": 0,
+    "retry_observed_slots": 0,
+    "retry_missing_slots": 0,
+    "sample_size": 0,
+}
+
+_SECURITY_TEMPLATE: dict = {
+    "included": False,
+    "block_count": 0,
+    "tier_counts": {},
+    "shadow_count": 0,
+    "dispatch_block_rate": None,
+    "blocks_per_completed_invocation": None,
+    "sample_size": 0,
+}
+
+
+# ---------------------------------------------------------------------------
+# Section computation functions
+# ---------------------------------------------------------------------------
+
+
+def _compute_usage(
+    dialogue_outcomes: list[dict],
+    consultation_outcomes: list[dict],
+    consultations: list[dict],
+    blocks: list[dict],
+    shadows: list[dict],
+) -> dict:
+    """Compute the usage section from classified event lists."""
+    result = copy.deepcopy(_USAGE_TEMPLATE)
+    result["included"] = True
+
+    result["dialogues_completed_total"] = len(dialogue_outcomes)
+    result["consultations_completed_total"] = len(consultation_outcomes)
+    result["invocations_completed_total"] = len(dialogue_outcomes) + len(consultation_outcomes)
+    result["tool_calls_success_total"] = len(consultations)
+    result["tool_calls_blocked_total"] = len(blocks)
+    result["shadow_count"] = len(shadows)
+
+    # Active UTC days — distinct calendar dates from outcome events only
+    outcome_events = dialogue_outcomes + consultation_outcomes
+    utc_dates: set[str] = set()
+    for event in outcome_events:
+        dt = stats_common.parse_ts_utc(event.get("ts", ""))
+        if dt is not None:
+            utc_dates.add(dt.strftime("%Y-%m-%d"))
+    result["active_utc_days"] = len(utc_dates)
+
+    # Posture and schema_version from outcome events only
+    posture_counter: Counter[str] = Counter()
+    version_counter: Counter[str] = Counter()
+    for event in outcome_events:
+        posture = event.get("posture")
+        if posture is not None:
+            posture_counter[posture] += 1
+        version = event.get("schema_version")
+        if version is not None:
+            version_counter[version] += 1
+    result["posture_counts"] = dict(posture_counter)
+    result["schema_version_counts"] = dict(version_counter)
+
+    return result
+
+
+def _compute_dialogue(dialogue_outcomes: list[dict]) -> dict:
+    """Compute the dialogue section from dialogue_outcome events."""
+    result = copy.deepcopy(_DIALOGUE_TEMPLATE)
+    result["included"] = True
+    result["sample_size"] = len(dialogue_outcomes)
+
+    # Convergence counts — only events where converged is a bool
+    converged_count = 0
+    not_converged_count = 0
+    for event in dialogue_outcomes:
+        c = event.get("converged")
+        if c is True:
+            converged_count += 1
+        elif c is False:
+            not_converged_count += 1
+
+    result["converged_count"] = converged_count
+    result["not_converged_count"] = not_converged_count
+    convergence_observed = converged_count + not_converged_count
+    result["convergence_observed_count"] = convergence_observed
+    result["convergence_rate"] = (
+        converged_count / convergence_observed if convergence_observed > 0 else None
+    )
+
+    # Averages via observed_avg
+    avg_tc, obs_tc = stats_common.observed_avg(dialogue_outcomes, "turn_count")
+    result["avg_turn_count"] = avg_tc
+    result["avg_turn_count_observed_count"] = obs_tc
+
+    avg_sc, obs_sc = stats_common.observed_avg(dialogue_outcomes, "scout_count")
+    result["avg_scout_count"] = avg_sc
+    result["avg_scout_count_observed_count"] = obs_sc
+
+    avg_rc, obs_rc = stats_common.observed_avg(dialogue_outcomes, "resolved_count")
+    result["avg_resolved_count"] = avg_rc
+    result["avg_resolved_count_observed_count"] = obs_rc
+
+    # avg_turns_to_convergence — converged-only events
+    converged_events = [e for e in dialogue_outcomes if e.get("converged") is True]
+    avg_ttc, obs_ttc = stats_common.observed_avg(converged_events, "turn_count")
+    result["avg_turns_to_convergence"] = avg_ttc
+    result["avg_turns_to_convergence_observed_count"] = obs_ttc
+
+    # Counter dicts
+    result["mode_counts"] = dict(Counter(
+        event.get("mode") for event in dialogue_outcomes if event.get("mode") is not None
+    ))
+    result["termination_counts"] = dict(Counter(
+        event.get("termination_reason")
+        for event in dialogue_outcomes
+        if event.get("termination_reason") is not None
+    ))
+    result["convergence_reason_counts"] = dict(Counter(
+        event.get("convergence_reason_code")
+        for event in dialogue_outcomes
+        if event.get("convergence_reason_code") is not None
+    ))
+
+    return result
+
+
+def _compute_context(dialogue_outcomes: list[dict]) -> dict:
+    """Compute the context section from dialogue_outcome events."""
+    result = copy.deepcopy(_CONTEXT_TEMPLATE)
+    result["included"] = True
+    result["sample_size"] = len(dialogue_outcomes)
+
+    # Seed confidence counts
+    result["seed_confidence_counts"] = dict(Counter(
+        event.get("seed_confidence")
+        for event in dialogue_outcomes
+        if event.get("seed_confidence") is not None
+    ))
+
+    # Low seed aggregation
+    low_seed = stats_common.aggregate_low_seed_reasons(dialogue_outcomes)
+    result["low_seed_event_count"] = low_seed["event_count"]
+    result["low_seed_reason_counts"] = low_seed["reason_counts"]
+    result["low_seed_mentions_total"] = low_seed["mentions_total"]
+    result["low_seed_no_reason_count"] = low_seed["no_reason_count"]
+
+    # Citation and file averages
+    avg_ct, obs_ct = stats_common.observed_avg(dialogue_outcomes, "citations_total")
+    result["avg_citations_total"] = avg_ct
+    result["avg_citations_total_observed_count"] = obs_ct
+
+    avg_uf, obs_uf = stats_common.observed_avg(dialogue_outcomes, "unique_files_total")
+    result["avg_unique_files_total"] = avg_uf
+    result["avg_unique_files_total_observed_count"] = obs_uf
+
+    # Gatherer retry
+    true_c, obs_s, miss_s = stats_common.observed_bool_slots(
+        dialogue_outcomes, "gatherer_a_retry", "gatherer_b_retry"
+    )
+    result["retry_true_count"] = true_c
+    result["retry_observed_slots"] = obs_s
+    result["retry_missing_slots"] = miss_s
+
+    return result
+
+
+def _compute_security(
+    blocks: list[dict],
+    shadows: list[dict],
+    consultations: list[dict],
+    invocations_completed_total: int,
+) -> dict:
+    """Compute the security section from guard events."""
+    result = copy.deepcopy(_SECURITY_TEMPLATE)
+    result["included"] = True
+
+    block_count = len(blocks)
+    result["block_count"] = block_count
+    result["shadow_count"] = len(shadows)
+    result["sample_size"] = len(blocks) + len(shadows)
+
+    # Tier counts
+    result["tier_counts"] = dict(Counter(
+        stats_common.parse_security_tier(block.get("reason", ""))
+        for block in blocks
+    ))
+
+    # Dispatch block rate: blocks / (blocks + consultations)
+    dispatch_denom = block_count + len(consultations)
+    result["dispatch_block_rate"] = (
+        block_count / dispatch_denom if dispatch_denom > 0 else None
+    )
+
+    # Blocks per completed invocation
+    result["blocks_per_completed_invocation"] = (
+        block_count / invocations_completed_total
+        if invocations_completed_total > 0
+        else None
+    )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Section inclusion matrix
+# ---------------------------------------------------------------------------
+
+_SECTION_MATRIX: dict[str, dict[str, bool]] = {
+    "all":          {"usage": True,  "dialogue": True,  "context": True,  "security": True},
+    "dialogue":     {"usage": True,  "dialogue": True,  "context": True,  "security": False},
+    "consultation": {"usage": True,  "dialogue": False, "context": False, "security": False},
+    "security":     {"usage": False, "dialogue": False, "context": False, "security": True},
+}
+
+
+# ---------------------------------------------------------------------------
+# Validation gate
+# ---------------------------------------------------------------------------
+
+
+def _validate_events(events: list[dict]) -> tuple[list[dict], int]:
+    """Run validation gate on events.
+
+    Outcome events (dialogue_outcome, consultation_outcome) are validated
+    against their required-field schemas. Guard events (block, shadow,
+    consultation) pass through unvalidated.
+
+    Returns (valid_events, invalid_count).
+    """
+    valid_events: list[dict] = []
+    invalid_count = 0
+
+    for event in events:
+        if event.get("event") in ("dialogue_outcome", "consultation_outcome"):
+            # validate_event() returns an error list: empty = valid
+            if not read_events.validate_event(event):
+                valid_events.append(event)
+            else:
+                invalid_count += 1
+        else:
+            valid_events.append(event)  # guard events have no schema to validate
+
+    return valid_events, invalid_count
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator
+# ---------------------------------------------------------------------------
+
+
+def compute(
+    events: list[dict],
+    skipped_count: int,
+    period_days: int,
+    section_type: str,
+) -> dict:
+    """Compute analytics report from raw events.
+
+    Args:
+        events: All events from the event log.
+        skipped_count: Count of malformed lines skipped during reading.
+        period_days: Time window in days (0 = all-time).
+        section_type: Which sections to include ("all", "dialogue",
+            "consultation", "security").
+
+    Returns:
+        Structured report dict with usage, dialogue, context, security
+        sections plus metadata envelope.
+    """
+    total_events_read = len(events)
+
+    # 1. Validation gate
+    valid_events, invalid_count = _validate_events(events)
+
+    # 2. Classify events by type
+    dialogue_outcomes: list[dict] = []
+    consultation_outcomes: list[dict] = []
+    consultations: list[dict] = []
+    blocks: list[dict] = []
+    shadows: list[dict] = []
+
+    for event in valid_events:
+        event_type = read_events.classify(event)
+        if event_type == "dialogue_outcome":
+            dialogue_outcomes.append(event)
+        elif event_type == "consultation_outcome":
+            consultation_outcomes.append(event)
+        elif event_type == "consultation":
+            consultations.append(event)
+        elif event_type == "block":
+            blocks.append(event)
+        elif event_type == "shadow":
+            shadows.append(event)
+        # unknown types silently dropped
+
+    # 3. Filter by period with shared `now` for consistent boundaries
+    now = datetime.now(timezone.utc)
+
+    do_result = stats_common.filter_by_period(dialogue_outcomes, period_days, now)
+    co_result = stats_common.filter_by_period(consultation_outcomes, period_days, now)
+    cn_result = stats_common.filter_by_period(consultations, period_days, now)
+    bl_result = stats_common.filter_by_period(blocks, period_days, now)
+    sh_result = stats_common.filter_by_period(shadows, period_days, now)
+
+    dialogue_outcomes = do_result.events
+    consultation_outcomes = co_result.events
+    consultations = cn_result.events
+    blocks = bl_result.events
+    shadows = sh_result.events
+
+    timestamp_parse_failed = (
+        do_result.skipped
+        + co_result.skipped
+        + cn_result.skipped
+        + bl_result.skipped
+        + sh_result.skipped
+    )
+
+    # 4. Precompute shared counts
+    invocations_completed_total = len(dialogue_outcomes) + len(consultation_outcomes)
+
+    # 5. Determine window boundaries from filter results
+    # Use the first non-empty result for window start/end (all share the same `now`)
+    window_start = do_result.window_start or co_result.window_start or cn_result.window_start or bl_result.window_start or sh_result.window_start
+    window_end = do_result.window_end or co_result.window_end or cn_result.window_end or bl_result.window_end or sh_result.window_end
+
+    # 6. Apply section inclusion matrix
+    matrix = _SECTION_MATRIX[section_type]
+
+    if matrix["usage"]:
+        usage_section = _compute_usage(
+            dialogue_outcomes, consultation_outcomes, consultations, blocks, shadows
+        )
+    else:
+        usage_section = copy.deepcopy(_USAGE_TEMPLATE)
+
+    if matrix["dialogue"]:
+        dialogue_section = _compute_dialogue(dialogue_outcomes)
+    else:
+        dialogue_section = copy.deepcopy(_DIALOGUE_TEMPLATE)
+
+    if matrix["context"]:
+        context_section = _compute_context(dialogue_outcomes)
+    else:
+        context_section = copy.deepcopy(_CONTEXT_TEMPLATE)
+
+    if matrix["security"]:
+        security_section = _compute_security(
+            blocks, shadows, consultations, invocations_completed_total
+        )
+    else:
+        security_section = copy.deepcopy(_SECURITY_TEMPLATE)
+
+    # 7. Build output envelope
+    return {
+        "report_version": "1.0.0",
+        "period_days": period_days,
+        "window_start": window_start,
+        "window_end": window_end,
+        "meta": {
+            "total_events_read": total_events_read,
+            "malformed_lines_skipped": skipped_count,
+            "invalid_events_count": invalid_count,
+            "timestamp_parse_failed_count": timestamp_parse_failed,
+            "timezone": "UTC",
+        },
+        "usage": usage_section,
+        "dialogue": dialogue_section,
+        "context": context_section,
+        "security": security_section,
+    }
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """CLI entry point for compute_stats."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Compute cross-model consultation statistics"
+    )
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=str(read_events._DEFAULT_PATH),
+        help="JSONL event log path (default: ~/.claude/.codex-events.jsonl)",
+    )
+    parser.add_argument(
+        "--period",
+        default="30",
+        help="Time period: integer days, '<N>d', or 'all' (default: 30)",
+    )
+    parser.add_argument(
+        "--type",
+        dest="section_type",
+        default="all",
+        choices=["dialogue", "consultation", "security", "all"],
+        help="Which sections to include (default: all)",
+    )
+    parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Output as JSON (default behavior)",
+    )
+    args = parser.parse_args()
+
+    try:
+        period_days = stats_common.parse_period_days(args.period)
+    except ValueError as exc:
+        print(f"invalid --period: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    try:
+        events, skipped = read_events.read_all(Path(args.path))
+        result = compute(events, skipped, period_days, args.section_type)
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"compute failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()
