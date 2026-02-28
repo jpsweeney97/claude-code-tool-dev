@@ -60,7 +60,7 @@ For each candidate, extract:
 | `source_text` | Quoted conversation excerpt (evidence anchor) | Yes |
 | `proposed_approach` | Suggested implementation path | Yes |
 | `acceptance_criteria` | Observable completion conditions (list of strings) | Yes |
-| `priority` | `high`, `medium`, or `low` | Yes (default: `medium`) |
+| `priority` | `critical`, `high`, `medium`, or `low` | Yes (default: `medium`) |
 | `source_type` | One of: `pr-review`, `codex`, `handoff`, `ad-hoc` | Yes (infer from context) |
 | `source_ref` | Human-readable source (e.g., PR number, handoff filename) | If available |
 | `branch` | Current git branch | Auto-detect |

@@ -30,6 +30,8 @@ uv run python -m scripts.triage --tickets-dir "<project_root>/docs/tickets"
 
 Where `<project_root>` is the absolute path from `git rev-parse --show-toplevel`.
 
+Note: handoff scanning is limited to files modified within the last 30 days. Older handoffs are excluded from the orphan scan.
+
 If the user provided directory overrides, pass them as `--tickets-dir` and/or `--handoffs-dir` arguments.
 
 Capture the JSON output from stdout.
@@ -137,7 +139,7 @@ NEVER create tickets without user confirmation.
 Three deterministic strategies in priority order:
 
 1. **uid_match** -- handoff `session_id` matched against ticket `provenance.source_session` (YAML field, primary) or `defer-meta.source_session` (comment, fallback). Only works for tickets created via `/defer` from a handoff context.
-2. **id_ref** -- handoff text contains a ticket ID matching regex patterns: `T-\d{8}-\d{2}` (new format), `T-\d{3}` (legacy numeric), `T-[A-F]` (legacy alpha), `handoff-\w+` (legacy noun).
+2. **id_ref** -- handoff text contains a ticket ID matching regex patterns: `T-\d{8}-\d{2,}` (new format, 2+ digit sequence), `T-\d{3}` (legacy numeric), `T-[A-F]` (legacy alpha), `handoff-[\w-]+` (legacy noun, supports hyphens).
 3. **manual_review** -- no deterministic match. Presented to user for manual classification.
 
 **Source-type coverage limitation:** UID match only works for tickets created from handoff-derived contexts. Tickets with `source_type: pr-review`, `codex`, or `ad-hoc` route to `manual_review` by design.
