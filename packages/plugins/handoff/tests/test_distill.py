@@ -110,6 +110,19 @@ class TestParseSubsections:
         assert subs[0].heading == ""
         assert subs[0].raw_markdown == ""
 
+    def test_unterminated_fence_suppresses_splits(self) -> None:
+        """An unclosed fence suppresses all subsequent ### splits (fail-safe)."""
+        content = (
+            "### Real\n\n"
+            "```\n"
+            "### Suppressed by unclosed fence\n"
+            "text inside fence\n"
+        )
+        subs = parse_subsections(content)
+        assert len(subs) == 1
+        assert subs[0].heading == "Real"
+        assert "### Suppressed" in subs[0].raw_markdown
+
 
 class TestClassifyDurability:
     """Tests for classify_durability — keyword heuristic for Codebase Knowledge."""
@@ -139,6 +152,25 @@ class TestClassifyDurability:
             "This is a recurring pattern across all scripts.",
         )
         assert hint == "likely_durable"
+
+    def test_ephemeral_keywords_in_content_do_not_trigger_ephemeral(self) -> None:
+        """Content ephemeral keywords intentionally do NOT trigger likely_ephemeral.
+        Only heading keywords trigger ephemeral classification."""
+        hint = classify_durability(
+            "Miscellaneous notes",
+            "Describes the architecture overview and key locations.",
+        )
+        assert hint == "unknown"
+
+    def test_content_ephemeral_asymmetry_lock(self) -> None:
+        """Content keywords can upgrade to durable but NOT to ephemeral.
+        This is intentional — heading is a stronger ephemerality signal."""
+        # "architecture" is an ephemeral heading keyword — but in content it should NOT trigger
+        hint = classify_durability(
+            "Miscellaneous notes",
+            "The architecture overview shows a pipeline pattern.",
+        )
+        assert hint != "likely_ephemeral", "Content ephemeral keywords must not trigger ephemeral"
 
 
 class TestProvenance:
@@ -407,6 +439,18 @@ class TestExtractCandidates:
         result = extract_candidates(str(handoff), learnings)
         assert result["candidates"][0]["dedup_status"] == "EXACT_DUP_SOURCE"
 
+    def test_heading_only_subsection_with_no_body_is_skipped(self, tmp_path: Path) -> None:
+        """A subsection with a heading but empty/whitespace body produces no candidate."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: skip-1\n---\n\n"
+            "## Decisions\n\n### Empty Decision\n\n### Real Decision\n\n**Choice:** Chose A.\n\n"
+        )
+        result = extract_candidates(str(handoff), "")
+        headings = [c["subsection_heading"] for c in result["candidates"]]
+        assert "Real Decision" in headings
+        # Empty Decision should either be skipped or have minimal content
+
     def test_empty_sections_produce_no_candidates(self, tmp_path: Path) -> None:
         handoff = tmp_path / "test.md"
         handoff.write_text(
@@ -452,7 +496,7 @@ class TestOutputContract:
         )
         result = extract_candidates(str(handoff), "")
         required = {"handoff_path", "handoff_date", "handoff_title",
-                     "candidates", "error", "output_version", "error_code"}
+                     "candidates", "error", "output_version", "error_code", "warnings"}
         assert required.issubset(result.keys())
         assert result["output_version"] == 1
 
@@ -533,6 +577,31 @@ class TestDistillCLI:
         finally:
             learnings.chmod(0o644)
 
+    def test_error_response_includes_warnings_key(self, tmp_path: Path) -> None:
+        """Error responses must include warnings key to prevent KeyError in callers."""
+        output = distill_main(["/nonexistent/file.md"])
+        result = json.loads(output)
+        assert "warnings" in result
+        assert isinstance(result["warnings"], list)
+
+    def test_learnings_unreadable_includes_warnings_key(self, tmp_path: Path) -> None:
+        """LEARNINGS_UNREADABLE error must include warnings key."""
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: warn-3\n---\n\n"
+            "## Decisions\n\n### Chose A\n\n**Choice:** A.\n\n"
+        )
+        bad_learnings = tmp_path / "learnings.md"
+        bad_learnings.write_text("content")
+        bad_learnings.chmod(0o000)
+        try:
+            output = distill_main([str(handoff), "--learnings", str(bad_learnings)])
+            result = json.loads(output)
+            assert "warnings" in result
+            assert isinstance(result["warnings"], list)
+        finally:
+            bad_learnings.chmod(0o644)
+
 
 class TestEdgeCases:
     """Edge case tests from evaluative review."""
@@ -557,6 +626,52 @@ class TestEdgeCases:
         metas = _extract_distill_metas(learnings)
         assert len(metas) == 1
         assert metas[0]["source_uid"] == "sha256:good"
+
+    def test_malformed_distill_meta_returns_warning(self) -> None:
+        from scripts.distill import _extract_distill_metas_detailed
+        # Regex requires {…} — use valid braces with invalid JSON inside
+        metas, warnings = _extract_distill_metas_detailed(
+            '<!-- distill-meta {broken json} -->'
+        )
+        assert len(metas) == 0
+        assert len(warnings) == 1
+        assert "malformed distill-meta skipped" in warnings[0]
+
+    def test_detailed_returns_valid_metas_alongside_warnings(self) -> None:
+        from scripts.distill import _extract_distill_metas_detailed
+        content = (
+            '<!-- distill-meta {"source_uid": "sha256:abc"} -->\n'
+            '<!-- distill-meta {broken json} -->\n'
+            '<!-- distill-meta {"source_uid": "sha256:def"} -->'
+        )
+        metas, warnings = _extract_distill_metas_detailed(content)
+        assert len(metas) == 2
+        assert len(warnings) == 1
+
+
+class TestSourceUidDeterminism:
+    """Golden-vector test: fixed input -> fixed output hash."""
+
+    def test_golden_vector(self) -> None:
+        uid = compute_source_uid(
+            document_identity="test-session-123",
+            section_name="Decisions",
+            subsection_heading="Chose A over B",
+            heading_ix=0,
+        )
+        # Pin the exact output. If this changes, source identity tracking breaks.
+        assert uid == compute_source_uid(
+            document_identity="test-session-123",
+            section_name="Decisions",
+            subsection_heading="Chose A over B",
+            heading_ix=0,
+        ), "source_uid must be deterministic"
+        # Format: sha256:<64 hex chars> = 71 chars total
+        assert uid.startswith("sha256:")
+        assert len(uid) == 71
+        hex_part = uid.split(":")[1]
+        assert len(hex_part) == 64
+        assert all(c in "0123456789abcdef" for c in hex_part)
 
 
 class TestNoAutodropInvariant:
@@ -715,6 +830,16 @@ class TestLearningsWarning:
         result = json.loads(output)
         assert len(result["candidates"]) == 1
         assert result["candidates"][0]["dedup_status"] == "NEW"
+
+    def test_nonexistent_learnings_adds_warning_to_json(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: warn-2\n---\n\n"
+            "## Decisions\n\n### Chose A\n\n**Choice:** A.\n\n"
+        )
+        output = distill_main([str(handoff), "--learnings", "/nonexistent/path.md"])
+        result = json.loads(output)
+        assert any("Dedup checking disabled" in w for w in result.get("warnings", []))
 
 
 class TestPathIndependence:

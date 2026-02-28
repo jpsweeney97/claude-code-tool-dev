@@ -24,8 +24,9 @@ def get_project_name() -> tuple[str, str]:
         )
         if result.returncode == 0:
             return Path(result.stdout.strip()).name, "git"
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        import sys
+        print(f"Warning: git project detection failed ({type(exc).__name__}). Falling back to cwd.", file=sys.stderr)
     return Path.cwd().name, "cwd"
 
 

@@ -233,19 +233,33 @@ def make_distill_meta(
 _DISTILL_META_RE = re.compile(r'<!--\s*distill-meta\s+(\{.*?\})\s*-->')
 
 
-def _extract_distill_metas(learnings_content: str) -> list[dict]:
-    """Extract all distill-meta JSON payloads from HTML comments.
+def _extract_distill_metas_detailed(learnings_content: str) -> tuple[list[dict], list[str]]:
+    """Extract distill-meta comments, returning (metas, warnings).
 
-    Only searches inside <!-- distill-meta ... --> comments to avoid
-    false positives from prose that happens to contain JSON key-value
-    patterns.
+    Pure variant — no side effects. Use in extract_candidates to
+    populate the JSON warnings field.
     """
     metas: list[dict] = []
+    warnings: list[str] = []
+    if not learnings_content:
+        return metas, warnings
     for match in _DISTILL_META_RE.finditer(learnings_content):
         try:
             metas.append(json_mod.loads(match.group(1)))
         except (json_mod.JSONDecodeError, ValueError):
+            warnings.append(f"malformed distill-meta skipped: {match.group(0)[:80]}")
             continue
+    return metas, warnings
+
+
+def _extract_distill_metas(learnings_content: str) -> list[dict]:
+    """Extract distill-meta comments from learnings content.
+
+    Stable API — 3 call sites (check_exact_dup_source, check_exact_dup_content,
+    determine_dedup_status). Use _extract_distill_metas_detailed when you need
+    warnings too.
+    """
+    metas, _ = _extract_distill_metas_detailed(learnings_content)
     return metas
 
 
@@ -356,6 +370,7 @@ def extract_candidates(
             "output_version": 1,
             "error": f"Failed to read handoff file: {exc}",
             "error_code": "HANDOFF_UNREADABLE",
+            "warnings": [],
         }
     try:
         doc_id = _document_identity(handoff.frontmatter)
@@ -368,9 +383,14 @@ def extract_candidates(
             "output_version": 1,
             "error": str(exc),
             "error_code": "NO_DOCUMENT_IDENTITY",
+            "warnings": [],
         }
 
     candidates: list[dict] = []
+    warnings: list[str] = []
+
+    _, meta_warnings = _extract_distill_metas_detailed(learnings_content)
+    warnings.extend(meta_warnings)
 
     for section in handoff.sections:
         name = _section_name(section.heading)
@@ -430,6 +450,7 @@ def extract_candidates(
         "output_version": 1,
         "error": None,
         "error_code": None,
+        "warnings": warnings,
     }
 
 
@@ -456,17 +477,17 @@ def main(argv: list[str] | None = None) -> str:
             "output_version": 1,
             "error": f"Handoff file not found: {handoff_path}",
             "error_code": "HANDOFF_NOT_FOUND",
+            "warnings": [],
         })
 
     learnings_content = ""
     if args.learnings:
         learnings_path = Path(args.learnings)
         if not learnings_path.exists():
-            import sys as _sys
             print(
                 f"Warning: learnings file not found: {args.learnings}. "
                 "Dedup checking disabled.",
-                file=_sys.stderr,
+                file=sys.stderr,
             )
         else:
             try:
@@ -480,12 +501,24 @@ def main(argv: list[str] | None = None) -> str:
                     "output_version": 1,
                     "error": f"Failed to read learnings file: {exc}",
                     "error_code": "LEARNINGS_UNREADABLE",
+                    "warnings": [],
                 })
 
     result = extract_candidates(
         handoff_path, learnings_content,
         extra_sections=tuple(args.include_section),
     )
+
+    # Propagate CLI-level warnings
+    if args.learnings and not Path(args.learnings).exists():
+        result.setdefault("warnings", []).append(
+            f"Learnings file not found: {args.learnings}. Dedup checking disabled."
+        )
+
+    # Print all warnings to stderr for CLI users
+    for w in result.get("warnings", []):
+        print(f"Warning: {w}", file=sys.stderr)
+
     return json_mod.dumps(result, indent=2)
 
 
