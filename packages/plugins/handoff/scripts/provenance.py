@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from typing import Any
 
 _DEFER_META_RE = re.compile(r"<!--\s*defer-meta\s+(\{.*?\})\s*-->")
@@ -19,7 +20,8 @@ def parse_defer_meta(text: str) -> dict[str, Any] | None:
         return None
     try:
         return json.loads(m.group(1))
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        warnings.warn(f"Malformed JSON in defer-meta comment: {exc}", stacklevel=2)
         return None
 
 
@@ -30,7 +32,8 @@ def parse_distill_meta(text: str) -> dict[str, Any] | None:
         return None
     try:
         return json.loads(m.group(1))
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        warnings.warn(f"Malformed JSON in distill-meta comment: {exc}", stacklevel=2)
         return None
 
 

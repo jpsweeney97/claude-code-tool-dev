@@ -9,6 +9,7 @@ import json
 import re
 import sys
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -239,7 +240,8 @@ def _scan_handoff_dirs(handoffs_dir: Path) -> list[Path]:
             try:
                 if p.stat().st_mtime >= cutoff:
                     paths.append(p)
-            except OSError:
+            except OSError as exc:
+                warnings.warn(f"Cannot stat handoff file {p}: {exc}", stacklevel=2)
                 continue
     return paths
 
@@ -268,7 +270,8 @@ def generate_report(
     for path in _scan_handoff_dirs(handoffs_dir):
         try:
             text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as exc:
+            warnings.warn(f"Cannot read handoff file {path}: {exc}", stacklevel=2)
             continue
         items, skipped = extract_handoff_items(text, path.name)
         all_items.extend(items)

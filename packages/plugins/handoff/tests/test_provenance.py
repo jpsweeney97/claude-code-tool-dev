@@ -138,3 +138,31 @@ class TestSessionMatch:
         assert not session_matches("", "")
         assert not session_matches("", "5136e38e-efc5-403f-ad5e-49516f47884b")
         assert not session_matches("5136e38e-efc5-403f-ad5e-49516f47884b", "")
+
+
+class TestProvenanceWarnings:
+    """I3: JSON parse failures must warn, not silently return None."""
+
+    def test_warns_on_malformed_defer_meta_json(self) -> None:
+        import warnings
+
+        from scripts.provenance import parse_defer_meta
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = parse_defer_meta('<!-- defer-meta {bad json} -->')
+        assert result is None
+        assert len(w) == 1
+        assert "JSON" in str(w[0].message)
+
+    def test_warns_on_malformed_distill_meta_json(self) -> None:
+        import warnings
+
+        from scripts.provenance import parse_distill_meta
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = parse_distill_meta('<!-- distill-meta {bad} -->')
+        assert result is None
+        assert len(w) == 1
+        assert "JSON" in str(w[0].message)

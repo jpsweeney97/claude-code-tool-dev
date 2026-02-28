@@ -36,8 +36,7 @@ def allocate_id(date_str: str, tickets_dir: Path) -> str:
         for path in sorted(tickets_dir.glob("*.md")):  # P2-10: deterministic order
             ticket = parse_ticket(path)
             if ticket is None:
-                warnings.warn(f"Skipping malformed ticket: {path}", stacklevel=2)  # P2-11
-                continue
+                continue  # parse_ticket emits diagnostic warnings
             tid = ticket.frontmatter.get("id", "")
             m = _DATE_ID_RE.match(str(tid))
             if m and m.group(1) == date_compact:
@@ -83,10 +82,18 @@ def render_ticket(candidate: dict[str, Any]) -> str:
     effort = candidate.get("effort", "S")
     files = candidate.get("files", [])
 
-    # P1-9 fix: validate enum values before rendering
+    # P1-9 fix: validate enum values, warn and fall back to defaults on invalid
     if priority not in _VALID_PRIORITIES:
+        warnings.warn(
+            f"Invalid priority {priority!r}, defaulting to 'medium'",
+            stacklevel=2,
+        )
         priority = "medium"
     if effort not in _VALID_EFFORTS:
+        warnings.warn(
+            f"Invalid effort {effort!r}, defaulting to 'S'",
+            stacklevel=2,
+        )
         effort = "S"
 
     _YAML_IMPLICIT_SCALARS = frozenset({

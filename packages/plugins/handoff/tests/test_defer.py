@@ -450,6 +450,51 @@ class TestWriteTicket:
         assert path.exists()
 
 
+class TestEnumCoercionWarning:
+    """I6: Invalid priority/effort must warn when coerced to default."""
+
+    def test_warns_on_invalid_priority(self) -> None:
+        import warnings
+
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "priority": "urgent",
+        }
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = render_ticket(candidate)
+        assert "priority: medium" in result or 'priority: "medium"' in result
+        assert any("priority" in str(x.message) and "urgent" in str(x.message) for x in w)
+
+    def test_warns_on_invalid_effort(self) -> None:
+        import warnings
+
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "effort": "XXL",
+        }
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = render_ticket(candidate)
+        assert any("effort" in str(x.message) and "XXL" in str(x.message) for x in w)
+
+
 class TestEndToEnd:
     """Integration test: write_ticket -> allocate_id -> parse_ticket round-trip."""
 
