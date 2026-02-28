@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-28
 **Branch:** `feature/context-metrics`
-**Status:** Design amended with Codex review findings, pending implementation plan
+**Status:** Design amended with two Codex reviews (3 amendments), ready for implementation planning
 
 ## Objective
 
@@ -323,9 +323,11 @@ Context: 34k/200k tokens (17%) | Compaction #3 just occurred | ~$1.24
 ## Open Questions
 
 1. ~~**Does devtools' `/groups` endpoint contain enough data to approximate current-phase context occupancy?**~~ **Resolved in Amendment 2.** No — `/groups` aggregates across subagent API calls. The JSONL transcript provides exact per-call context occupancy. See Amendment 2.
-2. **Would devtools accept an upstream PR to expose `ContextStats` via HTTP?** Adding `GET /api/projects/:projectId/sessions/:sessionId/context-stats` would enable the category breakdown dashboard. Requires external maintainer review. Lower priority now that the summary line works without devtools.
-3. **Is the HTTP hook event support for `UserPromptSubmit` confirmed?** Official docs list `UserPromptSubmit` as supporting "all three types (command, prompt, agent)" — HTTP is not explicitly listed in either the supported or restricted event lists. Most likely a documentation gap (HTTP was added later), but not empirically verified for `UserPromptSubmit` specifically.
-4. **Which dashboard skill approach to use?** Simplified (JSONL-only, no category breakdown), deferred (ship summary line first), or replicate category classification (complex, self-contained). See Amendment 2 dashboard impact section.
+2. **Would devtools accept an upstream PR to expose `ContextStats` via HTTP?** Adding `GET /api/projects/:projectId/sessions/:sessionId/context-stats` would enable the category breakdown dashboard. Requires external maintainer review. Lower priority now that the summary line works without devtools. Deferred to v1.1+ (see Amendment 3 scope boundary).
+3. ~~**Is the HTTP hook event support for `UserPromptSubmit` confirmed?**~~ **Deferred in Amendment 3.** v1 uses `type: "command"` hooks for `UserPromptSubmit`. HTTP hooks deferred to v1.1 after empirical verification. See Amendment 3 Finding 4.
+4. ~~**Which dashboard skill approach to use?**~~ **Scoped in Amendment 3.** v1 uses simplified JSONL-only dashboard or defers entirely. Category breakdown deferred to v1.1+. See Amendment 3 v1 scope boundary.
+5. **Does `additionalContext` accumulate or overwrite?** Each hook injection may create a separate `system-reminder` (accumulating) or overwrite the previous one. Affects heartbeat frequency tuning. See Amendment 3 Finding 5 and unresolved items.
+6. **Startup race between async sidecar launch and first `UserPromptSubmit`.** The first prompt may fire before the sidecar is ready. Mitigation options documented in Amendment 3 unresolved items. Verify empirically during implementation.
 
 ## Amendments
 
@@ -640,6 +642,198 @@ The `/context-dashboard` skill's category breakdown (tool outputs 66%, thinking 
 | B. Dashboard deferred | Ship summary line first. Dashboard skill added later if devtools exposes `ContextStats` via HTTP (upstream PR or future version). |
 | C. Replicate category classification | Parse JSONL messages, classify by type (tool output, CLAUDE.md, user message, etc.), estimate tokens per category. Complex but self-contained. |
 
+### Amendment 3: Second Codex Deep Review Findings (2026-02-28)
+
+**Source:** Codex evaluative review (7 turns, converged via mutual agreement). Thread `019ca664-5345-77a0-8418-9fd924cbab74`. Second review of the fully amended design (after Amendments 1 and 2).
+
+**Review outcome:** 8 resolved findings (5 high, 1 medium, 2 high from self-correction), 2 unresolved items, 2 dialogue-born insights. Design assessed as fundamentally sound. All major findings are correctness or behavioral issues — the architecture is validated.
+
+#### Finding 1 (High): JSONL occupancy selector must be stricter than `isSidechain` alone
+
+**Issue:** The design (Amendment 2, line 488-489) uses `isSidechain: false` as the sole filter for main-thread API calls. This is insufficient — `agent_progress` records can carry `isSidechain: false` with nested usage data that is NOT main-thread context occupancy. Using these records would produce incorrect metrics.
+
+**Resolution:** The correct selector requires all of:
+1. `type == "assistant"` (top-level message type)
+2. `message.role == "assistant"` (API response)
+3. `message.usage` present (has token data)
+4. Exclude synthetic/api-error records
+5. Deduplicate by `message.id`
+
+**Design impact:** The sidecar's JSONL parsing logic (Architecture diagram step 1: "Read JSONL tail → find last main-thread usage") must apply this multi-field selector, not just `isSidechain: false`. The tail-reading algorithm should scan backward for the first record matching all five criteria.
+
+**Confidence:** High — both sides independently identified the issue. Codex provided evidence of `agent_progress` records with misleading usage data.
+
+#### Finding 2 (High): Dual-source compaction detection
+
+**Issue:** The design relies solely on the `SessionStart(compact)` hook for compaction detection. The JSONL transcript also contains `compact_boundary` markers with `compactMetadata.preTokens` (pre-compaction context size). Neither source alone is sufficient.
+
+**Resolution:** Use both sources:
+
+| Source | Role | Strength |
+|--------|------|----------|
+| `SessionStart(compact)` hook | Immediate trigger for post-compaction re-injection | Real-time, but only fires during the session |
+| JSONL `compact_boundary` markers | Durable compaction count, phase history, pre-compaction sizes | Persistent, includes `preTokens` for historical analysis |
+
+The sidecar reads `compact_boundary` markers from the JSONL to maintain compaction count and phase history. The `SessionStart(compact)` hook triggers immediate re-injection with fresh metrics.
+
+**Design impact:** The architecture diagram step 5 ("Count compactions — SessionStart compact events") should read "Count compactions — JSONL compact_boundary markers." The `SessionStart(compact)` hook remains for immediate injection but is no longer the sole compaction detection mechanism.
+
+**Confidence:** High — `compact_boundary` markers confirmed in real JSONL transcripts with `compactMetadata.preTokens`.
+
+#### Finding 3 (High): Shared sidecar with session registry + lease resolves multi-session collision
+
+**Issue:** Amendment 1 Finding 2 identified the multi-session collision problem but left three options unresolved.
+
+**Resolution: Option B refined — shared sidecar with session registry and lease timeout.**
+
+Option A (per-session port) eliminated: `hooks.json` URLs are static — they're baked at plugin install time and cannot be parameterized per session. A URL like `http://localhost:7432/hooks/context-metrics` is the same for every session. This is an architectural constraint, not just an inconvenience.
+
+**Sidecar lifecycle:**
+
+| Event | Behavior |
+|-------|----------|
+| First session starts | Sidecar launches on port 7432, registers session with 10-minute lease |
+| Second session starts | Detects running sidecar (health check), registers new session, renews lease |
+| Session ends normally | Deregisters session. If no sessions remain, sidecar shuts down |
+| Session crashes | Lease expires after 10 minutes. If no sessions remain after expiry, sidecar shuts down |
+| Resume (no running sidecar) | Starts new sidecar, registers session |
+| Resume (sidecar running) | Registers session (no kill/restart). Cache preserved for other sessions |
+
+**Key change from design:** `start_sidecar.py` must NOT kill-and-restart when a sidecar is already running. It should register the new session and exit. Kill-on-resume was identified as a correctness bug: it drops the TTL cache and interrupts in-flight requests for other sessions.
+
+**Sidecar state additions:**
+
+| State | Storage | Lifecycle |
+|-------|---------|-----------|
+| Session registry | In-memory dict: `{session_id: last_heartbeat_timestamp}` | Entries added on startup hook, removed on shutdown hook, expired by lease timeout |
+| Lease timeout | 10 minutes | Configurable. Sessions renew on each request. |
+
+**Design impact:** PID file remains for startup detection. Port remains 7432 (shared). `stop_sidecar.py` deregisters the session instead of killing the process. Add `GET /sessions/register` and `GET /sessions/deregister` endpoints to the sidecar.
+
+**Confidence:** High — the static `hooks.json` URL constraint is architecturally decisive.
+
+#### Finding 4 (High): v1 ships command hooks for UserPromptSubmit, HTTP hooks deferred
+
+**Issue:** The design uses `type: "http"` for `UserPromptSubmit`. HTTP hooks are not mentioned in the bundled hooks documentation (`docs/claude-code-documentation/hooks.md` — zero mentions of "http"). The official live docs do document HTTP hooks, but the gap creates runtime risk for v1.
+
+**Resolution:** v1 uses `type: "command"` for `UserPromptSubmit`:
+
+```json
+{
+  "hooks": [
+    {
+      "type": "command",
+      "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/context_summary.py",
+      "timeout": 5,
+      "statusMessage": "Updating context metrics"
+    }
+  ]
+}
+```
+
+`context_summary.py` queries the sidecar via `urllib.request` (stdlib, same pattern as the `SessionStart(compact)` hook). The ~150-300ms command hook latency is acceptable for v1.
+
+**Upgrade path (v1.1):** After empirical verification that HTTP hooks work with `UserPromptSubmit`, switch to `type: "http"` for ~1-5ms latency. The sidecar's `/hooks/context-metrics` endpoint already exists — only the `hooks.json` entry changes.
+
+**Design impact:** Remove `type: "http"` from the UserPromptSubmit hook config. `context_summary.py` becomes the sole injection script for both `UserPromptSubmit` and `SessionStart(compact)`. This simplifies the design: one script, one injection path. The sidecar HTTP endpoint remains for the v1.1 upgrade.
+
+**Confidence:** High — the ~150-300ms latency is within acceptable bounds, and de-risking v1 is worth the trade-off.
+
+#### Finding 5 (High): Delta-gated injection replaces per-turn injection
+
+**Issue:** The design injects `additionalContext` on every `UserPromptSubmit`. Each injection creates a system-reminder in Claude's conversation context. After 100 prompts, this accumulates ~2000 tokens of context pollution (100 × ~20 tokens per summary line). This is ironic for a context-awareness tool.
+
+**Resolution: Inject only on meaningful change, plus a heartbeat.**
+
+**Injection triggers (full format):**
+
+| Trigger | Condition | Example |
+|---------|-----------|---------|
+| Token delta | Context grew by ≥5k tokens or ≥2% since last injection | 142k → 148k |
+| Boundary crossing | Context crossed 25%, 50%, 75%, 90% of window | "Approaching 75% of context window" |
+| Soft boundary alert | Context approaching or exceeding `soft_boundary` | "168k/200k — approaching extended-context boundary" |
+| Compaction | `compact_boundary` detected in JSONL | "Compaction #3 just occurred — 34k/200k" |
+
+**Heartbeat (minimal format):**
+
+Every 8-10 prompts without a triggered injection, emit a minimal status:
+
+```
+Context: ~71% (stable)
+```
+
+This keeps Claude loosely aware without noise. Full format only on material changes.
+
+**Sidecar state addition:**
+
+| State | Storage | Purpose |
+|-------|---------|---------|
+| Last injected metrics | In-memory per session | Compare with current to determine if delta threshold is met |
+| Prompts since last injection | In-memory counter per session | Heartbeat trigger |
+
+**Design impact:** The sidecar's response can be `{ hookSpecificOutput: null }` (no injection) or `{ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: "..." } }` (inject). The "no injection" case is the common path. The hook still fires on every prompt — the sidecar decides whether to inject.
+
+**Confidence:** High — dialogue-born insight. The accumulation problem is a direct consequence of per-turn injection with persistent context.
+
+**Open question (unresolved):** Does each `additionalContext` injection create a separate system-reminder, or do subsequent injections overwrite the previous one? If they overwrite, the pollution concern is reduced but delta-gating is still valuable for reducing sidecar work. Implementation should verify this empirically.
+
+#### Finding 6 (Medium): v1 omits self-computed cost estimation
+
+**Issue:** The design's summary line includes `~$X.XX` cost. With devtools now optional, self-computing cost requires model-specific pricing tables, cache pricing rules, and ongoing maintenance as Anthropic updates prices.
+
+**Resolution:** v1 shows cost only when devtools `costUsd` is available (devtools enrichment path). When devtools is unavailable, the cost segment is omitted (same behavior as Amendment 1 Finding 5's resolution for undefined `costUsd`).
+
+**Summary line without cost:**
+
+```
+Context: 142k/200k tokens (71%) | 847 msgs | Phase 3 (2 compactions)
+```
+
+**Upgrade path:** Self-computed cost estimation can be added to the dashboard skill if the category breakdown is implemented (Option C from Amendment 2). The dashboard is invoked on-demand, so slightly stale pricing tables are acceptable there.
+
+**Confidence:** Medium — Codex proposed, reasoning about maintenance burden is sound. Users who want cost data can enable devtools.
+
+#### Finding 7 (High): Non-compaction dips are small — do not use token-drop heuristics
+
+**Issue:** During the dialogue, the question arose whether large context dips can occur without compaction (which would break token-drop-based compaction detection).
+
+**Resolution:** Large dips (e.g., 137k → 59k) are compaction-adjacent — preceded by `compact_boundary` markers in the JSONL. Small dips (~80 tokens) occur from cache accounting shifts and are not compaction events.
+
+**Design impact:** Compaction detection must use explicit `compact_boundary` markers (Finding 2), not token-drop heuristics. A threshold-based approach ("if context drops by >X%, assume compaction") would produce false positives from cache shifts and false negatives from small compactions.
+
+**Confidence:** High — Codex initially implied large dips occur without compaction, then self-corrected after re-examining evidence.
+
+#### v1 Scope Boundary
+
+Based on this review, the following scope boundary is established:
+
+**v1 (initial release):**
+
+| Component | Approach |
+|-----------|----------|
+| Data source | JSONL-primary, devtools-optional enrichment |
+| Injection hook | `type: "command"` for UserPromptSubmit |
+| Injection policy | Delta-gated with heartbeat |
+| Multi-session | Shared sidecar with session registry + lease |
+| Cost | Devtools `costUsd` when available; omitted otherwise |
+| Dashboard | Simplified JSONL-only (occupancy, messages, compactions) or deferred |
+| Context window | Auto-detection (200k default, upgrade to 1M) with config override |
+
+**v1.1+ (deferred):**
+
+| Component | Approach |
+|-----------|----------|
+| Injection hook | `type: "http"` for UserPromptSubmit (after empirical verification) |
+| Cost estimation | Self-computed from token counts × model pricing |
+| Dashboard | Category breakdown (if devtools adds ContextStats endpoint, or via JSONL classification) |
+| Upstream devtools PR | `GET /api/.../context-stats` endpoint for category data |
+
+#### Unresolved items (carry forward to implementation)
+
+1. **`additionalContext` accumulation semantics.** Does each injection create a separate `system-reminder` in Claude's context, or do subsequent injections from the same hook overwrite the previous one? Delta-gating mitigates either case, but the answer affects heartbeat frequency tuning. Verify empirically during implementation.
+
+2. **Startup race condition.** The sidecar starts via `async` command hook on `SessionStart`. The first `UserPromptSubmit` may fire before the sidecar is ready. Mitigation options: (a) `context_summary.py` retries once with 500ms delay if sidecar is unreachable, (b) sidecar writes a ready-file that `context_summary.py` checks, (c) accept that the first prompt may not have metrics (fail-open). Verify timing empirically during implementation.
+
 ## References
 
 | What | Where |
@@ -651,3 +845,5 @@ The `/context-dashboard` skill's category breakdown (tool outputs 66%, thinking 
 | Plugin reference (official) | https://code.claude.com/docs/en/plugins-reference |
 | Existing plugin pattern | `packages/plugins/cross-model/` |
 | Existing plugin pattern | `packages/plugins/handoff/` |
+| Codex review 1 thread | `019ca614-39c4-7263-9521-e13972c889c4` |
+| Codex review 2 thread | `019ca664-5345-77a0-8418-9fd924cbab74` |
