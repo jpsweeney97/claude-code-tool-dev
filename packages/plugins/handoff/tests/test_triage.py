@@ -465,3 +465,115 @@ class TestMain:
         output = capsys.readouterr().out
         report = json.loads(output)
         assert report["open_tickets"][0]["id"] == "T-20260228-01"
+
+
+class TestEndToEnd:
+    """Integration test: tickets + handoffs → generate_report with all match types."""
+
+    def test_full_triage_pipeline(self, tmp_path: Path) -> None:
+        from scripts.triage import generate_report
+
+        # Setup: tickets directory with diverse tickets
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        (tickets_dir / "deferred.md").write_text(TICKET_DEFERRED)      # non-terminal, open
+        (tickets_dir / "done.md").write_text(TICKET_DONE)              # terminal, filtered out
+        (tickets_dir / "legacy.md").write_text(TICKET_LEGACY_COMPLETE) # terminal (complete→done)
+        (tickets_dir / "prov.md").write_text(TICKET_WITH_PROVENANCE)   # has provenance
+
+        # Setup: handoffs directory
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+        (handoffs_dir / "test.md").write_text(HANDOFF_WITH_OPEN_QUESTIONS)
+
+        report = generate_report(tickets_dir, handoffs_dir)
+
+        # Verify open_tickets: only non-terminal tickets
+        open_ids = {t["id"] for t in report["open_tickets"]}
+        assert "T-20260228-01" in open_ids    # deferred
+        assert "T-20260228-03" in open_ids    # deferred (with provenance)
+        assert "T-20260228-02" not in open_ids # done
+        assert "T-004" not in open_ids         # complete → done
+
+        # Verify match counts
+        counts = report["match_counts"]
+        total_items = counts["uid_match"] + counts["id_ref"] + counts["manual_review"]
+        assert total_items == 5  # HANDOFF_WITH_OPEN_QUESTIONS has 3 Open Questions + 2 Risks
+
+        # uid_match should be present (session_id matches TICKET_WITH_PROVENANCE)
+        assert counts["uid_match"] > 0
+
+        # P1-1: orphaned_items contains only manual_review items
+        assert len(report["orphaned_items"]) == counts["manual_review"]
+        # matched_items contains uid_match + id_ref
+        assert len(report["matched_items"]) == counts["uid_match"] + counts["id_ref"]
+
+
+class TestDeferTriageRoundTrip:
+    """P2-4: End-to-end round-trip — defer creates ticket, triage finds it."""
+
+    def test_deferred_ticket_appears_in_triage(self, tmp_path: Path) -> None:
+        from scripts.defer import write_ticket
+        from scripts.triage import generate_report
+
+        # Step 1: Create a ticket via defer.py
+        tickets_dir = tmp_path / "tickets"
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Auth module needs refactoring",
+            "problem": "Technical debt in auth module.",
+            "source_text": "PR #29 review.",
+            "proposed_approach": "Extract base class.",
+            "acceptance_criteria": ["Base class created"],
+            "priority": "high",
+            "source_type": "pr-review",
+            "source_ref": "PR #29",
+            "branch": "feature/auth",
+            "session_id": "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "effort": "M",
+            "files": [],
+        }
+        created_path = write_ticket(candidate, tickets_dir)
+
+        # Step 2: Create a handoff with matching session_id
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+        handoff_text = """\
+---
+title: Auth review session
+date: 2026-02-28
+session_id: aaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+---
+
+## Open Questions
+
+- Should we split the OAuth provider?
+
+## Risks
+
+- Migration may break existing tokens
+"""
+        (handoffs_dir / "auth-review.md").write_text(handoff_text)
+
+        # Step 3: Run triage
+        report = generate_report(tickets_dir, handoffs_dir)
+
+        # Step 4: Verify the created ticket appears in open_tickets
+        open_ids = {t["id"] for t in report["open_tickets"]}
+        assert "T-20260228-01" in open_ids
+
+        # Step 5: Verify handoff items match via uid_match
+        assert report["match_counts"]["uid_match"] == 2  # 1 Open Question + 1 Risk
+        assert len(report["matched_items"]) == 2
+        for item in report["matched_items"]:
+            assert item["match_type"] == "uid_match"
+            assert item["matched_ticket"] == "T-20260228-01"
+
+        # Step 6: Round-trip — parse the created ticket
+        from scripts.ticket_parsing import parse_ticket
+
+        parsed = parse_ticket(created_path)
+        assert parsed is not None
+        assert parsed.frontmatter["id"] == "T-20260228-01"
+        assert parsed.frontmatter["provenance"]["source_session"] == "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
