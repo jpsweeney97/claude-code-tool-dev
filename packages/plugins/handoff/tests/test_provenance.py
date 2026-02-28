@@ -114,6 +114,32 @@ class TestReadProvenance:
         assert result["source"] == "yaml"
 
 
+class TestReadProvenanceFallback:
+    """P1-7 regression: empty/None source_session in YAML must fall back to comment."""
+
+    def test_yaml_with_empty_session_falls_back_to_comment(self) -> None:
+        from scripts.provenance import read_provenance
+
+        result = read_provenance(
+            provenance_yaml={"source_session": "", "source_type": "pr-review", "created_by": "defer-skill"},
+            body_text=TICKET_BODY_WITH_META,
+        )
+        assert result is not None
+        assert result["source"] == "comment"
+        assert result["source_session"] == "5136e38e-efc5-403f-ad5e-49516f47884b"
+
+    def test_yaml_with_none_session_falls_back_to_comment(self) -> None:
+        from scripts.provenance import read_provenance
+
+        result = read_provenance(
+            provenance_yaml={"source_session": None, "source_type": "pr-review", "created_by": "defer-skill"},
+            body_text=TICKET_BODY_WITH_META,
+        )
+        assert result is not None
+        assert result["source"] == "comment"
+        assert result["source_session"] == "5136e38e-efc5-403f-ad5e-49516f47884b"
+
+
 class TestSessionMatch:
     def test_exact_uuid_match(self) -> None:
         from scripts.provenance import session_matches

@@ -320,6 +320,52 @@ class TestQuoteEscaping:
         assert parsed["source_ref"] == ".nan"
 
 
+class TestRenderTicketEdgeCases:
+    """P1-7/P2-9: edge cases for empty session_id, branch, and YAML null rendering."""
+
+    def test_empty_session_renders_null_yaml(self) -> None:
+        """P1-7: empty session_id must render as YAML null, not empty string."""
+        import re as re_mod
+
+        import yaml
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "session_id": "",
+        }
+        result = render_ticket(candidate)
+        yaml_match = re_mod.search(r"^```yaml\n(.*?)^```", result, re_mod.MULTILINE | re_mod.DOTALL)
+        assert yaml_match is not None
+        parsed = yaml.safe_load(yaml_match.group(1))
+        assert parsed["provenance"]["source_session"] is None
+
+    def test_empty_branch_and_session_omit_lines(self) -> None:
+        """P2-9: empty branch/session must not render empty backtick lines."""
+        from scripts.defer import render_ticket
+
+        candidate = {
+            "id": "T-20260228-01",
+            "date": "2026-02-28",
+            "summary": "Test",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+            "branch": "",
+            "session_id": "",
+        }
+        result = render_ticket(candidate)
+        assert "Branch:" not in result
+        assert "Session:" not in result
+
+
 class TestRenderTicket:
     def test_renders_minimal_ticket(self) -> None:
         from scripts.defer import render_ticket
@@ -769,3 +815,28 @@ class TestMain:
         assert len(output["created"]) == 1
         assert len(output["errors"]) == 1
         assert exit_code == 1
+
+    def test_single_dict_stdin(self, tmp_path: Path, capsys) -> None:
+        """Single dict (not list) on stdin must be wrapped into a list."""
+        from scripts.defer import main
+
+        candidate = json.dumps({
+            "summary": "Single ticket",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+        })
+        import io
+        import sys
+
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(candidate)
+        try:
+            exit_code = main(["--tickets-dir", str(tmp_path), "--date", "2026-02-28"])
+        finally:
+            sys.stdin = old_stdin
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == "ok"
+        assert len(output["created"]) == 1
+        assert exit_code == 0

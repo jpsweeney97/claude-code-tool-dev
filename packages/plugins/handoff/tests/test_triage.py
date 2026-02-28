@@ -119,6 +119,21 @@ class TestNormalizeStatus:
         assert norm == "open"
         assert conf == "low"
 
+    def test_unknown_status_emits_warning(self) -> None:
+        """Unknown statuses must warn before defaulting to open."""
+        import warnings
+
+        from scripts.triage import normalize_status
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            norm, conf = normalize_status("archived")
+        assert norm == "open"
+        assert conf == "low"
+        assert len(w) == 1
+        assert "archived" in str(w[0].message)
+        assert "open" in str(w[0].message)
+
 
 class TestReadOpenTickets:
     def test_filters_out_done_and_wontfix(self, tmp_path: Path) -> None:
@@ -466,6 +481,28 @@ class TestGenerateReport:
 
         report = generate_report(tickets_dir, handoffs_dir)
         assert len(report["orphaned_items"]) == 0, "Files older than 30 days should be excluded"
+
+    def test_skips_unreadable_handoff_with_warning(self, tmp_path: Path) -> None:
+        """Unreadable handoff files must warn and not crash the report."""
+        import warnings
+
+        from scripts.triage import generate_report
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+        # Write a file with invalid UTF-8
+        (handoffs_dir / "bad.md").write_bytes(b"\xff\xfe invalid utf8")
+        (handoffs_dir / "good.md").write_text(HANDOFF_WITH_OPEN_QUESTIONS)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            report = generate_report(tickets_dir, handoffs_dir)
+        # good.md items should still be processed
+        assert len(report["orphaned_items"]) > 0
+        assert any("Cannot read handoff file" in str(x.message) for x in w)
 
 
 class TestMain:
