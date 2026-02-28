@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from scripts.project_paths import get_handoffs_dir, get_project_name
+from scripts.project_paths import get_archive_dir, get_handoffs_dir, get_project_name
 
 
 class TestGetProjectName:
@@ -60,3 +60,15 @@ class TestGetHandoffsDir:
         with patch("scripts.project_paths.get_project_name", return_value=("myproject", "git")):
             result = get_handoffs_dir()
         assert result == Path.home() / ".claude" / "handoffs" / "myproject"
+
+
+class TestGetArchiveDir:
+    def test_returns_archive_subdir(self) -> None:
+        result = get_archive_dir()
+        assert result.name == ".archive"
+        assert result.parent.name  # has a project parent
+
+    def test_is_child_of_handoffs_dir(self) -> None:
+        archive = get_archive_dir()
+        handoffs = get_handoffs_dir()
+        assert archive.parent == handoffs
