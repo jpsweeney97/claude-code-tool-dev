@@ -3,11 +3,12 @@
 ```yaml
 date: 2026-02-28
 status: approved
-reviewed_by: codex-dialogue (collaborative + evaluative)
+reviewed_by: codex-dialogue (collaborative + evaluative + adversarial)
 codex_threads:
   - "019ca299-4a87-7b83-9192-d4f1b5411723"  # collaborative design (6/10 turns)
   - "019ca2dd-edda-70a3-884a-64372b4bf260"  # evaluative deep-review (6/8 turns)
-codex_outcome: converged (22 resolved, 3 emerged, 4 P0 blockers fixed)
+  - "019ca2fc-ecb5-78b3-b860-b2d466b8b185"  # adversarial review (6/12 turns)
+codex_outcome: converged (34 resolved, 7 emerged, 8 P0/P1 fixes applied across 3 reviews)
 plugin: packages/plugins/handoff
 ```
 
@@ -75,6 +76,27 @@ The `triage.py` JSON output includes `status_raw` (original) and `status_normali
 
 `/defer` follows the same UX contract as `/distill`: extract candidates from context, present for confirmation, create artifacts on approval. Never auto-write.
 
+### Extraction reliability model: best-effort assistant
+
+`/defer` uses LLM extraction with deterministic rendering. `/distill` uses the inverse: deterministic extraction with LLM synthesis. This means `/defer`'s failure mode is invisible false negatives — missed deferred items never appear in the confirmation UX, so the user cannot catch them.
+
+**Coverage guarantee:** Best-effort assistant (not comprehensive capture). The skill's confirmation UX catches false positives but not false negatives. To mitigate:
+- Each candidate must include an **evidence anchor** (quoted text from conversation).
+- After presenting candidates, run a second-pass coverage check and present "possible misses" section.
+- The confirmation UX must declare: "This is a best-effort extraction. Review the conversation if completeness matters."
+
+**Phase 1 trigger:** If users report missed items > 2 per session, add a structured deferral signal (e.g., `<!-- defer: ... -->` in conversation) that enables deterministic extraction.
+
+### Dual-write provenance (YAML + HTML comment)
+
+Provenance is stored in two locations:
+1. **Primary:** `provenance` field in the ticket's fenced YAML frontmatter (durable, survives editing)
+2. **Secondary:** `defer-meta` HTML comment at end of body (backward-compatible, parseable by regex)
+
+**Rationale:** Trailing HTML comments are fragile — editors and markdown formatters may strip them. Zero production `distill-meta` comments exist in `docs/learnings/learnings.md` despite 20 entries, so comment survival is empirically unvalidated. The YAML field is the authoritative source; the comment is a secondary signal for tools that grep rather than parse.
+
+**`provenance.py` reads both:** YAML field first, fall back to comment. If both exist and disagree, YAML wins.
+
 ### `/save` stays untouched
 
 We are explicitly keeping `/save` unchanged. Deferral is handled by `/defer`, not embedded in the save workflow.
@@ -85,11 +107,19 @@ We are explicitly keeping `/save` unchanged. Deferral is handled by `/defer`, no
 
 No lexical scoring for MVP. Three matching strategies:
 
-1. **UID match** — handoff `session_id` matched against `defer-meta.source_session` in ticket bodies (the machine join key). `source_ref` is human-readable display text only, not used for matching.
-2. **Ticket ID reference search** — handoff text contains a ticket ID pattern (`T-\d{8}-\d{2}` or legacy patterns like `T-\d{3}`, `T-[A-Z]`)
+1. **UID match** — handoff `session_id` matched against `defer-meta.source_session` in ticket bodies (the machine join key). `source_ref` is human-readable display text only, not used for matching. `source_session` stores the **full UUID** (not truncated).
+2. **Ticket ID reference search** — handoff text contains a ticket ID pattern. Regex union covers both new and legacy formats:
+   - New: `T-\d{8}-\d{2}` (e.g., `T-20260228-01`)
+   - Legacy numeric: `T-\d{3}` (e.g., `T-004`)
+   - Legacy alpha: `T-[A-F]` (e.g., `T-A`)
+   - Legacy noun: `handoff-\w+` (e.g., `handoff-distill`)
 3. **`manual_review`** — unmatched items presented to user for manual classification
 
-**Phase 1 trigger for lexical scoring:** manual-review backlog > 2 weeks, corpus > 100 tickets, or user request.
+**Source-type coverage:** UID match only works for tickets created from handoff-derived contexts (where a `session_id` exists in both the handoff and the `defer-meta`). Tickets with `source_type: pr-review`, `codex`, or `ad-hoc` route to `manual_review` by design — these source types have no corresponding handoff file with a joinable `session_id`. This is an acknowledged Phase 0 limitation, not a bug.
+
+**Phase 1 triggers:**
+- Lexical scoring: manual-review backlog > 2 weeks, corpus > 100 tickets, or user request.
+- PR-review matching: add a PR-review-specific artifact or matching path when PR-review tickets are a significant portion of `manual_review` items.
 
 ### `/defer` and `/distill` are orthogonal by artifact intent
 
@@ -120,7 +150,11 @@ packages/plugins/handoff/
     test_triage.py
 ```
 
-**Critical:** Existing tickets use fenced YAML (` ```yaml ... ``` `) format, NOT `---` frontmatter. `handoff_parsing.py` cannot parse tickets. `ticket_parsing.py` is a new module that handles the fenced-YAML ticket format including multiline values like `files:` arrays.
+**Critical:** Existing tickets use fenced YAML (` ```yaml ... ``` `) format, NOT `---` frontmatter. `handoff_parsing.py` cannot parse tickets — its regex skips multiline values and requires `---` at byte 0.
+
+**`ticket_parsing.py` approach:** Extract the fenced YAML block (text between ` ```yaml ` and ` ``` `), then parse with `yaml.safe_load` (PyYAML). This handles multiline values (`files:`, `blocked_by:`, `blocks:` arrays) that appear in 14 of 17 existing tickets. Schema validation after parse: required fields (`id`, `date`, `status`), type checks (`files` is list, `status` is string). PyYAML is added to `pyproject.toml` as a dependency.
+
+**`HandoffFile.frontmatter` is `dict[str, str]`** — ticket frontmatter is `dict[str, Any]` (lists for `files`, `blocked_by`, `blocks`). These are separate types; `ticket_parsing.py` returns its own `TicketFile` type.
 
 ### Script responsibilities
 
@@ -160,18 +194,22 @@ date: 2026-02-28
 status: deferred              # *New status value (existing: open, in_progress, etc.)
 priority: medium              # low | medium | high | critical
 source_type: pr-review        # *pr-review | codex | handoff | ad-hoc
-source_ref: "PR #29"          # *PR number, session ID, codex thread ID
+source_ref: "PR #29"          # *Human-readable display text (not used for matching)
 branch: feature/knowledge-graduation
 blocked_by: []
 blocks: []
 effort: XS                    # XS | S | M | L | XL
 files:                        # *Affected files (minimize future re-exploration)
   - path/to/affected/file.py
+provenance:                   # *Machine join key (dual-write with defer-meta comment)
+  source_session: "5136e38e-efc5-403f-ad5e-49516f47884b"  # Full UUID, not truncated
+  source_type: pr-review
+  created_by: defer-skill
 ```
 
 ### ID format
 
-`T-YYYYMMDD-NN` where NN is a zero-padded sequence number within the date. Auto-increment by scanning existing `T-YYYYMMDD-*` tickets for that date.
+`T-YYYYMMDD-NN` where NN is a zero-padded sequence number within the date. Auto-increment by parsing the `id` field from each ticket's fenced YAML (not by scanning filenames — filenames use title slugs like `2026-02-27-analytics-A-codex-stats-skill.md`, not ID prefixes).
 
 Existing legacy IDs (T-004, T-A, handoff-distill, etc.) are unchanged. The new format applies only to `/defer`-created tickets.
 
@@ -189,7 +227,7 @@ Five sections, auto-generated from conversation context:
 ## Source
 
 PR #29 review, type-design-analyzer agent finding I8.
-Branch: `feature/knowledge-graduation`. Session: `5136e38e`.
+Branch: `feature/knowledge-graduation`. Session: `5136e38e-efc5-403f-ad5e-49516f47884b`.
 
 ## Proposed Approach
 
@@ -201,7 +239,7 @@ Remove `level` field from `Section` dataclass. Update all callers.
 - [ ] All tests pass
 - [ ] No callers reference `Section.level`
 
-<!-- defer-meta {"v": 1, "source_session": "5136e38e", "source_type": "pr-review", "source_ref": "PR #29", "created_by": "defer-skill"} -->
+<!-- defer-meta {"v": 1, "source_session": "5136e38e-efc5-403f-ad5e-49516f47884b", "source_type": "pr-review", "source_ref": "PR #29", "created_by": "defer-skill"} -->
 ```
 
 ### `defer-meta` comment
@@ -211,12 +249,16 @@ Provenance tracking, same pattern as `distill-meta`. Enables `/triage` to match 
 ```json
 {
   "v": 1,
-  "source_session": "<session_id>",
+  "source_session": "<full UUID from ${CLAUDE_SESSION_ID}, not truncated>",
   "source_type": "pr-review|codex|handoff|ad-hoc",
-  "source_ref": "<PR #N, thread ID, handoff filename>",
+  "source_ref": "<PR #N, thread ID, handoff filename — human display text only>",
   "created_by": "defer-skill"
 }
 ```
+
+**Note:** `defer-meta` is the **secondary** provenance store. The `provenance` YAML field in the ticket frontmatter is primary. `provenance.py` reads YAML first, falls back to comment. The comment exists for backward compatibility with grep-based tools.
+
+**Structural difference from `distill-meta`:** `defer-meta` uses `source_session` (bare UUID). `distill-meta` uses `source_uid` (SHA-256 encoding session_id + section + heading). `provenance.py` must parse both formats independently — they are not interchangeable despite similar naming.
 
 ## `/defer` Skill Design
 
@@ -230,8 +272,9 @@ User runs `/defer` or says "defer these", "track these for later", "create ticke
    - **Hint-scoped:** Look for explicit deferral language ("defer", "out of scope", "follow-up", "not blocking", "address later", "separate PR")
    - **Deterministic signals:** Review findings marked as suggestions/deferred, Codex unresolved items, noted-but-not-acted-on observations, items explicitly marked "not in this PR"
    - **Actionability filter:** Each candidate must have an identifiable action (fix, add, remove, refactor, investigate). Observations without clear actions are not tickets.
+   - **Evidence anchor:** Each candidate must include a quoted excerpt from the conversation where the item was identified. This enables user verification.
 
-2. **Present candidates** — table with: finding summary, source, suggested priority, affected files. Use `AskUserQuestion` for confirmation (multi-select).
+2. **Present candidates** — table with: finding summary, source, suggested priority, affected files, evidence anchor. Use `AskUserQuestion` for confirmation (multi-select). Include a "possible misses" section listing conversation segments that *might* contain deferred items but didn't meet the actionability filter. Declare: "This is a best-effort extraction. Review the conversation if completeness matters."
 
 3. **For each confirmed candidate:**
    - Auto-generate ticket ID (`T-YYYYMMDD-NN`)
@@ -239,16 +282,18 @@ User runs `/defer` or says "defer these", "track these for later", "create ticke
    - Auto-generate body sections (Problem, Source, Proposed Approach, Acceptance Criteria)
    - Write ticket file to `docs/tickets/`
 
-4. **Commit** — stage only newly created ticket files by name (`git add docs/tickets/T-YYYYMMDD-NN-*.md`), never `git add .`. Commit with message: `chore(tickets): defer N items from <source_type>` where `<source_type>` is the most common `source_type` among confirmed candidates (e.g., `pr-review`). If mixed, use `mixed`.
+4. **Commit** — stage only newly created ticket files by name (explicit paths, not globs), never `git add .`. Commit with message: `chore(tickets): defer N items from <source_type>` where `<source_type>` is the most common `source_type` among confirmed candidates (e.g., `pr-review`). If mixed, use `mixed`. If commit fails, report `partial_success` with created file paths and recovery commands — do not claim "created and committed" when only "created on disk" happened.
 
 ### Extraction heuristics
 
-| Signal type | Examples | Confidence |
-|-------------|----------|------------|
-| Explicit deferral | "defer to follow-up", "out of scope for this PR" | High |
-| Review categorization | "suggestion", "not blocking", "design debt" | High |
-| Conditional action | "if X happens, then Y", "when corpus grows" | Medium |
-| Observation without action | "this could be improved" | Low (skip unless user confirms) |
+| Signal type | Examples | Confidence | Evidence anchor |
+|-------------|----------|------------|-----------------|
+| Explicit deferral | "defer to follow-up", "out of scope for this PR" | High | Quote the deferral statement |
+| Review categorization | "suggestion", "not blocking", "design debt" | High | Quote the finding |
+| Conditional action | "if X happens, then Y", "when corpus grows" | Medium | Quote the condition |
+| Observation without action | "this could be improved" | Low (report in "possible misses") | N/A |
+
+**Coverage guarantee:** Best-effort assistant. False positives are caught by user confirmation. False negatives (missed items) are invisible — mitigated by the "possible misses" section and explicit coverage disclaimer.
 
 ### Failure modes
 
@@ -258,7 +303,7 @@ User runs `/defer` or says "defer these", "track these for later", "create ticke
 | User confirms 0 candidates | Report "Nothing to defer" and stop |
 | Ticket ID collision | Increment sequence number |
 | `docs/tickets/` doesn't exist | Create directory |
-| Git commit fails | Report error, tickets are still written to disk |
+| Git commit fails | Report `partial_success`: list created file paths, suggest `git add <paths> && git commit` for recovery |
 
 ## `/triage` Skill Design
 
@@ -270,10 +315,16 @@ User runs `/triage` or says "what's in the backlog", "review deferred items", "a
 
 1. **Read open tickets** — scan `docs/tickets/*.md`, parse YAML frontmatter, filter by `status` not in (`done`, `wontfix`).
 
-2. **Scan recent handoffs for orphans** — read handoffs from last 30 days in both active (`~/.claude/handoffs/<project>/*.md`) and archive (`~/.claude/handoffs/<project>/.archive/*.md`) directories. Extract Open Questions and Risks sections. Match against existing tickets using deterministic strategies:
-   - UID match: handoff `session_id` matched against `defer-meta.source_session` in ticket bodies (via `provenance.py`)
-   - Ticket ID reference: handoff text contains a ticket ID pattern (`T-\d{8}-\d{2}` or legacy patterns)
+2. **Scan recent handoffs for orphans** — read handoffs from last 30 days in both active (`~/.claude/handoffs/<project>/*.md`) and archive (`~/.claude/handoffs/<project>/.archive/*.md`) directories. Note: `project_paths.py` needs a `get_archive_dir()` helper for the archive path.
+
+   **Extraction input contract:** Extract items from `## Open Questions` and `## Risks` sections only. These are optional sections per the handoff contract — skip handoffs that lack them. Within these sections, extract **structured list items only** (lines starting with `-` or `1.`). Prose paragraphs and conditional items are out of scope for Phase 0 — report count of skipped prose items.
+
+   **Match against existing tickets** using deterministic strategies:
+   - UID match: handoff `session_id` matched against ticket `provenance.source_session` (YAML field, primary) or `defer-meta.source_session` (comment, fallback) via `provenance.py`. Only works for `/defer`-created tickets.
+   - Ticket ID reference: handoff text contains a ticket ID matching the regex union (new + legacy formats, see orphan detection section above)
    - Unmatched items flagged as `manual_review`
+
+   **Match-path observability:** Report counts per matching strategy (`uid_match: N`, `id_ref: N`, `manual_review: N`) to surface coverage gaps.
 
 3. **Present report** — grouped by priority, then by age (oldest first):
 
@@ -352,9 +403,11 @@ Contains: last triage date, items reviewed, orphans found. Enables `/triage` to 
 ## Open Questions
 
 - **Ticket ID date coupling:** `T-YYYYMMDD-NN` confirmed as format (avoids legacy ID collision). Add optional `origin_date` field for cases where discovery date differs from creation date. New ID regex for detection: `\bT-\d{8}-\d{2}\b`.
-- **Legacy ticket ID regex patterns:** Exact patterns for detecting legacy IDs (T-004, T-A, handoff-distill, etc.) needed before implementation. Determine during implementation planning.
+- ~~**Legacy ticket ID regex patterns:**~~ RESOLVED (adversarial review). Regex union covers 4 patterns: `T-\d{8}-\d{2}` (new), `T-\d{3}` (legacy numeric), `T-[A-F]` (legacy alpha), `handoff-\w+` (legacy noun).
 - **30-day lookback configurability:** Hardcoded for Phase 0. Phase 1 may add `--lookback` flag if needed.
-- **`closed` normalization:** Whether `closed` maps to `done` or `wontfix` depends on specific legacy ticket context. Use `normalization_confidence: medium` for ambiguous cases.
+- **`closed` normalization:** Whether `closed` maps to `done` or `wontfix` depends on specific legacy ticket context. Use `normalization_confidence: medium` for ambiguous cases. No user-facing correction affordance in Phase 0 — user must manually edit the ticket.
+- **Filename slug derivation:** `/defer` creates ticket files but the design doesn't specify how the filename slug is derived from the candidate title. Determine during implementation (likely: lowercase, hyphenated, truncated to 50 chars).
+- **Cross-skill awareness implementation location:** The informational notice ("Found N distill entries from this handoff") requires reading `learnings.md` for `distill-meta` comments, but the matching key differs (`source_uid` encodes session_id + section + heading, not bare session_id). Determine during implementation whether this feature is in Phase 0 or deferred.
 
 ## References
 
@@ -369,3 +422,4 @@ Contains: last triage date, items reviewed, orphans found. Enables `/triage` to 
 | Skills rules | `.claude/rules/skills.md` |
 | Codex collaborative thread | `019ca299-4a87-7b83-9192-d4f1b5411723` |
 | Codex deep-review thread | `019ca2dd-edda-70a3-884a-64372b4bf260` |
+| Codex adversarial thread | `019ca2fc-ecb5-78b3-b860-b2d466b8b185` |
