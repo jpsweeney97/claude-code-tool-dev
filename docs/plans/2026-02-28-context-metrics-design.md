@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-28
 **Branch:** `feature/context-metrics`
-**Status:** Design approved, pending implementation plan
+**Status:** Design amended with Codex review findings, pending implementation plan
 
 ## Objective
 
@@ -322,7 +322,125 @@ Context: 34k/200k tokens (17%) | Compaction #3 just occurred | ~$1.24
 
 ## Open Questions
 
-None — all design questions resolved during brainstorming.
+1. **Does devtools' `/groups` endpoint contain enough data to approximate current-phase context occupancy?** Each `ConversationGroup` has per-turn metrics. Summing tokens from groups since the last compaction boundary might approximate context occupancy — but this uses API-reported token counts, not the `estimateTokens()` function that devtools uses internally for context tracking. Accuracy unknown.
+2. **Would devtools accept an upstream PR to expose `ContextStats` via HTTP?** Adding `GET /api/projects/:projectId/sessions/:sessionId/context-stats` would solve the token data source issue entirely. Requires external maintainer review.
+3. **Is the HTTP hook event support for `UserPromptSubmit` confirmed?** Official docs list `UserPromptSubmit` as supporting "all three types (command, prompt, agent)" — HTTP is not explicitly listed in either the supported or restricted event lists. Most likely a documentation gap (HTTP was added later), but not empirically verified for `UserPromptSubmit` specifically.
+
+## Amendments
+
+### Amendment 1: Codex Deep Review Findings (2026-02-28)
+
+**Source:** Codex evaluative review (5 turns, converged). Thread `019ca614-39c4-7263-9521-e13972c889c4`. Findings independently verified against official Claude Code docs via `claude-code-docs` MCP server.
+
+**Review outcome:** 6 confirmed findings (2 high, 2 medium, 2 low), 2 rejected findings. Codex falsely claimed HTTP hooks don't exist (searched stale local docs copy). Core architecture validated; data source and lifecycle issues identified.
+
+#### Finding 1 (High): Token data source — cumulative vs occupancy
+
+**Issue:** The `/metrics` endpoint returns `SessionMetrics.totalTokens` — a cumulative sum of all API input + output tokens across the session. This is a billing metric that only increases. The design's summary line showing post-compaction drops ("34k/200k tokens (17%)") is impossible with this data source.
+
+**Root cause:** `ContextStats.totalEstimatedTokens` (actual context window occupancy, computed by devtools' `ContextTracker` using `estimateTokens()`) lives exclusively in devtools' renderer process. No HTTP endpoint exposes it.
+
+**Impact:** Without context occupancy data, the summary line shows "how many tokens have been used in total this session" — not "how much of the context window is currently occupied." Post-compaction, the number never decreases, defeating the core value proposition.
+
+**Resolution options (to be decided during implementation planning):**
+
+| Option | Trade-off |
+|--------|-----------|
+| A. Relabel as "session usage" | Honest but less useful. Doesn't answer "how full is my context?" |
+| B. Approximate from `/groups` | Sum current-phase group tokens. Uses API counts, not `estimateTokens()`. Accuracy unknown. |
+| C. Upstream PR to devtools | Best data. Requires external maintainer approval. Timeline uncertain. |
+| D. Replicate `ContextTracker` in sidecar | Most accurate without upstream changes. Significant complexity — must parse JSONL, classify messages, track compaction boundaries. |
+
+**Design impact:** Summary line format remains valid if the data source changes. The format itself is decoupled from how tokens are counted. Architecture diagram step 2 must change from `GET .../metrics` to whichever endpoint is chosen.
+
+#### Finding 2 (High): Multi-session lifecycle collision
+
+**Issue:** PID file at `~/.claude/.context-metrics-sidecar.pid` and port 7432 are global singletons. If a user opens two Claude Code sessions simultaneously:
+1. Second session's `start_sidecar.py` kills the first session's live sidecar
+2. Both sessions then share one sidecar (or both lose it)
+3. `SessionEnd` from the first session kills the sidecar the second session is using
+
+**Resolution options:**
+
+| Option | Trade-off |
+|--------|-----------|
+| A. Per-session port + PID | Port = hash(session_id) % range + base. No collisions. More complex startup. |
+| B. Shared sidecar with refcount | Single sidecar, multiple consumers. Start increments refcount, stop decrements. Exit when refcount = 0. More complex lifecycle. |
+| C. Document single-session limitation | Simple. Acceptable for v1 if most users run one session at a time. |
+
+**Design impact:** PID file path and port allocation strategy in the State table. Startup/shutdown scripts. Error handling for port-in-use.
+
+#### Finding 3 (Medium): SessionStart matcher too narrow
+
+**Issue:** The SessionStart hook matcher is `"startup"` — only fires on fresh sessions. Official docs confirm SessionStart has four source values: `startup`, `resume`, `clear`, `compact`. Resumed sessions (`--resume`) and cleared sessions (`/clear`) never start the sidecar unless one was already running.
+
+**Resolution:** Change matcher from `"startup"` to `"startup|resume|clear"` (regex). `compact` is handled by the separate compact hook entry.
+
+**Amended hook config:**
+
+```json
+{
+  "matcher": "startup|resume|clear",
+  "hooks": [
+    {
+      "type": "command",
+      "command": "uv run --directory ${CLAUDE_PLUGIN_ROOT} python ${CLAUDE_PLUGIN_ROOT}/scripts/start_sidecar.py",
+      "async": true,
+      "statusMessage": "Starting context metrics sidecar"
+    }
+  ]
+}
+```
+
+`start_sidecar.py` already handles "PID file exists → kill stale → restart," so duplicate starts from `resume` (where a sidecar might already be running) are safe.
+
+#### Finding 4 (Medium): Mixed runtime creates import skew risk
+
+**Issue:** `start_sidecar.py` uses `uv run --directory ${CLAUDE_PLUGIN_ROOT}` (managed interpreter + deps from `pyproject.toml`) while `context_summary.py` and `stop_sidecar.py` use `python3` (system interpreter, stdlib only). If `context_summary.py` needs to import anything from `pyproject.toml` deps, it fails under system python3.
+
+**Current design intent:** `context_summary.py` and `stop_sidecar.py` are stdlib-only scripts — they query the sidecar via `urllib.request` or read a PID file and send SIGTERM. No third-party imports needed.
+
+**Resolution:** Add explicit constraint to the plugin structure section: "Scripts invoked synchronously (`context_summary.py`, `stop_sidecar.py`) MUST use stdlib only. No imports from `pyproject.toml` dependencies. Only `start_sidecar.py` (async, one-time) uses `uv run`."
+
+#### Finding 5 (Low): costUsd is optional with no fallback
+
+**Issue:** Devtools' `SessionMetrics.costUsd` is typed `costUsd?: number` (optional). The summary line format always shows `~$X.XX` with no handling for the undefined case.
+
+**Resolution:** When `costUsd` is undefined, omit the cost segment from the summary line:
+
+```
+Context: 142k/200k tokens (71%) | 847 messages | Phase 3 (2 compactions)
+```
+
+No placeholder or "n/a" — just omit. Keeps the line shorter and avoids noise.
+
+#### Finding 6 (Low): No observability for fail-open state
+
+**Issue:** The design's fail-open philosophy means failures are silent. Users have no way to know if metrics are being injected, if the sidecar is running, or if devtools is connected.
+
+**Resolution:** Add a `/context-status` skill (separate from `/context-dashboard`) that reports:
+
+```
+## Context Metrics Status
+
+Sidecar: running (PID 12345, port 7432, uptime 23m)
+Devtools: connected (port 3456, last response 2s ago)
+Config: context_window=1000000, soft_boundary=200000
+Last injection: 3s ago (142k tokens)
+```
+
+Implementation: skill queries sidecar's health endpoint (`GET /health`) which returns status JSON.
+
+#### Rejected findings
+
+| Codex Claim | Rejection Reason |
+|-------------|-----------------|
+| P0-1: `type: "http"` hooks don't exist in Claude Code | **Wrong.** Official docs (code.claude.com/docs/en/hooks) document HTTP hooks as a first-class type with full schema (`url`, `headers`, `allowedEnvVars`), response handling protocol, and examples. Codex searched a stale local copy at `docs/claude-code-documentation/hooks.md`. |
+| P0-4: `async` and `statusMessage` are undocumented hook fields | **Wrong.** `statusMessage` is documented as a common field for all hook types ("Custom spinner message displayed while the hook runs"). `async` is documented as a command hook field ("If `true`, runs in the background without blocking"). |
+
+#### Event type restriction nuance
+
+The official docs' event restriction section says "all three types (command, prompt, agent)" for `UserPromptSubmit` — not "all four." HTTP hooks are absent from both the supported and restricted event lists. This is most likely a documentation gap (HTTP hooks were documented separately and the event restriction section wasn't updated to say "four"), but it introduces a small risk that HTTP hooks may not work with `UserPromptSubmit`. The previous session verified HTTP hook support for `UserPromptSubmit` via `claude-code-docs` MCP server search, which returned docs explicitly listing `http` as a valid type for `UserPromptSubmit`. If HTTP hooks prove incompatible at runtime, the fallback is a `type: "command"` hook that makes an HTTP request to the sidecar (same pattern as `context_summary.py`), adding ~200ms latency per prompt.
 
 ## References
 
