@@ -87,7 +87,7 @@ def read_open_tickets(tickets_dir: Path) -> list[dict[str, Any]]:
 
 # Ticket ID patterns — union of new + legacy formats
 _TICKET_ID_PATTERNS = [
-    r"T-\d{8}-\d{2}",      # new: T-20260228-01
+    r"T-\d{8}-\d{2,}",     # new: T-20260228-01, T-20260228-100
     r"T-\d{3}",             # legacy numeric: T-004
     r"T-[A-F]",             # legacy alpha: T-A (P3-5: covers current A-F corpus only)
     r"handoff-[\w-]+",      # P1-11 fix: legacy noun — supports hyphens (handoff-quality-hook)

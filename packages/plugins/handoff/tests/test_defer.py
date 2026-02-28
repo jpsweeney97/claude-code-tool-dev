@@ -67,6 +67,25 @@ class TestAllocateId:
         result = allocate_id("2026-02-28", tmp_path)
         assert result == "T-20260228-01"
 
+    def test_recognizes_three_digit_sequence(self, tmp_path: Path) -> None:
+        """IDs with 3+ digit sequences (e.g. T-20260228-100) must be recognized."""
+        from scripts.defer import allocate_id
+
+        ticket = tmp_path / "high-seq.md"
+        ticket.write_text(EXISTING_TICKET.replace("T-20260228-01", "T-20260228-100"))
+        result = allocate_id("2026-02-28", tmp_path)
+        assert result == "T-20260228-101"
+
+
+class TestFilenameSlugThreeDigit:
+    def test_three_digit_id_parses_date(self) -> None:
+        """filename_slug must extract the date from 3+ digit IDs, not fall back to 'unknown'."""
+        from scripts.defer import filename_slug
+
+        result = filename_slug("T-20260228-100", "overflow ticket")
+        assert result.startswith("2026-02-28-")
+        assert "unknown" not in result
+
 
 class TestRenderTicket:
     def test_renders_minimal_ticket(self) -> None:

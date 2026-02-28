@@ -20,7 +20,7 @@ except ModuleNotFoundError:
     from scripts.ticket_parsing import parse_ticket  # type: ignore[no-redef]
     from scripts.provenance import render_defer_meta  # type: ignore[no-redef]
 
-_DATE_ID_RE = re.compile(r"^T-(\d{8})-(\d{2})$")
+_DATE_ID_RE = re.compile(r"^T-(\d{8})-(\d{2,})$")
 
 
 def allocate_id(date_str: str, tickets_dir: Path) -> str:

@@ -351,6 +351,24 @@ class TestMatchOrphans:
         assert result["match_type"] == "id_ref"
         assert result["matched_ticket"] == "handoff-quality-hook"
 
+    def test_three_digit_sequence_id_ref(self, tmp_path: Path) -> None:
+        """IDs with 3+ digit sequences (e.g. T-20260228-100) must match via id_ref."""
+        from scripts.triage import match_orphan_item
+
+        three_digit_ticket = TICKET_DEFERRED.replace("T-20260228-01", "T-20260228-100")
+        (tmp_path / "overflow.md").write_text(three_digit_ticket)
+        tickets = _load_all_tickets(tmp_path)
+
+        item = {
+            "text": "T-20260228-100 needs follow-up",
+            "section": "Open Questions",
+            "session_id": "no-match",
+            "handoff": "test.md",
+        }
+        result = match_orphan_item(item, tickets)
+        assert result["match_type"] == "id_ref"
+        assert result["matched_ticket"] == "T-20260228-100"
+
 
 def _load_all_tickets(tickets_dir: Path) -> list[dict]:
     """Helper to load all tickets for matching tests."""
