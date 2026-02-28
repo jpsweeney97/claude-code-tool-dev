@@ -355,7 +355,8 @@ class TestComputeSecurity:
         """dispatch_block_rate = blocks / (blocks + consultations)."""
         blocks = [_make_block(), _make_block(reason="contextual:leak")]
         raw_calls = [_make_raw_call(), _make_raw_call(), _make_raw_call()]
-        result = MODULE._compute_security(blocks, [], raw_calls, invocations_completed_total=5)
+        # invocations_completed_total=99 proves dispatch_block_rate is independent of it
+        result = MODULE._compute_security(blocks, [], raw_calls, invocations_completed_total=99)
         assert result["dispatch_block_rate"] == pytest.approx(2 / 5)
 
     def test_blocks_per_completed_invocation_null_when_zero(self) -> None:
@@ -649,16 +650,20 @@ class TestCLI:
         assert output["report_version"] == "1.0.0"
         assert output["usage"]["dialogues_completed_total"] == 1
 
-    def test_main_missing_file_exits(self, tmp_path: Path) -> None:
-        """main() exits with code 1 for missing file."""
+    def test_main_missing_file_produces_empty_report(self, tmp_path: Path, capsys) -> None:
+        """main() produces an empty report for a missing file (read_all returns ([], 0))."""
         missing = tmp_path / "nonexistent.jsonl"
         original_argv = sys.argv
         try:
             sys.argv = ["compute_stats", str(missing), "--period", "0"]
-            # read_all returns ([], 0) for missing file, so it succeeds with empty
             MODULE.main()
         finally:
             sys.argv = original_argv
+
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert output["meta"]["total_events_read"] == 0
+        assert output["meta"]["malformed_lines_skipped"] == 0
 
     def test_main_invalid_period_exits_2(self, tmp_path: Path) -> None:
         """main() exits with code 2 for invalid --period."""
