@@ -429,7 +429,7 @@ def extract_candidates(
             "warnings": [],
         }
 
-    candidates: list[dict] = []
+    candidates: list[CandidateDict] = []
     warnings: list[str] = []
 
     _, meta_warnings = _extract_distill_metas_detailed(learnings_content)
@@ -469,7 +469,7 @@ def extract_candidates(
                 source_uid, content_hash, learnings_content
             )
 
-            candidate: dict = {
+            candidate: CandidateDict = {
                 "source_section": name,
                 "subsection_heading": sub.heading,
                 "raw_markdown": sub.raw_markdown,

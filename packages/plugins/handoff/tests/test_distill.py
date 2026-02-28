@@ -426,8 +426,8 @@ class TestExtractCandidates:
         )
         result = extract_candidates(str(handoff), "")
         assert len(result["candidates"]) == 2
-        assert result["candidates"][0]["durability_hint"] == "likely_durable"
-        assert result["candidates"][1]["durability_hint"] == "likely_ephemeral"
+        assert result["candidates"][0].get("durability_hint") == "likely_durable"
+        assert result["candidates"][1].get("durability_hint") == "likely_ephemeral"
 
     def test_exact_dup_detected(self, tmp_path: Path) -> None:
         handoff = tmp_path / "test.md"
