@@ -117,11 +117,17 @@ def parse_subsections(content: str) -> list[Subsection]:
 
 
 def classify_durability(heading: str, content: str) -> str:
-    """Classify a Codebase Knowledge subsection's durability.
+    """Classify a subsection's durability hint.
 
-    Returns "likely_durable", "likely_ephemeral", or "unknown".
-    Uses keyword matching on heading and content. The distill skill
-    makes the final inclusion decision — this is directional only.
+    Used for Codebase Knowledge and Gotchas sections. Returns
+    "likely_durable", "likely_ephemeral", or "unknown" (no keyword
+    signal — skill should present without bias).
+
+    Uses keyword matching on heading and content. Heading keywords
+    determine both durable and ephemeral. Content keywords can only
+    upgrade to durable (content ephemeral keywords intentionally not
+    checked — heading is a stronger signal for ephemerality). The
+    distill skill makes the final inclusion decision.
     """
     heading_lower = heading.lower()
     content_lower = content.lower()
@@ -136,7 +142,8 @@ def classify_durability(heading: str, content: str) -> str:
         if keyword in heading_lower:
             return "likely_ephemeral"
 
-    # Fall back to content keywords (can upgrade unknown to durable)
+    # Fall back to content keywords (can upgrade unknown to durable only —
+    # content ephemeral keywords intentionally not checked)
     for keyword in _DURABLE_KEYWORDS:
         if keyword in content_lower:
             return "likely_durable"

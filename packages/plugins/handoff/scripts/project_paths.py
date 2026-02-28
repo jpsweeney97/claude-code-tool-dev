@@ -1,7 +1,6 @@
 """Shared path utilities for handoff plugin scripts.
 
 Provides project name detection and handoffs directory resolution.
-Used by search.py and distill.py.
 """
 
 from __future__ import annotations
