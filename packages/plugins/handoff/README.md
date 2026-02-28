@@ -54,6 +54,21 @@ Extract durable knowledge from handoffs into Phase 0 learnings.
 
 **Dedup:** Exact (source + content hash) and semantic (Claude comparison) deduplication prevents redundant entries.
 
+### `/defer [filter]`
+
+Extract deferred work items from conversation and create tracking tickets:
+- Analyzes conversation for open questions, risks, explicit deferrals, TODOs
+- Presents candidates with evidence anchors for user confirmation
+- Creates structured tickets in `docs/tickets/` with provenance tracking
+
+### `/triage`
+
+Review open tickets and detect orphaned handoff items:
+- Lists open tickets grouped by priority and age
+- Scans handoffs for untracked items (Open Questions, Risks)
+- Matches items to tickets via session correlation and ID references
+- Reports match counts for observability
+
 ### `/list-handoffs`
 
 List available handoffs for the current project (part of `load` skill).
