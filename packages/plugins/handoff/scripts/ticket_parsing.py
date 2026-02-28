@@ -7,6 +7,7 @@ for full YAML support including multiline values (files: arrays, etc.).
 from __future__ import annotations
 
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -56,7 +57,8 @@ def parse_yaml_frontmatter(yaml_text: str) -> dict[str, Any] | None:
         return None
     try:
         result = yaml.safe_load(yaml_text)
-    except yaml.YAMLError:
+    except yaml.YAMLError as exc:
+        warnings.warn(f"YAML parse error: {exc}", stacklevel=2)
         return None
     if not isinstance(result, dict):
         return None
@@ -106,22 +108,35 @@ def parse_ticket(path: Path) -> TicketFile | None:
     - No fenced YAML block found
     - YAML is malformed
     - Required fields missing (id, date, status)
+
+    Emits warnings with diagnostic detail for each failure mode.
     """
     try:
         text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as exc:
+        warnings.warn(f"Cannot read ticket {path}: {exc}", stacklevel=2)
         return None
 
     yaml_text = extract_fenced_yaml(text)
     if yaml_text is None:
+        warnings.warn(f"No fenced YAML block in {path}", stacklevel=2)
         return None
 
     frontmatter = parse_yaml_frontmatter(yaml_text)
     if frontmatter is None:
+        # Intentional double-warning design: parse_yaml_frontmatter warns with
+        # stacklevel=2 (blames parse_ticket), this second warning warns with
+        # stacklevel=2 (blames the caller). Two warnings, two different frames.
+        # Callers see exactly 2 warnings for malformed YAML (tested explicitly).
+        warnings.warn(f"Cannot parse frontmatter in {path}", stacklevel=2)
         return None
 
     errors = validate_schema(frontmatter)
     if errors:
+        warnings.warn(
+            f"Schema validation failed for {path}: {'; '.join(errors)}",
+            stacklevel=2,
+        )
         return None
 
     # Body is everything after the fenced YAML block's closing ```

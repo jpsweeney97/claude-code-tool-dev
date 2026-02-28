@@ -272,3 +272,65 @@ class TestParseTicket:
 
         result = parse_ticket(tmp_path / "nonexistent.md")
         assert result is None
+
+
+class TestParseTicketWarnings:
+    """C3/C5: parse_ticket must emit warnings with diagnostic info for each failure mode."""
+
+    def test_warns_on_unreadable_file(self, tmp_path: Path) -> None:
+        import warnings
+
+        from scripts.ticket_parsing import parse_ticket
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = parse_ticket(tmp_path / "nonexistent.md")
+        assert result is None
+        assert len(w) == 1
+        assert "Cannot read" in str(w[0].message)
+
+    def test_warns_on_no_yaml_block(self, tmp_path: Path) -> None:
+        import warnings
+
+        from scripts.ticket_parsing import parse_ticket
+
+        (tmp_path / "no-yaml.md").write_text("# Just text\n\nNo YAML here.")
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = parse_ticket(tmp_path / "no-yaml.md")
+        assert result is None
+        assert len(w) == 1
+        assert "No fenced YAML" in str(w[0].message)
+
+    def test_warns_on_malformed_yaml_with_detail(self, tmp_path: Path) -> None:
+        import warnings
+
+        from scripts.ticket_parsing import parse_ticket
+
+        (tmp_path / "bad.md").write_text(MALFORMED_YAML)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = parse_ticket(tmp_path / "bad.md")
+        assert result is None
+        # Exactly 2 warnings: one from parse_yaml_frontmatter (YAML detail),
+        # one from parse_ticket (file path context). This double-warning is
+        # intentional — see parse_ticket implementation comment.
+        assert len(w) == 2, f"Expected exactly 2 warnings for malformed YAML, got {len(w)}"
+        yaml_warns = [x for x in w if "YAML parse error" in str(x.message)]
+        path_warns = [x for x in w if "bad.md" in str(x.message)]
+        assert len(yaml_warns) == 1, "Should include YAML error detail"
+        assert len(path_warns) == 1, "Should include file path context"
+
+    def test_warns_on_schema_validation_with_errors(self, tmp_path: Path) -> None:
+        import warnings
+
+        from scripts.ticket_parsing import parse_ticket
+
+        # Missing required 'status' field
+        bad_schema = '# Bad\n\n```yaml\nid: T-1\ndate: 2026-02-28\n```\n\n## Problem\n\nNo status.'
+        (tmp_path / "schema.md").write_text(bad_schema)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = parse_ticket(tmp_path / "schema.md")
+        assert result is None
+        assert any("Schema validation failed for" in str(x.message) for x in w), "Should include schema error detail"
