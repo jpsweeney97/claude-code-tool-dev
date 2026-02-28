@@ -207,21 +207,35 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--date", required=True, help="Date in YYYY-MM-DD format")
     args = parser.parse_args(argv)
 
-    candidates = json.load(sys.stdin)
+    try:
+        candidates = json.load(sys.stdin)
+    except json.JSONDecodeError as exc:
+        json.dump({"status": "error", "created": [], "errors": [{"summary": "stdin", "error": f"Invalid JSON input: {exc}"}]}, sys.stdout)
+        return 1
+
     if not isinstance(candidates, list):
         candidates = [candidates]
 
     created: list[dict[str, str]] = []
     errors: list[dict[str, str]] = []
     for cand in candidates:
+        if not isinstance(cand, dict):
+            errors.append({
+                "summary": "unknown",
+                "error": f"Candidate must be a dict, got {type(cand).__name__}",
+            })
+            continue
         try:
             tid = allocate_id(args.date, args.tickets_dir)
             cand["id"] = tid
             cand["date"] = args.date
             path = write_ticket(cand, args.tickets_dir)
             created.append({"id": tid, "path": str(path)})
-        except Exception as exc:
-            errors.append({"summary": cand.get("summary", "unknown"), "error": str(exc)})
+        except (KeyError, OSError, TypeError, ValueError, AttributeError) as exc:
+            errors.append({
+                "summary": cand.get("summary", "unknown"),
+                "error": f"{type(exc).__name__}: {exc}",
+            })
 
     if errors and created:
         json.dump({"status": "partial_success", "created": created, "errors": errors}, sys.stdout)
@@ -229,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dump({"status": "error", "created": [], "errors": errors}, sys.stdout)
     else:
         json.dump({"status": "ok", "created": created}, sys.stdout)
-    return 0
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":

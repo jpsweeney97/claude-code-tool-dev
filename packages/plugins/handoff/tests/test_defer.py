@@ -560,3 +560,128 @@ class TestEndToEnd:
         assert len(parsed.frontmatter["files"]) == 2
         assert parsed.frontmatter["provenance"]["source_session"] == "5136e38e-efc5-403f-ad5e-49516f47884b"
         assert "## Problem" in parsed.body
+
+
+class TestMain:
+    """T1/C4: defer.main() CLI tests."""
+
+    def test_ok_status(self, tmp_path: Path, capsys) -> None:
+        from scripts.defer import main
+
+        tickets_dir = tmp_path / "tickets"
+        candidate = json.dumps([{
+            "summary": "Test ticket",
+            "problem": "P",
+            "source_text": "S",
+            "proposed_approach": "A",
+            "acceptance_criteria": ["Done"],
+        }])
+        import io
+        import sys
+
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(candidate)
+        try:
+            exit_code = main(["--tickets-dir", str(tickets_dir), "--date", "2026-02-28"])
+        finally:
+            sys.stdin = old_stdin
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == "ok"
+        assert len(output["created"]) == 1
+        assert exit_code == 0
+
+    def test_error_status_returns_nonzero(self, tmp_path: Path, capsys) -> None:
+        from scripts.defer import main
+
+        # Pass a candidate missing required fields to trigger KeyError
+        candidate = json.dumps([{"summary": "Incomplete"}])
+        import io
+        import sys
+
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(candidate)
+        try:
+            exit_code = main(["--tickets-dir", str(tmp_path), "--date", "2026-02-28"])
+        finally:
+            sys.stdin = old_stdin
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == "error"
+        assert len(output["errors"]) == 1
+        assert exit_code == 1
+
+    def test_non_dict_candidate_returns_error(self, tmp_path: Path, capsys) -> None:
+        """Codex amendment: non-dict candidates must not crash with TypeError."""
+        from scripts.defer import main
+
+        # Second candidate has all required fields so it succeeds -> partial_success
+        candidate = json.dumps([
+            "not a dict",
+            {
+                "summary": "Good ticket",
+                "problem": "P",
+                "source_text": "S",
+                "proposed_approach": "A",
+                "acceptance_criteria": ["Done"],
+            },
+        ])
+        import io
+        import sys
+
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(candidate)
+        try:
+            exit_code = main(["--tickets-dir", str(tmp_path), "--date", "2026-02-28"])
+        finally:
+            sys.stdin = old_stdin
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == "partial_success"
+        assert len(output["created"]) == 1
+        assert len(output["errors"]) == 1
+        assert "dict" in output["errors"][0]["error"]
+        assert exit_code == 1
+
+    def test_malformed_json_stdin(self, tmp_path: Path, capsys) -> None:
+        """Codex amendment: malformed JSON on stdin must not crash."""
+        from scripts.defer import main
+
+        import io
+        import sys
+
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("{bad json")
+        try:
+            exit_code = main(["--tickets-dir", str(tmp_path), "--date", "2026-02-28"])
+        finally:
+            sys.stdin = old_stdin
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == "error"
+        assert "JSON" in output["errors"][0]["error"]
+        assert exit_code == 1
+
+    def test_partial_success(self, tmp_path: Path, capsys) -> None:
+        from scripts.defer import main
+
+        candidates = json.dumps([
+            {
+                "summary": "Good ticket",
+                "problem": "P",
+                "source_text": "S",
+                "proposed_approach": "A",
+                "acceptance_criteria": ["Done"],
+            },
+            {"summary": "Bad ticket"},  # missing required fields
+        ])
+        import io
+        import sys
+
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(candidates)
+        try:
+            exit_code = main(["--tickets-dir", str(tmp_path), "--date", "2026-02-28"])
+        finally:
+            sys.stdin = old_stdin
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == "partial_success"
+        assert len(output["created"]) == 1
+        assert len(output["errors"]) == 1
+        assert exit_code == 1
