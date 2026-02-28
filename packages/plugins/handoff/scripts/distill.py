@@ -19,10 +19,10 @@ from pathlib import Path
 from typing import Literal, NotRequired, TypedDict
 
 try:
-    from scripts.handoff_parsing import parse_handoff
+    from scripts.handoff_parsing import parse_handoff, section_name
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from scripts.handoff_parsing import parse_handoff  # type: ignore[no-redef]
+    from scripts.handoff_parsing import parse_handoff, section_name  # type: ignore[no-redef]
 
 
 DedupStatus = Literal["NEW", "EXACT_DUP_SOURCE", "EXACT_DUP_CONTENT", "UPDATED_SOURCE"]
@@ -378,13 +378,6 @@ def extract_signals(raw_markdown: str) -> dict[str, str]:
     return signals
 
 
-def _section_name(heading: str) -> str:
-    """Extract bare section name from ## heading."""
-    if heading.startswith("## "):
-        return heading[3:].strip()
-    return heading.strip()
-
-
 def _make_anchor(handoff_filename: str, section_name: str, subsection_heading: str) -> str:
     """Create a source anchor for provenance."""
     slug = re.sub(r'[^a-z0-9]+', '-', subsection_heading.lower()).strip('-')
@@ -440,7 +433,7 @@ def extract_candidates(
     warnings.extend(meta_warnings)
 
     for section in handoff.sections:
-        name = _section_name(section.heading)
+        name = section_name(section.heading)
         if name not in active_sections:
             continue
 

@@ -36,3 +36,8 @@ def get_handoffs_dir() -> Path:
     """Get handoffs directory: ~/.claude/handoffs/<project>/"""
     name, _ = get_project_name()
     return Path.home() / ".claude" / "handoffs" / name
+
+
+def get_archive_dir() -> Path:
+    """Return the archive directory for the current project's handoffs."""
+    return get_handoffs_dir() / ".archive"
