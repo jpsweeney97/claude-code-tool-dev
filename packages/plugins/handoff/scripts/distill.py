@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json as json_mod  # avoid shadowing
+import json as json_mod
 import re
 import sys
 from dataclasses import dataclass, replace
@@ -18,7 +18,11 @@ from pathlib import Path
 
 from typing import Literal, NotRequired, TypedDict
 
-from scripts.handoff_parsing import parse_handoff
+try:
+    from scripts.handoff_parsing import parse_handoff
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from scripts.handoff_parsing import parse_handoff  # type: ignore[no-redef]
 
 
 DedupStatus = Literal["NEW", "EXACT_DUP_SOURCE", "EXACT_DUP_CONTENT", "UPDATED_SOURCE"]
@@ -48,8 +52,9 @@ class CandidateDict(TypedDict):
 class ExtractionResultDict(TypedDict):
     """Result of extract_candidates — handoff metadata + candidate list.
 
-    Shared type for both extract_candidates() and main() return dicts.
-    All return paths (success and error) must include every required field.
+    Type for extract_candidates() return value. main() serializes this
+    same shape to JSON. All return paths (success and error) must include
+    every required field.
     """
 
     handoff_path: str
@@ -298,8 +303,7 @@ def _extract_distill_metas_detailed(learnings_content: str) -> tuple[list[dict],
 def _extract_distill_metas(learnings_content: str) -> list[dict]:
     """Extract distill-meta comments from learnings content.
 
-    Stable API — 3 call sites (check_exact_dup_source, check_exact_dup_content,
-    determine_dedup_status). Use _extract_distill_metas_detailed when you need
+    Stable API — use _extract_distill_metas_detailed when you need
     warnings too.
     """
     metas, _ = _extract_distill_metas_detailed(learnings_content)
@@ -443,20 +447,23 @@ def extract_candidates(
         subsections = parse_subsections(section.content)
         heading_counts: dict[str, int] = {}
 
-        for sub in subsections:
-            # Skip empty or heading-only subsections
-            if not sub.raw_markdown.strip():
-                continue
-            # Merge preamble (leading text before first ###) into first
-            # headed subsection to avoid silent information loss.
-            if not sub.heading and any(s.heading for s in subsections):
-                for i, other in enumerate(subsections):
+        # Pre-pass: merge preamble (leading text before first ###) into
+        # first headed subsection to avoid silent information loss.
+        if subsections and not subsections[0].heading and any(s.heading for s in subsections):
+            preamble = subsections[0]
+            if preamble.raw_markdown.strip():
+                for i, other in enumerate(subsections[1:], 1):
                     if other.heading:
                         subsections[i] = replace(
                             other,
-                            raw_markdown=sub.raw_markdown.strip() + "\n\n" + other.raw_markdown,
+                            raw_markdown=preamble.raw_markdown.strip() + "\n\n" + other.raw_markdown,
                         )
                         break
+            subsections = subsections[1:]
+
+        for sub in subsections:
+            # Skip empty or heading-only subsections
+            if not sub.raw_markdown.strip():
                 continue
 
             ix = heading_counts.get(sub.heading, 0)
@@ -530,7 +537,7 @@ def main(argv: list[str] | None = None) -> str:
     if args.learnings:
         learnings_path = Path(args.learnings)
         if not learnings_path.exists():
-            pass  # Warning added to result["warnings"] below
+            print(f"Warning: Learnings file not found: {args.learnings}. Dedup checking disabled.", file=sys.stderr)
         else:
             try:
                 learnings_content = learnings_path.read_text(encoding="utf-8")

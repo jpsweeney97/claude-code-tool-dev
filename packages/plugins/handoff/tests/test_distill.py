@@ -562,6 +562,7 @@ class TestDistillCLI:
         output = distill_main(["/nonexistent/path.md"])
         result = json.loads(output)
         assert result["error"] is not None
+        assert result["error_code"] == "HANDOFF_NOT_FOUND"
 
     def test_unreadable_learnings_returns_error(self, tmp_path: Path) -> None:
         """Note: chmod(0o000) does not block root. Guard with skipif if flaky on CI."""
@@ -577,6 +578,7 @@ class TestDistillCLI:
             output = distill_main([str(handoff), "--learnings", str(learnings)])
             result = json.loads(output)
             assert result["error"] is not None
+            assert result["error_code"] == "LEARNINGS_UNREADABLE"
             assert "Failed to read" in result["error"]
         finally:
             learnings.chmod(0o644)
@@ -605,6 +607,30 @@ class TestDistillCLI:
             assert isinstance(result["warnings"], list)
         finally:
             bad_learnings.chmod(0o644)
+
+
+class TestNoDocumentIdentity:
+    """Integration: extract_candidates returns NO_DOCUMENT_IDENTITY for missing session_id."""
+
+    def test_missing_session_id_returns_error(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\n---\n\n"
+            "## Decisions\n\n### Chose A\n\n**Choice:** A.\n\n"
+        )
+        result = extract_candidates(str(handoff), "")
+        assert result["error_code"] == "NO_DOCUMENT_IDENTITY"
+        assert result["error"] is not None
+        assert len(result["candidates"]) == 0
+
+    def test_blank_session_id_returns_error(self, tmp_path: Path) -> None:
+        handoff = tmp_path / "test.md"
+        handoff.write_text(
+            "---\ntitle: Test\ndate: 2026-02-27\nsession_id:   \n---\n\n"
+            "## Decisions\n\n### Chose A\n\n**Choice:** A.\n\n"
+        )
+        result = extract_candidates(str(handoff), "")
+        assert result["error_code"] == "NO_DOCUMENT_IDENTITY"
 
 
 class TestEdgeCases:
@@ -663,19 +689,9 @@ class TestSourceUidDeterminism:
             subsection_heading="Chose A over B",
             heading_ix=0,
         )
-        # Pin the exact output. If this changes, source identity tracking breaks.
-        assert uid == compute_source_uid(
-            document_identity="test-session-123",
-            section_name="Decisions",
-            subsection_heading="Chose A over B",
-            heading_ix=0,
-        ), "source_uid must be deterministic"
-        # Format: sha256:<64 hex chars> = 71 chars total
-        assert uid.startswith("sha256:")
-        assert len(uid) == 71
-        hex_part = uid.split(":")[1]
-        assert len(hex_part) == 64
-        assert all(c in "0123456789abcdef" for c in hex_part)
+        # Pin the exact digest. If this changes, all existing provenance
+        # data in learnings.md is orphaned (dedup breaks silently).
+        assert uid == "sha256:dd731e5655b29e2d71dea5bfe2897cf9e4cb1db312a099bac373825bdaa5607c"
 
 
 class TestNoAutodropInvariant:
@@ -818,7 +834,8 @@ class TestHandoffReadError:
         handoff = tmp_path / "test.md"
         handoff.write_bytes(b'\x80\x81\x82\xff' * 100)
         result = extract_candidates(str(handoff), "")
-        assert result["error"] is not None or len(result["candidates"]) == 0
+        assert result["error"] is not None
+        assert result["error_code"] == "HANDOFF_UNREADABLE"
 
 
 class TestLearningsWarning:
