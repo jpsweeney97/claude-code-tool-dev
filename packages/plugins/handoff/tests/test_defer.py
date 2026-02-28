@@ -196,3 +196,70 @@ class TestWriteTicket:
         path = write_ticket(candidate, tickets_dir)
         assert tickets_dir.exists()
         assert path.exists()
+
+
+class TestEndToEnd:
+    """Integration test: write_ticket -> allocate_id -> parse_ticket round-trip."""
+
+    def test_full_defer_pipeline(self, tmp_path: Path) -> None:
+        from scripts.defer import allocate_id, write_ticket
+        from scripts.ticket_parsing import parse_ticket
+
+        # Setup: one existing ticket
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        (tickets_dir / "existing.md").write_text(EXISTING_TICKET)
+
+        # Step 1: Create a new ticket
+        candidate = {
+            "id": "T-20260228-02",
+            "date": "2026-02-28",
+            "summary": "Auth module needs refactoring",
+            "problem": "The auth module has accumulated technical debt.",
+            "source_text": "Identified during PR #29 review.",
+            "proposed_approach": "Extract shared auth logic into a base class.",
+            "acceptance_criteria": ["Base class created", "All auth tests pass", "No duplicate code"],
+            "priority": "high",
+            "source_type": "pr-review",
+            "source_ref": "PR #29",
+            "branch": "feature/knowledge-graduation",
+            "session_id": "5136e38e-efc5-403f-ad5e-49516f47884b",
+            "effort": "M",
+            "files": ["src/auth/base.py", "src/auth/oauth.py"],
+        }
+        path = write_ticket(candidate, tickets_dir)
+
+        # Step 2: Verify file was created
+        assert path.exists()
+        content = path.read_text()
+
+        # Step 3: Verify structure
+        assert content.startswith("# T-20260228-02:")
+        assert "```yaml" in content
+        assert "id: T-20260228-02" in content
+        assert "status: deferred" in content
+        assert "priority: high" in content
+        assert "effort: M" in content
+        assert "## Problem" in content
+        assert "## Acceptance Criteria" in content
+        assert "- [ ] Base class created" in content
+
+        # Step 4: Verify provenance (both YAML field and HTML comment)
+        assert "provenance:" in content
+        assert "5136e38e-efc5-403f-ad5e-49516f47884b" in content
+        assert "defer-meta" in content
+
+        # Step 5: Verify allocate_id increments past the new ticket
+        next_id = allocate_id("2026-02-28", tickets_dir)
+        assert next_id == "T-20260228-03"
+
+        # Step 6: Round-trip via parse_ticket
+        parsed = parse_ticket(path)
+        assert parsed is not None
+        assert parsed.frontmatter["id"] == "T-20260228-02"
+        assert parsed.frontmatter["status"] == "deferred"
+        assert parsed.frontmatter["priority"] == "high"
+        assert isinstance(parsed.frontmatter["files"], list)
+        assert len(parsed.frontmatter["files"]) == 2
+        assert parsed.frontmatter["provenance"]["source_session"] == "5136e38e-efc5-403f-ad5e-49516f47884b"
+        assert "## Problem" in parsed.body
