@@ -1,6 +1,7 @@
 """Tests for triage.py — ticket reading, status normalization, orphan detection."""
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -356,3 +357,111 @@ def _load_all_tickets(tickets_dir: Path) -> list[dict]:
     from scripts.triage import _load_tickets_for_matching
 
     return _load_tickets_for_matching(tickets_dir)
+
+
+class TestGenerateReport:
+    def test_report_structure(self, tmp_path: Path) -> None:
+        from scripts.triage import generate_report
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        (tickets_dir / "a.md").write_text(TICKET_DEFERRED)
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+        (handoffs_dir / "test.md").write_text(HANDOFF_WITH_OPEN_QUESTIONS)
+
+        report = generate_report(tickets_dir, handoffs_dir)
+        assert "open_tickets" in report
+        assert "orphaned_items" in report
+        assert "matched_items" in report
+        assert "match_counts" in report
+        assert "skipped_prose_count" in report
+
+    def test_match_counts_reflect_actual_matching(self, tmp_path: Path) -> None:
+        """P2-2 fix: assert specific count values, not identity."""
+        from scripts.triage import generate_report
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        (tickets_dir / "a.md").write_text(TICKET_DEFERRED)
+        (tickets_dir / "b.md").write_text(TICKET_WITH_PROVENANCE)
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+        (handoffs_dir / "test.md").write_text(HANDOFF_WITH_OPEN_QUESTIONS)
+
+        report = generate_report(tickets_dir, handoffs_dir)
+        counts = report["match_counts"]
+        # HANDOFF_WITH_OPEN_QUESTIONS has 5 items (3 Open Questions + 2 Risks)
+        # Session_id matches TICKET_WITH_PROVENANCE → all 5 items get uid_match
+        # P2-8 fix: exact counts for deterministic fixture, not >= 1
+        assert counts["uid_match"] == 5, "All 5 items should uid_match via session correlation"
+        assert counts["id_ref"] == 0, "uid_match takes priority over id_ref"
+        assert counts["manual_review"] == 0, "All items matched via uid_match"
+        # P1-1: orphaned_items only contains manual_review items
+        assert len(report["orphaned_items"]) == counts["manual_review"]
+        # matched_items contains uid_match + id_ref
+        assert len(report["matched_items"]) == counts["uid_match"] + counts["id_ref"]
+
+    def test_empty_dirs(self, tmp_path: Path) -> None:
+        from scripts.triage import generate_report
+
+        report = generate_report(tmp_path / "no-tickets", tmp_path / "no-handoffs")
+        assert report["open_tickets"] == []
+        assert report["orphaned_items"] == []
+        assert report["matched_items"] == []
+
+    def test_includes_archive(self, tmp_path: Path) -> None:
+        from scripts.triage import generate_report
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+
+        handoffs_dir = tmp_path / "handoffs"
+        archive_dir = handoffs_dir / ".archive"
+        archive_dir.mkdir(parents=True)
+        (archive_dir / "archived.md").write_text(HANDOFF_WITH_OPEN_QUESTIONS)
+
+        report = generate_report(tickets_dir, handoffs_dir)
+        # Should find items from archived handoff (all manual_review since no matching tickets)
+        assert len(report["orphaned_items"]) > 0
+
+    def test_excludes_old_files(self, tmp_path: Path) -> None:
+        """P1-10 fix: files older than 30 days should be excluded by mtime filter."""
+        import os
+        import time
+
+        from scripts.triage import generate_report
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+        old_file = handoffs_dir / "old.md"
+        old_file.write_text(HANDOFF_WITH_OPEN_QUESTIONS)
+
+        # Set mtime to 31 days ago
+        old_mtime = time.time() - (31 * 86400)
+        os.utime(old_file, (old_mtime, old_mtime))
+
+        report = generate_report(tickets_dir, handoffs_dir)
+        assert len(report["orphaned_items"]) == 0, "Files older than 30 days should be excluded"
+
+
+class TestMain:
+    def test_json_output(self, tmp_path: Path, capsys) -> None:
+        from scripts.triage import main
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        (tickets_dir / "a.md").write_text(TICKET_DEFERRED)
+
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+
+        main(["--tickets-dir", str(tickets_dir), "--handoffs-dir", str(handoffs_dir)])
+        output = capsys.readouterr().out
+        report = json.loads(output)
+        assert report["open_tickets"][0]["id"] == "T-20260228-01"

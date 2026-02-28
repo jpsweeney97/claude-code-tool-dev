@@ -4,8 +4,11 @@ Phase 0: read-only. Produces JSON report.
 """
 from __future__ import annotations
 
+import argparse
+import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -216,3 +219,97 @@ def match_orphan_item(
         "matched_ticket": None,
         "item": item,
     }
+
+
+_LOOKBACK_DAYS = 30  # P1-3: design requires 30-day scan window
+
+
+def _scan_handoff_dirs(handoffs_dir: Path) -> list[Path]:
+    """Collect handoff files from active and archive directories.
+
+    P1-3 fix: filters to files modified within the last _LOOKBACK_DAYS days.
+    """
+    cutoff = time.time() - (_LOOKBACK_DAYS * 86400)
+    paths: list[Path] = []
+
+    for search_dir in [handoffs_dir, handoffs_dir / ".archive"]:
+        if not search_dir.exists():
+            continue
+        for p in sorted(search_dir.glob("*.md")):
+            try:
+                if p.stat().st_mtime >= cutoff:
+                    paths.append(p)
+            except OSError:
+                continue
+    return paths
+
+
+def generate_report(
+    tickets_dir: Path,
+    handoffs_dir: Path,
+) -> dict[str, Any]:
+    """Generate a triage report: open tickets + orphaned handoff items.
+
+    Returns dict with: open_tickets, orphaned_items, matched_items,
+    match_counts, skipped_prose_count.
+
+    P1-1 fix: orphaned_items contains only manual_review items.
+    Matched items (uid_match, id_ref) go to matched_items.
+
+    Note: read_open_tickets and _load_tickets_for_matching both scan tickets_dir,
+    parsing each file twice. Acceptable for current corpus size. (P3-6)
+    """
+    open_tickets = read_open_tickets(tickets_dir)
+    tickets_for_matching = _load_tickets_for_matching(tickets_dir)
+
+    # Scan handoffs
+    all_items: list[dict[str, Any]] = []
+    total_skipped_prose = 0
+    for path in _scan_handoff_dirs(handoffs_dir):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        items, skipped = extract_handoff_items(text, path.name)
+        all_items.extend(items)
+        total_skipped_prose += skipped
+
+    # Match each item — separate orphaned from matched (P1-1)
+    orphaned: list[dict[str, Any]] = []
+    matched: list[dict[str, Any]] = []
+    counts = {"uid_match": 0, "id_ref": 0, "manual_review": 0}
+    for item in all_items:
+        result = match_orphan_item(item, tickets_for_matching)
+        counts[result["match_type"]] += 1
+        if result["match_type"] == "manual_review":
+            orphaned.append(result)
+        else:
+            matched.append(result)
+
+    return {
+        "open_tickets": open_tickets,
+        "orphaned_items": orphaned,
+        "matched_items": matched,
+        "match_counts": counts,
+        "skipped_prose_count": total_skipped_prose,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point. Outputs JSON triage report to stdout."""
+    parser = argparse.ArgumentParser(description="Triage open tickets and orphaned items")
+    parser.add_argument("--tickets-dir", type=Path, default=Path("docs/tickets"))
+    parser.add_argument("--handoffs-dir", type=Path, default=None)
+    args = parser.parse_args(argv)
+
+    if args.handoffs_dir is None:
+        args.handoffs_dir = get_handoffs_dir()
+
+    report = generate_report(args.tickets_dir, args.handoffs_dir)
+    json.dump(report, sys.stdout, indent=2)
+    print()  # trailing newline
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
