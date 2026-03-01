@@ -12,6 +12,36 @@
 
 ---
 
+## Codex Review Findings
+
+Adversarial Codex dialogue (8-turn budget, converged at turn 6). Thread: `019cab8c-c4f0-7161-bf86-92a35e5a4995`.
+
+### Ship-Blockers (fixed in plan)
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 1 | PreToolUse warnings use `print()` + `exit(0)` — stdout invisible to Claude on exit 0 | JSON `hookSpecificOutput.additionalContext` for warn-but-allow |
+| 2 | Brew regex `r"brew\s+install\s+(\S+)"` misses `--cask`, `reinstall`, flags, multi-package, tap-qualified | Operation-detecting regex with flag stripping + package normalization |
+
+### Should-Fix (fixed in plan)
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 3 | No enforcement tier distinction (install vs uninstall vs bundle) | Three-tier: warn install, block uninstall infra, allow bundle |
+| 4 | SessionStart hook missing `matcher` — fires on clear/compact | `matcher: "startup\|resume"` |
+| 5 | `commit_if_changed()` in CLAUDE.md as function — unreliable across isolated shell calls | Script at `~/dotfiles/bin/.local/bin/commit-if-changed` |
+| 6 | No explicit fail-open policy for internal hook errors | Exit 1 + stderr for internal errors |
+| 7 | Task 2 uses line-number placement — fragile | Heading-anchored `###` subsection |
+
+### Deferred
+
+- Brewfile lint guard (implement separately if needed)
+- `doctor-env` output sanitization/capping before context injection
+- `brew upgrade` warning for infrastructure tools
+- Flag handling consistency across pipx/cargo/go patterns
+
+---
+
 ## Task 1: Rewrite `~/.claude/references/environment.md`
 
 The source of truth for the ownership model. Loaded into every session via global CLAUDE.md reference.
@@ -136,12 +166,12 @@ Add environment rules section and update the Environment section.
 **Files:**
 - Modify: `~/.claude/CLAUDE.md`
 
-**Step 1: Add Environment Rules section**
+**Step 1: Add Environment Rules subsection**
 
-Insert this section AFTER the existing `## Environment` section (after line 140, before `## Git`):
+Find the `## Environment` section in `~/.claude/CLAUDE.md`. Insert a `### Environment Rules` subsection at the end of the Environment section, before the next `##` heading (typically `## Git`). Do NOT use line numbers — find the heading anchor.
 
 ```markdown
-## Environment Rules
+### Environment Rules
 
 **Ownership model:** One executable, one owner. Homebrew for OS-level, mise for runtimes/dev tools, stow for config. See `~/.claude/references/environment.md` for full details.
 
@@ -156,7 +186,7 @@ Insert this section AFTER the existing `## Environment` section (after line 140,
 
 **Step 2: Verify the edit didn't break surrounding sections**
 
-Read the file and confirm `## Environment`, `## Environment Rules`, and `## Git` appear in that order.
+Read the file and confirm `## Environment` contains `### Environment Rules` as a subsection, and `## Git` follows after.
 
 ---
 
@@ -204,23 +234,7 @@ GNU stow-managed dotfiles for macOS. Changes here deploy to `~/` via symlinks.
 
 - Commit per logical change (not per file)
 - Use `git add <specific-files>` — never `git add -A` (captures unrelated changes across packages)
-- Conditional commits for operations that may produce no git changes:
-
-```bash
-commit_if_changed() {
-  local path="$1" msg="$2"
-  cd ~/dotfiles
-  local has_changes=false
-  git diff --quiet -- "$path" || has_changes=true
-  git diff --cached --quiet -- "$path" || has_changes=true
-  [[ -n "$(git ls-files --others --exclude-standard -- "$path")" ]] && has_changes=true
-  if $has_changes; then
-    git add "$path" && git commit -m "$msg"
-  else
-    echo "No changes in $path — skipping commit."
-  fi
-}
-```
+- For conditional commits: `commit-if-changed <path> <message>` (script at `bin/.local/bin/commit-if-changed`, deployed via `stow bin`)
 
 ## Doctor-env
 
@@ -246,105 +260,276 @@ Located in `.githooks/` (via `core.hooksPath`):
 5. `git add <name>/ && git commit -m "feat: add <name> stow package"`
 ```
 
-**Step 3: Commit the new CLAUDE.md to the dotfiles repo**
+**Step 3: Create the `commit-if-changed` script**
+
+Write `~/dotfiles/bin/.local/bin/commit-if-changed`:
 
 ```bash
-cd ~/dotfiles && git add .claude/CLAUDE.md && git commit -m "docs: add Claude Code project context for dotfiles"
+#!/usr/bin/env bash
+# Usage: commit-if-changed <path> <message>
+# Commits <path> in ~/dotfiles only if there are actual changes (staged, unstaged, or untracked).
+set -euo pipefail
+
+path="${1:?Usage: commit-if-changed <path> <message>}"
+msg="${2:?Usage: commit-if-changed <path> <message>}"
+cd ~/dotfiles
+
+has_changes=false
+git diff --quiet -- "$path" 2>/dev/null || has_changes=true
+git diff --cached --quiet -- "$path" 2>/dev/null || has_changes=true
+[[ -n "$(git ls-files --others --exclude-standard -- "$path" 2>/dev/null)" ]] && has_changes=true
+
+if $has_changes; then
+    git add "$path" && git commit -m "$msg"
+else
+    echo "No changes in $path — skipping commit."
+fi
+```
+
+```bash
+chmod +x ~/dotfiles/bin/.local/bin/commit-if-changed
+```
+
+**Step 4: Commit both files to the dotfiles repo**
+
+```bash
+cd ~/dotfiles && git add .claude/CLAUDE.md bin/.local/bin/commit-if-changed && git commit -m "feat: add Claude Code project context and commit-if-changed script"
 ```
 
 ---
 
-## Task 4: Extend `~/.claude/hooks/mise-tool-guidance.py` to cover `brew install`
+## Task 4: Extend `~/.claude/hooks/mise-tool-guidance.py` — three-tier enforcement
 
-The existing hook handles `pipx install`, `cargo install`, and `go install`. It needs to also catch `brew install` of mise-owned tools and `brew uninstall` of infrastructure tools.
+The existing hook handles `pipx install`, `cargo install`, and `go install`. This task adds three-tier brew enforcement and fixes the existing invisible-guidance bug (stdout on exit 0 is invisible to Claude for PreToolUse hooks).
+
+**Three-tier model:**
+- **Tier 1 (warn):** `brew install`/`brew reinstall` of mise-managed tools → exit 0 + JSON `additionalContext`
+- **Tier 2 (block):** `brew uninstall`/`remove`/`rm` of infrastructure (stow, mise) → exit 2 + stderr
+- **Tier 3 (allow):** `brew bundle` → exit 0 (no output)
+
+**Also fixes:** The existing pipx/cargo/go guidance path uses `print()` + `exit(0)`, which is invisible to Claude. All non-blocking guidance must use JSON `hookSpecificOutput.additionalContext`.
 
 **Files:**
 - Modify: `~/.claude/hooks/mise-tool-guidance.py`
 
-**Step 1: Add `brew install` to the install_patterns list**
-
-In the `main()` function, find the `install_patterns` list:
-
-```python
-install_patterns = [
-    (r"pipx\s+install\s+(\S+)", "pipx"),
-    (r"cargo\s+install\s+(\S+)", "cargo"),
-    (r"go\s+install\s+(\S+)", "go"),
-]
-```
-
-Replace with:
-
-```python
-install_patterns = [
-    (r"brew\s+install\s+(\S+)", "brew"),
-    (r"pipx\s+install\s+(\S+)", "pipx"),
-    (r"cargo\s+install\s+(\S+)", "cargo"),
-    (r"go\s+install\s+(\S+)", "go"),
-]
-```
-
-**Step 2: Add infrastructure protection**
-
-After the install pattern loop (after the `# No installation detected` comment), add a check for `brew uninstall` of infrastructure tools:
-
-```python
-        # Block uninstalling infrastructure tools
-        infra_tools = {"stow", "mise"}
-        uninstall_match = re.search(r"brew\s+uninstall\s+(\S+)", command)
-        if uninstall_match:
-            tool_name = uninstall_match.group(1)
-            if tool_name in infra_tools:
-                print(
-                    f"'{tool_name}' is infrastructure — do not uninstall. "
-                    f"stow manages dotfile deployment; mise manages runtimes.",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-```
-
-**Step 3: Update the module docstring**
-
-Update the docstring at the top of the file to reflect the expanded coverage:
+**Step 1: Replace the module docstring**
 
 ```python
 """
 PreToolUse hook: Enforces tool ownership boundaries.
-Blocks installing mise-managed tools via brew/pipx/cargo/go.
-Blocks uninstalling infrastructure tools (stow, mise).
-Provides guidance for unknown tool installations.
+
+Three-tier brew enforcement:
+  Tier 1 (warn):  brew install/reinstall of mise-managed tools
+                   → exit 0 + JSON additionalContext
+  Tier 2 (block): brew uninstall/remove/rm of infrastructure (stow, mise)
+                   → exit 2 + stderr
+  Tier 3 (allow): brew bundle (operates on Brewfile)
+                   → exit 0 (no output)
+
+Also blocks mise-managed tools via pipx/cargo/go (exit 2).
+Provides guidance for unknown tool installations (exit 0 + additionalContext).
 
 Exit codes:
-  0 - Allow (stdout guidance shown in verbose mode)
-  2 - Block (tool is managed by mise or is infrastructure)
+  0 - Allow (JSON additionalContext injected into Claude's context)
+  1 - Internal error (fail open — command proceeds, error logged)
+  2 - Block (stderr message shown to Claude)
+
+Fail-open policy: Internal errors (malformed input, missing config) exit 1.
+Allows command to proceed while preserving observability via stderr.
 """
 ```
 
-**Step 4: Test the hook manually**
+**Step 2: Add a helper function for JSON additionalContext output**
+
+Add after the `load_mise_tools()` function:
+
+```python
+def emit_guidance(message: str) -> None:
+    """Emit warn-but-allow guidance via JSON additionalContext.
+
+    PreToolUse stdout on exit 0 is invisible to Claude unless structured
+    as hookSpecificOutput JSON. Plain print() is only visible in verbose mode.
+    """
+    result = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "additionalContext": message,
+        }
+    }
+    print(json.dumps(result))
+```
+
+**Step 3: Replace the `main()` function body**
+
+```python
+def main():
+    try:
+        data = json.load(sys.stdin)
+        tool_input = data.get("tool_input", {})
+        command = tool_input.get("command", "")
+
+        mise_managed = load_mise_tools()
+
+        # --- brew operations (three-tier enforcement) ---
+        brew_match = re.search(
+            r"brew\s+(install|reinstall|uninstall|remove|rm|bundle)\b(.*)", command
+        )
+        if brew_match:
+            operation = brew_match.group(1)
+            args_str = brew_match.group(2)
+
+            # Tier 3: Allow — brew bundle operates on Brewfile
+            if operation == "bundle":
+                sys.exit(0)
+
+            # Extract tool names: strip flags, normalize
+            raw_args = args_str.split()
+            tool_names = []
+            for arg in raw_args:
+                if arg.startswith("-"):
+                    continue  # Skip flags (--cask, -q, --force, etc.)
+                # Normalize: strip tap prefix and @version
+                name = arg.split("/")[-1].split("@")[0]
+                if name:
+                    tool_names.append(name)
+
+            # Tier 2: Block — uninstall/remove/rm of infrastructure
+            infra_tools = {"stow", "mise"}
+            if operation in ("uninstall", "remove", "rm"):
+                for name in tool_names:
+                    if name in infra_tools:
+                        print(
+                            f"'{name}' is infrastructure — do not uninstall. "
+                            f"stow manages dotfile deployment; mise manages runtimes.",
+                            file=sys.stderr,
+                        )
+                        sys.exit(2)
+                sys.exit(0)
+
+            # Tier 1: Warn — install/reinstall of mise-managed tools
+            if operation in ("install", "reinstall"):
+                for name in tool_names:
+                    if name in EXCEPTIONS:
+                        continue
+                    if name in mise_managed:
+                        emit_guidance(
+                            f"WARNING: '{name}' is managed by mise. "
+                            f"Use `mise use {name}` instead of `brew {operation}`. "
+                            f"Dual ownership creates conflicts. "
+                            f"See ~/.claude/references/environment.md for ownership model."
+                        )
+                        sys.exit(0)
+                    else:
+                        emit_guidance(
+                            f"Note: Consider adding '{name}' to "
+                            f"~/.config/mise/config.toml if this is a dev tool "
+                            f"you'll use across projects."
+                        )
+                        sys.exit(0)
+
+        # --- pipx/cargo/go operations ---
+        install_patterns = [
+            (r"pipx\s+install\s+(\S+)", "pipx"),
+            (r"cargo\s+install\s+(\S+)", "cargo"),
+            (r"go\s+install\s+(\S+)", "go"),
+        ]
+
+        for pattern, installer in install_patterns:
+            match = re.search(pattern, command)
+            if match:
+                tool_name = match.group(1).split("/")[-1].split("@")[0]
+
+                if tool_name in EXCEPTIONS:
+                    continue
+
+                if tool_name in mise_managed:
+                    print(
+                        f"'{tool_name}' is managed by mise. "
+                        f"Run `mise install` instead of `{installer} install`.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(2)
+                else:
+                    emit_guidance(
+                        f"Note: Consider adding '{tool_name}' to "
+                        f"~/.config/mise/config.toml if this is a dev tool "
+                        f"you'll use across projects."
+                    )
+                    sys.exit(0)
+
+        # No installation detected
+        sys.exit(0)
+
+    except json.JSONDecodeError as e:
+        print(f"Hook error: Invalid JSON input: {e}", file=sys.stderr)
+        sys.exit(1)  # Fail open — command proceeds, error logged
+    except Exception as e:
+        print(f"Hook error: {e}", file=sys.stderr)
+        sys.exit(1)  # Fail open — command proceeds, error logged
+```
+
+**Step 4: Test the hook — all tiers and edge cases**
 
 ```bash
+# Tier 1: Warn — brew install of mise-managed tool
 echo '{"tool_name":"Bash","tool_input":{"command":"brew install uv"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
 ```
-
-Expected: stderr message about uv being mise-managed, exit code 2.
+Expected: JSON with `additionalContext` warning about uv, exit 0.
 
 ```bash
+# Tier 1: Warn — brew install with flags (flag stripping)
+echo '{"tool_name":"Bash","tool_input":{"command":"brew install --cask uv"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
+Expected: JSON with `additionalContext` warning about uv, exit 0.
+
+```bash
+# Tier 1: Warn — brew reinstall of mise-managed tool
+echo '{"tool_name":"Bash","tool_input":{"command":"brew reinstall ruff"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
+Expected: JSON with `additionalContext` warning, exit 0.
+
+```bash
+# Tier 1: Guidance — brew install of non-mise tool
 echo '{"tool_name":"Bash","tool_input":{"command":"brew install bat"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
 ```
-
-Expected: exit code 0 (bat is not mise-managed).
+Expected: JSON with `additionalContext` guidance note, exit 0.
 
 ```bash
+# Tier 1: Normalization — tap-qualified name
+echo '{"tool_name":"Bash","tool_input":{"command":"brew install homebrew/core/uv"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
+Expected: JSON with `additionalContext` warning about uv, exit 0.
+
+```bash
+# Tier 2: Block — brew uninstall infrastructure
 echo '{"tool_name":"Bash","tool_input":{"command":"brew uninstall stow"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
 ```
-
-Expected: stderr message about infrastructure, exit code 2.
+Expected: stderr about infrastructure, exit 2.
 
 ```bash
+# Tier 2: Block — brew remove infrastructure (alias)
+echo '{"tool_name":"Bash","tool_input":{"command":"brew remove mise"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
+Expected: stderr about infrastructure, exit 2.
+
+```bash
+# Tier 2: Allow — brew uninstall non-infrastructure
 echo '{"tool_name":"Bash","tool_input":{"command":"brew uninstall bat"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
 ```
+Expected: exit 0 (no output).
 
-Expected: exit code 0 (bat is not infrastructure).
+```bash
+# Tier 3: Allow — brew bundle
+echo '{"tool_name":"Bash","tool_input":{"command":"brew bundle install --file=~/dotfiles/homebrew/Brewfile"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
+Expected: exit 0 (no output).
+
+```bash
+# Existing: pipx install of mise-managed tool (still blocks)
+echo '{"tool_name":"Bash","tool_input":{"command":"pipx install ruff"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
+Expected: stderr about mise, exit 2.
 
 **Step 5: No commit needed** — this is in `~/.claude/hooks/`, not a git-tracked location.
 
@@ -352,31 +537,70 @@ Expected: exit code 0 (bat is not infrastructure).
 
 ## Task 5: Create SessionStart hook for doctor-env in dotfiles
 
-Runs doctor-env when starting a Claude session in `~/dotfiles/` and injects results into context.
+Runs doctor-env when starting or resuming a Claude session in `~/dotfiles/` and injects results into context. SessionStart stdout on exit 0 is added directly to Claude's context (unlike PreToolUse, no JSON wrapper needed).
 
 **Files:**
+- Create: `~/dotfiles/.claude/hooks/doctor-env-inject.sh`
 - Create: `~/dotfiles/.claude/settings.json`
 
-**Step 1: Create the settings file**
+**Step 1: Create the hook script**
+
+```bash
+mkdir -p ~/dotfiles/.claude/hooks
+```
+
+Write `~/dotfiles/.claude/hooks/doctor-env-inject.sh`:
+
+```bash
+#!/usr/bin/env bash
+# SessionStart hook: Inject doctor-env output into Claude's context.
+# SessionStart stdout on exit 0 is added to Claude's context (plain text, no JSON needed).
+# Timeout: doctor-env should complete in <5 seconds; bail after 10.
+set -o pipefail
+
+if ! command -v doctor-env >/dev/null 2>&1; then
+    echo "doctor-env not found — run: cd ~/dotfiles && stow bin"
+    exit 0
+fi
+
+# Run with timeout, capture output, bound to 2000 chars
+output=$(timeout 10 doctor-env 2>&1) || true
+rc=${PIPESTATUS[0]:-$?}
+output="${output:0:2000}"
+
+if [ "$rc" -eq 0 ]; then
+    echo "Environment healthy: doctor-env passed all checks."
+else
+    echo "doctor-env found issues:"
+    echo "$output"
+fi
+
+exit 0
+```
+
+```bash
+chmod +x ~/dotfiles/.claude/hooks/doctor-env-inject.sh
+```
+
+**Step 2: Create the settings file**
+
+Write `~/dotfiles/.claude/settings.json`:
 
 ```json
 {
   "hooks": {
     "SessionStart": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if command -v doctor-env >/dev/null 2>&1; then output=$(doctor-env 2>&1); rc=$?; if [ $rc -eq 0 ]; then echo 'Environment healthy: doctor-env passed all checks.'; else echo \"doctor-env found issues:\n$output\"; fi; else echo 'doctor-env not found — run: cd ~/dotfiles && stow bin'; fi"
-          }
-        ]
+        "type": "command",
+        "command": "~/dotfiles/.claude/hooks/doctor-env-inject.sh",
+        "matcher": "startup|resume"
       }
     ]
   }
 }
 ```
 
-**Step 2: Verify the JSON is valid**
+**Step 3: Verify the JSON is valid**
 
 ```bash
 python3 -m json.tool ~/dotfiles/.claude/settings.json
@@ -384,10 +608,18 @@ python3 -m json.tool ~/dotfiles/.claude/settings.json
 
 Expected: Pretty-printed JSON, no errors.
 
-**Step 3: Commit**
+**Step 4: Test the hook script directly**
 
 ```bash
-cd ~/dotfiles && git add .claude/settings.json && git commit -m "feat: add SessionStart hook for doctor-env context injection"
+~/dotfiles/.claude/hooks/doctor-env-inject.sh; echo "exit: $?"
+```
+
+Expected: "Environment healthy: doctor-env passed all checks." and exit 0.
+
+**Step 5: Commit both files**
+
+```bash
+cd ~/dotfiles && git add .claude/hooks/doctor-env-inject.sh .claude/settings.json && git commit -m "feat: add SessionStart hook for doctor-env context injection"
 ```
 
 ---
@@ -410,12 +642,24 @@ cd ~/dotfiles && git push
 
 Pre-push hook runs doctor-env as gate.
 
-**Step 3: Verify Claude awareness**
+**Step 3: Verify Claude awareness (manual — new session)**
 
 Start a new Claude session in `~/dotfiles/` and check:
-- Does the SessionStart hook inject doctor-env output?
-- Does Claude know the ownership rules (from global CLAUDE.md)?
-- Does `brew install uv` trigger the hook warning?
+
+1. **SessionStart hook:** Does doctor-env output appear in the session context?
+   - Look for "Environment healthy" or issue details in the startup output.
+   - The `matcher: "startup|resume"` means it fires on session start and resume, NOT on clear/compact.
+
+2. **Ownership rules:** Does Claude know the rules?
+   - Ask: "How should I install ruff?" — Claude should recommend `mise use ruff`.
+   - Ask: "How do I edit my .zshrc?" — Claude should recommend editing `~/dotfiles/zsh/.zshrc`.
+
+3. **Hook enforcement:** Does the brew hook fire?
+   - Have Claude run `brew install uv` — should see additionalContext warning about mise ownership.
+   - Have Claude run `brew uninstall stow` — should be blocked with stderr message.
+   - Note: Hooks fire on Claude-generated tool calls only, not user-typed terminal commands.
+
+4. **Trust boundary:** Hooks enforce rules for Claude's actions, not user terminal commands. This is by design — documentation handles awareness, hooks catch enforcement cases.
 
 This step is manual verification in a new session.
 
@@ -426,9 +670,9 @@ This step is manual verification in a new session.
 ```
 Task 1 (environment.md) ── independent
 Task 2 (global CLAUDE.md) ── depends on Task 1 (references environment.md)
-Task 3 (dotfiles CLAUDE.md) ── independent
-Task 4 (extend hook) ── independent
-Task 5 (SessionStart hook) ── independent
+Task 3 (dotfiles CLAUDE.md + commit-if-changed script) ── independent
+Task 4 (three-tier hook enforcement) ── independent
+Task 5 (SessionStart hook + script) ── independent
 Task 6 (push + verify) ── depends on Tasks 3, 5
 ```
 

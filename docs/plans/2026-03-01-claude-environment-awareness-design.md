@@ -53,17 +53,20 @@
 
 **Purpose:** Graduated enforcement for environment rule violations. Global scope.
 
-**Hard block (exit 2):**
+**Hard block (exit 2 + stderr):**
 - `rm` / `rm -rf` — already handled by existing hook. No duplication.
+- `brew uninstall`/`brew remove`/`brew rm` of infrastructure tools (`stow`, `mise`) — removing these breaks the environment
 
-**Warn via additionalContext (exit 0 + message):**
-- `brew install <tool>` where `<tool>` is mise-owned (read dynamically from `~/.config/mise/config.toml`)
-- `brew uninstall stow` or `brew uninstall mise` — removing infrastructure tools
+**Warn via JSON additionalContext (exit 0 + `hookSpecificOutput`):**
+- `brew install`/`brew reinstall` of mise-owned tools (read dynamically from `~/.config/mise/config.toml`)
 - Direct file writes to `~/.<dotfile>` that bypass stow (e.g., writing `~/.zshrc` instead of `~/dotfiles/zsh/.zshrc`)
 
-**Implementation:** Python or bash script. Parses Bash tool input. Reads mise config dynamically — adding a tool to mise automatically extends the hook's awareness.
+**Allow (exit 0, no output):**
+- `brew bundle` — operates on the Brewfile, which IS the source of truth
 
-**Failure mode:** Fail-open. If the hook errors, the command proceeds. Consistent with the learning that PreToolUse hooks are mechanically fail-open.
+**Implementation:** Python script. Parses Bash tool input. Detects brew operation type, strips flags, normalizes package names (tap prefix, @version). Reads mise config dynamically — adding a tool to mise automatically extends the hook's awareness.
+
+**Failure mode:** Fail-open (exit 1 + stderr). Internal errors allow the command to proceed while preserving observability. Consistent with the learning that PreToolUse hooks are mechanically fail-open.
 
 ### 5. SessionStart Hook — Doctor-env Context Injection
 
@@ -93,10 +96,11 @@
 
 | Violation | Response | Mechanism |
 |-----------|----------|-----------|
-| `rm` / `rm -rf` | Hard block | Existing PreToolUse hook |
-| `brew install <mise-owned-tool>` | Warn + context injection | New PreToolUse hook |
-| `brew uninstall stow\|mise` | Warn + context injection | New PreToolUse hook |
-| Direct dotfile write (bypass stow) | Warn + context injection | New PreToolUse hook |
+| `rm` / `rm -rf` | Hard block (exit 2) | Existing PreToolUse hook |
+| `brew uninstall`/`remove`/`rm` stow\|mise | Hard block (exit 2) | Extended PreToolUse hook |
+| `brew install`/`reinstall` mise-owned tool | Warn (exit 0 + JSON `additionalContext`) | Extended PreToolUse hook |
+| `brew bundle` | Allow (exit 0) | Extended PreToolUse hook (explicit pass-through) |
+| Direct dotfile write (bypass stow) | Warn + context injection | Extended PreToolUse hook |
 | Unknown tool installation | Claude decides using CLAUDE.md rules | Documentation (passive) |
 | Environment drift | Detected at session start | SessionStart hook + doctor-env |
 

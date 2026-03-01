@@ -1,6 +1,6 @@
 # Environment Cleanup Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task.
 
 **Goal:** Transform a messy, ad-hoc macOS development environment into a declarative, reproducible system with strict tool ownership boundaries.
 
@@ -379,7 +379,8 @@ Expected: "covered" (confirmed in preflight: `.gitignore` has `.DS_Store` and `*
 **Step 3: Commit**
 
 ```bash
-# Safe because Task 0 ensures a clean working tree — only .DS_Store deletions are pending
+# .DS_Store files are gitignored — this commit will be skipped (expected).
+# The trash step is still valuable: it removes filesystem conflicts that block stow.
 commit_if_changed . "chore: remove .DS_Store files from dotfiles"
 ```
 
@@ -591,13 +592,21 @@ The `bin` stow package has two problems: `__pycache__` directory and `fix-claude
 **Files:**
 - Modify: `~/dotfiles/bin/`
 
-**Step 1: Remove __pycache__ from dotfiles**
+**Step 1: Add .stow-local-ignore to prevent __pycache__ deployment**
+
+```bash
+echo '__pycache__' > ~/dotfiles/bin/.stow-local-ignore
+```
+
+This prevents stow from ever linking `__pycache__` directories, even if they regenerate.
+
+**Step 2: Remove __pycache__ from dotfiles**
 
 ```bash
 trash ~/dotfiles/bin/.local/bin/__pycache__
 ```
 
-**Step 2: Remove absolute symlink and stow**
+**Step 3: Remove absolute symlink and stow**
 
 `~/.local/bin/fix-claude-docs-links` is an absolute symlink (not a stow-managed relative symlink). `stow --adopt` only works with regular files, not symlinks. Remove the symlink, then stow normally to create a proper relative symlink.
 
@@ -606,7 +615,7 @@ trash ~/dotfiles/bin/.local/bin/__pycache__
 cd ~/dotfiles && stow bin
 ```
 
-**Step 3: Verify**
+**Step 4: Verify**
 
 ```bash
 cd ~/dotfiles && stow -n -v bin 2>&1
@@ -614,35 +623,49 @@ cd ~/dotfiles && stow -n -v bin 2>&1
 
 Expected: No conflicts.
 
-**Step 4: Commit**
+**Step 5: Commit**
 
 ```bash
 cd ~/dotfiles && git add bin/ && git commit -m "fix: clean up bin stow package, adopt fix-claude-docs-links"
 ```
 
-### Task 12: Fix launchagents stow conflicts
+### Task 12: Fix launchagents stow package
 
-.DS_Store files were cleaned in Task 6. Re-stow.
+The `launchagents` package has zero tracked files (the source plists were removed in Task 0). Two broken stow symlinks remain in `~/Library/LaunchAgents/` pointing at the deleted sources. Re-stowing an empty package is a no-op — these broken links must be cleaned up explicitly.
 
-**Step 1: Stow launchagents**
-
-```bash
-cd ~/dotfiles && stow launchagents
-```
-
-**Step 2: Verify**
+**Step 1: Unstow to remove broken symlinks**
 
 ```bash
-cd ~/dotfiles && stow -n -v launchagents 2>&1
+cd ~/dotfiles && stow -D launchagents
 ```
 
-Expected: No conflicts.
+This removes all stow-managed symlinks for the package, including the 2 broken ones (`com.jp.prompt-index-watcher.plist`, `com.jp.zsh-sessions-quarantine.plist`).
 
-**Step 3: Commit (if any changes)**
+**Step 2: Verify broken links are gone**
 
 ```bash
-commit_if_changed launchagents/ "fix: restow launchagents after .DS_Store cleanup"
+ls -la ~/Library/LaunchAgents/com.jp.*.plist 2>/dev/null || echo "No broken symlinks (correct)"
 ```
+
+Expected: "No broken symlinks (correct)".
+
+**Step 3: Retire the empty package**
+
+The package directory has no tracked content. Remove it from the dotfiles repo:
+
+```bash
+trash ~/dotfiles/launchagents
+```
+
+**Step 4: Commit**
+
+```bash
+cd ~/dotfiles && git add -A launchagents/ && git commit -m "fix: unstow and retire empty launchagents package (broken symlinks cleaned)"
+```
+
+**Step 5: Remove from doctor-env stow list**
+
+When executing Task 13, omit `launchagents` from the stow package loop (it no longer exists).
 
 ### Task 13: Create doctor-env script
 
@@ -712,9 +735,9 @@ fi
 
 # 4. Stow links intact
 echo "Stow:"
-for pkg in zsh bin hammerspoon karabiner kitty launchagents nvim starship tmux mise; do
+for pkg in zsh bin hammerspoon karabiner kitty nvim starship tmux mise; do
   if [[ -d "$HOME/dotfiles/$pkg" ]]; then
-    if (cd "$HOME/dotfiles" && stow -n "$pkg" >/dev/null 2>&1); then
+    if (cd "$HOME/dotfiles" && stow -n --ignore=DS_Store "$pkg" >/dev/null 2>&1); then
       pass "stow package '$pkg' is clean"
     else
       fail "stow package '$pkg' has conflicts"
@@ -808,7 +831,15 @@ The `claude-dev()` function in tools.zsh references `superserum` as the default 
 **Files:**
 - Modify: `~/dotfiles/zsh/.config/zsh/tools.zsh`
 
-**Step 1: Update the defaults**
+**Step 1: Verify target path exists**
+
+```bash
+ls -d ~/Projects/active/claude-code-tool-dev/packages/plugins/ || echo "MISSING — create directory or adjust path"
+```
+
+Expected: Directory exists. **Do not proceed if missing.**
+
+**Step 2: Update the defaults**
 
 Replace:
 
@@ -824,7 +855,7 @@ local plugins_dir="${CLAUDE_DEV_PLUGINS:-$HOME/Projects/active/claude-code-tool-
 local repo="${CLAUDE_DEV_REPO:-jpsweeney97/claude-code-tool-dev}"
 ```
 
-**Step 2: Commit**
+**Step 3: Commit**
 
 ```bash
 cd ~/dotfiles && git add zsh/.config/zsh/tools.zsh && git commit -m "fix: update claude-dev repo reference to claude-code-tool-dev"
@@ -914,6 +945,16 @@ Expected:
 ```bash
 cd ~/dotfiles && git add MIGRATION-LOG.md && git commit -m "docs: mark environment migration complete"
 ```
+
+**Step 5: Push to origin**
+
+After verifying everything works, push all migration commits to the remote:
+
+```bash
+cd ~/dotfiles && git push
+```
+
+The pre-push hook (Task 19) will run doctor-env as a final gate. If it fails, fix the issue before retrying.
 
 ### Task 18: Create ownership decision document
 
@@ -1092,9 +1133,10 @@ Task 0 (clean working tree) ── MUST complete before all other tasks
                   │
                   ├── Task 10 (remove brew uv) ── depends on Task 8
                   ├── Task 11 (bin stow fix)
-                  └── Task 12 (launchagents fix)
+                  └── Task 12 (launchagents cleanup + retire)
                         │
-                        Task 13 (doctor-env) ── depends on Tasks 10-12
+                        Task 13 (doctor-env) ── depends on Tasks 8, 9, 10-12
+                        │  (explicit: checks Brewfile from Task 8, mise symlink from Task 9)
                           │
                           ├── Task 14 (claude-dev update)
                           ├── Task 15 (stale named dir)
@@ -1108,12 +1150,14 @@ Task 0 (clean working tree) ── MUST complete before all other tasks
 
 ## Parallelization
 
-**Safe to parallelize:**
+**Independent tasks (can be executed in any order, but NOT concurrently):**
 - Tasks 4 and 5 (different files: `.gitignore` vs `settings.zsh`)
 - Tasks 8 and 9 (different manifests: Brewfile vs mise config)
 - Tasks 11 and 12 (different stow packages: bin vs launchagents)
 
-**NOT safe to parallelize:**
+Note: "Independent" means no data dependencies between them. They still share a git repo, so `git commit` acquires `.git/index.lock` — truly concurrent commits will fail. Execute them sequentially but in any order.
+
+**Strictly sequential:**
 - Tasks 2 and 3 (both modify zsh config; Task 3 depends on Task 2's direnv fix)
 - Tasks 2, 4, 5 with Task 6 (Task 6 should follow all shell fixes)
 - Tasks 14, 15, 18, and 19 (all commit to `~/dotfiles` — git lock contention; Task 19 also changes `core.hooksPath`, altering commit behavior for concurrent tasks)
@@ -1131,3 +1175,4 @@ If anything breaks mid-migration:
 7. **Restore brew uv:** `brew install uv` (if Task 10 removed it and mise uv is broken)
 8. **Remove git hooks:** `cd ~/dotfiles && git config --unset core.hooksPath` (if Task 19 hooks are blocking operations)
 9. **Restore pre-migration state:** `cd ~/dotfiles && git stash pop` (if Task 0 stashed changes)
+10. **Partial stow cleanup:** If `stow` partially completed (some symlinks created, then hit a conflict), `stow -D <package>` may also fail. Manual cleanup: `find ~ -maxdepth 3 -lname '*/dotfiles/<package>/*' -exec trash {} +` to remove stow-created symlinks, then fix the conflict and restow
