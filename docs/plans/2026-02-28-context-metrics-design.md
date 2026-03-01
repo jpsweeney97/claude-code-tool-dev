@@ -4,6 +4,39 @@
 **Branch:** `feature/context-metrics`
 **Status:** Design amended with three Codex reviews (4 amendments), ready for implementation planning
 
+## Supersession Index
+
+This document uses an append-only amendment pattern. Original sections (§1-§9) may be **partially or fully superseded** by later amendments. The table below maps each original section to its current-truth source. **When conflicts exist, the amendment listed in "Current Truth" wins.**
+
+| Original Section | Lines | Current Truth | What Changed |
+|------------------|-------|---------------|--------------|
+| Requirements | 14-18 | Amendment 2 + 3 | Devtools is optional (not required). Injection is delta-gated (not per-turn). |
+| Architecture diagram | 22-56 | Amendment 2 (509-552) | Data source: JSONL-primary, devtools-optional enrichment. |
+| "Why HTTP hooks" rationale | 58-64 | Amendment 3 F4 (718-738) | v1 uses command hooks for UserPromptSubmit. HTTP hooks deferred to v1.1. |
+| Hook configuration | 99-151 | Amendment 3 F4 (718-738) | UserPromptSubmit: `type: "command"`, not `type: "http"`. |
+| Hook type rationale table | 156-161 | Amendment 3 F4 | UserPromptSubmit row: command (not HTTP) for v1. |
+| Sidecar endpoint | 173-178 | Unchanged | `POST /hooks/context-metrics` still valid for internal sidecar use. |
+| Sidecar request flow | 180-186 | Amendment 2 (528-541) + Amendment 4 F5 | Primary path reads JSONL, not devtools. v1 returns via stdout, not `additionalContext`. |
+| Sidecar State table | 200-205 | Amendment 3 F3 (704-709) + Amendment 4 F9 | TTL cache removed. Session registry added. Devtools cache → optional enrichment. |
+| Sidecar startup/shutdown | 207-211 | Amendment 3 F3 (691-711) | **No kill-restart.** Register session on start, deregister on stop. Shutdown sidecar only when no sessions remain. |
+| Error handling | 214-222 | Amendment 4 F1 + F2 | **Two-layer policy:** fail-closed for JSONL data parsing (reject bad records), fail-open for injection (missing metrics don't block prompts). Line 222 ("fail-open at every layer") is superseded. |
+| "Why config file (not auto-detection)" | 242-244 | Amendment 2 (565-580) | Auto-detection implemented. Config override still available. |
+| Summary line format | 248-278 | Amendment 3 F5 (748-776) + F6 (780-793) | Delta-gated (not every prompt). Cost omitted when devtools unavailable. |
+| Decisions Made table | 310-321 | Multiple amendments | 5 of 7 rows superseded: devtools dependency (→ optional), injection frequency (→ delta-gated), hook type (→ command), window detection (→ auto-detect), sidecar deps (unchanged), sidecar port (unchanged). |
+| JSONL occupancy selector | Amendment 3 F1 (651-664) | Amendment 4 F2 (864-879) | 5-condition selector → 4-condition positive-only selector. Condition 4 ("exclude synthetic/api-error") dropped. |
+| Compaction detection | Amendment 3 F2 (666-681) | Amendment 4 F4 (899-914) | Equal-weight dual-source → hook-primary, JSONL-enrichment. |
+| v1 scope boundary | Amendment 3 (806-830) | Amendment 4 F10 (973-1024) | Rebalanced: TTL cache and phase history removed from v1; fail-closed parsing, positive-only selector, headroom triggers added. |
+
+**Sections NOT superseded (read as-is):** Objective (§1), Plugin Structure (lines 66-87, but see F17 below), Context Window Configuration (lines 224-244, mechanism superseded but config file path/format valid), On-Demand Dashboard (lines 280-308, scope clarified in Amendment 4 F10), Open Questions (lines 323-334, updated inline).
+
+**Additional v1 specification not in original sections:**
+- Injection channel: stdout (Amendment 4 F5) — `context_summary.py` prints summary line to stdout, exit 0
+- Delta-gating with headroom triggers: Amendment 3 F5 + Amendment 4 F3
+- Shared sidecar session registry: Amendment 3 F3
+- 4-condition JSONL selector: Amendment 4 F2
+- Compaction: hook-primary: Amendment 4 F4
+- Fail-closed JSONL parsing: Amendment 4 F1
+
 ## Objective
 
 Give Claude passive awareness of its context window consumption during a session. Claude sees a compact summary line (~20 tokens) before each response and after compaction, enabling it to mention context status when relevant without changing its behavior.
@@ -206,9 +239,11 @@ Parse: parent directory name = `projectId`, filename stem = `sessionId`.
 
 ### Startup / Shutdown
 
-- **`start_sidecar.py`**: Check PID file → kill stale process if exists → start `server.py` as daemon → write PID file. Uses `uv run` for dependency bootstrap.
-- **`stop_sidecar.py`**: Read PID file → send SIGTERM → remove PID file. Stdlib only (no deps).
-- **Abrupt termination safe**: If SessionEnd hook doesn't fire (crash, force-quit), next session's startup cleans up the stale PID.
+> **Superseded by Amendment 3 F3 (shared sidecar with session registry).** The behavior below is the original single-session design. See Amendment 3 F3 for the current multi-session lifecycle: register on start, deregister on stop, shutdown only when no sessions remain.
+
+- ~~**`start_sidecar.py`**: Check PID file → kill stale process if exists → start `server.py` as daemon → write PID file.~~ **Current:** Check if sidecar running (health check) → if running, register session and exit; if not running, start sidecar and register session. Uses `uv run` for dependency bootstrap.
+- ~~**`stop_sidecar.py`**: Read PID file → send SIGTERM → remove PID file.~~ **Current:** Deregister session → if no sessions remain, send SIGTERM and remove PID file. Stdlib only (no deps).
+- **Abrupt termination safe**: If SessionEnd hook doesn't fire (crash, force-quit), the session's lease expires after 10 minutes. If no sessions remain after expiry, sidecar shuts down.
 
 ### Error Handling
 
@@ -219,7 +254,7 @@ Parse: parent directory name = `projectId`, filename stem = `sessionId`.
 | Devtools returns unexpected data | Return 200 with degraded summary using available fields |
 | Config file missing | Use defaults: `context_window=200000`, no soft boundary |
 
-Fail-open at every layer.
+~~Fail-open at every layer.~~ **Superseded by Amendment 4 F1:** Two-layer policy — fail-closed for JSONL data parsing (reject bad records), fail-open for injection (missing metrics don't block prompts).
 
 ## Context Window Configuration
 
