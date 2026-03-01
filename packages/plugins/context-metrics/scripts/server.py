@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 from scripts.config import Config, read_config
 from scripts.formatter import format_compaction, format_full, format_minimal
-from scripts.jsonl_reader import compute_occupancy, tail_read_last_valid
+from scripts.jsonl_reader import compute_occupancy, count_messages, tail_read_last_valid
 from scripts.session_registry import SessionRegistry
 from scripts.trigger_engine import SessionState, TriggerEngine
 
@@ -152,9 +152,12 @@ class _RequestHandler(BaseHTTPRequestHandler):
             self._respond_json(200, {"inject": False, "reason": "below threshold"})
             return
 
+        # Count messages (forward scan)
+        msg_count = count_messages(Path(transcript_path)) if transcript_path else 0
+        self.server.message_counts[session_id] = msg_count
+
         # Format summary
         window = self.server.config.context_window
-        msg_count = self.server.message_counts.get(session_id, 0)
 
         if result.format == "minimal":
             summary = format_minimal(occupancy=occupancy, window=window)

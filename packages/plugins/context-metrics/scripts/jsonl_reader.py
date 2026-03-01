@@ -37,16 +37,49 @@ def is_main_thread_response(record: dict) -> bool:
     return True
 
 
+def _int_field(usage: dict, key: str) -> int:
+    """Extract an integer field from usage, returning 0 for non-int values."""
+    val = usage.get(key, 0)
+    return val if isinstance(val, int) else 0
+
+
 def compute_occupancy(usage: dict) -> int:
     """Compute context window occupancy from usage data.
 
     occupancy = input_tokens + cache_read_input_tokens + cache_creation_input_tokens
+
+    Non-integer values are treated as 0 (fail-closed against format drift).
     """
     return (
-        usage.get("input_tokens", 0)
-        + usage.get("cache_read_input_tokens", 0)
-        + usage.get("cache_creation_input_tokens", 0)
+        _int_field(usage, "input_tokens")
+        + _int_field(usage, "cache_read_input_tokens")
+        + _int_field(usage, "cache_creation_input_tokens")
     )
+
+
+def count_messages(jsonl_path: Path) -> int:
+    """Count user and assistant messages in a JSONL transcript.
+
+    Forward scan — reads the entire file. Only counts records with
+    type "user" or "assistant". Malformed lines are skipped.
+    Returns 0 on any file error.
+    """
+    count = 0
+    try:
+        with open(jsonl_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+                if isinstance(record, dict) and record.get("type") in ("user", "assistant"):
+                    count += 1
+    except OSError:
+        return 0
+    return count
 
 
 def tail_read_last_valid(jsonl_path: Path) -> dict | None:

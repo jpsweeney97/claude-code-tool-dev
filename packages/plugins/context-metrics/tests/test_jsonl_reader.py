@@ -5,6 +5,7 @@ from pathlib import Path
 
 from scripts.jsonl_reader import (
     compute_occupancy,
+    count_messages,
     is_main_thread_response,
     tail_read_last_valid,
 )
@@ -68,6 +69,31 @@ class TestComputeOccupancy:
     def test_missing_cache_fields_default_zero(self) -> None:
         usage = {"input_tokens": 5000}
         assert compute_occupancy(usage) == 5000
+
+    def test_non_integer_token_values_treated_as_zero(self) -> None:
+        """Fail-closed: non-int values from format drift are treated as 0."""
+        usage = {
+            "input_tokens": "1",
+            "cache_read_input_tokens": 50000,
+            "cache_creation_input_tokens": None,
+        }
+        assert compute_occupancy(usage) == 50000  # only the valid int field counts
+
+
+class TestCountMessages:
+    def test_counts_user_and_assistant_records(self, normal_session: Path) -> None:
+        """normal_session.jsonl has 5 assistant + 4 user = 9 messages."""
+        assert count_messages(normal_session) == 9
+
+    def test_empty_file_returns_zero(self, empty_session: Path) -> None:
+        assert count_messages(empty_session) == 0
+
+    def test_skips_malformed_lines(self, malformed_session: Path) -> None:
+        count = count_messages(malformed_session)
+        assert count > 0  # Should count valid records, skip malformed ones
+
+    def test_nonexistent_file_returns_zero(self, tmp_path: Path) -> None:
+        assert count_messages(tmp_path / "nonexistent.jsonl") == 0
 
 
 class TestTailReadLastValid:

@@ -51,6 +51,8 @@ class TestEndToEnd:
         assert result["inject"] is True
         assert "Context:" in result["summary"]
         assert result["format"] in ("full", "compaction")
+        # Message count should reflect actual transcript content (not 0)
+        assert "9 msgs" in result["summary"]
 
     def test_second_prompt_suppressed_if_no_change(self, normal_session: Path) -> None:
         """Second prompt with same file should be suppressed (no delta)."""

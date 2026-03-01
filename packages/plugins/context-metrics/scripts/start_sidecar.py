@@ -63,9 +63,9 @@ def _sidecar_healthy() -> bool:
 
 
 def _start_sidecar() -> None:
-    server_script = PLUGIN_ROOT / "scripts" / "server.py"
     subprocess.Popen(
-        [sys.executable, str(server_script), "--port", str(DEFAULT_PORT)],
+        [sys.executable, "-m", "scripts.server", "--port", str(DEFAULT_PORT)],
+        cwd=str(PLUGIN_ROOT),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
