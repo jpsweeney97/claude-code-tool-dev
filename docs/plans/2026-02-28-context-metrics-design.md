@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-28
 **Branch:** `feature/context-metrics`
-**Status:** Design amended with two Codex reviews (3 amendments), ready for implementation planning
+**Status:** Design amended with three Codex reviews (4 amendments), ready for implementation planning
 
 ## Objective
 
@@ -326,8 +326,11 @@ Context: 34k/200k tokens (17%) | Compaction #3 just occurred | ~$1.24
 2. **Would devtools accept an upstream PR to expose `ContextStats` via HTTP?** Adding `GET /api/projects/:projectId/sessions/:sessionId/context-stats` would enable the category breakdown dashboard. Requires external maintainer review. Lower priority now that the summary line works without devtools. Deferred to v1.1+ (see Amendment 3 scope boundary).
 3. ~~**Is the HTTP hook event support for `UserPromptSubmit` confirmed?**~~ **Deferred in Amendment 3.** v1 uses `type: "command"` hooks for `UserPromptSubmit`. HTTP hooks deferred to v1.1 after empirical verification. See Amendment 3 Finding 4.
 4. ~~**Which dashboard skill approach to use?**~~ **Scoped in Amendment 3.** v1 uses simplified JSONL-only dashboard or defers entirely. Category breakdown deferred to v1.1+. See Amendment 3 v1 scope boundary.
-5. **Does `additionalContext` accumulate or overwrite?** Each hook injection may create a separate `system-reminder` (accumulating) or overwrite the previous one. Affects heartbeat frequency tuning. See Amendment 3 Finding 5 and unresolved items.
-6. **Startup race between async sidecar launch and first `UserPromptSubmit`.** The first prompt may fire before the sidecar is ready. Mitigation options documented in Amendment 3 unresolved items. Verify empirically during implementation.
+5. ~~**Does `additionalContext` accumulate or overwrite?**~~ **Dissolved in Amendment 4.** v1 uses stdout-only injection, making the accumulation/overwrite question irrelevant to v1. Deferred to v1.1 when HTTP hooks (which use `additionalContext`) are introduced. See Amendment 4 Finding 5.
+6. ~~**Startup race between async sidecar launch and first `UserPromptSubmit`.**~~ **Downgraded in Amendment 4.** Not a release blocker. 17s cold-start is first-ever-on-machine only; sub-second on warm starts. Fail-open with no synchronous wait is sufficient. See Amendment 4 Finding 8.
+7. **JSONL tail-reading algorithm under concurrent writes.** The correct seek-backward algorithm (handle partial lines, inode stability, torn writes) is unspecified. Needs implementation-level specification. See Amendment 4 unresolved items.
+8. **Semantic drift detection at runtime without independent signal.** Can runtime canaries (cross-turn invariants, bounded-by-window checks) detect JSONL semantic drift? Canaries are necessary but may not be sufficient. See Amendment 4 Finding 1.
+9. **Headroom-sensitive trigger thresholds.** What specific occupancy levels trigger increased injection frequency? ≥85% and ≥90% proposed but need empirical validation. See Amendment 4 Finding 3.
 
 ## Amendments
 
@@ -834,6 +837,200 @@ Based on this review, the following scope boundary is established:
 
 2. **Startup race condition.** The sidecar starts via `async` command hook on `SessionStart`. The first `UserPromptSubmit` may fire before the sidecar is ready. Mitigation options: (a) `context_summary.py` retries once with 500ms delay if sidecar is unreachable, (b) sidecar writes a ready-file that `context_summary.py` checks, (c) accept that the first prompt may not have metrics (fail-open). Verify timing empirically during implementation.
 
+### Amendment 4: Adversarial Stress-Test Findings (2026-02-28)
+
+**Source:** Codex adversarial review (5 of 10 budgeted turns, converged — all attack vectors resolved). Thread `019ca6bb-64fd-76d0-99c7-8355b7d3ea71`. Third review of the fully amended design (after Amendments 1-3).
+
+**Review outcome:** 10 resolved findings (8 high-confidence, 2 medium-confidence), 3 unresolved items (implementation-level), 4 dialogue-born insights. The adversarial posture actively challenged assumptions and downgraded several prior concerns from "design-level" to "non-issues in v1." Design assessed as implementation-ready.
+
+**Key distinction from evaluative reviews:** This review tested *severity*, not just *existence*. Several items flagged by evaluative reviews were revealed to be non-issues under adversarial scrutiny (lease-vs-delta collision, self-amplifying injection noise, startup race as release blocker).
+
+#### Finding 1 (High): JSONL format drift requires runtime structural validation + fixture regressions
+
+**Issue:** The design couples tightly to undocumented JSONL internals (field names, record types, `compact_boundary` markers) with no defensive layer. JSONL has no version field — schema-version detection is the wrong framing.
+
+**Resolution:** Three-layer defense:
+
+| Layer | What it catches | Implementation |
+|-------|----------------|----------------|
+| Runtime structural validation | Missing fields, wrong types, unexpected record shapes | Fail-closed: reject records that don't match expected structure. Return `null` injection on parse failure, not stale data. |
+| Fixture-based regression tests | JSONL format changes between Claude Code versions | Real JSONL samples from current Claude Code version, committed as test fixtures. Tests break when format changes. |
+| Semantic canaries (v1.1) | Semantic drift where structure is preserved but meaning changes | Cross-turn invariants (occupancy never exceeds window), bounded-by-window checks, compaction-evidence requirement for large drops. Deferred to v1.1 due to complexity of cross-turn state tracking in the read path. |
+
+**Design impact:** The sidecar's JSONL parser must be fail-closed, not fail-open. If a record doesn't match the expected positive-inclusion criteria, it is silently skipped — not guessed at. This is a philosophical inversion from the original design's fail-open approach for the data layer (fail-open remains correct for the injection layer — missing metrics is better than blocking prompts).
+
+**Confidence:** High — both sides independently identified format drift as the strongest risk. Converged on runtime validation + fixtures as v1, canaries as v1.1.
+
+#### Finding 2 (High): Selector condition 4 replaced with strict positive-only selection
+
+**Issue:** Amendment 3 Finding 1 condition 4 ("exclude synthetic/api-error records") is not implementable. The design provides no concrete field names, values, or examples for what distinguishes synthetic or api-error records from valid assistant records. Speculative field names (e.g., `error`, `synthetic`) are not grounded in real JSONL samples.
+
+**Resolution:** Drop condition 4. Replace the 5-condition selector with a 4-condition positive-only selector:
+
+1. `type == "assistant"` (top-level message type)
+2. `message.role == "assistant"` (API response)
+3. `message.usage` present with `input_tokens` field (has valid token data)
+4. Deduplicate by `message.id`
+
+This is strict positive inclusion: only records that provably represent main-thread API responses are accepted. Records that happen to be synthetic or error-related will fail conditions 1-3 naturally — no need for a negative exclusion rule that can't be specified.
+
+**Design impact:** Supersedes Amendment 3 Finding 1's 5-condition selector. The selector is now 4 conditions, all verifiable against real JSONL structure. If future JSONL formats introduce records that pass all 4 conditions but aren't main-thread responses, the fixture regression tests (Finding 1) will catch this.
+
+**Confidence:** High — both sides agreed that implementing an exclusion rule without concrete discriminator fields is worse than not having it.
+
+#### Finding 3 (High): Delta-gated injection needs headroom-sensitive triggers
+
+**Issue:** The current delta thresholds (+5k tokens, +2%) work for mid-range occupancy ("activity detection" — something meaningful happened) but are insufficient near the context cliff ("risk detection" — remaining headroom is shrinking nonlinearly). At 95% of 200k, remaining headroom is 10k tokens. A +5k climb consumes 50% of remaining headroom — this is critical information that the current triggers would delay reporting.
+
+**Resolution:** Add headroom-sensitive triggers to the delta-gating policy:
+
+| Trigger | Condition | Rationale |
+|---------|-----------|-----------|
+| Existing: token delta | ≥5k tokens since last injection | Activity detection |
+| Existing: percentage delta | ≥2% since last injection | Activity detection |
+| Existing: boundary crossing | Crossed 25%, 50%, 75%, 90% | Milestone awareness |
+| **New: headroom alert** | **≥85% occupancy AND ≥2k tokens since last injection** | **Risk detection — tighter threshold near cliff** |
+| **New: critical heartbeat** | **≥90% occupancy: heartbeat every 3-4 prompts (not 8-10)** | **High-frequency awareness near cliff** |
+
+**Design impact:** The sidecar's delta-gating logic gains two additional trigger paths. The headroom alert lowers the token-delta threshold from 5k to 2k when occupancy exceeds 85%. The critical heartbeat increases cadence from every 8-10 prompts to every 3-4 prompts when occupancy exceeds 90%. These thresholds are proposed — empirical validation during implementation may adjust the exact values.
+
+**Confidence:** High — the activity-vs-risk-detection distinction was a dialogue-born insight that neither side started with.
+
+#### Finding 4 (High): Compaction signal hierarchy inverted — hook primary, JSONL enrichment
+
+**Issue:** Amendment 3 Finding 2 uses dual-source compaction detection but doesn't specify which source is primary. `SessionStart(compact)` is a documented public API; JSONL `compact_boundary` markers are undocumented internals. If the JSONL format drifts (Finding 1), marker-based detection breaks.
+
+**Resolution:** Invert the signal hierarchy:
+
+| Source | Role | Dependency risk |
+|--------|------|-----------------|
+| `SessionStart(compact)` hook | **Primary** — triggers immediate re-injection, increments compaction count | Low — documented public API |
+| JSONL `compact_boundary` markers | **Enrichment only** — provides `preTokens` for phase history, compaction sizing | High — undocumented internal format |
+
+Core compaction awareness (count, re-injection) depends only on the hook. Phase history (pre-compaction sizes, compaction magnitude) is enrichment data from JSONL markers — useful when available, gracefully absent when not.
+
+**Design impact:** Supersedes the implied equal-weight framing of Amendment 3 Finding 2. The sidecar must maintain compaction count from hook events alone. JSONL `compact_boundary` markers add detail but are not required for correct compaction tracking. If markers are absent or malformed, compaction count is still correct.
+
+**Confidence:** High — documented signals should be primary over undocumented ones.
+
+#### Finding 5 (High): additionalContext blocker dissolved — v1 uses stdout-only injection
+
+**Issue:** Open question 5 (does `additionalContext` accumulate or overwrite?) was classified as a design-level blocker across Amendments 3's unresolved items.
+
+**Resolution:** The blocker dissolves with a channel decision. v1 uses `type: "command"` hooks, which inject via stdout — not `additionalContext`. The stdout-based injection adds context as a system-reminder on exit 0. The accumulation/overwrite semantics of `additionalContext` are irrelevant to v1.
+
+The remaining risk for v1 is destructive composition: if multiple command hooks write to stdout in the same `UserPromptSubmit` event, hooks run in parallel with last-writer-wins. Context-metrics' output must be self-contained and idempotent — it should not depend on being the only hook writing stdout.
+
+**Design impact:** Open question 5 is dissolved for v1, deferred to v1.1 (when HTTP hooks introduce `additionalContext`). The v1 injection path is `context_summary.py` → stdout → system-reminder. Delta-gating remains valuable for reducing noise and sidecar work regardless of the injection channel.
+
+**Confidence:** High — resolves a previously unresolved item without needing empirical verification.
+
+#### Finding 6 (High): Lease-vs-delta collision does not exist in v1
+
+**Issue:** The gatherer identified a potential collision: delta-gating suppresses injection, but the session registry lease requires sidecar requests to renew. If delta-gating prevents requests, leases expire for active sessions.
+
+**Resolution:** The collision does not exist in v1. In the v1 command-hook architecture, `context_summary.py` makes an HTTP request to the sidecar on every `UserPromptSubmit` — regardless of whether delta-gating suppresses the injection response. The sidecar always receives the request, always renews the lease, and only the *response* is gated (returning `null` when no injection is needed).
+
+**Residual risk for v1.1:** If HTTP hooks introduce request short-circuiting (the hook doesn't fire at all when there's nothing to inject), the collision would reappear. Document this as a v1.1 consideration.
+
+**Confidence:** High — the v1 command-hook architecture inherently separates "request sent" from "injection returned."
+
+#### Finding 7 (High): Self-amplifying injection noise does not occur
+
+**Issue:** Codex initially argued that delta-gated injections (~20 tokens each) could create a feedback loop — each injection grows context, which triggers more injections.
+
+**Resolution:** The feedback loop does not exist. Injection size is constant (~20 tokens), not proportional to context. Math: 20 tokens per injection × 1 injection per 5k context growth = 0.4% overhead per growth event. Over an entire 200k session with ~40 injections, total injection overhead is ~800 tokens (0.4% of window). This is negligible.
+
+**Confidence:** High — resolved by arithmetic. Codex retracted the self-amplifying claim.
+
+#### Finding 8 (Medium): Startup race is not a release blocker
+
+**Issue:** Amendment 3 unresolved item 2 identifies a startup race between async sidecar launch and first `UserPromptSubmit`. The `uv run` cold-start is ~17s on first-ever invocation.
+
+**Resolution:** Not a release blocker:
+- The 17s cold-start affects exactly one session per machine lifetime (fresh install with no `uv` cache). All subsequent starts are sub-second.
+- The design already mandates fail-open: if the sidecar is unreachable, `context_summary.py` returns empty output (no injection). The user's prompt is not blocked.
+- No synchronous startup wait is needed. The first 1-2 prompts may lack metrics; subsequent prompts work normally.
+
+**Implementation recommendation:** Option (c) from Amendment 3 (accept fail-open) is sufficient. Option (a) (500ms retry) adds marginal benefit for warm-start races at low cost and can be included, but is not required.
+
+**Confidence:** Medium — the 17s cold-start is a fact, but its scope (first-ever only) makes it a non-issue for release.
+
+#### Finding 9 (Medium): Remove TTL cache from v1
+
+**Issue:** The design includes a 5-second TTL cache in the sidecar state table. The cache key is unspecified, and incorrect keying could serve stale data after compaction events.
+
+**Resolution:** Remove the TTL cache from v1:
+- One sidecar request per prompt is already low overhead (command hook fires once per `UserPromptSubmit`).
+- JSONL tail-scan should be fast (seek-backward from EOF, sub-millisecond for typical files).
+- The cache introduces correctness risk (stale post-compaction data) where determinism is needed.
+- The cache key specification was identified as unresolved — adding complexity without proven benefit.
+
+**Design impact:** Remove the TTL cache row from the sidecar State table. Each request performs a fresh JSONL tail-scan. If performance is insufficient (verified empirically), add caching in v1.1 with a properly specified cache key that invalidates on compaction events.
+
+**Confidence:** Medium — sound reasoning, but the performance assumption (tail-scan is fast) needs implementation verification.
+
+#### Finding 10 (Medium): v1 scope rebalanced toward correctness over optimization
+
+**Issue:** The v1 scope (Amendment 3) includes optimization complexity (TTL cache, JSONL-driven compaction phase history) while lacking correctness infrastructure (fail-closed validation, positive-only selector, explicit injection channel rule).
+
+**Resolution:** Rebalance the v1 scope:
+
+**Added to v1:**
+
+| Component | What | Why |
+|-----------|------|-----|
+| Fail-closed JSONL parsing | Reject records that don't match positive-inclusion criteria | Correctness — silent wrong data is worse than missing data |
+| Positive-only selector | 4-condition selector (Finding 2) | Correctness — implementable, verifiable |
+| Fixture regression tests | Real JSONL samples as test fixtures | Correctness — catches format drift |
+| Explicit injection channel | stdout-only for v1 | Correctness — dissolves additionalContext ambiguity |
+| Headroom-sensitive triggers | ≥85%/≥90% thresholds (Finding 3) | Correctness — risk detection near cliff |
+
+**Removed from v1 (moved to v1.1+):**
+
+| Component | What | Why |
+|-----------|------|-----|
+| TTL cache | 5-second sidecar cache | Optimization — adds correctness risk, unspecified key |
+| Compaction phase history | Pre-compaction sizes from JSONL markers | Optimization — enrichment data, not core functionality |
+| Semantic canaries | Cross-turn invariant checks | Complexity — correctness value is high but implementation cost is significant for v1 |
+
+**Updated v1 scope boundary:**
+
+| Component | Approach |
+|-----------|----------|
+| Data source | JSONL-primary (fail-closed), devtools-optional enrichment |
+| JSONL parsing | Positive-only 4-condition selector, runtime structural validation |
+| Injection hook | `type: "command"` for UserPromptSubmit (stdout injection) |
+| Injection policy | Delta-gated with heartbeat + headroom-sensitive triggers |
+| Multi-session | Shared sidecar with session registry + lease |
+| Compaction | Hook-primary (count, re-injection), JSONL-enrichment (phase detail when available) |
+| Cost | Devtools `costUsd` when available; omitted otherwise |
+| Dashboard | Simplified JSONL-only or deferred |
+| Context window | Auto-detection (200k default, upgrade to 1M) with config override |
+| Testing | Fixture-based JSONL regression tests |
+
+**Updated v1.1+ scope:**
+
+| Component | Approach |
+|-----------|----------|
+| Injection hook | `type: "http"` for UserPromptSubmit (after empirical verification) |
+| Injection channel | `additionalContext` (requires verifying accumulation semantics) |
+| TTL cache | With properly specified cache key and compaction-aware invalidation |
+| Compaction phase history | Full pre-compaction sizes from JSONL markers |
+| Semantic canaries | Cross-turn invariant checks for runtime drift detection |
+| Cost estimation | Self-computed from token counts × model pricing |
+| Dashboard | Category breakdown |
+
+**Confidence:** Medium — directionally correct. Individual items may be pulled forward or deferred during implementation planning based on effort estimates.
+
+#### Unresolved items (carry forward to implementation)
+
+1. **JSONL tail-reading algorithm under concurrent writes.** The correct algorithm (seek to EOF, scan backward, handle partial lines from concurrent writes) was discussed but not specified in implementable detail. Need to specify: advisory file locking (or accept torn-line risk with retry), partial-line truncation behavior, inode stability check for log rotation. Performance is a non-concern (seek-backward is O(1) for typical record sizes) but correctness under concurrent mutation needs specification.
+
+2. **Semantic drift detection without independent signal.** Can runtime canaries (cross-turn invariants: occupancy never exceeds window, occupancy never negative, large drops require compaction evidence) detect JSONL semantic drift? The canaries are necessary but may not be sufficient if the semantic change preserves all invariants. Deferred to v1.1 — v1 relies on fixture regression tests.
+
+3. **Headroom-sensitive trigger thresholds.** The ≥85% (tighter delta) and ≥90% (increased heartbeat cadence) values are proposed but not justified by analysis or measurement. Need empirical validation: how often do sessions cross these thresholds? What is the practical injection frequency at each level?
+
 ## References
 
 | What | Where |
@@ -847,3 +1044,4 @@ Based on this review, the following scope boundary is established:
 | Existing plugin pattern | `packages/plugins/handoff/` |
 | Codex review 1 thread | `019ca614-39c4-7263-9521-e13972c889c4` |
 | Codex review 2 thread | `019ca664-5345-77a0-8418-9fd924cbab74` |
+| Codex review 3 thread | `019ca6bb-64fd-76d0-99c7-8355b7d3ea71` |
