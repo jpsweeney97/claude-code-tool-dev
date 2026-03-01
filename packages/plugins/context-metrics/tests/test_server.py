@@ -133,6 +133,21 @@ class TestSidecarServer:
         # After hook: detected 1M from claude-opus-4-6
         assert self.server.config.context_window == 1_000_000
 
+    def test_hook_nonstring_model_fails_open(self, nonstring_model_session: Path) -> None:
+        """Non-string model field in JSONL doesn't crash the server."""
+        _get(
+            f"{self.base}/sessions/register?session_id=test_nonstr"
+            f"&transcript_path={nonstring_model_session}"
+        )
+        status, body = _post(f"{self.base}/hooks/context-metrics", {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "test_nonstr",
+            "transcript_path": str(nonstring_model_session),
+        })
+        assert status == 200
+        # Window stays at default — non-string model skipped, no crash
+        assert self.server.config.context_window == 200_000
+
     def test_hook_with_unknown_session_fails_open(self) -> None:
         hook_input = {
             "hook_event_name": "UserPromptSubmit",
@@ -143,6 +158,23 @@ class TestSidecarServer:
         assert status == 200
         data = json.loads(body)
         assert data["inject"] is False
+
+    def test_hook_internal_error_fails_open(self, normal_session: Path) -> None:
+        """Unexpected exception in hook handler returns inject:false, not 500."""
+        _get(
+            f"{self.base}/sessions/register?session_id=test_err"
+            f"&transcript_path={normal_session}"
+        )
+        with patch("scripts.server.compute_occupancy", side_effect=RuntimeError("boom")):
+            status, body = _post(f"{self.base}/hooks/context-metrics", {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "test_err",
+                "transcript_path": str(normal_session),
+            })
+        assert status == 200
+        data = json.loads(body)
+        assert data["inject"] is False
+        assert data["reason"] == "internal error"
 
     # --- Validation path tests (I4) ---
 

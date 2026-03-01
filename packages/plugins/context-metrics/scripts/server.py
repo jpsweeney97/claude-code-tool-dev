@@ -120,6 +120,14 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
     def _handle_hook(self, hook_input: dict) -> None:
         """Process a hook request. Fail-open: errors -> no injection."""
+        try:
+            self._handle_hook_inner(hook_input)
+        except Exception:
+            logger.exception("hook handler failed, failing open")
+            self._respond_json(200, {"inject": False, "reason": "internal error"})
+
+    def _handle_hook_inner(self, hook_input: dict) -> None:
+        """Inner hook logic. Exceptions caught by _handle_hook."""
         session_id = hook_input.get("session_id", "")
         transcript_path = hook_input.get("transcript_path", "")
 
@@ -139,7 +147,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
         # Detect context window: model name (proactive) then occupancy (fallback)
         model = message.get("model", "")
-        if model:
+        if isinstance(model, str) and model:
             self.server.config.detect_window_from_model(model)
         self.server.config.maybe_upgrade_window(occupancy)
         self.server.trigger_engine.window_size = self.server.config.context_window
