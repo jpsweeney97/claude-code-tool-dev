@@ -50,3 +50,9 @@ packages/plugins/plugin-dev/.claude/
 
 # Other AI tools
 .codex/
+
+# Environment cleanup reference (2.9GB, not part of this project)
+environment-improvement/
+
+# Desktop app config (user-specific)
+claude-devtools-config.json
