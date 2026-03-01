@@ -62,14 +62,20 @@ def _sidecar_healthy() -> bool:
         return False
 
 
+LOG_FILE = Path.home() / ".claude" / ".context-metrics-sidecar.log"
+
+
 def _start_sidecar() -> None:
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    log_fd = open(LOG_FILE, "a")  # noqa: SIM115 — intentionally leaked to subprocess
     subprocess.Popen(
         [sys.executable, "-m", "scripts.server", "--port", str(DEFAULT_PORT)],
         cwd=str(PLUGIN_ROOT),
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=log_fd,
         start_new_session=True,
     )
+    log_fd.close()
 
 
 def _register_session(session_id: str, transcript_path: str) -> None:
