@@ -116,6 +116,23 @@ class TestSidecarServer:
         assert data["format"] == "compaction"
         assert "compaction" in data["triggers"]
 
+    def test_hook_detects_model_window(self, normal_session: Path) -> None:
+        """Model field in JSONL triggers context window detection."""
+        # normal_session fixture has model: claude-opus-4-6
+        _get(
+            f"{self.base}/sessions/register?session_id=test_model"
+            f"&transcript_path={normal_session}"
+        )
+        # Before hook: default 200k
+        assert self.server.config.context_window == 200_000
+        _post(f"{self.base}/hooks/context-metrics", {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "test_model",
+            "transcript_path": str(normal_session),
+        })
+        # After hook: detected 1M from claude-opus-4-6
+        assert self.server.config.context_window == 1_000_000
+
     def test_hook_with_unknown_session_fails_open(self) -> None:
         hook_input = {
             "hook_event_name": "UserPromptSubmit",

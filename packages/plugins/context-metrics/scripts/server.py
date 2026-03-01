@@ -133,10 +133,14 @@ class _RequestHandler(BaseHTTPRequestHandler):
             self._respond_json(200, {"inject": False, "reason": "no valid JSONL record"})
             return
 
-        usage = record.get("message", {}).get("usage", {})
+        message = record.get("message", {})
+        usage = message.get("usage", {})
         occupancy = compute_occupancy(usage)
 
-        # Auto-detect window upgrade
+        # Detect context window: model name (proactive) then occupancy (fallback)
+        model = message.get("model", "")
+        if model:
+            self.server.config.detect_window_from_model(model)
         self.server.config.maybe_upgrade_window(occupancy)
         self.server.trigger_engine.window_size = self.server.config.context_window
 
