@@ -221,8 +221,11 @@ def main() -> None:
 
     def shutdown_handler(signum: int, frame: object) -> None:
         logger.info("Shutting down sidecar (signal %d)", signum)
-        remove_pid_file()
-        server.shutdown()
+        # Spawn daemon thread for shutdown — calling server.shutdown() on the
+        # main thread deadlocks because serve_forever() holds __is_shut_down
+        # and shutdown() waits for it, but serve_forever() can't proceed until
+        # this signal handler returns.
+        threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
