@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-28
 **Branch:** `feature/context-metrics`
-**Status:** Design amended with three Codex reviews (4 amendments), ready for implementation planning
+**Status:** Design amended with four Codex reviews (5 amendments), ready for implementation planning
 
 ## Supersession Index
 
@@ -17,6 +17,7 @@ This document uses an append-only amendment pattern. Original sections (§1-§9)
 | Hook type rationale table | 156-161 | Amendment 3 F4 | UserPromptSubmit row: command (not HTTP) for v1. |
 | Sidecar endpoint | 173-178 | Unchanged | `POST /hooks/context-metrics` still valid for internal sidecar use. |
 | Sidecar request flow | 180-186 | Amendment 2 (528-541) + Amendment 4 F5 | Primary path reads JSONL, not devtools. v1 returns via stdout, not `additionalContext`. |
+| Session ID Bridge | 221-231 | Amendment 2 + Amendment 5 F2 | v1 reads JSONL directly via `transcript_path`. Devtools URL construction no longer primary purpose. |
 | Sidecar State table | 200-205 | Amendment 3 F3 (704-709) + Amendment 4 F9 | TTL cache removed. Session registry added. Devtools cache → optional enrichment. |
 | Sidecar startup/shutdown | 207-211 | Amendment 3 F3 (691-711) | **No kill-restart.** Register session on start, deregister on stop. Shutdown sidecar only when no sessions remain. |
 | Error handling | 214-222 | Amendment 4 F1 + F2 | **Two-layer policy:** fail-closed for JSONL data parsing (reject bad records), fail-open for injection (missing metrics don't block prompts). Line 222 ("fail-open at every layer") is superseded. |
@@ -25,9 +26,11 @@ This document uses an append-only amendment pattern. Original sections (§1-§9)
 | Decisions Made table | 310-321 | Multiple amendments | 5 of 7 rows superseded: devtools dependency (→ optional), injection frequency (→ delta-gated), hook type (→ command), window detection (→ auto-detect), sidecar deps (unchanged), sidecar port (unchanged). |
 | JSONL occupancy selector | Amendment 3 F1 (651-664) | Amendment 4 F2 (864-879) | 5-condition selector → 4-condition positive-only selector. Condition 4 ("exclude synthetic/api-error") dropped. |
 | Compaction detection | Amendment 3 F2 (666-681) | Amendment 4 F4 (899-914) | Equal-weight dual-source → hook-primary, JSONL-enrichment. |
+| Amendment 2 diagram steps 6 + return | Lines 569, 576 | Amendment 3 F6 + Amendment 4 F5, F10 | Cost self-estimation deferred to v1.1 (step 6). Return via stdout, not `additionalContext` (return line). |
+| Error handling table | Lines 250-256 | Amendment 4 F1 + Amendment 5 F4 | Row-by-row fail-policy classification. Original table shows fail-open only. See Amendment 5 F4 for replacement. |
 | v1 scope boundary | Amendment 3 (806-830) | Amendment 4 F10 (973-1024) | Rebalanced: TTL cache and phase history removed from v1; fail-closed parsing, positive-only selector, headroom triggers added. |
 
-**Sections NOT superseded (read as-is):** Objective (§1), Plugin Structure (lines 66-87, but see F17 below), Context Window Configuration (lines 224-244, mechanism superseded but config file path/format valid), On-Demand Dashboard (lines 280-308, scope clarified in Amendment 4 F10), Open Questions (lines 323-334, updated inline).
+**Sections NOT superseded (read as-is):** Objective (§1), Plugin Structure (lines 66-87, but note: `context_summary.py` scope expanded beyond SessionStart(compact) — see Amendment 3 F4), Context Window Configuration (lines 224-244, mechanism superseded but config file path/format valid), On-Demand Dashboard (lines 280-308, scope clarified in Amendment 4 F10), Open Questions (lines 323-334, updated inline).
 
 **Additional v1 specification not in original sections:**
 - Injection channel: stdout (Amendment 4 F5) — `context_summary.py` prints summary line to stdout, exit 0
@@ -36,6 +39,8 @@ This document uses an append-only amendment pattern. Original sections (§1-§9)
 - 4-condition JSONL selector: Amendment 4 F2
 - Compaction: hook-primary: Amendment 4 F4
 - Fail-closed JSONL parsing: Amendment 4 F1
+- Trigger interaction model (OR-based, counter reset): Amendment 5 F3
+- Error handling fail-policy matrix (row-by-row): Amendment 5 F4
 
 ## Objective
 
@@ -189,8 +194,8 @@ packages/plugins/context-metrics/
 | Hook | Type | Why |
 |------|------|-----|
 | SessionStart(startup) | `command` (async) | SessionStart is command-only. Async avoids blocking session start. `uv run` bootstraps deps on first invocation. |
-| SessionStart(compact) | `command` | SessionStart is command-only. Script makes HTTP request to sidecar, prints `additionalContext` JSON to stdout. |
-| UserPromptSubmit | `http` | Supports all hook types. HTTP avoids process spawn. Sidecar returns `additionalContext` directly. |
+| SessionStart(compact) | `command` | SessionStart is command-only. ~~Script makes HTTP request to sidecar, prints `additionalContext` JSON to stdout.~~ **Superseded:** `context_summary.py` reads JSONL via sidecar, prints summary to stdout (exit 0). See Amendment 4 F5. |
+| UserPromptSubmit | ~~`http`~~ **`command`** | ~~Supports all hook types. HTTP avoids process spawn. Sidecar returns `additionalContext` directly.~~ **Superseded:** v1 uses `type: "command"`. `context_summary.py` prints summary to stdout (exit 0). HTTP hooks deferred to v1.1. See Amendment 3 F4. |
 | SessionEnd | `command` | SessionEnd is command-only. Stdlib script reads PID file, sends SIGTERM. |
 
 ### Event type restrictions (verified against docs)
@@ -218,6 +223,8 @@ Accepts Claude Code hook JSON input. Returns hook-compatible JSON with `addition
 5. **Format summary line** appropriate to current state
 6. **Return** `{ hookSpecificOutput: { hookEventName, additionalContext } }`
 
+> ~~Steps 3 and 6 superseded.~~ **v1 flow:** Step 3 → read JSONL tail (devtools query is optional enrichment). Step 6 → `context_summary.py` prints summary to stdout, exit 0. See Amendment 2 + Amendment 4 F5.
+
 ### Session ID Bridge
 
 The `transcript_path` from hook input maps directly to devtools API parameters:
@@ -228,6 +235,8 @@ transcript_path: ~/.claude/projects/-Users-jp-myproject/abc123.jsonl
 ```
 
 Parse: parent directory name = `projectId`, filename stem = `sessionId`.
+
+> ~~Devtools URL construction superseded.~~ **v1:** `transcript_path` locates the JSONL file directly for tail-reading. Parent directory name and filename stem are still parsed for session identification in the sidecar registry. See Amendment 2.
 
 ### State
 
@@ -254,7 +263,7 @@ Parse: parent directory name = `projectId`, filename stem = `sessionId`.
 | Devtools returns unexpected data | Return 200 with degraded summary using available fields |
 | Config file missing | Use defaults: `context_window=200000`, no soft boundary |
 
-~~Fail-open at every layer.~~ **Superseded by Amendment 4 F1:** Two-layer policy — fail-closed for JSONL data parsing (reject bad records), fail-open for injection (missing metrics don't block prompts).
+~~Fail-open at every layer.~~ **Superseded by Amendment 4 F1 + Amendment 5 F4:** Two-layer policy with row-by-row classification. See Amendment 5 F4 for the replacement table. Original table above shows fail-open behaviors only and does not distinguish data-layer (fail-closed) from injection-layer (fail-open) failures.
 
 ## Context Window Configuration
 
@@ -566,14 +575,16 @@ Smooth, monotonically increasing. Post-compaction, the progression resets to a l
 │    3. Read window config (soft_boundary)                │
 │    4. Detect window size (auto or config override)      │
 │    5. Count compactions (SessionStart compact events)   │
-│    6. Estimate cost from token counts × model pricing   │
+│    6. ~~Estimate cost from token counts × model pricing~~│
+│       ↑ Deferred to v1.1 (Amendment 3 F6 + Amendment 4 F10) │
 │    7. Format summary line                               │
 │                                                         │
 │  Enrichment path (if devtools HTTP server enabled):     │
 │    8. GET devtools:3456/.../metrics → costUsd            │
 │    9. Prefer devtools cost over estimated cost           │
 │                                                         │
-│  Return: { additionalContext: "..." }                   │
+│  Return: ~~{ additionalContext: "..." }~~ stdout, exit 0│
+│          ↑ v1 stdout (Amendment 4 F5)                   │
 └───────────────────────────────────────────────────────┘
          ╎ (optional)
          ╎ HTTP GET (only if devtools server is enabled)
@@ -1066,6 +1077,116 @@ The remaining risk for v1 is destructive composition: if multiple command hooks 
 
 3. **Headroom-sensitive trigger thresholds.** The ≥85% (tighter delta) and ≥90% (increased heartbeat cadence) values are proposed but not justified by analysis or measurement. Need empirical validation: how often do sessions cross these thresholds? What is the practical injection frequency at each level?
 
+### Amendment 5: Fourth Codex Review — Implementation Readiness (2026-02-28)
+
+**Source:** Codex evaluative deep-review (6 turns of 8 budget, converged). Thread `019ca6f1-36d2-7753-bdbd-535cac68bd75`. Findings address supersession index hygiene, trigger interaction semantics, and error handling operationalization identified by the fourth review + design review audit.
+
+**Key outcomes:** (1) All 4 P1 gaps from design review are defaultable — resolvable in implementation plan without design amendment. (2) Supersession index not trustworthy for independent handoff — 5 gaps fixed inline. (3) Trigger interaction model codified (OR-based, counter reset). (4) Error handling table operationalized with row-by-row fail-policy classification.
+
+#### Finding 1 (Medium): Supersession index gaps — 5 fixes
+
+**Issue:** The supersession index had 5 gaps that could mislead implementation planning:
+1. "F17" dangling reference — "but see F17 below" referenced a design review audit finding, not a finding in this document
+2. Session ID Bridge (lines 221-231) not mapped — purpose changed from devtools URL construction to JSONL file path
+3. Amendment 2 architecture diagram cost step (line 569) stale — self-computed cost deferred to v1.1
+4. Amendment 2 architecture diagram return format (line 576) stale — v1 uses stdout, not `additionalContext`
+5. Error handling table (lines 250-256) not mapped — predates two-layer fail policy
+
+**Resolution:** All 5 fixes applied inline to the supersession index above. Session ID Bridge row added. Cross-amendment rows added for Amendment 2 diagram and error handling table. F17 reference replaced with direct explanation (Amendment 3 F4 scope expansion).
+
+**Confidence:** High (E1) — direct document fixes addressing verified gaps.
+
+#### Finding 2 (Medium): Inline supersession markers for 4 stale body sections
+
+**Issue:** Four body sections lacked inline supersession markers despite being mapped in the supersession index. An implementor reading these sections in isolation gets stale information:
+1. Hook type rationale table (lines 192-193): UserPromptSubmit still said `http`, SessionStart(compact) still said `additionalContext`
+2. Sidecar request flow (lines 212-219): still showed `hookSpecificOutput` JSON return format
+3. Session ID Bridge (lines 221-231): still described devtools URL construction as primary purpose
+4. Amendment 2 diagram (lines 569, 576): stale cost step and return format
+
+**Resolution:** Added strikethrough + supersession notes inline to all 4 sections.
+
+**Confidence:** High (E1) — direct document fixes.
+
+#### Finding 3 (High): Trigger interaction model — OR-based with counter reset
+
+**Issue:** The heartbeat (Amendment 3 F5), delta-gating (Amendment 3 F5), headroom triggers (Amendment 4 F3), and compaction (Amendment 4 F4) are specified independently across three amendments. The interaction between them — what happens when multiple triggers could fire, how the heartbeat counter resets, how compaction affects the delta baseline — was unspecified. Emerged as a dialogue-born insight at T5.
+
+**Resolution:** Trigger interaction model:
+
+**Trigger evaluation (per UserPromptSubmit):**
+
+1. Sidecar reads current occupancy from JSONL tail
+2. Evaluate ALL triggers (not short-circuit):
+
+| Trigger | Condition | Format |
+|---------|-----------|--------|
+| Token delta | Current − last_injected ≥ 5k tokens (or ≥ 2k at ≥85% occupancy) | Full |
+| Percentage delta | Current − last_injected ≥ 2% of configured window size | Full |
+| Boundary crossing | Occupancy crossed 25%, 50%, 75%, or 90% since last injection | Full |
+| Compaction | `SessionStart(compact)` hook fired since last evaluation | Full + compaction notice |
+| Heartbeat | N prompts since last injection (8 normal, 3 at ≥90% occupancy) | Minimal |
+
+3. **OR semantics:** If ANY trigger fires, inject. If multiple fire, use highest-priority format (full > minimal).
+4. **Counter reset:** On injection (from any trigger), reset heartbeat counter to 0 and update `last_injected` occupancy.
+5. **Compaction baseline reset:** When `SessionStart(compact)` fires, the sidecar always injects (regardless of delta). The post-injection occupancy becomes the new delta baseline. Subsequent delta calculations start from the post-compaction value.
+
+**Delta direction clarified:** The ≥2% threshold is 2% of the configured window size (e.g., 4k tokens at 200k window). Fixed threshold, not relative to last-injected value. Rationale: consistent injection frequency regardless of current occupancy.
+
+**Heartbeat counter semantics:** Counter tracks UserPromptSubmit events since the last injection. A suppressed injection (delta too small, no boundary crossing) increments the counter. An actual injection (from any trigger, including compact) resets the counter to 0.
+
+**Compaction dip handling:** Post-compaction, the delta from the new baseline is small (the compaction injection just reported the new state). Next injection is triggered by growth from the post-compaction baseline, not by comparison to pre-compaction values. Growth-only gating — negative deltas never trigger injection because the compaction hook already handled that transition.
+
+**Known v1 limitation — stale-but-valid reads:** If the JSONL file is being written concurrently, the tail-read may return the previous-to-last record instead of the absolute latest. This produces slightly-behind (but valid) occupancy. Fail-closed parsing catches malformed records but does not detect staleness. Accepted for v1 — the next prompt's read will catch up.
+
+**Confidence:** High — dialogue-born insight (T5). OR semantics and counter reset were the natural reading that both sides independently agreed on.
+
+#### Finding 4 (High): Error handling table — row-by-row fail-policy classification
+
+**Issue:** The error handling table (lines 250-256) predates the two-layer fail policy (Amendment 4 F1). All rows show fail-open behavior. The strikethrough note at line 257 states the policy change but doesn't classify individual failure modes. An implementor reading the table gets the pre-Amendment-4 single-layer view.
+
+**Resolution:** Replacement error handling table with row-by-row fail-policy classification:
+
+| Failure | Behavior | Policy Layer |
+|---------|----------|--------------|
+| JSONL file missing or unreadable | Null injection — no metrics this prompt | **Fail-closed** (data) |
+| JSONL record fails 4-condition validation | Reject record, try previous record; if none valid, null injection | **Fail-closed** (data) |
+| JSONL format drift (unknown schema) | Reject record — silent wrong data is worse than missing data | **Fail-closed** (data) |
+| Partial line from concurrent write | Discard partial line, retry with previous complete record | **Fail-closed** (data) |
+| Devtools not running | Omit cost enrichment, proceed with JSONL-only metrics | **Fail-open** (enrichment) |
+| Sidecar not running | No injection — Claude proceeds without metrics | **Fail-open** (injection) |
+| `context_summary.py` exits non-zero | No injection — Claude proceeds without metrics | **Fail-open** (injection) |
+| Config file missing | Use defaults: `context_window=200000`, no soft boundary | **Fail-open** (config) |
+
+**Two-layer mapping:**
+- **Data layer (fail-closed):** Any issue with JSONL reading, parsing, or validation → no metrics rather than wrong metrics. Handles JSONL format drift risk (the #1 design-level risk across all 4 Codex reviews).
+- **Injection/enrichment/config layers (fail-open):** Missing sidecar, devtools, or config → Claude proceeds without metrics. Failures at the delivery level, not the data correctness level.
+
+**Confidence:** High — both sides independently identified this as a P0 gap in the fourth review.
+
+#### P1 gaps deferred to implementation plan
+
+The fourth Codex review identified 4 P1 specification gaps that are defaultable (resolvable in the implementation plan without a design amendment):
+
+| Gap | Default | Rationale |
+|-----|---------|-----------|
+| `context_summary.py` stdout format | Plain text summary, one line, exit 0 | Command hook stdout semantics: text → system-reminder. No JSON wrapper needed. |
+| Sidecar-to-`context_summary.py` response contract | JSON over HTTP: `{ occupancy, threshold_state, compaction_count, ... }` | Internal plugin contract. Specified in implementation plan. |
+| Session register/deregister request contract | `GET /sessions/register?session_id={stem}&transcript_path={path}` | Derive `session_id` from `transcript_path` filename stem. Path passed for JSONL reading. |
+| Heartbeat exact values | 8 prompts (normal), 3 prompts (≥90%) | Midpoints of Amendment 3 F5 ranges. Adjustable during implementation. |
+
+#### Unresolved items (carry forward to implementation)
+
+Updated from Amendment 4 unresolved items:
+
+1. **JSONL tail-reading algorithm under concurrent writes.** Unchanged — need implementable specification. Codex proposed 5-step algorithm in T4: newline-terminated only, EOF retry, back-scan to valid record, fail-open if none valid, monotonic guard. To be specified in implementation plan.
+
+2. ~~**Semantic drift detection without independent signal.**~~ Unchanged — deferred to v1.1. v1 relies on fixture regression tests + fail-closed parsing.
+
+3. ~~**Headroom-sensitive trigger thresholds.**~~ **Partially resolved.** Exact values chosen: 8 prompts (normal heartbeat), 3 prompts (≥90% critical heartbeat), 2k token delta (≥85% headroom alert). Occupancy thresholds (≥85%, ≥90%) still proposed — empirical validation during implementation.
+
+4. **Stale-but-valid JSONL read (new).** Concurrent write produces valid-but-behind metrics. Accepted as known v1 limitation. Monotonic guard (proposed by Codex T4) would provide additional safety — recommend including as "should" in implementation plan.
+
 ## References
 
 | What | Where |
@@ -1080,3 +1201,5 @@ The remaining risk for v1 is destructive composition: if multiple command hooks 
 | Codex review 1 thread | `019ca614-39c4-7263-9521-e13972c889c4` |
 | Codex review 2 thread | `019ca664-5345-77a0-8418-9fd924cbab74` |
 | Codex review 3 thread | `019ca6bb-64fd-76d0-99c7-8355b7d3ea71` |
+| Codex review 4 thread | `019ca6f1-36d2-7753-bdbd-535cac68bd75` |
+| Design review audit | `docs/audits/2026-02-28-context-metrics-design-review.md` |
