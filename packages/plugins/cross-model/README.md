@@ -5,8 +5,12 @@ Cross-model consultation via OpenAI Codex, with context injection for mid-conver
 ## What this plugin provides
 
 - `/codex` skill — single-turn and multi-turn Codex consultations
+- `/dialogue` skill — orchestrated multi-turn consultation with parallel context gathering (`--posture`, `--turns`, `--profile`, `--plan`)
+- `/consultation-stats` skill — analytics dashboard for consultations, dialogues, and security events
 - `codex-dialogue` subagent — extended multi-turn dialogue with convergence detection
 - `codex-reviewer` agent — single-turn code review via Codex
+- `context-gatherer-code` agent — pre-dialogue codebase explorer launched by `/dialogue`
+- `context-gatherer-falsifier` agent — pre-dialogue assumption tester launched by `/dialogue`
 - Context injection MCP server — mid-conversation evidence gathering for Codex dialogues
 - Consultation contract and named profiles (normative reference)
 - Context injection contract (normative reference)
@@ -44,6 +48,8 @@ The PreToolUse hook runs **tiered credential detection** on every outbound promp
 | Strict | Hard-block | AWS keys, PEM private keys, JWT tokens |
 | Contextual | Block unless example/placeholder language nearby | GitHub PATs, OpenAI keys, Bearer tokens |
 | Broad | Shadow telemetry only | Generic credential assignments |
+
+**Scope enforcement:** outbound prompts are checked against a `scope_envelope` (allowed roots and source classes) before delegation to Codex. Scope breaches terminate the dialogue with `termination_reason: scope_breach`.
 
 **Fail-closed design:** hook errors block the call (PreToolUse). Hook process crashes are fail-open by OS exit code semantics — this is a known limitation documented below.
 

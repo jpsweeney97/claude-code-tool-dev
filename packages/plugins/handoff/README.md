@@ -93,5 +93,7 @@ This plugin splits what was a monolithic skill (758 lines) into focused skills:
 | `/quicksave` | ~120 (skill + contract) |
 | `/search` | ~75 (skill only) |
 | `/distill` | ~210 (skill only) |
+| `/defer` | ~205 (skill only) |
+| `/triage` | ~161 (skill only) |
 
 Resume operations load 71% less context than before.
