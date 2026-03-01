@@ -37,12 +37,11 @@ Skip `.archive/` subdirectory. Use the project name from the current working dir
 ### Step 2: Run distill.py
 
 ```bash
-cd "${CLAUDE_PLUGIN_ROOT}" && uv run python -m scripts.distill <handoff_path> --learnings <learnings_path>
+python "${CLAUDE_PLUGIN_ROOT}/scripts/distill.py" <handoff_path> --learnings <learnings_path>
 ```
 
 - `<learnings_path>` = `docs/learnings/learnings.md` relative to the project root (resolve to absolute path before passing).
 - If user passed `--include-section <name>`, append `--include-section <name>` to the command.
-- If `${CLAUDE_PLUGIN_ROOT}` is not set, use `$(git rev-parse --show-toplevel)/packages/plugins/handoff` as fallback.
 
 Parse JSON output from stdout. If the `error` field is non-null, display the error message and STOP.
 

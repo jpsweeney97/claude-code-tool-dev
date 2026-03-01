@@ -117,8 +117,7 @@ Ask the user to confirm which candidates to create. Accept:
 For each confirmed candidate, construct a JSON object matching the schema in Step 2. Pipe the array to `defer.py`:
 
 ```bash
-cd "${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel)/packages/plugins/handoff}" && \
-echo '<candidates_json>' | uv run python -m scripts.defer --date "$(date +%Y-%m-%d)" --tickets-dir "<project_root>/docs/tickets"
+echo '<candidates_json>' | python "${CLAUDE_PLUGIN_ROOT}/scripts/defer.py" --date "$(date +%Y-%m-%d)" --tickets-dir "<project_root>/docs/tickets"
 ```
 
 Where:

@@ -90,7 +90,7 @@ def read_open_tickets(tickets_dir: Path) -> list[OpenTicket]:
         return []
 
     results: list[OpenTicket] = []
-    for path in sorted(tickets_dir.glob("*.md")):
+    for path in sorted(tickets_dir.rglob("*.md")):
         ticket = parse_ticket(path)
         if ticket is None:
             continue
@@ -186,7 +186,7 @@ def _load_tickets_for_matching(tickets_dir: Path) -> list[dict[str, Any]]:
     if not tickets_dir.exists():
         return results
 
-    for path in sorted(tickets_dir.glob("*.md")):  # P2-10 fix: deterministic iteration order
+    for path in sorted(tickets_dir.rglob("*.md")):  # P2-10 fix: deterministic iteration order
         ticket = parse_ticket(path)
         if ticket is None:
             continue

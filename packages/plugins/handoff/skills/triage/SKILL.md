@@ -24,8 +24,7 @@ Read open tickets and scan recent handoffs for orphaned items (Open Questions/Ri
 ### Step 1: Run triage.py
 
 ```bash
-cd "${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel)/packages/plugins/handoff}" && \
-uv run python -m scripts.triage --tickets-dir "<project_root>/docs/tickets"
+python "${CLAUDE_PLUGIN_ROOT}/scripts/triage.py" --tickets-dir "<project_root>/docs/tickets"
 ```
 
 Where `<project_root>` is the absolute path from `git rev-parse --show-toplevel`.

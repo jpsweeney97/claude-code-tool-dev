@@ -3,7 +3,7 @@
 ```yaml
 id: handoff-distill
 date: 2026-02-24
-status: implemented
+status: closed
 priority: medium
 blocked_by: []
 blocks: []

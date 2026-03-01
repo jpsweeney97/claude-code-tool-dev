@@ -3,7 +3,7 @@
 ```yaml
 id: T-001
 date: 2026-02-15
-status: open
+status: closed
 priority: critical
 branch: fix/reconstruct-plan
 blocked_by: []
