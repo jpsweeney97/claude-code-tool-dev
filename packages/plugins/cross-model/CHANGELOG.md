@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-03-01
+
 ### Added
 
 - `/dialogue` skill — orchestrated multi-turn consultation with parallel context gathering, `--posture`, `--turns`, `--profile` flags
@@ -20,6 +22,8 @@
 - `consultation_outcome` event emission in `/codex` post-diagnostics
 - Governance sections added to all 4 agents (consultation contract §15 alignment)
 - Step numbering crosswalk between SKILL.md and tag-grammar.md
+- `compute_stats.py` — 4-section analytics computation (usage overview, dialogue quality, context quality, security)
+- `stats_common.py` — shared analytics primitives for time windowing, rate computation, and formatting
 
 ### Changed
 
@@ -41,6 +45,7 @@
 - Scope-breach data flow, contract fixes, and validator improvements from PR reviews (#23, #24)
 - Command wrappers added then removed to avoid FQN skill resolution bug
 - Stale marketplace name references updated from `cross-model` to `turbo-mode`
+- Analytics pipeline hardened against malformed data and edge cases
 
 ## [1.0.0] — 2026-02-18
 

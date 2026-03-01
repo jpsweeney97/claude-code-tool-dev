@@ -81,6 +81,7 @@ Archived handoffs (after resume) are kept for 90 days in `.archive/`.
 ## Hooks
 
 - **SessionStart**: Prunes old handoffs silently (no prompts, no auto-inject)
+- **PostToolUse** (Write): Quality validation on handoff file writes
 
 ## Context Reduction
 
@@ -88,7 +89,7 @@ This plugin splits what was a monolithic skill (758 lines) into focused skills:
 
 | Operation | Lines Loaded |
 |-----------|-------------|
-| `/save` | ~570 (skill + synthesis guide) |
+| `/save` | ~750 (skill + synthesis guide) |
 | `/load` | ~220 (skill only) |
 | `/quicksave` | ~120 (skill + contract) |
 | `/search` | ~75 (skill only) |

@@ -1,6 +1,6 @@
 {
   "name": "cross-model",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Cross-model consultation: Codex integration, context injection, and enforcement hooks",
   "author": {
     "name": "JP"
