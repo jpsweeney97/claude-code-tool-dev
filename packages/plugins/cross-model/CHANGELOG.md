@@ -24,6 +24,10 @@
 - Step numbering crosswalk between SKILL.md and tag-grammar.md
 - `compute_stats.py` — 4-section analytics computation (usage overview, dialogue quality, context quality, security)
 - `stats_common.py` — shared analytics primitives for time windowing, rate computation, and formatting
+- `read_events.py` — typed JSONL event reader with per-event-type required field validation
+- `parse_truncated` field in `dialogue_outcome` events — surfaces unclosed-fence truncation
+- §17 learning retrieval and injection section in consultation contract
+- Replay-based conformance test fixtures (`consultation_simple`, `dialogue_converged`, `dialogue_manual_legacy`, `dialogue_scope_breach`, `dialogue_with_planning`)
 
 ### Changed
 
@@ -37,7 +41,9 @@
 - PR review round 2 — 4 spec fixes, cross-field invariant, 12 new tests
 - `codex-guard` thread_id_present now checks `structuredContent.threadId`
 - Enhancement review findings from 4-agent review + Codex triage (#21)
-- P0 system polish — resolver symmetry, mode truthfulness, event reader, contract §17 (#22)
+- Explicit mode propagation from `codex-dialogue` to analytics pipeline
+- `build_consultation_outcome` uses `_resolve_schema_version` for resolver symmetry
+- Non-dict JSON guard and error handling in event processing
 - `codex-reviewer` hardcoded model removed (§9 violation)
 - `emit_analytics.py` hardened — null enum rejection, bool count rejection, turn_budget null guard
 - `provenance_unknown_count` explicitly set to null in Step 3c zero-output fallback
