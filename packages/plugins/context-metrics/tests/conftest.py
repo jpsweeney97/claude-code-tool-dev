@@ -35,3 +35,8 @@ def malformed_session(fixtures_dir: Path) -> Path:
 @pytest.fixture
 def empty_session(fixtures_dir: Path) -> Path:
     return fixtures_dir / "empty.jsonl"
+
+
+@pytest.fixture
+def nonstring_model_session(fixtures_dir: Path) -> Path:
+    return fixtures_dir / "nonstring_model.jsonl"

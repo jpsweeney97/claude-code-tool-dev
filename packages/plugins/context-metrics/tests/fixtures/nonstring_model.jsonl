@@ -1,0 +1,1 @@
+{"type":"assistant","message":{"id":"msg_01","model":42,"role":"assistant","usage":{"input_tokens":1,"cache_read_input_tokens":48000,"cache_creation_input_tokens":2000,"output_tokens":500}}}
