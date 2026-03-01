@@ -1,0 +1,8 @@
+{
+  "name": "context-metrics",
+  "version": "0.1.0",
+  "description": "Context window occupancy metrics — injects summary line into conversations via JSONL transcript analysis",
+  "author": { "name": "JP" },
+  "license": "MIT",
+  "keywords": ["context", "metrics", "occupancy", "tokens"]
+}
