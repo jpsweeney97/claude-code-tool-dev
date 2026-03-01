@@ -112,6 +112,17 @@ def parse_sections(text: str) -> list[Section]:
     return sections
 
 
+def section_name(heading: str) -> str:
+    """Strip the '## ' prefix from a Section heading.
+
+    Section.heading stores headings with prefix (e.g., '## Open Questions').
+    This returns the bare name (e.g., 'Open Questions').
+    """
+    if heading.startswith("## "):
+        return heading[3:].strip()
+    return heading.strip()
+
+
 def parse_handoff(path: Path) -> HandoffFile:
     """Parse a handoff markdown file into structured data."""
     text = path.read_text(encoding="utf-8")
