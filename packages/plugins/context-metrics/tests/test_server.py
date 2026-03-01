@@ -79,6 +79,34 @@ class TestSidecarServer:
         # Should have a result (may or may not inject based on trigger state)
         assert "inject" in data
 
+    def test_compaction_sets_pending(self, normal_session: Path) -> None:
+        """Compaction endpoint sets compaction_pending, enabling compaction trigger."""
+        _get(
+            f"{self.base}/sessions/register?session_id=test1"
+            f"&transcript_path={normal_session}"
+        )
+        # First hook call: triggers injection (boundary crossing), resets state
+        _post(f"{self.base}/hooks/context-metrics", {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "test1",
+            "transcript_path": str(normal_session),
+        })
+        # Set compaction pending
+        status, body = _get(f"{self.base}/sessions/compaction?session_id=test1")
+        assert status == 200
+        data = json.loads(body)
+        assert data["compaction_pending"] is True
+        # Next hook call should trigger compaction format
+        status, body = _post(f"{self.base}/hooks/context-metrics", {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "test1",
+            "transcript_path": str(normal_session),
+        })
+        data = json.loads(body)
+        assert data["inject"] is True
+        assert data["format"] == "compaction"
+        assert "compaction" in data["triggers"]
+
     def test_hook_with_unknown_session_fails_open(self) -> None:
         hook_input = {
             "hook_event_name": "UserPromptSubmit",

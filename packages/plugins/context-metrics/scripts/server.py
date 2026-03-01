@@ -92,6 +92,14 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 "deregistered": removed,
                 "active_sessions": self.server.registry.active_count(),
             })
+        elif path == "/sessions/compaction":
+            session_id = params.get("session_id", [None])[0]
+            if not session_id:
+                self._respond_json(400, {"error": "session_id required"})
+                return
+            state = self.server.get_or_create_state(session_id)
+            state.compaction_pending = True
+            self._respond_json(200, {"compaction_pending": True, "session_id": session_id})
         else:
             self._respond_json(404, {"error": "not found"})
 

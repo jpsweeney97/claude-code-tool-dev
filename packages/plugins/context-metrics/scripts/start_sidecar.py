@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -73,10 +74,8 @@ def _start_sidecar() -> None:
 
 def _register_session(session_id: str, transcript_path: str) -> None:
     try:
-        url = (
-            f"http://127.0.0.1:{DEFAULT_PORT}/sessions/register"
-            f"?session_id={session_id}&transcript_path={transcript_path}"
-        )
+        qs = urllib.parse.urlencode({"session_id": session_id, "transcript_path": transcript_path})
+        url = f"http://127.0.0.1:{DEFAULT_PORT}/sessions/register?{qs}"
         urllib.request.urlopen(url, timeout=2)
     except (urllib.error.URLError, OSError, TimeoutError):
         pass  # Fail-open

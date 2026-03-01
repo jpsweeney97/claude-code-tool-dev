@@ -14,6 +14,7 @@ import argparse
 import json
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 DEFAULT_PORT = 7432
@@ -64,7 +65,8 @@ def main() -> int:
 def _notify_compaction(port: int, session_id: str) -> None:
     """Tell sidecar that a compaction occurred for this session."""
     try:
-        url = f"http://127.0.0.1:{port}/sessions/compaction?session_id={session_id}"
+        qs = urllib.parse.urlencode({"session_id": session_id})
+        url = f"http://127.0.0.1:{port}/sessions/compaction?{qs}"
         urllib.request.urlopen(url, timeout=2)
     except (urllib.error.URLError, OSError, TimeoutError):
         pass  # Fail-open

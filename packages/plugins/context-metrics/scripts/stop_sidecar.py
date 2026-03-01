@@ -14,6 +14,7 @@ import os
 import signal
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -48,7 +49,8 @@ def main() -> int:
 def _deregister_session(session_id: str) -> int:
     """Deregister and return remaining active session count."""
     try:
-        url = f"http://127.0.0.1:{DEFAULT_PORT}/sessions/deregister?session_id={session_id}"
+        qs = urllib.parse.urlencode({"session_id": session_id})
+        url = f"http://127.0.0.1:{DEFAULT_PORT}/sessions/deregister?{qs}"
         with urllib.request.urlopen(url, timeout=2) as resp:
             data = json.loads(resp.read())
             return data.get("active_sessions", 0)
