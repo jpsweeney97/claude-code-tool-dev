@@ -1,0 +1,9 @@
+{"type":"assistant","message":{"id":"msg_01","model":"claude-opus-4-6","role":"assistant","usage":{"input_tokens":1,"cache_read_input_tokens":48000,"cache_creation_input_tokens":2000,"output_tokens":500}}}
+{"type":"user","content":"next question"}
+{"type":"assistant","message":{"id":"msg_02","model":"claude-opus-4-6","role":"assistant","usage":{"input_tokens":1,"cache_read_input_tokens":78000,"cache_creation_input_tokens":2000,"output_tokens":600}}}
+{"type":"user","content":"another question"}
+{"type":"assistant","message":{"id":"msg_03","model":"claude-opus-4-6","role":"assistant","usage":{"input_tokens":1,"cache_read_input_tokens":108000,"cache_creation_input_tokens":2000,"output_tokens":700}}}
+{"type":"user","content":"keep going"}
+{"type":"assistant","message":{"id":"msg_04","model":"claude-opus-4-6","role":"assistant","usage":{"input_tokens":1,"cache_read_input_tokens":138000,"cache_creation_input_tokens":2000,"output_tokens":800}}}
+{"type":"user","content":"final question"}
+{"type":"assistant","message":{"id":"msg_05","model":"claude-opus-4-6","role":"assistant","usage":{"input_tokens":1,"cache_read_input_tokens":158000,"cache_creation_input_tokens":2000,"output_tokens":900}}}
