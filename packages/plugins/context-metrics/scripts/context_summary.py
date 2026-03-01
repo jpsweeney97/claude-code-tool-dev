@@ -5,7 +5,9 @@ Hook events: UserPromptSubmit, SessionStart(compact).
 Queries sidecar -> prints summary to stdout -> exit 0.
 Fail-open: sidecar unreachable -> exit 0 (no output).
 
-Design reference: Amendment 4 F5 (stdout injection).
+Stdout is the injection channel: Claude Code captures hook stdout as
+system-reminder content. Only event-specific logic is notifying sidecar
+of compaction on SessionStart(compact).
 """
 
 from __future__ import annotations

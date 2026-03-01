@@ -1,10 +1,12 @@
-"""JSONL tail-reader with fail-closed validation.
+"""JSONL transcript reader with fail-closed validation.
 
-Reads JSONL transcripts backward from EOF to find the last valid
-main-thread API response. Concurrent-write safe: partial lines are
-discarded. Format drift safe: unknown records are rejected.
+Provides two operations:
+- tail_read_last_valid: reads backward from EOF to find the last valid
+  main-thread API response (occupancy measurement).
+- count_messages: forward scan counting user/assistant messages.
 
-Design reference: Amendment 4 F2 (selector), Amendment 5 F3 (interaction model).
+Concurrent-write safe: partial lines are discarded. Format drift safe:
+unknown records are rejected via positive-only selector.
 """
 
 from __future__ import annotations
@@ -16,13 +18,14 @@ CHUNK_SIZE = 8192
 
 
 def is_main_thread_response(record: dict) -> bool:
-    """4-condition positive-only selector (Amendment 4 F2).
+    """3-condition positive-only filter.
 
-    Conditions:
+    Strict inclusion avoids dependence on undocumented exclusion fields:
     1. type == "assistant"
     2. message.role == "assistant"
     3. message.usage present with input_tokens field
-    4. Deduplicate by message.id (handled by caller via seen_ids set)
+
+    Deduplication by message.id is applied separately in _try_parse_record.
     """
     if record.get("type") != "assistant":
         return False

@@ -4,7 +4,8 @@
 Hook event: SessionEnd, command hook (stdlib only).
 Deregisters session. If no active sessions remain, sends SIGTERM to sidecar.
 
-Design reference: Amendment 3 F3 (lifecycle).
+Only stops sidecar when no sessions remain — avoids killing a shared
+sidecar serving other concurrent sessions.
 """
 
 from __future__ import annotations

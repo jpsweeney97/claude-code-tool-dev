@@ -3,7 +3,8 @@
 Evaluates 5 trigger types per UserPromptSubmit with OR semantics.
 Counter resets on injection. Compaction always injects and resets baseline.
 
-Design reference: Amendment 5 F3 (trigger interaction model).
+OR semantics: any single trigger fires injection. Format priority:
+compaction > full (delta/boundary) > minimal (heartbeat) > none.
 """
 
 from __future__ import annotations

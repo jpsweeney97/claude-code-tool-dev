@@ -3,7 +3,8 @@
 Tracks active Claude Code sessions with lease-based expiry.
 Thread-safe for concurrent access from HTTP handler threads.
 
-Design reference: Amendment 3 F3 (session lifecycle).
+Lease-based expiry ensures stale sessions are cleaned up even if SessionEnd
+hooks fail to fire (crash, network error).
 """
 
 from __future__ import annotations

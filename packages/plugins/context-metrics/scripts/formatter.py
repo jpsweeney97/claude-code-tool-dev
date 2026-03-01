@@ -1,14 +1,19 @@
 """Summary line formatter for context metrics.
 
-Formats: full (material change), minimal (heartbeat), compaction (post-compact).
-Design reference: Summary Line Format section + Amendment 3 F5.
+Three formats: full (material token change or boundary crossing), minimal
+(heartbeat with no significant change), compaction (post-compact notice).
 """
 
 from __future__ import annotations
 
 
 def _format_tokens(n: int) -> str:
-    """Format token count as human-readable: 142000 -> '142k', 1000000 -> '1M'."""
+    """Format token count as human-readable: 142000 -> '142k', 1000000 -> '1M'.
+
+    Truncates toward zero (floor division). Non-round values lose the
+    remainder: 142,500 -> '142k', 999,999 -> '999k'. This is intentional —
+    context metrics are approximate and exact counts would add visual noise.
+    """
     if n >= 1_000_000 and n % 1_000_000 == 0:
         return f"{n // 1_000_000}M"
     if n >= 1_000:

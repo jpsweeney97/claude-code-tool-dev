@@ -4,7 +4,10 @@ Shared server on port 7432. Manages sessions, reads JSONL, evaluates
 triggers, and returns injection decisions. Fail-open at injection layer,
 fail-closed at data layer.
 
-Design reference: Amendment 3 F3 (lifecycle), Amendment 5 F3 (triggers), F4 (fail-policy).
+Architecture: shared sidecar (one per machine) manages sessions via registry,
+reads JSONL for occupancy, evaluates trigger thresholds, and returns injection
+decisions. Fail-open at injection layer (errors -> no output), fail-closed at
+data layer (bad data -> no injection).
 """
 
 from __future__ import annotations

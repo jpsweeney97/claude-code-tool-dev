@@ -5,7 +5,8 @@ Hook event: SessionStart(startup), async command hook.
 If sidecar already running: register session, exit.
 If not running: start sidecar in background, register session, exit.
 
-Design reference: Amendment 3 F3 (no kill-restart).
+Health-check-first: if sidecar is already running, just register —
+no kill-restart to avoid disrupting other sessions.
 """
 
 from __future__ import annotations
