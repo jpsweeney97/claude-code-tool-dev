@@ -3,6 +3,7 @@
   "owner": { "name": "JP" },
   "plugins": [
     { "name": "cross-model", "source": "./packages/plugins/cross-model" },
-    { "name": "handoff", "source": "./packages/plugins/handoff" }
+    { "name": "handoff", "source": "./packages/plugins/handoff" },
+    { "name": "context-metrics", "source": "./packages/plugins/context-metrics" }
   ]
 }
