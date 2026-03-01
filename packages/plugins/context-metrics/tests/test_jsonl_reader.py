@@ -142,3 +142,34 @@ class TestTailReadLastValid:
         record = tail_read_last_valid(fixture)
         assert record is not None
         assert record["message"]["id"] == "msg_50"
+
+    def test_multi_chunk_file_finds_last_valid(self, tmp_path: Path) -> None:
+        """File larger than CHUNK_SIZE (8192 bytes) exercises multi-chunk backward reading."""
+        fixture = tmp_path / "large.jsonl"
+        # Generate enough records to exceed 8192 bytes.
+        # Each record is ~170 bytes, so 60 records ≈ 10,200 bytes (> 8192).
+        lines = []
+        for i in range(60):
+            rec = {
+                "type": "assistant",
+                "message": {
+                    "id": f"msg_{i:03d}",
+                    "role": "assistant",
+                    "usage": {
+                        "input_tokens": 1,
+                        "cache_read_input_tokens": 50000 + i * 100,
+                        "cache_creation_input_tokens": 1000,
+                        "output_tokens": 500,
+                    },
+                },
+            }
+            lines.append(json.dumps(rec))
+        content = "\n".join(lines) + "\n"
+        assert len(content.encode()) > 8192, f"Fixture too small: {len(content.encode())} bytes"
+        fixture.write_text(content)
+
+        record = tail_read_last_valid(fixture)
+        assert record is not None
+        assert record["message"]["id"] == "msg_059"
+        # Verify occupancy of last record
+        assert compute_occupancy(record["message"]["usage"]) == 1 + 55900 + 1000

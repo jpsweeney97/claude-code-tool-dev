@@ -32,9 +32,10 @@ class TestContextSummary:
             f"?session_id=test_hook&transcript_path={normal_session}",
             timeout=2,
         )
-        # Force first injection by setting high prompt count
+        # Set compaction_pending — compaction always triggers injection,
+        # making this test robust against heartbeat threshold changes.
         state = self.server.get_or_create_state("test_hook")
-        state.prompts_since_injection = 10
+        state.compaction_pending = True
 
         hook_input = json.dumps({
             "hook_event_name": "UserPromptSubmit",
@@ -47,8 +48,7 @@ class TestContextSummary:
             input=hook_input, capture_output=True, text=True, timeout=5,
         )
         assert result.returncode == 0
-        # stdout should contain a context summary line
-        assert "Context:" in result.stdout or result.stdout.strip() == ""
+        assert "Context:" in result.stdout, f"Expected summary line, got: {result.stdout!r}"
 
     def test_exits_zero_on_sidecar_down(self) -> None:
         """Fail-open: if sidecar unreachable, exit 0 with no output."""

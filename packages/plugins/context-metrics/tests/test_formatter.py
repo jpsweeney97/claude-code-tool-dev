@@ -45,7 +45,7 @@ class TestFormatFull:
             occupancy=287_000, window=1_000_000, message_count=847,
             compaction_count=3, cost_usd=None, soft_boundary=None,
         )
-        assert "287k/1M" in line or "287k/1000k" in line
+        assert "287k/1M" in line
 
 
 class TestFormatMinimal:

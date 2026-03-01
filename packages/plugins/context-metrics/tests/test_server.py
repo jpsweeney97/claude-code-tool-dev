@@ -28,6 +28,15 @@ def _post(url: str, data: dict) -> tuple[int, str]:
         return e.code, e.read().decode()
 
 
+def _post_raw(url: str, body: bytes) -> tuple[int, str]:
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return resp.status, resp.read().decode()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()
+
+
 class TestSidecarServer:
     def setup_method(self) -> None:
         self.server = ContextMetricsSidecar(port=0)  # Random port
@@ -114,6 +123,53 @@ class TestSidecarServer:
             "transcript_path": "/nonexistent.jsonl",
         }
         status, body = _post(f"{self.base}/hooks/context-metrics", hook_input)
+        assert status == 200
+        data = json.loads(body)
+        assert data["inject"] is False
+
+    # --- Validation path tests (I4) ---
+
+    def test_unknown_get_path_returns_404(self) -> None:
+        status, body = _get(f"{self.base}/nonexistent")
+        assert status == 404
+        data = json.loads(body)
+        assert data["error"] == "not found"
+
+    def test_unknown_post_path_returns_404(self) -> None:
+        status, body = _post(f"{self.base}/hooks/unknown", {"foo": "bar"})
+        assert status == 404
+        data = json.loads(body)
+        assert data["error"] == "not found"
+
+    def test_register_missing_params_returns_400(self) -> None:
+        status, body = _get(f"{self.base}/sessions/register?session_id=test1")
+        assert status == 400
+        data = json.loads(body)
+        assert "required" in data["error"]
+
+    def test_deregister_missing_session_id_returns_400(self) -> None:
+        status, body = _get(f"{self.base}/sessions/deregister")
+        assert status == 400
+        data = json.loads(body)
+        assert "required" in data["error"]
+
+    def test_compaction_missing_session_id_returns_400(self) -> None:
+        status, body = _get(f"{self.base}/sessions/compaction")
+        assert status == 400
+        data = json.loads(body)
+        assert "required" in data["error"]
+
+    def test_hook_malformed_json_fails_open(self) -> None:
+        status, body = _post_raw(
+            f"{self.base}/hooks/context-metrics", b"not valid json{{"
+        )
+        assert status == 200
+        data = json.loads(body)
+        assert data["inject"] is False
+        assert data["reason"] == "invalid input"
+
+    def test_hook_empty_body_fails_open(self) -> None:
+        status, body = _post_raw(f"{self.base}/hooks/context-metrics", b"")
         assert status == 200
         data = json.loads(body)
         assert data["inject"] is False
