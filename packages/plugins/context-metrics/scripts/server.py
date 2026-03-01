@@ -39,8 +39,6 @@ class ContextMetricsSidecar(HTTPServer):
         self.trigger_engine = TriggerEngine(self.config.context_window)
         self.session_states: dict[str, SessionState] = {}
         self._states_lock = threading.Lock()
-        # Message count per session (incremented by counting user messages in JSONL)
-        self.message_counts: dict[str, int] = {}
         super().__init__(("127.0.0.1", port), _RequestHandler)
 
     def get_or_create_state(self, session_id: str) -> SessionState:
@@ -52,7 +50,6 @@ class ContextMetricsSidecar(HTTPServer):
     def remove_state(self, session_id: str) -> None:
         with self._states_lock:
             self.session_states.pop(session_id, None)
-            self.message_counts.pop(session_id, None)
 
 
 class _RequestHandler(BaseHTTPRequestHandler):
@@ -154,9 +151,8 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
         # Count messages (forward scan)
         msg_count = count_messages(Path(transcript_path)) if transcript_path else 0
-        self.server.message_counts[session_id] = msg_count
 
-        # Format summary
+        # Format summary (before apply_result to preserve compaction numbering)
         window = self.server.config.context_window
 
         if result.format == "minimal":
@@ -175,15 +171,28 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 cost_usd=None, soft_boundary=self.server.config.soft_boundary,
             )
 
-        # Apply result (updates state)
-        self.server.trigger_engine.apply_result(state, result, occupancy)
-
-        self._respond_json(200, {
+        # Delivered semantics: only advance state if the response is delivered.
+        # If the client disconnects, state stays put so the next request re-triggers.
+        delivered = self._try_send_hook_response({
             "inject": True,
             "summary": summary,
             "format": result.format,
             "triggers": result.triggers_fired,
         })
+        if delivered:
+            self.server.trigger_engine.apply_result(state, result, occupancy)
+
+    def _try_send_hook_response(self, data: dict) -> bool:
+        """Send hook response, returning True if delivered.
+
+        Catches client-disconnect errors (broken pipe, connection reset)
+        without hiding other failures.
+        """
+        try:
+            self._respond_json(200, data)
+            return True
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return False
 
     def _respond_json(self, status: int, data: dict) -> None:
         body = json.dumps(data).encode()
