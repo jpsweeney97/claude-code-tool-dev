@@ -61,6 +61,28 @@ Evaluative Codex dialogue (8-turn budget, converged at turn 5). Thread: `019cabb
 | 12 | Global brew flags before subcommand (`brew --quiet install uv`) bypass regex | Handle optional pre-subcommand flags in regex |
 | 13 | Design doc promises "direct dotfile write (bypass stow)" enforcement but plan doesn't implement or defer | Added to Deferred with tool-surface scope statement |
 
+### Agent-Team Review Findings
+
+4-agent parallel review (doc, hook-logic, shell/config, integration). 0 ship-blockers found.
+
+#### Should-Fix (fixed in plan)
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 14 | `commit-if-changed` commits unrelated staged files — `git commit` without path restriction | Added `-- "$path"` to `git commit` |
+| 15 | stow/mise listed as normal Homebrew examples but also protected as infrastructure — contradictory | Separated into "Infrastructure" row in ownership table |
+| 16 | Design doc says script "detects cwd" but actual mechanism is project-scoped `settings.json` | Updated design doc description |
+| 17 | "Adding a New Tool" points to deployed symlink, not stow source path | Changed to `~/dotfiles/mise/.config/mise/config.toml` with symlink note |
+
+#### Not Applied (acceptable as-is)
+
+| # | Finding | Disposition |
+|---|---------|-------------|
+| — | Tier 2 blocks on first infra match without scanning all | Correct for blocking — safe direction |
+| — | `elif` drops non-managed guidance in mixed installs | Managed warning is higher priority |
+| — | `set -o pipefail` is a no-op in doctor-env-inject.sh | Cosmetic — no runtime impact |
+| — | Plan doesn't note "preserve existing imports" for Task 4 | Clarity only — imports already exist |
+
 ---
 
 ## Task 1: Rewrite `~/.claude/references/environment.md`
@@ -96,7 +118,8 @@ One executable, one owner. No tool managed by two package managers.
 
 | Category | Owner | Examples |
 |----------|-------|---------|
-| OS-level CLI tools | Homebrew | bat, eza, fd, ripgrep, jq, htop, stow, mise |
+| OS-level CLI tools | Homebrew | bat, eza, fd, ripgrep, jq, htop |
+| Infrastructure (Homebrew-installed, never uninstall) | Homebrew | stow, mise |
 | GUI applications | Homebrew (cask) | Docker Desktop, Kitty, VS Code |
 | Shell plugins | Homebrew | zsh-syntax-highlighting, zsh-autosuggestions |
 | Language runtimes | mise | node, python, go, rust |
@@ -105,7 +128,7 @@ One executable, one owner. No tool managed by two package managers.
 
 ### Adding a New Tool
 
-1. Language runtime or language-specific tool? → `mise use <tool>@<version>` in `~/.config/mise/config.toml`
+1. Language runtime or language-specific tool? → `mise use <tool>@<version>` in `~/dotfiles/mise/.config/mise/config.toml` (stow-managed → `~/.config/mise/config.toml`)
 2. OS-level CLI or GUI app? → Add to `~/dotfiles/homebrew/Brewfile`, run `brew bundle install --file=~/dotfiles/homebrew/Brewfile`
 3. Configuration file? → Add to `~/dotfiles/<package>/`, run `cd ~/dotfiles && stow <package>`
 4. Run `doctor-env` after adding to verify no dual ownership
@@ -301,7 +324,7 @@ git diff --cached --quiet -- "$path" 2>/dev/null || has_changes=true
 [[ -n "$(git ls-files --others --exclude-standard -- "$path" 2>/dev/null)" ]] && has_changes=true
 
 if $has_changes; then
-    git add "$path" && git commit -m "$msg"
+    git add "$path" && git commit -m "$msg" -- "$path"
 else
     echo "No changes in $path — skipping commit."
 fi

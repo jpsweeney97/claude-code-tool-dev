@@ -75,7 +75,7 @@
 **Purpose:** Inject environment health into Claude's context when starting a session in `~/dotfiles/`.
 
 **Behavior:**
-- Detects if cwd is `~/dotfiles/` (or subdirectory)
+- Activates only in `~/dotfiles/` via project-scoped `settings.json`
 - Runs `doctor-env` silently
 - Pass: injects brief "Environment healthy" into additionalContext
 - Fail: injects full error output so Claude sees issues immediately
