@@ -6,7 +6,7 @@ A standalone Claude Code plugin for repo-local ticket management. Provides full 
 
 Emerged from a 12-turn collaborative Codex dialogue. Neither the initial monolith recommendation nor the multi-skill router survived — the dialogue synthesized a hybrid that combines routing precision with modular tool scoping via an engine-centric adapter pattern.
 
-**Core principle:** All decision logic lives in Python (`ticket_engine.py`). Skills and agent are thin transport layers that map user intent to engine calls and engine states back to UX.
+**Core principle:** All mutation and policy-enforcement logic lives in Python (engine scripts). Read-only operations (query, list) use a shared read module (`ticket_read.py`). Skills and agent are thin transport layers that map user intent to engine/read calls and states back to UX.
 
 ### Components
 
@@ -16,7 +16,8 @@ Emerged from a 12-turn collaborative Codex dialogue. Neither the initial monolit
 | `ticket-triage` | Skill | Proactive (read-only) | NL gateway — handles ambiguous input, suggests explicit commands, dashboard |
 | `ticket-autocreate` | Agent | Proactive (`"use proactively"`) | Autonomous ticket creation during work, foreground-only |
 | `ticket-contract.md` | Reference | Loaded by all components | Shared schemas, policies, field definitions |
-| `ticket_engine.py` | Script | Called by skills/agent | Canonical decision engine: `classify\|plan\|preflight\|execute` subcommands |
+| `ticket_engine_*.py` | Scripts | Called by skills/agent | Split entrypoints (`_user.py`, `_agent.py`) + shared core (`_core.py`): `classify\|plan\|preflight\|execute` |
+| `ticket_read.py` | Script | Called by skills | Shared read module for `query` and `list` operations |
 
 ### Why This Architecture
 
@@ -52,7 +53,10 @@ ticket/                              # packages/plugins/ticket/
 ├── agents/
 │   └── ticket-autocreate.md         # Proactive autonomous creation (~150 lines)
 ├── scripts/
-│   ├── ticket_engine.py             # Canonical decision engine (classify|plan|preflight|execute)
+│   ├── ticket_engine_core.py        # Shared engine logic (classify|plan|preflight|execute)
+│   ├── ticket_engine_user.py        # User entrypoint (sets request_origin=user)
+│   ├── ticket_engine_agent.py       # Agent entrypoint (sets request_origin=agent)
+│   ├── ticket_read.py               # Shared read module (query, list, parse, filter)
 │   ├── ticket_id.py                 # ID allocation (deterministic, collision-resistant)
 │   ├── ticket_render.py             # Markdown rendering (template-based)
 │   ├── ticket_parse.py              # Fenced-YAML parsing (multi-format, based on handoff's ticket_parsing.py)
@@ -170,12 +174,12 @@ A fresh session picking up a ticket should start *doing*, not *re-investigating*
 ---
 name: ticket-ops
 description: >-
-  Create, update, close, and query repo-local tickets in docs/tickets/.
+  Create, update, close, reopen, and query repo-local tickets in docs/tickets/.
   Use when user says "/ticket create", "/ticket update", "/ticket close",
-  "/ticket query", or "/ticket list". Do NOT use for ambiguous natural-language
-  ticket requests (use ticket-triage instead).
+  "/ticket reopen", "/ticket query", or "/ticket list". Do NOT use for
+  ambiguous natural-language ticket requests (use ticket-triage instead).
 disable-model-invocation: true
-argument-hint: create|update|close|query|list [args]
+argument-hint: create|update|close|reopen|query|list [args]
 allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 ---
 ```
@@ -189,11 +193,12 @@ allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 | `create` | Create new ticket | classify → plan → execute |
 | `update` | Update existing ticket | classify → preflight → execute |
 | `close` | Close/resolve ticket | classify → preflight → execute |
-| `query` | Search tickets by criteria | Direct file read + filter |
-| `list` | Dashboard summary | Direct file read + summarize |
+| `reopen` | Reopen done/wontfix ticket | classify → preflight → execute |
+| `query` | Search tickets by criteria | `ticket_read.py` (shared read module) |
+| `list` | Dashboard summary | `ticket_read.py` (shared read module) |
 | (empty) | Dashboard | Same as `list` |
 
-All mutating operations (`create`, `update`, `close`) pass through a validation gate before `execute`. For `create`, the `plan` stage handles dedup and field validation. For `update` and `close`, the `preflight` stage handles precondition checks (ticket exists, status transition is valid, autonomy policy allows the mutation, dependency integrity).
+All mutating operations (`create`, `update`, `close`, `reopen`) pass through a validation gate before `execute`. For `create`, the `plan` stage handles dedup and field validation. For `update`, `close`, and `reopen`, the `preflight` stage handles precondition checks (ticket exists, status transition is valid, autonomy policy allows the mutation, dependency integrity). Read-only operations (`query`, `list`) use the shared `ticket_read.py` module directly — they do not pass through the engine pipeline.
 
 **Body structure (~200 lines):**
 1. Routing table and dispatch rules
@@ -209,12 +214,14 @@ All mutating operations (`create`, `update`, `close`) pass through a validation 
 | `ok_create` | "Created T-YYYYMMDD-NN at docs/tickets/..." + show ticket |
 | `ok_update` | Show field diff + confirm |
 | `ok_close` | "Closed T-... (moved to archive)" |
+| `ok_reopen` | "Reopened T-... (status: open). Reason: {reason}" + show Reopen History |
 | `need_fields` | List missing fields, ask user to provide |
-| `duplicate_candidate` | Show both tickets side by side, ask user to confirm or abort |
+| `duplicate_candidate` | Show both tickets side by side, offer: (a) create anyway, (b) merge into existing, (c) abort |
+| `merge_into_existing` | Show merged preview with diff, ask user to confirm |
 | `policy_blocked` | "Autonomy policy blocks this action. Suggested: [rendered preview]" |
 | `invalid_transition` | "Cannot transition from {current} to {target}: {reason}" |
 | `dependency_blocked` | "Ticket has open blockers: {list}. Resolve or force-close?" |
-| `not_found` | "No ticket found matching {id}" |
+| `not_found` | "No ticket found matching {id}. Did you mean: {fuzzy_matches}?" |
 | `escalate` | Explain why engine couldn't handle, suggest manual action |
 
 `policy_blocked` is exclusively for autonomy enforcement (autonomous caller blocked by policy). User-initiated operations that need confirmation use `duplicate_candidate` (dedup) or `dependency_blocked` (close with open blockers) — each semantically distinct confirmation reason has its own state.
@@ -263,7 +270,7 @@ description: >-
   opportunity during active work that should be tracked but is out of scope
   for the current task. Creates repo-local tickets autonomously based on
   the three-tier autonomy model.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
 ```
@@ -277,25 +284,27 @@ model: sonnet
 
 **Agent behavior:**
 1. Gather context from working files, recent git changes, conversation
-2. Call `ticket_engine.py classify` to confirm intent
-3. Call `ticket_engine.py plan` to check for duplicates
-4. Read autonomy mode from `.claude/ticket.local.md`
+2. Call `ticket_engine_agent.py classify` to confirm intent
+3. Call `ticket_engine_agent.py plan` to check for duplicates
+4. Engine reads autonomy mode from `.claude/ticket.local.md` (agent does not read this file directly — it lacks Write access to prevent self-escalation)
 5. If `suggest`: return rendered preview for user confirmation (does NOT create)
-6. If `auto_audit`: call `execute`, log to audit trail, notify user
-7. If `auto_silent`: call `execute`, log to audit trail, no notification
+6. If `auto_audit`: call `execute`, log to audit trail, notify user with template (see Autonomy section)
+7. If `auto_silent`: call `execute`, log to audit trail, reduced notification (see guardrails in Autonomy section)
+
+**Note:** The agent's `tools` list excludes `Write`. All file writes (ticket creation, audit trail) are performed by the engine script, not by the agent directly. This prevents the agent from writing to `.claude/ticket.local.md` to escalate its own autonomy mode.
 
 ## Engine Design
 
 ### Pipeline
 
 ```
-ticket_engine.py classify <json>    → intent + confidence
-ticket_engine.py plan <json>        → action plan + dedup + field validation (create only)
-ticket_engine.py preflight <json>   → precondition checks (update/close)
-ticket_engine.py execute <json>     → result + machine state
+ticket_engine_{user|agent}.py classify <json>    → intent + confidence
+ticket_engine_{user|agent}.py plan <json>        → action plan + dedup + field validation (create only)
+ticket_engine_{user|agent}.py preflight <json>   → precondition checks (update/close/reopen)
+ticket_engine_{user|agent}.py execute <json>     → result + machine state
 ```
 
-All decision logic lives here. Skills and agent call the engine and map its machine states to appropriate UX.
+Skills call `ticket_engine_user.py`; the agent calls `ticket_engine_agent.py`. Both are thin wrappers that set `request_origin` and delegate to `ticket_engine_core.py`. All mutation and policy-enforcement logic lives in the core module.
 
 **Mutation preflight** (`preflight` subcommand): All mutating operations pass through a validation gate before `execute`. The `preflight` stage checks:
 - Ticket exists and is parseable
@@ -326,17 +335,27 @@ This function is deterministic — two implementations given the same input must
 
 ### Trust Model
 
+**Security posture:** `request_origin` is a **policy selector in a trusted runtime**, not authentication. Within a single Claude Code session, all callers execute as the same OS user via Bash — there is no cryptographic caller identity. The split-entrypoint mechanism (below) provides defense-in-depth against model misbehavior, not a hard security boundary against a determined adversary. This is an accepted limitation of the plugin runtime.
+
 Two distinct concepts that the engine must keep separate:
 
 | Concept | Field | Set By | Purpose |
 |---------|-------|--------|---------|
-| **Request origin** | `request_origin` | Engine (runtime-derived) | Authorization: who is calling the engine |
+| **Request origin** | `request_origin` | Entrypoint script (hardcoded) | Policy selection: which autonomy rules apply |
 | **Ticket provenance** | `source` (in ticket YAML) | Caller (metadata) | Traceability: where this ticket came from |
 
-`request_origin` is determined by the engine from runtime context — never from caller payload. Values:
-- `user` — called from `ticket-ops` skill (user explicitly invoked `/ticket`)
-- `agent` — called from `ticket-autocreate` agent
-- `unknown` — origin cannot be determined → fail closed (reject mutation)
+**Derivation mechanism (split entrypoints):**
+- `ticket_engine_user.py` — hardcodes `request_origin = "user"`. Called by `ticket-ops` skill.
+- `ticket_engine_agent.py` — hardcodes `request_origin = "agent"`. Called by `ticket-autocreate` agent.
+- Both delegate to `ticket_engine_core.py` which receives `request_origin` as an internal parameter.
+- `unknown` — fallback if core is called directly without an entrypoint → fail closed (reject mutation).
+
+**Defense-in-depth layers (v1.0):**
+1. Split entrypoints (cosmetic — equivalent to a CLI flag without further enforcement)
+2. PreToolUse hook blocking shell metacharacters, redirection, and `.claude/ticket.local.md` writes in Bash calls to engine scripts
+3. Agent `tools` list excludes `Write` (prevents direct file manipulation)
+
+**v1.1 path:** Replace Bash-based engine calls with MCP tools for a real security boundary (MCP tool names are not spoofable by the model).
 
 The `source` field in ticket YAML (`source.type`, `source.ref`, `source.session`) is provenance metadata stored in the ticket for traceability. It has no authorization role.
 
@@ -352,13 +371,34 @@ if request_origin == "agent":
     mode = read_autonomy_mode()
     if mode == "suggest":     → return policy_blocked with preview
     if mode == "auto_audit":  → proceed, log to audit trail, notify user
-    if mode == "auto_silent": → proceed, log to audit trail, no notification
+    if mode == "auto_silent":
+        if action != "create": → return policy_blocked ("auto_silent limited to create in v1.0")
+        if session_create_count >= max_creates_per_session: → return policy_blocked ("session cap reached")
+        → proceed, log to audit trail, reduced notification
 
 if request_origin == "user":
     → proceed (user explicitly invoked the operation)
+
+# force:true override is rejected when request_origin == "agent"
+# (autonomous callers cannot bypass dedup)
 ```
 
 Default: `suggest` (fail-closed). Configuration: `.claude/ticket.local.md`.
+
+**`auto_silent` guardrails** (6 hard constraints):
+1. Default remains `suggest` — `auto_silent` requires explicit opt-in
+2. Opt-in in `.claude/ticket.local.md` must include risk acknowledgment comment
+3. `max_creates_per_session` hard cap (default: 5), engine-enforced — cap reached → `policy_blocked`
+4. Mandatory session-end summary of all auto-created tickets (even in silent mode)
+5. If cap reached or summary emission fails → fallback to `policy_blocked` (fail-closed)
+6. `auto_silent` limited to `create` only in v1.0 — update/close/reopen require `auto_audit` or higher
+
+**`auto_audit` notification template:**
+```
+[auto] Created T-YYYYMMDD-NN: <title summary>
+  Path: docs/tickets/YYYY-MM-DD-<slug>.md
+  Review: /ticket query T-YYYYMMDD-NN
+```
 
 ### Autonomy Configuration (`ticket.local.md`)
 
@@ -367,6 +407,9 @@ Location: `.claude/ticket.local.md` (per-project, gitignored).
 ```yaml
 ---
 autonomy_mode: suggest    # suggest | auto_audit | auto_silent
+max_creates_per_session: 5  # hard cap for auto_audit and auto_silent
+# Uncomment to enable auto_silent (risk: tickets created without notification):
+# autonomy_mode: auto_silent
 ---
 ```
 
@@ -383,7 +426,13 @@ Location: `docs/tickets/.audit/YYYY-MM-DD.jsonl` (one file per day, append-only)
 Each entry:
 
 ```json
-{"ts": "ISO8601", "action": "create|update|close", "ticket_id": "T-...", "request_origin": "agent", "autonomy_mode": "auto_audit", "result": "ok_create|ok_update|ok_close"}
+{"ts": "ISO8601", "action": "create|update|close|reopen", "ticket_id": "T-...", "request_origin": "agent", "autonomy_mode": "auto_audit", "result": "ok_create|ok_update|ok_close|ok_reopen", "changes": null}
+```
+
+The `changes` field is required for `update`, `close`, and `reopen` actions (null for `create`):
+
+```json
+{"changes": {"frontmatter": {"status": ["open", "in_progress"]}, "sections_changed": ["Approach", "Acceptance Criteria"]}}
 ```
 
 Read-back: `ticket-triage` can report autonomous actions by scanning the audit trail. No separate read-back mechanism needed.
@@ -396,7 +445,7 @@ The full contract lives in `references/ticket-contract.md` within the plugin. It
 
 **Must be specified in the contract** (not yet elaborated):
 
-1. **Storage** — `docs/tickets/` for active, `docs/tickets/closed/` for archived. Directory bootstrap: engine creates directories on first write. Naming: `YYYY-MM-DD-<slug>.md` for new tickets.
+1. **Storage** — `docs/tickets/` for active, `docs/tickets/closed-tickets/` for archived (matches existing directory). Engine reads from both locations. Directory bootstrap: engine creates directories on first write. Naming: `YYYY-MM-DD-<slug>.md` for new tickets. Slug derivation: first 6 words of title, kebab-case, `[a-z0-9-]` only, max 60 chars, sequence suffix on collision.
 2. **ID Allocation** — Format: `T-YYYYMMDD-NN` (date + daily sequence). Collision prevention: scan existing tickets for same-day IDs, allocate next available NN. Legacy IDs (`T-NNN`, `T-[A-F]`, `handoff-*`) are preserved permanently — never converted.
 3. **Schema** — Required YAML fields: `id`, `date`, `status`, `priority`, `source`. Optional: `effort`, `tags`, `blocked_by`, `blocks`. Required sections: Problem, Approach, Acceptance Criteria, Verification, Key Files. Optional sections: Context, Prior Investigation, Decisions Made, Related. Section ordering rationale: Problem → Context → Prior Investigation → Approach → Decisions Made → Acceptance Criteria → Verification → Key Files → Related. Ordering follows the cognitive flow of a fresh session: understand the problem, absorb context, learn what was already tried, then see the plan and verification steps.
 4. **Engine Interface** — stdin/stdout/stderr contracts for `classify`, `plan`, `preflight`, and `execute` subcommands. JSON input/output schemas. Exit codes: 0 (success), 1 (engine error), 2 (validation failure).
@@ -405,12 +454,24 @@ The full contract lives in `references/ticket-contract.md` within the plugin. It
 7. **Status Transitions** — allowed transitions with preconditions:
    - `open` → `in_progress` (no preconditions)
    - `open` → `blocked` (requires `blocked_by` non-empty)
+   - `in_progress` → `open` (no preconditions — re-queue)
    - `in_progress` → `blocked` (requires `blocked_by` non-empty)
    - `in_progress` → `done` (requires acceptance criteria present)
    - `blocked` → `open` (all `blocked_by` resolved)
+   - `blocked` → `in_progress` (all `blocked_by` resolved — resume directly)
    - `*` → `wontfix` (no preconditions)
-   - `done`/`wontfix` → archive (move to `closed/` directory)
-   - Legacy status `deferred` maps to `open` on read (no write-back unless ticket is updated).
+   - `done` → `open` (requires `reopen_reason`, user-only in v1.0, appends to ## Reopen History)
+   - `wontfix` → `open` (requires `reopen_reason`, user-only in v1.0, appends to ## Reopen History)
+   - `done`/`wontfix` → archive (explicit `/ticket close --archive`, move to `closed-tickets/` directory)
+   - **Status normalization** (dual-status model, port from handoff's `triage.py`): raw statuses from legacy tickets are normalized to canonical statuses. Transitions are evaluated in canonical space only. Unknown raw statuses → fail closed during mutation (block the operation).
+
+   | Raw Status | Canonical Status |
+   |-----------|-----------------|
+   | `planning` | `open` |
+   | `implementing` | `in_progress` |
+   | `complete` | `done` |
+   | `closed` | `done` |
+   | `deferred` | `open` |
 8. **Migration** — see Migration section below.
 9. **Integration** — external consumers read `docs/tickets/*.md` as plain markdown with fenced YAML blocks. No API or import mechanism. Handoff's `/save` can reference ticket IDs in its output. Format uses fenced YAML (`` ```yaml ```) not YAML frontmatter (`---`), consistent with existing tickets and `ticket_parsing.py`.
 10. **Versioning** — `contract_version` in `ticket-meta` footer. Current: `"1.0"`. Compatibility: engine reads all versions; writes latest only.
@@ -429,7 +490,7 @@ All three components (ticket-ops, ticket-triage, ticket-autocreate) reference th
 **Migration path:**
 - New tickets always use v1.0 format
 - Legacy IDs are preserved permanently — never converted to `T-YYYYMMDD-NN`
-- Engine reads all 3 legacy generations (read-only, no write-back on read)
+- Engine reads all 4 legacy generations (read-only, no write-back on read)
 - Updating a legacy ticket converts it to v1.0 format (with user confirmation + diff preview)
 
 **Legacy format read support:**
@@ -438,7 +499,28 @@ All three components (ticket-ops, ticket-triage, ticket-autocreate) reference th
 |-----------|------------|----------------------|---------------|
 | Gen 1 (hand-authored) | Slug (`handoff-chain-viz`) | `plugin`, `related` (flat list), no `source`/`tags`/`effort` | Map `related` → informational only (not directional `blocks`/`blocked_by`). Ignore `plugin`. Missing fields default to empty. |
 | Gen 2 (letter IDs) | `T-[A-F]` | `branch`, `effort: "S (1-2 sessions)"` (free text), sections: Summary/Rationale/Design/Risks | Parse `effort` as free text (no validation). Map Summary → Problem. Other sections preserved as-is. |
-| Gen 3 (numeric IDs) | `T-NNN` | `branch`, sections: Summary/Prerequisites/Findings/Verification/References | Map Summary → Problem, Findings → Prior Investigation. Other sections preserved as-is. |
+| Gen 3 (numeric IDs) | `T-NNN` | `branch`, sections: Summary/Prerequisites/Findings/Verification/References (plus varied per-ticket sections) | Map Summary → Problem, Findings → Prior Investigation. Unrecognized sections preserved verbatim. |
+| Gen 4 (defer output) | `T-YYYYMMDD-NN` | `source_type`, `source_ref`, `provenance` dict, `status: deferred`, sections: Problem/Source/Proposed Approach/Acceptance Criteria | Map `provenance` → `source` (`source_type` → `source.type`, `source_ref` → `source.ref`). Map `status: deferred` → `open`. Map Proposed Approach → Approach. Read-time defaults: `priority: medium`, `source.type: defer`. |
+
+**Section renaming strategy** (3-tier deterministic, applied during conversion):
+
+| Tier | Rule | Examples |
+|------|------|---------|
+| Exact rename | Known section name → v1.0 equivalent | Summary → Problem, Findings → Prior Investigation, Proposed Approach → Approach, Files Affected → Key Files, Files to Create/Modify → Key Files |
+| Near-equivalent | Semantically close → v1.0 section | Scope → Context, Risks → Context |
+| Preserve verbatim | Unrecognized section name | Design Space, Cross-Cutting Issues, P1/P2/P3, Deferred Findings, Execution Plan, Open Questions, Positive Security Assessment — kept as-is with original heading |
+
+**Field defaults for legacy tickets** (applied on read, not written back):
+
+| Missing Field | Default Value | Rationale |
+|--------------|--------------|-----------|
+| `priority` | `medium` | Safe middle ground |
+| `source` | `{type: "legacy", ref: "", session: ""}` | Distinguishes from new tickets |
+| `effort` | (empty) | Cannot be inferred |
+| `tags` | `[]` | Cannot be inferred |
+| `blocked_by` / `blocks` | `[]` | Unless already present (Gen 2/3 have these) |
+
+**Ignored legacy fields:** `plugin` (Gen 1), `branch` (Gen 2/3) — ephemeral metadata, not migrated to v1.0. `branch` info is preserved in git history.
 
 **Conversion on update:** When a user runs `/ticket update` on a legacy ticket:
 1. Engine reads the legacy ticket and maps fields per the table above
@@ -483,6 +565,37 @@ All 7 key outcomes RESOLVED with high confidence. 3 items EMERGED (Architecture 
 - "Decomposition is sound, control flow is not" — the architecture is correct; the pipeline and migration needed fixing
 
 **Unresolved (deferred to implementation):**
-- Whether `triage.py`'s dual-status model (`raw_status` + `canonical_status`) should be adopted
+- ~~Whether `triage.py`'s dual-status model should be adopted~~ → **Resolved:** adopted. See Status Transitions section.
 - `ticket-autocreate` foreground-only constraint has no enforcement mechanism (agents lack native foreground/background distinction)
-- YAML frontmatter vs fenced yaml blocks — resolved in favor of fenced blocks (consistent with existing tickets)
+- ~~YAML frontmatter vs fenced yaml blocks~~ → **Resolved:** fenced blocks (consistent with existing tickets)
+
+### 5-Agent Team Review + Collaborative Codex Dialogue
+
+5-agent team review (architecture, security, migration, UX, enhancement) produced 57 findings: 1 Critical, 10 High, 18 Medium, 11 Low, 17 Enhancement. Followed by a 6-turn collaborative Codex dialogue (thread `019caf51-7725-78f1-9a91-ad1b20e047bd`). 10 RESOLVED, 3 UNRESOLVED, 3 EMERGED.
+
+**Findings applied to this design doc:**
+
+| # | Source | Severity | Finding | Fix Applied |
+|---|--------|----------|---------|-------------|
+| 1 | UX | Critical | `done`/`wontfix` are terminal — no reopen path | Added reopen transitions with `reopen_reason` requirement, user-only in v1.0 |
+| 2 | Security | High | Agent can write `ticket.local.md` to escalate autonomy | Removed `Write` from agent `tools` list |
+| 3 | Arch+Sec | High | `request_origin` derivation mechanism unspecified | Added split entrypoints + honest defense-in-depth framing |
+| 4 | Arch | High | `query`/`list` bypass engine, contradicting core principle | Added `ticket_read.py` shared read module; restated engine principle (mutations only) |
+| 5 | UX | High | `auto_silent` creates files user doesn't know about | Added 6 hard guardrails (cap, summary, opt-in, create-only, fail-closed) |
+| 6 | UX | High | `duplicate_candidate` abort is dead end | Added `merge_into_existing` outcome to machine state table |
+| 7 | Migration | High | Section mapping too narrow — real tickets have unmapped sections | Added 3-tier section renaming, field defaults, Gen 4 support, status normalization |
+
+**Emerged from dialogue:**
+- `ticket_read.py` as shared read module prevents duplication between ticket-ops and ticket-triage
+- Audit trail `changes` field (`frontmatter` diff + `sections_changed`) required for update/close/reopen
+- 4th legacy generation (defer.py output) with distinct field requirements and read-time defaults
+
+**Unresolved (deferred to implementation):**
+- Provider switch mechanism for `/save` → ticket routing during handoff transition
+- Who writes the session-end summary for `auto_silent` — the agent or the skill
+- PreToolUse hook reliability for blocking arbitrary shell command patterns calling the user entrypoint
+
+**Implementation tickets (not design-level):**
+- JSON schemas for all engine I/O (4 subcommands × N machine states)
+- `auto_audit` notification UX flows (confirmation handling, undo path)
+- Detailed `merge_into_existing` UX flows (merge algorithm, field conflict resolution)
