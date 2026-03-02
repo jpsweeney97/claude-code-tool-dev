@@ -2534,6 +2534,7 @@ def _plan_create(
         return EngineResponse(
             state="need_fields",
             message=f"Missing required fields: {', '.join(missing)}",
+            error_code="need_fields",
             data={"missing_fields": missing},
         )
 
@@ -2583,6 +2584,7 @@ def _plan_create(
             state="duplicate_candidate",
             message=f"Potential duplicate of {duplicate_of}",
             ticket_id=duplicate_of,
+            error_code="duplicate_candidate",
             data={
                 "dedup_fingerprint": fp,
                 "target_fingerprint": dup_target_fp,
@@ -2823,6 +2825,58 @@ class TestEnginePreflight:
         )
         assert resp.state == "ok"
         assert "dependencies_overridden" in resp.data["checks_passed"]
+
+    def test_dedup_blocks_without_override(self, tmp_tickets):
+        """Preflight blocks create when duplicate detected and no override."""
+        resp = engine_preflight(
+            ticket_id=None,
+            action="create",
+            session_id="test-session",
+            request_origin="user",
+            classify_confidence=0.95,
+            classify_intent="create",
+            dedup_fingerprint="abc123",
+            target_fingerprint=None,
+            duplicate_of="T-20260302-01",
+            dedup_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "duplicate_candidate"
+        assert resp.error_code == "duplicate_candidate"
+
+    def test_dedup_passes_with_override(self, tmp_tickets):
+        """Preflight allows create when duplicate detected but override=True."""
+        resp = engine_preflight(
+            ticket_id=None,
+            action="create",
+            session_id="test-session",
+            request_origin="user",
+            classify_confidence=0.95,
+            classify_intent="create",
+            dedup_fingerprint="abc123",
+            target_fingerprint=None,
+            duplicate_of="T-20260302-01",
+            dedup_override=True,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok"
+        assert "dedup" in resp.data["checks_passed"]
+
+    def test_confidence_gate_no_policy_blocked_code(self, tmp_tickets):
+        """Confidence gate returns error_code=None, not policy_blocked."""
+        resp = engine_preflight(
+            ticket_id=None,
+            action="create",
+            session_id="test-session",
+            request_origin="user",
+            classify_confidence=0.1,
+            classify_intent="create",
+            dedup_fingerprint=None,
+            target_fingerprint=None,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "preflight_failed"
+        assert resp.error_code is None
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -2888,6 +2942,8 @@ def engine_preflight(
     classify_intent: str,
     dedup_fingerprint: str | None,
     target_fingerprint: str | None,
+    duplicate_of: str | None = None,
+    dedup_override: bool = False,
     dependency_override: bool = False,
     tickets_dir: Path,
 ) -> EngineResponse:
@@ -2913,10 +2969,12 @@ def engine_preflight(
     modifier = _ORIGIN_MODIFIER.get(request_origin, 0.0)
     threshold = _T_BASE + modifier
     if classify_confidence < threshold:
+        # error_code=None: the 11-code table has no confidence-specific code.
+        # policy_blocked is reserved for autonomy enforcement (design doc line 593).
+        # A confidence-specific code may be added post-v1.0.
         return EngineResponse(
             state="preflight_failed",
             message=f"Low confidence classification: {classify_confidence:.2f} (threshold: {threshold:.2f}). Rephrase or specify the operation.",
-            error_code="policy_blocked",
             data={"checks_passed": checks_passed, "checks_failed": [{"check": "confidence", "reason": f"below threshold {threshold}"}]},
         )
     checks_passed.append("confidence")
@@ -2942,6 +3000,20 @@ def engine_preflight(
             data={"checks_passed": checks_passed, "checks_failed": [{"check": "agent_phase1_block", "reason": "Phase 1 fail-closed policy"}]},
         )
     checks_passed.append("autonomy_policy")
+
+    # --- Dedup enforcement (create action) ---
+    # Plan stage returns duplicate_of when a match is found. Preflight enforces
+    # the dedup decision: if a duplicate was detected and the caller hasn't
+    # overridden, block the operation. Without this check, dedup is advisory only.
+    if action == "create" and duplicate_of and not dedup_override:
+        return EngineResponse(
+            state="duplicate_candidate",
+            message=f"Duplicate of {duplicate_of} detected in plan stage. Pass dedup_override=True to proceed.",
+            error_code="duplicate_candidate",
+            data={"checks_passed": checks_passed, "checks_failed": [{"check": "dedup", "reason": f"duplicate_of={duplicate_of}"}]},
+        )
+    if action == "create":
+        checks_passed.append("dedup")
 
     # --- Ticket ID required for non-create ---
     if action != "create" and not ticket_id:
@@ -3279,6 +3351,155 @@ class TestEngineExecute:
         )
         assert resp.state == "policy_blocked"
         assert "agent" in resp.message.lower() or "override" in resp.message.lower()
+
+    def test_close_terminal_ticket_rejected(self, tmp_tickets):
+        """Closing an already-done ticket is invalid — must reopen first."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-done.md", id="T-20260302-01", status="done")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "wontfix"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+        assert resp.error_code == "invalid_transition"
+
+    def test_close_wontfix_to_done_rejected(self, tmp_tickets):
+        """wontfix → done via close is invalid — terminal state."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-wf.md", id="T-20260302-01", status="wontfix")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+
+    def test_close_checks_acceptance_criteria(self, tmp_tickets):
+        """Close to 'done' from in_progress requires acceptance criteria."""
+        from tests.conftest import make_ticket
+
+        # Create ticket with empty acceptance criteria section.
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+        assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
+
+    def test_update_preserves_full_field_order(self, tmp_tickets):
+        """Verify all canonical field positions, not just id < status."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open",
+                     priority="medium", effort="S")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"tags": ["bug"]},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
+        id_pos = content.index("id:")
+        status_pos = content.index("status:")
+        priority_pos = content.index("priority:")
+        effort_pos = content.index("effort:")
+        tags_pos = content.index("tags:")
+        assert id_pos < status_pos < priority_pos < effort_pos < tags_pos
+
+    def test_canonical_renderer_none_skipped(self, tmp_tickets):
+        """Fields set to None are omitted, not rendered as 'key: None'."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"effort": None},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
+        assert "effort: None" not in content
+
+    def test_canonical_renderer_list_format(self, tmp_tickets):
+        """Lists render as YAML flow sequences, not Python repr."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"tags": ["bug", "urgent"]},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
+        # Should be YAML flow format, not Python repr with single quotes.
+        assert "tags: [bug, urgent]" in content
+        assert "['bug'" not in content
+
+    def test_error_code_on_all_error_returns(self, tmp_tickets):
+        """All error EngineResponse returns include error_code."""
+        # Test update need_fields.
+        resp = engine_execute(
+            action="update",
+            ticket_id=None,
+            fields={},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "need_fields"
+        assert resp.error_code == "need_fields"
+
+        # Test update not_found.
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-99999999-99",
+            fields={},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "not_found"
+        assert resp.error_code == "not_found"
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -3297,7 +3518,8 @@ from scripts.ticket_render import render_ticket
 from scripts.ticket_parse import parse_ticket as _parse_ticket, extract_fenced_yaml, parse_yaml_block
 
 # Canonical field order for YAML frontmatter rendering.
-# Only these fields are written — unknown keys are dropped.
+# Known fields are written in this order. Unknown keys are preserved at the end
+# (forward-compatible: "ignored" means "not processed", not "destroyed on rewrite").
 _CANONICAL_FIELD_ORDER = [
     "id", "date", "status", "priority", "effort",
     "source", "tags", "blocked_by", "blocks",
@@ -3319,6 +3541,10 @@ def _render_canonical_frontmatter(data: dict[str, Any]) -> str:
         if key not in data:
             continue
         value = data[key]
+        # None guard: skip fields explicitly set to None rather than
+        # rendering "key: None" (Python str) which YAML reads as string "None".
+        if value is None:
+            continue
         if key == "date":
             # Always quote dates to prevent PyYAML auto-conversion.
             lines.append(f'{key}: "{value}"')
@@ -3329,13 +3555,25 @@ def _render_canonical_frontmatter(data: dict[str, Any]) -> str:
         elif key == "contract_version":
             lines.append(f'{key}: "{value}"')
         elif isinstance(value, list):
-            lines.append(f"{key}: {value}")
+            # Render lists as YAML flow sequences with proper quoting.
+            # Python repr uses single quotes; YAML requires brackets with no quotes
+            # for simple strings, or double quotes for strings with special chars.
+            items = ", ".join(str(item) for item in value)
+            lines.append(f"{key}: [{items}]")
         elif isinstance(value, bool):
             lines.append(f"{key}: {'true' if value else 'false'}")
         elif isinstance(value, str):
             lines.append(f"{key}: {value}")
         else:
             lines.append(f"{key}: {value}")
+    # Preserve unknown keys (forward-compat: "ignored" means "not processed",
+    # not "destroyed on rewrite"). Appended after canonical fields.
+    known_keys = set(_CANONICAL_FIELD_ORDER) | {"defer"}
+    for key in data:
+        if key not in known_keys:
+            value = data[key]
+            if value is not None:
+                lines.append(f"{key}: {value}")
     # Include defer if present (optional field, not in canonical order).
     if "defer" in data and data["defer"] is not None:
         defer = data["defer"]
@@ -3373,7 +3611,10 @@ _TRANSITION_PRECONDITIONS: dict[tuple[str, str], str] = {
 def _is_valid_transition(current: str, target: str, action: str) -> bool:
     """Check if a status transition is valid per the contract."""
     # Close can set done or wontfix from any non-terminal status.
+    # Terminal statuses (done/wontfix) cannot be closed again — must reopen first.
     if action == "close":
+        if current in _TERMINAL_STATUSES:
+            return False
         return target in ("done", "wontfix")
     # Reopen: done/wontfix → open.
     if action == "reopen":
@@ -3384,16 +3625,25 @@ def _is_valid_transition(current: str, target: str, action: str) -> bool:
 
 
 def _check_transition_preconditions(
-    current: str, target: str, ticket: Any, tickets_dir: Path
+    current: str, target: str, ticket: Any, tickets_dir: Path,
+    fields: dict[str, Any] | None = None,
 ) -> str | None:
-    """Check transition preconditions. Returns error message or None if OK."""
+    """Check transition preconditions. Returns error message or None if OK.
+
+    Uses merged state: fields (pending update) take precedence over ticket
+    (pre-update) for fields that are being changed in this operation.
+    """
     key = (current, target)
     precondition = _TRANSITION_PRECONDITIONS.get(key)
     if precondition is None:
         return None
 
+    _fields = fields or {}
+
     if precondition == "blocked_by_required":
-        if not ticket.blocked_by:
+        # Use merged blocked_by: pending fields override pre-update ticket state.
+        blocked_by = _fields.get("blocked_by", ticket.blocked_by)
+        if not blocked_by:
             return f"Transition to 'blocked' requires non-empty blocked_by"
         return None
 
@@ -3440,6 +3690,7 @@ def engine_execute(
         return EngineResponse(
             state="policy_blocked",
             message="Agent callers cannot use dedup_override or dependency_override",
+            error_code="policy_blocked",
         )
 
     if action == "create":
@@ -3454,6 +3705,7 @@ def engine_execute(
         return EngineResponse(
             state="escalate",
             message=f"Unknown action: {action!r}",
+            error_code="intent_mismatch",
         )
 
 
@@ -3529,13 +3781,13 @@ def _execute_update(
 ) -> EngineResponse:
     """Update an existing ticket's frontmatter fields."""
     if not ticket_id:
-        return EngineResponse(state="need_fields", message="ticket_id required for update")
+        return EngineResponse(state="need_fields", message="ticket_id required for update", error_code="need_fields")
 
     from scripts.ticket_read import find_ticket_by_id
 
     ticket = find_ticket_by_id(tickets_dir, ticket_id)
     if ticket is None:
-        return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id)
+        return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
 
     ticket_path = Path(ticket.path)
     text = ticket_path.read_text(encoding="utf-8")
@@ -3551,9 +3803,9 @@ def _execute_update(
                 ticket_id=ticket_id,
                 error_code="invalid_transition",
             )
-        # Check transition preconditions.
+        # Check transition preconditions (pass fields for merged state).
         precondition_error = _check_transition_preconditions(
-            ticket.status, new_status, ticket, tickets_dir,
+            ticket.status, new_status, ticket, tickets_dir, fields=fields,
         )
         if precondition_error:
             return EngineResponse(
@@ -3629,7 +3881,20 @@ def _execute_close(
     if not _is_valid_transition(ticket.status, resolution, "close"):
         return EngineResponse(
             state="invalid_transition",
-            message=f"Cannot close with resolution {resolution!r} (must be 'done' or 'wontfix')",
+            message=f"Cannot close with resolution {resolution!r} (must be 'done' or 'wontfix')"
+            + (f" from terminal status {ticket.status!r}" if ticket.status in _TERMINAL_STATUSES else ""),
+            ticket_id=ticket_id,
+            error_code="invalid_transition",
+        )
+
+    # Check transition preconditions (e.g., acceptance criteria for → done).
+    precondition_error = _check_transition_preconditions(
+        ticket.status, resolution, ticket, tickets_dir, fields=fields,
+    )
+    if precondition_error:
+        return EngineResponse(
+            state="invalid_transition",
+            message=precondition_error,
             ticket_id=ticket_id,
             error_code="invalid_transition",
         )
@@ -3648,6 +3913,8 @@ def _execute_close(
     old_status = data.get("status", "")
     data["status"] = resolution
     new_yaml = _render_canonical_frontmatter(data)
+    import re
+
     new_text = re.sub(
         r"^```ya?ml\s*\n.*?^```",
         f"```yaml\n{new_yaml}```",
@@ -3689,17 +3956,17 @@ def _execute_reopen(
 ) -> EngineResponse:
     """Reopen a done/wontfix ticket."""
     if not ticket_id:
-        return EngineResponse(state="need_fields", message="ticket_id required for reopen")
+        return EngineResponse(state="need_fields", message="ticket_id required for reopen", error_code="need_fields")
 
     reopen_reason = fields.get("reopen_reason", "")
     if not reopen_reason:
-        return EngineResponse(state="need_fields", message="reopen_reason required for reopen")
+        return EngineResponse(state="need_fields", message="reopen_reason required for reopen", error_code="need_fields")
 
     from scripts.ticket_read import find_ticket_by_id
 
     ticket = find_ticket_by_id(tickets_dir, ticket_id)
     if ticket is None:
-        return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id)
+        return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
 
     if not _is_valid_transition(ticket.status, "open", "reopen"):
         return EngineResponse(
@@ -3967,6 +4234,7 @@ def main() -> None:
         resp = EngineResponse(
             state="escalate",
             message=f"origin_mismatch: entrypoint={REQUEST_ORIGIN}, hook={hook_origin}",
+            error_code="origin_mismatch",
         )
         print(resp.to_json())
         sys.exit(1)
@@ -3975,7 +4243,13 @@ def main() -> None:
 
     resp = _dispatch(subcommand, payload, tickets_dir)
     print(resp.to_json())
-    sys.exit(0 if resp.state in ("ok", "ok_create", "ok_update", "ok_close", "ok_close_archived", "ok_reopen") else 1)
+    # Exit codes: 0=success, 1=engine error, 2=validation failure (need_fields).
+    if resp.state in ("ok", "ok_create", "ok_update", "ok_close", "ok_close_archived", "ok_reopen"):
+        sys.exit(0)
+    elif resp.error_code == "need_fields":
+        sys.exit(2)
+    else:
+        sys.exit(1)
 
 
 def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineResponse:
@@ -4004,6 +4278,8 @@ def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineRespon
             classify_intent=payload.get("classify_intent", ""),
             dedup_fingerprint=payload.get("dedup_fingerprint"),
             target_fingerprint=payload.get("target_fingerprint"),
+            duplicate_of=payload.get("duplicate_of"),
+            dedup_override=payload.get("dedup_override", False),
             tickets_dir=tickets_dir,
         )
     elif subcommand == "execute":
@@ -4018,7 +4294,7 @@ def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineRespon
             tickets_dir=tickets_dir,
         )
     else:
-        return EngineResponse(state="escalate", message=f"Unknown subcommand: {subcommand!r}")
+        return EngineResponse(state="escalate", message=f"Unknown subcommand: {subcommand!r}", error_code="intent_mismatch")
 
 
 if __name__ == "__main__":
@@ -4077,6 +4353,7 @@ def main() -> None:
         resp = EngineResponse(
             state="escalate",
             message=f"origin_mismatch: entrypoint={REQUEST_ORIGIN}, hook={hook_origin}",
+            error_code="origin_mismatch",
         )
         print(resp.to_json())
         sys.exit(1)
@@ -4085,7 +4362,13 @@ def main() -> None:
 
     resp = _dispatch(subcommand, payload, tickets_dir)
     print(resp.to_json())
-    sys.exit(0 if resp.state in ("ok", "ok_create", "ok_update", "ok_close", "ok_close_archived", "ok_reopen") else 1)
+    # Exit codes: 0=success, 1=engine error, 2=validation failure (need_fields).
+    if resp.state in ("ok", "ok_create", "ok_update", "ok_close", "ok_close_archived", "ok_reopen"):
+        sys.exit(0)
+    elif resp.error_code == "need_fields":
+        sys.exit(2)
+    else:
+        sys.exit(1)
 
 
 def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineResponse:
@@ -4114,6 +4397,8 @@ def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineRespon
             classify_intent=payload.get("classify_intent", ""),
             dedup_fingerprint=payload.get("dedup_fingerprint"),
             target_fingerprint=payload.get("target_fingerprint"),
+            duplicate_of=payload.get("duplicate_of"),
+            dedup_override=payload.get("dedup_override", False),
             tickets_dir=tickets_dir,
         )
     elif subcommand == "execute":
@@ -4128,7 +4413,7 @@ def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineRespon
             tickets_dir=tickets_dir,
         )
     else:
-        return EngineResponse(state="escalate", message=f"Unknown subcommand: {subcommand!r}")
+        return EngineResponse(state="escalate", message=f"Unknown subcommand: {subcommand!r}", error_code="intent_mismatch")
 
 
 if __name__ == "__main__":
@@ -4566,13 +4851,13 @@ integration tests, migration golden tests.
 | 7 | ticket_dedup.py | ~12 | normalize(), dedup fingerprint, TOCTOU fingerprint |
 | 8 | engine_classify | ~8 | Intent validation, origin check |
 | 9 | engine_plan | ~5 | Field validation, dedup detection |
-| 10 | engine_preflight | ~12 | Fail-closed agent, confidence, fingerprint, dependency_override |
-| 11 | engine_execute | ~13 | Create, update, close (direct), archive, reopen, transitions |
-| 12 | Entrypoints | ~5 | User + agent wrappers, subprocess tests |
+| 10 | engine_preflight | ~15 | Fail-closed agent, confidence, fingerprint, dependency_override, dedup enforcement |
+| 11 | engine_execute | ~21 | Create, update, close (direct+terminal guard), archive, reopen, transitions, preconditions, canonical renderer |
+| 12 | Entrypoints | ~5 | User + agent wrappers, exit codes 0/1/2, subprocess tests |
 | 13 | Integration | ~4 | Full pipeline end-to-end |
 | 14 | Migration | ~5 | Golden tests for 4 legacy generations + default paths |
 | 15 | Final | — | Full suite run, cleanup |
 
-**Total:** ~117 tests across 7 test files
+**Total:** ~128 tests across 7 test files
 
 **Phase 2 next:** ticket-ops skill + ticket-triage skill (+ `ticket_triage.py`) + PreToolUse hook + audit trail + autonomy mode enforcement (replacing Phase 1 hard-block)
