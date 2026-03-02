@@ -6,7 +6,7 @@
 
 ## Problem
 
-The reviewing-designs skill is a 470-line compliance checker that verifies designs against source documents using 19 dimensions, Yield% convergence, and evidence levels. It works — D4 produced more P0s than adversarial lenses in both completed reviews, and the brainstorming-skills review found 10 P0s in 4 passes.
+The reviewing-designs skill is a 470-line compliance checker that verifies designs against source documents using 19 dimensions, Yield% convergence, and evidence levels. It works — D4 produced more P0s by count than the adversarial lenses in both completed reviews (ticket plugin: 3 D4 P0s vs. 2 adversarial-escalated P0s; context metrics: 1 D4 P0), and the brainstorming-skills review found 10 P0s in 4 passes.
 
 But it's incomplete and mis-framed. Four concerns it should address but doesn't:
 
@@ -86,53 +86,86 @@ Runs after Entry Gate, before DISCOVER. Five concrete questions that surface fra
 | Q4 | Where is complexity underestimated? What looks simple but isn't? | Hidden state spaces, edge case surfaces, interaction effects |
 | Q5 | What single assumption, if wrong, would invalidate the whole design? | Load-bearing assumptions, fragile dependencies |
 
-**Output:** 3-5 hypotheses (H1, H2, ...), each a testable claim about a potential design weakness.
+**Output:** Hypotheses (H1, H2, ...), each a testable claim about a potential design weakness. Count is deterministic per stakes level.
 
 **Stakes gating:**
 
-| Stakes | Gate |
-|--------|------|
-| Adequate | AHG-lite: Q1, Q3, Q5 only. Minimum 2 hypotheses. |
-| Rigorous | Full AHG-5: all 5 questions. Minimum 3 hypotheses. |
-| Exhaustive | Full AHG-5: all 5 questions. Minimum 4 hypotheses. |
+| Stakes | Questions | Hypothesis count | Bridge H-rows |
+|--------|-----------|-----------------|---------------|
+| Adequate | AHG-lite: Q1, Q3, Q5 only | Exactly 2 | H1-H2 + ALT1-ALT2 = 4 rows |
+| Rigorous | Full AHG-5: all 5 questions | Exactly 3 | H1-H3 + ALT1-ALT2 = 5 rows |
+| Exhaustive | Full AHG-5: all 5 questions | Exactly 4 | H1-H4 + ALT1-ALT2 = 6 rows |
 
 No skip path — a skip recreates the N/A rationalization anti-pattern.
 
-**Hard fail rules:**
+**Hard fail rules** (scoped to each *run* question, not all 5):
 
-- Each question produces a hypothesis OR an explicit "no finding" with one-sentence justification
+- Each run question produces a hypothesis OR an explicit "no finding" with one-sentence justification
 - Q3 must name specific mechanisms, not categories
 - Q5 must identify one assumption and state what breaks if it's wrong
-- All 5 questions producing "no finding" → flag: "Early gate produced zero hypotheses. Verify genuine engagement before proceeding."
+- All run questions producing "no finding" → flag: "Early gate produced zero hypotheses. Verify genuine engagement before proceeding."
+
+**Overflow:** If more hypotheses emerge than the stakes-level count, rank by impact × plausibility × testability. Top N become bridge rows; remainder go in a "deferred hypotheses" footnote (not bridge-tracked, but preserved for reference).
 
 ### 2. Bridge Table
 
 Carries early-gate hypotheses into the dimensional loop. Prevents "generate-then-forget."
 
-**Format:**
+**Hypothesis row schema:**
 
-| ID | Hypothesis | Target Dimensions | Status | Disposition |
-|----|-----------|-------------------|--------|-------------|
-| H1-H3 | From early gate | D-codes and/or A-codes | open → tested/disconfirmed | Finding IDs or disconfirmation evidence |
+| ID | Hypothesis | Target Dimensions | Anchor | Status | Disposition |
+|----|-----------|-------------------|--------|--------|-------------|
+| H1-H*N* | From early gate (*N* = stakes-level count: 2/3/4) | D-codes and/or A-codes | Design location (section, line range, or structural element) | open/tested/disconfirmed/withdrawn | Finding IDs, disconfirmation evidence, or withdrawal rationale |
 
-| ID | Alternative | Status | Disposition |
-|----|------------|--------|-------------|
-| ALT1-ALT2 | From early gate Q2 | open → evaluated | Dominance check result |
+**Alternative row schema:**
+
+| ID | Alternative | Anchor | Status | Disposition |
+|----|------------|--------|--------|-------------|
+| ALT1-ALT2 | From early gate Q2 | Design location | open/evaluated/withdrawn | Dominance check result or withdrawal rationale |
+
+**Anchor field:** Two-level evidence chain. At creation (early gate): design-level citation (e.g., "Section 3.2, decision rules"). At resolution (EXPLORE/VERIFY): code-level citation added to disposition (e.g., "confirmed — D4 found 3 missing thresholds at lines 301, 505, 309"). AHG-5 hypotheses are framing-level claims — they don't need code citations at creation time.
+
+**Status values:**
+
+| Status | Meaning | Required disposition |
+|--------|---------|---------------------|
+| `open` | Not yet checked | — |
+| `tested` | Target dimension checked, hypothesis confirmed | Finding ID + evidence |
+| `disconfirmed` | Target dimension checked, hypothesis not supported | Counter-evidence + rationale |
+| `evaluated` | ALT row: dominance check completed | Check result + rationale |
+| `withdrawn` | Hypothesis no longer applicable | Rationale citing why premise no longer applies |
+
+**Disposition invariant:** Every non-`open` row must include: (1) disposition text, (2) evidence or rationale, (3) audit entry (when/checkpoint + why + prior status). Rows without evidence-backed dispositions create false convergence — the invariant makes this structurally impossible.
 
 **Lifecycle:**
 
 - Rows added after early gate with status `open`
-- Status → `tested` when target dimension is checked in EXPLORE or adversarial pass
-- Disposition records what was found: confirmed (with finding ID), disconfirmed (with evidence)
+- Status transitions via bridge operations (see below)
 - At Exit Gate: no `open` rows allowed
 
-**Size constraint:** Maximum 3 hypothesis rows + 2 alternative rows. Overflow → "deferred hypotheses" footnote (not bridge-tracked).
+**Bridge operations** (available at checkpoints):
 
-**Alternatives dominance check:**
+| Operation | When | Effect |
+|-----------|------|--------|
+| ADD | Checkpoints 1-2 | New hypothesis from user input or dimensional findings |
+| REVISE | Checkpoints 1-2 | Update hypothesis text or retarget dimensions (audit: record old → new) |
+| WITHDRAW | Checkpoints 1-3 | Remove hypothesis with rationale (e.g., N/A target, premise invalidated) |
+| REOPEN | Checkpoint 3 only | Reopen a tested/disconfirmed row if new evidence contradicts disposition. Triggers another loop pass. |
+
+Checkpoint 1: full operations (ADD/REVISE/WITHDRAW) — user can correct hypotheses based on context the reviewer missed.
+Checkpoint 2: full operations — dimensional findings may invalidate or strengthen hypotheses.
+Checkpoint 3: REOPEN only — if adversarial pass contradicts a prior disposition, the row reopens and forces another pass.
+
+**N/A dimension targeting:** If a hypothesis targets a dimension that gets marked N/A, retarget once to the nearest applicable dimension. If no applicable dimension exists, WITHDRAW with rationale citing why the hypothesis premise no longer applies.
+
+**Size constraint:** Determined by stakes level (see AHG-5 stakes gating table). Overflow hypotheses ranked by impact × plausibility × testability → deferred hypotheses footnote (not bridge-tracked).
+
+**Alternatives dominance check** (at checkpoint 2, optional re-check at checkpoint 3):
 
 - "Does this alternative strictly dominate the design on the user's stated criteria?"
-- Clearly not dominant → "not dominant — {reason}" → done
-- Possibly dominant → "unresolved — escalate to /making-recommendations" → done
+- Clearly not dominant → "not dominant — {reason}" → `evaluated`
+- Possibly dominant → "unresolved — escalate to /making-recommendations" → `evaluated`
+- Clearly dominant → P0 finding: "Alternative ALT-N dominates current design on {criteria}" → `evaluated`
 
 Reviewing-designs identifies the question; making-recommendations answers it.
 
@@ -144,29 +177,50 @@ Three delta cards in chat at natural breakpoints. The conversation is the primar
 
 | # | When | Card contents | User can... |
 |---|------|--------------|-------------|
-| 1 | After early gate | Hypotheses + alternatives. "Do any surprise you? Anything I'm missing?" | Add context, redirect, confirm |
-| 2 | After loop convergence | Bridge dispositions + new findings. Running P0/P1/P2 totals. | Redirect attention, ask to dig deeper |
-| 3 | After adversarial pass | Final bridge table + adversarial findings. Overall assessment. | — |
+| 1 | After early gate | Hypotheses + alternatives + bridge table. | Add context, ADD/REVISE/WITHDRAW bridge rows, confirm |
+| 2 | After loop convergence | Bridge dispositions + new findings beyond hypotheses. Running P0/P1/P2 totals. ALT dominance check results. | Redirect attention, ADD/REVISE/WITHDRAW bridge rows, ask to dig deeper |
+| 3 | After adversarial pass | Final bridge table + adversarial findings (bridge-mapped and NET-NEW). Overall assessment. | Informational closeout. REOPEN only if adversarial findings contradict a disposition. |
 
 Checkpoints are invitations, not gates. If the user says nothing, the review proceeds.
 
-**Delta card format (example — checkpoint 2):**
+**Adversarial pass / AHG-5 overlap:** Adversarial lenses A1 (Assumption Hunting), A6 (Steelman Alternatives), A7 (Challenge the Framing), and A8 (Hidden Complexity) overlap with AHG-5 questions. To prevent duplicate findings without restricting adversarial discovery:
+- Adversarial pass evaluates mapped bridge rows first (e.g., A1 checks H5 before generating new assumption findings)
+- Findings that extend or confirm bridge hypotheses link to the existing H-code
+- Genuinely new findings (not traceable to any bridge row) are marked **NET-NEW** with a one-sentence justification of why the early gate didn't catch them
+
+**Delta card schema** (shared across all 3 checkpoints):
+
+| Field | Content |
+|-------|---------|
+| **Checkpoint** | Which checkpoint (1/2/3) + context (e.g., "Dimensional loop converged, 3 passes, Yield% 9%") |
+| **What changed** | Summary of work since last card |
+| **Bridge updates** | Status changes on H-rows and ALT-rows with dispositions |
+| **Net-new findings** | Findings not traceable to bridge hypotheses, with dimension links |
+| **Current totals** | Running P0/P1/P2 counts |
+| **Reviewer ask** | Specific question or "proceed?" (checkpoint 3: informational, no ask) |
+
+**Example (checkpoint 2):**
 
 ```
 **Checkpoint 2: Dimensional loop converged** (3 passes, Yield% 9%)
 
-Bridge dispositions:
-- H3 (decision-points underspecified) → CONFIRMED: 3 P0 instances (classify threshold, preflight state, create autonomy stage)
-- H5 (session_id load-bearing) → CONFIRMED: P0 — delivery mechanism is fragile
+What changed: EXPLORE checked D4-D19 across 3 passes. Yield% dropped from 30% (pass 2) to 9% (pass 3).
 
-New findings beyond hypotheses:
+Bridge updates:
+- H3 (decision-points underspecified) → TESTED/CONFIRMED: 3 P0 instances (classify threshold, preflight state, create autonomy stage) [D4]
+- H5 (session_id load-bearing) → TESTED/CONFIRMED: P0 — delivery mechanism fragile [D9, Anchor: §4.3 session_id delivery]
+- ALT1 (Architecture F) → EVALUATED: not dominant — lacks autonomy enforcement for agent-initiated creates
+
+Net-new findings:
 - P0-4: Error codes vs machine states mismatch [D12]
 - P0-6: Example ticket missing contract_version [D15]
 
-Running totals: P0: 6 | P1: 10 | P2: 4
+Current totals: P0: 6 | P1: 10 | P2: 4
 
-Anything you want me to dig deeper on before the adversarial pass?
+Anything to dig deeper on before the adversarial pass?
 ```
+
+**Artifact assembly:** The artifact (`docs/audits/...`) compiles all 3 delta cards in checkpoint order, followed by the full coverage tracker and iteration log. The delta cards become the Findings section of the artifact. This is deterministic — no additional synthesis step needed.
 
 **Output contract change:**
 
@@ -187,9 +241,9 @@ Artifact format unchanged — same sections, same structure. Delivery order chan
 | Stakes calibration (5-factor table, default Rigorous) | Unchanged |
 | Adversarial pass (A1-A9, mandatory after loop) | Unchanged |
 | Entry Gate | Unchanged |
-| Exit Gate | +1 criterion: bridge table complete |
+| Exit Gate | +1 criterion: bridge table complete (no `open` rows; all non-open rows satisfy disposition invariant) |
 | Priority downgrade rules | Unchanged |
-| Stable entity IDs for Yield% | Unchanged |
+| Stable entity IDs for Yield% | Unchanged. H-codes are scaffolding — not Yield-tracked entities. Only D-codes and F-codes enter E_prev/E_cur. Bridge completion is an independent exit criterion. |
 | Disconfirmation requirements | Unchanged |
 | Dimension applicability rules (D12-D19 mandatory) | Unchanged |
 | Artifact location (`docs/audits/...`) | Unchanged |
@@ -205,9 +259,9 @@ Artifact format unchanged — same sections, same structure. Delivery order chan
 
 ## Implementation Notes
 
-**Estimated SKILL.md impact:** +60-80 lines (early gate ~25, bridge table ~20, delta cards ~20, Exit Gate criterion +1). Current: 470 lines. Projected: 530-550 lines (within 500-line soft target with reference overflow).
+**Estimated SKILL.md impact:** +95-130 lines (early gate ~25, bridge table ~45 (schema + lifecycle + operations + invariant), delta cards ~25 (schema + assembly), adversarial overlap ~10, Exit Gate ~5). Current: 470 lines. Projected: 565-600 lines. Option: move bridge operations and delta card schema to a reference doc to hold SKILL.md near 530-550 lines.
 
-**Reference file changes:** None expected. The early gate and bridge table are SKILL.md content, not reference material.
+**Reference file changes:** Likely needed — bridge operations detail and delta card schema may overflow SKILL.md's soft line target. Candidate: `references/bridge-and-checkpoints.md`.
 
 **What to change in SKILL.md:**
 1. Insert AHG-5 section between Entry Gate and "The Review Loop"
