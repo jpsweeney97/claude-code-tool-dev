@@ -4,11 +4,13 @@
 
 **Goal:** Fix 1 bug (shell metacharacters) and implement 5 deferred items (brew upgrade enforcement, Brewfile lint guard, ANSI stripping, dotfile write enforcement, uv tool deny rules) from the environment awareness plan.
 
-**Architecture:** All changes are hook-layer enforcement. Tasks A+B modify the existing `mise-tool-guidance.py` PreToolUse hook. Task C modifies a SessionStart shell script. Task D creates a new PreToolUse hook for Edit/Write/MultiEdit. Task E adds settings.json deny rules. No tests framework — hooks are tested via stdin pipe commands.
+**Architecture:** All changes are hook-layer enforcement. Tasks A+B modify the existing `mise-tool-guidance.py` PreToolUse hook. Task C modifies a SessionStart shell script. Task D creates a new PreToolUse hook for Edit/Write. Task E adds settings.json deny rules. No tests framework — hooks are tested via stdin pipe commands.
 
 **Tech Stack:** Python 3 (hooks), Bash (shell script), JSON (settings.json)
 
 **Codex review:** Adversarial dialogue (6 turns, converged). Thread `019cacbc-ecb7-7d70-9115-0e89d931bf3a`. 5 findings applied to this plan.
+
+**Evaluative review:** Deep-review dialogue (5 turns, converged). Thread `019cace2-cff6-7c42-9dfe-09e3c365cc0c`. 1 valid ship-blocker (pipx/cargo/go flag parsing), 5 should-fixes, 1 false positive (infra_tools scoping — variable is in scope, but promoted to module-level constant as cleanup). All findings applied below.
 
 ---
 
@@ -28,7 +30,13 @@ The file has these sections (preserve all):
 - `emit_guidance()` (lines 52-65)
 - `main()` (lines 68-185)
 
-**Step 2: Add `normalize_package_name()` helper**
+**Step 2: Add module-level constants and helpers**
+
+Add `INFRA_TOOLS` after `EXCEPTIONS` (line 33):
+
+```python
+INFRA_TOOLS = {"stow", "mise"}
+```
 
 Add after `emit_guidance()`, before `main()`:
 
@@ -38,6 +46,36 @@ def normalize_package_name(raw: str) -> str:
     if raw.startswith("-"):
         return ""
     return raw.split("/")[-1].split("@")[0]
+
+
+# Flags known to consume the next token as a value argument.
+# Incomplete — covers common flags for guardrail scope.
+_VALUE_FLAGS: dict[str, set[str]] = {
+    "pipx": {"--python", "--pip-args", "--preinstall", "--suffix"},
+    "cargo": {"--version", "--target", "--target-dir", "--root", "--path",
+              "--git", "--branch", "--tag", "--rev", "--registry", "--index",
+              "--jobs", "-j", "--profile"},
+    "go": set(),
+}
+
+
+def extract_install_target(tokens: list[str], installer: str) -> str:
+    """Extract the first positional argument from install command tokens.
+
+    Skips flags and their values. Returns empty string if no positional found.
+    """
+    value_flags = _VALUE_FLAGS.get(installer, set())
+    skip_next = False
+    for token in tokens:
+        if skip_next:
+            skip_next = False
+            continue
+        if token.startswith("-"):
+            if "=" not in token and token in value_flags:
+                skip_next = True
+            continue
+        return token
+    return ""
 ```
 
 **Step 3: Add shell metacharacter stripping**
@@ -76,9 +114,11 @@ With:
             ]
 ```
 
-**Step 5: Fix pipx/cargo/go regex to skip flags before capture**
+**Step 5: Replace pipx/cargo/go regex and loop with token-based parsing**
 
-Find the install_patterns list (lines 148-152). Replace:
+The original regex approach `(?:-\S+\s+)*(\S+)` fails for flags with space-separated values (e.g., `cargo install --version 1.0 ripgrep` captures `1.0` instead of `ripgrep`). Replace with detection-only regex + `extract_install_target()` helper (defined in Step 2).
+
+Find the install_patterns list and the for-loop that follows (lines 148-175). Replace the entire block:
 
 ```python
         install_patterns = [
@@ -86,34 +126,71 @@ Find the install_patterns list (lines 148-152). Replace:
             (r"cargo\s+install\s+(\S+)", "cargo"),
             (r"go\s+install\s+(\S+)", "go"),
         ]
+
+        for pattern, installer in install_patterns:
+            match = re.search(pattern, command)
+            if match:
+                tool_name = match.group(1).split("/")[-1].split("@")[0]
+
+                if tool_name in EXCEPTIONS:
+                    continue
+
+                if tool_name in mise_managed:
+                    print(
+                        f"'{tool_name}' is managed by mise. "
+                        f"Run `mise install` instead of `{installer} install`.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(2)
+                else:
+                    emit_guidance(
+                        f"Note: Consider adding '{tool_name}' to "
+                        f"~/.config/mise/config.toml if this is a dev tool "
+                        f"you'll use across projects."
+                    )
+                    sys.exit(0)
 ```
 
 With:
 
 ```python
+        # Detection-only regex — no capture group for tool name.
+        # Tool name extraction is handled by extract_install_target() which
+        # correctly skips flags with space-separated values (--version 1.0, etc.)
         install_patterns = [
-            (r"pipx\s+install\s+(?:-\S+\s+)*(\S+)", "pipx"),
-            (r"cargo\s+install\s+(?:-\S+\s+)*(\S+)", "cargo"),
-            (r"go\s+install\s+(?:-\S+\s+)*(\S+)", "go"),
+            (r"pipx\s+install\b", "pipx"),
+            (r"cargo\s+install\b", "cargo"),
+            (r"go\s+install\b", "go"),
         ]
-```
 
-The `(?:-\S+\s+)*` skips flags like `--force`, `--locked`, `-v` before capturing the actual tool name.
-
-**Step 6: Replace inline normalization in pipx/cargo/go section with helper**
-
-Find (line 155):
-
-```python
-                tool_name = match.group(1).split("/")[-1].split("@")[0]
-```
-
-Replace with:
-
-```python
-                tool_name = normalize_package_name(match.group(1))
+        for pattern, installer in install_patterns:
+            match = re.search(pattern, command)
+            if match:
+                args_str = command[match.end():]
+                # Strip shell metacharacters (same as brew section)
+                args_str = re.split(r'[;&|<>()]', args_str)[0]
+                tool_name = extract_install_target(args_str.split(), installer)
+                tool_name = normalize_package_name(tool_name)
                 if not tool_name:
                     continue
+
+                if tool_name in EXCEPTIONS:
+                    continue
+
+                if tool_name in mise_managed:
+                    print(
+                        f"'{tool_name}' is managed by mise. "
+                        f"Run `mise install` instead of `{installer} install`.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(2)
+                else:
+                    emit_guidance(
+                        f"Note: Consider adding '{tool_name}' to "
+                        f"~/.config/mise/config.toml if this is a dev tool "
+                        f"you'll use across projects."
+                    )
+                    sys.exit(0)
 ```
 
 **Step 7: Run existing tests to verify no regression**
@@ -153,9 +230,21 @@ echo '{"tool_name":"Bash","tool_input":{"command":"brew install foo && echo done
 echo '{"tool_name":"Bash","tool_input":{"command":"pipx install --force ruff"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
 # Expected: stderr about mise, exit 2
 
-# cargo with flags
+# cargo with flags (boolean — no value arg)
 echo '{"tool_name":"Bash","tool_input":{"command":"cargo install --locked just"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
 # Expected: JSON guidance note (just is not mise-managed), exit 0
+
+# cargo with value flag — ripgrep checked, not 1.0
+echo '{"tool_name":"Bash","tool_input":{"command":"cargo install --version 1.0 ripgrep"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+# Expected: JSON guidance note (ripgrep is not mise-managed), exit 0. NOT "1.0".
+
+# pipx with value flag — ruff checked, not 3.12
+echo '{"tool_name":"Bash","tool_input":{"command":"pipx install --python 3.12 ruff"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+# Expected: stderr about mise, exit 2. NOT "3.12".
+
+# cargo with --git flag — tool checked, not URL
+echo '{"tool_name":"Bash","tool_input":{"command":"cargo install --git https://github.com/user/repo sometool"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+# Expected: JSON guidance note (sometool is not mise-managed), exit 0. NOT the URL.
 ```
 
 ---
@@ -181,9 +270,11 @@ Replace with:
             r"brew\s+(?:-[-\w]+\s+)*(install|reinstall|uninstall|remove|rm|bundle|upgrade)\b(.*)",
 ```
 
-**Step 2: Add the upgrade branch**
+**Step 2: Update Tier 2 to use `INFRA_TOOLS` and add the upgrade branch**
 
-Find the comment `# All brew paths exit here` and the `sys.exit(0)` that follows the Tier 1 install/reinstall block (around line 145). Insert the upgrade branch BEFORE it, after the `if operation in ("install", "reinstall"):` block closes:
+First, in the existing Tier 2 block, replace the inline `infra_tools` variable (line 101) with the module-level `INFRA_TOOLS` constant (added in Task 1 Step 2). Delete line 101 (`infra_tools = {"stow", "mise"}`) and change `infra_tools` to `INFRA_TOOLS` on line 104.
+
+Then, find the comment `# All brew paths exit here` and the `sys.exit(0)` that follows the Tier 1 install/reinstall block (around line 145). Insert the upgrade branch BEFORE it, after the `if operation in ("install", "reinstall"):` block closes:
 
 ```python
             # Upgrade: dedicated path — different semantics from install/uninstall
@@ -200,7 +291,7 @@ Find the comment `# All brew paths exit here` and the `sys.exit(0)` that follows
 
                 # Check packages: infra block > mise warn > allow
                 for name in tool_names:
-                    if name in infra_tools:
+                    if name in INFRA_TOOLS:
                         print(
                             f"'{name}' is infrastructure — do not upgrade directly. "
                             f"Use `brew bundle install` to reconcile from Brewfile.",
@@ -276,7 +367,9 @@ def load_brewfile_packages() -> set[str]:
         text = BREWFILE.read_text()
         packages = set()
         for match in re.finditer(r'^(?:brew|cask)\s+["\']([^"\']+)["\']', text, re.MULTILINE):
-            packages.add(match.group(1).split("/")[-1])
+            name = normalize_package_name(match.group(1))
+            if name:
+                packages.add(name)
         return packages
     except (FileNotFoundError, PermissionError):
         return set()
@@ -289,6 +382,10 @@ Find the existing Tier 1 block (`if operation in ("install", "reinstall"):`). Re
 ```python
             # Tier 1: Warn — install/reinstall with three-category partition
             # Scans ALL packages, emits combined message (no early-exit suppression).
+            # Precedence: mise-managed > Brewfile > unknown. This ordering is
+            # intentional — stronger warnings first. Do not reorder without updating
+            # the normalization in load_brewfile_packages() (which must match
+            # tool_names normalization via normalize_package_name).
             if operation in ("install", "reinstall"):
                 managed_found = []
                 in_brewfile = []
@@ -353,9 +450,25 @@ echo '{"tool_name":"Bash","tool_input":{"command":"brew install somenewpkg"}}' |
 # Expected: JSON "consider adding" guidance, exit 0
 ```
 
-**Step 4: Verify existing tests still pass**
+**Step 4: Verify existing tests AND upgrade tests still pass**
 
-Re-run the 5 key regression tests from Task 1 Step 7.
+Re-run the Task 1 regression tests (Step 7) AND all Task 2 upgrade test cases:
+
+```bash
+# Task 1 regression (5 key cases)
+echo '{"tool_name":"Bash","tool_input":{"command":"brew install uv"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+echo '{"tool_name":"Bash","tool_input":{"command":"brew uninstall stow"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+echo '{"tool_name":"Bash","tool_input":{"command":"brew bundle install --file=~/dotfiles/homebrew/Brewfile"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+echo '{"tool_name":"Bash","tool_input":{"command":"pipx install ruff"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+echo '{"tool_name":"Bash","tool_input":{"command":"brew install bat uv"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+
+# Task 2 upgrade regression (5 cases)
+echo '{"tool_name":"Bash","tool_input":{"command":"brew upgrade"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+echo '{"tool_name":"Bash","tool_input":{"command":"brew upgrade stow"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+echo '{"tool_name":"Bash","tool_input":{"command":"brew upgrade mise"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+echo '{"tool_name":"Bash","tool_input":{"command":"brew upgrade uv"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+echo '{"tool_name":"Bash","tool_input":{"command":"brew upgrade bat"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
 
 ---
 
@@ -408,7 +521,7 @@ Write `~/.claude/hooks/dotfile-stow-guidance.py`:
 ```python
 #!/usr/bin/env python3
 """
-PreToolUse hook (Edit|Write|MultiEdit): Warns when writing to dotfile paths
+PreToolUse hook (Edit|Write): Warns when writing to dotfile paths
 that aren't stow-managed symlinks.
 
 If the file is a symlink resolving into ~/dotfiles/, the edit flows through
@@ -539,7 +652,7 @@ Read `~/.claude/settings.json`. Find the `"PreToolUse"` array. Add a new entry:
 
 ```json
 {
-  "matcher": "Edit|Write|MultiEdit",
+  "matcher": "Edit|Write",
   "hooks": [
     {
       "type": "command",
@@ -598,3 +711,7 @@ Tasks 1, 4, 5, 6 are independent. Tasks 1 → 2 → 3 are sequential (same file)
 
 - `brew bundle` subcommands (cleanup, dump) — separate enforcement
 - npm `--global install` / `python -m pip install` variant deny coverage
+- Chained brew commands (`brew install bat && brew uninstall stow`) — pre-existing, only first command evaluated. Consider `re.finditer` for multi-match or shell operator detection that blocks compound brew commands
+- `~/.config` in `EXCLUDED_PREFIXES` — policy decision on whether `~/.config/*` edits should trigger stow warnings
+- `~/.gitconfig` noise suppression — policy decision on whether a frequently-edited non-stow dotfile should be excluded
+- MultiEdit hook support — `MultiEdit` is not documented as a hookable tool in Claude Code. Revisit when docs are updated
