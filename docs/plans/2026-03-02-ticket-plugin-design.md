@@ -225,7 +225,7 @@ All mutating operations (`create`, `update`, `close`, `reopen`) pass through `pr
 | `preflight_failed` | "Preflight check failed: {check_name}. {recovery_action}" (e.g., stale fingerprint → "Re-run to get a fresh plan") |
 | `policy_blocked` | "Autonomy policy blocks this action. Suggested: [rendered preview]" |
 | `invalid_transition` | "Cannot transition from {current} to {target}: {reason}" |
-| `dependency_blocked` | "Ticket has open blockers: {list}. Resolve or force-close?" |
+| `dependency_blocked` | "Ticket has open blockers: {list}. Resolve or override? (`dependency_override: true`)" |
 | `not_found` | "No ticket found matching {id}. Did you mean: {fuzzy_matches}?" |
 | `escalate` | Explain why engine couldn't handle, suggest manual action |
 
@@ -291,10 +291,10 @@ model: sonnet
 1. Gather context from working files, recent git changes, conversation
 2. Call `ticket_engine_agent.py classify` to confirm intent
 3. Call `ticket_engine_agent.py plan` to check for duplicates
-4. Engine reads autonomy mode from `.claude/ticket.local.md` (agent does not read this file directly — it lacks Write access to prevent self-escalation)
-5. If `suggest`: return rendered preview for user confirmation (does NOT create)
-6. If `auto_audit`: call `execute`, log to audit trail, notify user with template (see Autonomy section)
-7. If `auto_silent`: call `execute`, log to audit trail, reduced notification (see guardrails in Autonomy section)
+4. Call `ticket_engine_agent.py preflight` — enforces autonomy policy, precondition checks, fingerprint verification (engine reads autonomy mode from `.claude/ticket.local.md`; agent does not read this file directly — it lacks Write access to prevent self-escalation)
+5. If `suggest` (preflight returns `policy_blocked` with preview): return rendered preview for user confirmation (does NOT create)
+6. If `auto_audit` (preflight passes): call `execute`, log to audit trail, notify user with template (see Autonomy section)
+7. If `auto_silent` (preflight passes — v1.1 only; v1.0 returns `policy_blocked`): call `execute`, log to audit trail, reduced notification (see guardrails in Autonomy section)
 
 **Note:** The agent's `tools` list excludes `Write`. All file writes (ticket creation, audit trail) are performed by the engine script, not by the agent directly. This prevents the agent from writing to `.claude/ticket.local.md` to escalate its own autonomy mode.
 
@@ -318,15 +318,23 @@ Skills call `ticket_engine_user.py`; the agent calls `ticket_engine_agent.py`. B
 
 **Additional checks by operation:**
 - **Create:** schema completeness, `dedup_fingerprint` freshness (plan output still valid)
-- **Update/close/reopen:** ticket exists and is parseable, status transition is valid (per contract), dependency integrity (`blocked_by` tickets are resolved, for `close`)
+- **Update/close/reopen:** ticket exists and is parseable, status transition is valid (per contract), dependency integrity (`blocked_by` tickets are resolved, for `close`) → `dependency_blocked` if unresolved blockers found (distinct from `preflight_failed` — requires user confirmation, not retry)
 
 For `create`, `plan` runs before `preflight` to handle dedup detection and field validation (create-specific concerns). `preflight` then verifies autonomy and fingerprint freshness before `execute` proceeds.
 
 **TOCTOU mitigation (dual fingerprints):**
 
 Two distinct fingerprints serve different purposes:
-- **`dedup_fingerprint`** (create only): `sha256(normalize(problem_text) + "|" + sorted(key_file_paths))`. Produced by `plan`, verified by `preflight`. Used for dedup detection. `force:true` only bypasses duplicate confirmation when the submitted `dedup_fingerprint` exactly matches what was presented to the user; otherwise → `preflight_failed`.
-- **`target_fingerprint`** (all mutating paths): `sha256(ticket_content + mtime)`. Produced by `plan` (for create, on the duplicate candidate) or by the caller (for update/close/reopen, on the target ticket). Verified by `preflight` before `execute` proceeds. If the target was modified between plan/read and execute → `preflight_failed` ("Re-run to get a fresh plan").
+- **`dedup_fingerprint`** (create only): `sha256(normalize(problem_text) + "|" + sorted(key_file_paths))`. Produced by `plan`, verified by `preflight`. Used for dedup detection. `dedup_override:true` only bypasses duplicate confirmation when the submitted `dedup_fingerprint` exactly matches what was presented to the user; otherwise → `preflight_failed`.
+- **`target_fingerprint`** (all mutating paths): `sha256(ticket_content + mtime)`. Producer by action:
+
+  | Action | Producer | Target |
+  |--------|----------|--------|
+  | create (duplicate found) | `plan` | The duplicate candidate ticket |
+  | create (no duplicate) | `null` | No target ticket exists yet |
+  | update/close/reopen | Caller (skill/agent) | The target ticket file |
+
+  Verified by `preflight` before `execute` proceeds. If the target was modified between read and execute → `preflight_failed` ("Re-run to get a fresh plan"). `target_fingerprint: null` is valid for create-no-duplicate (preflight skips TOCTOU check for this path).
 
 Risk level: Medium in single-user (concurrent Claude Code sessions are uncommon but possible). The fingerprint does not replace file-level locking — it detects the race, not prevent it.
 
@@ -335,7 +343,7 @@ Risk level: Medium in single-user (concurrent Claude Code sessions are uncommon 
 - Fingerprint: `sha256(normalize(problem_text) + "|" + sorted(key_file_paths))`
 - Window: scan tickets created within 24 hours
 - Match: exact fingerprint → `duplicate_candidate` hard block
-- Override: `force: true` in execute input (user explicitly confirmed via skill UX)
+- Override: `dedup_override: true` in execute input (user explicitly confirmed via skill UX)
 
 **`normalize()` specification** (canonical ordered steps):
 1. Strip leading/trailing whitespace
@@ -346,7 +354,7 @@ Risk level: Medium in single-user (concurrent Claude Code sessions are uncommon 
 
 This function is deterministic — two implementations given the same input must produce the same output. The contract must include test vectors (input → expected normalized output) to verify cross-implementation consistency.
 
-**`force` propagation:** When the user confirms a duplicate, `ticket-ops` re-calls `execute` with `force: true`. The `plan` stage is not re-run — the user's confirmation overrides the dedup gate. The skill stores the `duplicate_candidate` response from `plan` and passes its `ticket_id` in the `force` payload so `execute` can verify the override is for the same candidate.
+**`dedup_override` propagation:** When the user confirms a duplicate, `ticket-ops` re-calls `execute` with `dedup_override: true`. The `plan` stage is not re-run — the user's confirmation overrides the dedup gate. The skill stores the `duplicate_candidate` response from `plan` and passes its `ticket_id` in the override payload so `execute` can verify the override is for the same candidate.
 
 ### Trust Model
 
@@ -364,6 +372,12 @@ Two distinct concepts that the engine must keep separate:
 - `ticket_engine_agent.py` — hardcodes `request_origin = "agent"`. Called by `ticket-autocreate` agent.
 - Both delegate to `ticket_engine_core.py` which receives `request_origin` as an internal parameter.
 - `unknown` — fallback if core is called directly without an entrypoint → fail closed (reject mutation).
+
+**Derivation and precedence:**
+- **Entrypoint sets** `request_origin` in-process (hardcoded string constant, not from caller input)
+- **Hook also injects** `request_origin` into the payload file (derived from entrypoint basename: `ticket_engine_user.py` → `"user"`, `ticket_engine_agent.py` → `"agent"`)
+- **Precedence:** Hook-injected value is canonical. If the engine detects a mismatch between the in-process entrypoint value and the hook-injected payload value → `origin_mismatch` error → `escalate`
+- **Defense rationale:** Dual-source with mismatch detection catches payload tampering (model rewrites temp file between hook injection and engine read)
 
 **Defense-in-depth layers (v1.0):**
 1. Split entrypoints (cosmetic — equivalent to a CLI flag without further enforcement)
@@ -398,6 +412,8 @@ The `source` field in ticket YAML (`source.type`, `source.ref`, `source.session`
 
 ```
 # --- Classify confidence gate (P0-1) ---
+# classify_confidence and classify_intent are passed from classify output to preflight input
+# (see I/O shapes table — preflight declares these as required input fields)
 if classify_confidence < effective_threshold(request_origin):
     → return preflight_failed ("Low confidence classification: {confidence}. Rephrase or specify the operation.")
     # effective_threshold = T_base + origin_modifier
@@ -411,29 +427,34 @@ if request_origin == "unknown":
 
 # --- Agent autonomy policy ---
 if request_origin == "agent":
+    # --- Action-level exclusions (v1.0) ---
+    if action == "reopen": → return policy_blocked ("reopen is user-only in v1.0")
+
     mode = read_autonomy_mode()
     if mode == "suggest":     → return policy_blocked with preview
     if mode == "auto_audit":  → proceed, log to audit trail, notify user
     if mode == "auto_silent":
-        if action != "create": → return policy_blocked ("auto_silent limited to create in v1.0")
-        session_create_count = engine_count_session_creates(session_id)  # authoritative from audit trail
-        if session_create_count >= max_creates_per_session: → return policy_blocked ("session cap reached")
-        if session_create_count == AUDIT_UNAVAILABLE: → return policy_blocked ("audit trail unavailable, fail closed")
-        → proceed, log to audit trail, reduced notification
+        → return policy_blocked ("auto_silent disabled in v1.0 — see feature gate table")
+        # --- v1.1 behavior (when feature gate condition met): ---
+        # if action != "create": → return policy_blocked ("auto_silent limited to create")
+        # session_create_count = engine_count_session_creates(session_id)  # authoritative from audit trail
+        # if session_create_count >= max_creates_per_session: → return policy_blocked ("session cap reached")
+        # if session_create_count == AUDIT_UNAVAILABLE: → return policy_blocked ("audit trail unavailable, fail closed")
+        # → proceed, log to audit trail, reduced notification
 
 # --- User callers ---
 if request_origin == "user":
     → proceed (user explicitly invoked the operation)
 
-# force:true override is rejected when request_origin == "agent"
-# (autonomous callers cannot bypass dedup)
+# dedup_override and dependency_override are rejected when request_origin == "agent"
+# (autonomous callers cannot bypass dedup or dependency checks)
 ```
 
 **Confidence threshold calibration:** The `T_base` and `origin_modifier` values are provisional defaults that MUST be calibrated on a labeled corpus before GA. Autonomous mutation modes (`auto_audit`, `auto_silent`) are not enabled until the calibration report is attached to the contract. Calibration acceptance criteria: false-positive mutation rate (valid intent classified below threshold) must be below a documented cap.
 
 Default: `suggest` (fail-closed). Configuration: `.claude/ticket.local.md`.
 
-**`auto_silent` guardrails** (6 hard constraints):
+**`auto_silent` guardrails** (6 hard constraints — **v1.1 requirements**; v1.0 returns `policy_blocked` for all `auto_silent` requests):
 1. Default remains `suggest` — `auto_silent` requires explicit opt-in
 2. Opt-in in `.claude/ticket.local.md` must include risk acknowledgment comment
 3. `max_creates_per_session` hard cap (default: 5), engine-enforced via authoritative audit trail count — cap reached → `policy_blocked`
@@ -477,7 +498,7 @@ Location: `docs/tickets/.audit/YYYY-MM-DD/<session_id>.jsonl` (per-session file 
 1. Skill/agent writes payload file to temp path WITHOUT `session_id`
 2. PreToolUse hook receives hook input JSON (which includes `session_id` from Claude Code)
 3. Hook validates exact command shape (allowlist), locates payload file argument
-4. Hook atomically injects `session_id`, `hook_injected: true`, and `request_origin` (authoritative) into the payload file (write temp → fsync → rename)
+4. Hook atomically injects `session_id`, `hook_injected: true`, and `request_origin` (derived from entrypoint basename — see Derivation and precedence above) into the payload file (write temp → fsync → rename)
 5. If injection fails → hook blocks execution (exit 2)
 6. Engine hard-requires `hook_injected: true` + non-empty `session_id` for all autonomous mutations; rejects otherwise
 
@@ -488,8 +509,10 @@ If `session_id` is missing or empty after hook injection, the engine fails close
 Each entry:
 
 ```json
-{"ts": "ISO8601", "action": "create|update|close|reopen", "ticket_id": "T-...", "session_id": "abc-123", "request_origin": "agent", "autonomy_mode": "auto_audit", "result": "ok_create|ok_update|ok_close|ok_reopen", "changes": null}
+{"ts": "ISO8601", "action": "create|update|close|reopen", "ticket_id": "T-...", "session_id": "abc-123", "request_origin": "agent", "autonomy_mode": "auto_audit", "result": "ok_create|ok_update|ok_close|ok_close_archived|ok_reopen|error:{error_code}", "changes": null}
 ```
+
+Failure entries use the same schema with `result` prefixed by `error:` (e.g., `"result": "error:policy_blocked"`) and `changes: null`. The `attempt_started` / `attempt_result` pair (see guardrail 5) uses distinct `action` values: `"attempt_started"` and the original action respectively.
 
 The `changes` field is required for `update`, `close`, and `reopen` actions (null for `create`):
 
@@ -548,18 +571,20 @@ The full contract lives in `references/ticket-contract.md` within the plugin. It
    ```
    {state: string, ticket_id: string|null, message: string, data: object}
    ```
-   `state` is one of the 13 machine states. `data` is subcommand-specific.
+   `state` is one of the 14 machine states (13 emittable, 1 reserved) for `preflight` and `execute` subcommands. For `classify` and `plan`, `state` is `"ok"` on success (these are intermediate pipeline stages, not terminal mutation outcomes) or an error state (`parse_error`, `need_fields`) on failure. `data` is subcommand-specific.
 
    **Per-subcommand I/O shapes:**
 
    | Subcommand | Input Fields | Output `data` Fields |
    |-----------|-------------|---------------------|
-   | `classify` | `action: string`, `args: object`, `session_id: string`, `request_origin: string` | `intent: string`, `confidence: float`, `resolved_ticket_id: string\|null` |
-   | `plan` | `intent: string`, `fields: object`, `session_id: string`, `request_origin: string` | `dedup_fingerprint: string` (create only), `target_fingerprint: string`, `duplicate_of: string\|null`, `missing_fields: list[string]`, `action_plan: object` |
-   | `preflight` | `ticket_id: string\|null`, `action: string`, `session_id: string`, `request_origin: string`, `dedup_fingerprint: string\|null` (create), `target_fingerprint: string` | `checks_passed: list[string]`, `checks_failed: list[{check: string, reason: string}]` |
-   | `execute` | `action: string`, `ticket_id: string\|null`, `fields: object`, `session_id: string`, `request_origin: string`, `force: bool` | `ticket_path: string`, `changes: object\|null` |
+   | `classify` | `action: string`, `args: object`, `session_id: string`, `request_origin: string` | `intent: string`, `confidence: float`, `resolved_ticket_id: string\|null`. Classify validates the caller's action but does not remap it — input action (from first-token routing) is authoritative. If classify's intent disagrees with input action → `intent_mismatch` → `escalate`. |
+   | `plan` | `intent: string`, `fields: object`, `session_id: string`, `request_origin: string` | `dedup_fingerprint: string` (create only), `target_fingerprint: string\|null` (null when create finds no duplicate — see producer matrix), `duplicate_of: string\|null`, `missing_fields: list[string]`, `action_plan: object` |
+   | `preflight` | `ticket_id: string\|null`, `action: string`, `session_id: string`, `request_origin: string`, `classify_confidence: float`, `classify_intent: string`, `dedup_fingerprint: string\|null` (create), `target_fingerprint: string\|null` (null for create-no-duplicate) | `checks_passed: list[string]`, `checks_failed: list[{check: string, reason: string}]` |
+   | `execute` | `action: string`, `ticket_id: string\|null`, `fields: object`, `session_id: string`, `request_origin: string`, `dedup_override: bool`, `dependency_override: bool` | `ticket_path: string`, `changes: object\|null`. Agent callers (`request_origin == "agent"`) are rejected for both override flags — autonomous callers cannot bypass dedup or dependency checks. |
 
-   **Deterministic error codes with canonical state mapping:**
+   **Transport-layer fields:** `session_id`, `hook_injected`, and `request_origin` are present in every payload but are not subcommand-specific inputs — they are transport-layer fields injected by the PreToolUse hook and consumed by the engine's trust validation before subcommand dispatch.
+
+   **Deterministic error codes with canonical state mapping (11 codes):**
 
    | Error Code | Machine State | When |
    |-----------|--------------|------|
@@ -571,6 +596,9 @@ The full contract lives in `references/ticket-contract.md` within the plugin. It
    | `duplicate_candidate` | `duplicate_candidate` | Dedup fingerprint match found |
    | `parse_error` | `escalate` | Ticket file unparseable |
    | `not_found` | `not_found` | Target ticket does not exist |
+   | `dependency_blocked` | `dependency_blocked` | Close/reopen target has unresolved blockers |
+   | `intent_mismatch` | `escalate` | Classify intent disagrees with routed action |
+   | `origin_mismatch` | `escalate` | Hook-injected `request_origin` mismatches entrypoint value |
 
    **Behavior rules:** Unknown fields in input are **ignored** (forward-compatible — new callers can add fields that old engines skip). Missing required fields → exit code 2 + `need_fields` state.
 5. **Autonomy Model** — mode definitions, `ticket.local.md` parsing, `request_origin` derivation, audit trail format. See Trust Model section above.
@@ -587,6 +615,8 @@ The full contract lives in `references/ticket-contract.md` within the plugin. It
    - `done` → `open` (requires `reopen_reason`, user-only in v1.0, appends to ## Reopen History)
    - `wontfix` → `open` (requires `reopen_reason`, user-only in v1.0, appends to ## Reopen History)
    - `done`/`wontfix` → archive (explicit `/ticket close --archive`, move to `closed-tickets/` directory)
+   - **Non-status edits on terminal tickets:** Updating non-status fields (priority, tags, effort, sections) on `done` or `wontfix` tickets is allowed without reopening. Only status transitions require reopen. This prevents the usability trap of forcing reopen→edit→re-close for metadata corrections.
+   - `done`/`wontfix` reopen is **user-only in v1.0** — enforced by preflight action-level exclusion (see autonomy pseudo-code)
    - **Status normalization** (dual-status model, port from handoff's `triage.py`): raw statuses from legacy tickets are normalized to canonical statuses. Transitions are evaluated in canonical space only. Unknown raw statuses → fail closed during mutation (block the operation).
 
    | Raw Status | Canonical Status |
@@ -779,6 +809,7 @@ All 7 key outcomes RESOLVED with high confidence. 3 items EMERGED (Architecture 
 | 4. Collaborative Codex | collaborative | `019caf51-7725-78f1-9a91-ad1b20e047bd` | 6 | Triage + prioritization (10 RESOLVED, 3 UNRESOLVED, 3 EMERGED) |
 | 5. Deeper review Codex | evaluative | `019caf7f-6c81-7453-9ecf-c4f5a3980acf` | 6 | Testability, contracts, integration, scale (12 RESOLVED, 3 UNRESOLVED, 5 EMERGED) |
 | 6. 4-agent team + Codex | collaborative | `019cafbb-9d06-7e30-9e46-acf4c795cfdc` | 5 | Comprehensive pre-impl review: 8 P0, 14 P1, 10 P2. All 22 P0+P1 resolved via Codex dialogue (16 RESOLVED, 2 UNRESOLVED, 3 EMERGED) |
+| 7. Verification review Codex | evaluative | `019cafe0-0999-7450-8be8-5709bacfc6e9` | 6 | Cross-section verification: 9 P0, 7 P1, 2 P2. All resolved (18 RESOLVED, 3 UNRESOLVED, 3 EMERGED) |
 
 ### Comprehensive Pre-Implementation Review + Codex Dialogue
 
@@ -789,7 +820,7 @@ All 7 key outcomes RESOLVED with high confidence. 3 items EMERGED (Architecture 
 | # | Finding | Fix Applied |
 |---|---------|-------------|
 | P0-1 | `classify` confidence threshold unspecified | Configurable `T_base + origin_modifier` with pre-GA calibration requirement |
-| P0-2 | `preflight` failure has no machine state | Added `preflight_failed` (13th state) with canonical error→state mapping |
+| P0-2 | `preflight` failure has no machine state | Added `preflight_failed` as 13th emittable state (14 total including reserved `merge_into_existing`) with canonical error→state mapping |
 | P0-3 | `create` pipeline skips `preflight`, autonomy check stage ambiguous | Extended `preflight` to all mutating paths: `classify → plan → preflight → execute` for create |
 | P0-4 | Error codes vs machine states mismatch (3 missing, 2 name mismatches) | Canonical error→state mapping table; normalized names to match existing states |
 | P0-5 | `plan_fingerprint` has no producer for non-create paths | Dual fingerprints: `dedup_fingerprint` (create) + `target_fingerprint` (all paths) |
@@ -824,3 +855,58 @@ All 7 key outcomes RESOLVED with high confidence. 3 items EMERGED (Architecture 
 **Unresolved (minor, implementation-level):**
 - P1-2 conditional fallback may create capability discovery issue (user sees different behavior based on triage enablement)
 - Preflight check dedup with plan stage work for create path (whether schema completeness in preflight duplicates plan)
+
+### Verification Review (Evaluative Codex Dialogue)
+
+6-turn evaluative Codex dialogue (thread `019cafe0-0999-7450-8be8-5709bacfc6e9`). 18 RESOLVED, 3 UNRESOLVED, 3 EMERGED. Post-round-6 cross-section consistency check — verified 21 edits against each other and unchanged sections.
+
+**Findings applied to this design doc:**
+
+| # | Severity | Finding | Fix Applied |
+|---|----------|---------|-------------|
+| R7-1 | P0 | `dependency_blocked` return path undefined (UX table, pseudo-code, preflight, I/O all inconsistent) | Added return spec in preflight checks, error code in table, return path in pseudo-code |
+| R7-2 | P0 | `target_fingerprint` producer contract contradictory (plan output unconditional, non-create skips plan) | Producer matrix by action; `target_fingerprint: null` for create-no-duplicate |
+| R7-3 | P0 | `classify_confidence` missing from preflight input schema (pseudo-code reads it, I/O doesn't declare it) | Added `classify_confidence: float` and `classify_intent: string` to preflight input |
+| R7-4 | P0 | Classify/routing action authority ambiguous (first-token routing vs classify intent, no reconciliation) | Input action authoritative; classify validates only; `intent_mismatch` → `escalate` |
+| R7-5 | P0 | `request_origin` precedence and derivation incomplete (entrypoint + hook both set, no mismatch rule) | Derivation and precedence block; `origin_mismatch` error → `escalate` |
+| R7-6 | P0 | Session trust injection contract incomplete (I/O shapes missing `hook_injected` boundary) | Transport-layer fields note after I/O table |
+| R7-7 | P0 | `auto_silent` contradictory (feature gate disabled, pseudo-code operative) | v1.0 hard `policy_blocked`; v1.1 behavior commented; guardrails marked v1.1 |
+| R7-8 | P0 | Common response envelope scope mismatch (classify/plan success not in machine state set) | Scoped machine states to preflight/execute; classify/plan use `"ok"` on success |
+| R7-9 | P0 | Reopen authorization contradictory (transitions say user-only, pseudo-code has no exclusion) | Explicit `if action == "reopen"` exclusion in agent pseudo-code |
+| R7-10 | P1 | Error-code table claims "canonical" but incomplete (missing `dependency_blocked`, `intent_mismatch`, `origin_mismatch`) | Added 3 error codes; table titled with count (11 codes) |
+| R7-11 | P1 | `ok_close_archived` missing from audit trail result enum | Added to result enum |
+| R7-12 | P1 | `force: bool` policy constraint not in I/O contract (agent rejection invisible) | Agent rejection note in execute I/O |
+| R7-13 | P1 | `force` semantics overloaded (dedup override vs dependency force-close) | Split into `dedup_override` and `dependency_override` |
+| R7-14 | P1 | Terminal-status edit semantics implicit (reopen→edit→re-close usability trap) | Non-status edits allowed without reopen; only status transitions require reopen |
+| R7-15 | P1 | Audit trail failure encoding undefined | Failure entry schema with `error:` prefix; `attempt_started`/`attempt_result` pair semantics |
+| R7-16 | P1 | Agent behavior flow omits preflight step | Added explicit preflight call in agent behavior section |
+| R7-17 | P2 | "13 machine states" count off by one (UX table has 14 rows) | "14 (13 emittable, 1 reserved)" |
+| R7-18 | P2 | Review history "13th state" framing drift | Updated P0-2 fix entry wording |
+
+**Emerged from dialogue:**
+- Classify/routing redundancy — hidden design ambiguity not in original scope; discovered by stress-testing areas initially declared consistent
+- Comprehensive unchecked-interface audit methodology — systematically checking interfaces between sections surfaced 6 findings context gathering missed
+- Severity refinement via closing probes — P0 downgraded to P1 after evidence-based reassessment (agent preflight skip is doc omission, not design bypass)
+
+**Unresolved (carried forward from dialogue):**
+- Classify/plan state field values for success responses — are they machine states or a separate enum? The `"ok"` convention is documented but the full set of valid classify/plan states is not formalized.
+- Source subfield shape contract (`source.type`, `source.ref`, `source.session`) — required/optional status and merge order across legacy generations not explicitly codified.
+- E-lite phasing scope signaling — split across multiple sections; centralizing would reduce reader confusion.
+
+### Cross-Reference Integrity Checklist
+
+Mechanical verification checklist for future edits. After any batch of changes, verify each item:
+
+| # | Check | Expected Value | Section(s) |
+|---|-------|---------------|------------|
+| 1 | Machine state UX table row count | 14 rows (13 emittable + 1 reserved) | UX mapping table (line ~215) |
+| 2 | Common envelope state count matches | "14 (13 emittable, 1 reserved)" | Engine Interface (line ~565) |
+| 3 | Error code table row count matches title | 11 codes | Engine Interface (line ~587) |
+| 4 | All emittable UX states appear in error-code table or are documented as success-only | `ok_*` states: success-only (no error code). `merge_into_existing`: reserved (no error code). All others: have error code. | UX table ↔ Error-code table |
+| 5 | Audit result enum covers all `ok_*` states | `ok_create\|ok_update\|ok_close\|ok_close_archived\|ok_reopen` | Audit Trail (line ~505) |
+| 6 | Preflight I/O input fields include all fields read by pseudo-code | `classify_confidence`, `classify_intent`, `action`, `request_origin`, `session_id`, `dedup_fingerprint`, `target_fingerprint` | Preflight I/O ↔ Autonomy pseudo-code |
+| 7 | Execute I/O override fields match dedup + dependency sections | `dedup_override`, `dependency_override` (not `force`) | Execute I/O ↔ Dedup section ↔ UX table |
+| 8 | `target_fingerprint` producer matrix covers all actions | create-dup: plan, create-no-dup: null, update/close/reopen: caller | TOCTOU section ↔ Plan I/O |
+| 9 | Agent behavior flow matches engine pipeline | classify → plan → preflight → execute | Agent section ↔ Pipeline section |
+| 10 | Reopen agent exclusion matches transitions section | "user-only in v1.0" in both | Autonomy pseudo-code ↔ Transitions |
+| 11 | `auto_silent` v1.0 behavior consistent across sections | Disabled (policy_blocked) in feature gate, pseudo-code, and guardrails | Feature gate ↔ Pseudo-code ↔ Guardrails |
