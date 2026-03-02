@@ -59,7 +59,9 @@
 
 **Warn via JSON additionalContext (exit 0 + `hookSpecificOutput`):**
 - `brew install`/`brew reinstall` of mise-owned tools (read dynamically from `~/.config/mise/config.toml`)
-- Direct file writes to `~/.<dotfile>` that bypass stow (e.g., writing `~/.zshrc` instead of `~/dotfiles/zsh/.zshrc`)
+
+**Deferred (v2) — tool-surface limitation:**
+- Direct file writes to `~/.<dotfile>` that bypass stow — PreToolUse hook on `Bash` matcher cannot see Edit/Write/MultiEdit tool calls. Enforcement requires a separate hook on file-editing tools or documentation-only approach.
 
 **Allow (exit 0, no output):**
 - `brew bundle` — operates on the Brewfile, which IS the source of truth
@@ -100,7 +102,7 @@
 | `brew uninstall`/`remove`/`rm` stow\|mise | Hard block (exit 2) | Extended PreToolUse hook |
 | `brew install`/`reinstall` mise-owned tool | Warn (exit 0 + JSON `additionalContext`) | Extended PreToolUse hook |
 | `brew bundle` | Allow (exit 0) | Extended PreToolUse hook (explicit pass-through) |
-| Direct dotfile write (bypass stow) | Warn + context injection | Extended PreToolUse hook |
+| Direct dotfile write (bypass stow) | Deferred (v2) | Cannot enforce: PreToolUse on `Bash` cannot see Edit/Write/MultiEdit tool calls. Documentation handles awareness. |
 | Unknown tool installation | Claude decides using CLAUDE.md rules | Documentation (passive) |
 | Environment drift | Detected at session start | SessionStart hook + doctor-env |
 

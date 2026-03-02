@@ -39,6 +39,27 @@ Adversarial Codex dialogue (8-turn budget, converged at turn 6). Thread: `019cab
 - `doctor-env` output sanitization/capping before context injection
 - `brew upgrade` warning for infrastructure tools
 - Flag handling consistency across pipx/cargo/go patterns
+- Direct dotfile write enforcement (Edit/Write/MultiEdit bypass stow) — PreToolUse hook on `Bash` matcher cannot see file-editing tool calls. Tool-surface coverage limitation; document in design doc.
+
+### Deep Review Findings (evaluative)
+
+Evaluative Codex dialogue (8-turn budget, converged at turn 5). Thread: `019cabba-e7d0-7300-b43b-e3b060363f46`.
+
+#### Ship-Blockers (fixed in plan)
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 8 | Tier 1 install loop exits on first match — `brew install bat uv` warns about `bat`, never checks `uv` | Partition all packages into managed/non-managed, emit single aggregated warning |
+| 9 | `rc=${PIPESTATUS[0]:-$?}` after `|| true` — PIPESTATUS is for pipelines only, `|| true` masks exit code to 0 | `if/else` pattern with `case` for 0/124/137/other, resolve timeout vs gtimeout |
+| 10 | Task 5 settings.json uses flat structure — must be nested `{matcher, hooks:[{type,command}]}` | Match production `~/.claude/settings.json` nested structure, use `bash "$HOME/..."` |
+
+#### Should-Fix (fixed in plan)
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 11 | Empty `tool_names` fall-through (e.g., `brew install --cask` with no packages) reaches pipx/cargo/go parsing | Explicit `sys.exit(0)` at end of `if brew_match:` branch |
+| 12 | Global brew flags before subcommand (`brew --quiet install uv`) bypass regex | Handle optional pre-subcommand flags in regex |
+| 13 | Design doc promises "direct dotfile write (bypass stow)" enforcement but plan doesn't implement or defer | Added to Deferred with tool-surface scope statement |
 
 ---
 
@@ -373,7 +394,8 @@ def main():
 
         # --- brew operations (three-tier enforcement) ---
         brew_match = re.search(
-            r"brew\s+(install|reinstall|uninstall|remove|rm|bundle)\b(.*)", command
+            r"brew\s+(?:-[-\w]+\s+)*(install|reinstall|uninstall|remove|rm|bundle)\b(.*)",
+            command,
         )
         if brew_match:
             operation = brew_match.group(1)
@@ -408,25 +430,38 @@ def main():
                 sys.exit(0)
 
             # Tier 1: Warn — install/reinstall of mise-managed tools
+            # Scan ALL packages before deciding. Previous version exited on first
+            # match, so `brew install bat uv` would warn about bat and miss uv.
             if operation in ("install", "reinstall"):
+                managed_found = []
+                non_managed_found = []
                 for name in tool_names:
                     if name in EXCEPTIONS:
                         continue
                     if name in mise_managed:
-                        emit_guidance(
-                            f"WARNING: '{name}' is managed by mise. "
-                            f"Use `mise use {name}` instead of `brew {operation}`. "
-                            f"Dual ownership creates conflicts. "
-                            f"See ~/.claude/references/environment.md for ownership model."
-                        )
-                        sys.exit(0)
+                        managed_found.append(name)
                     else:
-                        emit_guidance(
-                            f"Note: Consider adding '{name}' to "
-                            f"~/.config/mise/config.toml if this is a dev tool "
-                            f"you'll use across projects."
-                        )
-                        sys.exit(0)
+                        non_managed_found.append(name)
+
+                if managed_found:
+                    names = ", ".join(dict.fromkeys(managed_found))
+                    emit_guidance(
+                        f"WARNING: {names} managed by mise. "
+                        f"Use `mise use <tool>` instead of `brew {operation}`. "
+                        f"Dual ownership creates conflicts. "
+                        f"See ~/.claude/references/environment.md for ownership model."
+                    )
+                elif non_managed_found:
+                    names = ", ".join(dict.fromkeys(non_managed_found))
+                    emit_guidance(
+                        f"Note: Consider adding {names} to "
+                        f"~/.config/mise/config.toml if these are dev tools "
+                        f"you'll use across projects."
+                    )
+
+            # All brew paths exit here — prevents fall-through to pipx/cargo/go
+            # parsing when tool_names is empty (e.g., `brew install --cask`)
+            sys.exit(0)
 
         # --- pipx/cargo/go operations ---
         install_patterns = [
@@ -531,6 +566,36 @@ echo '{"tool_name":"Bash","tool_input":{"command":"pipx install ruff"}}' | pytho
 ```
 Expected: stderr about mise, exit 2.
 
+```bash
+# Tier 2: Block — brew rm alias (third uninstall alias)
+echo '{"tool_name":"Bash","tool_input":{"command":"brew rm stow"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
+Expected: stderr about infrastructure, exit 2.
+
+```bash
+# Tier 1: Multi-package — brew install of mixed tools (regression: must check all)
+echo '{"tool_name":"Bash","tool_input":{"command":"brew install bat uv"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
+Expected: JSON with `additionalContext` warning about uv (managed takes priority), exit 0.
+
+```bash
+# Tier 1: @version suffix normalization
+echo '{"tool_name":"Bash","tool_input":{"command":"brew install uv@0.5"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
+Expected: JSON with `additionalContext` warning about uv, exit 0.
+
+```bash
+# Tier 1: Global flags before subcommand
+echo '{"tool_name":"Bash","tool_input":{"command":"brew --quiet install uv"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
+Expected: JSON with `additionalContext` warning about uv, exit 0.
+
+```bash
+# Empty tool_names: flags only, no packages (should not fall through to pipx/cargo/go)
+echo '{"tool_name":"Bash","tool_input":{"command":"brew install --cask"}}' | python3 ~/.claude/hooks/mise-tool-guidance.py; echo "exit: $?"
+```
+Expected: exit 0 (no output — no packages to check).
+
 **Step 5: No commit needed** — this is in `~/.claude/hooks/`, not a git-tracked location.
 
 ---
@@ -558,22 +623,51 @@ Write `~/dotfiles/.claude/hooks/doctor-env-inject.sh`:
 # Timeout: doctor-env should complete in <5 seconds; bail after 10.
 set -o pipefail
 
+# Resolve timeout command (GNU coreutils via Homebrew)
+if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_CMD=timeout
+elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_CMD=gtimeout
+else
+    TIMEOUT_CMD=""
+fi
+
 if ! command -v doctor-env >/dev/null 2>&1; then
     echo "doctor-env not found — run: cd ~/dotfiles && stow bin"
     exit 0
 fi
 
-# Run with timeout, capture output, bound to 2000 chars
-output=$(timeout 10 doctor-env 2>&1) || true
-rc=${PIPESTATUS[0]:-$?}
+# Capture exit code correctly. PIPESTATUS only tracks pipelines (|), not
+# command substitution. The `|| true` pattern masks $? to 0. Use if/else.
+if [ -n "$TIMEOUT_CMD" ]; then
+    if output=$($TIMEOUT_CMD 10 doctor-env 2>&1); then
+        rc=0
+    else
+        rc=$?
+    fi
+else
+    if output=$(doctor-env 2>&1); then
+        rc=0
+    else
+        rc=$?
+    fi
+fi
+
+# Bound output to prevent excessive context injection
 output="${output:0:2000}"
 
-if [ "$rc" -eq 0 ]; then
-    echo "Environment healthy: doctor-env passed all checks."
-else
-    echo "doctor-env found issues:"
-    echo "$output"
-fi
+case $rc in
+    0)
+        echo "Environment healthy: doctor-env passed all checks."
+        ;;
+    124|137)
+        echo "doctor-env timed out after 10 seconds. Run manually: doctor-env"
+        ;;
+    *)
+        echo "doctor-env found issues (exit $rc):"
+        echo "$output"
+        ;;
+esac
 
 exit 0
 ```
@@ -591,9 +685,13 @@ Write `~/dotfiles/.claude/settings.json`:
   "hooks": {
     "SessionStart": [
       {
-        "type": "command",
-        "command": "~/dotfiles/.claude/hooks/doctor-env-inject.sh",
-        "matcher": "startup|resume"
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/dotfiles/.claude/hooks/doctor-env-inject.sh\""
+          }
+        ]
       }
     ]
   }
