@@ -65,6 +65,7 @@ ticket/                              # packages/plugins/ticket/
 │   └── ticket-contract.md           # Single source of truth: schemas, policies, fields
 └── tests/
     ├── test_engine.py
+    ├── test_read.py
     ├── test_id.py
     ├── test_render.py
     ├── test_parse.py
@@ -142,7 +143,6 @@ curl -X POST localhost:8000/api/upload -d @50mb.json # Returns 200, not 504
 - Related ticket: T-20260301-03 (API config refactor)
 - API docs: `docs/api/configuration.md`
 
-<!-- ticket-meta {"source_session": "abc-123", "source_type": "ad-hoc", "created_by": "ticket-ops", "contract_version": "1.0", "v": 1} -->
 ```
 
 ### Quality Attributes
@@ -151,7 +151,7 @@ curl -X POST localhost:8000/api/upload -d @50mb.json # Returns 200, not 504
 |-----------|---------------------------|
 | **Rich context** | Problem (evidence-anchored), Context, Prior Investigation, Decisions Made |
 | **Actionable structure** | Acceptance criteria (checkboxes), effort estimate, priority, Key Files with roles |
-| **Traceability** | Source (type + ref + session), ticket-meta footer, Related links |
+| **Traceability** | Source (type + ref + session) in frontmatter, `contract_version` in frontmatter, Related links |
 | **Plug-and-play** | Prior Investigation eliminates re-walking paths; Decisions Made prevents re-debating; Verification provides exact commands; Key Files has "Look For" column |
 
 ### Plug-and-Play Design Principle
@@ -216,8 +216,8 @@ All mutating operations (`create`, `update`, `close`, `reopen`) pass through a v
 | `ok_close` | "Closed T-... (moved to archive)" |
 | `ok_reopen` | "Reopened T-... (status: open). Reason: {reason}" + show Reopen History |
 | `need_fields` | List missing fields, ask user to provide |
-| `duplicate_candidate` | Show both tickets side by side, offer: (a) create anyway, (b) merge into existing, (c) abort |
-| `merge_into_existing` | Show merged preview with diff, ask user to confirm |
+| `duplicate_candidate` | Show both tickets side by side, offer: (a) create anyway, (b) abort |
+| `merge_into_existing` | **Reserved — not emitted in v1.0.** Merge algorithm and field conflict resolution deferred. If conditions would produce this state, engine returns `escalate` instead. |
 | `policy_blocked` | "Autonomy policy blocks this action. Suggested: [rendered preview]" |
 | `invalid_transition` | "Cannot transition from {current} to {target}: {reason}" |
 | `dependency_blocked` | "Ticket has open blockers: {list}. Resolve or force-close?" |
@@ -311,9 +311,11 @@ Skills call `ticket_engine_user.py`; the agent calls `ticket_engine_agent.py`. B
 - Status transition is valid (per status transition rules in the contract)
 - Autonomy policy allows the mutation (not just creation — see Trust Model below)
 - Dependency integrity (`blocked_by` tickets are not still open, for `close`)
-- No concurrent modification (file mtime check)
+- No concurrent modification (file mtime check + plan fingerprint — see TOCTOU below)
 
 For `create`, the existing `plan` subcommand handles dedup and field validation, which are create-specific concerns. `preflight` handles mutation-specific concerns.
+
+**TOCTOU mitigation:** The `plan` stage returns a fingerprint (`sha256(ticket_content + mtime)`) with its action plan. The `execute` stage verifies the fingerprint before applying the mutation. If the ticket was modified between `plan` and `execute` (e.g., concurrent session), `execute` returns `stale_plan` error instead of proceeding. Risk level: Medium in single-user (concurrent Claude Code sessions are uncommon but possible). The fingerprint does not replace file-level locking — it detects the race, not prevent it.
 
 ### Dedup (hard gate in plan)
 
@@ -352,8 +354,12 @@ Two distinct concepts that the engine must keep separate:
 
 **Defense-in-depth layers (v1.0):**
 1. Split entrypoints (cosmetic — equivalent to a CLI flag without further enforcement)
-2. PreToolUse hook blocking shell metacharacters, redirection, and `.claude/ticket.local.md` writes in Bash calls to engine scripts
+2. PreToolUse hook with **allowlist-first policy**: permits only exact engine invocation shapes (`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/ticket_engine_{user|agent}.py <subcommand> <path-to-input-file>`). Blocks all other Bash commands mentioning `ticket_engine`. **Payload-by-file:** engine input is written to a temp file and passed as a path argument rather than inline JSON, reducing the shell metacharacter attack surface.
 3. Agent `tools` list excludes `Write` (prevents direct file manipulation)
+4. **Detective controls:** `ticket-triage` audit report scans for engine invocations that bypassed the preventive hook (e.g., direct `_core.py` calls in audit trail). Post-exec detection complements preventive blocking.
+
+**PreToolUse hook non-coverage statement (v1.0):**
+The hook **cannot** reliably catch: shell obfuscation (`eval`, backtick expansion, `$()` substitution wrapping the engine path), calls to `_core.py` bypassing the entrypoints (detectable post-exec but not preventable), or fail-open scenarios from hook runtime errors (PreToolUse hooks are mechanically fail-open — unhandled exceptions allow the tool call to proceed). These gaps are **accepted** for v1.0; the v1.1 MCP migration eliminates all three.
 
 **v1.1 path:** Replace Bash-based engine calls with MCP tools for a real security boundary (MCP tool names are not spoofable by the model).
 
@@ -373,7 +379,9 @@ if request_origin == "agent":
     if mode == "auto_audit":  → proceed, log to audit trail, notify user
     if mode == "auto_silent":
         if action != "create": → return policy_blocked ("auto_silent limited to create in v1.0")
+        session_create_count = engine_count_session_creates(session_id)  # authoritative from audit trail
         if session_create_count >= max_creates_per_session: → return policy_blocked ("session cap reached")
+        if session_create_count == AUDIT_UNAVAILABLE: → return policy_blocked ("audit trail unavailable, fail closed")
         → proceed, log to audit trail, reduced notification
 
 if request_origin == "user":
@@ -388,9 +396,9 @@ Default: `suggest` (fail-closed). Configuration: `.claude/ticket.local.md`.
 **`auto_silent` guardrails** (6 hard constraints):
 1. Default remains `suggest` — `auto_silent` requires explicit opt-in
 2. Opt-in in `.claude/ticket.local.md` must include risk acknowledgment comment
-3. `max_creates_per_session` hard cap (default: 5), engine-enforced — cap reached → `policy_blocked`
-4. Mandatory session-end summary of all auto-created tickets (even in silent mode)
-5. If cap reached or summary emission fails → fallback to `policy_blocked` (fail-closed)
+3. `max_creates_per_session` hard cap (default: 5), engine-enforced via authoritative audit trail count — cap reached → `policy_blocked`
+4. **Mandatory durable summary** of all auto-created tickets written to audit trail (even in silent mode). **Best-effort user-visible digest** emitted by `ticket-triage` skill on next user-visible turn (e.g., `/ticket list` or proactive triage). Note: SessionEnd hooks output goes to debug-only — they cannot surface content to the user. The durable summary (audit trail) is guaranteed; the visible digest is best-effort.
+5. If cap reached, audit trail unavailable, or audit write fails → fallback to `policy_blocked` (fail-closed for autonomous creates; proceed with warning for user creates)
 6. `auto_silent` limited to `create` only in v1.0 — update/close/reopen require `auto_audit` or higher
 
 **`auto_audit` notification template:**
@@ -421,12 +429,16 @@ Uses YAML frontmatter in markdown (consistent with handoff plugin's `.local.md` 
 
 ### Audit Trail
 
-Location: `docs/tickets/.audit/YYYY-MM-DD.jsonl` (one file per day, append-only).
+Location: `docs/tickets/.audit/YYYY-MM-DD/<session_id>.jsonl` (per-session file within daily directory, append-only).
+
+**Why per-session files:** (1) Session-cap counting reads one small file instead of filtering a global log. (2) Corruption in one session's file cannot affect other sessions' counts. (3) Natural partitioning for concurrent sessions.
+
+**`session_id` delivery:** The engine receives `session_id` as a required parameter from the calling skill/agent. Claude Code provides `session_id` via hook input JSON (all hook events); the skill passes it through to the engine's stdin. If `session_id` is missing or empty, the engine fails closed (returns `escalate` for agent callers, proceeds with warning for user callers).
 
 Each entry:
 
 ```json
-{"ts": "ISO8601", "action": "create|update|close|reopen", "ticket_id": "T-...", "request_origin": "agent", "autonomy_mode": "auto_audit", "result": "ok_create|ok_update|ok_close|ok_reopen", "changes": null}
+{"ts": "ISO8601", "action": "create|update|close|reopen", "ticket_id": "T-...", "session_id": "abc-123", "request_origin": "agent", "autonomy_mode": "auto_audit", "result": "ok_create|ok_update|ok_close|ok_reopen", "changes": null}
 ```
 
 The `changes` field is required for `update`, `close`, and `reopen` actions (null for `create`):
@@ -435,7 +447,21 @@ The `changes` field is required for `update`, `close`, and `reopen` actions (nul
 {"changes": {"frontmatter": {"status": ["open", "in_progress"]}, "sections_changed": ["Approach", "Acceptance Criteria"]}}
 ```
 
+**Engine-authoritative session counting:** `engine_count_session_creates(session_id)` reads the session's audit file and counts `action: "create"` entries. This is the sole authority for `session_create_count` — callers may pass an advisory `observed_count` for debugging but the engine ignores it for policy decisions.
+
+**Corruption handling:** Trailing partial line (incomplete write) is tolerated — skip and count preceding complete lines. Other corruption (non-JSON lines, permission errors) → fail closed for autonomous creates (`policy_blocked`), proceed with warning for user creates. Explicit repair path: `ticket audit repair` (implementation ticket).
+
 Read-back: `ticket-triage` can report autonomous actions by scanning the audit trail. No separate read-back mechanism needed.
+
+### Scalability
+
+**Current corpus:** 17 tickets. The engine performs O(n) directory scans with YAML parsing for dedup (plan stage, 24-hour window), ID allocation (execute stage, same-day scan), and triage (full scan).
+
+**Scan budget per create:** 3 full directory scans (classify reads ticket if referenced, plan scans for dedup, execute scans for ID allocation). Each scan globs `docs/tickets/*.md` and parses YAML frontmatter.
+
+**Acceptable at current scale:** <100 tickets. Filesystem I/O with YAML parsing is O(n) with low constant factors. At 17 tickets, the total scan time is negligible.
+
+**Indexing plan for >500 tickets:** If the corpus grows beyond 500 tickets, the engine should build and maintain a lightweight index file (`docs/tickets/.index/tickets.jsonl`) containing `{id, date, status, priority, fingerprint, path, mtime}` per ticket. Scans read the index instead of parsing all files. Index is rebuilt on mtime mismatch. This is a v1.1 optimization — not blocking v1.0.
 
 ## Ticket Contract
 
@@ -447,8 +473,43 @@ The full contract lives in `references/ticket-contract.md` within the plugin. It
 
 1. **Storage** — `docs/tickets/` for active, `docs/tickets/closed-tickets/` for archived (matches existing directory). Engine reads from both locations. Directory bootstrap: engine creates directories on first write. Naming: `YYYY-MM-DD-<slug>.md` for new tickets. Slug derivation: first 6 words of title, kebab-case, `[a-z0-9-]` only, max 60 chars, sequence suffix on collision.
 2. **ID Allocation** — Format: `T-YYYYMMDD-NN` (date + daily sequence). Collision prevention: scan existing tickets for same-day IDs, allocate next available NN. Legacy IDs (`T-NNN`, `T-[A-F]`, `handoff-*`) are preserved permanently — never converted.
-3. **Schema** — Required YAML fields: `id`, `date`, `status`, `priority`, `source`. Optional: `effort`, `tags`, `blocked_by`, `blocks`. Required sections: Problem, Approach, Acceptance Criteria, Verification, Key Files. Optional sections: Context, Prior Investigation, Decisions Made, Related. Section ordering rationale: Problem → Context → Prior Investigation → Approach → Decisions Made → Acceptance Criteria → Verification → Key Files → Related. Ordering follows the cognitive flow of a fresh session: understand the problem, absorb context, learn what was already tried, then see the plan and verification steps.
-4. **Engine Interface** — stdin/stdout/stderr contracts for `classify`, `plan`, `preflight`, and `execute` subcommands. JSON input/output schemas. Exit codes: 0 (success), 1 (engine error), 2 (validation failure).
+3. **Schema** — Required YAML fields: `id`, `date`, `status`, `priority`, `source`, `contract_version`. Optional: `effort`, `tags`, `blocked_by`, `blocks`, `defer` (see below). Required sections: Problem, Approach, Acceptance Criteria, Verification, Key Files. Optional sections: Context, Prior Investigation, Decisions Made, Related, Reopen History. Section ordering rationale: Problem → Context → Prior Investigation → Approach → Decisions Made → Acceptance Criteria → Verification → Key Files → Related → Reopen History. Ordering follows the cognitive flow of a fresh session: understand the problem, absorb context, learn what was already tried, then see the plan and verification steps. Reopen History is last because it's audit-style append-only data, not working context.
+
+   **Orthogonal defer field:** Deferral is not a status (the canonical 5-state set `{open, in_progress, blocked, done, wontfix}` is preserved). Instead, `defer` is an orthogonal field:
+   ```yaml
+   defer:
+     active: true
+     reason: "Waiting for upstream API v2 release"
+     deferred_at: "2026-03-02"
+   ```
+   When `defer.active: true`, the ticket remains in its current canonical status (`open`, `in_progress`, etc.) but triage reports it in a separate "deferred" group. This preserves triage semantics — stale detection skips deferred tickets, and re-activating a deferred ticket is a metadata change (`defer.active: false`), not a status transition.
+
+   **Doc size soft guardrails:** Tickets with growing sections (Prior Investigation, Decisions Made, Reopen History) can expand unboundedly. Guardrails:
+   - 16KB: `ticket-triage` emits warning: "Ticket approaching size threshold — consider splitting or archiving sections"
+   - 32KB: `ticket-triage` emits strong warning: "Ticket exceeds recommended size — split recommended"
+   - No hard enforcement in v1.0 — the engine does not reject large tickets. Guardrails are advisory via triage reporting.
+4. **Engine Interface** — stdin/stdout/stderr contracts for `classify`, `plan`, `preflight`, and `execute` subcommands. Exit codes: 0 (success), 1 (engine error), 2 (validation failure).
+
+   **Minimum schema shape contract** (field names, types, enumerations — full JSON schemas are implementation-level):
+
+   **Common response envelope** (all subcommands):
+   ```
+   {state: string, ticket_id: string|null, message: string, data: object}
+   ```
+   `state` is one of the 12 machine states. `data` is subcommand-specific.
+
+   **Per-subcommand I/O shapes:**
+
+   | Subcommand | Input Fields | Output `data` Fields |
+   |-----------|-------------|---------------------|
+   | `classify` | `action: string`, `args: object`, `session_id: string`, `request_origin: string` | `intent: string`, `confidence: float`, `resolved_ticket_id: string\|null` |
+   | `plan` | `intent: string`, `fields: object`, `session_id: string`, `request_origin: string` | `fingerprint: string`, `duplicate_of: string\|null`, `missing_fields: list[string]`, `action_plan: object` |
+   | `preflight` | `ticket_id: string`, `action: string`, `session_id: string`, `request_origin: string`, `plan_fingerprint: string` | `checks_passed: list[string]`, `checks_failed: list[{check: string, reason: string}]` |
+   | `execute` | `action: string`, `ticket_id: string\|null`, `fields: object`, `session_id: string`, `request_origin: string`, `plan_fingerprint: string\|null`, `force: bool` | `ticket_path: string`, `changes: object\|null` |
+
+   **Deterministic error codes:** `missing_field`, `invalid_transition`, `policy_blocked`, `stale_plan`, `duplicate_detected`, `audit_unavailable`, `parse_error`, `not_found`. Each maps to exactly one machine state.
+
+   **Behavior rules:** Unknown fields in input are **ignored** (forward-compatible — new callers can add fields that old engines skip). Missing required fields → exit code 2 + `need_fields` state.
 5. **Autonomy Model** — mode definitions, `ticket.local.md` parsing, `request_origin` derivation, audit trail format. See Trust Model section above.
 6. **Dedup Policy** — `normalize()` algorithm with test vectors, fingerprint construction, 24-hour window, `force` override protocol. See Dedup section above.
 7. **Status Transitions** — allowed transitions with preconditions:
@@ -471,10 +532,10 @@ The full contract lives in `references/ticket-contract.md` within the plugin. It
    | `implementing` | `in_progress` |
    | `complete` | `done` |
    | `closed` | `done` |
-   | `deferred` | `open` |
-8. **Migration** — see Migration section below.
+   | `deferred` | `open` (with `defer.active: true`, `defer.reason` from context if available) |
+8. **Migration** — see Migration section below. **Golden test requirement:** The contract must include at least one golden test file per legacy generation (Gen 1-4) with expected parsed output, covering field mapping, section renaming, and status normalization. These are regression tests for the read path.
 9. **Integration** — external consumers read `docs/tickets/*.md` as plain markdown with fenced YAML blocks. No API or import mechanism. Handoff's `/save` can reference ticket IDs in its output. Format uses fenced YAML (`` ```yaml ```) not YAML frontmatter (`---`), consistent with existing tickets and `ticket_parsing.py`.
-10. **Versioning** — `contract_version` in `ticket-meta` footer. Current: `"1.0"`. Compatibility: engine reads all versions; writes latest only.
+10. **Versioning** — `contract_version` in YAML frontmatter (top-level field). Current: `"1.0"`. Compatibility: engine reads all versions; writes latest only. Legacy `ticket-meta` comment footers are readable for migration (Gen 1-3 may have them) but never written by the ticket plugin. If both frontmatter and footer contain `contract_version`, frontmatter wins — emit warning for the discrepancy.
 
 All three components (ticket-ops, ticket-triage, ticket-autocreate) reference this contract. Changes to the contract are the mechanism for evolving the system.
 
@@ -484,8 +545,14 @@ All three components (ticket-ops, ticket-triage, ticket-autocreate) reference th
 - Ticket plugin owns all ticket infrastructure (creation, management, triage)
 - Handoff plugin removes `/defer` skill and `defer.py` script
 - Handoff plugin removes `/triage` skill (migrated to ticket plugin)
-- Handoff's `/save` can reference the ticket-autocreate agent for unfinished work
 - Handoff reads ticket files (plain markdown in `docs/tickets/`) for any remaining integration
+
+**Provider switch via DeferredWorkEnvelope:**
+- Handoff's `/save` emits a neutral `DeferredWorkEnvelope` (JSON) for each unfinished work item, containing: `title`, `problem`, `context`, `source` metadata, and `suggested_priority`
+- Ticket plugin supports explicit ingestion: `/ticket create --from-envelope <path>` reads the envelope and creates a ticket
+- Optional autonomous ingestion: `ticket-autocreate` agent can process envelopes when configured with `auto_audit` or higher autonomy
+- Transition sequence: (1) Ticket plugin ships with envelope support. (2) Handoff's `/save` emits envelopes instead of calling `defer.py`. (3) After telemetry confirms stability, deprecate `/defer`. (4) Remove `defer.py` and `/defer` skill.
+- Envelope format is an implementation detail — handoff and ticket plugins agree on a shared schema in their respective contracts
 
 **Migration path:**
 - New tickets always use v1.0 format
@@ -590,12 +657,61 @@ All 7 key outcomes RESOLVED with high confidence. 3 items EMERGED (Architecture 
 - Audit trail `changes` field (`frontmatter` diff + `sections_changed`) required for update/close/reopen
 - 4th legacy generation (defer.py output) with distinct field requirements and read-time defaults
 
-**Unresolved (deferred to implementation):**
-- Provider switch mechanism for `/save` → ticket routing during handoff transition
-- Who writes the session-end summary for `auto_silent` — the agent or the skill
-- PreToolUse hook reliability for blocking arbitrary shell command patterns calling the user entrypoint
+**Previously unresolved (now resolved by deeper review):**
+- ~~Provider switch mechanism for `/save` → ticket routing~~ → **Resolved:** DeferredWorkEnvelope bridge. See Relationship to Handoff Plugin section.
+- ~~Who writes the session-end summary for `auto_silent`~~ → **Resolved:** Guardrail 4 rewritten. Durable summary in audit trail (guaranteed) + skill-owned visible digest on next turn (best-effort). SessionEnd hooks are debug-only.
+- ~~PreToolUse hook reliability~~ → **Resolved:** Allowlist-first policy with documented non-coverage statement. See Trust Model section.
 
 **Implementation tickets (not design-level):**
-- JSON schemas for all engine I/O (4 subcommands × N machine states)
 - `auto_audit` notification UX flows (confirmation handling, undo path)
-- Detailed `merge_into_existing` UX flows (merge algorithm, field conflict resolution)
+- `merge_into_existing` UX flows deferred to v1.1 (state reserved in v1.0, escalate fallback)
+- `ticket audit repair` command for corrupted audit files
+- DeferredWorkEnvelope schema definition (shared between handoff and ticket plugins)
+
+### Deeper Review (Evaluative Codex Dialogue)
+
+6-turn evaluative Codex dialogue (thread `019caf7f-6c81-7453-9ecf-c4f5a3980acf`). 12 RESOLVED, 3 UNRESOLVED, 5 EMERGED.
+
+**Findings applied to this design doc:**
+
+| # | Finding | Fix Applied |
+|---|---------|-------------|
+| 1 | Engine Interface has no schema shapes — implementer can't code I/O | Added minimum schema shape contract: common envelope, per-subcommand field tables, error codes, unknown-field policy |
+| 2 | `session_create_count` caller-tracked — trust boundary violation | Engine-authoritative via per-session audit trail; caller count advisory only |
+| 3 | `ticket-meta` footer duplicates YAML frontmatter provenance | Eliminated footer; `contract_version` moved to frontmatter; legacy footers readable for migration |
+| 4 | Summary writer guardrail 4 unimplementable (SessionEnd is debug-only) | Split: durable audit summary (guaranteed) + skill-owned visible digest (best-effort) |
+| 5 | Provider switch mechanism unspecified | DeferredWorkEnvelope bridge with explicit `/ticket create --from-envelope` path |
+| 6 | `merge_into_existing` has no engine logic | Reserved in v1.0; `escalate` fallback; removed from `duplicate_candidate` options |
+| 7 | `deferred` mapped to `open` loses triage semantics | Orthogonal `defer` field (`defer.active`, `defer.reason`, `defer.deferred_at`) |
+| 8 | PreToolUse hook fragile for arbitrary shell patterns | Allowlist-first + payload-by-file + documented non-coverage + detective controls |
+| 9 | Session counting needs fail-closed + corruption handling | Fail closed for autonomous; per-session audit files; explicit repair path |
+| 10 | Doc size threshold unaddressed | Soft guardrails: 16KB warn, 32KB strong warn, no hard enforcement v1.0 |
+| 11 | 3-scan-per-create scalability concern | Acceptable at <100; indexing plan documented for >500 |
+| 12 | TOCTOU risk in plan→execute gap | Plan fingerprint (`sha256(content+mtime)`) verified by execute; `stale_plan` error on mismatch |
+
+**Additional items from areas of agreement:**
+- `Reopen History` added to schema optional sections list
+- `test_read.py` added to test plan for `ticket_read.py` shared module
+- Migration golden tests required (1 per legacy generation)
+- Status normalization for `deferred` now sets `defer.active: true`
+
+**Emerged from dialogue:**
+- Build-blocker vs integration-blocker severity distinction for review findings
+- Payload-by-file pattern reduces shell metacharacter attack surface
+- Per-session audit files (`YYYY-MM-DD/<session_id>.jsonl`) solve counting + blast radius
+- Detective controls (post-exec audit check) complement preventive PreToolUse hook
+- DeferredWorkEnvelope as decoupled bridge between plugins
+
+**Unresolved (deferred to implementation):**
+- Full error code enumeration for engine I/O (8 codes specified; full set during implementation)
+- Per-session audit file race conditions vs daily file approach (implied concern, not probed)
+
+**Review history (complete):**
+
+| Round | Posture | Thread | Turns | Outcome |
+|-------|---------|--------|-------|---------|
+| 1. Collaborative Codex | collaborative | `019cad28-6567-7f12-9bbd-1f9a96d46b33` | 12 | Architecture E emerged (7 RESOLVED, 3 EMERGED) |
+| 2. Adversarial Codex | adversarial | `019caf2e-9901-7a41-be8b-9a3c862c273f` | 6 | 7 control-plane flaws fixed (10 RESOLVED, 5 UNRESOLVED, 3 EMERGED) |
+| 3. 5-agent team review | multi-lens | — | — | 57 findings (1C, 10H, 18M, 11L, 17E) |
+| 4. Collaborative Codex | collaborative | `019caf51-7725-78f1-9a91-ad1b20e047bd` | 6 | Triage + prioritization (10 RESOLVED, 3 UNRESOLVED, 3 EMERGED) |
+| 5. Deeper review Codex | evaluative | `019caf7f-6c81-7453-9ecf-c4f5a3980acf` | 6 | Testability, contracts, integration, scale (12 RESOLVED, 3 UNRESOLVED, 5 EMERGED) |
