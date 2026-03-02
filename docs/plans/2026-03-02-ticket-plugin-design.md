@@ -460,7 +460,7 @@ Default: `suggest` (fail-closed). Configuration: `.claude/ticket.local.md`.
 3. `max_creates_per_session` hard cap (default: 5), engine-enforced via authoritative audit trail count — cap reached → `policy_blocked`
 4. **Mandatory durable summary** of all auto-created tickets written to audit trail (even in silent mode). **Best-effort user-visible digest** emitted by `ticket-triage` skill on next user-visible turn (e.g., `/ticket list` or proactive triage). Note: SessionEnd hooks output goes to debug-only — they cannot surface content to the user. The durable summary (audit trail) is guaranteed; the visible digest is best-effort.
 5. **Audit invariant:** All mutating writes fail-closed on audit write failure. Specifically: autonomous callers → `policy_blocked`; user callers → proceed with warning + `unaudited: true` marker on the ticket (excluded from autonomy-derived counters). Write ordering: `attempt_started` audit entry FIRST (append-only JSONL), then ticket file write, then `attempt_result` entry. Overcount on failure is the safe direction.
-6. `auto_silent` limited to `create` only in v1.0 — update/close/reopen require `auto_audit` or higher
+6. `auto_silent` limited to `create` only — update/close/reopen require `auto_audit` or higher
 
 **`auto_audit` notification template:**
 ```
