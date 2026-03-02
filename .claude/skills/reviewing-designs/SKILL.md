@@ -1,6 +1,6 @@
 ---
 name: reviewing-designs
-description: Use when verifying a design captures all requirements from sources. Use after creating specs from multiple documents. Use before implementing from a design. Use when past designs have led to implementation surprises.
+description: Iterative design review using the Framework for Thoroughness. Use when verifying a design captures all requirements from sources. Use after creating specs from multiple documents. Use before implementing from a design. Use when past designs have led to implementation surprises.
 ---
 
 # Reviewing Designs
@@ -14,7 +14,7 @@ Design review catches issues before implementation, when they're cheap to fix. T
 
 A single pass checking "is X mentioned?" misses decision rules, exit criteria, and safety defaults — single sentences with outsized impact. This skill uses the Framework for Thoroughness to iterate until findings converge.
 
-**Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness.md)
+**Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness_v1.0.0.md)
 **Default thoroughness:** Rigorous
 
 **Core insight:** The items most often missed are single sentences that define behavior at decision points.
@@ -216,6 +216,10 @@ For each dimension, record using Cell Schema:
 - Rate evidence and confidence
 - Note artifacts (quotes, file:line references)
 
+**STOP-CHECK before proceeding:**
+1. Did you check COMPLETENESS, not just PRESENCE? "Design mentions X" ≠ "X is fully specified." For each dimension, the question is "Is this COMPLETE?" not "Is this MENTIONED?"
+2. Did any dimension get `[-]` N/A? Verify each N/A passes the skeptical-reviewer test from DISCOVER. If justification is weak, re-check the dimension.
+
 #### VERIFY: Check findings
 
 **Cross-reference:** Do findings from different dimensions agree or contradict?
@@ -242,6 +246,8 @@ For each dimension, record using Cell Schema:
 
 **Output:** Verified findings with confidence levels
 
+**STOP-CHECK before proceeding:** Was disconfirmation genuine? "I tried to disprove it" requires stating what technique you used AND what you found. If you cannot name the technique and result, go back and actually attempt disconfirmation.
+
 #### REFINE: Loop or exit?
 
 **Calculate Yield%:**
@@ -255,15 +261,25 @@ An entity _yields_ if it is:
 - Revised (conclusion changed)
 - Escalated (priority increased)
 
-`Yield% = (yielding entities / total P0+P1 entities) × 100`
+`Yield% = ( |Y| / max(1, |U|) ) × 100`
+
+Where:
+- `E_prev` = in-scope P0+P1 entities at end of previous pass
+- `E_cur` = in-scope P0+P1 entities at end of current pass
+- `U = E_prev ∪ E_cur` (union — prevents denominator shrinkage when items are reclassified or removed)
+- `Y` = subset of `U` that yielded this pass
+
+Pass 1 special case: Yield% = 100% (no prior snapshot).
+
+**Priority downgrade rule:** Downgrades (P0→P1, P1→P2) require: (a) new evidence supporting lower severity, (b) documented justification that decision-impact is unchanged. Downgrades without evidence retain original priority. Track all downgrades in the iteration log — they are auditable.
 
 **Worked example:**
 
-| Pass | Action | P0+P1 Entities | Yielding | Yield% |
-|------|--------|----------------|----------|--------|
-| 1 | Found 3 P0 gaps, 5 P1 issues | 8 | 8 (all new) | 100% |
-| 2 | Found 2 more P0s, revised 1 P1 | 10 | 3 (2 new + 1 revised) | 30% |
-| 3 | Found 1 P1, no revisions | 11 | 1 (new) | 9% |
+| Pass | U (union) | Y (yielding) | Yield% |
+|------|-----------|--------------|--------|
+| 1 | — | — | 100% (special case) |
+| 2 | 10 | 3 (2 new + 1 revised) | 30% |
+| 3 | 11 | 1 (1 new) | 9% |
 
 Pass 3 Yield% (9%) is below Rigorous threshold (10%) → exit to Adversarial Pass.
 
@@ -290,25 +306,27 @@ Pass 3 Yield% (9%) is below Rigorous threshold (10%) → exit to Adversarial Pas
 
 This pass challenges the _design itself_, not just individual findings. Apply each lens with genuine adversarial intent — objections must cause discomfort if true.
 
-| Lens                       | Question                                                                                                       |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| **Assumption Hunting**     | What assumptions does the design make (explicit and implicit)? What if they're wrong?                          |
-| **Scale Stress**           | What breaks at 10x? 100x? Where are the bottlenecks?                                                           |
-| **Competing Perspectives** | Security: attack vectors? Performance: slow spots? Maintainability: hard to change? Operations: hard to debug? |
-| **Kill the Design**        | What's the strongest argument against this? If it fails in production, what's the cause?                       |
-| **Pre-mortem**             | It's 6 months later, this failed catastrophically. What went wrong? What warnings were ignored?                |
-| **Steelman Alternatives**  | What approaches were rejected? What would make them better than this design?                                   |
-| **Challenge the Framing**  | Is this the right problem to solve? Are we addressing a symptom instead of root cause?                         |
-| **Hidden Complexity**      | Where is complexity underestimated? What looks simple but isn't?                                               |
-| **Motivated Reasoning**    | Where might the design rationalize a preferred approach? Is there anchoring to an early idea?                  |
+| ID | Lens                       | Question                                                                                                       |
+| -- | -------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| A1 | **Assumption Hunting**     | What assumptions does the design make (explicit and implicit)? What if they're wrong?                          |
+| A2 | **Scale Stress**           | What breaks at 10x? 100x? Where are the bottlenecks?                                                           |
+| A3 | **Competing Perspectives** | Security: attack vectors? Performance: slow spots? Maintainability: hard to change? Operations: hard to debug? |
+| A4 | **Kill the Design**        | What's the strongest argument against this? If it fails in production, what's the cause?                       |
+| A5 | **Pre-mortem**             | It's 6 months later, this failed catastrophically. What went wrong? What warnings were ignored?                |
+| A6 | **Steelman Alternatives**  | What approaches were rejected? What would make them better than this design?                                   |
+| A7 | **Challenge the Framing**  | Is this the right problem to solve? Are we addressing a symptom instead of root cause?                         |
+| A8 | **Hidden Complexity**      | Where is complexity underestimated? What looks simple but isn't?                                               |
+| A9 | **Motivated Reasoning**    | Where might the design rationalize a preferred approach? Is there anchoring to an early idea?                  |
+
+**Completion schema:** For each applied lens, record: lens ID, objection raised, response/mitigation, and residual risk (if any). Verify the count of lenses with non-empty objections matches the stakes requirement below.
 
 **Minimum depth by stakes:**
 
-- Adequate: Apply 4 lenses; document key objections
-- Rigorous: Apply all 9 lenses; document objections and responses
-- Exhaustive: Apply all 9 lenses; document objections, responses, and residual risks
+- Adequate: Apply 4+ lenses (by ID); document key objections
+- Rigorous: Apply all 9 lenses (A1-A9); document objections and responses
+- Exhaustive: Apply all 9 lenses (A1-A9); document objections, responses, and residual risks
 
-**Output:** Adversarial findings added to report, categorized separately from systematic findings
+**Output:** Adversarial findings added to report, categorized separately from systematic findings (reference by lens ID)
 
 ### Exit Gate
 
@@ -321,18 +339,26 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 | Disconfirmation attempted | Techniques applied to P0s; documented what was tried and found                                  |
 | Assumptions resolved      | Each verified, invalidated, or flagged as unverified                                            |
 | Convergence reached       | Yield% below threshold for stakes level                                                         |
-| Adversarial pass complete | All required lenses applied; objections documented                                              |
+| Adversarial pass complete | All required lenses applied (with IDs); objections documented with responses or accepted risks  |
 
-**"No issues found" requires extra verification:**
+**Post-completion self-check (verify before producing output):**
 
-- [ ] Convergence reached (Yield% below threshold)
-- [ ] Disconfirmation genuinely attempted (not just claimed)
-- [ ] Self-check: "Did I actually look, or did I assume the design was fine?"
+- [ ] Entry Gate: inputs, assumptions, stakes, stopping criteria all recorded
+- [ ] DISCOVER: ≥3 techniques applied; D12-D19 not skipped; N/A dimensions have skeptical-reviewer justification
+- [ ] EXPLORE: each dimension has Cell Schema fields (Status, Evidence, Confidence); findings linked to dimensions
+- [ ] VERIFY: disconfirmation techniques documented (what was tried AND what was found)
+- [ ] REFINE: Yield% calculated per pass; iteration log shows pass-by-pass changes
+- [ ] Adversarial: required lens count met for stakes; pre-mortem produced specific, plausible failure story
+- [ ] If a P0 exists, would the user definitely see it in the summary?
+- [ ] If the design had hidden flaws, did I genuinely try to find them?
+
+**"No issues found" requires extra scrutiny:** Was disconfirmation genuinely attempted? Self-check: "Did I actually look, or did I assume the design was fine?"
 
 **Produce output:**
 
 1. Write full report to `docs/audits/YYYY-MM-DD-<design-name>-review.md`
 2. Present brief summary in chat (P0/P1/P2 counts + key issues only)
+3. Chat must NOT contain full findings, iteration log, or coverage tracker
 
 ## Decision Points
 
@@ -340,7 +366,7 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 
 - If target document not specified → Ask: "Which design document should I review?"
 - If sources not specified but source comparison is relevant → Ask: "Are there source documents this design should capture?"
-- If user says "just review it" → Proceed with Implementation Readiness and Document Quality dimensions only; note Source Coverage dimensions skipped
+- If user says "just review it" → Proceed with D4-D19 (Behavioral Completeness through Document Quality); mark D1-D3 as `[-]` with rationale: no source documents specified
 
 **Stakes disagreement:**
 
@@ -384,68 +410,7 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 
 ## Examples
 
-**Scenario:** Team created a design document for a new authentication system, derived from security requirements docs and API specifications.
-
-### BAD: Single-pass checkbox review
-
-Claude scans the document once, notes "has all the sections," checks that auth flows are mentioned, and reports: "Design looks complete. Ready for implementation."
-
-**Why it's bad:**
-
-- No Entry Gate — stakes not assessed, no stopping criteria
-- Single pass — no iteration, no Yield% tracking
-- Checked presence, not completeness — "auth flows mentioned" ≠ "auth flows fully specified"
-- Skipped Behavioral Completeness — no check for decision rules, exit criteria, safety defaults
-- No adversarial pass — didn't try to break the design
-- No disconfirmation — accepted "looks good" without testing that conclusion
-- Missed: Token refresh edge case undefined, error responses inconsistent with API spec, no rollback procedure for failed auth upgrades
-
-### GOOD: Iterative review with framework
-
-**Entry Gate:**
-
-- Target: `docs/designs/auth-system.md`
-- Sources: `docs/requirements/security.md`, `docs/specs/api-v2.md`
-- Stakes: Rigorous (implementation follows; moderate undo cost)
-- Stopping: Yield% <10%
-
-**Pass 1:** DISCOVER dimensions, assign priorities
-
-- D1-D3 (Source Coverage): P0 — must capture all security requirements
-- D4-D6 (Behavioral Completeness): P0 — auth failures need clear handling
-- D7-D11 (Implementation Readiness): P1
-- D12-D19 (Consistency + Document Quality): P1
-
-**Pass 1 EXPLORE:** Found 3 P0 gaps, 5 P1 issues. Yield% = 8/8 = 100% (first pass)
-
-**Pass 2 EXPLORE:** Deeper check on D4-D6, found 2 more P0 gaps (token refresh undefined, no rollback procedure), revised 1 P1 severity. Yield% = 3/10 = 30%
-
-**Pass 3 EXPLORE:** Checked D13-D19 (Document Quality). Found 1 P1 issue (vague language in error handling). No new P0s, no revisions. Yield% = 1/11 = 9%
-
-**Adversarial Pass:**
-
-- Pre-mortem: "Auth system fails in production because token refresh race condition wasn't specified" — added to findings
-- Scale stress: "At 100x users, token validation becomes bottleneck" — noted as P1 concern
-
-**Exit Gate:** Yield% <10%, all dimensions checked, disconfirmation attempted.
-
-**Output:**
-
-```
-**Review complete:** auth-system.md
-**Findings:** P0: 5 | P1: 7 | P2: 2
-**Key issues:** Token refresh edge case undefined; no rollback for failed upgrades
-**Full report:** `docs/audits/YYYY-MM-DD-auth-system-review.md`
-```
-
-**Why it's good:**
-
-- Entry Gate established scope and stakes
-- Iterative passes with Yield% tracking
-- Checked completeness, not just presence
-- All dimension categories covered with appropriate priority
-- Adversarial pass found additional issue
-- Clear output with P0 count prominent
+See [Review Examples](references/examples.md) for BAD vs. GOOD comparison showing single-pass checkbox review (what to avoid) vs. iterative framework-based review (what to do).
 
 ## Anti-Patterns
 
@@ -466,59 +431,6 @@ If the review process isn't working as expected, see [Troubleshooting Reference]
 - **Review completed in one pass?** → Pass 1 is always 100% yield; cannot exit after one pass
 - **Most dimensions marked N/A?** → Document Quality (D13-D19) and Cross-validation (D12) cannot be N/A
 - **"No issues found"?** → Verify disconfirmation was genuinely attempted
-
-## Verification
-
-After completing a review, verify:
-
-**Entry Gate:**
-
-- [ ] Inputs identified (target document, source documents if applicable)
-- [ ] Assumptions listed
-- [ ] Stakes level assessed and recorded
-- [ ] Stopping criteria selected (Yield% threshold)
-
-**DISCOVER:**
-
-- [ ] Dimensions identified with priorities (P0/P1/P2)
-- [ ] ≥3 DISCOVER techniques applied to expand beyond seed dimensions
-- [ ] Document Quality (D13-D19) and Cross-validation (D12) not skipped
-- [ ] Any N/A dimensions have skeptical-reviewer-level justification
-
-**EXPLORE:**
-
-- [ ] Each checked dimension has Cell Schema fields (Status, Evidence, Confidence)
-- [ ] Evidence requirements met for stakes level (Rigorous: E2 for P0, E1 for P1)
-- [ ] Findings linked to dimensions with priority assigned
-
-**VERIFY:**
-
-- [ ] Disconfirmation attempted for P0 dimensions (techniques documented)
-- [ ] Assumptions resolved (verified, invalidated, or flagged unverified)
-
-**REFINE:**
-
-- [ ] Yield% calculated for each pass
-- [ ] Iteration log shows pass-by-pass changes
-- [ ] Convergence reached (Yield% below threshold)
-
-**Adversarial Pass:**
-
-- [ ] Required lenses applied for stakes level (Rigorous: all 9)
-- [ ] Objections documented with responses or accepted risks
-- [ ] Pre-mortem produced specific, plausible failure story
-
-**Exit Gate:**
-
-- [ ] All criteria passed
-- [ ] Full report written to artifact location
-- [ ] Chat summary contains P0/P1/P2 counts and key issues only
-- [ ] Chat does NOT contain full findings, iteration log, or coverage tracker
-
-**Quick self-test:**
-
-- If a P0 issue exists, would the user definitely see it in the summary?
-- If the design had hidden flaws, did I genuinely try to find them?
 
 ## Extension Points
 
@@ -543,3 +455,4 @@ After completing a review, verify:
 
 - Projects can define default stakes in CLAUDE.md (e.g., "all design reviews are Rigorous minimum")
 - User can still override per-review
+- **Conflict resolution:** If CLAUDE.md specifies a minimum and user requests lower: state the concrete risk delta (which evidence requirements drop, which disconfirmation techniques are removed, how confidence ceiling changes), record accepted risk in Entry Gate, proceed with user's choice
