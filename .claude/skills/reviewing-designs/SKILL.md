@@ -194,12 +194,12 @@ For each dimension, record using Cell Schema:
 | Field      | Required      | Values                                                                     |
 | ---------- | ------------- | -------------------------------------------------------------------------- |
 | ID         | Yes           | D1, D2, ... F1, F2, ...                                                    |
-| Status     | Yes           | `[x]` done, `[~]` partial, `[-]` N/A, `[ ]` not started, `[?]` unknown     |
+| Status     | Yes           | `[x]` done (completeness verified), `[~]` partial/presence-only, `[-]` N/A, `[ ]` not started, `[?]` unknown |
 | Priority   | Yes           | P0 / P1 / P2                                                               |
 | Evidence   | Yes           | E0 (assertion) / E1 (single source) / E2 (two methods) / E3 (triangulated) |
 | Confidence | Yes           | High / Medium / Low                                                        |
 | Artifacts  | If applicable | File paths, quotes, line numbers                                           |
-| Notes      | If applicable | What's missing, next action                                                |
+| Notes      | If applicable | What's missing, next action. **Required for `[x]`:** "Completeness basis: ..." stating what makes this complete, not just present. Presence-only → use `[~]`. |
 
 **Evidence requirements by stakes:**
 
@@ -261,6 +261,10 @@ An entity _yields_ if it is:
 - Revised (conclusion changed)
 - Escalated (priority increased)
 
+**Stable identity:** All yield-tracked entities must keep stable IDs across passes. Renames without ID continuity count as removed + new. (LLMs naturally renumber lists between passes — without stable IDs, renamed entities cause false convergence.)
+
+**Effective priority:** Findings inherit the highest priority of their linked dimensions. Unlinked findings default to P1 until linked. (Prevents P2-deferral: classifying genuinely P0/P1 findings as P2 to exclude them from Yield% scope.)
+
 `Yield% = ( |Y| / max(1, |U|) ) × 100`
 
 Where:
@@ -271,7 +275,14 @@ Where:
 
 Pass 1 special case: Yield% = 100% (no prior snapshot).
 
-**Priority downgrade rule:** Downgrades (P0→P1, P1→P2) require: (a) new evidence supporting lower severity, (b) documented justification that decision-impact is unchanged. Downgrades without evidence retain original priority. Track all downgrades in the iteration log — they are auditable.
+**Priority downgrade rule:**
+
+1. **Evidence required:** Downgrades (P0→P1, P1→P2) require evidence that disproves or bounds the original failure mode — not merely a restatement at lower severity.
+2. **Before/after record:** Document: previous claim, new evidence, residual impact, and mapped priority.
+3. **Ambiguity default:** When evidence is ambiguous, retain the higher priority.
+4. **Re-escalation:** If later evidence contradicts a downgrade justification, re-escalate immediately to the original priority.
+
+Track all downgrades in the iteration log — they are auditable.
 
 **Worked example:**
 
@@ -339,6 +350,7 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 | Disconfirmation attempted | Techniques applied to P0s; documented what was tried and found                                  |
 | Assumptions resolved      | Each verified, invalidated, or flagged as unverified                                            |
 | Convergence reached       | Yield% below threshold for stakes level                                                         |
+| Connections mapped        | P0/P1 findings have cause → affected sections → propagation impact documented                   |
 | Adversarial pass complete | All required lenses applied (with IDs); objections documented with responses or accepted risks  |
 
 **Post-completion self-check (verify before producing output):**
