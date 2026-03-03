@@ -454,23 +454,37 @@ Increment `current_turn`. Return to Step 1 for the next Codex response.
 
 ### Phase tracking (multi-phase profiles)
 
-When the delegation envelope includes a profile with `phases`, track `current_phase_index` alongside `current_turn`.
+When the delegation envelope includes `phases` (a list of phase objects with `posture`, `target_turns`, `description`), track phase progression alongside the turn loop.
 
-**Before each turn:**
-1. Check if `current_turn >= effective_budget` → conclude (hard cap)
-2. Check if server returned `action: conclude` → conclude (convergence)
-3. Compute `turns_in_phase` = turns since `current_phase_index` was last updated
-4. If `turns_in_phase >= phases[current_phase_index].target_turns`, advance `current_phase_index`
-5. Set `posture` in the next `process_turn` request to `phases[current_phase_index].posture`
+**Additional state:**
+
+| State | Initial value | Purpose |
+|-------|--------------|---------|
+| `current_phase_index` | `0` | Index into `phases` array |
+| `phase_turns_completed` | `0` | Turns completed in the current phase |
+
+**Phase advancement (after Step 3, before Step 5 follow-up):**
+
+After each successful `process_turn` response (Step 3), before composing the follow-up (Step 5):
+
+1. Increment `phase_turns_completed`
+2. If `phase_turns_completed >= phases[current_phase_index].target_turns` AND `current_phase_index < len(phases) - 1`:
+   - Advance: `current_phase_index += 1`, `phase_turns_completed = 0`
+   - Compose a transition marker in the follow-up (see below)
+3. Set `posture` for the next `process_turn` call to `phases[current_phase_index].posture`
+
+**Hard cap precedence:** Budget exhaustion (`current_turn >= effective_budget`) and server `conclude` always take precedence over phase advancement. Check both before evaluating phase advancement.
+
+**Last phase exhaustion:** When `phase_turns_completed >= target_turns` on the *last* phase (`current_phase_index == len(phases) - 1`), do not advance — remain in the last phase. The server's convergence detection or budget cap terminates the conversation.
 
 **Phase transition signaling:**
 When advancing to a new phase, compose a transition marker in the follow-up:
-- exploratory → evaluative: "We've explored the problem space — now let's verify the leading hypothesis against evidence."
-- evaluative → collaborative: "The root cause is identified — let's design the fix together."
-- exploratory → comparative: "We've mapped the options — now let's compare them against criteria."
+- exploratory -> evaluative: "We've explored the problem space — now let's verify the leading hypothesis against evidence."
+- evaluative -> collaborative: "The root cause is identified — let's design the fix together."
+- exploratory -> comparative: "We've mapped the options — now let's compare them against criteria."
 - Generic: "Shifting focus from {old_phase.description} to {new_phase.description}."
 
-**Single-phase profiles:** When no `phases` key exists, skip all phase tracking. Behavior is identical to pre-Release-C.
+**Single-phase profiles:** When no `phases` key exists in the delegation envelope, skip all phase tracking. Behavior is identical to pre-Release-C.
 
 ## Phase 3: Synthesis
 
