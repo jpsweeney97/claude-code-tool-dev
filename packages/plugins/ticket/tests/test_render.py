@@ -136,3 +136,4 @@ def test_render_ticket_yaml_injection_tags(tmp_path):
     ticket = parse_ticket(ticket_file)
     assert ticket is not None
     assert "tag: with colon" in ticket.tags
+    assert "tag\nwith\nnewline" in ticket.tags
