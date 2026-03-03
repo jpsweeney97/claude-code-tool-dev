@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Agent entrypoint for the ticket engine.
+
+Hardcodes request_origin="agent". Called by ticket-autocreate agent.
+Usage: python3 ticket_engine_agent.py <subcommand> <payload_file>
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+# Add parent to path for imports.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from scripts.ticket_engine_core import (
+    EngineResponse,
+    engine_classify,
+    engine_execute,
+    engine_plan,
+    engine_preflight,
+)
+
+REQUEST_ORIGIN = "agent"
+
+
+def main() -> None:
+    if len(sys.argv) < 3:
+        print(json.dumps({"error": "Usage: ticket_engine_agent.py <subcommand> <payload_file>"}), file=sys.stderr)
+        sys.exit(1)
+
+    subcommand = sys.argv[1]
+    payload_path = Path(sys.argv[2])
+
+    try:
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        print(json.dumps({"error": f"Cannot read payload: {exc}"}), file=sys.stderr)
+        sys.exit(1)
+
+    # Force request_origin to "agent" regardless of what caller passed.
+    payload["request_origin"] = REQUEST_ORIGIN
+
+    # Check for hook-injected origin mismatch.
+    hook_origin = payload.get("hook_request_origin")
+    if hook_origin is not None and hook_origin != REQUEST_ORIGIN:
+        resp = EngineResponse(
+            state="escalate",
+            message=f"origin_mismatch: entrypoint={REQUEST_ORIGIN}, hook={hook_origin}",
+            error_code="origin_mismatch",
+        )
+        print(resp.to_json())
+        sys.exit(1)
+
+    tickets_dir = Path(payload.get("tickets_dir", "docs/tickets"))
+
+    resp = _dispatch(subcommand, payload, tickets_dir)
+    print(resp.to_json())
+    # Exit codes: 0=success, 1=engine error, 2=validation failure (need_fields).
+    if resp.state in ("ok", "ok_create", "ok_update", "ok_close", "ok_close_archived", "ok_reopen"):
+        sys.exit(0)
+    elif resp.error_code == "need_fields":
+        sys.exit(2)
+    else:
+        sys.exit(1)
+
+
+def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineResponse:
+    if subcommand == "classify":
+        return engine_classify(
+            action=payload.get("action", ""),
+            args=payload.get("args", {}),
+            session_id=payload.get("session_id", ""),
+            request_origin=REQUEST_ORIGIN,
+        )
+    elif subcommand == "plan":
+        return engine_plan(
+            intent=payload.get("intent", payload.get("action", "")),
+            fields=payload.get("fields", {}),
+            session_id=payload.get("session_id", ""),
+            request_origin=REQUEST_ORIGIN,
+            tickets_dir=tickets_dir,
+        )
+    elif subcommand == "preflight":
+        return engine_preflight(
+            ticket_id=payload.get("ticket_id"),
+            action=payload.get("action", ""),
+            session_id=payload.get("session_id", ""),
+            request_origin=REQUEST_ORIGIN,
+            classify_confidence=payload.get("classify_confidence", 0.0),
+            classify_intent=payload.get("classify_intent", ""),
+            dedup_fingerprint=payload.get("dedup_fingerprint"),
+            target_fingerprint=payload.get("target_fingerprint"),
+            duplicate_of=payload.get("duplicate_of"),
+            dedup_override=payload.get("dedup_override", False),
+            tickets_dir=tickets_dir,
+        )
+    elif subcommand == "execute":
+        return engine_execute(
+            action=payload.get("action", ""),
+            ticket_id=payload.get("ticket_id"),
+            fields=payload.get("fields", {}),
+            session_id=payload.get("session_id", ""),
+            request_origin=REQUEST_ORIGIN,
+            dedup_override=payload.get("dedup_override", False),
+            dependency_override=payload.get("dependency_override", False),
+            tickets_dir=tickets_dir,
+        )
+    else:
+        return EngineResponse(state="escalate", message=f"Unknown subcommand: {subcommand!r}", error_code="intent_mismatch")
+
+
+if __name__ == "__main__":
+    main()
