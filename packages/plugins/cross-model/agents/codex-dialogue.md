@@ -452,6 +452,26 @@ Increment `current_turn`. Return to Step 1 for the next Codex response.
 - **Budget exceeded:** If `current_turn >= effective_budget`, treat any server action as `conclude` regardless of what the server returns. See Step 5 budget precedence.
 - If `mcp__plugin_cross-model_codex__codex-reply` fails mid-conversation, proceed directly to Phase 3 synthesis using `turn_history`. Use the most recent `cumulative` snapshot and `validated_entry` records from `turn_history` in place of the missing `ledger_summary`. Do not attempt to call `process_turn` again — there is no new Codex response to extract from.
 
+### Phase tracking (multi-phase profiles)
+
+When the delegation envelope includes a profile with `phases`, track `current_phase_index` alongside `current_turn`.
+
+**Before each turn:**
+1. Check if `current_turn >= effective_budget` → conclude (hard cap)
+2. Check if server returned `action: conclude` → conclude (convergence)
+3. Compute `turns_in_phase` = turns since `current_phase_index` was last updated
+4. If `turns_in_phase >= phases[current_phase_index].target_turns`, advance `current_phase_index`
+5. Set `posture` in the next `process_turn` request to `phases[current_phase_index].posture`
+
+**Phase transition signaling:**
+When advancing to a new phase, compose a transition marker in the follow-up:
+- exploratory → evaluative: "We've explored the problem space — now let's verify the leading hypothesis against evidence."
+- evaluative → collaborative: "The root cause is identified — let's design the fix together."
+- exploratory → comparative: "We've mapped the options — now let's compare them against criteria."
+- Generic: "Shifting focus from {old_phase.description} to {new_phase.description}."
+
+**Single-phase profiles:** When no `phases` key exists, skip all phase tracking. Behavior is identical to pre-Release-C.
+
 ## Phase 3: Synthesis
 
 Assemble synthesis from `turn_history`. Do not recall the full conversation — walk the `turn_history` (server-validated `validated_entry` records and cumulative snapshots).
@@ -496,6 +516,7 @@ Before writing output, verify every item:
 - [ ] Continuation section includes unresolved items and recommended posture (if warranted)
 - [ ] Contested claims classified with state (agreement/resolved_disagreement/unresolved_disagreement) and resolution basis
 - [ ] Evidence statistics: scouts executed, entities scouted, impacts on conversation. If `evidence_count == 0`, state "Evidence: none (no scouts executed)" and omit evidence trajectory
+- [ ] Phase trajectory: which phases entered, turns consumed per phase, phases skipped by convergence (multi-phase only)
 
 If any item is missing, fix it before returning output.
 
