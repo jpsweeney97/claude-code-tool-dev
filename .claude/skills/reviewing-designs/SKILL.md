@@ -14,8 +14,6 @@ Design review catches issues before implementation, when they're cheap to fix. T
 3. **Conversational sharpening** — Value is in back-and-forth dialogue, not compliance reports
 4. **Optimality** — Is this the best design for its purpose, not just the first workable approach?
 
-Existing dimensions D1-D3 (Source Coverage) and D7-D11 (Implementation Readiness) remain fully active — the redesign adds concerns #1-#4, not replaces the dimensional engine.
-
 An early adversarial gate (AHG-5) surfaces framing problems and load-bearing assumptions as testable hypotheses. A bridge table carries those hypotheses through the dimensional loop, preventing "generate-then-forget." Three dialogue checkpoints (delta cards) make the conversation the primary output.
 
 **Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness_v1.0.0.md)
@@ -361,6 +359,8 @@ An entity _yields_ if it is:
 
 **Effective priority:** Findings inherit the highest priority of their linked dimensions. Unlinked findings default to P1 until linked. (Prevents P2-deferral: classifying genuinely P0/P1 findings as P2 to exclude them from Yield% scope.)
 
+**H-code exclusion:** Bridge table H-codes are scaffolding — not Yield-tracked entities. Only D-codes and F-codes enter E_prev/E_cur. Bridge completion is an independent exit criterion checked at Exit Gate. **Entry Gate declaration (B1):** Include in Entry Gate output: "Yield% scope: D-codes and F-codes only. H-codes are bridge scaffolding." (Per framework MAY clause — scope overrides must be declared at Entry Gate.)
+
 `Yield% = ( |Y| / max(1, |U|) ) × 100`
 
 Where:
@@ -427,6 +427,12 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 
 **Completion schema:** For each applied lens, record: lens ID, objection raised, response/mitigation, and residual risk (if any). Verify the count of lenses with non-empty objections matches the stakes requirement below.
 
+**AHG-5 overlap:** Lenses A1, A6, A7, and A8 overlap with AHG-5 questions. To prevent duplicate findings:
+
+1. Evaluate mapped bridge rows first (e.g., A1 checks H-rows before generating new findings)
+2. Findings that extend or confirm bridge hypotheses link to the existing H-code
+3. Genuinely new findings are marked **NET-NEW** with one-sentence justification of why the early gate didn't catch them
+
 **Minimum depth by stakes:**
 
 - Adequate: Apply 4+ lenses (by ID); document key objections
@@ -448,6 +454,7 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 | Convergence reached       | Yield% below threshold for stakes level                                                         |
 | Connections mapped        | P0/P1 findings have cause → affected sections → propagation impact documented                   |
 | Adversarial pass complete | All required lenses applied (with IDs); objections documented with responses or accepted risks  |
+| Bridge complete           | No `open` rows; all non-open rows satisfy disposition invariant (text + evidence + audit entry) |
 
 **Post-completion self-check (verify before producing output):**
 
@@ -457,6 +464,7 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 - [ ] VERIFY: disconfirmation techniques documented (what was tried AND what was found)
 - [ ] REFINE: Yield% calculated per pass; iteration log shows pass-by-pass changes
 - [ ] Adversarial: required lens count met for stakes; pre-mortem produced specific, plausible failure story
+- [ ] Bridge: all rows resolved; disposition invariant satisfied for every non-open row
 - [ ] If a P0 exists, would the user definitely see it in the summary?
 - [ ] If the design had hidden flaws, did I genuinely try to find them?
 
@@ -503,10 +511,16 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 - Do not attempt to fix within this skill (remediation is outside scope)
 - Note in summary: "Design may need fundamental rethinking"
 
+**Early gate produces zero hypotheses:**
+
+- All run questions produced "no finding" → verify genuine engagement
+- Self-check: "Did I approach this with adversarial intent, or assume the design was fine?"
+- If still zero after genuine effort → note in delta card #1 that early gate found no framing issues
+
 **User pressure to skip steps:**
 
 - Acknowledge the pressure
-- "Skipping [Entry Gate/Adversarial Pass/etc.] risks missing issues that surface during implementation."
+- "Skipping [Entry Gate/AHG-5/Adversarial Pass/etc.] risks missing issues that surface during implementation."
 - Complete minimum requirements for stakes level
 - Compress output, not process
 
@@ -529,6 +543,7 @@ Common failure modes and fixes: [Anti-Patterns Reference](references/dimensions-
 - **Single-pass "looks good" review** → Iterate until Yield% below threshold. Pass 1 is always 100% yield — you can't exit after one pass.
 - **Checking presence instead of completeness** → Ask "Is this COMPLETE?" not "Is this MENTIONED?"
 - **Skipping Document Quality dimensions** → D13-D19 are mandatory. Cannot be skipped.
+- **Early gate as checkbox** → Generic hypotheses ("what if it doesn't scale?") fail hard-fail rules. Q3 must name specific mechanisms. Q5 must state what breaks.
 
 ## Troubleshooting
 
