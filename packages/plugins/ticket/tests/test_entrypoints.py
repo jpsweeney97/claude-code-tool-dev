@@ -93,6 +93,21 @@ class TestAgentEntrypoint:
         )
         assert output["state"] == "ok"
 
+    def test_execute_blocked_phase1(self, tmp_path):
+        """Agent execute is hard-blocked in Phase 1 (defense-in-depth)."""
+        output = run_entrypoint(
+            "ticket_engine_agent.py",
+            "execute",
+            {
+                "action": "create",
+                "fields": {"title": "test", "problem": "test", "priority": "medium"},
+                "session_id": "test",
+                "tickets_dir": str(tmp_path),
+            },
+            tmp_path,
+        )
+        assert output["state"] == "policy_blocked"
+
 
 class TestEntrypointErrors:
     def test_missing_subcommand(self, tmp_path):

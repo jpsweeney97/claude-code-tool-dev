@@ -647,11 +647,11 @@ def engine_execute(
 
     Assumes preflight has already passed. Writes ticket files.
     """
-    # Agent callers cannot use overrides.
-    if request_origin == "agent" and (dedup_override or dependency_override):
+    # Phase 1: hard-block all agent mutations (defense-in-depth, mirrors preflight).
+    if request_origin == "agent":
         return EngineResponse(
             state="policy_blocked",
-            message="Agent callers cannot use dedup_override or dependency_override",
+            message="Phase 1: agent mutations are hard-blocked",
             error_code="policy_blocked",
         )
 
