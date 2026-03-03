@@ -132,6 +132,16 @@ export function parseSections(raw: string): ParsedSection[] {
     pageStarts.push(pageStart);
   }
 
+  // Monotonicity guard: if a section's heading search reached into (or equals)
+  // the previous section's boundary, reset to the Source: line position.
+  // Equal pageStarts happen when a headingless section finds the previous
+  // section's heading — this would make section N-1's content empty.
+  for (let i = 1; i < pageStarts.length; i++) {
+    if (pageStarts[i] <= pageStarts[i - 1]) {
+      pageStarts[i] = matches[i].index ?? 0;
+    }
+  }
+
   // Handle preamble: content before the first section's pageStart
   if (pageStarts[0] > 0) {
     const preamble = raw.slice(0, pageStarts[0]);

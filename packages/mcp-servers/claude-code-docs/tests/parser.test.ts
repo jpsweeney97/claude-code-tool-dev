@@ -340,3 +340,28 @@ Second content`;
     expect(sections[0].content).not.toMatch(/^# First Topic/m);
   });
 });
+
+describe('parseSections — boundary monotonicity', () => {
+  it('does not let headingless section steal previous section heading', () => {
+    // Section 2 has no heading of its own. Without the monotonicity guard,
+    // findLastHeadingBefore would find section 1's heading and set section 2's
+    // pageStart into section 1's territory, truncating section 1's content.
+    const raw = `# First Topic
+Source: https://example.com/first
+
+First content here
+
+Source: https://example.com/second
+
+Second content without own heading`;
+    const sections = parseSections(raw);
+    expect(sections).toHaveLength(2);
+    expect(sections[0].content).toContain('First content here');
+    expect(sections[1].content).toContain('Second content without own heading');
+    // No content overlap between sections
+    expect(sections[0].content).not.toContain('Second content');
+    expect(sections[1].content).not.toContain('First content');
+    // Section 2 has empty title (no heading of its own)
+    expect(sections[1].title).toBe('First Topic');
+  });
+});
