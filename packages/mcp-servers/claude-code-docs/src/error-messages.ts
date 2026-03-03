@@ -1,4 +1,7 @@
 export function formatSearchError(err: unknown): string {
-  const message = err instanceof Error ? err.message : 'unknown';
-  return `Search failed (ERR_SEARCH). ${message}`;
+  if (err instanceof Error) {
+    const className = err.constructor.name;
+    return `Search failed (ERR_SEARCH). [${className}] ${err.message}`;
+  }
+  return `Search failed (ERR_SEARCH). ${String(err)}`;
 }

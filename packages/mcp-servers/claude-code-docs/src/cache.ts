@@ -39,7 +39,10 @@ async function acquireLock(lockPath: string, timeoutMs = 2000, pollMs = 50): Pro
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      return await fs.open(lockPath, 'wx');
+      const handle = await fs.open(lockPath, 'wx');
+      // Write PID to lock file so stale locks can be detected
+      await handle.write(process.pid.toString());
+      return handle;
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== 'EEXIST') {
@@ -48,6 +51,34 @@ async function acquireLock(lockPath: string, timeoutMs = 2000, pollMs = 50): Pro
       await sleep(pollMs);
     }
   }
+
+  // Timeout reached — check if the lock holder is still alive
+  try {
+    const pidStr = await fs.readFile(lockPath, 'utf8');
+    const pid = parseInt(pidStr, 10);
+    if (!Number.isNaN(pid)) {
+      try {
+        process.kill(pid, 0); // Throws ESRCH if process is dead
+      } catch (killErr: unknown) {
+        if ((killErr as NodeJS.ErrnoException).code === 'ESRCH') {
+          // Lock holder is dead — steal the lock
+          try {
+            await fs.unlink(lockPath);
+          } catch {
+            // Another process may have already cleaned it up
+          }
+          // Retry once
+          const handle = await fs.open(lockPath, 'wx');
+          await handle.write(process.pid.toString());
+          return handle;
+        }
+        // EPERM means process exists but we can't signal it — lock is valid
+      }
+    }
+  } catch {
+    // Could not read or parse lock file — fall through to error
+  }
+
   throw new Error(`Timed out waiting for cache lock: ${lockPath}`);
 }
 

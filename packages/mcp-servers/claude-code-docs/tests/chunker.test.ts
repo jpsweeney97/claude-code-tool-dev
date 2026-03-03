@@ -657,6 +657,28 @@ describe('chunkFile', () => {
     });
   });
 
+  describe('oversized single-line truncation', () => {
+    it('truncates a single line exceeding MAX_CHUNK_CHARS', () => {
+      const oversizedLine = 'x'.repeat(MAX_CHUNK_CHARS + 5000);
+      const content = [
+        '---',
+        'category: test',
+        '---',
+        '# Title',
+        '## Section',
+        oversizedLine,
+      ].join('\n');
+
+      const file: MarkdownFile = { path: 'test/oversized-line.md', content };
+      const chunks = chunkFile(file);
+
+      // Every chunk's content must respect the MAX_CHUNK_CHARS limit
+      for (const chunk of chunks) {
+        expect(chunk.content.length).toBeLessThanOrEqual(MAX_CHUNK_CHARS);
+      }
+    });
+  });
+
   describe('chunkFile error handling', () => {
     it('throws with file context on parse error', () => {
       // Malformed content that will cause an error

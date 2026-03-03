@@ -10,8 +10,12 @@
  *   }
  */
 export class FenceTracker {
+  /** Maximum lines inside a fence before force-closing (safety limit) */
+  static readonly MAX_FENCE_LINES = 150;
+
   private inFence = false;
   private fencePattern: string | null = null;
+  private fenceLineCount = 0;
 
   /**
    * Process a line and update fence state.
@@ -23,6 +27,7 @@ export class FenceTracker {
       if (!this.inFence) {
         this.inFence = true;
         this.fencePattern = fence[2];
+        this.fenceLineCount = 0;
       } else if (this.fencePattern && this.fencePattern.length > 0) {
         const closeRegex = new RegExp(
           `^ {0,3}${this.fencePattern[0]}{${this.fencePattern.length},}\\s*$`
@@ -30,9 +35,21 @@ export class FenceTracker {
         if (closeRegex.test(line)) {
           this.inFence = false;
           this.fencePattern = null;
+          this.fenceLineCount = 0;
         }
       }
     }
+
+    // Safety limit: force-close fence if it exceeds MAX_FENCE_LINES without closing
+    if (this.inFence) {
+      this.fenceLineCount++;
+      if (this.fenceLineCount > FenceTracker.MAX_FENCE_LINES) {
+        this.inFence = false;
+        this.fencePattern = null;
+        this.fenceLineCount = 0;
+      }
+    }
+
     return this.inFence;
   }
 
@@ -45,5 +62,6 @@ export class FenceTracker {
   reset(): void {
     this.inFence = false;
     this.fencePattern = null;
+    this.fenceLineCount = 0;
   }
 }
