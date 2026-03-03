@@ -69,12 +69,14 @@ def compute_action(
     When phase_entries is None (single-posture dialogue), behavior is
     identical to pre-Release-B.
 
-    Design decision — one-shot closing probe policy:
-        A closing probe fires at most once per conversation. If the conversation
+    Design decision — closing probe policy (once per phase):
+        A closing probe fires at most once per phase. When posture changes
+        (phase boundary), closing_probe_fired resets — the new phase gets its
+        own probe opportunity. Within a single phase, if the conversation
         advances after a closing probe (plateau broken by ADVANCING/SHIFTING),
-        a second plateau will skip the probe and proceed directly to CONCLUDE.
-        Rationale: repeated probes add latency without new information — if the
-        first probe did not surface actionable material, a second will not either.
+        a second plateau skips the probe and proceeds directly to CONCLUDE.
+        In single-posture conversations, this is equivalent to once per
+        conversation.
 
     Precedence (highest to lowest):
     1. Budget exhausted -> CONCLUDE

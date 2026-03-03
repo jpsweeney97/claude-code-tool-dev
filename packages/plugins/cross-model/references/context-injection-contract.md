@@ -733,7 +733,7 @@ The `action` field in TurnPacketSuccess signals what the agent should do next:
    c. Closing probe not fired -> `closing_probe`
 3. No plateau -> `continue_dialogue`
 
-**One-shot policy:** A closing probe fires at most once per conversation. If the conversation resumes after a closing probe (plateau broken by ADVANCING/SHIFTING), a second plateau skips the probe and proceeds directly to `conclude`.
+**Closing probe policy:** A closing probe fires at most once *per phase*. When posture changes (phase boundary), `closing_probe_fired` resets — the new phase gets its own probe opportunity. Within a single phase, if the conversation resumes after a closing probe (plateau broken by ADVANCING/SHIFTING), a second plateau skips the probe and proceeds directly to `conclude`. In single-posture conversations (no phase changes), this is equivalent to once-per-conversation.
 
 ### Turn Cap
 
