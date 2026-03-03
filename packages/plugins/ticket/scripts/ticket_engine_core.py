@@ -512,6 +512,17 @@ _TRANSITION_PRECONDITIONS: dict[tuple[str, str], str] = {
 }
 
 
+_YAML_SPECIAL_CHARS = frozenset(",[]{}:#&*?|>!%@`\"'")
+
+
+def _yaml_quote_flow_item(item: Any) -> str:
+    """Quote a YAML flow sequence item if it contains special characters."""
+    s = str(item)
+    if any(c in s for c in _YAML_SPECIAL_CHARS) or not s:
+        return f'"{s}"'
+    return s
+
+
 def _render_canonical_frontmatter(data: dict[str, Any]) -> str:
     """Render YAML frontmatter with controlled field order and quoting.
 
@@ -536,7 +547,7 @@ def _render_canonical_frontmatter(data: dict[str, Any]) -> str:
         elif key == "contract_version":
             lines.append(f'{key}: "{value}"')
         elif isinstance(value, list):
-            items = ", ".join(str(item) for item in value)
+            items = ", ".join(_yaml_quote_flow_item(item) for item in value)
             lines.append(f"{key}: [{items}]")
         elif isinstance(value, bool):
             lines.append(f"{key}: {'true' if value else 'false'}")
