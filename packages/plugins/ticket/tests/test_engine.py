@@ -533,3 +533,36 @@ class TestEngineExecute:
         )
         assert resp.state == "not_found"
         assert resp.error_code == "not_found"
+
+    def test_create_ticket(self, tmp_tickets):
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={
+                "title": "Fix auth bug",
+                "problem": "Auth times out for large payloads.",
+                "priority": "high",
+                "effort": "S",
+                "source": {"type": "ad-hoc", "ref": "", "session": "test-session"},
+                "tags": ["auth"],
+                "approach": "Make timeout configurable.",
+                "acceptance_criteria": ["Timeout configurable", "Default remains 30s"],
+                "verification": "uv run pytest tests/test_auth.py",
+                "key_files": [{"file": "handler.py:45", "role": "Timeout", "look_for": "hardcoded"}],
+            },
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_create"
+        assert resp.ticket_id is not None
+        assert resp.ticket_id.startswith("T-")
+        assert resp.data["ticket_path"] is not None
+        # Verify file was created.
+        ticket_path = Path(resp.data["ticket_path"])
+        assert ticket_path.exists()
+        content = ticket_path.read_text(encoding="utf-8")
+        assert "Fix auth bug" in content
+        assert "## Problem" in content

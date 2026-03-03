@@ -669,8 +669,59 @@ def _execute_create(
     request_origin: str,
     tickets_dir: Path,
 ) -> EngineResponse:
-    """Create a new ticket file. STUB — full implementation in Task 11.2."""
-    raise NotImplementedError("_execute_create not yet implemented (Task 11.2)")
+    """Create a new ticket file with all required contract fields."""
+    missing = []
+    if not fields.get("title"):
+        missing.append("title")
+    if not fields.get("problem"):
+        missing.append("problem")
+    if missing:
+        return EngineResponse(
+            state="need_fields",
+            message=f"Missing required fields for create: {missing}",
+            error_code="need_fields",
+        )
+
+    tickets_dir.mkdir(parents=True, exist_ok=True)
+
+    today = Date.today()
+    ticket_id = allocate_id(tickets_dir, today)
+    title = fields.get("title", "Untitled")
+    filename = build_filename(ticket_id, title)
+
+    source = fields.get("source", {"type": "ad-hoc", "ref": "", "session": session_id})
+    if "session" not in source:
+        source["session"] = session_id
+
+    content = render_ticket(
+        id=ticket_id,
+        title=title,
+        date=today.isoformat(),
+        status="open",
+        priority=fields.get("priority", "medium"),
+        effort=fields.get("effort", ""),
+        source=source,
+        tags=fields.get("tags", []),
+        problem=fields.get("problem", ""),
+        approach=fields.get("approach", ""),
+        acceptance_criteria=fields.get("acceptance_criteria"),
+        verification=fields.get("verification", ""),
+        key_files=fields.get("key_files"),
+        context=fields.get("context", ""),
+        prior_investigation=fields.get("prior_investigation", ""),
+        decisions_made=fields.get("decisions_made", ""),
+        related=fields.get("related", ""),
+    )
+
+    ticket_path = tickets_dir / filename
+    ticket_path.write_text(content, encoding="utf-8")
+
+    return EngineResponse(
+        state="ok_create",
+        message=f"Created {ticket_id} at {ticket_path}",
+        ticket_id=ticket_id,
+        data={"ticket_path": str(ticket_path), "changes": None},
+    )
 
 
 def _execute_update(
