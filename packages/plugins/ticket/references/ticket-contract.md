@@ -158,5 +158,5 @@ Format uses fenced YAML (```yaml), not YAML frontmatter (---).
 
 ## 10. Versioning
 
-`contract_version` in YAML frontmatter. Current: "1.0".
+`contract_version` in fenced YAML block. Current: "1.0".
 Engine reads all versions; writes latest only.
