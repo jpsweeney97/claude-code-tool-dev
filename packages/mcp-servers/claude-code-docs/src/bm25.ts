@@ -11,6 +11,8 @@ export interface BM25Index {
 export const BM25_CONFIG = {
   k1: 1.2,
   b: 0.75,
+  headingBoost: 0.2,
+  headingMinCoverage: 0.5,
 };
 
 const METADATA_HEADER_RE = /^(Topic:.*\n)?(ID:.*\n)?(Category:.*\n)?(Tags:.*\n)?\n?/m;
@@ -60,6 +62,43 @@ function bm25Score(queryTerms: string[], chunk: Chunk, index: BM25Index): number
     const tfNorm = (tf * (k1 + 1)) / (tf + k1 * (1 - b + (b * dl) / avgdl));
     return score + idfScore * tfNorm;
   }, 0);
+}
+
+/**
+ * Post-score multiplier for heading relevance.
+ * Returns 1.0 (no boost) when no headings exist or coverage is below threshold.
+ * Coverage formula: |unique(queryTerms) ∩ allHeadingTokens| / |unique(queryTerms)|
+ * where allHeadingTokens = union of tokenize(heading) and tokenize(each merged_heading).
+ */
+export function headingBoostMultiplier(
+  queryTerms: string[],
+  heading: string | undefined,
+  mergedHeadings: string[] | undefined,
+): number {
+  if (!heading && (!mergedHeadings || mergedHeadings.length === 0)) return 1.0;
+  const { headingBoost, headingMinCoverage } = BM25_CONFIG;
+
+  // Build token set from union of primary heading + all merged headings
+  const headingTokens = new Set<string>();
+  if (heading) {
+    for (const t of tokenize(heading)) headingTokens.add(t);
+  }
+  if (mergedHeadings) {
+    for (const h of mergedHeadings) {
+      for (const t of tokenize(h)) headingTokens.add(t);
+    }
+  }
+
+  const uniqueQueryTerms = new Set(queryTerms);
+  if (uniqueQueryTerms.size === 0) return 1.0;
+
+  let matches = 0;
+  for (const term of uniqueQueryTerms) {
+    if (headingTokens.has(term)) matches++;
+  }
+
+  const coverage = matches / uniqueQueryTerms.size;
+  return coverage >= headingMinCoverage ? 1.0 + headingBoost : 1.0;
 }
 
 export function extractSnippet(
@@ -141,7 +180,8 @@ export function search(
   return filteredCandidates
     .map((idx) => ({
       chunk: index.chunks[idx],
-      score: bm25Score(queryTerms, index.chunks[idx], index),
+      score: bm25Score(queryTerms, index.chunks[idx], index) *
+             headingBoostMultiplier(queryTerms, index.chunks[idx].heading, index.chunks[idx].merged_headings),
     }))
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score)

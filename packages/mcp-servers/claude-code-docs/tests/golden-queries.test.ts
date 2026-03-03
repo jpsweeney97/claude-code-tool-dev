@@ -19,6 +19,10 @@ Learn how to automate actions in Claude Code using hooks—shell commands that r
 
 Hooks are shell commands that Claude Code executes automatically at specific points during its operation. They allow you to customize behavior, enforce policies, and integrate with external tools.
 
+<Note>
+  Hooks run locally on your machine and are not sent to Anthropic servers.
+</Note>
+
 ## Exit codes and blocking
 
 Exit codes control hook behavior:
@@ -33,7 +37,7 @@ When using JSON output mode, PreToolUse hooks receive tool input as structured J
 ## Common fields in hook input
 
 All hooks receive common fields including session_id, timestamp, tool_name (for tool hooks), and user context.
-
+---
 # Skills
 Source: https://code.claude.com/docs/en/skills
 
@@ -46,10 +50,14 @@ Skills use YAML frontmatter to define metadata:
 - description: What the skill does
 - model_invocable: Whether Claude can invoke directly
 
+<Tip>
+  Use descriptive skill names that clearly indicate when the skill should be activated.
+</Tip>
+
 ## Creating skills
 
 Create a SKILL.md file in your .claude/skills directory with the appropriate frontmatter and instructions.
-
+---
 # MCP Servers
 Source: https://code.claude.com/docs/en/mcp
 
@@ -62,7 +70,7 @@ Register MCP servers in your settings.json under the "mcpServers" key. Each serv
 ## Building MCP servers
 
 MCP servers expose tools that Claude can invoke. Use the @modelcontextprotocol/sdk to build servers with tool definitions.
-
+---
 # Quickstart
 Source: https://code.claude.com/docs/en/quickstart
 
@@ -70,12 +78,19 @@ Get started with Claude Code in minutes. This quickstart guide walks you through
 
 ## Installation steps
 
-Install Claude Code globally using npm package manager: npm install -g @anthropic-ai/claude-code. The npm package includes all dependencies.
+<Steps>
+  <Step title="Install Claude Code">
+    Install Claude Code globally using npm package manager: npm install -g @anthropic-ai/claude-code. The npm package includes all dependencies.
+  </Step>
+  <Step title="Run your first session">
+    Run claude in your terminal to start an interactive session.
+  </Step>
+</Steps>
 
 ## First run
 
 Run claude in your terminal to start an interactive session. This quickstart covers the basics.
-
+---
 # Amazon Bedrock
 Source: https://code.claude.com/docs/en/amazon-bedrock
 
@@ -88,7 +103,7 @@ Configure your AWS credentials using the AWS CLI or environment variables. Set A
 ## Bedrock model selection
 
 Choose the appropriate Bedrock model ID for your use case.
-
+---
 # VS Code Integration
 Source: https://code.claude.com/docs/en/vs-code
 
@@ -101,7 +116,7 @@ Install the Claude Code VS Code extension from the Visual Studio Code marketplac
 ## VS Code keybindings
 
 Configure VS Code keyboard shortcuts for quick access to Claude Code features.
-
+---
 # GitHub Actions
 Source: https://code.claude.com/docs/en/github-actions
 
@@ -114,7 +129,7 @@ Add Claude Code to your GitHub Actions workflow YAML file for automated code rev
 ## GitHub Actions secrets
 
 Store your ANTHROPIC_API_KEY in GitHub Actions secrets for secure CI/CD integration.
-
+---
 # Security
 Source: https://code.claude.com/docs/en/security
 
@@ -124,10 +139,14 @@ Understand Claude Code's security model, permissions, and best practices for sec
 
 Claude Code uses sandbox isolation to limit filesystem access and restrict command execution. The sandbox prevents unauthorized system modifications.
 
+<Warning>
+  Always review Claude Code's suggested commands before approving execution in production environments.
+</Warning>
+
 ## Permission boundaries
 
 Configure permission boundaries to control what Claude Code can access.
-
+---
 # Troubleshooting
 Source: https://code.claude.com/docs/en/troubleshooting
 
@@ -140,7 +159,7 @@ If you see connection errors during troubleshooting, check your network settings
 ## Debug logging
 
 Enable debug logging for troubleshooting by setting CLAUDE_DEBUG=1.
-
+---
 # Create custom subagents
 Source: https://code.claude.com/docs/en/sub-agents
 
@@ -157,6 +176,45 @@ Each subagent runs in a separate context window. This keeps the main conversatio
 ## Using subagents
 
 Invoke subagents with phrases like "use a subagent to review this code" or delegate specific tasks to specialized agents for focused analysis.
+---
+# Orchestrate teams of Claude Code sessions
+Source: https://code.claude.com/docs/en/agent-teams
+
+Coordinate multiple Claude Code instances working together as a team, with shared task lists and inter-agent messaging.
+
+## How agent teams work
+
+Agent teams use a leader-worker pattern where a team lead coordinates multiple Claude Code sessions working on related tasks simultaneously.
+
+## When to use agent teams
+
+Use agent teams when a task has multiple independent subtasks that benefit from parallel execution across separate context windows.
+---
+# Log in to Claude Code
+Source: https://code.claude.com/docs/en/authentication
+
+Log in to Claude Code and configure authentication for individuals, teams, and organizations.
+
+## Authentication methods
+
+Claude Code supports API key authentication, OAuth login, and enterprise SSO for team environments.
+
+## Managing API keys
+
+Store your ANTHROPIC_API_KEY securely. Never commit API keys to version control.
+---
+# Manage permissions
+Source: https://code.claude.com/docs/en/permissions
+
+Control what actions Claude Code can perform using the permission system.
+
+## Permission system
+
+Claude Code uses a tiered permission model. Tools are categorized by risk level and require different approval levels.
+
+## Permission profiles
+
+Choose between different permission modes: default, plan, or acceptEdits for varying levels of autonomy.
 `;
 
 describe('golden queries (URL-based)', () => {
@@ -232,6 +290,12 @@ describe('golden queries (URL-based)', () => {
     { query: 'GitHub Actions workflow YAML', expectedTopCategory: 'ci-cd' },
     { query: 'sandbox isolation filesystem', expectedTopCategory: 'security' },
     { query: 'troubleshooting debug logging', expectedTopCategory: 'troubleshooting' },
+    { query: 'agent teams leader worker coordination', expectedTopCategory: 'agents' },
+    { query: 'authentication login API key', expectedTopCategory: 'security' },
+    { query: 'permission system approval levels', expectedTopCategory: 'security' },
+    // Morphological variant queries (stemming coverage)
+    { query: 'configuring MCP servers', expectedTopCategory: 'mcp' },
+    { query: 'creating custom skills', expectedTopCategory: 'skills' },
   ];
 
   for (const { query, expectedTopCategory } of goldenQueries) {

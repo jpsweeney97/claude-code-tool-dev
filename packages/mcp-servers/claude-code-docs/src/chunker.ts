@@ -8,7 +8,7 @@ import {
   type Frontmatter,
 } from './frontmatter.js';
 import { generateChunkId, computeTermFreqs } from './chunk-helpers.js';
-import { FenceTracker } from './fence-tracker.js';
+import { ProtectedBlockTracker } from './protected-block-tracker.js';
 
 export const MAX_CHUNK_CHARS = 8000;
 const MAX_CHUNK_LINES = 150;
@@ -227,7 +227,7 @@ function splitByHeadingOutsideFences(
   level: 2 | 3
 ): { heading: string | undefined; content: string }[] {
   const lines = content.split('\n');
-  const fence = new FenceTracker();
+  const tracker = new ProtectedBlockTracker();
   const parts: { heading: string | undefined; content: string }[] = [];
 
   let currentLines: string[] = [];
@@ -235,9 +235,9 @@ function splitByHeadingOutsideFences(
   const pattern = level === 2 ? /^##\s/ : /^###\s/;
 
   for (const line of lines) {
-    const inFence = fence.processLine(line);
+    const inProtected = tracker.processLine(line);
 
-    if (!inFence && pattern.test(line)) {
+    if (!inProtected && pattern.test(line)) {
       // Save previous part if it has content
       if (currentLines.length > 0) {
         parts.push({ heading: currentHeading, content: currentLines.join('\n') });
@@ -313,16 +313,16 @@ function splitOversizedTable(tableLines: string[]): string[] {
  */
 function splitByParagraphOutsideFences(content: string): string[] {
   const lines = content.split('\n');
-  const fence = new FenceTracker();
+  const tracker = new ProtectedBlockTracker();
   const paragraphs: string[] = [];
   let currentLines: string[] = [];
   let inTable = false;
   let tableLines: string[] = [];
 
   for (const line of lines) {
-    const inFence = fence.processLine(line);
+    const inProtected = tracker.processLine(line);
 
-    if (!inFence) {
+    if (!inProtected) {
       const isTable = isTableLine(line);
 
       if (isTable && !inTable) {
@@ -372,7 +372,7 @@ function splitByParagraphOutsideFences(content: string): string[] {
         }
       }
     } else {
-      // Inside a fence - just accumulate
+      // Inside a protected block - just accumulate
       currentLines.push(line);
     }
   }

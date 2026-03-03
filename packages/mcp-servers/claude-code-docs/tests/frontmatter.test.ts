@@ -5,6 +5,7 @@ import {
   deriveCategory,
   getParseWarnings,
   clearParseWarnings,
+  getUnmappedSegments,
 } from '../src/frontmatter.js';
 
 describe('parseFrontmatter', () => {
@@ -258,5 +259,33 @@ describe('parseFrontmatter warnings', () => {
 
     // Second call should have no warnings (isolated)
     expect(w2.length).toBe(0);
+  });
+});
+
+describe('getUnmappedSegments', () => {
+  it('returns empty for fully mapped URL', () => {
+    expect(getUnmappedSegments('https://code.claude.com/docs/en/hooks')).toEqual([]);
+  });
+
+  it('returns empty when at least one segment is mapped (URL is categorizable)', () => {
+    // 'hooks' is mapped, 'input-schema' is not — but URL is categorizable
+    expect(getUnmappedSegments('https://code.claude.com/docs/en/hooks/input-schema')).toEqual([]);
+  });
+
+  it('returns all segments when no segment is mapped (URL is uncategorizable)', () => {
+    expect(getUnmappedSegments('https://code.claude.com/docs/en/unknown-page')).toEqual(['unknown-page']);
+  });
+
+  it('returns empty for empty sourceUrl', () => {
+    expect(getUnmappedSegments('')).toEqual([]);
+  });
+
+  it('does not match prototype properties as mapped', () => {
+    // Object.hasOwn prevents 'constructor' from matching via Object.prototype
+    expect(getUnmappedSegments('https://code.claude.com/docs/en/constructor')).toEqual(['constructor']);
+  });
+
+  it('returns empty for invalid URL', () => {
+    expect(getUnmappedSegments('not-a-url')).toEqual([]);
   });
 });

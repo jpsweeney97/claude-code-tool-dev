@@ -3,7 +3,7 @@ import type { Chunk } from './types.js';
 import { BM25_CONFIG, type BM25Index } from './bm25.js';
 
 export const INDEX_FORMAT_VERSION = 2; // Bumped for inverted index serialization
-export const TOKENIZER_VERSION = 1;
+export const TOKENIZER_VERSION = 2; // Bumped: added Porter stemming with CamelCase protection
 export const CHUNKER_VERSION = 1;
 
 export interface SerializedIndex {

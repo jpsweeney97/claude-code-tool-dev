@@ -151,7 +151,7 @@ describe('loadFromOfficial', () => {
 Source: https://code.claude.com/docs/en/hooks
 
 Hooks content here
-
+---
 # Quickstart
 Source: https://code.claude.com/docs/en/quickstart
 
@@ -276,6 +276,38 @@ Content`;
 
     expect(warnings).toHaveLength(0);
     expect(frontmatter.topic).toBe('Hooks: The "Complete" Guide');
+  });
+
+  it('logs parse diagnostics to stderr', async () => {
+    const mockContent = `# Hooks Guide
+Source: https://code.claude.com/docs/en/hooks
+
+Hooks content here
+---
+# Quickstart
+Source: https://code.claude.com/docs/en/quickstart
+
+Getting started content`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(mockContent),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await loadFromOfficial('https://example.com/docs', cachePath);
+
+    // Should log parse diagnostics
+    const diagnosticLog = errorSpy.mock.calls.find(
+      call => typeof call[0] === 'string' && call[0].includes('Parse diagnostics')
+    );
+    expect(diagnosticLog).toBeDefined();
+    errorSpy.mockRestore();
   });
 
   it('derives correct category for nested URL paths', async () => {
@@ -465,5 +497,57 @@ Content`;
     const { files } = await loadFromOfficial('https://example.com/docs', cachePath, true);
 
     expect(files).toHaveLength(1);
+  });
+});
+
+describe('fetchAndParse error discrimination', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-error-test-'));
+    process.env.MIN_SECTION_COUNT = '0';
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(async () => {
+    delete process.env.MIN_SECTION_COUNT;
+    vi.unstubAllGlobals();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('rethrows unexpected TypeError instead of falling back to cache', async () => {
+    // Mock fetch to return a response whose .text() resolves to null,
+    // which triggers TypeError in parseSections (calling .matchAll on null).
+    // This simulates a programmer error that should NOT be masked by cache.
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(null as unknown as string),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    // Write valid cache so fallback WOULD succeed if reached
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, '# Cached\nSource: https://example.com/c\n\nCached content');
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    await expect(
+      loadFromOfficial('https://example.com/docs', cachePath, true)
+    ).rejects.toThrow(TypeError);
+  });
+
+  it('still falls back to cache for network errors', async () => {
+    // Error('connection refused') is wrapped by fetchOfficialDocs as FetchNetworkError
+    const mockFetch = vi.fn().mockRejectedValue(new Error('connection refused'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, '# Cached\nSource: https://example.com/c\n\nCached content');
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath, true);
+    expect(files.length).toBeGreaterThan(0);
   });
 });

@@ -40,6 +40,18 @@ describe('SECTION_TO_CATEGORY', () => {
     expect(SECTION_TO_CATEGORY['discover-plugins']).toBe('plugins');
   });
 
+  it('maps newly discovered URL segments to categories', () => {
+    expect(SECTION_TO_CATEGORY['agent-teams']).toBe('agents');
+    expect(SECTION_TO_CATEGORY['authentication']).toBe('security');
+    expect(SECTION_TO_CATEGORY['desktop-quickstart']).toBe('desktop');
+    expect(SECTION_TO_CATEGORY['fast-mode']).toBe('interactive');
+    expect(SECTION_TO_CATEGORY['keybindings']).toBe('interactive');
+    expect(SECTION_TO_CATEGORY['permissions']).toBe('security');
+    expect(SECTION_TO_CATEGORY['remote-control']).toBe('ci-cd');
+    expect(SECTION_TO_CATEGORY['server-managed-settings']).toBe('settings');
+    expect(SECTION_TO_CATEGORY['zero-data-retention']).toBe('security');
+  });
+
   it('maps new sections to categories', () => {
     expect(SECTION_TO_CATEGORY['quickstart']).toBe('getting-started');
     expect(SECTION_TO_CATEGORY['setup']).toBe('getting-started');
