@@ -350,3 +350,18 @@ class TestPhaseFields:
             state = state.with_turn(_make_entry(turn_number=i + 1))
         phase_entries = state.get_phase_entries()
         assert len(phase_entries) == 3
+
+    def test_phase_entries_at_boundary_index(self) -> None:
+        """When phase_start_index = len(entries) - 1 (the exact index produced
+        by a posture change), get_phase_entries returns exactly one entry.
+        """
+        state = ConversationState(conversation_id="test")
+        for i in range(4):
+            state = state.with_turn(_make_entry(turn_number=i + 1))
+        # Simulate posture change: phase starts at last entry
+        state = state.with_posture_change(
+            "evaluative", phase_start_index=len(state.entries) - 1
+        )
+        phase_entries = state.get_phase_entries()
+        assert len(phase_entries) == 1
+        assert phase_entries[0].turn_number == 4

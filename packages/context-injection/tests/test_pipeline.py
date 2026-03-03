@@ -916,6 +916,232 @@ class TestPipelinePhaseLocal:
         assert res3.status == "success"
         assert res3.action == ConversationAction.CONTINUE_DIALOGUE
 
+    def test_closing_probe_fires_again_after_phase_change(self) -> None:
+        """Full once-per-phase path: probe fires in phase 1, phase changes,
+        probe fires again in phase 2.
+        """
+        ctx = _make_ctx(git_files=set())
+        # T1: exploratory STATIC
+        r1 = _make_turn_request(
+            conversation_id="conv_reprobe",
+            turn_number=1,
+            posture="exploratory",
+            delta="static",
+            claims=_static_claims(1),
+        )
+        res1 = process_turn(r1, ctx)
+        assert res1.status == "success"
+
+        # T2: exploratory STATIC -> plateau -> CLOSING_PROBE
+        r2 = _make_turn_request(
+            conversation_id="conv_reprobe",
+            turn_number=2,
+            posture="exploratory",
+            delta="static",
+            claims=_static_claims(2),
+            state_checkpoint=res1.state_checkpoint,
+            checkpoint_id=res1.checkpoint_id,
+        )
+        res2 = process_turn(r2, ctx)
+        assert res2.action == ConversationAction.CLOSING_PROBE
+
+        # T3: evaluative ADVANCING -> new phase, probe reset
+        r3 = _make_turn_request(
+            conversation_id="conv_reprobe",
+            turn_number=3,
+            posture="evaluative",
+            delta="advancing",
+            state_checkpoint=res2.state_checkpoint,
+            checkpoint_id=res2.checkpoint_id,
+        )
+        res3 = process_turn(r3, ctx)
+        assert res3.action == ConversationAction.CONTINUE_DIALOGUE
+
+        # T4: evaluative STATIC
+        r4 = _make_turn_request(
+            conversation_id="conv_reprobe",
+            turn_number=4,
+            posture="evaluative",
+            delta="static",
+            claims=_static_claims(4),
+            state_checkpoint=res3.state_checkpoint,
+            checkpoint_id=res3.checkpoint_id,
+        )
+        res4 = process_turn(r4, ctx)
+        assert res4.status == "success"
+
+        # T5: evaluative STATIC -> plateau in phase 2 -> CLOSING_PROBE again
+        r5 = _make_turn_request(
+            conversation_id="conv_reprobe",
+            turn_number=5,
+            posture="evaluative",
+            delta="static",
+            claims=_static_claims(5),
+            state_checkpoint=res4.state_checkpoint,
+            checkpoint_id=res4.checkpoint_id,
+        )
+        res5 = process_turn(r5, ctx)
+        assert res5.action == ConversationAction.CLOSING_PROBE
+
+    def test_posture_flip_a_b_a_resets_phase_window(self) -> None:
+        """A->B->A posture flip: return to a prior posture creates a new phase,
+        not a resumption of the original phase.
+        """
+        ctx = _make_ctx(git_files=set())
+        # T1: exploratory STATIC
+        r1 = _make_turn_request(
+            conversation_id="conv_flip",
+            turn_number=1,
+            posture="exploratory",
+            delta="static",
+            claims=_static_claims(1),
+        )
+        res1 = process_turn(r1, ctx)
+        assert res1.status == "success"
+
+        # T2: evaluative STATIC -> new phase (1 entry), no plateau
+        r2 = _make_turn_request(
+            conversation_id="conv_flip",
+            turn_number=2,
+            posture="evaluative",
+            delta="static",
+            claims=_static_claims(2),
+            state_checkpoint=res1.state_checkpoint,
+            checkpoint_id=res1.checkpoint_id,
+        )
+        res2 = process_turn(r2, ctx)
+        assert res2.action == ConversationAction.CONTINUE_DIALOGUE
+
+        # T3: exploratory STATIC -> new phase again (1 entry), no plateau
+        r3 = _make_turn_request(
+            conversation_id="conv_flip",
+            turn_number=3,
+            posture="exploratory",
+            delta="static",
+            claims=_static_claims(3),
+            state_checkpoint=res2.state_checkpoint,
+            checkpoint_id=res2.checkpoint_id,
+        )
+        res3 = process_turn(r3, ctx)
+        assert res3.action == ConversationAction.CONTINUE_DIALOGUE
+
+        # T4: exploratory STATIC -> now 2 STATIC in this phase -> CLOSING_PROBE
+        r4 = _make_turn_request(
+            conversation_id="conv_flip",
+            turn_number=4,
+            posture="exploratory",
+            delta="static",
+            claims=_static_claims(4),
+            state_checkpoint=res3.state_checkpoint,
+            checkpoint_id=res3.checkpoint_id,
+        )
+        res4 = process_turn(r4, ctx)
+        assert res4.action == ConversationAction.CLOSING_PROBE
+
+    def test_static_at_phase_boundary_counts_toward_plateau(self) -> None:
+        """The posture-change turn itself is STATIC, then the next turn is also
+        STATIC. This should fire the closing probe because the boundary entry
+        is included in the new phase window.
+        """
+        ctx = _make_ctx(git_files=set())
+        # T1: exploratory ADVANCING
+        r1 = _make_turn_request(
+            conversation_id="conv_boundary_static",
+            turn_number=1,
+            posture="exploratory",
+            delta="advancing",
+        )
+        res1 = process_turn(r1, ctx)
+        assert res1.status == "success"
+
+        # T2: evaluative STATIC -> posture change, new phase with 1 STATIC entry
+        r2 = _make_turn_request(
+            conversation_id="conv_boundary_static",
+            turn_number=2,
+            posture="evaluative",
+            delta="static",
+            claims=_static_claims(2),
+            state_checkpoint=res1.state_checkpoint,
+            checkpoint_id=res1.checkpoint_id,
+        )
+        res2 = process_turn(r2, ctx)
+        assert res2.action == ConversationAction.CONTINUE_DIALOGUE
+
+        # T3: evaluative STATIC -> 2 STATIC in phase -> CLOSING_PROBE
+        r3 = _make_turn_request(
+            conversation_id="conv_boundary_static",
+            turn_number=3,
+            posture="evaluative",
+            delta="static",
+            claims=_static_claims(3),
+            state_checkpoint=res2.state_checkpoint,
+            checkpoint_id=res2.checkpoint_id,
+        )
+        res3 = process_turn(r3, ctx)
+        assert res3.action == ConversationAction.CLOSING_PROBE
+
+
+# ============================================================
+# Checkpoint phase fields round-trip (P5)
+# ============================================================
+
+
+class TestCheckpointPhaseFields:
+    """Checkpoint round-trip preserves phase tracking fields (P5)."""
+
+    def test_checkpoint_preserves_phase_fields(self) -> None:
+        """Phase fields survive checkpoint serialize -> deserialize round-trip."""
+        ctx = _make_ctx(git_files=set())
+        # T1: exploratory
+        r1 = _make_turn_request(
+            conversation_id="conv_ckpt_phase",
+            turn_number=1,
+            posture="exploratory",
+            delta="advancing",
+        )
+        res1 = process_turn(r1, ctx)
+        assert res1.status == "success"
+
+        # T2: evaluative -> posture change creates phase fields
+        r2 = _make_turn_request(
+            conversation_id="conv_ckpt_phase",
+            turn_number=2,
+            posture="evaluative",
+            delta="advancing",
+            state_checkpoint=res1.state_checkpoint,
+            checkpoint_id=res1.checkpoint_id,
+        )
+        res2 = process_turn(r2, ctx)
+        assert res2.status == "success"
+
+        # T3: evaluative STATIC — same posture, phase fields must have survived
+        r3 = _make_turn_request(
+            conversation_id="conv_ckpt_phase",
+            turn_number=3,
+            posture="evaluative",
+            delta="static",
+            claims=_static_claims(3),
+            state_checkpoint=res2.state_checkpoint,
+            checkpoint_id=res2.checkpoint_id,
+        )
+        res3 = process_turn(r3, ctx)
+        assert res3.status == "success"
+
+        # T4: evaluative STATIC -> 2 STATIC in phase -> CLOSING_PROBE
+        # Proves phase_start_index survived: if reset to 0,
+        # phase window would include T1 (ADVANCING) and no plateau.
+        r4 = _make_turn_request(
+            conversation_id="conv_ckpt_phase",
+            turn_number=4,
+            posture="evaluative",
+            delta="static",
+            claims=_static_claims(4),
+            state_checkpoint=res3.state_checkpoint,
+            checkpoint_id=res3.checkpoint_id,
+        )
+        res4 = process_turn(r4, ctx)
+        assert res4.action == ConversationAction.CLOSING_PROBE
+
 
 # ============================================================
 # Checkpoint (D4b Task 13a)
