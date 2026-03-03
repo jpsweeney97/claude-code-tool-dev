@@ -104,3 +104,23 @@ profiles:
     reasoning_effort: xhigh
     posture: comparative
     turn_budget: 6
+
+  debugging:
+    description: >
+      Multi-phase debugging consultation. Explores the problem space, verifies
+      hypotheses against evidence, then collaboratively designs a fix. Provide
+      the error, reproduction steps, and relevant code in the briefing material.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: high
+    phases:
+      - posture: exploratory
+        target_turns: 2
+        description: Map the problem space — what could cause this?
+      - posture: evaluative
+        target_turns: 3
+        description: Verify hypotheses against evidence
+      - posture: collaborative
+        target_turns: 2
+        description: Design the fix together
+    turn_budget: 7

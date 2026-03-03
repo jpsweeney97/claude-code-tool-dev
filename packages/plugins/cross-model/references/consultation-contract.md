@@ -358,8 +358,29 @@ Explicit flags override named profile fields. If a profile name cannot be resolv
 | `sandbox` | enum | `read-only` \| `workspace-write` \| `danger-full-access` |
 | `approval_policy` | enum | `untrusted` \| `on-failure` \| `on-request` \| `never` |
 | `reasoning_effort` | enum | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` |
-| `posture` | enum | Suggested posture hint (`adversarial`, `collaborative`, `exploratory`, `evaluative`, `comparative`) — caller may override |
-| `turn_budget` | int | Default turn budget for this profile |
+| `posture` | enum | Suggested posture hint (`adversarial`, `collaborative`, `exploratory`, `evaluative`, `comparative`) — caller may override. Mutually exclusive with `phases`. |
+| `phases` | Phase[] | Ordered list of posture phases (see Phase Composition below). Mutually exclusive with `posture`. |
+| `turn_budget` | int | Default turn budget for this profile. Hard cap across all phases. |
+
+### Phase composition (optional)
+
+Profiles may define `phases` — an ordered list of posture phases with target turns. When present, `posture` at the top level is omitted.
+
+| Phase field | Type | Description |
+|-------------|------|-------------|
+| `posture` | Posture | Posture for this phase |
+| `target_turns` | int | Advisory target for turns in this phase |
+| `description` | string | Human-readable phase purpose |
+
+**Budget rules:**
+- Phase target is advisory — a phase may end early
+- Total `turn_budget` is a hard cap across all phases
+- Convergence (`action: conclude`) overrides phase boundaries
+- Minimum 1 turn per phase
+
+**Validation:**
+- A profile must have either `posture` (single-phase) or `phases` (multi-phase), not both. If both are present, reject with validation error.
+- Adjacent phases must have distinct postures. Same-posture consecutive phases are a silent correctness failure — the server detects phase boundaries by posture change, so identical adjacent postures produce no boundary, and the phases silently merge. Enforce at profile load time. Long-term fix (post-Release C): add `phase_id` to TurnRequest to decouple boundary detection from posture values.
 
 ---
 
