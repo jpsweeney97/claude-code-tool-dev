@@ -9,6 +9,7 @@ import pytest
 from scripts.ticket_engine_core import (
     EngineResponse,
     engine_classify,
+    engine_plan,
 )
 
 
@@ -90,3 +91,102 @@ class TestEngineClassify:
             request_origin="user",
         )
         assert resp.data["resolved_ticket_id"] is None
+
+
+class TestEnginePlan:
+    def test_create_with_all_fields(self, tmp_tickets):
+        resp = engine_plan(
+            intent="create",
+            fields={
+                "title": "Fix auth bug",
+                "problem": "Auth times out.",
+                "priority": "high",
+                "key_files": ["handler.py"],
+            },
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok"
+        assert "dedup_fingerprint" in resp.data
+        assert resp.data["missing_fields"] == []
+
+    def test_create_missing_required_fields(self, tmp_tickets):
+        resp = engine_plan(
+            intent="create",
+            fields={"title": "No problem section"},
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "need_fields"
+        assert "problem" in resp.data["missing_fields"]
+
+    def test_dedup_detection(self, tmp_tickets):
+        from datetime import date
+
+        from tests.conftest import make_ticket
+
+        today = date.today()
+        today_str = today.isoformat()
+        today_compact = today_str.replace("-", "")
+        make_ticket(
+            tmp_tickets,
+            f"{today_str}-auth.md",
+            id=f"T-{today_compact}-01",
+            date=today_str,
+            problem="Auth times out.",
+            title="Fix auth bug",
+        )
+        resp = engine_plan(
+            intent="create",
+            fields={
+                "title": "Fix auth bug",
+                "problem": "Auth times out.",
+                "priority": "high",
+                "key_files": ["test.py"],  # Must match conftest's Key Files table
+            },
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "duplicate_candidate"
+        assert resp.data["duplicate_of"] is not None
+
+    def test_no_dedup_outside_24h(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(
+            tmp_tickets,
+            "2026-02-28-old.md",
+            id="T-20260228-01",
+            date="2026-02-28",
+            problem="Auth times out.",
+            title="Old auth bug",
+        )
+        resp = engine_plan(
+            intent="create",
+            fields={
+                "title": "Fix auth bug",
+                "problem": "Auth times out.",
+                "priority": "high",
+                "key_files": [],
+            },
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        # Old ticket outside 24h window — no dedup match.
+        assert resp.state == "ok"
+
+    def test_non_create_skips_dedup(self, tmp_tickets):
+        resp = engine_plan(
+            intent="update",
+            fields={"ticket_id": "T-20260302-01"},
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok"
+        # No dedup for non-create.
+        assert resp.data.get("dedup_fingerprint") is None
