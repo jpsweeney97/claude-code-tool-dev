@@ -1,0 +1,10 @@
+{
+  "name": "ticket",
+  "version": "1.0.0",
+  "description": "Repo-local ticket management with lifecycle operations, smart routing, and autonomous creation",
+  "author": {
+    "name": "JP"
+  },
+  "license": "MIT",
+  "keywords": ["ticket", "tracking", "triage", "dedup", "autonomy"]
+}
