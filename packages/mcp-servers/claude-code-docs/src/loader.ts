@@ -8,7 +8,7 @@ import { fetchOfficialDocs, FetchHttpError, FetchNetworkError, FetchTimeoutError
 import { parseSections } from './parser.js';
 import { readCache, readCacheIfFresh, writeCache, getDefaultCachePath } from './cache.js';
 import { extractContentPath } from './url-helpers.js';
-import { deriveCategory } from './frontmatter.js';
+import { deriveCategory, getUnmappedSegments } from './frontmatter.js';
 
 /**
  * Default minimum number of sections required for content to be considered valid.
@@ -148,6 +148,35 @@ export async function loadFromOfficial(
   const { sections, contentHash } = await fetchAndParse(url, resolvedCachePath, forceRefresh);
   const filtered = sections.filter((s) => s.content.trim().length > 0);
 
+  // Parse diagnostics: count only Source:-anchored sections (exclude preamble pseudo-section)
+  const sourceAnchoredCount = sections.filter(s => s.sourceUrl !== '').length;
+  const diagnostics = {
+    sourceLineCount: sourceAnchoredCount,
+    nonEmptySectionCount: filtered.length,
+  };
+  console.error(
+    `Parse diagnostics: ${diagnostics.sourceLineCount} Source: lines, ` +
+    `${diagnostics.nonEmptySectionCount} non-empty sections`
+  );
+
+  // Report unmapped URL segments (per-load, no module-level state)
+  // Guard: skip preamble sections with empty sourceUrl (defense-in-depth —
+  // getUnmappedSegments handles '' safely, but the guard makes intent explicit)
+  const unmapped = new Map<string, number>();
+  for (const section of filtered) {
+    if (section.sourceUrl === '') continue;
+    for (const seg of getUnmappedSegments(section.sourceUrl)) {
+      unmapped.set(seg, (unmapped.get(seg) ?? 0) + 1);
+    }
+  }
+  if (unmapped.size > 0) {
+    const entries = [...unmapped.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([seg, count]) => `${seg} (${count}x)`)
+      .join(', ');
+    console.warn(`Category: ${unmapped.size} unmapped URL segment(s): ${entries}`);
+  }
+
   return {
     contentHash,
     files: filtered.map((s) => {
@@ -200,16 +229,24 @@ async function fetchAndParse(
     await writeCache(cachePath, content);
     return { sections, contentHash };
   } catch (err: unknown) {
-    // Log error with appropriate prefix based on error type
+    // Only fall back to stale cache for expected operational errors.
+    // Programmer errors (TypeError, RangeError, etc.) propagate immediately
+    // so parser regressions are not masked by serving stale data.
+    const isExpected =
+      err instanceof FetchHttpError ||
+      err instanceof FetchNetworkError ||
+      err instanceof FetchTimeoutError ||
+      err instanceof ContentValidationError;
+
+    if (!isExpected) throw err;
+
     if (err instanceof ContentValidationError) {
       console.error(`Content validation failed: ${err.message}`);
-    } else if (err instanceof Error) {
-      console.error(err.message);
     } else {
-      console.error(`Fetch failed: ${String(err)}`);
+      console.error(err.message);
     }
 
-    // Fall back to stale cache on fetch error or validation failure
+    // Fall back to stale cache on expected fetch/validation error
     const cached = await readCache(cachePath);
     if (cached) {
       const ageHours = (cached.age / 3600000).toFixed(1);

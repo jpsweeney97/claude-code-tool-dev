@@ -40,22 +40,49 @@ function lineBreakAfter(raw: string, index: number): number {
 }
 
 /**
- * Parse raw llms-full.txt content into sections delimited by Source: lines.
+ * Determine if a line at a given index is a standalone --- separator.
+ * A standalone separator is:
+ * - Exactly "---" (with optional trailing whitespace)
+ * - At the start of a line (beginning of string or preceded by \n)
+ */
+function isStandaloneSeparator(raw: string, lineStart: number): boolean {
+  // Check the line content from lineStart
+  const lineEnd = raw.indexOf('\n', lineStart);
+  const line = raw.slice(lineStart, lineEnd === -1 ? raw.length : lineEnd);
+  return /^---\s*$/.test(line);
+}
+
+/**
+ * Find the start of the line at or before a given index.
+ */
+function findLineStart(raw: string, index: number): number {
+  const prevNewline = raw.lastIndexOf('\n', index - 1);
+  return prevNewline === -1 ? 0 : prevNewline + 1;
+}
+
+/** Max blank lines to skip when looking backward for a --- separator. */
+const MAX_LOOKBACK_NEWLINES = 3;
+
+/**
+ * Parse raw llms-full.txt content into sections using a two-pass approach.
  *
- * The llms-full.txt format contains concatenated documentation pages, each
- * prefixed with a "Source: <url>" line at the start of a line. This function
- * splits on those markers and extracts the nearest heading before each Source:
- * line as the section title.
+ * Pass 1: Collect all Source: line positions.
+ * Pass 2: For each Source: line, resolve the section boundary (pageStart)
+ *          by looking backward for the nearest heading and optional --- separator.
  *
- * Content before the first Source: line is captured as a preamble section
- * with an empty sourceUrl.
+ * Section content runs from after the Source: line to the next section's pageStart.
+ * The # Title line is naturally excluded from content because it precedes the
+ * Source: line — no post-processing stripping needed.
+ *
+ * Supports both old format (# Title + Source:) and new format (--- + # Title + Source:).
+ * The --- lookback finds nothing in the old format, so boundaries degrade gracefully.
  */
 export function parseSections(raw: string): ParsedSection[] {
   const sourceRe = /^Source:\s+(\S+)\s*$/gm;
   const matches = Array.from(raw.matchAll(sourceRe));
   const sections: ParsedSection[] = [];
 
-  // No Source: lines found - return entire content as single section
+  // No Source: lines found — return entire content as single section
   if (matches.length === 0) {
     const title = findFirstHeadingInRange(raw, 0, raw.length);
     if (raw.trim().length > 0) {
@@ -64,36 +91,86 @@ export function parseSections(raw: string): ParsedSection[] {
     return sections;
   }
 
-  // Handle preamble content before first Source: line
-  // Preamble is content that comes BEFORE the heading associated with the first Source
-  const firstMatch = matches[0];
-  const firstMatchIndex = firstMatch.index ?? 0;
-  const firstHeading = findLastHeadingBefore(raw, firstMatchIndex);
+  // Pass 1: Resolve pageStart for each Source: match
+  // pageStart is the earliest boundary of this section — the --- line,
+  // the heading line, or the Source: line itself (whichever comes first).
+  const pageStarts: number[] = [];
 
-  // If there's a heading for the first Source, preamble ends where that heading starts
-  // If no heading, preamble ends at the Source line itself
-  const preambleEnd = firstHeading.index >= 0 ? firstHeading.index : firstMatchIndex;
+  for (const match of matches) {
+    const matchIndex = match.index ?? 0;
+    const heading = findLastHeadingBefore(raw, matchIndex);
 
-  if (preambleEnd > 0) {
-    const preamble = raw.slice(0, preambleEnd);
-    if (preamble.trim().length > 0) {
-      const title = findFirstHeadingInRange(raw, 0, preambleEnd);
-      sections.push({ sourceUrl: '', title, content: preamble });
+    let pageStart = matchIndex; // Default: Source: line itself
+
+    if (heading.index >= 0) {
+      pageStart = heading.index; // Heading found — section starts at heading
+
+      // Check for a --- line immediately before the heading (within MAX_LOOKBACK_NEWLINES)
+      const headingLineStart = findLineStart(raw, heading.index);
+      if (headingLineStart > 0) {
+        // Walk backward past blank lines (whitespace-only lines count as blank)
+        let checkPos = headingLineStart - 1;
+        let newlineCount = 0;
+        while (
+          checkPos >= 0 &&
+          (raw[checkPos] === '\n' || raw[checkPos] === '\r' ||
+           raw[checkPos] === ' ' || raw[checkPos] === '\t')
+        ) {
+          if (raw[checkPos] === '\n') newlineCount++;
+          if (newlineCount > MAX_LOOKBACK_NEWLINES) break;
+          checkPos--;
+        }
+        if (checkPos >= 0 && newlineCount <= MAX_LOOKBACK_NEWLINES) {
+          const candidateLineStart = findLineStart(raw, checkPos);
+          if (isStandaloneSeparator(raw, candidateLineStart)) {
+            pageStart = candidateLineStart;
+          }
+        }
+      }
+    }
+
+    pageStarts.push(pageStart);
+  }
+
+  // Monotonicity guard: if a section's heading search reached into (or equals)
+  // the previous section's boundary, reset to the Source: line position.
+  // Equal pageStarts happen when a headingless section finds the previous
+  // section's heading — this would make section N-1's content empty.
+  for (let i = 1; i < pageStarts.length; i++) {
+    if (pageStarts[i] <= pageStarts[i - 1]) {
+      pageStarts[i] = matches[i].index ?? 0;
     }
   }
 
-  // Process each Source: delimited section
-  for (let i = 0; i < matches.length; i += 1) {
+  // Handle preamble: content before the first section's pageStart
+  if (pageStarts[0] > 0) {
+    const preamble = raw.slice(0, pageStarts[0]);
+    // Filter non-meaningful preamble (blank or just ---)
+    const meaningful = preamble.replace(/^---\s*$/gm, '').trim();
+    if (meaningful.length > 0) {
+      const title = findFirstHeadingInRange(raw, 0, pageStarts[0]);
+      sections.push({ sourceUrl: '', title, content: preamble.trim() });
+    }
+  }
+
+  // Pass 2: Extract sections using pageStarts as boundaries
+  for (let i = 0; i < matches.length; i++) {
     const match = matches[i];
     const sourceUrl = match[1];
     const matchIndex = match.index ?? 0;
     const lineEnd = matchIndex + match[0].length;
     const contentStart = lineBreakAfter(raw, lineEnd);
-    const nextMatch = matches[i + 1];
-    const contentEnd = nextMatch?.index ?? raw.length;
-    const content = raw.slice(contentStart, contentEnd);
+
+    // Content ends at the next section's pageStart, or end of file
+    const contentEnd = i + 1 < matches.length ? pageStarts[i + 1] : raw.length;
+
+    const content = raw.slice(contentStart, contentEnd).trimEnd();
+
+    // Extract title from the heading before Source:
     const heading = findLastHeadingBefore(raw, matchIndex);
-    sections.push({ sourceUrl, title: heading.title, content });
+    const title = heading.title;
+
+    sections.push({ sourceUrl, title, content });
   }
 
   return sections;
