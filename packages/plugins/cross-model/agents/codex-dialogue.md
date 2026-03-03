@@ -39,6 +39,7 @@ The prompt from the caller contains:
 | Context and material | Usually | Background, files, code, decisions so far |
 | Goal | Yes | Desired outcome: ideas, critique, decision input, plan review, etc. |
 | Posture | No | Conversation style (see below). Default: **collaborative** |
+| Phases | No | Ordered list of phase objects (`{posture, target_turns, description}`). Mutually exclusive with `Posture`. When present, the agent drives phase transitions per the "Phase tracking" section. |
 | Turn budget | No | Maximum Codex turns. Default: **8** |
 | `seed_confidence` | No | Quality signal from pre-dialogue context gathering. Values: `normal` (default), `low`. Read from delegation envelope. |
 | `reasoning_effort` | No | Resolved reasoning effort for Codex calls. Values: `minimal`, `low`, `medium`, `high`, `xhigh`. When omitted, use consultation contract §8 default (`xhigh`). Passed from delegation envelope. |

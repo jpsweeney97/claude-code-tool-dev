@@ -313,7 +313,8 @@ Task(
   description: "Run Codex dialogue on question",
   prompt: """
     Goal: {user's question}
-    Posture: {resolved posture}
+    Posture: {resolved posture — omit if phases is set}
+    Phases: {resolved phases array from profile — omit if single-posture}
     Budget: {resolved turn count}
     seed_confidence: {normal or low}
     reasoning_effort: {resolved from profile or contract default}
@@ -325,6 +326,16 @@ Task(
 ```
 
 **`reasoning_effort` resolution:** profile value > consultation contract §8 default (`xhigh`). When `--plan` is used without `--profile`, reasoning_effort falls through to the contract default (`xhigh`). Pass the resolved value in the envelope — the `codex-dialogue` agent uses it directly without re-resolving profiles. (A `-t` flag for explicit override is deferred — profile propagation covers the immediate need.)
+
+**Phase delegation:** When the resolved profile contains `phases` (multi-phase profile), pass the `phases` array in the delegation envelope and omit `Posture`. The `codex-dialogue` agent reads `phases` to drive phase progression. When the profile has a single `posture` (no `phases` key), pass `Posture` and omit `Phases`. The agent detects which field is present and behaves accordingly.
+
+**Phase validation at delegation time:** Before delegating a multi-phase profile, verify:
+1. `phases` is a non-empty list
+2. Each phase has `posture`, `target_turns` (int >= 1), and `description` (string)
+3. Adjacent phases have distinct postures (same-posture consecutive phases silently merge at the server)
+4. Sum of `target_turns` across phases does not exceed `turn_budget`
+
+If validation fails, report the error to the user and do not delegate.
 
 **`scope_envelope` construction:** Before delegation, run the consultation contract §3 preflight to determine allowed roots and source classes. Pass the resulting scope envelope to `codex-dialogue`. The scope is immutable once set — on scope breach, the dialogue agent terminates and produces a synthesis with `termination_reason: scope_breach` in the pipeline-data epilogue (see contract §6).
 
