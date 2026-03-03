@@ -120,8 +120,16 @@ export function getDefaultIndexCachePath(filename = 'llms-full.index.json'): str
   return path.join(path.dirname(base), filename);
 }
 
+const DEFAULT_MAX_INDEX_CACHE_BYTES = 50 * 1024 * 1024; // 50MB
+
 export async function writeIndexCache(cachePath: string, data: unknown): Promise<void> {
   const content = JSON.stringify(data);
+  const maxBytes = parseInt(process.env.MAX_INDEX_CACHE_BYTES ?? '', 10) || DEFAULT_MAX_INDEX_CACHE_BYTES;
+  if (content.length > maxBytes) {
+    throw new Error(
+      `writeIndexCache failed: serialized index is ${content.length} bytes, exceeds ${maxBytes} byte limit`,
+    );
+  }
   await writeCache(cachePath, content);
 }
 

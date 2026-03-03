@@ -238,6 +238,22 @@ describe('index cache helpers', () => {
     expect(result).toEqual(data);
   });
 
+  it('writeIndexCache rejects oversized serialized index', async () => {
+    const originalEnv = process.env.MAX_INDEX_CACHE_BYTES;
+    process.env.MAX_INDEX_CACHE_BYTES = '100'; // 100 byte limit
+
+    const largeData = { version: 1, chunks: Array(50).fill({ id: 'x', content: 'y'.repeat(10) }) };
+    await expect(cache.writeIndexCache(indexPath, largeData)).rejects.toThrow(
+      /exceeds 100 byte limit/,
+    );
+
+    if (originalEnv === undefined) {
+      delete process.env.MAX_INDEX_CACHE_BYTES;
+    } else {
+      process.env.MAX_INDEX_CACHE_BYTES = originalEnv;
+    }
+  });
+
   it('readIndexCache returns null for non-existent file', async () => {
     const result = await cache.readIndexCache(indexPath);
     expect(result).toBeNull();
