@@ -10,7 +10,7 @@
 
 **Design doc:** `docs/plans/2026-03-02-reviewing-designs-redesign.md` (276 lines, Codex-reviewed)
 
-**Line budget:** SKILL.md at 471 lines. Projected after changes: ~542 lines. The 500-line soft target (`.claude/rules/skills.md:114`) is exceeded by ~42 lines. This is an accepted trade-off — the redesign adds three validated mechanisms (early gate, bridge, delta cards) that address four user concerns. Further extraction to reference docs would split core flow logic across files, hurting usability during review execution.
+**Line budget:** SKILL.md at 471 lines. Projected after changes: ~575 lines. The 500-line soft target (`.claude/rules/skills.md:114`) is exceeded by ~75 lines. This is an accepted trade-off — the redesign adds three validated mechanisms (early gate, bridge, delta cards) plus framework boundary rules that address four user concerns and ensure formal framework compliance. Further extraction to reference docs would split core flow logic across files, hurting usability during review execution.
 
 **Files changed:**
 - Create: `.claude/skills/reviewing-designs/references/bridge-and-checkpoints.md`
@@ -60,6 +60,14 @@ Available at checkpoints to modify bridge rows.
 - Checkpoint 2: full operations — dimensional findings may invalidate or strengthen hypotheses
 - Checkpoint 3: REOPEN only — if adversarial pass contradicts a prior disposition, the row reopens and forces another pass
 
+**REOPEN semantics:**
+
+- A REOPEN triggers exactly one reconciliation loop pass
+- During that pass, new D/F entities from dimensional checks on the reopened hypothesis enter Yield% scope normally
+- If the reconciliation pass triggers normal REFINE continuation conditions (new dimensions, Yield% above threshold), the loop continues per standard REFINE rules
+- If the iteration cap has been reached, REOPEN overrides for exactly one reconciliation pass; after that pass, the cap reasserts
+- Reopened rows requiring adversarial re-validation: only relevant lenses re-check the specific reopened rows, not a full 9-lens re-pass
+
 ## Alternative Row Schema
 
 | Field | Content |
@@ -81,6 +89,8 @@ Decision tree:
 - Clearly dominant → P0 finding: "Alternative ALT-N dominates current design on {criteria}" → `evaluated`
 
 Reviewing-designs identifies the question; making-recommendations answers it.
+
+**ALT → F-code rule:** When an ALT row moves to `evaluated` with "unresolved — escalate," create a corresponding F-code finding (e.g., F-ALT1) in the coverage tracker at P1 priority. This ensures the unresolved decision risk enters Yield% scope and the artifact's Decidable/Undecidable section.
 
 **Integration rules:**
 
@@ -105,6 +115,26 @@ If a hypothesis targets a dimension that gets marked N/A:
 1. Retarget once to the nearest applicable dimension
 2. If no applicable dimension exists, WITHDRAW with rationale citing why the hypothesis premise no longer applies
 
+## Status-Specific Disposition Requirements
+
+Override the generic disposition invariant ("evidence or rationale") with status-specific evidence requirements:
+
+| Status | Required evidence | Minimum quality |
+|--------|------------------|----------------|
+| `tested` | Finding ID(s) from target dimension checks | At least one finding at E1+ (single source with citation) |
+| `disconfirmed` | Counter-evidence from target dimension checks | Specific citation showing hypothesis does not hold |
+| `evaluated` (ALT) | Dominance check result | Decision tree outcome with rationale |
+| `withdrawn` | Rationale | One-sentence justification citing invalidated premise |
+
+These take precedence over the generic invariant. A formulaic `tested` disposition backed only by an E0 assertion (no citation) does not satisfy this requirement.
+
+**Terminology note:** "Disconfirmation" means different things in the framework and bridge:
+
+- **Framework:** Obligation to attempt disconfirmation of P0 findings (MUST requirement — applied to D-codes and F-codes)
+- **Bridge:** Status meaning "hypothesis not supported by evidence" (applied to H-codes)
+
+These are independent obligations. A `disconfirmed` H-row does not satisfy the framework's P0 disconfirmation MUST.
+
 ## Overflow Ranking
 
 When more hypotheses emerge than the stakes-level count allows:
@@ -112,6 +142,8 @@ When more hypotheses emerge than the stakes-level count allows:
 - **Rank by:** impact × plausibility × testability
 - **Top N:** become bridge H-rows (N = stakes-level count)
 - **Remainder:** go in "deferred hypotheses" footnote (not bridge-tracked, preserved for reference)
+
+**Promotion-on-slot-open:** When a bridge slot opens via WITHDRAW, promote the highest-ranked deferred hypothesis into the vacated slot via REVISE at the current checkpoint. This prevents high-signal deferred items from being permanently lost. Promotion must happen by checkpoint 2 — no promotions at checkpoint 3 (only REOPEN is available).
 
 ## ALT Overflow
 
@@ -166,10 +198,19 @@ The artifact (`docs/audits/...`) compiles all 3 delta cards in checkpoint order,
 **Step 2: Verify file structure**
 
 Run: `wc -l .claude/skills/reviewing-designs/references/bridge-and-checkpoints.md`
-Expected: ~107 lines
+Expected: ~145 lines
 
 Run: `grep -c "^##" .claude/skills/reviewing-designs/references/bridge-and-checkpoints.md`
-Expected: 8 section headers
+Expected: 10 section headers
+
+Run: `grep "REOPEN semantics" .claude/skills/reviewing-designs/references/bridge-and-checkpoints.md`
+Expected: 1 match
+
+Run: `grep "Status-Specific Disposition" .claude/skills/reviewing-designs/references/bridge-and-checkpoints.md`
+Expected: 1 match
+
+Run: `grep "F-code rule" .claude/skills/reviewing-designs/references/bridge-and-checkpoints.md`
+Expected: 1 match
 
 **Step 3: Commit**
 
@@ -313,7 +354,7 @@ Expected: 2 matches (description + overview)
 git add .claude/skills/reviewing-designs/SKILL.md
 git commit -m "feat(reviewing-designs): update overview and outputs for redesign
 
-Overview: 4 concerns (intent, blind spots, coverage, readiness) + process flow.
+Overview: 4 concerns (intent alignment, blind spots, conversational sharpening, optimality) + process flow.
 Outputs: dialogue-first with 3 delta card checkpoints replacing artifact-first.
 Definition of Done: updated for AHG-5, bridge, and delta cards."
 ```
@@ -404,10 +445,38 @@ Carries early-gate hypotheses into the dimensional loop. Prevents "generate-then
 
 **Lifecycle:** Rows added after early gate as `open` → status transitions via bridge operations at checkpoints → at Exit Gate, no `open` rows allowed.
 
+**Framework relationship:** The bridge table is a parallel tracking structure alongside the Cell Schema coverage tracker — not an extension of it. Cell Schema tracks D-codes and F-codes with `[x]`/`[~]`/`[-]` statuses and E0-E3 evidence levels. The bridge tracks H-codes and ALT-codes with `open`/`tested`/`disconfirmed` statuses. Linkage is via: Target Dimensions (H→D mapping), Disposition (H→F finding IDs), and Anchor (design location). Both must be complete at Exit Gate.
+
+**Referential integrity:** Every `tested` H-row must reference at least one D-code or F-code finding. Every `disconfirmed` H-row must reference the dimensional check that produced counter-evidence. If a referenced D-code is later revised or removed, update the H-row disposition accordingly.
+
 **Operations, alternatives, and dominance checks:** See [Bridge & Checkpoints Reference](references/bridge-and-checkpoints.md).
 ```
 
-**Step 3: Verify insertions**
+**Step 3: Insert Framework Boundary Rules section**
+
+Immediately after the Bridge Table section (after `**Operations, alternatives, and dominance checks:** See [Bridge & Checkpoints Reference](references/bridge-and-checkpoints.md).`) and before `### The Review Loop`, insert:
+
+```markdown
+
+### Framework Boundary Rules
+
+The bridge table and AHG-5 layer on top of the [thoroughness framework](references/framework-for-thoroughness_v1.0.0.md). These rules govern the boundary between framework-owned semantics and skill-local additions.
+
+| # | Rule | What it governs |
+|---|------|----------------|
+| B1 | **Entry Gate declares Yield% scope:** H-codes and ALT-codes are excluded from Yield% tracking. Declare per-run in Entry Gate output: "Yield% scope: D-codes and F-codes only. H-codes are bridge scaffolding." | Yield% formula scope (framework MAY clause) |
+| B2 | **Bridge is a parallel tracker:** The bridge table operates alongside the Cell Schema coverage tracker, not inside it. Different ID namespaces (H/ALT vs D/F), different status vocabularies, different evidence models. | Structural relationship |
+| B3 | **Referential integrity:** Every `tested` H-row references ≥1 D/F finding. Every `disconfirmed` H-row references the counter-evidence source. If a referenced finding is revised or removed, update the H-row disposition. | Cross-tracker linkage |
+| B4 | **Status-specific evidence:** `tested` requires E1+ evidence (not bare assertion). `disconfirmed` requires specific counter-citation. See [Status-Specific Disposition Requirements](references/bridge-and-checkpoints.md#status-specific-disposition-requirements). | Disposition quality |
+| B5 | **REOPEN propagates D/F entities:** A REOPEN triggers one reconciliation pass. New D/F entities enter Yield% scope normally. See [REOPEN semantics](references/bridge-and-checkpoints.md#reopen-semantics). | Loop re-entry mechanics |
+| B6 | **Unresolved ALT dominance creates F-code:** When an ALT row is `evaluated` with "unresolved — escalate," a corresponding F-code finding enters the coverage tracker at P1. | Decision risk tracking |
+
+These rules are the boundary contract between the framework and the skill's additions. Violations indicate a gap in the bridge-to-framework interface, not a framework bug.
+
+**Disconfirmation disambiguation:** "Disconfirmation" means different things in the two systems. Framework: obligation to attempt disconfirmation of P0 findings (applied to D/F-codes). Bridge: status meaning "hypothesis not supported" (applied to H-codes). These are independent — a `disconfirmed` H-row does not satisfy the framework's P0 disconfirmation MUST.
+```
+
+**Step 4: Verify insertions**
 
 Run: `grep "Early Adversarial Gate" .claude/skills/reviewing-designs/SKILL.md`
 Expected: 1 match
@@ -421,19 +490,30 @@ Expected: 1 match
 Run: `grep "Disposition invariant" .claude/skills/reviewing-designs/SKILL.md`
 Expected: 1 match
 
-Verify section ordering: `grep "^### " .claude/skills/reviewing-designs/SKILL.md`
-Expected order includes: ...Entry Gate, Early Adversarial Gate (AHG-5), Bridge Table, The Review Loop...
+Run: `grep "Framework Boundary Rules" .claude/skills/reviewing-designs/SKILL.md`
+Expected: 1 match
 
-**Step 4: Commit**
+Run: `grep "B1\|B2\|B3\|B4\|B5\|B6" .claude/skills/reviewing-designs/SKILL.md`
+Expected: 6 matches (one per boundary rule)
+
+Run: `grep "Disconfirmation disambiguation" .claude/skills/reviewing-designs/SKILL.md`
+Expected: 1 match
+
+Verify section ordering: `grep "^### " .claude/skills/reviewing-designs/SKILL.md`
+Expected order includes: ...Entry Gate, Early Adversarial Gate (AHG-5), Bridge Table, Framework Boundary Rules, The Review Loop...
+
+**Step 5: Commit**
 
 ```
 git add .claude/skills/reviewing-designs/SKILL.md
-git commit -m "feat(reviewing-designs): add AHG-5 early gate and bridge table
+git commit -m "feat(reviewing-designs): add AHG-5, bridge table, and boundary rules
 
 AHG-5: 5 adversarial questions, stakes-gated hypothesis count (2/3/4),
 hard fail rules per run question, overflow ranking.
 Bridge: hypothesis row schema, 5 status values, disposition invariant,
-lifecycle from open to resolution. Detail in reference doc."
+lifecycle, overlay declaration, referential integrity.
+Boundary rules: 6 rules (B1-B6) governing framework-bridge interface.
+Detail in reference doc."
 ```
 
 ---
@@ -451,7 +531,7 @@ After the `**Effective priority:**` paragraph (which ends with `...to exclude th
 
 ```markdown
 
-**H-code exclusion:** Bridge table H-codes are scaffolding — not Yield-tracked entities. Only D-codes and F-codes enter E_prev/E_cur. Bridge completion is an independent exit criterion checked at Exit Gate.
+**H-code exclusion:** Bridge table H-codes are scaffolding — not Yield-tracked entities. Only D-codes and F-codes enter E_prev/E_cur. Bridge completion is an independent exit criterion checked at Exit Gate. **Entry Gate declaration (B1):** Include in Entry Gate output: "Yield% scope: D-codes and F-codes only. H-codes are bridge scaffolding." (Per framework MAY clause — scope overrides must be declared at Entry Gate.)
 ```
 
 **Step 2: Add AHG-5 overlap handling to Adversarial Pass**
@@ -705,7 +785,7 @@ letter but not spirit — same theater risk as adversarial pass."
 **Step 1: Line count**
 
 Run: `wc -l .claude/skills/reviewing-designs/SKILL.md`
-Expected: 535-550 lines (accepted trade-off over 500-line soft target)
+Expected: 565-585 lines (accepted trade-off over 500-line soft target — boundary rules add ~30 lines)
 
 **Step 2: Internal link check**
 
@@ -731,12 +811,13 @@ Verify process flow order:
 4. Entry Gate (under Process header)
 5. Early Adversarial Gate (AHG-5)
 6. Bridge Table
-7. The Review Loop
-8. DISCOVER / EXPLORE / VERIFY / REFINE (under Review Loop)
-9. Adversarial Pass
-10. Exit Gate
-11. Decision Points
-12. Anti-Patterns / Troubleshooting / Extension Points
+7. Framework Boundary Rules
+8. The Review Loop
+9. DISCOVER / EXPLORE / VERIFY / REFINE (under Review Loop)
+10. Adversarial Pass
+11. Exit Gate
+12. Decision Points
+13. Anti-Patterns / Troubleshooting / Extension Points
 
 **Step 4: Cross-reference consistency**
 
@@ -745,11 +826,15 @@ Verify these terms appear in the expected locations:
 | Term | Expected locations |
 |------|-------------------|
 | `AHG-5` | Overview, Outputs (DoD), AHG-5 section, Adversarial Pass (overlap), Decision Points, Anti-Patterns |
-| `bridge table` | Overview, Outputs (DoD), Bridge Table section, REFINE (H-code), Exit Gate, Decision Points |
+| `bridge table` | Overview, Outputs (DoD), Bridge Table section, Boundary Rules (B2), REFINE (H-code), Exit Gate, Decision Points |
 | `delta card` | Overview, Outputs section, Definition of Done, AHG-5 section (output line) |
 | `disposition invariant` | Bridge Table section, Exit Gate |
 | `NET-NEW` | Adversarial Pass overlap |
-| `H-code` | REFINE section |
+| `H-code` | REFINE section, Boundary Rules (B1) |
+| `Framework Boundary Rules` | Boundary Rules section header |
+| `B1` through `B6` | Boundary Rules table (6 rows) |
+| `Referential integrity` | Bridge Table section, Boundary Rules (B3) |
+| `Disconfirmation disambiguation` | Boundary Rules section |
 
 **Step 5: Design doc compliance check**
 
@@ -775,6 +860,12 @@ Verify each design doc requirement from `docs/plans/2026-03-02-reviewing-designs
 | §4 H-codes scaffolding | REFINE section | H-code exclusion note |
 | — ALT overflow | Reference doc | 4-case table + constrained-space gate |
 | — Integration seams | Reference doc | Dominance skip, deferred-ALT promotion, A6 fallback |
+| — Framework boundary rules | Boundary Rules section | B1-B6 rules table + disconfirmation disambiguation |
+| — Status-specific disposition | Reference doc | Evidence requirements per status, E1+ for `tested` |
+| — REOPEN semantics | Reference doc | Reconciliation pass, iteration cap override, D/F propagation |
+| — ALT → F-code | Reference doc | Unresolved dominance creates P1 F-code |
+| — Promotion-on-slot-open | Reference doc | Deferred hypothesis promotion via REVISE by checkpoint 2 |
+| — Referential integrity | Bridge Table section | H→D/F linkage enforcement |
 
 **Step 6: Semantic checks**
 
@@ -785,6 +876,13 @@ Verify these specific content items survived from the design doc:
 - Q3 Catches contains "Systematically": `rg "Systematically underspecified" .claude/skills/reviewing-designs/SKILL.md`
 - Q4 Catches contains "edge case surfaces": `rg "edge case surfaces" .claude/skills/reviewing-designs/SKILL.md`
 - Overview concerns match design doc (Conversational sharpening, Optimality — not Source coverage, Implementation readiness): `rg "Conversational sharpening|Optimality" .claude/skills/reviewing-designs/SKILL.md`
+- Boundary rules present (B1-B6): `rg "B[1-6]" .claude/skills/reviewing-designs/SKILL.md` — expect 6 matches
+- Entry Gate declaration wording present: `rg "Yield% scope: D-codes" .claude/skills/reviewing-designs/SKILL.md` — expect 1 match
+- Referential integrity in Bridge Table: `rg "Referential integrity" .claude/skills/reviewing-designs/SKILL.md` — expect 1+ matches
+- Status-specific disposition in reference doc: `rg "Status-Specific Disposition" .claude/skills/reviewing-designs/references/bridge-and-checkpoints.md` — expect 1 match
+- REOPEN semantics in reference doc: `rg "REOPEN semantics" .claude/skills/reviewing-designs/references/bridge-and-checkpoints.md` — expect 1 match
+- ALT → F-code in reference doc: `rg "F-code rule" .claude/skills/reviewing-designs/references/bridge-and-checkpoints.md` — expect 1 match
+- Promotion-on-slot-open in reference doc: `rg "Promotion-on-slot-open" .claude/skills/reviewing-designs/references/bridge-and-checkpoints.md` — expect 1 match
 
 **Step 7: Report results**
 
@@ -800,7 +898,7 @@ If all checks pass, the implementation is complete.
 |------|-------------|-------|----------------------|
 | 1 | Create bridge-and-checkpoints reference doc | +1 new | `feat(reviewing-designs): add bridge & checkpoints reference doc` |
 | 2 | Update SKILL.md top (frontmatter, Overview, Outputs) | 1 modified | `feat(reviewing-designs): update overview and outputs for redesign` |
-| 3 | Insert AHG-5 + Bridge Table sections | 1 modified | `feat(reviewing-designs): add AHG-5 early gate and bridge table` |
+| 3 | Insert AHG-5 + Bridge Table + Framework Boundary Rules sections | 1 modified | `feat(reviewing-designs): add AHG-5, bridge table, and boundary rules` |
 | 4 | Update SKILL.md bottom (REFINE, Adversarial, Exit Gate, Decision Points, Anti-Patterns) | 1 modified | `feat(reviewing-designs): integrate bridge into existing sections` |
 | 5 | Update examples.md for new flow | 1 modified | `feat(reviewing-designs): update GOOD example for redesigned flow` |
 | 6 | Add anti-pattern to dimensions-and-troubleshooting.md | 1 modified | `feat(reviewing-designs): add early gate checkbox anti-pattern` |
@@ -814,6 +912,7 @@ If all checks pass, the implementation is complete.
 
 ## Codex Review Notes
 
-This plan was reviewed via two Codex dialogues:
+This plan was reviewed via three Codex dialogues:
 - **Adversarial** (thread `019cb19c`, 7 turns, converged): Found 7 content fixes + 3 execution guards. Key: concern labels mismatch, `evaluated` status omission, Task 7 portability.
 - **Collaborative** (thread `019cb1b0`, 6 turns, converged): Resolved 3 open questions. Key: Q2/Q4 wording drops are substantive (not editorial), ALT slots are fixed at 2 with explicit overflow, TESTED/CONFIRMED is a drafting artifact.
+- **Adversarial framework review** (thread `019cb1de`, 7 turns, converged): Reviewed framework-for-thoroughness_v1.0.0 as foundation for the redesign. Verdict: framework is sound; redesign needs 6 boundary rules (B1-B6) plus 2 hardening items. Key: H-code exclusion needs Entry Gate declaration (B1), bridge is parallel tracker not Cell Schema extension (B2), unresolved ALT dominance must create F-code finding (B6). 5 open questions resolved during plan update: REOPEN overrides iteration cap for one pass, no Decision state field in delta cards, boundary section in SKILL.md, scoped adversarial re-validation for reopened rows, Entry Gate declaration wording drafted.
