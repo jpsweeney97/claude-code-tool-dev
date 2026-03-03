@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { JsxBlockTracker } from '../src/jsx-block-tracker.js';
 
 describe('JsxBlockTracker', () => {
@@ -83,6 +83,40 @@ describe('JsxBlockTracker', () => {
     }
     // After cap, tracker should have reset
     expect(tracker.processLine('Normal text')).toBe(false);
+  });
+
+  it('recovers via lastIndexOf when inner tags are mismatched', () => {
+    const tracker = new JsxBlockTracker();
+    tracker.processLine('<Steps>');     // stack: [Steps]
+    tracker.processLine('<Warning>');   // stack: [Steps, Warning]
+    // Close Steps without closing Warning — lastIndexOf finds Steps at 0,
+    // splice(0) removes both Steps and the unclosed Warning above it
+    expect(tracker.processLine('</Steps>')).toBe(false);
+    expect(tracker.isInBlock).toBe(false);
+  });
+
+  it('warns on unmatched close tag when stack is non-empty', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const tracker = new JsxBlockTracker();
+    tracker.processLine('<Steps>');      // stack: [Steps]
+    tracker.processLine('</Warning>');   // Warning not in stack — tier 3
+    expect(tracker.isInBlock).toBe(true); // Steps still open
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('unmatched close tag </Warning>')
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('includes stack contents in depth cap warning', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const tracker = new JsxBlockTracker();
+    for (let i = 0; i < 16; i++) {
+      tracker.processLine('<Warning>');
+    }
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Stack: [')
+    );
+    warnSpy.mockRestore();
   });
 
   it('can be reset', () => {

@@ -67,7 +67,7 @@ export class JsxBlockTracker {
         this.stack.push(tagName);
         // Depth cap — reset to prevent runaway state
         if (this.stack.length >= MAX_DEPTH) {
-          console.warn(`JsxBlockTracker: depth cap (${MAX_DEPTH}) hit, resetting`);
+          console.warn(`JsxBlockTracker: depth cap (${MAX_DEPTH}) hit, resetting. Stack: [${this.stack.join(', ')}]`);
           this.stack = [];
           return false;
         }
@@ -99,7 +99,10 @@ export class JsxBlockTracker {
       return;
     }
 
-    // No match — ignore the unmatched close tag
+    // No match — warn and ignore the unmatched close tag
+    console.warn(
+      `JsxBlockTracker: unmatched close tag </${tagName}>, stack: [${this.stack.join(', ')}]`
+    );
   }
 
   /** Check if currently inside a block without advancing state */
