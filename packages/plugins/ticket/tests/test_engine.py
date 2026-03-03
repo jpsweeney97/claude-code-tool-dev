@@ -813,3 +813,22 @@ class TestEngineExecute:
         )
         assert resp.state == "invalid_transition"
         assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
+
+    def test_reopen_ticket(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="done")
+        resp = engine_execute(
+            action="reopen",
+            ticket_id="T-20260302-01",
+            fields={"reopen_reason": "Bug reoccurred after merge"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_reopen"
+        content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
+        assert "status: open" in content
+        assert "Reopen History" in content

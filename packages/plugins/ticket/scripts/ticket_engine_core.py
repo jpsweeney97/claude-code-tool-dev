@@ -899,5 +899,72 @@ def _execute_reopen(
     request_origin: str,
     tickets_dir: Path,
 ) -> EngineResponse:
-    """Reopen a done/wontfix ticket. STUB — full implementation in Task 11.5."""
-    raise NotImplementedError("_execute_reopen not yet implemented (Task 11.5)")
+    """Reopen a done/wontfix ticket."""
+    if not ticket_id:
+        return EngineResponse(state="need_fields", message="ticket_id required for reopen", error_code="need_fields")
+
+    reopen_reason = fields.get("reopen_reason", "")
+    if not reopen_reason:
+        return EngineResponse(state="need_fields", message="reopen_reason required for reopen", error_code="need_fields")
+
+    from scripts.ticket_read import find_ticket_by_id
+
+    ticket = find_ticket_by_id(tickets_dir, ticket_id)
+    if ticket is None:
+        return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
+
+    if not _is_valid_transition(ticket.status, "open", "reopen"):
+        return EngineResponse(
+            state="invalid_transition",
+            message=f"Cannot reopen ticket with status {ticket.status} (must be done or wontfix)",
+            ticket_id=ticket_id,
+            error_code="invalid_transition",
+        )
+
+    # Write status change.
+    ticket_path = Path(ticket.path)
+    text = ticket_path.read_text(encoding="utf-8")
+    yaml_text = extract_fenced_yaml(text)
+    if yaml_text is None:
+        return EngineResponse(state="escalate", message="Cannot parse ticket YAML", ticket_id=ticket_id, error_code="parse_error")
+
+    data = parse_yaml_block(yaml_text)
+    if data is None:
+        return EngineResponse(state="escalate", message="Cannot parse ticket YAML", ticket_id=ticket_id, error_code="parse_error")
+
+    old_status = data.get("status", "")
+    data["status"] = "open"
+    new_yaml = _render_canonical_frontmatter(data)
+    new_text = re.sub(
+        r"^```ya?ml\s*\n.*?^```",
+        f"```yaml\n{new_yaml}```",
+        text,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
+    # Append to Reopen History section (newest-last).
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    reopen_entry = f"\n\n## Reopen History\n- **{now}**: {reopen_reason} (by {request_origin})"
+
+    if "## Reopen History" in new_text:
+        rh_match = re.search(r"## Reopen History\n", new_text)
+        if rh_match:
+            next_heading = re.search(r"\n## ", new_text[rh_match.end():])
+            if next_heading:
+                insert_pos = rh_match.end() + next_heading.start()
+            else:
+                insert_pos = len(new_text)
+            entry = f"- **{now}**: {reopen_reason} (by {request_origin})\n"
+            new_text = new_text[:insert_pos].rstrip() + "\n" + entry + new_text[insert_pos:]
+    else:
+        new_text += reopen_entry
+
+    ticket_path.write_text(new_text, encoding="utf-8")
+
+    return EngineResponse(
+        state="ok_reopen",
+        message=f"Reopened {ticket_id}. Reason: {reopen_reason}",
+        ticket_id=ticket_id,
+        data={"ticket_path": str(ticket_path), "changes": {"status": [old_status, "open"]}},
+    )
