@@ -19,6 +19,8 @@ An early adversarial gate (AHG-5) surfaces framing problems and load-bearing ass
 **Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness_v1.0.0.md)
 **Default thoroughness:** Rigorous
 
+**Reference file contract:** SKILL.md is normative for rules, gates, semantics, and control flow. Reference files are operational — procedures, decision trees, examples, and troubleshooting. SKILL.md takes precedence on conflict. Cross-references must name the delegated mechanism.
+
 **Process flow:**
 
 ~~~
@@ -557,25 +559,4 @@ If the review process isn't working as expected, see [Troubleshooting Reference]
 
 ## Extension Points
 
-**Domain-specific dimensions:**
-
-- Security reviews: Add threat modeling dimensions (attack vectors, trust boundaries)
-- API designs: Add consistency dimensions (naming conventions, error formats)
-- Performance-critical: Add scale dimensions (bottlenecks, resource bounds)
-
-**Framework handoffs:**
-
-- If review finds design is fundamentally flawed → Recommend returning to brainstorming
-- If review passes → Design ready for writing-plans or implementation
-- These are informational notes, not automated handoffs (workflow decisions are user's domain)
-
-**Custom artifact locations:**
-
-- Default: `docs/audits/YYYY-MM-DD-<design-name>-review.md`
-- Projects can override via CLAUDE.md if different convention exists
-
-**Stakes presets:**
-
-- Projects can define default stakes in CLAUDE.md (e.g., "all design reviews are Rigorous minimum")
-- User can still override per-review
-- **Conflict resolution:** If CLAUDE.md specifies a minimum and user requests lower: state the concrete risk delta (which evidence requirements drop, which disconfirmation techniques are removed, how confidence ceiling changes), record accepted risk in Entry Gate, proceed with user's choice
+See [Extension Points](references/dimensions-and-troubleshooting.md#extension-points) for domain-specific dimensions, framework handoffs, custom artifact locations, and stakes presets.

@@ -123,3 +123,30 @@ Supporting reference for the [reviewing-designs](../SKILL.md) skill.
 **Symptom:** Same issues found on re-review after user claimed to fix them
 **Cause:** Fixes were incomplete or introduced new issues
 **Next steps:** This is valuable signal — note which issues recurred. Consider: Are fix instructions unclear? Is the design fundamentally hard to get right? Report pattern, not just recurrence.
+
+---
+
+## Extension Points
+
+**Domain-specific dimensions:**
+
+- Security reviews: Add threat modeling dimensions (attack vectors, trust boundaries)
+- API designs: Add consistency dimensions (naming conventions, error formats)
+- Performance-critical: Add scale dimensions (bottlenecks, resource bounds)
+
+**Framework handoffs:**
+
+- If review finds design is fundamentally flawed → Recommend returning to brainstorming
+- If review passes → Design ready for writing-plans or implementation
+- These are informational notes, not automated handoffs (workflow decisions are user's domain)
+
+**Custom artifact locations:**
+
+- Default: `docs/audits/YYYY-MM-DD-<design-name>-review.md`
+- Projects can override via CLAUDE.md if different convention exists
+
+**Stakes presets:**
+
+- Projects can define default stakes in CLAUDE.md (e.g., "all design reviews are Rigorous minimum")
+- User can still override per-review
+- **Conflict resolution:** If CLAUDE.md specifies a minimum and user requests lower: state the concrete risk delta (which evidence requirements drop, which disconfirmation techniques are removed, how confidence ceiling changes), record accepted risk in Entry Gate, proceed with user's choice
