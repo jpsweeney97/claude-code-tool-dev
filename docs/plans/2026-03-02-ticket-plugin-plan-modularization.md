@@ -6,9 +6,17 @@ The Phase 1 implementation plan (`docs/plans/2026-03-02-ticket-plugin-phase1-pla
 
 **Goals:** Reduce per-module context load for executing agents. Enable gated review between modules to catch issues early.
 
-**Non-goals:** Parallelization (the dependency chain is sequential). Modifying the canonical plan (it remains the immutable reference).
+**Non-goals:** Parallelization (the dependency chain is sequential). Modifying the canonical plan during active module execution (the remediation cycle in §Failure Recovery is the sole exception).
 
-**Precondition (Gate 0):** Before M1 starts, verify `superpowers:executing-plans` sub-skill compatibility. The canonical plan's first line requires this sub-skill. If the sub-skill has constraints on module size, handoff shape, or checkpoint format, those affect all 5 modules and must be resolved before execution begins.
+**Precondition (Gate 0):** Before M1 starts, verify `superpowers:executing-plans` sub-skill compatibility. The canonical plan's first line requires this sub-skill.
+
+Gate 0 verification commands:
+1. Invoke the skill: confirm it exists in `~/.claude/skills/executing-plans/SKILL.md` and loads without error.
+2. Check module size constraint: confirm the skill can accept a module plan of ~1924 lines (M4's size).
+3. Check non-sequential execution: confirm the skill can handle M2's task order (Task 3 → Task 14, skipping Tasks 4-13).
+4. Check checkpoint format: confirm the skill's checkpoint format is compatible with the invariant ledger schema (§Internal Execution Strategy).
+
+**Pass/fail:** All 4 checks must pass. If any fails, resolve the constraint before proceeding — constraints affect all 5 modules.
 
 ## Module Structure
 
@@ -30,7 +38,7 @@ The Phase 1 implementation plan (`docs/plans/2026-03-02-ticket-plugin-phase1-pla
 
 **Task 15 grouped with M5.** Final suite run and cleanup belong with integration.
 
-**Canonical plan is immutable.** Task numbers are not renumbered. Module execution order (e.g., M2 runs Task 3 then Task 14) is specified in this design, not in the plan itself.
+**Canonical plan is read-only during active module execution.** Task numbers are not renumbered. Module execution order (e.g., M2 runs Task 3 then Task 14) is specified in this design, not in the plan itself. The remediation cycle (§Failure Recovery, step 3) may re-enter an upstream module to fix defects — this is the sole exception to read-only access.
 
 ## Gated Review Protocol
 
@@ -42,16 +50,20 @@ Each boundary produces a gate card (~20 lines) included in the handoff prompt fo
 
 ```
 ## Gate Card: M{N} → M{N+1}
-commit_sha: <sha>            # Post-gate commit on a clean tree. Gate card is committed.
+evaluated_sha: <sha>         # Executor's final commit — the state under review.
+handoff_sha: <sha>           # Reviewer's commit after gate card + evidence are added.
 commands_to_run: ["uv run pytest tests/", ...]
 must_pass_files: [<derived from mapping table below>]
 api_surface_expected:
   - module_name: [exported_symbol_1, exported_symbol_2, ...]
-verdict: PASS | FAIL | PASS_WITH_WARNINGS
-warnings: []                 # Non-blocking concerns carried to next module's review
+verdict: PASS | FAIL
+warnings: []                 # Orthogonal to verdict. Non-blocking concerns carried forward.
+probe_evidence:              # Command outputs / structured results tied to evaluated_sha.
+  - command: "..."
+    result: "..."
 ```
 
-**commit_sha semantics:** The SHA references a committed, clean-tree state. The executing agent commits all module work, then the reviewer evaluates committed state. The gate card itself is committed as part of the handoff.
+**Two-SHA semantics:** The executor commits all module work (`evaluated_sha`). The reviewer runs gate checks against that state, then commits the gate card and evidence artifacts (`handoff_sha`). The next module's handoff prompt references `handoff_sha`.
 
 ### Module → Task → Test File Mapping
 
@@ -59,7 +71,7 @@ warnings: []                 # Non-blocking concerns carried to next module's re
 
 | Module | Tasks | Test Files |
 |--------|-------|------------|
-| M1 | 1-2 | (none — scaffold only; conftest.py verified implicitly by M2) |
+| M1 | 1-2 | (none — scaffold only; conftest smoke at M1→M2 gate, see below) |
 | M2 | 3, 14 | test_parse.py, test_migration.py |
 | M3 | 4-7 | test_id.py, test_render.py, test_read.py, test_dedup.py |
 | M4 | 8-11 | test_engine.py |
@@ -78,18 +90,34 @@ Each gate's `must_pass_files` is the cumulative set: all test files from the cur
 
 **Gate type definitions:**
 
-- **Standard:** Run `must_pass_files` (cumulative). Verify `api_surface_expected` symbols exist. Binary verdict.
-- **Standard+:** Standard + forward-dependency sentinels. Verify downstream import contracts are satisfiable by running import-only smoke tests for the next module's known imports. At M2→M3: verify `ticket_parse` exports satisfy M3's Tasks 6 and 7 import needs (`ParsedTicket`, `parse_ticket`, `extract_fenced_yaml`).
-- **Critical:** Standard+ + re-run all upstream module test files. Verify exported symbols + signatures match expectations. At M3→M4: full upstream re-run. At M4→M5: round-trip gate probe (see below).
+- **Standard:** Run `must_pass_files` (cumulative). Verify `api_surface_expected` symbols exist via import check. Verdict is mechanically derived: PASS iff all commands exit 0 and all expected symbols import successfully [T]. At M1→M2: import and call `make_gen1_ticket(tmp_dir)`, `make_gen2_ticket(tmp_dir)`, `make_gen3_ticket(tmp_dir)`, `make_gen4_ticket(tmp_dir)`; assert each returns a `Path` to a file containing fenced YAML. This smoke test must NOT import `parse_ticket` (Task 3 not built yet).
+- **Standard+:** Standard + forward-dependency sentinels. Import-only smoke tests for the next module's known imports. At M2→M3: verify `ticket_parse` exports satisfy M3's Tasks 4 and 6 import needs — `extract_fenced_yaml`, `parse_yaml_block` (Task 4) and `ParsedTicket`, `parse_ticket` (Task 6). Task 5 and Task 7 do not import from `ticket_parse`.
+- **Critical:** Standard+ + re-run all upstream module test files + downstream preflight (import-only smoke for the module after next, when applicable). At M3→M4: full upstream re-run + verify M4's import subset (`ParsedTicket`, `parse_ticket`, `extract_fenced_yaml`, `parse_yaml_block` from `ticket_parse`; `find_ticket_by_id`, `list_tickets` from `ticket_read`; `dedup_fingerprint`, `normalize`, `target_fingerprint` from `ticket_dedup`; `allocate_id`, `build_filename` from `ticket_id`; `render_ticket` from `ticket_render`). At M4→M5: round-trip gate probe (see below).
 
-**M4→M5 round-trip gate probe:** Task 14 (M2) validates parse→read, but nothing validates write→parse. `_render_canonical_frontmatter` does manual YAML string formatting with data-dependent edge cases (commas in tags, unescaped quotes in source fields). Gate command (not a plan mutation): create/update/close/reopen via `engine_execute`, then `parse_ticket` readback with field-level fidelity checks. This probe runs at gate time, not during M4 execution.
+**Enforcement tags:** `[T]` = test-enforced, `[S]` = script-enforced, `[M]` = manual review, `[A]` = advisory. Tags apply to gate-critical MUST/SHALL rules only.
+
+**M4→M5 round-trip gate probe [T]:** Task 14 (M2) validates parse→read, but nothing validates write→parse. `_render_canonical_frontmatter` does manual YAML string formatting with data-dependent edge cases. This probe runs at gate time, not during M4 execution.
+
+Concrete probe vectors (4 operations, each with adversarial inputs):
+
+1. **Create** with adversarial tags: `tags: ["auth,api", "[wip]", "plain"]` and `source: {"type": "ad-hoc", "ref": "say \"hello\"", "session": "test"}`. Assert: `parse_ticket` readback produces identical `tags` list and `source` dict (field-level equality).
+2. **Update** the created ticket: change `status: open → in-progress`, add tag `"colon: value"`. Assert: all prior fields preserved + new tag present in readback.
+3. **Close** the ticket: `status: in-progress → done`. Assert: readback `status == "done"`, all fields preserved.
+4. **Reopen** the ticket: `status: done → open`. Assert: readback `status == "open"`, all fields preserved.
+
+**Pass/fail:** All 4 readbacks must produce field-level equality. Any field mismatch = FAIL. The probe vectors exercise the known failure modes of `_render_canonical_frontmatter`: commas in flow-style lists, brackets in tags, and double quotes in string values.
 
 ### Failure Recovery
 
-1. **Retry locally** (2 attempts within the module)
-2. **Run upstream sentinel tests** — the previous gate's `must_pass_files`. If they pass, the defect is in the current module. If they fail, the defect is upstream.
-3. **If sentinels fail → remediation cycle:** Stop current module. Re-enter the upstream module's session. Fix the defect. Produce a new `commit_sha` + updated gate card + root-cause note. The remediation cycle completes when the upstream gate re-passes.
-4. **Cross-boundary edits disallowed** unless a remediation cycle is explicitly triggered by sentinel failure (step 3). An executing agent must never edit files owned by a prior module during normal execution.
+**Trigger conditions:** A failure event is any nonzero exit from: test command, import check, lint, or runtime execution during module work. Failures are classified as **transient** (timeout, flaky test — retry is appropriate) or **deterministic** (assertion failure, import error — retry will not help). After 2 retries of a transient failure, or 1 occurrence of a deterministic failure, escalate to step 2.
+
+1. **Retry locally** (max 2 attempts, transient failures only). Deterministic failures skip directly to step 2.
+2. **3-branch attribution:** Run the previous gate's `must_pass_files` as sentinel tests.
+   - **Sentinels fail → upstream fault.** The defect was introduced before the current module. Proceed to step 3.
+   - **Sentinels pass, failure is in a file owned by the current module → local fault.** Fix within the current module.
+   - **Sentinels pass, but failure involves cross-module interaction (e.g., import works but returns wrong type) → boundary fault.** The upstream contract is technically satisfied but semantically wrong. Escalate to reviewer for manual attribution before proceeding.
+3. **If upstream fault → remediation cycle:** Stop current module. Re-enter the upstream module to fix the defect. Produce a new `evaluated_sha` + updated gate card + root-cause note. The remediation cycle completes when the upstream gate re-passes.
+4. **Cross-boundary edits disallowed** unless a remediation cycle is explicitly triggered by upstream or boundary fault (steps 2-3). An executing agent must never edit files owned by a prior module during normal execution.
 
 ## Internal Execution Strategy
 
@@ -111,7 +139,7 @@ exports: [engine_classify, engine_plan, ...]
 next_task_depends_on: [engine_classify, engine_plan, ...]
 ```
 
-**Monotonic subset enforcement:** Each checkpoint's `test_classes` must be a superset of the previous checkpoint's. Each class's test count must be >= the previous count. This catches the "pass-while-wrong" scenario where an agent accidentally deletes a test class block during Task 11 appends — pytest passes (deleted tests aren't collected) but the monotonicity check fails.
+**Monotonic subset enforcement [M]:** Each checkpoint's `test_classes` must be a superset of the previous checkpoint's. Each class's test count must be >= the previous count. The reviewer compares the current ledger against the prior checkpoint's ledger (both are committed artifacts). This catches the "pass-while-wrong" scenario where an agent accidentally deletes a test class block during Task 11 appends — pytest passes (deleted tests aren't collected) but the monotonicity check fails. Detection occurs at the next full checkpoint (slices 1, 3, 6), not immediately — commit-only slices (2, 4, 5) are unmonitored. Upgradeable to `[S]` when an automated comparison script exists.
 
 Task 11 executes as vertical TDD slices:
 
@@ -141,5 +169,7 @@ Standard sequential TDD flow. No special internal strategy — all under 1000 li
 ## Provenance
 
 - **Collaborative dialogue:** Thread `019cb19e-f668-7913-8e00-198815906978`, 6/12 turns, converged. Established 5-module split, Task 14 relocation, Tasks 8-11 unsplittable, contract-aware gates (all High confidence).
-- **Adversarial review:** Thread `019cb1b9-209f-7520-993d-4ec13ab8d390`, 5/10 turns, converged. Found 4 P0 + 3 P1 + 3 P2 defects. All P0 and P1 findings applied in this revision.
-- **Open questions (non-blocking):** M4 ledger enforcement mechanism (manual check vs. automated script), whether design should explicitly label itself as process-reliant vs. deterministically enforced.
+- **Adversarial review (round 2):** Thread `019cb1b9-209f-7520-993d-4ec13ab8d390`, 5/10 turns, converged. Found 4 P0 + 3 P1 + 3 P2 defects. All P0 and P1 applied.
+- **Adversarial review (round 3):** Thread `019cb1d9-c7b3-7142-8800-8daadf4a5bd9`, 5/10 turns, converged. Found 4 P0 + 5 P1 + 2 P2 defects (11 total). Key findings: self-certification gap, wrong sentinel imports, non-executable probe, immutability deadlock.
+- **Collaborative findings triage:** Thread `019cb1ee-ebdb-72f2-a025-85f9a4324e43`, 6/10 turns, converged. Rejected 2 heavyweight mechanisms (Boundary Contract Manifest, Errata Overlay). All 11 findings applied as lightweight inline fixes. Emerged: enforcement tags, probe_evidence block, 3-branch attribution model.
+- **Open questions (non-blocking):** Whether monotonicity enforcement should be upgraded from `[M]` manual to `[S]` scripted before M4 execution begins.
