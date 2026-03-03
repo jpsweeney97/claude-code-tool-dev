@@ -34,7 +34,7 @@ class TestRenderTicket:
         assert "- [ ] Timeout configurable per route" in result
         assert "## Verification" in result
         assert "## Key Files" in result
-        assert 'contract_version: "1.0"' in result
+        assert "contract_version: '1.0'" in result
 
     def test_minimal_ticket(self):
         result = render_ticket(
@@ -80,8 +80,8 @@ class TestRenderTicket:
             blocked_by=["T-20260302-02"],
             blocks=["T-20260302-03"],
         )
-        assert "blocked_by: ['T-20260302-02']" in result
-        assert "blocks: ['T-20260302-03']" in result
+        assert "- T-20260302-02" in result
+        assert "- T-20260302-03" in result
 
     def test_defer_field(self):
         result = render_ticket(
@@ -95,3 +95,44 @@ class TestRenderTicket:
         )
         assert "defer:" in result
         assert "active: true" in result
+
+
+def test_render_ticket_yaml_injection_source_ref(tmp_path):
+    """Adversarial source.ref with YAML-special characters round-trips safely."""
+    from scripts.ticket_parse import parse_ticket
+
+    result = render_ticket(
+        id="T-20260303-01",
+        title="Test injection",
+        date="2026-03-03",
+        status="open",
+        priority="medium",
+        source={"type": "ad-hoc", "ref": 'value: "nested" and: more', "session": "s1"},
+        problem="Problem text.",
+    )
+    # Write to file so parse_ticket (which reads from Path) can parse it
+    ticket_file = tmp_path / "T-20260303-01.md"
+    ticket_file.write_text(result, encoding="utf-8")
+    ticket = parse_ticket(ticket_file)
+    assert ticket is not None
+    assert ticket.source["ref"] == 'value: "nested" and: more'
+
+
+def test_render_ticket_yaml_injection_tags(tmp_path):
+    """Tags containing YAML-special characters render as valid YAML."""
+    from scripts.ticket_parse import parse_ticket
+
+    result = render_ticket(
+        id="T-20260303-02",
+        title="Test tag injection",
+        date="2026-03-03",
+        status="open",
+        priority="medium",
+        tags=["tag: with colon", "tag\nwith\nnewline"],
+        problem="Problem text.",
+    )
+    ticket_file = tmp_path / "T-20260303-02.md"
+    ticket_file.write_text(result, encoding="utf-8")
+    ticket = parse_ticket(ticket_file)
+    assert ticket is not None
+    assert "tag: with colon" in ticket.tags

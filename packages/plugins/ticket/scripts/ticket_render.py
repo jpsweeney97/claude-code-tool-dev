@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import yaml
+
 
 def render_ticket(
     *,
@@ -43,41 +45,48 @@ def render_ticket(
     blocked_by = blocked_by or []
     blocks = blocks or []
 
-    # --- YAML frontmatter ---
+    # --- YAML frontmatter (safe_dump prevents injection via special chars) ---
+    frontmatter: dict[str, Any] = {
+        "id": id,
+        "date": date,
+        "status": status,
+        "priority": priority,
+    }
+    if effort:
+        frontmatter["effort"] = effort
+    frontmatter["source"] = {
+        "type": source["type"],
+        "ref": source.get("ref", ""),
+        "session": source.get("session", ""),
+    }
+    frontmatter["tags"] = tags
+    frontmatter["blocked_by"] = blocked_by
+    frontmatter["blocks"] = blocks
+
+    if defer is not None:
+        frontmatter["defer"] = {
+            "active": defer.get("active", False),
+            "reason": defer.get("reason", ""),
+            "deferred_at": defer.get("deferred_at", ""),
+        }
+
+    frontmatter["contract_version"] = contract_version
+
+    yaml_str = yaml.safe_dump(
+        frontmatter,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+    ).rstrip("\n")
+
     lines = [
         f"# {id}: {title}",
         "",
         "```yaml",
-        f"id: {id}",
-        f'date: "{date}"',
-        f"status: {status}",
-        f"priority: {priority}",
+        yaml_str,
+        "```",
+        "",
     ]
-
-    if effort:
-        lines.append(f"effort: {effort}")
-
-    lines.extend([
-        "source:",
-        f"  type: {source['type']}",
-        f"  ref: \"{source.get('ref', '')}\"",
-        f"  session: \"{source.get('session', '')}\"",
-        f"tags: {tags}",
-        f"blocked_by: {blocked_by}",
-        f"blocks: {blocks}",
-    ])
-
-    if defer is not None:
-        lines.extend([
-            "defer:",
-            f"  active: {str(defer.get('active', False)).lower()}",
-            f"  reason: \"{defer.get('reason', '')}\"",
-            f"  deferred_at: \"{defer.get('deferred_at', '')}\"",
-        ])
-
-    lines.append(f'contract_version: "{contract_version}"')
-    lines.append("```")
-    lines.append("")
 
     # --- Required sections ---
     lines.extend(["## Problem", problem, ""])
