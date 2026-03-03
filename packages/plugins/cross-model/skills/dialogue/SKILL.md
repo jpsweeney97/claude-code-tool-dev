@@ -26,7 +26,7 @@ Parse flags from `$ARGUMENTS`:
 
 | Flag | Short | Values | Default |
 |------|-------|--------|---------|
-| `--posture` | `-p` | `adversarial`, `collaborative`, `exploratory`, `evaluative` | `collaborative` |
+| `--posture` | `-p` | `adversarial`, `collaborative`, `exploratory`, `evaluative`, `comparative` | `collaborative` |
 | `--turns` | `-n` | 1-15 | 8 |
 | `--profile` | — | Named preset from [`consultation-profiles.yaml`](../../references/consultation-profiles.yaml) | none |
 | `--plan` | — | boolean | false |

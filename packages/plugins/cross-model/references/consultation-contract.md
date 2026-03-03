@@ -111,7 +111,7 @@ When a skill delegates to the `codex-dialogue` agent, it passes a delegation env
 |-------|----------|-------------|
 | `briefing` | Yes | Assembled briefing from §5 |
 | `goal` | Yes | Desired consultation outcome |
-| `posture` | No | Conversation posture. Default: `collaborative` |
+| `posture` | No | Conversation posture (`adversarial`, `collaborative`, `exploratory`, `evaluative`, `comparative`). Default: `collaborative` |
 | `turn_budget` | No | Maximum Codex turns. Default: 8, max: 15 |
 | `scope_envelope` | No | Immutable scope set from §3 preflight. When absent, treated as unrestricted (backwards compatibility). |
 | `seed_confidence` | No | Quality signal from pre-dialogue context gathering. Values: `normal` (default), `low`. When omitted, treated as `normal`. |
@@ -358,7 +358,7 @@ Explicit flags override named profile fields. If a profile name cannot be resolv
 | `sandbox` | enum | `read-only` \| `workspace-write` \| `danger-full-access` |
 | `approval_policy` | enum | `untrusted` \| `on-failure` \| `on-request` \| `never` |
 | `reasoning_effort` | enum | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` |
-| `posture` | enum | Suggested posture hint — caller may override |
+| `posture` | enum | Suggested posture hint (`adversarial`, `collaborative`, `exploratory`, `evaluative`, `comparative`) — caller may override |
 | `turn_budget` | int | Default turn budget for this profile |
 
 ---

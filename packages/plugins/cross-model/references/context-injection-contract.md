@@ -92,7 +92,7 @@ Claims and unresolved items appear in two channels: nested inside the focus obje
       }
     ]
   },
-  "posture": "evaluative",
+  "posture": "comparative",
   "position": "YAML is the primary config format",
   "claims": [
     {
@@ -130,7 +130,7 @@ Claims and unresolved items appear in two channels: nested inside the focus obje
 | `focus.text` | `string` | Yes | Human-readable description of what the focus is about. Informational only — the server does not use it for template ranking or convergence detection. |
 | `focus.claims` | `Claim[]` | Yes | Claims relevant to this focus. Must be identical to top-level `claims` (CC-PF-3). Entity extraction runs on each `claim.text`. All entities have focus affinity. May be empty. |
 | `focus.unresolved` | `Unresolved[]` | Yes | Unresolved items this focus addresses. Must be identical to top-level `unresolved` (CC-PF-3). Entity extraction runs on each `unresolved.text`. All entities have focus affinity. May be empty. |
-| `posture` | `Posture` | Yes | Conversation posture. Reserved for future template ranking adjustments. |
+| `posture` | `Posture` | Yes | Conversation posture. Currently posture-agnostic by design — stored but not used in template ranking or convergence detection. May vary across turns of the same conversation. |
 | `position` | `string` | Yes | Agent's current position summary. Stored in validated ledger entry. |
 | `claims` | `Claim[]` | Yes | Top-level claims for ledger validation. Must be identical to `focus.claims` (CC-PF-3). At least one claim required per turn. |
 | `delta` | `Delta` | Yes | Agent's self-reported conversation delta. Server computes `effective_delta` independently. |
@@ -789,7 +789,7 @@ For references that could be `file_loc`, `file_path`, or `file_name`:
 
 ### Posture
 
-`adversarial` | `collaborative` | `exploratory` | `evaluative`
+`adversarial` | `collaborative` | `exploratory` | `evaluative` | `comparative`
 
 ### Delta
 

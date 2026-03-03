@@ -51,12 +51,14 @@ class ClaimStatus(StrEnum):
 
 
 class Posture(StrEnum):
-    """Conversation posture. Reserved for template ranking adjustments."""
+    """Conversation posture. Currently posture-agnostic by design — stored but not
+    used in template ranking or convergence detection. May vary across turns."""
 
     ADVERSARIAL = "adversarial"
     COLLABORATIVE = "collaborative"
     EXPLORATORY = "exploratory"
     EVALUATIVE = "evaluative"
+    COMPARATIVE = "comparative"
 
 
 class PathStatus(StrEnum):

@@ -53,9 +53,15 @@ If the prompt references files without inlining them, read those files before as
 | **Adversarial** | Validating plans, stress-testing decisions | Challenge claims, argue against, probe failure modes |
 | **Collaborative** | Ideation, brainstorming | Build on ideas, expand, combine, "what if..." |
 | **Exploratory** | Research, mapping a space | Ask open questions, chart territory, don't commit |
-| **Evaluative** | Doc review, quality assessment | Probe specifics, verify claims, check coverage |
+| **Evaluative** | Architecture review, code review, quality assessment | Verify claims against evidence, probe structural implications, check coverage and edge cases |
+| **Comparative** | Choosing between options, trade-off analysis | Compare options against criteria, surface unstated constraints, rank alternatives |
 
-**Disambiguation:** If the goal includes "find problems" or "challenge assumptions," use Adversarial. If "assess quality" or "check coverage," use Evaluative.
+**Disambiguation:**
+- "find problems", "challenge assumptions", "stress-test" → Adversarial
+- "brainstorm", "ideate", "build on", "what if" → Collaborative
+- "research", "explore", "map", "what exists" → Exploratory
+- "verify", "assess quality", "check coverage", "architecture review", "edge cases" → Evaluative
+- "compare options", "trade-offs", "which is better", "rank", "choose between" → Comparative
 
 ### Assemble initial briefing
 
@@ -427,7 +433,8 @@ Use `ledger_summary` for conversation awareness — knowing which claims are set
 | **Adversarial** | "I disagree because...", "What about failure mode X?", "This assumes Y — what if Y is false?" |
 | **Collaborative** | "Building on that, what if...", "How would X combine with Y?", "What's the strongest version of this?" |
 | **Exploratory** | "What other approaches exist?", "What am I not considering?", "How does this relate to X?" |
-| **Evaluative** | "Is that claim accurate?", "What about coverage of X?", "Where are the gaps?" |
+| **Evaluative** | "Is that claim accurate? Show evidence.", "What are the structural implications of X?", "What edge cases exist?", "What constraints does this create downstream?", "What happens when Y scales by 10x?" |
+| **Comparative** | "How does A compare to B on criterion X?", "What trade-offs haven't been surfaced?", "Which option optimizes for Z?", "What's the decision matrix across these criteria?" |
 
 #### Step 7: Send follow-up
 

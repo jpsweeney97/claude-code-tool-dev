@@ -1,6 +1,6 @@
 # Consultation Profiles
 #
-# Version: 0.1.0
+# Version: 0.2.0
 # Reference: consultation-contract.md §14
 #
 # Named profiles resolve to a complete set of execution controls.
@@ -12,6 +12,9 @@
 # To add a local override (gitignored):
 #   Create consultation-profiles.local.yaml alongside this file.
 #   Local profiles merge with and override these defaults.
+#
+# Posture values: adversarial, collaborative, exploratory, evaluative, comparative
+# See design doc: docs/plans/2026-03-03-posture-taxonomy-and-composition.md
 
 profiles:
 
@@ -25,25 +28,15 @@ profiles:
     posture: collaborative
     turn_budget: 1
 
-  deep-review:
+  collaborative-ideation:
     description: >
-      Thorough multi-turn review with high reasoning effort. Use for architecture
-      review, plan evaluation, or detailed quality audit.
+      Sustained brainstorming and idea generation over multiple turns. Build on
+      each other's proposals, combine approaches, explore "what if" scenarios.
+      Use when generating options, not evaluating them.
     sandbox: read-only
     approval_policy: never
-    reasoning_effort: xhigh
-    posture: evaluative
-    turn_budget: 8
-
-  adversarial-challenge:
-    description: >
-      Challenge assumptions and stress-test decisions. Adversarial posture with
-      high reasoning effort. Use when you want Codex to attack your plan or
-      surface failure modes.
-    sandbox: read-only
-    approval_policy: never
-    reasoning_effort: xhigh
-    posture: adversarial
+    reasoning_effort: high
+    posture: collaborative
     turn_budget: 6
 
   exploratory:
@@ -56,6 +49,17 @@ profiles:
     posture: exploratory
     turn_budget: 6
 
+  deep-review:
+    description: >
+      Thorough multi-turn review with high reasoning effort. Use for architecture
+      review, plan evaluation, or detailed quality audit. Evaluative posture
+      covers both structural analysis and correctness verification.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: xhigh
+    posture: evaluative
+    turn_budget: 8
+
   code-review:
     description: >
       Focused code or document review. Evaluative posture, read-only access.
@@ -67,14 +71,36 @@ profiles:
     posture: evaluative
     turn_budget: 4
 
+  adversarial-challenge:
+    description: >
+      Challenge assumptions and stress-test decisions. Adversarial posture with
+      high reasoning effort. Use when you want Codex to attack your plan or
+      surface failure modes.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: xhigh
+    posture: adversarial
+    turn_budget: 6
+
   planning:
     description: >
-      Plan review and architectural design. Evaluative posture with proactive
-      question shaping. Use when reviewing plans, making architectural decisions,
+      Plan review and architectural design. Comparative posture for structured
+      trade-off analysis. Use when reviewing plans, making architectural decisions,
       or exploring design trade-offs. Pairs with --plan flag for Step 0 question
       decomposition.
     sandbox: read-only
     approval_policy: never
     reasoning_effort: xhigh
-    posture: evaluative
+    posture: comparative
     turn_budget: 8
+
+  decision-making:
+    description: >
+      Choose between N options with explicit criteria. Codex evaluates trade-offs,
+      surfaces unstated constraints, and ranks alternatives. Provide options and
+      evaluation criteria in the briefing material.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: xhigh
+    posture: comparative
+    turn_budget: 6
