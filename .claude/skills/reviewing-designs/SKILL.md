@@ -1,23 +1,37 @@
 ---
 name: reviewing-designs
-description: Iterative design review using the Framework for Thoroughness. Use when verifying a design captures all requirements from sources. Use after creating specs from multiple documents. Use before implementing from a design. Use when past designs have led to implementation surprises.
+description: Iterative design review using the Framework for Thoroughness. Use when verifying a design captures all requirements from sources. Use after creating specs from multiple documents. Use before implementing from a design. Use when past designs have led to implementation surprises. Use when questioning whether a design solves the right problem.
 ---
 
 # Reviewing Designs
 
 ## Overview
 
-Design review catches issues before implementation, when they're cheap to fix. This skill unifies two concerns:
+Design review catches issues before implementation, when they're cheap to fix. This skill addresses four concerns:
 
-1. **Source coverage** — Does the design capture everything from source materials?
-2. **Implementation readiness** — Can someone build from this without asking clarifying questions?
+1. **Intent alignment** — Does the design solve the right problem?
+2. **Blind spot surfacing** — What assumptions hasn't the designer questioned?
+3. **Conversational sharpening** — Value is in back-and-forth dialogue, not compliance reports
+4. **Optimality** — Is this the best design for its purpose, not just the first workable approach?
 
-A single pass checking "is X mentioned?" misses decision rules, exit criteria, and safety defaults — single sentences with outsized impact. This skill uses the Framework for Thoroughness to iterate until findings converge.
+Existing dimensions D1-D3 (Source Coverage) and D7-D11 (Implementation Readiness) remain fully active — the redesign adds concerns #1-#4, not replaces the dimensional engine.
+
+An early adversarial gate (AHG-5) surfaces framing problems and load-bearing assumptions as testable hypotheses. A bridge table carries those hypotheses through the dimensional loop, preventing "generate-then-forget." Three dialogue checkpoints (delta cards) make the conversation the primary output.
 
 **Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness_v1.0.0.md)
 **Default thoroughness:** Rigorous
 
-**Core insight:** The items most often missed are single sentences that define behavior at decision points.
+**Process flow:**
+
+~~~
+Entry Gate → AHG-5 Early Gate → Bridge Table
+  ↓ [delta card #1]
+DISCOVER → EXPLORE → VERIFY → REFINE loop
+  ↓ [delta card #2]
+Adversarial Pass (A1-A9)
+  ↓ [delta card #3]
+Exit Gate → Artifact
+~~~
 
 ## When to Use
 
@@ -38,23 +52,25 @@ A single pass checking "is X mentioned?" misses decision rules, exit criteria, a
 
 ## Outputs
 
-**IMPORTANT:** Full report goes in artifact ONLY. Chat receives brief summary.
+**Interaction model:** Dialogue-first with 3 delta cards in chat. Artifact compiles all cards + full coverage tracker.
+
+### Delta Card Checkpoints
+
+| # | When | Contents | User can... |
+|---|------|----------|-------------|
+| 1 | After early gate | Hypotheses, alternatives, bridge table | Add context, ADD/REVISE/WITHDRAW bridge rows, confirm |
+| 2 | After loop convergence | Bridge dispositions, net-new findings, running P0/P1/P2 totals, ALT dominance results | Redirect, modify bridge rows, ask to dig deeper |
+| 3 | After adversarial pass | Final bridge table, adversarial findings (bridge-mapped + NET-NEW), overall assessment | Informational closeout. REOPEN only if adversarial findings contradict a disposition |
+
+Checkpoints are invitations, not gates. If the user says nothing, the review proceeds.
+
+**Delta card format:** See [Bridge & Checkpoints Reference](references/bridge-and-checkpoints.md#delta-card-schema).
 
 **Artifact:** `docs/audits/YYYY-MM-DD-<design-name>-review.md`
 
-Uses Thoroughness Report template with:
+Compiles all 3 delta cards in checkpoint order, followed by full coverage tracker and iteration log. Same format as before — delivery order changes.
 
-- Entry Gate (assumptions, stakes, stopping criteria)
-- Coverage Tracker (dimensions with Cell Schema: ID, Status, Priority, Evidence, Confidence)
-- Iteration Log (pass-by-pass Yield%)
-- Findings grouped by dimension type:
-  - Source Coverage Gaps
-  - Implementability Issues
-  - Adversarial Findings
-- Disconfirmation Attempts
-- Exit Gate verification
-
-**Summary table (top of artifact and in chat):**
+**Summary table (top of artifact and in delta card #3):**
 
 | Priority | Count | Description                                |
 | -------- | ----- | ------------------------------------------ |
@@ -62,27 +78,20 @@ Uses Thoroughness Report template with:
 | P1       | N     | Issues that degrade quality                |
 | P2       | N     | Polish items                               |
 
-**Chat summary (brief — not the full report):**
-
-```
-**Review complete:** [design name]
-**Findings:** P0: N | P1: N | P2: N
-**Key issues:** [1-2 most critical if any]
-**Full report:** `docs/audits/YYYY-MM-DD-<name>-review.md`
-```
-
-**Do NOT include in chat:** Full findings list, iteration log, coverage tracker, disconfirmation details.
-
 **Definition of Done:**
 
 - [ ] Entry Gate completed and recorded
+- [ ] AHG-5 early gate completed; bridge table populated
+- [ ] Delta card #1 presented; if user responded, input incorporated (or no-response noted)
 - [ ] All dimensions explored with Evidence/Confidence ratings
 - [ ] Yield% below threshold for thoroughness level
+- [ ] Delta card #2 presented; if user responded, input incorporated (or no-response noted)
 - [ ] Disconfirmation attempted for P0 dimensions
-- [ ] Adversarial pass completed
+- [ ] Adversarial pass completed (bridge-first, then NET-NEW)
+- [ ] Bridge table complete (no open rows; disposition invariant satisfied)
+- [ ] Delta card #3 presented
 - [ ] Exit Gate criteria satisfied
-- [ ] Full report written to artifact location
-- [ ] Chat contains brief summary only
+- [ ] Artifact compiled from delta cards + coverage tracker
 
 ## Process
 
