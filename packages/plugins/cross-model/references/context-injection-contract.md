@@ -130,7 +130,7 @@ Claims and unresolved items appear in two channels: nested inside the focus obje
 | `focus.text` | `string` | Yes | Human-readable description of what the focus is about. Informational only — the server does not use it for template ranking or convergence detection. |
 | `focus.claims` | `Claim[]` | Yes | Claims relevant to this focus. Must be identical to top-level `claims` (CC-PF-3). Entity extraction runs on each `claim.text`. All entities have focus affinity. May be empty. |
 | `focus.unresolved` | `Unresolved[]` | Yes | Unresolved items this focus addresses. Must be identical to top-level `unresolved` (CC-PF-3). Entity extraction runs on each `unresolved.text`. All entities have focus affinity. May be empty. |
-| `posture` | `Posture` | Yes | Conversation posture. Currently posture-agnostic by design — stored but not used in template ranking or convergence detection. May vary across turns of the same conversation. |
+| `posture` | `Posture` | Yes | Conversation posture. When posture changes between turns, the server resets plateau detection to the phase-local window (entries since last posture change). Closing probe flag resets on posture change. When posture is constant across all turns, behavior is identical to pre-phase-composition. |
 | `position` | `string` | Yes | Agent's current position summary. Stored in validated ledger entry. |
 | `claims` | `Claim[]` | Yes | Top-level claims for ledger validation. Must be identical to `focus.claims` (CC-PF-3). At least one claim required per turn. |
 | `delta` | `Delta` | Yes | Agent's self-reported conversation delta. Server computes `effective_delta` independently. |
