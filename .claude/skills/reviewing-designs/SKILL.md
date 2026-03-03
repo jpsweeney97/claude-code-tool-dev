@@ -134,6 +134,93 @@ List what you're taking for granted:
 **5. Record Entry Gate:**
 Document assumptions, stakes level, and stopping criteria before proceeding.
 
+### Early Adversarial Gate (AHG-5)
+
+**YOU MUST** complete AHG-5 after Entry Gate, before DISCOVER.
+
+Five questions that surface framing problems, load-bearing assumptions, and systemic patterns before the dimensional loop.
+
+| # | Question | Catches |
+|---|---------|---------|
+| Q1 | What problem is this solving, and what's the strongest argument it's the wrong problem? | Intent misalignment, over-scoping |
+| Q2 | What alternatives were considered, and what would make a rejected alternative better than this? | Anchoring, pre-narrowed framing, motivated reasoning |
+| Q3 | What would make this fail in implementation? Name specific mechanisms, not categories. | Systematically underspecified behavior, load-bearing gaps |
+| Q4 | Where is complexity underestimated? What looks simple but isn't? | Hidden state spaces, edge case surfaces, interaction effects |
+| Q5 | What single assumption, if wrong, would invalidate the whole design? | Load-bearing assumptions, fragile dependencies |
+
+**Stakes gating:**
+
+| Stakes | Questions | Hypothesis count | Bridge rows |
+|--------|-----------|-----------------|-------------|
+| Adequate | AHG-lite: Q1, Q3, Q5 only | Exactly 2 | H1-H2 + ALT1-ALT2 |
+| Rigorous | Full AHG-5 | Exactly 3 | H1-H3 + ALT1-ALT2 |
+| Exhaustive | Full AHG-5 | Exactly 4 | H1-H4 + ALT1-ALT2 |
+
+No skip path — skipping recreates the N/A rationalization anti-pattern.
+
+**Hard fail rules** (per run question):
+
+- Each run question produces a hypothesis OR explicit "no finding" with one-sentence justification
+- Q3 must name specific mechanisms, not categories
+- Q5 must identify one assumption and state what breaks if it's wrong
+- All run questions producing "no finding" → flag: "Early gate produced zero hypotheses — verify genuine engagement before proceeding."
+
+**Overflow:** Rank surplus hypotheses by impact × plausibility × testability. Top N become bridge rows; remainder go in "deferred hypotheses" footnote. See [Bridge & Checkpoints Reference](references/bridge-and-checkpoints.md#overflow-ranking).
+
+**Output:** Populate bridge table with H-rows and ALT-rows. Present delta card #1 in chat.
+
+### Bridge Table
+
+Carries early-gate hypotheses into the dimensional loop. Prevents "generate-then-forget."
+
+**Hypothesis row schema:**
+
+| Field | Content |
+|-------|---------|
+| ID | H1-H*N* (N = stakes-level count: 2/3/4) |
+| Hypothesis | From early gate question |
+| Target Dimensions | D-codes and/or A-codes to check |
+| Anchor | Design location (section, line range, or structural element) |
+| Status | open / tested / disconfirmed / evaluated (ALT rows) / withdrawn |
+| Disposition | Finding IDs, disconfirmation evidence, or withdrawal rationale |
+
+**Status values:**
+
+| Status | Meaning | Required disposition |
+|--------|---------|---------------------|
+| `open` | Not yet checked | — |
+| `tested` | Hypothesis confirmed by target dimension check | Finding ID + evidence |
+| `disconfirmed` | Hypothesis not supported by target dimension check | Counter-evidence + rationale |
+| `evaluated` | ALT row: dominance check completed | Check result + rationale |
+| `withdrawn` | Hypothesis no longer applicable | Rationale citing why premise no longer applies |
+
+**Disposition invariant:** Every non-`open` row must include disposition text, evidence or rationale, and audit entry (when/checkpoint + why + prior status).
+
+**Lifecycle:** Rows added after early gate as `open` → status transitions via bridge operations at checkpoints → at Exit Gate, no `open` rows allowed.
+
+**Framework relationship:** The bridge table is a parallel tracking structure alongside the Cell Schema coverage tracker — not an extension of it. Cell Schema tracks D-codes and F-codes with `[x]`/`[~]`/`[-]` statuses and E0-E3 evidence levels. The bridge tracks H-codes and ALT-codes with `open`/`tested`/`disconfirmed` statuses. Linkage is via: Target Dimensions (H→D mapping), Disposition (H→F finding IDs), and Anchor (design location). Both must be complete at Exit Gate.
+
+**Referential integrity:** Every `tested` H-row must reference at least one D-code or F-code finding. Every `disconfirmed` H-row must reference the dimensional check that produced counter-evidence. If a referenced D-code is later revised or removed, update the H-row disposition accordingly.
+
+**Operations, alternatives, and dominance checks:** See [Bridge & Checkpoints Reference](references/bridge-and-checkpoints.md).
+
+### Framework Boundary Rules
+
+The bridge table and AHG-5 layer on top of the [thoroughness framework](references/framework-for-thoroughness_v1.0.0.md). These rules govern the boundary between framework-owned semantics and skill-local additions.
+
+| # | Rule | What it governs |
+|---|------|----------------|
+| B1 | **Entry Gate declares Yield% scope:** H-codes and ALT-codes are excluded from Yield% tracking. Declare per-run in Entry Gate output: "Yield% scope: D-codes and F-codes only. H-codes are bridge scaffolding." | Yield% formula scope (framework MAY clause) |
+| B2 | **Bridge is a parallel tracker:** The bridge table operates alongside the Cell Schema coverage tracker, not inside it. Different ID namespaces (H/ALT vs D/F), different status vocabularies, different evidence models. | Structural relationship |
+| B3 | **Referential integrity:** Every `tested` H-row references ≥1 D/F finding. Every `disconfirmed` H-row references the counter-evidence source. If a referenced finding is revised or removed, update the H-row disposition. | Cross-tracker linkage |
+| B4 | **Status-specific evidence:** `tested` requires E1+ evidence (not bare assertion). `disconfirmed` requires specific counter-citation. See [Status-Specific Disposition Requirements](references/bridge-and-checkpoints.md#status-specific-disposition-requirements). | Disposition quality |
+| B5 | **REOPEN propagates D/F entities:** A REOPEN triggers one reconciliation pass. New D/F entities enter Yield% scope normally. See [REOPEN semantics](references/bridge-and-checkpoints.md#reopen-semantics). | Loop re-entry mechanics |
+| B6 | **Unresolved ALT dominance creates F-code:** When an ALT row is `evaluated` with "unresolved — escalate," a corresponding F-code finding enters the coverage tracker at P1. | Decision risk tracking |
+
+These rules are the boundary contract between the framework and the skill's additions. Violations indicate a gap in the bridge-to-framework interface, not a framework bug.
+
+**Disconfirmation disambiguation:** "Disconfirmation" means different things in the two systems. Framework: obligation to attempt disconfirmation of P0 findings (applied to D/F-codes). Bridge: status meaning "hypothesis not supported" (applied to H-codes). These are independent — a `disconfirmed` H-row does not satisfy the framework's P0 disconfirmation MUST.
+
 ### The Review Loop
 
 ```
