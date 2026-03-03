@@ -4,11 +4,19 @@
 
 **Goal:** Complete the three-release posture taxonomy redesign: add `comparative` posture, phase-local convergence detection, and composed profiles.
 
-**Architecture:** Release A (taxonomy) adds one posture value and two profiles — spec amendments already committed, remaining work is analytics validator. Release B (server convergence) adds phase-local convergence window and per-phase closing probe reset to `compute_action` behind a feature flag. Release C (composition) adds `phases` schema to profiles and phase tracking to the codex-dialogue agent.
+**Architecture:** Release A (taxonomy) adds one posture value and two profiles — spec amendments already committed, remaining work is analytics validator. Release B (server convergence) adds phase-local convergence window and per-phase closing probe reset to `compute_action`. The `phase_entries=None` default serves as the behavioral gate — single-posture dialogues never execute new code paths, so no feature flag is needed. Release C (composition) adds `phases` schema to profiles and phase tracking to the codex-dialogue agent.
 
 **Tech Stack:** Python (Pydantic, StrEnum), YAML profiles, Markdown agent instructions. Tests via pytest.
 
 **Design doc:** `docs/plans/2026-03-03-posture-taxonomy-and-composition.md`
+
+**Codex review:** Reviewed via `/dialogue --profile deep-review` (5 turns, evaluative, converged). Key findings:
+1. **Bug in Task 5:** Pipeline wiring only derived `phase_entries` on posture-change turns — fixed to always derive after reconciliation.
+2. **No feature flag needed:** The `phase_entries=None` default IS the behavioral gate.
+3. **3 additional parity tests:** `phase_entries=entries` equivalence, closing probe reset, pipeline constant-posture regression.
+4. **Same-posture consecutive phases:** Need hard validation rule in Release C (silent correctness failure).
+5. **`cumulative` stays global:** Added explicit note to prevent future misimplementation.
+6. **Checkpoint rollback:** Plan gap, not release blocker — document as policy in rollout notes.
 
 ---
 
@@ -109,7 +117,7 @@ Expected: All tests pass
 
 ## Release B: Server Convergence
 
-Phase-local convergence window and per-phase closing probe reset. All changes behind a feature flag to allow parity testing.
+Phase-local convergence window and per-phase closing probe reset. The `phase_entries=None` default is the behavioral gate — single-posture dialogues use the pre-existing code path unchanged.
 
 ### Task 3: Add phase fields to ConversationState
 
@@ -297,6 +305,30 @@ class TestComputeActionPhaseLocal:
         entries = [_make_entry(turn_number=1)]
         action, _ = compute_action(entries, budget_remaining=0, closing_probe_fired=False, phase_entries=entries)
         assert action == ConversationAction.CONCLUDE
+
+    def test_phase_entries_equals_full_entries_matches_none(self) -> None:
+        """phase_entries=entries is equivalent to phase_entries=None (full history)."""
+        entries = [
+            _make_entry(turn_number=1, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=2, effective_delta=EffectiveDelta.STATIC),
+        ]
+        action_none, reason_none = compute_action(entries, budget_remaining=5, closing_probe_fired=False, phase_entries=None)
+        action_full, reason_full = compute_action(entries, budget_remaining=5, closing_probe_fired=False, phase_entries=entries)
+        assert action_none == action_full
+
+    def test_closing_probe_reset_on_phase_transition(self) -> None:
+        """After phase transition, closing probe can fire again within new phase."""
+        full_entries = [
+            _make_entry(turn_number=1, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=2, effective_delta=EffectiveDelta.STATIC),
+            # Phase boundary here — closing_probe_fired resets to False
+            _make_entry(turn_number=3, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=4, effective_delta=EffectiveDelta.STATIC),
+        ]
+        phase_entries = full_entries[2:]  # New phase: turns 3-4
+        # closing_probe_fired=False because with_posture_change resets it
+        action, _ = compute_action(full_entries, budget_remaining=5, closing_probe_fired=False, phase_entries=phase_entries)
+        assert action == ConversationAction.CLOSING_PROBE
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -372,6 +404,8 @@ def compute_action(
 
 Key change: `_is_plateau()` and `_has_open_unresolved()` use `plateau_window` (phase-local) for plateau detection, but `entries` (full history) for unresolved check. The `phase_entries=None` default preserves identical behavior for single-posture dialogues.
 
+**Important:** `cumulative` computation via `compute_cumulative_state()` remains conversation-global by design. Only plateau detection uses the phase-local window. Phase-scoping `cumulative` would accidentally reset the turn budget — the turn cap must count all turns across all phases.
+
 **Step 4: Run phase-local tests**
 
 ```bash
@@ -417,38 +451,43 @@ Parity tests prove identical single-posture behavior."
 - Modify: `packages/context-injection/context_injection/pipeline.py:283-296`
 - Test: `packages/context-injection/tests/test_pipeline.py`
 
-**Step 1: Write test for posture-change detection in pipeline**
+**Step 1: Write tests for posture-change detection in pipeline**
 
-In `tests/test_pipeline.py`, add a test that sends two turns with different postures and verifies the second turn uses phase-local convergence. The test should:
+In `tests/test_pipeline.py`, add tests that verify phase-local convergence wiring. Check the existing pipeline test patterns first — they likely use a helper to build full `TurnRequest` dicts and call `process_turn` directly.
 
-1. Send turn 1 with `posture="exploratory"` — gets `continue_dialogue`
-2. Send turn 2 with `posture="evaluative"` — posture changed, so phase resets
+Tests to add:
 
-Check the existing pipeline test patterns first — they likely use a helper to build full `TurnRequest` dicts and call `process_turn` directly.
+1. **Posture change resets phase window:** Send turn 1 with `posture="exploratory"`, turn 2 with `posture="evaluative"` — verify phase resets (no plateau from prior phase's STATIC entries).
+2. **Constant posture uses phase window correctly (regression):** Send 3 turns all with `posture="evaluative"` where turns 2-3 are STATIC — verify plateau IS detected (proves `phase_entries` is derived on every turn, not just boundary turns).
 
 **Step 2: Update pipeline Step 14 to detect posture changes**
 
-In `pipeline.py`, around the Step 14 section (lines 283-296):
+In `pipeline.py`, around the Step 14 section (lines 283-296).
+
+**Critical: `phase_entries` must be derived on EVERY turn**, not just on posture-change turns. The original plan had a bug where `phase_entries` was only set in the posture-change branch, meaning subsequent same-posture turns fell through with `phase_entries=None`, defeating phase-local scoping.
+
+Corrected code:
 
 ```python
     # --- Step 14: Compute cumulative, action, reason ---
     cumulative = provisional.compute_cumulative_state()
     turn_budget_remaining = max(0, MAX_CONVERSATION_TURNS - cumulative.turns_completed)
 
-    # Detect posture change for phase-local convergence
+    # Reconcile posture metadata — track phase boundaries
     current_posture = request.posture
-    phase_entries: tuple[LedgerEntry, ...] | None = None
-    if provisional.last_posture is not None and current_posture != provisional.last_posture:
-        # Posture changed — update phase boundary
-        provisional = provisional.with_posture_change(
-            current_posture, phase_start_index=len(provisional.entries) - 1
-        )
-        phase_entries = provisional.get_phase_entries()
-    elif provisional.last_posture is None and len(provisional.entries) > 0:
+    if provisional.last_posture is None:
         # First turn with posture tracking — set initial posture
         provisional = provisional.with_posture_change(
             current_posture, phase_start_index=0
         )
+    elif current_posture != provisional.last_posture:
+        # Posture changed — update phase boundary
+        provisional = provisional.with_posture_change(
+            current_posture, phase_start_index=len(provisional.entries) - 1
+        )
+
+    # Always derive phase window after posture reconciliation
+    phase_entries = provisional.get_phase_entries()
 
     action, action_reason = compute_action(
         entries=provisional.entries,
@@ -457,6 +496,8 @@ In `pipeline.py`, around the Step 14 section (lines 283-296):
         phase_entries=phase_entries,
     )
 ```
+
+The key difference from the original: `phase_entries = provisional.get_phase_entries()` runs unconditionally after reconciliation, not only inside the posture-change branch. For single-posture dialogues where `phase_start_index=0`, this returns the full entry tuple — identical to `phase_entries=None` behavior since the window covers all entries.
 
 **Step 3: Run tests**
 
@@ -586,7 +627,9 @@ Profiles may define `phases` — an ordered list of posture phases with target t
 - Convergence (`action: conclude`) overrides phase boundaries
 - Minimum 1 turn per phase
 
-**Validation:** A profile must have either `posture` (single-phase) or `phases` (multi-phase), not both. If both are present, reject with validation error.
+**Validation:**
+- A profile must have either `posture` (single-phase) or `phases` (multi-phase), not both. If both are present, reject with validation error.
+- Adjacent phases must have distinct postures. Same-posture consecutive phases are a silent correctness failure — the server detects phase boundaries by posture change, so identical adjacent postures produce no boundary, and the phases silently merge. Enforce at profile load time. Long-term fix (post-Release C): add `phase_id` to TurnRequest to decouple boundary detection from posture values.
 ```
 
 **Step 3: Commit**
@@ -701,8 +744,8 @@ Verify commits are ordered: Release A (spec + analytics) → Release B (state + 
 | Release | Tasks | Files Modified | New Tests |
 |---------|-------|---------------|-----------|
 | A (completion) | 1-2 | 1 (emit_analytics.py) | 1 test |
-| B (convergence) | 3-7 | 6 (conversation.py, control.py, pipeline.py, vendored ×3, contract) | ~10 tests |
+| B (convergence) | 3-7 | 6 (conversation.py, control.py, pipeline.py, vendored ×3, contract) | ~13 tests |
 | C (composition) | 8-9 | 3 (profiles.yaml, consultation-contract.md, codex-dialogue.md) | Manual verification |
 | Verification | 10 | 0 | 0 |
 
-Total: 10 tasks, ~10 files, ~11 new tests, ~10 commits.
+Total: 10 tasks, ~10 files, ~14 new tests, ~10 commits.
