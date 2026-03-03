@@ -731,7 +731,7 @@ def _execute_update(
     request_origin: str,
     tickets_dir: Path,
 ) -> EngineResponse:
-    """Update an existing ticket. STUB with transition validation."""
+    """Update an existing ticket's frontmatter fields."""
     if not ticket_id:
         return EngineResponse(state="need_fields", message="ticket_id required for update", error_code="need_fields")
 
@@ -741,7 +741,10 @@ def _execute_update(
     if ticket is None:
         return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
 
-    # Check status transition validity (shared helpers).
+    ticket_path = Path(ticket.path)
+    text = ticket_path.read_text(encoding="utf-8")
+
+    # Check status transition validity.
     new_status = fields.get("status")
     if new_status and new_status != ticket.status:
         if not _is_valid_transition(ticket.status, new_status, "update"):
@@ -763,7 +766,38 @@ def _execute_update(
                 error_code="invalid_transition",
             )
 
-    raise NotImplementedError("_execute_update file write not yet implemented (Task 11.3)")
+    # Update frontmatter fields.
+    yaml_text = extract_fenced_yaml(text)
+    if yaml_text is None:
+        return EngineResponse(state="escalate", message="Cannot parse ticket YAML", ticket_id=ticket_id, error_code="parse_error")
+
+    data = parse_yaml_block(yaml_text)
+    if data is None:
+        return EngineResponse(state="escalate", message="Cannot parse ticket YAML", ticket_id=ticket_id, error_code="parse_error")
+
+    changes: dict[str, Any] = {"frontmatter": {}, "sections_changed": []}
+    for key, value in fields.items():
+        if key in data and data[key] != value:
+            changes["frontmatter"][key] = [data[key], value]
+        data[key] = value
+
+    # Re-render using canonical frontmatter renderer (not yaml.dump).
+    new_yaml = _render_canonical_frontmatter(data)
+    new_text = re.sub(
+        r"^```ya?ml\s*\n.*?^```",
+        f"```yaml\n{new_yaml}```",
+        text,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    ticket_path.write_text(new_text, encoding="utf-8")
+
+    return EngineResponse(
+        state="ok_update",
+        message=f"Updated {ticket_id}",
+        ticket_id=ticket_id,
+        data={"ticket_path": str(ticket_path), "changes": changes},
+    )
 
 
 def _execute_close(

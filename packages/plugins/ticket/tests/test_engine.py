@@ -566,3 +566,107 @@ class TestEngineExecute:
         content = ticket_path.read_text(encoding="utf-8")
         assert "Fix auth bug" in content
         assert "## Problem" in content
+
+    def test_update_ticket(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"status": "in_progress"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
+        assert "status: in_progress" in content
+        assert 'date: "2026-03-02"' in content
+
+    def test_update_preserves_field_order(self, tmp_tickets):
+        """Canonical renderer emits fields in defined order, not alphabetical."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"priority": "critical"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
+        id_pos = content.index("id: T-20260302-01")
+        status_pos = content.index("status: open")
+        assert id_pos < status_pos
+
+    def test_update_preserves_full_field_order(self, tmp_tickets):
+        """Verify all canonical field positions."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open",
+                     priority="medium", effort="S")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"tags": ["bug"]},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
+        id_pos = content.index("id:")
+        status_pos = content.index("status:")
+        priority_pos = content.index("priority:")
+        effort_pos = content.index("effort:")
+        tags_pos = content.index("tags:")
+        assert id_pos < status_pos < priority_pos < effort_pos < tags_pos
+
+    def test_canonical_renderer_none_skipped(self, tmp_tickets):
+        """Fields set to None are omitted, not rendered as 'key: None'."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"effort": None},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
+        assert "effort: None" not in content
+
+    def test_canonical_renderer_list_format(self, tmp_tickets):
+        """Lists render as YAML flow sequences, not Python repr."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"tags": ["bug", "urgent"]},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
+        assert "tags: [bug, urgent]" in content
+        assert "['bug'" not in content
