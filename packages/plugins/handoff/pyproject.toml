@@ -5,7 +5,7 @@ description = "Session handoff and resume plugin for Claude Code"
 requires-python = ">=3.11"
 dependencies = ["pyyaml>=6.0"]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.0",
 ]
