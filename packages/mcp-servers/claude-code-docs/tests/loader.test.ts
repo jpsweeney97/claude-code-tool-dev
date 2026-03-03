@@ -151,7 +151,7 @@ describe('loadFromOfficial', () => {
 Source: https://code.claude.com/docs/en/hooks
 
 Hooks content here
-
+---
 # Quickstart
 Source: https://code.claude.com/docs/en/quickstart
 
