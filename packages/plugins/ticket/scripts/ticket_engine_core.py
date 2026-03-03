@@ -807,8 +807,89 @@ def _execute_close(
     request_origin: str,
     tickets_dir: Path,
 ) -> EngineResponse:
-    """Close a ticket. STUB — full implementation in Task 11.4."""
-    raise NotImplementedError("_execute_close not yet implemented (Task 11.4)")
+    """Close a ticket (set status to done or wontfix, optionally archive).
+
+    Validates transitions with action='close', which allows done/wontfix
+    from any non-terminal status.
+    """
+    if not ticket_id:
+        return EngineResponse(state="need_fields", message="ticket_id required for close", error_code="need_fields")
+
+    resolution = fields.get("resolution", "done")
+    archive = fields.get("archive", False)
+
+    from scripts.ticket_read import find_ticket_by_id
+
+    ticket = find_ticket_by_id(tickets_dir, ticket_id)
+    if ticket is None:
+        return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
+
+    # Validate transition with action="close" (not "update").
+    if not _is_valid_transition(ticket.status, resolution, "close"):
+        return EngineResponse(
+            state="invalid_transition",
+            message=f"Cannot close with resolution {resolution!r} (must be 'done' or 'wontfix')"
+            + (f" from terminal status {ticket.status!r}" if ticket.status in _TERMINAL_STATUSES else ""),
+            ticket_id=ticket_id,
+            error_code="invalid_transition",
+        )
+
+    # Check transition preconditions (e.g., acceptance criteria for -> done).
+    precondition_error = _check_transition_preconditions(
+        ticket.status, resolution, ticket, tickets_dir, fields=fields,
+    )
+    if precondition_error:
+        return EngineResponse(
+            state="invalid_transition",
+            message=precondition_error,
+            ticket_id=ticket_id,
+            error_code="invalid_transition",
+        )
+
+    # Write status change using canonical frontmatter renderer.
+    ticket_path = Path(ticket.path)
+    text = ticket_path.read_text(encoding="utf-8")
+    yaml_text = extract_fenced_yaml(text)
+    if yaml_text is None:
+        return EngineResponse(state="escalate", message="Cannot parse ticket YAML", ticket_id=ticket_id, error_code="parse_error")
+
+    data = parse_yaml_block(yaml_text)
+    if data is None:
+        return EngineResponse(state="escalate", message="Cannot parse ticket YAML", ticket_id=ticket_id, error_code="parse_error")
+
+    old_status = data.get("status", "")
+    data["status"] = resolution
+    new_yaml = _render_canonical_frontmatter(data)
+    new_text = re.sub(
+        r"^```ya?ml\s*\n.*?^```",
+        f"```yaml\n{new_yaml}```",
+        text,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    ticket_path.write_text(new_text, encoding="utf-8")
+
+    changes = {"frontmatter": {"status": [old_status, resolution]}}
+
+    # Archive if requested.
+    if archive:
+        closed_dir = tickets_dir / "closed-tickets"
+        closed_dir.mkdir(exist_ok=True)
+        dst = closed_dir / ticket_path.name
+        ticket_path.rename(dst)
+        return EngineResponse(
+            state="ok_close_archived",
+            message=f"Closed and archived {ticket_id} to closed-tickets/",
+            ticket_id=ticket_id,
+            data={"ticket_path": str(dst), "changes": changes},
+        )
+
+    return EngineResponse(
+        state="ok_close",
+        message=f"Closed {ticket_id} (status: {resolution})",
+        ticket_id=ticket_id,
+        data={"ticket_path": str(ticket_path), "changes": changes},
+    )
 
 
 def _execute_reopen(

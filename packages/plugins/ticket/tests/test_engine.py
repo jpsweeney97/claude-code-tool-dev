@@ -670,3 +670,146 @@ class TestEngineExecute:
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
         assert "tags: [bug, urgent]" in content
         assert "['bug'" not in content
+
+    def test_close_ticket(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_close"
+
+    def test_close_with_archive(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done", "archive": True},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_close_archived"
+        assert not (tmp_tickets / "2026-03-02-test.md").exists()
+        assert (tmp_tickets / "closed-tickets" / "2026-03-02-test.md").exists()
+
+    def test_close_from_open_succeeds(self, tmp_tickets):
+        """Close directly validates with action='close', not 'update'."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_close"
+
+    def test_close_with_invalid_resolution_rejected(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "in_progress"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+
+    def test_close_terminal_ticket_rejected(self, tmp_tickets):
+        """Closing an already-done ticket is invalid — must reopen first."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-done.md", id="T-20260302-01", status="done")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "wontfix"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+        assert resp.error_code == "invalid_transition"
+
+    def test_close_wontfix_to_done_rejected(self, tmp_tickets):
+        """wontfix -> done via close is invalid — terminal state."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-wf.md", id="T-20260302-01", status="wontfix")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+
+    def test_close_checks_acceptance_criteria(self, tmp_tickets):
+        """Close to 'done' from in_progress requires acceptance criteria."""
+        import textwrap
+
+        # Create ticket WITHOUT acceptance criteria section.
+        content = textwrap.dedent("""\
+            # T-20260302-01: No AC ticket
+
+            ```yaml
+            id: T-20260302-01
+            date: "2026-03-02"
+            status: in_progress
+            priority: high
+            effort: S
+            source:
+              type: ad-hoc
+              ref: ""
+              session: "test"
+            tags: []
+            blocked_by: []
+            blocks: []
+            contract_version: "1.0"
+            ```
+
+            ## Problem
+            Test problem without acceptance criteria.
+        """)
+        (tmp_tickets / "2026-03-02-test.md").write_text(content, encoding="utf-8")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+        assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
