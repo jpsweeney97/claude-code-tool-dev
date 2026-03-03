@@ -470,3 +470,268 @@ def engine_preflight(
         message="All preflight checks passed",
         data={"checks_passed": checks_passed, "checks_failed": checks_failed},
     )
+
+
+# --- execute ---
+
+from datetime import date as Date
+
+from scripts.ticket_id import allocate_id, build_filename
+from scripts.ticket_parse import (
+    ParsedTicket,
+    extract_fenced_yaml,
+    parse_yaml_block,
+    parse_ticket as _parse_ticket,
+)
+from scripts.ticket_render import render_ticket
+
+# Canonical field order for YAML frontmatter rendering.
+_CANONICAL_FIELD_ORDER = [
+    "id", "date", "status", "priority", "effort",
+    "source", "tags", "blocked_by", "blocks",
+    "contract_version",
+]
+
+# Valid status transitions for update action (from -> set of valid to statuses).
+# done/wontfix are terminal — only reopen (separate action) can transition out.
+_VALID_TRANSITIONS: dict[str, set[str]] = {
+    "open": {"in_progress", "blocked", "wontfix"},
+    "in_progress": {"open", "blocked", "done", "wontfix"},
+    "blocked": {"open", "in_progress", "wontfix"},
+    "done": set(),       # Terminal — reopen action required.
+    "wontfix": set(),    # Terminal — reopen action required.
+}
+
+# Transitions that require preconditions.
+_TRANSITION_PRECONDITIONS: dict[tuple[str, str], str] = {
+    ("open", "blocked"): "blocked_by_required",
+    ("in_progress", "blocked"): "blocked_by_required",
+    ("in_progress", "done"): "acceptance_criteria_required",
+    ("blocked", "open"): "blockers_resolved_required",
+    ("blocked", "in_progress"): "blockers_resolved_required",
+}
+
+
+def _render_canonical_frontmatter(data: dict[str, Any]) -> str:
+    """Render YAML frontmatter with controlled field order and quoting.
+
+    Unlike yaml.dump(), this function:
+    - Preserves field order (canonical, not alphabetical)
+    - Always quotes date strings (prevents PyYAML date coercion)
+    - Uses consistent list formatting (flow style for simple lists)
+    """
+    lines: list[str] = []
+    for key in _CANONICAL_FIELD_ORDER:
+        if key not in data:
+            continue
+        value = data[key]
+        if value is None:
+            continue
+        if key == "date":
+            lines.append(f'{key}: "{value}"')
+        elif key == "source" and isinstance(value, dict):
+            lines.append("source:")
+            for sk, sv in value.items():
+                lines.append(f'  {sk}: "{sv}"' if isinstance(sv, str) else f"  {sk}: {sv}")
+        elif key == "contract_version":
+            lines.append(f'{key}: "{value}"')
+        elif isinstance(value, list):
+            items = ", ".join(str(item) for item in value)
+            lines.append(f"{key}: [{items}]")
+        elif isinstance(value, bool):
+            lines.append(f"{key}: {'true' if value else 'false'}")
+        elif isinstance(value, str):
+            lines.append(f"{key}: {value}")
+        else:
+            lines.append(f"{key}: {value}")
+    # Preserve unknown keys (forward-compat).
+    known_keys = set(_CANONICAL_FIELD_ORDER) | {"defer"}
+    for key in data:
+        if key not in known_keys:
+            value = data[key]
+            if value is not None:
+                lines.append(f"{key}: {value}")
+    # Include defer if present.
+    if "defer" in data and data["defer"] is not None:
+        defer = data["defer"]
+        lines.append("defer:")
+        for dk, dv in defer.items():
+            if isinstance(dv, bool):
+                lines.append(f"  {dk}: {'true' if dv else 'false'}")
+            else:
+                lines.append(f'  {dk}: "{dv}"' if isinstance(dv, str) else f"  {dk}: {dv}")
+    return "\n".join(lines) + "\n"
+
+
+def _is_valid_transition(current: str, target: str, action: str) -> bool:
+    """Check if a status transition is valid per the contract."""
+    if action == "close":
+        if current in _TERMINAL_STATUSES:
+            return False
+        return target in ("done", "wontfix")
+    if action == "reopen":
+        return current in ("done", "wontfix") and target == "open"
+    # Update: follow transition table.
+    valid = _VALID_TRANSITIONS.get(current, set())
+    return target in valid
+
+
+def _check_transition_preconditions(
+    current: str, target: str, ticket: Any, tickets_dir: Path,
+    fields: dict[str, Any] | None = None,
+) -> str | None:
+    """Check transition preconditions. Returns error message or None if OK.
+
+    Uses merged state: fields (pending update) take precedence over ticket
+    (pre-update) for fields that are being changed in this operation.
+    """
+    key = (current, target)
+    precondition = _TRANSITION_PRECONDITIONS.get(key)
+    if precondition is None:
+        return None
+
+    _fields = fields or {}
+
+    if precondition == "blocked_by_required":
+        blocked_by = _fields.get("blocked_by", ticket.blocked_by)
+        if not blocked_by:
+            return "Transition to 'blocked' requires non-empty blocked_by"
+        return None
+
+    if precondition == "acceptance_criteria_required":
+        ac = ticket.sections.get("Acceptance Criteria", "")
+        if not ac.strip():
+            return "Transition to 'done' requires acceptance criteria section"
+        return None
+
+    if precondition == "blockers_resolved_required":
+        if ticket.blocked_by:
+            from scripts.ticket_read import list_tickets as _list_tickets
+
+            all_tickets = _list_tickets(tickets_dir)
+            ticket_map = {t.id: t for t in all_tickets}
+            unresolved = [
+                bid for bid in ticket.blocked_by
+                if bid in ticket_map and ticket_map[bid].status not in _TERMINAL_STATUSES
+            ]
+            if unresolved:
+                return f"Blockers still open: {unresolved}. Resolve or use dependency_override."
+        return None
+
+    return None
+
+
+def engine_execute(
+    *,
+    action: str,
+    ticket_id: str | None,
+    fields: dict[str, Any],
+    session_id: str,
+    request_origin: str,
+    dedup_override: bool,
+    dependency_override: bool,
+    tickets_dir: Path,
+) -> EngineResponse:
+    """Execute the mutation: create, update, close, or reopen.
+
+    Assumes preflight has already passed. Writes ticket files.
+    """
+    # Agent callers cannot use overrides.
+    if request_origin == "agent" and (dedup_override or dependency_override):
+        return EngineResponse(
+            state="policy_blocked",
+            message="Agent callers cannot use dedup_override or dependency_override",
+            error_code="policy_blocked",
+        )
+
+    if action == "create":
+        return _execute_create(fields, session_id, request_origin, tickets_dir)
+    elif action == "update":
+        return _execute_update(ticket_id, fields, session_id, request_origin, tickets_dir)
+    elif action == "close":
+        return _execute_close(ticket_id, fields, session_id, request_origin, tickets_dir)
+    elif action == "reopen":
+        return _execute_reopen(ticket_id, fields, session_id, request_origin, tickets_dir)
+    else:
+        return EngineResponse(
+            state="escalate",
+            message=f"Unknown action: {action!r}",
+            error_code="intent_mismatch",
+        )
+
+
+# --- Execute sub-functions (stubs replaced in subsequent slices) ---
+
+
+def _execute_create(
+    fields: dict[str, Any],
+    session_id: str,
+    request_origin: str,
+    tickets_dir: Path,
+) -> EngineResponse:
+    """Create a new ticket file. STUB — full implementation in Task 11.2."""
+    raise NotImplementedError("_execute_create not yet implemented (Task 11.2)")
+
+
+def _execute_update(
+    ticket_id: str | None,
+    fields: dict[str, Any],
+    session_id: str,
+    request_origin: str,
+    tickets_dir: Path,
+) -> EngineResponse:
+    """Update an existing ticket. STUB with transition validation."""
+    if not ticket_id:
+        return EngineResponse(state="need_fields", message="ticket_id required for update", error_code="need_fields")
+
+    from scripts.ticket_read import find_ticket_by_id
+
+    ticket = find_ticket_by_id(tickets_dir, ticket_id)
+    if ticket is None:
+        return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
+
+    # Check status transition validity (shared helpers).
+    new_status = fields.get("status")
+    if new_status and new_status != ticket.status:
+        if not _is_valid_transition(ticket.status, new_status, "update"):
+            return EngineResponse(
+                state="invalid_transition",
+                message=f"Cannot transition from {ticket.status} to {new_status} via update"
+                + (" (use reopen action)" if ticket.status in _TERMINAL_STATUSES else ""),
+                ticket_id=ticket_id,
+                error_code="invalid_transition",
+            )
+        precondition_error = _check_transition_preconditions(
+            ticket.status, new_status, ticket, tickets_dir, fields=fields,
+        )
+        if precondition_error:
+            return EngineResponse(
+                state="invalid_transition",
+                message=precondition_error,
+                ticket_id=ticket_id,
+                error_code="invalid_transition",
+            )
+
+    raise NotImplementedError("_execute_update file write not yet implemented (Task 11.3)")
+
+
+def _execute_close(
+    ticket_id: str | None,
+    fields: dict[str, Any],
+    session_id: str,
+    request_origin: str,
+    tickets_dir: Path,
+) -> EngineResponse:
+    """Close a ticket. STUB — full implementation in Task 11.4."""
+    raise NotImplementedError("_execute_close not yet implemented (Task 11.4)")
+
+
+def _execute_reopen(
+    ticket_id: str | None,
+    fields: dict[str, Any],
+    session_id: str,
+    request_origin: str,
+    tickets_dir: Path,
+) -> EngineResponse:
+    """Reopen a done/wontfix ticket. STUB — full implementation in Task 11.5."""
+    raise NotImplementedError("_execute_reopen not yet implemented (Task 11.5)")

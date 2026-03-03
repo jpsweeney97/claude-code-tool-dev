@@ -9,6 +9,7 @@ import pytest
 from scripts.ticket_engine_core import (
     EngineResponse,
     engine_classify,
+    engine_execute,
     engine_plan,
     engine_preflight,
 )
@@ -431,3 +432,104 @@ class TestEnginePreflight:
         )
         assert resp.state == "preflight_failed"
         assert resp.error_code is None
+
+
+class TestEngineExecute:
+    def test_invalid_transition_terminal_via_update(self, tmp_tickets):
+        """done -> in_progress via update is invalid (must reopen first)."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-done.md", id="T-20260302-01", status="done")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"status": "in_progress"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+        assert "reopen" in resp.message.lower()
+
+    def test_invalid_transition_wontfix_via_update(self, tmp_tickets):
+        """wontfix -> open via update is invalid (must reopen)."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-wontfix.md", id="T-20260302-01", status="wontfix")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"status": "open"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+
+    def test_transition_to_blocked_requires_blocked_by(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open", blocked_by=[])
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"status": "blocked"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+        assert "blocked_by" in resp.message.lower()
+
+    def test_agent_override_rejected(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01")
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={"title": "Test", "problem": "Test", "priority": "medium"},
+            session_id="test-session",
+            request_origin="agent",
+            dedup_override=True,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "policy_blocked"
+        assert "agent" in resp.message.lower() or "override" in resp.message.lower()
+
+    def test_error_code_on_all_error_returns(self, tmp_tickets):
+        """All error EngineResponse returns include error_code."""
+        # Test update need_fields.
+        resp = engine_execute(
+            action="update",
+            ticket_id=None,
+            fields={},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "need_fields"
+        assert resp.error_code == "need_fields"
+
+        # Test update not_found.
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-99999999-99",
+            fields={},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "not_found"
+        assert resp.error_code == "not_found"
