@@ -300,3 +300,68 @@ class TestComputeCumulativeState:
         projected = state.with_turn(e1).with_turn(e2)
         cumulative = projected.compute_cumulative_state()
         assert cumulative.conceded == 2
+
+
+class TestPhaseFields:
+    """ConversationState phase tracking fields (Release B)."""
+
+    def test_defaults(self) -> None:
+        state = ConversationState(conversation_id="test")
+        assert state.last_posture is None
+        assert state.phase_start_index == 0
+
+    def test_with_posture_change(self) -> None:
+        state = ConversationState(conversation_id="test")
+        updated = state.with_posture_change("comparative", phase_start_index=3)
+        assert updated.last_posture == "comparative"
+        assert updated.phase_start_index == 3
+        # Original unchanged (immutable)
+        assert state.last_posture is None
+        assert state.phase_start_index == 0
+
+    def test_with_posture_change_resets_closing_probe(self) -> None:
+        """Phase boundary resets closing_probe_fired."""
+        state = ConversationState(conversation_id="test")
+        state = state.with_closing_probe_fired()
+        assert state.closing_probe_fired is True
+        updated = state.with_posture_change("evaluative", phase_start_index=2)
+        assert updated.closing_probe_fired is False
+
+    def test_phase_entries_empty_when_no_entries(self) -> None:
+        state = ConversationState(conversation_id="test")
+        assert state.get_phase_entries() == ()
+
+    def test_phase_entries_returns_from_phase_start(self) -> None:
+        state = ConversationState(conversation_id="test")
+        for i in range(5):
+            entry = _make_entry(turn_number=i + 1)
+            state = state.with_turn(entry)
+        # Phase starts at index 3
+        state = state.with_posture_change("evaluative", phase_start_index=3)
+        phase_entries = state.get_phase_entries()
+        assert len(phase_entries) == 2  # entries[3] and entries[4]
+        assert phase_entries[0].turn_number == 4
+        assert phase_entries[1].turn_number == 5
+
+    def test_phase_entries_full_when_index_zero(self) -> None:
+        """When phase_start_index=0, get_phase_entries returns all entries."""
+        state = ConversationState(conversation_id="test")
+        for i in range(3):
+            state = state.with_turn(_make_entry(turn_number=i + 1))
+        phase_entries = state.get_phase_entries()
+        assert len(phase_entries) == 3
+
+    def test_phase_entries_at_boundary_index(self) -> None:
+        """When phase_start_index = len(entries) - 1 (the exact index produced
+        by a posture change), get_phase_entries returns exactly one entry.
+        """
+        state = ConversationState(conversation_id="test")
+        for i in range(4):
+            state = state.with_turn(_make_entry(turn_number=i + 1))
+        # Simulate posture change: phase starts at last entry
+        state = state.with_posture_change(
+            "evaluative", phase_start_index=len(state.entries) - 1
+        )
+        phase_entries = state.get_phase_entries()
+        assert len(phase_entries) == 1
+        assert phase_entries[0].turn_number == 4

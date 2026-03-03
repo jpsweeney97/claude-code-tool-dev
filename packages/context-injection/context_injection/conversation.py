@@ -29,6 +29,9 @@ class ConversationState(BaseModel):
     evidence_history: tuple[EvidenceRecord, ...] = ()
     closing_probe_fired: bool = False
     last_checkpoint_id: str | None = None
+    # Phase tracking (Release B)
+    last_posture: str | None = None
+    phase_start_index: int = 0
 
     def with_turn(self, entry: LedgerEntry) -> ConversationState:
         """New state with entry appended and claim_registry extended."""
@@ -54,6 +57,22 @@ class ConversationState(BaseModel):
     def with_checkpoint_id(self, checkpoint_id: str) -> ConversationState:
         """New state with last_checkpoint_id updated."""
         return self.model_copy(update={"last_checkpoint_id": checkpoint_id})
+
+    def with_posture_change(
+        self, posture: str, phase_start_index: int
+    ) -> ConversationState:
+        """New state reflecting a posture change at phase boundary."""
+        return self.model_copy(
+            update={
+                "last_posture": posture,
+                "phase_start_index": phase_start_index,
+                "closing_probe_fired": False,
+            }
+        )
+
+    def get_phase_entries(self) -> tuple[LedgerEntry, ...]:
+        """Entries from the current phase (since last posture change)."""
+        return self.entries[self.phase_start_index :]
 
     def get_cumulative_claims(self) -> list[Claim]:
         """All claims from all turns (insertion-ordered). Returns mutable copy."""

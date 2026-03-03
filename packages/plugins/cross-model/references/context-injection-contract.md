@@ -92,7 +92,7 @@ Claims and unresolved items appear in two channels: nested inside the focus obje
       }
     ]
   },
-  "posture": "evaluative",
+  "posture": "comparative",
   "position": "YAML is the primary config format",
   "claims": [
     {
@@ -130,7 +130,7 @@ Claims and unresolved items appear in two channels: nested inside the focus obje
 | `focus.text` | `string` | Yes | Human-readable description of what the focus is about. Informational only — the server does not use it for template ranking or convergence detection. |
 | `focus.claims` | `Claim[]` | Yes | Claims relevant to this focus. Must be identical to top-level `claims` (CC-PF-3). Entity extraction runs on each `claim.text`. All entities have focus affinity. May be empty. |
 | `focus.unresolved` | `Unresolved[]` | Yes | Unresolved items this focus addresses. Must be identical to top-level `unresolved` (CC-PF-3). Entity extraction runs on each `unresolved.text`. All entities have focus affinity. May be empty. |
-| `posture` | `Posture` | Yes | Conversation posture. Reserved for future template ranking adjustments. |
+| `posture` | `Posture` | Yes | Conversation posture. When posture changes between turns, the server resets plateau detection to the phase-local window (entries since last posture change). Closing probe flag resets on posture change. When posture is constant across all turns, behavior is identical to pre-phase-composition. |
 | `position` | `string` | Yes | Agent's current position summary. Stored in validated ledger entry. |
 | `claims` | `Claim[]` | Yes | Top-level claims for ledger validation. Must be identical to `focus.claims` (CC-PF-3). At least one claim required per turn. |
 | `delta` | `Delta` | Yes | Agent's self-reported conversation delta. Server computes `effective_delta` independently. |
@@ -733,7 +733,7 @@ The `action` field in TurnPacketSuccess signals what the agent should do next:
    c. Closing probe not fired -> `closing_probe`
 3. No plateau -> `continue_dialogue`
 
-**One-shot policy:** A closing probe fires at most once per conversation. If the conversation resumes after a closing probe (plateau broken by ADVANCING/SHIFTING), a second plateau skips the probe and proceeds directly to `conclude`.
+**Closing probe policy:** A closing probe fires at most once *per phase*. When posture changes (phase boundary), `closing_probe_fired` resets — the new phase gets its own probe opportunity. Within a single phase, if the conversation resumes after a closing probe (plateau broken by ADVANCING/SHIFTING), a second plateau skips the probe and proceeds directly to `conclude`. In single-posture conversations (no phase changes), this is equivalent to once-per-conversation.
 
 ### Turn Cap
 
@@ -789,7 +789,7 @@ For references that could be `file_loc`, `file_path`, or `file_name`:
 
 ### Posture
 
-`adversarial` | `collaborative` | `exploratory` | `evaluative`
+`adversarial` | `collaborative` | `exploratory` | `evaluative` | `comparative`
 
 ### Delta
 

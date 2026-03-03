@@ -57,6 +57,7 @@ class TestPosture:
         assert Posture.COLLABORATIVE == "collaborative"
         assert Posture.EXPLORATORY == "exploratory"
         assert Posture.EVALUATIVE == "evaluative"
+        assert Posture.COMPARATIVE == "comparative"
 
 
 class TestPathStatus:

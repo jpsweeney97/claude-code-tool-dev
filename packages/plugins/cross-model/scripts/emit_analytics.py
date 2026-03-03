@@ -37,7 +37,7 @@ from pathlib import Path
 _LOG_PATH = Path.home() / ".claude" / ".codex-events.jsonl"
 _SCHEMA_VERSION = "0.1.0"
 
-_VALID_POSTURES = {"adversarial", "collaborative", "exploratory", "evaluative"}
+_VALID_POSTURES = {"adversarial", "collaborative", "exploratory", "evaluative", "comparative"}
 _VALID_SEED_CONFIDENCE = {"normal", "low"}
 _VALID_SHAPE_CONFIDENCE = {"high", "medium", "low"}
 _VALID_CONVERGENCE_CODES = {

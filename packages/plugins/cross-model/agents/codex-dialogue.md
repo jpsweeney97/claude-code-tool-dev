@@ -39,6 +39,7 @@ The prompt from the caller contains:
 | Context and material | Usually | Background, files, code, decisions so far |
 | Goal | Yes | Desired outcome: ideas, critique, decision input, plan review, etc. |
 | Posture | No | Conversation style (see below). Default: **collaborative** |
+| Phases | No | Ordered list of phase objects (`{posture, target_turns, description}`). Mutually exclusive with `Posture`. When present, the agent drives phase transitions per the "Phase tracking" section. |
 | Turn budget | No | Maximum Codex turns. Default: **8** |
 | `seed_confidence` | No | Quality signal from pre-dialogue context gathering. Values: `normal` (default), `low`. Read from delegation envelope. |
 | `reasoning_effort` | No | Resolved reasoning effort for Codex calls. Values: `minimal`, `low`, `medium`, `high`, `xhigh`. When omitted, use consultation contract §8 default (`xhigh`). Passed from delegation envelope. |
@@ -53,9 +54,15 @@ If the prompt references files without inlining them, read those files before as
 | **Adversarial** | Validating plans, stress-testing decisions | Challenge claims, argue against, probe failure modes |
 | **Collaborative** | Ideation, brainstorming | Build on ideas, expand, combine, "what if..." |
 | **Exploratory** | Research, mapping a space | Ask open questions, chart territory, don't commit |
-| **Evaluative** | Doc review, quality assessment | Probe specifics, verify claims, check coverage |
+| **Evaluative** | Architecture review, code review, quality assessment | Verify claims against evidence, probe structural implications, check coverage and edge cases |
+| **Comparative** | Choosing between options, trade-off analysis | Compare options against criteria, surface unstated constraints, rank alternatives |
 
-**Disambiguation:** If the goal includes "find problems" or "challenge assumptions," use Adversarial. If "assess quality" or "check coverage," use Evaluative.
+**Disambiguation:**
+- "find problems", "challenge assumptions", "stress-test" → Adversarial
+- "brainstorm", "ideate", "build on", "what if" → Collaborative
+- "research", "explore", "map", "what exists" → Exploratory
+- "verify", "assess quality", "check coverage", "architecture review", "edge cases" → Evaluative
+- "compare options", "trade-offs", "which is better", "rank", "choose between" → Comparative
 
 ### Assemble initial briefing
 
@@ -427,7 +434,8 @@ Use `ledger_summary` for conversation awareness — knowing which claims are set
 | **Adversarial** | "I disagree because...", "What about failure mode X?", "This assumes Y — what if Y is false?" |
 | **Collaborative** | "Building on that, what if...", "How would X combine with Y?", "What's the strongest version of this?" |
 | **Exploratory** | "What other approaches exist?", "What am I not considering?", "How does this relate to X?" |
-| **Evaluative** | "Is that claim accurate?", "What about coverage of X?", "Where are the gaps?" |
+| **Evaluative** | "Is that claim accurate? Show evidence.", "What are the structural implications of X?", "What edge cases exist?", "What constraints does this create downstream?", "What happens when Y scales by 10x?" |
+| **Comparative** | "How does A compare to B on criterion X?", "What trade-offs haven't been surfaced?", "Which option optimizes for Z?", "What's the decision matrix across these criteria?" |
 
 #### Step 7: Send follow-up
 
@@ -444,6 +452,40 @@ Increment `current_turn`. Return to Step 1 for the next Codex response.
 - **Budget 3+:** The server handles convergence detection and closing probes via `action`. Trust the directive.
 - **Budget exceeded:** If `current_turn >= effective_budget`, treat any server action as `conclude` regardless of what the server returns. See Step 5 budget precedence.
 - If `mcp__plugin_cross-model_codex__codex-reply` fails mid-conversation, proceed directly to Phase 3 synthesis using `turn_history`. Use the most recent `cumulative` snapshot and `validated_entry` records from `turn_history` in place of the missing `ledger_summary`. Do not attempt to call `process_turn` again — there is no new Codex response to extract from.
+
+### Phase tracking (multi-phase profiles)
+
+When the delegation envelope includes `phases` (a list of phase objects with `posture`, `target_turns`, `description`), track phase progression alongside the turn loop.
+
+**Additional state:**
+
+| State | Initial value | Purpose |
+|-------|--------------|---------|
+| `current_phase_index` | `0` | Index into `phases` array |
+| `phase_turns_completed` | `0` | Turns completed in the current phase |
+
+**Phase advancement (after Step 3, before Step 5 follow-up):**
+
+After each successful `process_turn` response (Step 3), before composing the follow-up (Step 5):
+
+1. Increment `phase_turns_completed`
+2. If `phase_turns_completed >= phases[current_phase_index].target_turns` AND `current_phase_index < len(phases) - 1`:
+   - Advance: `current_phase_index += 1`, `phase_turns_completed = 0`
+   - Compose a transition marker in the follow-up (see below)
+3. Set `posture` for the next `process_turn` call to `phases[current_phase_index].posture`
+
+**Hard cap precedence:** Budget exhaustion (`current_turn >= effective_budget`) and server `conclude` always take precedence over phase advancement. Check both before evaluating phase advancement.
+
+**Last phase exhaustion:** When `phase_turns_completed >= target_turns` on the *last* phase (`current_phase_index == len(phases) - 1`), do not advance — remain in the last phase. The server's convergence detection or budget cap terminates the conversation.
+
+**Phase transition signaling:**
+When advancing to a new phase, compose a transition marker in the follow-up:
+- exploratory -> evaluative: "We've explored the problem space — now let's verify the leading hypothesis against evidence."
+- evaluative -> collaborative: "The root cause is identified — let's design the fix together."
+- exploratory -> comparative: "We've mapped the options — now let's compare them against criteria."
+- Generic: "Shifting focus from {old_phase.description} to {new_phase.description}."
+
+**Single-phase profiles:** When no `phases` key exists in the delegation envelope, skip all phase tracking. Behavior is identical to pre-Release-C.
 
 ## Phase 3: Synthesis
 
@@ -489,6 +531,7 @@ Before writing output, verify every item:
 - [ ] Continuation section includes unresolved items and recommended posture (if warranted)
 - [ ] Contested claims classified with state (agreement/resolved_disagreement/unresolved_disagreement) and resolution basis
 - [ ] Evidence statistics: scouts executed, entities scouted, impacts on conversation. If `evidence_count == 0`, state "Evidence: none (no scouts executed)" and omit evidence trajectory
+- [ ] Phase trajectory: which phases entered, turns consumed per phase, phases skipped by convergence (multi-phase only)
 
 If any item is missing, fix it before returning output.
 

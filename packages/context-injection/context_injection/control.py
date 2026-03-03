@@ -59,29 +59,40 @@ def compute_action(
     entries: Sequence[LedgerEntry],
     budget_remaining: int,
     closing_probe_fired: bool,
+    *,
+    phase_entries: Sequence[LedgerEntry] | None = None,
 ) -> tuple[ConversationAction, str]:
     """Determine next conversation action from ledger trajectory.
 
-    Design decision — one-shot closing probe policy:
-        A closing probe fires at most once per conversation. If the conversation
+    When phase_entries is provided (phase composition), plateau detection
+    uses the phase-local window instead of the full entry history.
+    When phase_entries is None (single-posture dialogue), behavior is
+    identical to pre-Release-B.
+
+    Design decision — closing probe policy (once per phase):
+        A closing probe fires at most once per phase. When posture changes
+        (phase boundary), closing_probe_fired resets — the new phase gets its
+        own probe opportunity. Within a single phase, if the conversation
         advances after a closing probe (plateau broken by ADVANCING/SHIFTING),
-        a second plateau will skip the probe and proceed directly to CONCLUDE.
-        Rationale: repeated probes add latency without new information — if the
-        first probe did not surface actionable material, a second will not either.
+        a second plateau skips the probe and proceeds directly to CONCLUDE.
+        In single-posture conversations, this is equivalent to once per
+        conversation.
 
     Precedence (highest to lowest):
     1. Budget exhausted -> CONCLUDE
-    2. Plateau detected (last 2 STATIC):
+    2. Plateau detected (last 2 STATIC in phase window):
        a. Closing probe already fired + no open unresolved -> CONCLUDE
        b. Closing probe already fired + open unresolved -> CONTINUE (address them)
        c. Closing probe not fired -> CLOSING_PROBE
     3. No plateau -> CONTINUE_DIALOGUE
 
     Args:
-        entries: Validated ledger entries (chronological order).
+        entries: Validated ledger entries (chronological order). Full history.
         budget_remaining: Turn budget remaining (NOT evidence budget).
             0 or negative means budget is exhausted.
         closing_probe_fired: Whether a closing probe was already sent.
+        phase_entries: Phase-local entries for plateau detection. When None,
+            uses full ``entries`` (backward-compatible default).
 
     Returns:
         Tuple of (action, human-readable reason string).
@@ -100,8 +111,9 @@ def compute_action(
             "No entries yet — first turn",
         )
 
-    # 3. Plateau detection
-    plateau = _is_plateau(entries)
+    # 3. Plateau detection — use phase window if provided
+    plateau_window = phase_entries if phase_entries is not None else entries
+    plateau = _is_plateau(plateau_window)
 
     if plateau:
         if closing_probe_fired:

@@ -110,7 +110,7 @@ If uncertain whether to use direct or delegated, default to direct invocation.
 
 For subagent delegation:
 1. Spawn a `codex-dialogue` subagent (purpose-built for multi-turn Codex conversations)
-2. Pass the enriched briefing, goal, and optionally a posture (adversarial, collaborative, exploratory, evaluative) and turn budget
+2. Pass the enriched briefing, goal, and optionally a posture (adversarial, collaborative, exploratory, evaluative, comparative) and turn budget
 3. The subagent manages the conversation, detects convergence, and returns a synthesis + the Codex `threadId`
 4. To continue later, resume the subagent via its `agentId` (preserves richer context than raw `threadId`)
 

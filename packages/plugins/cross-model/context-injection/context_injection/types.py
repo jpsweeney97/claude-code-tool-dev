@@ -58,7 +58,7 @@ class TurnRequest(ProtocolModel):
     turn_number: int
     conversation_id: str
     focus: Focus
-    posture: Literal["adversarial", "collaborative", "exploratory", "evaluative"]
+    posture: Literal["adversarial", "collaborative", "exploratory", "evaluative", "comparative"]
 
     # --- 0.2.0: Ledger fields (top-level for validation) ---
     position: str
