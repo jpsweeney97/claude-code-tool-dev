@@ -176,6 +176,45 @@ Each subagent runs in a separate context window. This keeps the main conversatio
 ## Using subagents
 
 Invoke subagents with phrases like "use a subagent to review this code" or delegate specific tasks to specialized agents for focused analysis.
+---
+# Orchestrate teams of Claude Code sessions
+Source: https://code.claude.com/docs/en/agent-teams
+
+Coordinate multiple Claude Code instances working together as a team, with shared task lists and inter-agent messaging.
+
+## How agent teams work
+
+Agent teams use a leader-worker pattern where a team lead coordinates multiple Claude Code sessions working on related tasks simultaneously.
+
+## When to use agent teams
+
+Use agent teams when a task has multiple independent subtasks that benefit from parallel execution across separate context windows.
+---
+# Log in to Claude Code
+Source: https://code.claude.com/docs/en/authentication
+
+Log in to Claude Code and configure authentication for individuals, teams, and organizations.
+
+## Authentication methods
+
+Claude Code supports API key authentication, OAuth login, and enterprise SSO for team environments.
+
+## Managing API keys
+
+Store your ANTHROPIC_API_KEY securely. Never commit API keys to version control.
+---
+# Manage permissions
+Source: https://code.claude.com/docs/en/permissions
+
+Control what actions Claude Code can perform using the permission system.
+
+## Permission system
+
+Claude Code uses a tiered permission model. Tools are categorized by risk level and require different approval levels.
+
+## Permission profiles
+
+Choose between different permission modes: default, plan, or acceptEdits for varying levels of autonomy.
 `;
 
 describe('golden queries (URL-based)', () => {
@@ -251,6 +290,9 @@ describe('golden queries (URL-based)', () => {
     { query: 'GitHub Actions workflow YAML', expectedTopCategory: 'ci-cd' },
     { query: 'sandbox isolation filesystem', expectedTopCategory: 'security' },
     { query: 'troubleshooting debug logging', expectedTopCategory: 'troubleshooting' },
+    { query: 'agent teams leader worker coordination', expectedTopCategory: 'agents' },
+    { query: 'authentication login API key', expectedTopCategory: 'security' },
+    { query: 'permission system approval levels', expectedTopCategory: 'security' },
   ];
 
   for (const { query, expectedTopCategory } of goldenQueries) {
