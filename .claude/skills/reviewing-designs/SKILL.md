@@ -138,6 +138,8 @@ Document: inputs, assumptions, stakes level, stopping criteria, and Yield% scope
 
 ### Early Adversarial Gate (AHG-5)
 
+**AHG-5** = Adversarial Hypothesis Gate, 5 questions.
+
 **YOU MUST** complete AHG-5 after Entry Gate, before DISCOVER.
 
 Five questions that surface framing problems, load-bearing assumptions, and systemic patterns before the dimensional loop.
@@ -164,7 +166,7 @@ No skip path — skipping recreates the N/A rationalization anti-pattern.
 
 **Hard fail rules** (per run question):
 
-- Each run question produces a hypothesis OR explicit "no finding" with one-sentence justification
+- Each run question produces a hypothesis, "merged → Hn" (subsumed by existing hypothesis; satisfies hard-fail, no additional H-row), or explicit "no finding" with one-sentence justification
 - Q3 must name specific mechanisms, not categories
 - Q5 must identify one assumption and state what breaks if it's wrong
 - All run questions producing "no finding" → flag: "Early gate produced zero hypotheses — verify genuine engagement before proceeding."
@@ -198,7 +200,11 @@ Carries early-gate hypotheses into the dimensional loop. Prevents "generate-then
 | `evaluated` | ALT row: dominance check completed | Check result + rationale |
 | `withdrawn` | Hypothesis no longer applicable | Rationale citing why premise no longer applies |
 
+Status terms are lowercase (`tested`, not `TESTED`). Design doc references to "TESTED/CONFIRMED" map to `tested`.
+
 **Disposition invariant:** Every non-`open` row must include disposition text, evidence or rationale, and audit entry (when/checkpoint + why + prior status).
+
+**ALT dominance outcomes:** not dominant (design wins), unresolved — escalate (creates F-code per B6), clearly dominant (P0 finding). Full decision tree in [Bridge & Checkpoints Reference](references/bridge-and-checkpoints.md#alternatives-dominance-check).
 
 **Lifecycle:** Rows added after early gate as `open` → status transitions via bridge operations at checkpoints → at Exit Gate, no `open` rows allowed.
 
@@ -365,7 +371,7 @@ An entity _yields_ if it is:
 
 **Effective priority:** Findings inherit the highest priority of their linked dimensions. Unlinked findings default to P1 until linked. (Prevents P2-deferral: classifying genuinely P0/P1 findings as P2 to exclude them from Yield% scope.)
 
-**H-code exclusion:** Bridge table H-codes are scaffolding — not Yield-tracked entities. Only D-codes and F-codes enter E_prev/E_cur. Bridge completion is an independent exit criterion checked at Exit Gate. **Entry Gate declaration (B1):** Include in Entry Gate output: "Yield% scope: D-codes and F-codes only. H-codes are bridge scaffolding." (Per framework MAY clause — scope overrides must be declared at Entry Gate.)
+**H-code exclusion (per B1):** Bridge table H-codes are scaffolding — not Yield-tracked entities. Only D-codes and F-codes enter E_prev/E_cur. Bridge completion is an independent exit criterion checked at Exit Gate. **Entry Gate declaration (B1):** Include in Entry Gate output: "Yield% scope: D-codes and F-codes only. H-codes are bridge scaffolding." (Per framework MAY clause — scope overrides must be declared at Entry Gate.)
 
 `Yield% = ( |Y| / max(1, |U|) ) × 100`
 
@@ -499,6 +505,10 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 
 - Mark as `[-]` with brief rationale (e.g., "D1-D3: N/A — no source documents specified")
 - Do not force-fit dimensions that don't apply
+
+**Bridge row targets N/A dimension:**
+
+- Retarget once to nearest applicable dimension; if none, WITHDRAW with rationale. See [N/A Dimension Targeting](references/bridge-and-checkpoints.md#na-dimension-targeting).
 
 **P0 issue found during EXPLORE:**
 
