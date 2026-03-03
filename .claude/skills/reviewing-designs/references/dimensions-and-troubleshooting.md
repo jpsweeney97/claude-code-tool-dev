@@ -84,6 +84,10 @@ Supporting reference for the [reviewing-designs](../SKILL.md) skill.
 **Why it fails:** User skims report, misses critical issue, implements with P0 gap.
 **Fix:** Summary table with P0 count goes at top of report AND in chat summary. P0s must be unmissable.
 
+**Pattern:** Early gate as checkbox
+**Why it fails:** Producing formulaic hypotheses ("what if it doesn't scale?") that technically satisfy hard-fail rules but lack genuine adversarial intent. Same theater problem as "adversarial pass as checkbox."
+**Fix:** Q3 must name specific mechanisms, not categories. Q5 must state what breaks. Generic answers fail hard-fail rules. If hypotheses feel formulaic, re-engage with genuine adversarial intent.
+
 ---
 
 ## Troubleshooting
