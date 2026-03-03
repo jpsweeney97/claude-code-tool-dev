@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildBM25Index, search, extractSnippet, type BM25Index } from '../src/bm25.js';
+import { buildBM25Index, search, extractSnippet, headingBoostMultiplier, type BM25Index } from '../src/bm25.js';
 import type { Chunk } from '../src/types.js';
 import { computeTermFreqs } from '../src/chunk-helpers.js';
 
-function makeChunk(id: string, content: string, tokens: string[]): Chunk {
+function makeChunk(id: string, content: string, tokens: string[], heading?: string, merged_headings?: string[]): Chunk {
   return {
     id,
     content,
@@ -12,6 +12,8 @@ function makeChunk(id: string, content: string, tokens: string[]): Chunk {
     category: 'test',
     tags: [],
     source_file: 'test.md',
+    heading,
+    merged_headings,
   };
 }
 
@@ -279,5 +281,110 @@ Second line.`;
   it('returns empty string when content is whitespace and query is empty', () => {
     const snippet = extractSnippet('   \n\n', []);
     expect(snippet).toBe('');
+  });
+});
+
+describe('heading boost', () => {
+  it('boosts chunks whose heading matches query terms', () => {
+    const chunks = [
+      // Body-only match: "hooks" appears in body, heading is unrelated
+      makeChunk('body-match', 'hooks documentation guide', ['hooks', 'documentation', 'guide'], '## Getting Started'),
+      // Heading match: "hooks" appears in heading AND body
+      makeChunk('heading-match', 'hooks documentation guide', ['hooks', 'documentation', 'guide'], '## Hooks'),
+    ];
+    const index = buildBM25Index(chunks);
+    const results = search(index, 'hooks');
+
+    // Both match, but heading-match should rank first due to boost
+    expect(results).toHaveLength(2);
+    expect(results[0].chunk_id).toBe('heading-match');
+  });
+
+  it('does not boost when heading coverage is below threshold', () => {
+    const chunks = [
+      // Heading has "hooks" but query is "hooks documentation guide" — only 1/3 coverage
+      makeChunk('low-coverage', 'hooks documentation guide', ['hooks', 'documentation', 'guide'], '## Hooks'),
+      makeChunk('no-heading', 'hooks documentation guide', ['hooks', 'documentation', 'guide']),
+    ];
+    const index = buildBM25Index(chunks);
+    const results = search(index, 'hooks documentation guide');
+
+    // "Hooks" heading covers only 1/3 of query terms (< 0.5 threshold)
+    // Both chunks should have the same score (no boost applied)
+    expect(results).toHaveLength(2);
+    // Verify directly that the multiplier returns 1.0 for below-threshold coverage
+    // "Hooks" covers 1/3 of query terms — below 0.5 threshold
+    expect(headingBoostMultiplier(['hooks', 'documentation', 'guide'], '## Hooks', undefined)).toBe(1.0);
+  });
+
+  it('does not boost chunks without headings', () => {
+    const chunks = [
+      makeChunk('with-heading', 'hooks guide here', ['hooks', 'guide', 'here'], '## Hooks Guide'),
+      makeChunk('no-heading', 'hooks guide here', ['hooks', 'guide', 'here']),
+    ];
+    const index = buildBM25Index(chunks);
+    const results = search(index, 'hooks guide');
+
+    // with-heading should rank first (2/2 = 100% coverage, above threshold)
+    expect(results[0].chunk_id).toBe('with-heading');
+  });
+
+  it('handles single-term query with heading match', () => {
+    const chunks = [
+      makeChunk('heading-yes', 'security overview', ['security', 'overview'], '## Security'),
+      makeChunk('heading-no', 'security overview', ['security', 'overview'], '## Overview'),
+    ];
+    const index = buildBM25Index(chunks);
+    const results = search(index, 'security');
+
+    // Single term, 1/1 = 100% coverage on heading-yes
+    expect(results[0].chunk_id).toBe('heading-yes');
+  });
+
+  it('boosts via merged_headings when primary heading does not match', () => {
+    const chunks = [
+      // Primary heading is unrelated, but merged_headings contains "Hooks"
+      makeChunk('merged-match', 'hooks documentation guide', ['hooks', 'documentation', 'guide'],
+        '## Getting Started', ['## Hooks', '## Hook Events']),
+      // No headings at all
+      makeChunk('no-heading', 'hooks documentation guide', ['hooks', 'documentation', 'guide']),
+    ];
+    const index = buildBM25Index(chunks);
+    const results = search(index, 'hooks');
+
+    // merged-match should rank first — "hooks" appears in merged_headings
+    expect(results[0].chunk_id).toBe('merged-match');
+  });
+
+  it('unions primary heading and merged_headings for coverage calculation', () => {
+    const chunks = [
+      // Primary heading covers "hooks", merged_headings covers "guide" — union covers 2/2
+      makeChunk('union-match', 'hooks guide content', ['hooks', 'guide', 'content'],
+        '## Hooks', ['## Configuration Guide']),
+      // Only primary heading, covers 1/2 — below 0.5 threshold
+      makeChunk('partial-match', 'hooks guide content', ['hooks', 'guide', 'content'],
+        '## Hooks'),
+    ];
+    const index = buildBM25Index(chunks);
+    const results = search(index, 'hooks guide');
+
+    // union-match has 2/2 coverage (boosted), partial-match has 1/2 (not boosted)
+    expect(results[0].chunk_id).toBe('union-match');
+  });
+
+  it('does not boost merged_headings below coverage threshold', () => {
+    const chunks = [
+      // merged_headings match 1 of 3 query terms — below 0.5 threshold
+      makeChunk('low-coverage', 'hooks guide content', ['hooks', 'guide', 'content'],
+        '## Overview', ['## Hooks']),
+      makeChunk('no-heading', 'hooks guide content', ['hooks', 'guide', 'content']),
+    ];
+    const index = buildBM25Index(chunks);
+    const results = search(index, 'hooks guide content');
+
+    // Both should have same score — merged_headings covers only 1/3 (below threshold)
+    expect(results).toHaveLength(2);
+    // Verify multiplier is 1.0 when merged_headings cover only 1/3 of query terms
+    expect(headingBoostMultiplier(['hooks', 'guide', 'content'], '## Overview', ['## Hooks'])).toBe(1.0);
   });
 });
