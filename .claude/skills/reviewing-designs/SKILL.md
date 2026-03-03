@@ -1,23 +1,37 @@
 ---
 name: reviewing-designs
-description: Iterative design review using the Framework for Thoroughness. Use when verifying a design captures all requirements from sources. Use after creating specs from multiple documents. Use before implementing from a design. Use when past designs have led to implementation surprises.
+description: Iterative design review using the Framework for Thoroughness. Use when verifying a design captures all requirements from sources. Use after creating specs from multiple documents. Use before implementing from a design. Use when past designs have led to implementation surprises. Use when questioning whether a design solves the right problem.
 ---
 
 # Reviewing Designs
 
 ## Overview
 
-Design review catches issues before implementation, when they're cheap to fix. This skill unifies two concerns:
+Design review catches issues before implementation, when they're cheap to fix. This skill addresses four concerns:
 
-1. **Source coverage** — Does the design capture everything from source materials?
-2. **Implementation readiness** — Can someone build from this without asking clarifying questions?
+1. **Intent alignment** — Does the design solve the right problem?
+2. **Blind spot surfacing** — What assumptions hasn't the designer questioned?
+3. **Conversational sharpening** — Value is in back-and-forth dialogue, not compliance reports
+4. **Optimality** — Is this the best design for its purpose, not just the first workable approach?
 
-A single pass checking "is X mentioned?" misses decision rules, exit criteria, and safety defaults — single sentences with outsized impact. This skill uses the Framework for Thoroughness to iterate until findings converge.
+An early adversarial gate (AHG-5) surfaces framing problems and load-bearing assumptions as testable hypotheses. A bridge table carries those hypotheses through the dimensional loop, preventing "generate-then-forget." Three dialogue checkpoints (delta cards) make the conversation the primary output.
 
 **Protocol:** [thoroughness.framework@1.0.0](references/framework-for-thoroughness_v1.0.0.md)
 **Default thoroughness:** Rigorous
 
-**Core insight:** The items most often missed are single sentences that define behavior at decision points.
+**Reference file contract:** SKILL.md is normative for rules, gates, semantics, and control flow. Reference files are operational — procedures, decision trees, examples, and troubleshooting. SKILL.md takes precedence on conflict. Cross-references must name the delegated mechanism.
+
+**Process flow:**
+
+~~~
+Entry Gate → AHG-5 Early Gate → Bridge Table
+  ↓ [delta card #1]
+DISCOVER → EXPLORE → VERIFY → REFINE loop
+  ↓ [delta card #2]
+Adversarial Pass (A1-A9)
+  ↓ [delta card #3]
+Exit Gate → Artifact
+~~~
 
 ## When to Use
 
@@ -38,23 +52,27 @@ A single pass checking "is X mentioned?" misses decision rules, exit criteria, a
 
 ## Outputs
 
-**IMPORTANT:** Full report goes in artifact ONLY. Chat receives brief summary.
+**Interaction model:** Dialogue-first with 3 delta cards in chat. Artifact compiles all cards + full coverage tracker.
+
+### Delta Card Checkpoints
+
+| # | When | Contents | User can... |
+|---|------|----------|-------------|
+| 1 | After early gate | Hypotheses, alternatives, bridge table | Add context, ADD/REVISE/WITHDRAW bridge rows, confirm |
+| 2 | After loop convergence | Bridge dispositions, net-new findings, running P0/P1/P2 totals, ALT dominance results | Redirect, modify bridge rows, ask to dig deeper |
+| 3 | After adversarial pass | Final bridge table, adversarial findings (bridge-mapped + NET-NEW), overall assessment | Informational closeout. REOPEN only if adversarial findings contradict a disposition |
+
+Checkpoints are invitations, not gates. If the user says nothing, the review proceeds.
+
+**Checkpoint 2 re-entry:** If ADD creates a new H-row or REVISE materially changes hypothesis/target dimensions at checkpoint 2, run one reconciliation loop pass on affected rows before the Adversarial Pass and recompute Yield%. Editorial-only REVISE and WITHDRAW do not require reconciliation.
+
+**Delta card format:** See [Bridge & Checkpoints Reference](references/bridge-and-checkpoints.md#delta-card-schema).
 
 **Artifact:** `docs/audits/YYYY-MM-DD-<design-name>-review.md`
 
-Uses Thoroughness Report template with:
+Compiles all 3 delta cards in checkpoint order, followed by full coverage tracker and iteration log. Same format as before — delivery order changes.
 
-- Entry Gate (assumptions, stakes, stopping criteria)
-- Coverage Tracker (dimensions with Cell Schema: ID, Status, Priority, Evidence, Confidence)
-- Iteration Log (pass-by-pass Yield%)
-- Findings grouped by dimension type:
-  - Source Coverage Gaps
-  - Implementability Issues
-  - Adversarial Findings
-- Disconfirmation Attempts
-- Exit Gate verification
-
-**Summary table (top of artifact and in chat):**
+**Summary table (top of artifact and in delta card #3):**
 
 | Priority | Count | Description                                |
 | -------- | ----- | ------------------------------------------ |
@@ -62,27 +80,20 @@ Uses Thoroughness Report template with:
 | P1       | N     | Issues that degrade quality                |
 | P2       | N     | Polish items                               |
 
-**Chat summary (brief — not the full report):**
-
-```
-**Review complete:** [design name]
-**Findings:** P0: N | P1: N | P2: N
-**Key issues:** [1-2 most critical if any]
-**Full report:** `docs/audits/YYYY-MM-DD-<name>-review.md`
-```
-
-**Do NOT include in chat:** Full findings list, iteration log, coverage tracker, disconfirmation details.
-
 **Definition of Done:**
 
 - [ ] Entry Gate completed and recorded
+- [ ] AHG-5 early gate completed; bridge table populated
+- [ ] Delta card #1 presented; if user responded, input incorporated (or no-response noted)
 - [ ] All dimensions explored with Evidence/Confidence ratings
 - [ ] Yield% below threshold for thoroughness level
+- [ ] Delta card #2 presented; if user responded, input incorporated (or no-response noted)
 - [ ] Disconfirmation attempted for P0 dimensions
-- [ ] Adversarial pass completed
+- [ ] Adversarial pass completed (bridge-first, then NET-NEW)
+- [ ] Bridge table complete (no open rows; disposition invariant satisfied)
+- [ ] Delta card #3 presented
 - [ ] Exit Gate criteria satisfied
-- [ ] Full report written to artifact location
-- [ ] Chat contains brief summary only
+- [ ] Artifact compiled from delta cards + coverage tracker
 
 ## Process
 
@@ -123,7 +134,102 @@ List what you're taking for granted:
 - **Thresholds:** Adequate <20%, Rigorous <10%, Exhaustive <5%
 
 **5. Record Entry Gate:**
-Document assumptions, stakes level, and stopping criteria before proceeding.
+Document: inputs, assumptions, stakes level, stopping criteria, and Yield% scope declaration (per B1): "D-codes and F-codes only. H-codes are bridge scaffolding."
+
+### Early Adversarial Gate (AHG-5)
+
+**AHG-5** = Adversarial Hypothesis Gate, 5 questions.
+
+**YOU MUST** complete AHG-5 after Entry Gate, before DISCOVER.
+
+Five questions that surface framing problems, load-bearing assumptions, and systemic patterns before the dimensional loop.
+
+| # | Question | Catches |
+|---|---------|---------|
+| Q1 | What problem is this solving, and what's the strongest argument it's the wrong problem? | Intent misalignment, over-scoping |
+| Q2 | What alternatives were considered, and what would make a rejected alternative better than this? | Anchoring, pre-narrowed framing, motivated reasoning |
+| Q3 | What would make this fail in implementation? Name specific mechanisms, not categories. | Systematically underspecified behavior, load-bearing gaps |
+| Q4 | Where is complexity underestimated? What looks simple but isn't? | Hidden state spaces, edge case surfaces, interaction effects |
+| Q5 | What single assumption, if wrong, would invalidate the whole design? | Load-bearing assumptions, fragile dependencies |
+
+**Stakes gating:**
+
+| Stakes | Questions | Hypothesis count | Bridge rows |
+|--------|-----------|-----------------|-------------|
+| Adequate | AHG-lite: Q1, Q3, Q5 only | Exactly 2 | H1-H2 + ALT1-ALT2 |
+| Rigorous | Full AHG-5 | Exactly 3 | H1-H3 + ALT1-ALT2 |
+| Exhaustive | Full AHG-5 | Exactly 4 | H1-H4 + ALT1-ALT2 |
+
+**Adequate path:** Adequate skips Q2, so no concrete alternatives emerge. Populate ALT rows using [ALT overflow](references/bridge-and-checkpoints.md#alt-overflow) 0-alt rules (CONSTRAINED or NONE IDENTIFIED).
+
+No skip path — skipping recreates the N/A rationalization anti-pattern.
+
+**Hard fail rules** (per run question):
+
+- Each run question produces a hypothesis, "merged → Hn" (subsumed by existing hypothesis; satisfies hard-fail, no additional H-row), or explicit "no finding" with one-sentence justification
+- Q3 must name specific mechanisms, not categories
+- Q5 must identify one assumption and state what breaks if it's wrong
+- All run questions producing "no finding" → flag: "Early gate produced zero hypotheses — verify genuine engagement before proceeding."
+
+**Overflow:** Rank surplus hypotheses by impact × plausibility × testability. Top N become bridge rows; remainder go in "deferred hypotheses" footnote. See [Bridge & Checkpoints Reference](references/bridge-and-checkpoints.md#overflow-ranking).
+
+**Output:** Populate bridge table with H-rows and ALT-rows. Present delta card #1 in chat.
+
+### Bridge Table
+
+Carries early-gate hypotheses into the dimensional loop. Prevents "generate-then-forget."
+
+**Hypothesis row schema:**
+
+| Field | Content |
+|-------|---------|
+| ID | H1-H*N* (N = stakes-level count: 2/3/4) |
+| Hypothesis | From early gate question |
+| Target Dimensions | D-codes and/or A-codes to check |
+| Anchor | Design location (section, line range, or structural element) |
+| Status | open / tested / disconfirmed / evaluated (ALT rows) / withdrawn |
+| Disposition | Finding IDs, disconfirmation evidence, or withdrawal rationale |
+
+**Status values:**
+
+| Status | Meaning | Required disposition |
+|--------|---------|---------------------|
+| `open` | Not yet checked | — |
+| `tested` | Hypothesis confirmed by target dimension check | Finding ID + evidence |
+| `disconfirmed` | Hypothesis not supported by target dimension check | Counter-evidence + rationale |
+| `evaluated` | ALT row: dominance check completed | Check result + rationale |
+| `withdrawn` | Hypothesis no longer applicable | Rationale citing why premise no longer applies |
+
+Status terms are lowercase (`tested`, not `TESTED`). Design doc references to "TESTED/CONFIRMED" map to `tested`.
+
+**Disposition invariant:** Every non-`open` row must include disposition text, evidence or rationale, and audit entry (when/checkpoint + why + prior status).
+
+**ALT dominance outcomes:** not dominant (design wins), unresolved — escalate (creates F-code per B6), clearly dominant (P0 finding). Full decision tree in [Bridge & Checkpoints Reference](references/bridge-and-checkpoints.md#alternatives-dominance-check).
+
+**Lifecycle:** Rows added after early gate as `open` → status transitions via bridge operations at checkpoints → at Exit Gate, no `open` rows allowed.
+
+**Framework relationship:** The bridge table is a parallel tracking structure alongside the Cell Schema coverage tracker — not an extension of it. Cell Schema tracks D-codes and F-codes with `[x]`/`[~]`/`[-]` statuses and E0-E3 evidence levels. The bridge tracks H-codes and ALT-codes with `open`/`tested`/`disconfirmed` statuses. Linkage is via: Target Dimensions (H→D mapping), Disposition (H→F finding IDs), and Anchor (design location). Both must be complete at Exit Gate.
+
+**Referential integrity:** Every `tested` H-row must reference at least one D-code or F-code finding. Every `disconfirmed` H-row must reference the dimensional check that produced counter-evidence. If a referenced D-code is later revised or removed, update the H-row disposition accordingly.
+
+**Operations, alternatives, and dominance checks:** See [Bridge & Checkpoints Reference](references/bridge-and-checkpoints.md).
+
+### Framework Boundary Rules
+
+The bridge table and AHG-5 layer on top of the [thoroughness framework](references/framework-for-thoroughness_v1.0.0.md). These rules govern the boundary between framework-owned semantics and skill-local additions.
+
+| # | Rule | What it governs |
+|---|------|----------------|
+| B1 | **Entry Gate declares Yield% scope:** H-codes and ALT-codes are excluded from Yield% tracking. Declare per-run in Entry Gate output: "Yield% scope: D-codes and F-codes only. H-codes are bridge scaffolding." | Yield% formula scope (framework MAY clause) |
+| B2 | **Bridge is a parallel tracker:** The bridge table operates alongside the Cell Schema coverage tracker, not inside it. Different ID namespaces (H/ALT vs D/F), different status vocabularies, different evidence models. | Structural relationship |
+| B3 | **Referential integrity:** Every `tested` H-row references ≥1 D/F finding. Every `disconfirmed` H-row references the counter-evidence source. If a referenced finding is revised or removed, update the H-row disposition. | Cross-tracker linkage |
+| B4 | **Status-specific evidence:** `tested` requires E1+ evidence (not bare assertion). `disconfirmed` requires specific counter-citation. `evaluated` (ALT) requires decision tree outcome with rationale. `withdrawn` requires one-sentence justification citing invalidated premise. See [Status-Specific Disposition Requirements](references/bridge-and-checkpoints.md#status-specific-disposition-requirements) for full table. | Disposition quality |
+| B5 | **REOPEN propagates D/F entities:** A REOPEN triggers exactly one reconciliation loop pass; if iteration cap has been reached, REOPEN overrides for this one pass (cap reasserts after). New D/F entities enter Yield% scope normally. See [REOPEN semantics](references/bridge-and-checkpoints.md#reopen-semantics) for scoped re-validation detail. | Loop re-entry mechanics |
+| B6 | **Unresolved ALT dominance creates F-code:** When an ALT row is `evaluated` with "unresolved — escalate," a corresponding F-code finding enters the coverage tracker at P1. | Decision risk tracking |
+
+These rules are the boundary contract between the framework and the skill's additions. Violations indicate a gap in the bridge-to-framework interface, not a framework bug.
+
+**Disconfirmation disambiguation:** "Disconfirmation" means different things in the two systems. Framework: obligation to attempt disconfirmation of P0 findings (applied to D/F-codes). Bridge: status meaning "hypothesis not supported" (applied to H-codes). These are independent — a `disconfirmed` H-row does not satisfy the framework's P0 disconfirmation MUST.
 
 ### The Review Loop
 
@@ -265,6 +371,8 @@ An entity _yields_ if it is:
 
 **Effective priority:** Findings inherit the highest priority of their linked dimensions. Unlinked findings default to P1 until linked. (Prevents P2-deferral: classifying genuinely P0/P1 findings as P2 to exclude them from Yield% scope.)
 
+**H-code exclusion (per B1):** Bridge table H-codes are scaffolding — not Yield-tracked entities. Only D-codes and F-codes enter E_prev/E_cur. Bridge completion is an independent exit criterion checked at Exit Gate. **Entry Gate declaration (B1):** Include in Entry Gate output: "Yield% scope: D-codes and F-codes only. H-codes are bridge scaffolding." (Per framework MAY clause — scope overrides must be declared at Entry Gate.)
+
 `Yield% = ( |Y| / max(1, |U|) ) × 100`
 
 Where:
@@ -331,6 +439,12 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 
 **Completion schema:** For each applied lens, record: lens ID, objection raised, response/mitigation, and residual risk (if any). Verify the count of lenses with non-empty objections matches the stakes requirement below.
 
+**AHG-5 overlap:** Lenses A1, A6, A7, and A8 overlap with AHG-5 questions. To prevent duplicate findings:
+
+1. Evaluate mapped bridge rows first (e.g., A1 checks H-rows before generating new findings)
+2. Findings that extend or confirm bridge hypotheses link to the existing H-code
+3. Genuinely new findings are marked **NET-NEW** with one-sentence justification of why the early gate didn't catch them
+
 **Minimum depth by stakes:**
 
 - Adequate: Apply 4+ lenses (by ID); document key objections
@@ -352,6 +466,7 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 | Convergence reached       | Yield% below threshold for stakes level                                                         |
 | Connections mapped        | P0/P1 findings have cause → affected sections → propagation impact documented                   |
 | Adversarial pass complete | All required lenses applied (with IDs); objections documented with responses or accepted risks  |
+| Bridge complete           | No `open` rows; all non-open rows satisfy disposition invariant (text + evidence + audit entry) |
 
 **Post-completion self-check (verify before producing output):**
 
@@ -361,6 +476,7 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 - [ ] VERIFY: disconfirmation techniques documented (what was tried AND what was found)
 - [ ] REFINE: Yield% calculated per pass; iteration log shows pass-by-pass changes
 - [ ] Adversarial: required lens count met for stakes; pre-mortem produced specific, plausible failure story
+- [ ] Bridge: all rows resolved; disposition invariant satisfied for every non-open row
 - [ ] If a P0 exists, would the user definitely see it in the summary?
 - [ ] If the design had hidden flaws, did I genuinely try to find them?
 
@@ -390,6 +506,10 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 - Mark as `[-]` with brief rationale (e.g., "D1-D3: N/A — no source documents specified")
 - Do not force-fit dimensions that don't apply
 
+**Bridge row targets N/A dimension:**
+
+- Retarget once to nearest applicable dimension; if none, WITHDRAW with rationale. See [N/A Dimension Targeting](references/bridge-and-checkpoints.md#na-dimension-targeting).
+
 **P0 issue found during EXPLORE:**
 
 - Continue review (don't stop to fix)
@@ -407,10 +527,16 @@ This pass challenges the _design itself_, not just individual findings. Apply ea
 - Do not attempt to fix within this skill (remediation is outside scope)
 - Note in summary: "Design may need fundamental rethinking"
 
+**Early gate produces zero hypotheses:**
+
+- All run questions produced "no finding" → verify genuine engagement
+- Self-check: "Did I approach this with adversarial intent, or assume the design was fine?"
+- If still zero after genuine effort → note in delta card #1 that early gate found no framing issues
+
 **User pressure to skip steps:**
 
 - Acknowledge the pressure
-- "Skipping [Entry Gate/Adversarial Pass/etc.] risks missing issues that surface during implementation."
+- "Skipping [Entry Gate/AHG-5/Adversarial Pass/etc.] risks missing issues that surface during implementation."
 - Complete minimum requirements for stakes level
 - Compress output, not process
 
@@ -433,6 +559,7 @@ Common failure modes and fixes: [Anti-Patterns Reference](references/dimensions-
 - **Single-pass "looks good" review** → Iterate until Yield% below threshold. Pass 1 is always 100% yield — you can't exit after one pass.
 - **Checking presence instead of completeness** → Ask "Is this COMPLETE?" not "Is this MENTIONED?"
 - **Skipping Document Quality dimensions** → D13-D19 are mandatory. Cannot be skipped.
+- **Early gate as checkbox** → Generic hypotheses ("what if it doesn't scale?") fail hard-fail rules. Q3 must name specific mechanisms. Q5 must state what breaks.
 
 ## Troubleshooting
 
@@ -446,25 +573,4 @@ If the review process isn't working as expected, see [Troubleshooting Reference]
 
 ## Extension Points
 
-**Domain-specific dimensions:**
-
-- Security reviews: Add threat modeling dimensions (attack vectors, trust boundaries)
-- API designs: Add consistency dimensions (naming conventions, error formats)
-- Performance-critical: Add scale dimensions (bottlenecks, resource bounds)
-
-**Framework handoffs:**
-
-- If review finds design is fundamentally flawed → Recommend returning to brainstorming
-- If review passes → Design ready for writing-plans or implementation
-- These are informational notes, not automated handoffs (workflow decisions are user's domain)
-
-**Custom artifact locations:**
-
-- Default: `docs/audits/YYYY-MM-DD-<design-name>-review.md`
-- Projects can override via CLAUDE.md if different convention exists
-
-**Stakes presets:**
-
-- Projects can define default stakes in CLAUDE.md (e.g., "all design reviews are Rigorous minimum")
-- User can still override per-review
-- **Conflict resolution:** If CLAUDE.md specifies a minimum and user requests lower: state the concrete risk delta (which evidence requirements drop, which disconfirmation techniques are removed, how confidence ceiling changes), record accepted risk in Entry Gate, proceed with user's choice
+See [Extension Points](references/dimensions-and-troubleshooting.md#extension-points) for domain-specific dimensions, framework handoffs, custom artifact locations, and stakes presets.
