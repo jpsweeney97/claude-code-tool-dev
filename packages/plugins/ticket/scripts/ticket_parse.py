@@ -9,6 +9,7 @@ section extraction, legacy detection, status normalization.
 """
 from __future__ import annotations
 
+import copy
 import datetime
 import re
 import warnings
@@ -162,7 +163,7 @@ def detect_generation(frontmatter: dict[str, Any]) -> int:
 
     Returns: 1 (slug), 2 (T-[A-F]), 3 (T-NNN), 4 (defer output), 10 (v1.0).
     """
-    ticket_id = frontmatter.get("id", "")
+    ticket_id = str(frontmatter.get("id", ""))
 
     # v1.0: has contract_version or source (not provenance)
     if "contract_version" in frontmatter or (
@@ -219,10 +220,14 @@ def _apply_section_renames(sections: dict[str, str]) -> dict[str, str]:
 
 
 def _apply_field_defaults(frontmatter: dict[str, Any], generation: int) -> dict[str, Any]:
-    """Apply field defaults for legacy tickets. Returns modified frontmatter."""
+    """Apply field defaults for legacy tickets. Returns modified frontmatter.
+
+    Uses deepcopy for mutable defaults (dicts, lists) to prevent shared state
+    leaking across tickets parsed in the same process.
+    """
     for field_name, default in _FIELD_DEFAULTS.items():
         if field_name not in frontmatter:
-            frontmatter[field_name] = default
+            frontmatter[field_name] = copy.deepcopy(default)
     return frontmatter
 
 
@@ -275,6 +280,9 @@ def parse_ticket(path: Path) -> ParsedTicket | None:
         )
         return None
 
+    # Coerce id to string (YAML may parse bare integers as int).
+    frontmatter["id"] = str(frontmatter["id"])
+
     # Detect generation.
     generation = detect_generation(frontmatter)
 
@@ -304,8 +312,8 @@ def parse_ticket(path: Path) -> ParsedTicket | None:
     if generation < 10:
         sections = _apply_section_renames(sections)
 
-    # Build source dict.
-    source = frontmatter.get("source", _FIELD_DEFAULTS["source"])
+    # Build source dict (copy default to prevent shared mutable state).
+    source = frontmatter.get("source") or copy.deepcopy(_FIELD_DEFAULTS["source"])
 
     return ParsedTicket(
         path=str(path),

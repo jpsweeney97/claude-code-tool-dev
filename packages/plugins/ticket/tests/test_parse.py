@@ -134,6 +134,11 @@ class TestDetectGeneration:
     def test_v10_with_contract_version(self):
         assert detect_generation({"id": "T-20260302-01", "contract_version": "1.0"}) == 10
 
+    def test_non_string_id_coerced(self):
+        """YAML `id: 123` produces int — must not crash regex matchers."""
+        assert detect_generation({"id": 123}) == 1
+        assert detect_generation({"id": 42, "provenance": {}}) == 1
+
 
 # --- normalize_status ---
 
@@ -249,3 +254,28 @@ class TestParseTicket:
         path.write_text("# Bad\n\n```yaml\npriority: high\n```\n", encoding="utf-8")
         with pytest.warns(UserWarning, match="missing required"):
             assert parse_ticket(path) is None
+
+    def test_non_string_id_coerced(self, tmp_tickets):
+        """YAML `id: 123` should parse without crashing."""
+        path = tmp_tickets / "numeric-id.md"
+        path.write_text(
+            '# Test\n\n```yaml\nid: 123\ndate: "2026-03-02"\nstatus: open\n```\n',
+            encoding="utf-8",
+        )
+        ticket = parse_ticket(path)
+        assert ticket is not None
+        assert ticket.id == "123"
+        assert ticket.generation == 1  # Slug fallback
+
+    def test_mutable_defaults_isolated(self, tmp_tickets):
+        """Parsing two legacy tickets must not share mutable default state."""
+        from tests.conftest import make_gen1_ticket
+
+        path1 = make_gen1_ticket(tmp_tickets, "gen1-a.md")
+        path2 = make_gen1_ticket(tmp_tickets, "gen1-b.md")
+        t1 = parse_ticket(path1)
+        t2 = parse_ticket(path2)
+        assert t1 is not None and t2 is not None
+        # Mutating t1's defaults must not affect t2.
+        assert t1.source is not t2.source
+        assert t1.tags is not t2.tags
