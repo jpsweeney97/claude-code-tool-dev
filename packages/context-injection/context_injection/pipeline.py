@@ -283,10 +283,28 @@ def _process_turn_inner(
     # --- Step 14: Compute cumulative, action, reason ---
     cumulative = provisional.compute_cumulative_state()
     turn_budget_remaining = max(0, MAX_CONVERSATION_TURNS - cumulative.turns_completed)
+
+    # Reconcile posture metadata — track phase boundaries
+    current_posture = request.posture
+    if provisional.last_posture is None:
+        # First turn with posture tracking — set initial posture
+        provisional = provisional.with_posture_change(
+            current_posture, phase_start_index=0
+        )
+    elif current_posture != provisional.last_posture:
+        # Posture changed — new phase starts at the latest entry
+        provisional = provisional.with_posture_change(
+            current_posture, phase_start_index=len(provisional.entries) - 1
+        )
+
+    # Always derive phase window after posture reconciliation
+    phase_entries = provisional.get_phase_entries()
+
     action, action_reason = compute_action(
         entries=provisional.entries,
         budget_remaining=turn_budget_remaining,
         closing_probe_fired=provisional.closing_probe_fired,
+        phase_entries=phase_entries,
     )
 
     # --- Step 15: Closing probe projection ---

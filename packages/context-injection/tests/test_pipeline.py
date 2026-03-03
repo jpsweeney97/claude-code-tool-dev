@@ -768,6 +768,156 @@ class TestPipelineActionComputation:
 
 
 # ============================================================
+# Phase-local convergence (Release B)
+# ============================================================
+
+
+def _static_claims(turn: int) -> list[Claim]:
+    """Claims that produce effective_delta=STATIC (reinforced only, no new/revised/conceded)."""
+    return [Claim(text=f"Reinforced claim T{turn}", status="reinforced", turn=turn)]
+
+
+class TestPipelinePhaseLocal:
+    """Pipeline wires posture-change detection and phase-local convergence."""
+
+    def test_posture_change_resets_phase_window(self) -> None:
+        """Send T1 exploratory (STATIC), T2 exploratory (STATIC) -> plateau.
+        T3 evaluative (ADVANCING) -> phase resets, no plateau from prior phase.
+        """
+        ctx = _make_ctx(git_files=set())
+        # T1: exploratory, STATIC (reinforced claims -> no new_claims -> STATIC)
+        r1 = _make_turn_request(
+            conversation_id="conv_phase",
+            turn_number=1,
+            posture="exploratory",
+            delta="static",
+            claims=_static_claims(1),
+        )
+        res1 = process_turn(r1, ctx)
+        assert res1.status == "success"
+
+        # T2: exploratory, STATIC -> plateau in same phase
+        r2 = _make_turn_request(
+            conversation_id="conv_phase",
+            turn_number=2,
+            posture="exploratory",
+            delta="static",
+            claims=_static_claims(2),
+            state_checkpoint=res1.state_checkpoint,
+            checkpoint_id=res1.checkpoint_id,
+        )
+        res2 = process_turn(r2, ctx)
+        assert res2.status == "success"
+        # T2 IS a plateau (2 STATIC in same phase)
+        assert res2.action == ConversationAction.CLOSING_PROBE
+
+        # T3: evaluative, ADVANCING -> posture changed, phase resets
+        r3 = _make_turn_request(
+            conversation_id="conv_phase",
+            turn_number=3,
+            posture="evaluative",
+            delta="advancing",
+            state_checkpoint=res2.state_checkpoint,
+            checkpoint_id=res2.checkpoint_id,
+        )
+        res3 = process_turn(r3, ctx)
+        assert res3.status == "success"
+        # Phase reset — only 1 entry in new phase, no plateau
+        assert res3.action == ConversationAction.CONTINUE_DIALOGUE
+
+    def test_constant_posture_derives_phase_entries_every_turn(self) -> None:
+        """Regression: phase_entries must be derived every turn, not just on
+        posture-change turns. Send 3 evaluative turns where T2-T3 are STATIC
+        -> plateau detected because phase_entries covers all 3 turns.
+        """
+        ctx = _make_ctx(git_files=set())
+        # T1: ADVANCING (default has new claim)
+        r1 = _make_turn_request(
+            conversation_id="conv_const",
+            turn_number=1,
+            posture="evaluative",
+            delta="advancing",
+        )
+        res1 = process_turn(r1, ctx)
+        assert res1.status == "success"
+
+        # T2: STATIC (reinforced only)
+        r2 = _make_turn_request(
+            conversation_id="conv_const",
+            turn_number=2,
+            posture="evaluative",
+            delta="static",
+            claims=_static_claims(2),
+            state_checkpoint=res1.state_checkpoint,
+            checkpoint_id=res1.checkpoint_id,
+        )
+        res2 = process_turn(r2, ctx)
+        assert res2.status == "success"
+
+        # T3: STATIC (reinforced only) -> 2 consecutive STATIC = plateau
+        r3 = _make_turn_request(
+            conversation_id="conv_const",
+            turn_number=3,
+            posture="evaluative",
+            delta="static",
+            claims=_static_claims(3),
+            state_checkpoint=res2.state_checkpoint,
+            checkpoint_id=res2.checkpoint_id,
+        )
+        res3 = process_turn(r3, ctx)
+        assert res3.status == "success"
+        # T2-T3 both STATIC in the same phase -> plateau
+        assert res3.action == ConversationAction.CLOSING_PROBE
+
+    def test_posture_change_prevents_cross_phase_plateau(self) -> None:
+        """Differentiating test: without phase wiring, T3 would CONCLUDE
+        (3 STATIC + probe fired). With phase wiring, T3 starts a new phase
+        (1 STATIC, no plateau, probe reset) -> CONTINUE.
+        """
+        ctx = _make_ctx(git_files=set())
+        # T1: STATIC
+        r1 = _make_turn_request(
+            conversation_id="conv_diff",
+            turn_number=1,
+            posture="exploratory",
+            delta="static",
+            claims=_static_claims(1),
+        )
+        res1 = process_turn(r1, ctx)
+        assert res1.status == "success"
+
+        # T2: STATIC -> plateau -> CLOSING_PROBE (probe fires)
+        r2 = _make_turn_request(
+            conversation_id="conv_diff",
+            turn_number=2,
+            posture="exploratory",
+            delta="static",
+            claims=_static_claims(2),
+            state_checkpoint=res1.state_checkpoint,
+            checkpoint_id=res1.checkpoint_id,
+        )
+        res2 = process_turn(r2, ctx)
+        assert res2.status == "success"
+        assert res2.action == ConversationAction.CLOSING_PROBE
+
+        # T3: posture changes to evaluative, STATIC
+        # Without phase wiring: 3 STATIC + probe fired -> CONCLUDE
+        # With phase wiring: new phase (1 STATIC), probe reset -> CONTINUE
+        r3 = _make_turn_request(
+            conversation_id="conv_diff",
+            turn_number=3,
+            posture="evaluative",
+            delta="static",
+            claims=_static_claims(3),
+            state_checkpoint=res2.state_checkpoint,
+            checkpoint_id=res2.checkpoint_id,
+        )
+        res3 = process_turn(r3, ctx)
+        assert res3.status == "success"
+        assert res3.action == ConversationAction.CONTINUE_DIALOGUE
+
+
+# ============================================================
 # Checkpoint (D4b Task 13a)
 # ============================================================
 
