@@ -64,6 +64,8 @@ Exit Gate → Artifact
 
 Checkpoints are invitations, not gates. If the user says nothing, the review proceeds.
 
+**Checkpoint 2 re-entry:** If ADD creates a new H-row or REVISE materially changes hypothesis/target dimensions at checkpoint 2, run one reconciliation loop pass on affected rows before the Adversarial Pass and recompute Yield%. Editorial-only REVISE and WITHDRAW do not require reconciliation.
+
 **Delta card format:** See [Bridge & Checkpoints Reference](references/bridge-and-checkpoints.md#delta-card-schema).
 
 **Artifact:** `docs/audits/YYYY-MM-DD-<design-name>-review.md`
@@ -132,7 +134,7 @@ List what you're taking for granted:
 - **Thresholds:** Adequate <20%, Rigorous <10%, Exhaustive <5%
 
 **5. Record Entry Gate:**
-Document assumptions, stakes level, and stopping criteria before proceeding.
+Document: inputs, assumptions, stakes level, stopping criteria, and Yield% scope declaration (per B1): "D-codes and F-codes only. H-codes are bridge scaffolding."
 
 ### Early Adversarial Gate (AHG-5)
 
@@ -155,6 +157,8 @@ Five questions that surface framing problems, load-bearing assumptions, and syst
 | Adequate | AHG-lite: Q1, Q3, Q5 only | Exactly 2 | H1-H2 + ALT1-ALT2 |
 | Rigorous | Full AHG-5 | Exactly 3 | H1-H3 + ALT1-ALT2 |
 | Exhaustive | Full AHG-5 | Exactly 4 | H1-H4 + ALT1-ALT2 |
+
+**Adequate path:** Adequate skips Q2, so no concrete alternatives emerge. Populate ALT rows using [ALT overflow](references/bridge-and-checkpoints.md#alt-overflow) 0-alt rules (CONSTRAINED or NONE IDENTIFIED).
 
 No skip path — skipping recreates the N/A rationalization anti-pattern.
 
@@ -213,8 +217,8 @@ The bridge table and AHG-5 layer on top of the [thoroughness framework](referenc
 | B1 | **Entry Gate declares Yield% scope:** H-codes and ALT-codes are excluded from Yield% tracking. Declare per-run in Entry Gate output: "Yield% scope: D-codes and F-codes only. H-codes are bridge scaffolding." | Yield% formula scope (framework MAY clause) |
 | B2 | **Bridge is a parallel tracker:** The bridge table operates alongside the Cell Schema coverage tracker, not inside it. Different ID namespaces (H/ALT vs D/F), different status vocabularies, different evidence models. | Structural relationship |
 | B3 | **Referential integrity:** Every `tested` H-row references ≥1 D/F finding. Every `disconfirmed` H-row references the counter-evidence source. If a referenced finding is revised or removed, update the H-row disposition. | Cross-tracker linkage |
-| B4 | **Status-specific evidence:** `tested` requires E1+ evidence (not bare assertion). `disconfirmed` requires specific counter-citation. See [Status-Specific Disposition Requirements](references/bridge-and-checkpoints.md#status-specific-disposition-requirements). | Disposition quality |
-| B5 | **REOPEN propagates D/F entities:** A REOPEN triggers one reconciliation pass. New D/F entities enter Yield% scope normally. See [REOPEN semantics](references/bridge-and-checkpoints.md#reopen-semantics). | Loop re-entry mechanics |
+| B4 | **Status-specific evidence:** `tested` requires E1+ evidence (not bare assertion). `disconfirmed` requires specific counter-citation. `evaluated` (ALT) requires decision tree outcome with rationale. `withdrawn` requires one-sentence justification citing invalidated premise. See [Status-Specific Disposition Requirements](references/bridge-and-checkpoints.md#status-specific-disposition-requirements) for full table. | Disposition quality |
+| B5 | **REOPEN propagates D/F entities:** A REOPEN triggers exactly one reconciliation loop pass; if iteration cap has been reached, REOPEN overrides for this one pass (cap reasserts after). New D/F entities enter Yield% scope normally. See [REOPEN semantics](references/bridge-and-checkpoints.md#reopen-semantics) for scoped re-validation detail. | Loop re-entry mechanics |
 | B6 | **Unresolved ALT dominance creates F-code:** When an ALT row is `evaluated` with "unresolved — escalate," a corresponding F-code finding enters the coverage tracker at P1. | Decision risk tracking |
 
 These rules are the boundary contract between the framework and the skill's additions. Violations indicate a gap in the bridge-to-framework interface, not a framework bug.
