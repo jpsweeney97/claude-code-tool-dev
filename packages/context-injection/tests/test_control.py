@@ -272,6 +272,134 @@ class TestComputeActionContinue:
         assert action == ConversationAction.CONTINUE_DIALOGUE
 
 
+class TestComputeActionPhaseLocal:
+    """Phase-local convergence window (Release B)."""
+
+    def test_phase_entries_none_uses_full_history(self) -> None:
+        """When phase_entries is None, behavior identical to pre-Release-B."""
+        entries = [
+            _make_entry(turn_number=1, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=2, effective_delta=EffectiveDelta.STATIC),
+        ]
+        action_old, _ = compute_action(entries, budget_remaining=5, closing_probe_fired=False)
+        action_new, _ = compute_action(
+            entries, budget_remaining=5, closing_probe_fired=False, phase_entries=None
+        )
+        assert action_old == action_new == ConversationAction.CLOSING_PROBE
+
+    def test_phase_entries_scopes_plateau_detection(self) -> None:
+        """Plateau detected only within phase window, not full history."""
+        full_entries = [
+            _make_entry(turn_number=1, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=2, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=3, effective_delta=EffectiveDelta.ADVANCING),
+        ]
+        # Phase started at turn 3 — only one ADVANCING entry, no plateau
+        phase_entries = full_entries[2:]
+        action, _ = compute_action(
+            full_entries, budget_remaining=5, closing_probe_fired=False, phase_entries=phase_entries
+        )
+        assert action == ConversationAction.CONTINUE_DIALOGUE
+
+    def test_phase_entries_resets_plateau_from_prior_phase(self) -> None:
+        """Prior phase's STATIC turns don't pollute current phase."""
+        full_entries = [
+            _make_entry(turn_number=1, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=2, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=3, effective_delta=EffectiveDelta.ADVANCING),
+            _make_entry(turn_number=4, effective_delta=EffectiveDelta.STATIC),
+        ]
+        # Phase started at index 2: [ADVANCING, STATIC] — no plateau
+        phase_entries = full_entries[2:]
+        action, _ = compute_action(
+            full_entries, budget_remaining=5, closing_probe_fired=False, phase_entries=phase_entries
+        )
+        assert action == ConversationAction.CONTINUE_DIALOGUE
+
+    def test_closing_probe_fires_within_phase(self) -> None:
+        """Plateau within phase window triggers closing probe."""
+        full_entries = [
+            _make_entry(turn_number=1, effective_delta=EffectiveDelta.ADVANCING),
+            _make_entry(turn_number=2, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=3, effective_delta=EffectiveDelta.STATIC),
+        ]
+        phase_entries = full_entries[1:]  # Phase started at index 1
+        action, _ = compute_action(
+            full_entries, budget_remaining=5, closing_probe_fired=False, phase_entries=phase_entries
+        )
+        assert action == ConversationAction.CLOSING_PROBE
+
+    def test_budget_still_trumps_phase_logic(self) -> None:
+        """Budget exhaustion overrides phase-local logic."""
+        entries = [_make_entry(turn_number=1)]
+        action, _ = compute_action(
+            entries, budget_remaining=0, closing_probe_fired=False, phase_entries=entries
+        )
+        assert action == ConversationAction.CONCLUDE
+
+    def test_phase_entries_equals_full_entries_matches_none(self) -> None:
+        """phase_entries=entries is equivalent to phase_entries=None (full history)."""
+        entries = [
+            _make_entry(turn_number=1, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=2, effective_delta=EffectiveDelta.STATIC),
+        ]
+        action_none, _ = compute_action(
+            entries, budget_remaining=5, closing_probe_fired=False, phase_entries=None
+        )
+        action_full, _ = compute_action(
+            entries, budget_remaining=5, closing_probe_fired=False, phase_entries=entries
+        )
+        assert action_none == action_full
+
+    def test_closing_probe_reset_on_phase_transition(self) -> None:
+        """After phase transition, closing probe can fire again within new phase."""
+        full_entries = [
+            _make_entry(turn_number=1, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=2, effective_delta=EffectiveDelta.STATIC),
+            # Phase boundary here — closing_probe_fired resets to False
+            _make_entry(turn_number=3, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(turn_number=4, effective_delta=EffectiveDelta.STATIC),
+        ]
+        phase_entries = full_entries[2:]  # New phase: turns 3-4
+        # closing_probe_fired=False because with_posture_change resets it
+        action, _ = compute_action(
+            full_entries, budget_remaining=5, closing_probe_fired=False, phase_entries=phase_entries
+        )
+        assert action == ConversationAction.CLOSING_PROBE
+
+    def test_unresolved_checked_on_full_entries_not_phase(self) -> None:
+        """Unresolved items are checked against full history, not phase window."""
+        full_entries = [
+            _make_entry(
+                turn_number=1,
+                effective_delta=EffectiveDelta.STATIC,
+                unresolved=[Unresolved(text="Q from phase 1", turn=1)],
+            ),
+            _make_entry(
+                turn_number=2,
+                effective_delta=EffectiveDelta.STATIC,
+                unresolved=[Unresolved(text="Still open", turn=2)],
+            ),
+            # Phase boundary
+            _make_entry(turn_number=3, effective_delta=EffectiveDelta.STATIC),
+            _make_entry(
+                turn_number=4,
+                effective_delta=EffectiveDelta.STATIC,
+                unresolved=[Unresolved(text="Cross-phase unresolved", turn=4)],
+            ),
+        ]
+        phase_entries = full_entries[2:]
+        # Phase has plateau, probe fired, BUT full entries have unresolved -> CONTINUE
+        action, reason = compute_action(
+            full_entries,
+            budget_remaining=5,
+            closing_probe_fired=True,
+            phase_entries=phase_entries,
+        )
+        assert action == ConversationAction.CONTINUE_DIALOGUE
+        assert "unresolved" in reason.lower()
+
+
 class TestComputeActionReasonStrings:
     """Verify reason strings are descriptive (not just action names)."""
 
