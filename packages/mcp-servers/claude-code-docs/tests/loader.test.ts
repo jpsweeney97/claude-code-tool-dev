@@ -278,6 +278,38 @@ Content`;
     expect(frontmatter.topic).toBe('Hooks: The "Complete" Guide');
   });
 
+  it('logs parse diagnostics to stderr', async () => {
+    const mockContent = `# Hooks Guide
+Source: https://code.claude.com/docs/en/hooks
+
+Hooks content here
+---
+# Quickstart
+Source: https://code.claude.com/docs/en/quickstart
+
+Getting started content`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(mockContent),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await loadFromOfficial('https://example.com/docs', cachePath);
+
+    // Should log parse diagnostics
+    const diagnosticLog = errorSpy.mock.calls.find(
+      call => typeof call[0] === 'string' && call[0].includes('Parse diagnostics')
+    );
+    expect(diagnosticLog).toBeDefined();
+    errorSpy.mockRestore();
+  });
+
   it('derives correct category for nested URL paths', async () => {
     const mockContent = `# Input Schema
 Source: https://code.claude.com/docs/en/hooks/input-schema

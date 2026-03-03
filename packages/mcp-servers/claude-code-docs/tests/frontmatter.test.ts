@@ -5,6 +5,7 @@ import {
   deriveCategory,
   getParseWarnings,
   clearParseWarnings,
+  getUnmappedSegments,
 } from '../src/frontmatter.js';
 
 describe('parseFrontmatter', () => {
@@ -258,5 +259,28 @@ describe('parseFrontmatter warnings', () => {
 
     // Second call should have no warnings (isolated)
     expect(w2.length).toBe(0);
+  });
+});
+
+describe('getUnmappedSegments', () => {
+  it('returns empty for fully mapped URL', () => {
+    expect(getUnmappedSegments('https://code.claude.com/docs/en/hooks')).toEqual([]);
+  });
+
+  it('returns only unmapped segments (excludes docs/en prefix)', () => {
+    expect(getUnmappedSegments('https://code.claude.com/docs/en/unknown-page')).toEqual(['unknown-page']);
+  });
+
+  it('returns empty for empty sourceUrl', () => {
+    expect(getUnmappedSegments('')).toEqual([]);
+  });
+
+  it('does not match prototype properties as mapped', () => {
+    // Object.hasOwn prevents 'constructor' from matching via Object.prototype
+    expect(getUnmappedSegments('https://code.claude.com/docs/en/constructor')).toEqual(['constructor']);
+  });
+
+  it('returns empty for invalid URL', () => {
+    expect(getUnmappedSegments('not-a-url')).toEqual([]);
   });
 });
