@@ -267,7 +267,12 @@ describe('getUnmappedSegments', () => {
     expect(getUnmappedSegments('https://code.claude.com/docs/en/hooks')).toEqual([]);
   });
 
-  it('returns only unmapped segments (excludes docs/en prefix)', () => {
+  it('returns empty when at least one segment is mapped (URL is categorizable)', () => {
+    // 'hooks' is mapped, 'input-schema' is not — but URL is categorizable
+    expect(getUnmappedSegments('https://code.claude.com/docs/en/hooks/input-schema')).toEqual([]);
+  });
+
+  it('returns all segments when no segment is mapped (URL is uncategorizable)', () => {
     expect(getUnmappedSegments('https://code.claude.com/docs/en/unknown-page')).toEqual(['unknown-page']);
   });
 

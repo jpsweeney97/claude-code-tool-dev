@@ -218,12 +218,21 @@ export function deriveCategory(path: string): string {
 }
 
 /**
- * Find URL path segments not mapped in SECTION_TO_CATEGORY.
- * Returns unmapped segment names for diagnostics.
- * Uses extractContentPath to strip /docs/{lang}/ prefix — same normalization as deriveCategory.
- * Pure function — no side effects.
+ * Find URL path segments not mapped in SECTION_TO_CATEGORY — only when
+ * the URL is truly uncategorizable (no segment maps to a category).
+ *
+ * If ANY segment maps (URL categorizable via deriveCategory's first-match),
+ * returns [] — unmapped leaf segments like 'input-schema' in '/hooks/input-schema'
+ * are expected page slugs, not missing categories.
+ *
+ * Returns non-empty only when NO segment maps, meaning deriveCategory would
+ * fall back to 'overview'. Uses Object.hasOwn to avoid prototype-chain
+ * false positives. Pure function — no side effects.
  */
 export function getUnmappedSegments(sourceUrl: string): string[] {
   const segments = extractContentPath(sourceUrl);
-  return segments.filter(seg => !Object.hasOwn(SECTION_TO_CATEGORY, seg));
+  const anyMapped = segments.some(seg => Object.hasOwn(SECTION_TO_CATEGORY, seg));
+  if (anyMapped) return [];
+  // No segment maps — URL is uncategorizable. Return all for diagnostics.
+  return segments;
 }
