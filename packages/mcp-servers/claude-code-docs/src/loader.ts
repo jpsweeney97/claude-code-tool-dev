@@ -229,16 +229,24 @@ async function fetchAndParse(
     await writeCache(cachePath, content);
     return { sections, contentHash };
   } catch (err: unknown) {
-    // Log error with appropriate prefix based on error type
+    // Only fall back to stale cache for expected operational errors.
+    // Programmer errors (TypeError, RangeError, etc.) propagate immediately
+    // so parser regressions are not masked by serving stale data.
+    const isExpected =
+      err instanceof FetchHttpError ||
+      err instanceof FetchNetworkError ||
+      err instanceof FetchTimeoutError ||
+      err instanceof ContentValidationError;
+
+    if (!isExpected) throw err;
+
     if (err instanceof ContentValidationError) {
       console.error(`Content validation failed: ${err.message}`);
-    } else if (err instanceof Error) {
-      console.error(err.message);
     } else {
-      console.error(`Fetch failed: ${String(err)}`);
+      console.error(err.message);
     }
 
-    // Fall back to stale cache on fetch error or validation failure
+    // Fall back to stale cache on expected fetch/validation error
     const cached = await readCache(cachePath);
     if (cached) {
       const ageHours = (cached.age / 3600000).toFixed(1);
