@@ -16,7 +16,9 @@ Gate 0 verification commands:
 3. Check non-sequential execution: confirm the skill can handle M2's task order (Task 3 → Task 14, skipping Tasks 4-13).
 4. Check checkpoint format: confirm the skill's checkpoint format is compatible with the invariant ledger schema (§Internal Execution Strategy).
 
-**Pass/fail:** All 4 checks must pass. If any fails, resolve the constraint before proceeding — constraints affect all 5 modules.
+**Pass/fail:** All 4 checks must pass. If any fails, resolve the constraint before proceeding — constraints affect all 5 modules. Gate 0 is run by the incoming module executor; any failed check blocks M1 start and is escalated to reviewer/user for environment/skill remediation.
+
+Gate 0 produces a lightweight preflight card (checks 1-4 results + PASS/FAIL + runner identity) committed before M1 starts. The M1 handoff prompt includes this Gate 0 preflight card.
 
 ## Module Structure
 
@@ -38,7 +40,7 @@ Gate 0 verification commands:
 
 **Task 15 grouped with M5.** Final suite run and cleanup belong with integration.
 
-**Canonical plan is read-only during active module execution.** Task numbers are not renumbered. Module execution order (e.g., M2 runs Task 3 then Task 14) is specified in this design, not in the plan itself. The remediation cycle (§Failure Recovery, step 3) may re-enter an upstream module to fix defects — this is the sole exception to read-only access.
+**Canonical plan is read-only during active module execution.** Task numbers are not renumbered. Module execution order (e.g., M2 runs Task 3 then Task 14) is specified in this design, not in the plan itself. The remediation cycle (§Failure Recovery, step 3) may re-enter an upstream module to fix defects — this is the sole exception to read-only access. "Read-only" applies to the canonical plan file only; gate artifacts (gate card and evidence) are allowed repository updates under the two-SHA model.
 
 ## Gated Review Protocol
 
@@ -63,7 +65,11 @@ probe_evidence:              # Command outputs / structured results tied to eval
     result: "..."
 ```
 
-**Two-SHA semantics:** The executor commits all module work (`evaluated_sha`). The reviewer runs gate checks against that state, then commits the gate card and evidence artifacts (`handoff_sha`). The next module's handoff prompt references `handoff_sha`.
+`warnings` are non-blocking. "Carried forward" means warnings remain visible in committed prior gate cards for subsequent reviewers; duplication into each new gate card is optional.
+
+`probe_evidence` is reviewer-authored at gate time and records one entry per probe command executed at that gate. If no probe commands run, set `probe_evidence: []`; at M4→M5, record 4 entries (one per round-trip vector).
+
+**Two-SHA semantics:** The executor commits all module work (`evaluated_sha`). The reviewer runs gate checks against that state, then commits the gate card and evidence artifacts (`handoff_sha`). The next module's handoff prompt references `handoff_sha`. Reviewer gate commits MUST modify only gate artifacts [M]. Before the next module starts, the incoming executor verifies `evaluated_sha..handoff_sha` changes are gate-artifact-only [M] (upgradeable to [S] with an allowlist diff script).
 
 ### Module → Task → Test File Mapping
 
@@ -94,7 +100,7 @@ Each gate's `must_pass_files` is the cumulative set: all test files from the cur
 - **Standard+:** Standard + forward-dependency sentinels. Import-only smoke tests for the next module's known imports. At M2→M3: verify `ticket_parse` exports satisfy M3's Tasks 4 and 6 import needs — `extract_fenced_yaml`, `parse_yaml_block` (Task 4) and `ParsedTicket`, `parse_ticket` (Task 6). Task 5 and Task 7 do not import from `ticket_parse`.
 - **Critical:** Standard+ + re-run all upstream module test files + downstream preflight (import-only smoke for the module after next, when applicable). At M3→M4: full upstream re-run + verify M4's import subset (`ParsedTicket`, `parse_ticket`, `extract_fenced_yaml`, `parse_yaml_block` from `ticket_parse`; `find_ticket_by_id`, `list_tickets` from `ticket_read`; `dedup_fingerprint`, `normalize`, `target_fingerprint` from `ticket_dedup`; `allocate_id`, `build_filename` from `ticket_id`; `render_ticket` from `ticket_render`). At M4→M5: round-trip gate probe (see below).
 
-**Enforcement tags:** `[T]` = test-enforced, `[S]` = script-enforced, `[M]` = manual review, `[A]` = advisory. Tags apply to gate-critical MUST/SHALL rules only.
+**Enforcement tags:** `[T]` = test-enforced, `[S]` = script-enforced, `[M]` = manual review, `[A]` = advisory. Tags apply to gate-critical MUST/SHALL rules only. Untagged policy constraints default to reviewer enforcement [M]; explicit tags are required only for gate-critical MUST/SHALL checks.
 
 **M4→M5 round-trip gate probe [T]:** Task 14 (M2) validates parse→read, but nothing validates write→parse. `_render_canonical_frontmatter` does manual YAML string formatting with data-dependent edge cases. This probe runs at gate time, not during M4 execution.
 
@@ -105,17 +111,19 @@ Concrete probe vectors (4 operations, each with adversarial inputs):
 3. **Close** the ticket: `status: in-progress → done`. Assert: readback `status == "done"`, all fields preserved.
 4. **Reopen** the ticket: `status: done → open`. Assert: readback `status == "open"`, all fields preserved.
 
-**Pass/fail:** All 4 readbacks must produce field-level equality. Any field mismatch = FAIL. The probe vectors exercise the known failure modes of `_render_canonical_frontmatter`: commas in flow-style lists, brackets in tags, and double quotes in string values.
+**Pass/fail:** All 4 readbacks must produce field-level equality. Any field mismatch = FAIL. The probe vectors exercise the known failure modes of `_render_canonical_frontmatter`: commas in flow-style lists, brackets in tags, and double quotes in string values. Field-level equality is semantic equality on the fields asserted by each probe vector, with required keys present. `None` and missing keys are not equivalent.
+
+Any round-trip probe mismatch is deterministic and triggers Failure Recovery step 3 (re-enter M4 via remediation cycle).
 
 ### Failure Recovery
 
 **Trigger conditions:** A failure event is any nonzero exit from: test command, import check, lint, or runtime execution during module work. Failures are classified as **transient** (timeout, flaky test — retry is appropriate) or **deterministic** (assertion failure, import error — retry will not help). After 2 retries of a transient failure, or 1 occurrence of a deterministic failure, escalate to step 2.
 
 1. **Retry locally** (max 2 attempts, transient failures only). Deterministic failures skip directly to step 2.
-2. **3-branch attribution:** Run the previous gate's `must_pass_files` as sentinel tests.
+2. **3-branch attribution:** Run the previous gate's sentinel commands (`commands_to_run` and any smoke checks) as sentinel tests. Base case: if prior gate has no `must_pass_files` (M1→M2), run that gate's `commands_to_run` smoke checks as sentinels.
    - **Sentinels fail → upstream fault.** The defect was introduced before the current module. Proceed to step 3.
    - **Sentinels pass, failure is in a file owned by the current module → local fault.** Fix within the current module.
-   - **Sentinels pass, but failure involves cross-module interaction (e.g., import works but returns wrong type) → boundary fault.** The upstream contract is technically satisfied but semantically wrong. Escalate to reviewer for manual attribution before proceeding.
+   - **Sentinels pass, but failure involves cross-module interaction (e.g., import works but returns wrong type) → boundary fault.** The upstream contract is technically satisfied but semantically wrong. Reviewer produces a decision record (owner_module, evidence, scope_of_edits, rerun_commands) and authorizes a scoped remediation cycle (step 3). No "escalate and wait" state — the decision record is mandatory before proceeding.
 3. **If upstream fault → remediation cycle:** Stop current module. Re-enter the upstream module to fix the defect. Produce a new `evaluated_sha` + updated gate card + root-cause note. The remediation cycle completes when the upstream gate re-passes.
 4. **Cross-boundary edits disallowed** unless a remediation cycle is explicitly triggered by upstream or boundary fault (steps 2-3). An executing agent must never edit files owned by a prior module during normal execution.
 
@@ -172,4 +180,6 @@ Standard sequential TDD flow. No special internal strategy — all under 1000 li
 - **Adversarial review (round 2):** Thread `019cb1b9-209f-7520-993d-4ec13ab8d390`, 5/10 turns, converged. Found 4 P0 + 3 P1 + 3 P2 defects. All P0 and P1 applied.
 - **Adversarial review (round 3):** Thread `019cb1d9-c7b3-7142-8800-8daadf4a5bd9`, 5/10 turns, converged. Found 4 P0 + 5 P1 + 2 P2 defects (11 total). Key findings: self-certification gap, wrong sentinel imports, non-executable probe, immutability deadlock.
 - **Collaborative findings triage:** Thread `019cb1ee-ebdb-72f2-a025-85f9a4324e43`, 6/10 turns, converged. Rejected 2 heavyweight mechanisms (Boundary Contract Manifest, Errata Overlay). All 11 findings applied as lightweight inline fixes. Emerged: enforcement tags, probe_evidence block, 3-branch attribution model.
-- **Open questions (non-blocking):** Whether monotonicity enforcement should be upgraded from `[M]` manual to `[S]` scripted before M4 execution begins.
+- **Adversarial review (round 4):** Thread `019cb213-fd9b-7f72-860a-54b87db5e2ed`, 6/10 turns, converged. Found 1 P0 + 8 P1 + 5 P2 defects. Key findings: boundary fault deadlock, enforcement tag coverage, gate-time failure ownership, dual-doc freeze, warnings carry-forward, sentinel attribution scope, two-SHA identity.
+- **Collaborative findings triage (round 4):** Thread `019cb22b-a96f-72c2-ae99-9ae3b504e2c9`, 6/10 turns, converged. Applied 12 of 14 findings as lightweight inline fixes. Rejected P2-1 (speculative blast-radius). Deferred P1-4 (monotonicity upgrade control). Emerged: integrated step 2 rewrite, executor cross-verification, semantic equality softening.
+- **Open questions (non-blocking):** Whether monotonicity enforcement should be upgraded from `[M]` to `[S]` before M4 execution, and what trigger condition / go-no-go criterion should govern that decision.
