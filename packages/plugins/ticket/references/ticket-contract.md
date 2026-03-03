@@ -63,9 +63,14 @@ Exit codes: 0 (success), 1 (engine error), 2 (validation failure)
 | Subcommand | Input | Output `data` |
 |-----------|-------|---------------|
 | classify | action, args, session_id, request_origin | intent, confidence, resolved_ticket_id |
-| plan | intent, fields, session_id, request_origin | dedup_fingerprint, target_fingerprint, duplicate_of, missing_fields, action_plan |
+| plan | intent, fields (including `key_file_paths: list[str]` for dedup), session_id, request_origin | dedup_fingerprint, target_fingerprint, duplicate_of, missing_fields, action_plan |
 | preflight | ticket_id, action, session_id, request_origin, classify_confidence, classify_intent, dedup_fingerprint, target_fingerprint | checks_passed, checks_failed |
-| execute | action, ticket_id, fields, session_id, request_origin, dedup_override, dependency_override | ticket_path, changes |
+| execute | action, ticket_id, fields (including `key_files: list[dict]` for rendering), session_id, request_origin, dedup_override, dependency_override | ticket_path, changes |
+
+**Field disambiguation:**
+- `key_file_paths: list[str]` — file paths for dedup fingerprinting (plan subcommand input)
+- `key_files: list[dict[str, str]]` — structured table rows `{file, role, look_for}` for rendering (execute subcommand input)
+- If both are present in input, `key_file_paths` is used for dedup. `key_files` is always used for rendering.
 
 ### Machine States (14 total: 13 emittable, 1 reserved)
 

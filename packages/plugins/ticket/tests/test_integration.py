@@ -31,7 +31,7 @@ class TestFullCreatePipeline:
             "title": "Integration test ticket",
             "problem": "This is an integration test.",
             "priority": "medium",
-            "key_files": [],
+            "key_file_paths": [],
         }
         plan_resp = engine_plan(
             intent=classify_resp.data["intent"],
@@ -144,7 +144,7 @@ class TestFullCreatePipeline:
             "problem": "Auth times out.",
             "priority": "high",
             # make_ticket's Key Files table always includes "test.py".
-            "key_files": ["test.py"],
+            "key_file_paths": ["test.py"],
         }
 
         plan_resp = engine_plan(
@@ -157,9 +157,9 @@ class TestFullCreatePipeline:
         assert plan_resp.state == "duplicate_candidate"
 
         # Override and create anyway.
-        # key_files for execute must be list[dict] (render format), not list[str] (dedup format).
-        # Omit key_files from execute fields — render_ticket treats None as "no section".
-        execute_fields = {k: v for k, v in fields.items() if k != "key_files"}
+        # key_file_paths (list[str]) is plan/dedup only; key_files (list[dict]) is render only.
+        # Strip key_file_paths from execute fields — render_ticket treats None as "no section".
+        execute_fields = {k: v for k, v in fields.items() if k != "key_file_paths"}
         execute_resp = engine_execute(
             action="create",
             ticket_id=None,

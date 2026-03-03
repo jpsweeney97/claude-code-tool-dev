@@ -103,7 +103,7 @@ class TestEnginePlan:
                 "title": "Fix auth bug",
                 "problem": "Auth times out.",
                 "priority": "high",
-                "key_files": ["handler.py"],
+                "key_file_paths": ["handler.py"],
             },
             session_id="test-session",
             request_origin="user",
@@ -146,7 +146,7 @@ class TestEnginePlan:
                 "title": "Fix auth bug",
                 "problem": "Auth times out.",
                 "priority": "high",
-                "key_files": ["test.py"],  # Must match conftest's Key Files table
+                "key_file_paths": ["test.py"],  # Must match conftest's Key Files table
             },
             session_id="test-session",
             request_origin="user",
@@ -172,7 +172,7 @@ class TestEnginePlan:
                 "title": "Fix auth bug",
                 "problem": "Auth times out.",
                 "priority": "high",
-                "key_files": [],
+                "key_file_paths": [],
             },
             session_id="test-session",
             request_origin="user",

@@ -169,8 +169,8 @@ def _plan_create(
 
     # Compute dedup fingerprint.
     problem_text = fields["problem"]
-    key_files = fields.get("key_files", [])
-    fp = dedup_fingerprint(problem_text, key_files)
+    key_file_paths = fields.get("key_file_paths", [])
+    fp = dedup_fingerprint(problem_text, key_file_paths)
 
     # Scan for duplicates within 24h window.
     duplicate_of = None
@@ -190,16 +190,16 @@ def _plan_create(
 
         # Compute fingerprint for this ticket's problem text.
         ticket_problem = ticket.sections.get("Problem", "")
-        ticket_key_files: list[str] = []
+        ticket_key_file_paths: list[str] = []
         # Extract file paths from Key Files section if present.
         key_files_section = ticket.sections.get("Key Files", "")
         if key_files_section:
             for match in re.finditer(r"^\| ([^|]+) \|", key_files_section, re.MULTILINE):
                 cell = match.group(1).strip()
                 if cell and cell != "File" and not cell.startswith("-"):
-                    ticket_key_files.append(cell)
+                    ticket_key_file_paths.append(cell)
 
-        existing_fp = dedup_fingerprint(ticket_problem, ticket_key_files)
+        existing_fp = dedup_fingerprint(ticket_problem, ticket_key_file_paths)
         if existing_fp == fp:
             from scripts.ticket_dedup import target_fingerprint
 
