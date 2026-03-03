@@ -201,17 +201,6 @@ export function formatMetadataHeader(fm: Frontmatter): string {
  * - Returns the first directory segment
  * - Falls back to 'general'
  */
-/**
- * Find URL path segments not mapped in SECTION_TO_CATEGORY.
- * Returns unmapped segment names for diagnostics.
- * Uses extractContentPath to strip /docs/{lang}/ prefix — same normalization as deriveCategory.
- * Pure function — no side effects.
- */
-export function getUnmappedSegments(sourceUrl: string): string[] {
-  const segments = extractContentPath(sourceUrl);
-  return segments.filter(seg => !Object.hasOwn(SECTION_TO_CATEGORY, seg));
-}
-
 export function deriveCategory(path: string): string {
   if (isHttpUrl(path)) {
     const segments = extractContentPath(path);
@@ -226,4 +215,15 @@ export function deriveCategory(path: string): string {
   // Original logic for file paths
   const match = path.match(/^([^/]+)\//);
   return match?.[1] ?? 'general';
+}
+
+/**
+ * Find URL path segments not mapped in SECTION_TO_CATEGORY.
+ * Returns unmapped segment names for diagnostics.
+ * Uses extractContentPath to strip /docs/{lang}/ prefix — same normalization as deriveCategory.
+ * Pure function — no side effects.
+ */
+export function getUnmappedSegments(sourceUrl: string): string[] {
+  const segments = extractContentPath(sourceUrl);
+  return segments.filter(seg => !Object.hasOwn(SECTION_TO_CATEGORY, seg));
 }
