@@ -45,8 +45,8 @@ Bridge table populated: H1 (open, D4), H2 (open, D6), H3 (open, D10), ALT1 (open
 
 **Pass 2 EXPLORE:** Deeper on D4-D6.
 
-- H2 → TESTED: P0 — timeout defaults to fail-open [D6]
-- H3 → TESTED: P0 — no mutex on concurrent refresh [D10]
+- H2 → tested: P0 — timeout defaults to fail-open [D6]
+- H3 → tested: P0 — no mutex on concurrent refresh [D10]
 - 1 P1 revised. Yield% = 30%.
 
 **Pass 3 EXPLORE:** Document Quality (D13-D19). 1 P1 (vague error handling language). Yield% = 9%.
@@ -58,9 +58,9 @@ Bridge table populated: H1 (open, D4), H2 (open, D6), H3 (open, D10), ALT1 (open
 
 Bridge updates:
 - H1 (authorization granularity) → open (D4 partial — needs deeper check in adversarial)
-- H2 (fail-open timeout) → TESTED: P0 [D6]
-- H3 (refresh race condition) → TESTED: P0 [D10]
-- ALT1 (JWT-only) → EVALUATED: not dominant — can't support token revocation
+- H2 (fail-open timeout) → tested: P0 [D6]
+- H3 (refresh race condition) → tested: P0 [D10]
+- ALT1 (JWT-only) → evaluated: not dominant — can't support token revocation
 
 Net-new: P1 — vague error handling language [D14]
 
@@ -71,7 +71,7 @@ Anything to dig deeper on before the adversarial pass?
 
 **Adversarial Pass** (bridge-first, then NET-NEW):
 
-- A1 (Assumption Hunting): checks H1 → TESTED: authorization model also assumes flat permissions [H1, D4]
+- A1 (Assumption Hunting): checks H1 → tested: authorization model also assumes flat permissions [H1, D4]
 - A5 (Pre-mortem): "Token refresh race causes cascading failures" [H3 — extends, not NET-NEW]
 - A6 (Steelman Alternatives): checks ALT1 → confirms "not dominant"
 - A8 (Hidden Complexity): **NET-NEW** — token rotation during deployment creates 2-minute auth gap [D10]

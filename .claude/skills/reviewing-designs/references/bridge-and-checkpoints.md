@@ -96,12 +96,7 @@ Override the generic disposition invariant ("evidence or rationale") with status
 
 These take precedence over the generic invariant. A formulaic `tested` disposition backed only by an E0 assertion (no citation) does not satisfy this requirement.
 
-**Terminology note:** "Disconfirmation" means different things in the framework and bridge:
-
-- **Framework:** Obligation to attempt disconfirmation of P0 findings (MUST requirement — applied to D-codes and F-codes)
-- **Bridge:** Status meaning "hypothesis not supported by evidence" (applied to H-codes)
-
-These are independent obligations. A `disconfirmed` H-row does not satisfy the framework's P0 disconfirmation MUST.
+**Terminology note:** See [Disconfirmation disambiguation](../SKILL.md#framework-boundary-rules) in SKILL.md — "disconfirmation" means different things in the bridge and framework. SKILL.md is canonical.
 
 ## Overflow Ranking
 
