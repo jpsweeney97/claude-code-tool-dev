@@ -832,3 +832,91 @@ class TestEngineExecute:
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
         assert "status: open" in content
         assert "Reopen History" in content
+
+
+class TestEngineExecuteIntegration:
+    """Integration tests exercising the full engine_execute dispatcher
+    across multiple lifecycle operations."""
+
+    def test_full_lifecycle_create_update_close_reopen(self, tmp_tickets):
+        """Create -> update -> close -> reopen lifecycle."""
+        # Create.
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={
+                "title": "Lifecycle test",
+                "problem": "Integration test problem.",
+                "priority": "medium",
+                "source": {"type": "ad-hoc", "ref": "", "session": "test-session"},
+                "tags": ["test"],
+            },
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_create"
+        ticket_id = resp.ticket_id
+        ticket_path = Path(resp.data["ticket_path"])
+        assert ticket_path.exists()
+
+        # Update status to in_progress.
+        resp = engine_execute(
+            action="update",
+            ticket_id=ticket_id,
+            fields={"status": "in_progress"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+
+        # Close with wontfix (avoids acceptance criteria requirement).
+        resp = engine_execute(
+            action="close",
+            ticket_id=ticket_id,
+            fields={"resolution": "wontfix"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_close"
+
+        # Reopen.
+        resp = engine_execute(
+            action="reopen",
+            ticket_id=ticket_id,
+            fields={"reopen_reason": "Reconsidered — will fix after all"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_reopen"
+
+        # Verify final state.
+        content = ticket_path.read_text(encoding="utf-8")
+        assert "status: open" in content
+        assert "Reopen History" in content
+
+    def test_unknown_action_escalates(self, tmp_tickets):
+        """Dispatcher rejects unknown actions."""
+        resp = engine_execute(
+            action="merge",
+            ticket_id=None,
+            fields={},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"
