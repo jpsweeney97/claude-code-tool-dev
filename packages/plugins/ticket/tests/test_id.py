@@ -102,3 +102,52 @@ class TestParseIdDate:
         assert parse_id_date("T-A") is None
         assert parse_id_date("T-003") is None
         assert parse_id_date("handoff-chain-viz") is None
+
+
+class TestVariableWidthSequence:
+    """Sequence numbers beyond 99 (3+ digits) must be recognized."""
+
+    def test_allocate_id_beyond_99(self, tmp_path):
+        """allocate_id handles sequence numbers beyond 99."""
+        from tests.conftest import make_ticket
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        today = date(2026, 3, 3)
+
+        # Create tickets T-20260303-98 and T-20260303-99
+        for seq in (98, 99):
+            tid = f"T-20260303-{seq:02d}"
+            make_ticket(
+                tickets_dir,
+                f"2026-03-03-ticket-{seq}.md",
+                id=tid,
+                date="2026-03-03",
+                title=f"Ticket {seq}",
+            )
+
+        result = allocate_id(tickets_dir, today)
+        assert result == "T-20260303-100"
+
+        # Now create 100 and verify 101 is allocated
+        make_ticket(
+            tickets_dir,
+            "2026-03-03-ticket-100.md",
+            id="T-20260303-100",
+            date="2026-03-03",
+            title="Ticket 100",
+        )
+
+        result = allocate_id(tickets_dir, today)
+        assert result == "T-20260303-101"
+
+    def test_date_id_regex_matches_variable_width(self):
+        """_DATE_ID_RE matches IDs with 2+ digit sequences."""
+        from scripts.ticket_id import _DATE_ID_RE
+
+        assert _DATE_ID_RE.match("T-20260303-01")
+        assert _DATE_ID_RE.match("T-20260303-99")
+        assert _DATE_ID_RE.match("T-20260303-100")
+        assert _DATE_ID_RE.match("T-20260303-1000")
+        assert not _DATE_ID_RE.match("T-20260303-0")  # single digit invalid
+        assert not _DATE_ID_RE.match("T-2026030-01")  # 7-digit date invalid

@@ -1,6 +1,6 @@
 """Ticket ID allocation and slug generation.
 
-Format: T-YYYYMMDD-NN (date + 2-digit daily sequence, zero-padded).
+Format: T-YYYYMMDD-NN (date + daily sequence, minimum 2 digits, zero-padded).
 Legacy IDs (T-NNN, T-[A-F], slugs) are preserved permanently.
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ from pathlib import Path
 from scripts.ticket_parse import extract_fenced_yaml, parse_yaml_block
 
 # ID pattern for v1.0 format.
-_DATE_ID_RE = re.compile(r"^T-(\d{8})-(\d{2})$")
+_DATE_ID_RE = re.compile(r"^T-(\d{8})-(\d{2,})$")
 
 
 def allocate_id(tickets_dir: Path, today: date | None = None) -> str:
