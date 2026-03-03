@@ -83,3 +83,11 @@ class TestTargetFingerprint:
 
     def test_none_for_nonexistent(self, tmp_path):
         assert target_fingerprint(tmp_path / "missing.md") is None
+
+    def test_none_for_unreadable(self, tmp_path):
+        """Returns None if file becomes unreadable between is_file() and read_bytes()."""
+        f = tmp_path / "ticket.md"
+        f.write_text("content", encoding="utf-8")
+        f.chmod(0o000)
+        assert target_fingerprint(f) is None
+        f.chmod(0o644)  # restore for cleanup

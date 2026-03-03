@@ -57,7 +57,10 @@ def target_fingerprint(ticket_path: Path) -> str | None:
     """
     if not ticket_path.is_file():
         return None
-    content = ticket_path.read_bytes()
-    mtime = str(ticket_path.stat().st_mtime)
+    try:
+        content = ticket_path.read_bytes()
+        mtime = str(ticket_path.stat().st_mtime)
+    except OSError:
+        return None
     payload = content + mtime.encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
