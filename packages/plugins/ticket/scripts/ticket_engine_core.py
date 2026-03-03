@@ -297,7 +297,7 @@ def engine_preflight(
 ) -> EngineResponse:
     """Preflight: single enforcement point for all mutating operations.
 
-    Checks in order: origin, confidence, intent match, agent policy,
+    Checks in order: origin, action, agent policy, confidence, intent match,
     dedup, ticket existence, dependency integrity, TOCTOU fingerprint.
     """
     checks_passed: list[str] = []
@@ -315,6 +315,35 @@ def engine_preflight(
             },
         )
     checks_passed.append("origin")
+
+    # --- Action validation (Codex finding 3: defense-in-depth) ---
+    if action not in VALID_ACTIONS:
+        return EngineResponse(
+            state="escalate",
+            message=f"Unknown action: {action!r}. Valid: {', '.join(sorted(VALID_ACTIONS))}",
+            error_code="intent_mismatch",
+            data={
+                "checks_passed": checks_passed,
+                "checks_failed": [{"check": "action", "reason": "unknown action"}],
+            },
+        )
+    checks_passed.append("action")
+
+    # --- Agent policy: Phase 1 strict fail-closed (Codex finding 5: before confidence) ---
+    # Moved before confidence gate so all agent requests get policy_blocked,
+    # not a misleading preflight_failed for coincidental confidence issues.
+    if request_origin == "agent":
+        return EngineResponse(
+            state="policy_blocked",
+            message="Agent mutations are hard-blocked in Phase 1. "
+            "The PreToolUse hook (Phase 2) is required for legitimate agent invocations.",
+            error_code="policy_blocked",
+            data={
+                "checks_passed": checks_passed,
+                "checks_failed": [{"check": "agent_phase1_block", "reason": "Phase 1 fail-closed policy"}],
+            },
+        )
+    checks_passed.append("autonomy_policy")
 
     # --- Confidence gate ---
     modifier = _ORIGIN_MODIFIER.get(request_origin, 0.0)
@@ -343,20 +372,6 @@ def engine_preflight(
             },
         )
     checks_passed.append("intent_match")
-
-    # --- Agent policy: Phase 1 strict fail-closed ---
-    if request_origin == "agent":
-        return EngineResponse(
-            state="policy_blocked",
-            message="Agent mutations are hard-blocked in Phase 1. "
-            "The PreToolUse hook (Phase 2) is required for legitimate agent invocations.",
-            error_code="policy_blocked",
-            data={
-                "checks_passed": checks_passed,
-                "checks_failed": [{"check": "agent_phase1_block", "reason": "Phase 1 fail-closed policy"}],
-            },
-        )
-    checks_passed.append("autonomy_policy")
 
     # --- Dedup enforcement (create action) ---
     if action == "create" and duplicate_of and not dedup_override:
