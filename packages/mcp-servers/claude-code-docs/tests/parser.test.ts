@@ -231,6 +231,96 @@ Content`;
   });
 });
 
+describe('parseSections — content bleed detection', () => {
+  it('section content does not end with trailing ---', () => {
+    const raw = `# First
+Source: https://example.com/first
+
+First content
+---
+# Second
+Source: https://example.com/second
+
+Second content`;
+    const sections = parseSections(raw);
+    for (const section of sections) {
+      expect(section.content.trimEnd()).not.toMatch(/---$/);
+    }
+  });
+
+  it('section content does not contain Source: URL lines', () => {
+    const raw = `# First
+Source: https://example.com/first
+
+First content
+---
+# Second
+Source: https://example.com/second
+
+Second content`;
+    const sections = parseSections(raw);
+    for (const section of sections) {
+      // Only match Source: lines that look like section anchors (with URL),
+      // not literal "Source:" text in prose or code fences
+      expect(section.content).not.toMatch(/^Source:\s+https?:\/\//m);
+    }
+  });
+
+  it('section content does not end with heading+Source pattern', () => {
+    const raw = `# First
+Source: https://example.com/first
+
+First content
+---
+# Second
+Source: https://example.com/second
+
+Second content`;
+    const sections = parseSections(raw);
+    for (const section of sections) {
+      const lines = section.content.trimEnd().split('\n');
+      const lastFew = lines.slice(-5).join('\n');
+      expect(lastFew).not.toMatch(/^#\s+.+\nSource:\s+/m);
+    }
+  });
+
+  it('Source: inside code fences is treated as a section boundary (known limitation)', () => {
+    // The parser is not fence-aware: Source: lines inside code fences
+    // are treated as section boundaries. This is acceptable because
+    // the live llms-full.txt does not contain Source: URLs inside fences.
+    // This test documents the actual behavior.
+    const raw = `# Config Guide
+Source: https://example.com/config
+
+Here is an example:
+
+\`\`\`yaml
+Source: https://internal.example.com/api
+\`\`\`
+
+More content after code block
+---
+# Next Section
+Source: https://example.com/next
+
+Next content`;
+    const sections = parseSections(raw);
+    // Parser treats in-fence Source: as a section anchor, creating 3 sections:
+    // 1. preamble (Config Guide heading before first Source:)
+    //    — or the config section with empty content
+    // 2. internal.example.com/api section
+    // 3. next section
+    const sourceUrls = sections.map(s => s.sourceUrl).filter(Boolean);
+    expect(sourceUrls).toContain('https://example.com/config');
+    expect(sourceUrls).toContain('https://internal.example.com/api');
+    expect(sourceUrls).toContain('https://example.com/next');
+    // The real bleed invariant: no section contains another section's Source: line
+    for (const section of sections) {
+      expect(section.content).not.toMatch(/^Source:\s+https?:\/\//m);
+    }
+  });
+});
+
 describe('parseSections — backward compatibility with old format', () => {
   it('still handles old format without --- separators', () => {
     const raw = `# First Topic
