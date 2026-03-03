@@ -233,3 +233,225 @@ def _plan_create(
             "action_plan": {"intent": "create"},
         },
     )
+
+
+# --- preflight ---
+
+# Confidence thresholds (provisional — calibrate pre-GA).
+_T_BASE = 0.5
+_ORIGIN_MODIFIER: dict[str, float] = {"user": 0.0, "agent": 0.15}
+
+# Terminal statuses for dependency resolution.
+_TERMINAL_STATUSES = frozenset({"done", "wontfix"})
+
+
+def _read_autonomy_mode(tickets_dir: Path) -> str:
+    """Read autonomy mode from .claude/ticket.local.md.
+
+    Returns 'suggest' as default if file missing or malformed.
+    """
+    # Walk up from tickets_dir to find project root.
+    project_root = tickets_dir
+    while project_root != project_root.parent:
+        if (project_root / ".claude").is_dir():
+            break
+        project_root = project_root.parent
+
+    config_path = project_root / ".claude" / "ticket.local.md"
+    if not config_path.is_file():
+        return "suggest"
+
+    try:
+        import yaml
+
+        text = config_path.read_text(encoding="utf-8")
+        # Parse YAML frontmatter (--- delimited).
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            if len(parts) >= 3:
+                data = yaml.safe_load(parts[1])
+                if isinstance(data, dict):
+                    mode = data.get("autonomy_mode", "suggest")
+                    if mode in ("suggest", "auto_audit", "auto_silent"):
+                        return mode
+    except Exception:
+        pass
+
+    return "suggest"
+
+
+def engine_preflight(
+    *,
+    ticket_id: str | None,
+    action: str,
+    session_id: str,
+    request_origin: str,
+    classify_confidence: float,
+    classify_intent: str,
+    dedup_fingerprint: str | None,
+    target_fingerprint: str | None,
+    duplicate_of: str | None = None,
+    dedup_override: bool = False,
+    dependency_override: bool = False,
+    tickets_dir: Path,
+) -> EngineResponse:
+    """Preflight: single enforcement point for all mutating operations.
+
+    Checks in order: origin, confidence, intent match, agent policy,
+    dedup, ticket existence, dependency integrity, TOCTOU fingerprint.
+    """
+    checks_passed: list[str] = []
+    checks_failed: list[dict[str, str]] = []
+
+    # --- Origin check ---
+    if request_origin not in VALID_ORIGINS:
+        return EngineResponse(
+            state="escalate",
+            message=f"Cannot determine caller identity: request_origin={request_origin!r}",
+            error_code="origin_mismatch",
+            data={
+                "checks_passed": checks_passed,
+                "checks_failed": [{"check": "origin", "reason": "unknown origin"}],
+            },
+        )
+    checks_passed.append("origin")
+
+    # --- Confidence gate ---
+    modifier = _ORIGIN_MODIFIER.get(request_origin, 0.0)
+    threshold = _T_BASE + modifier
+    if classify_confidence < threshold:
+        return EngineResponse(
+            state="preflight_failed",
+            message=f"Low confidence classification: {classify_confidence:.2f} "
+            f"(threshold: {threshold:.2f}). Rephrase or specify the operation.",
+            data={
+                "checks_passed": checks_passed,
+                "checks_failed": [{"check": "confidence", "reason": f"below threshold {threshold}"}],
+            },
+        )
+    checks_passed.append("confidence")
+
+    # --- Intent match ---
+    if classify_intent != action:
+        return EngineResponse(
+            state="escalate",
+            message=f"Intent_mismatch: classify returned {classify_intent!r} but action is {action!r}",
+            error_code="intent_mismatch",
+            data={
+                "checks_passed": checks_passed,
+                "checks_failed": [{"check": "intent_match", "reason": "mismatch"}],
+            },
+        )
+    checks_passed.append("intent_match")
+
+    # --- Agent policy: Phase 1 strict fail-closed ---
+    if request_origin == "agent":
+        return EngineResponse(
+            state="policy_blocked",
+            message="Agent mutations are hard-blocked in Phase 1. "
+            "The PreToolUse hook (Phase 2) is required for legitimate agent invocations.",
+            error_code="policy_blocked",
+            data={
+                "checks_passed": checks_passed,
+                "checks_failed": [{"check": "agent_phase1_block", "reason": "Phase 1 fail-closed policy"}],
+            },
+        )
+    checks_passed.append("autonomy_policy")
+
+    # --- Dedup enforcement (create action) ---
+    if action == "create" and duplicate_of and not dedup_override:
+        return EngineResponse(
+            state="duplicate_candidate",
+            message=f"Duplicate of {duplicate_of} detected in plan stage. "
+            "Pass dedup_override=True to proceed.",
+            error_code="duplicate_candidate",
+            data={
+                "checks_passed": checks_passed,
+                "checks_failed": [{"check": "dedup", "reason": f"duplicate_of={duplicate_of}"}],
+            },
+        )
+    if action == "create":
+        checks_passed.append("dedup")
+
+    # --- Ticket ID required for non-create ---
+    if action != "create" and not ticket_id:
+        return EngineResponse(
+            state="need_fields",
+            message=f"ticket_id required for {action}",
+            error_code="need_fields",
+            data={
+                "checks_passed": checks_passed,
+                "checks_failed": [{"check": "ticket_id", "reason": "missing for non-create"}],
+            },
+        )
+
+    # --- Ticket existence check (non-create) ---
+    if action != "create" and ticket_id:
+        from scripts.ticket_read import find_ticket_by_id
+
+        ticket = find_ticket_by_id(tickets_dir, ticket_id)
+        if ticket is None:
+            return EngineResponse(
+                state="not_found",
+                message=f"No ticket found matching {ticket_id}",
+                ticket_id=ticket_id,
+                error_code="not_found",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "ticket_exists", "reason": "not found"}],
+                },
+            )
+        checks_passed.append("ticket_exists")
+
+        # --- Dependency check (close action) ---
+        if action == "close" and ticket.blocked_by:
+            from scripts.ticket_read import list_tickets as _list_tickets
+
+            all_tickets = _list_tickets(tickets_dir)
+            ticket_map = {t.id: t for t in all_tickets}
+            unresolved = [
+                bid for bid in ticket.blocked_by
+                if bid in ticket_map and ticket_map[bid].status not in _TERMINAL_STATUSES
+            ]
+            if unresolved:
+                if dependency_override:
+                    checks_passed.append("dependencies_overridden")
+                else:
+                    return EngineResponse(
+                        state="dependency_blocked",
+                        message=f"Ticket has open blockers: {unresolved}. "
+                        "Resolve or pass dependency_override: true.",
+                        ticket_id=ticket_id,
+                        error_code="dependency_blocked",
+                        data={
+                            "checks_passed": checks_passed,
+                            "checks_failed": [{"check": "dependencies", "reason": f"unresolved: {unresolved}"}],
+                        },
+                    )
+            else:
+                checks_passed.append("dependencies")
+
+        # --- TOCTOU fingerprint check ---
+        if target_fingerprint is not None:
+            from scripts.ticket_dedup import target_fingerprint as compute_fp
+
+            current_fp = compute_fp(Path(ticket.path))
+            if current_fp != target_fingerprint:
+                return EngineResponse(
+                    state="preflight_failed",
+                    message="Stale fingerprint — ticket was modified since read. "
+                    "Re-run to get a fresh plan.",
+                    ticket_id=ticket_id,
+                    error_code="stale_plan",
+                    data={
+                        "checks_passed": checks_passed,
+                        "checks_failed": [{"check": "target_fingerprint", "reason": "stale"}],
+                    },
+                )
+            checks_passed.append("target_fingerprint")
+
+    return EngineResponse(
+        state="ok",
+        message="All preflight checks passed",
+        data={"checks_passed": checks_passed, "checks_failed": checks_failed},
+    )
