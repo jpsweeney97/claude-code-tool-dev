@@ -73,8 +73,8 @@ describe('search', () => {
 
   it('ranks by relevance', () => {
     const chunks = [
-      makeChunk('a', 'hooks hooks hooks', ['hooks', 'hooks', 'hooks']),
-      makeChunk('b', 'hooks once', ['hooks', 'once']),
+      makeChunk('a', 'hooks hooks hooks', ['hook', 'hook', 'hook']),
+      makeChunk('b', 'hooks once', ['hook', 'onc']),
     ];
     const index = buildBM25Index(chunks);
     const results = search(index, 'hooks');
@@ -156,8 +156,8 @@ describe('search with category filtering', () => {
 
   it('filters results by category when provided', () => {
     const chunks = [
-      makeChunkWithCategory('hooks-1', 'PreToolUse hooks', ['pretooluse', 'hooks'], 'hooks'),
-      makeChunkWithCategory('skills-1', 'skill hooks pattern', ['skill', 'hooks', 'pattern'], 'skills'),
+      makeChunkWithCategory('hooks-1', 'PreToolUse hooks', ['pre', 'tool', 'use', 'hook'], 'hooks'),
+      makeChunkWithCategory('skills-1', 'skill hooks pattern', ['skill', 'hook', 'pattern'], 'skills'),
     ];
     const index = buildBM25Index(chunks);
 
@@ -169,8 +169,8 @@ describe('search with category filtering', () => {
 
   it('returns all matching categories when category is undefined', () => {
     const chunks = [
-      makeChunkWithCategory('hooks-1', 'hooks content', ['hooks', 'content'], 'hooks'),
-      makeChunkWithCategory('skills-1', 'hooks in skills', ['hooks', 'skills'], 'skills'),
+      makeChunkWithCategory('hooks-1', 'hooks content', ['hook', 'content'], 'hooks'),
+      makeChunkWithCategory('skills-1', 'hooks in skills', ['hook', 'skill'], 'skills'),
     ];
     const index = buildBM25Index(chunks);
 
@@ -180,7 +180,7 @@ describe('search with category filtering', () => {
 
   it('returns empty array when category has no matches', () => {
     const chunks = [
-      makeChunkWithCategory('hooks-1', 'hooks content', ['hooks', 'content'], 'hooks'),
+      makeChunkWithCategory('hooks-1', 'hooks content', ['hook', 'content'], 'hooks'),
     ];
     const index = buildBM25Index(chunks);
 
@@ -192,9 +192,9 @@ describe('search with category filtering', () => {
 describe('search using inverted index', () => {
   it('returns same results as exhaustive search', () => {
     const chunks = [
-      makeChunk('a', 'hooks documentation', ['hooks', 'documentation']),
-      makeChunk('b', 'skills guide', ['skills', 'guide']),
-      makeChunk('c', 'hooks and skills', ['hooks', 'skills']),
+      makeChunk('a', 'hooks documentation', ['hook', 'document']),
+      makeChunk('b', 'skills guide', ['skill', 'guid']),
+      makeChunk('c', 'hooks and skills', ['hook', 'skill']),
     ];
     const index = buildBM25Index(chunks);
 
@@ -284,13 +284,46 @@ Second line.`;
   });
 });
 
+describe('extractSnippet post-stemming', () => {
+  it('selects line with stemmed match over line without', () => {
+    const content = 'This is the overview section.\nConfiguration of MCP servers is done here.\nSee the FAQ for details.';
+    const snippet = extractSnippet(content, ['configur'], 200);
+    expect(snippet).toContain('Configuration');
+  });
+
+  it('selects highest-coverage line when multiple lines have stemmed matches', () => {
+    const content = 'Hooks are event-driven.\nHook configuration and customization guide.\nUnrelated content here.';
+    const snippet = extractSnippet(content, ['hook', 'configur'], 200);
+    expect(snippet).toContain('Hook configuration');
+  });
+
+  it('handles threshold-adjacent morphology correctly', () => {
+    const content = 'The runner finished first.\nRunning the test suite is simple.\nNo matches here.';
+    const snippet = extractSnippet(content, ['run'], 200);
+    expect(snippet).toMatch(/runner|Running/i);
+  });
+
+  it('does not select metadata lines over content lines after stemming', () => {
+    const content = 'Source: https://example.com/hooks\nHooks let you intercept tool calls.\nMore details below.';
+    const snippet = extractSnippet(content, ['hook'], 200);
+    expect(snippet).toContain('Hooks let you');
+  });
+
+  it('respects maxLength when stemmed matches span long lines', () => {
+    const longLine = 'Configuration '.repeat(50) + 'of servers.';
+    const content = `Short line.\n${longLine}\nAnother short line.`;
+    const snippet = extractSnippet(content, ['configur'], 200);
+    expect(snippet.length).toBeLessThanOrEqual(250);
+  });
+});
+
 describe('heading boost', () => {
   it('boosts chunks whose heading matches query terms', () => {
     const chunks = [
       // Body-only match: "hooks" appears in body, heading is unrelated
-      makeChunk('body-match', 'hooks documentation guide', ['hooks', 'documentation', 'guide'], '## Getting Started'),
+      makeChunk('body-match', 'hooks documentation guide', ['hook', 'document', 'guid'], '## Getting Started'),
       // Heading match: "hooks" appears in heading AND body
-      makeChunk('heading-match', 'hooks documentation guide', ['hooks', 'documentation', 'guide'], '## Hooks'),
+      makeChunk('heading-match', 'hooks documentation guide', ['hook', 'document', 'guid'], '## Hooks'),
     ];
     const index = buildBM25Index(chunks);
     const results = search(index, 'hooks');
@@ -303,8 +336,8 @@ describe('heading boost', () => {
   it('does not boost when heading coverage is below threshold', () => {
     const chunks = [
       // Heading has "hooks" but query is "hooks documentation guide" — only 1/3 coverage
-      makeChunk('low-coverage', 'hooks documentation guide', ['hooks', 'documentation', 'guide'], '## Hooks'),
-      makeChunk('no-heading', 'hooks documentation guide', ['hooks', 'documentation', 'guide']),
+      makeChunk('low-coverage', 'hooks documentation guide', ['hook', 'document', 'guid'], '## Hooks'),
+      makeChunk('no-heading', 'hooks documentation guide', ['hook', 'document', 'guid']),
     ];
     const index = buildBM25Index(chunks);
     const results = search(index, 'hooks documentation guide');
@@ -313,14 +346,14 @@ describe('heading boost', () => {
     // Both chunks should have the same score (no boost applied)
     expect(results).toHaveLength(2);
     // Verify directly that the multiplier returns 1.0 for below-threshold coverage
-    // "Hooks" covers 1/3 of query terms — below 0.5 threshold
-    expect(headingBoostMultiplier(['hooks', 'documentation', 'guide'], '## Hooks', undefined)).toBe(1.0);
+    // "Hooks" covers 1/3 of stemmed query terms — below 0.5 threshold
+    expect(headingBoostMultiplier(['hook', 'document', 'guid'], '## Hooks', undefined)).toBe(1.0);
   });
 
   it('does not boost chunks without headings', () => {
     const chunks = [
-      makeChunk('with-heading', 'hooks guide here', ['hooks', 'guide', 'here'], '## Hooks Guide'),
-      makeChunk('no-heading', 'hooks guide here', ['hooks', 'guide', 'here']),
+      makeChunk('with-heading', 'hooks guide here', ['hook', 'guid', 'here'], '## Hooks Guide'),
+      makeChunk('no-heading', 'hooks guide here', ['hook', 'guid', 'here']),
     ];
     const index = buildBM25Index(chunks);
     const results = search(index, 'hooks guide');
@@ -331,8 +364,8 @@ describe('heading boost', () => {
 
   it('handles single-term query with heading match', () => {
     const chunks = [
-      makeChunk('heading-yes', 'security overview', ['security', 'overview'], '## Security'),
-      makeChunk('heading-no', 'security overview', ['security', 'overview'], '## Overview'),
+      makeChunk('heading-yes', 'security overview', ['secur', 'overview'], '## Security'),
+      makeChunk('heading-no', 'security overview', ['secur', 'overview'], '## Overview'),
     ];
     const index = buildBM25Index(chunks);
     const results = search(index, 'security');
@@ -344,10 +377,10 @@ describe('heading boost', () => {
   it('boosts via merged_headings when primary heading does not match', () => {
     const chunks = [
       // Primary heading is unrelated, but merged_headings contains "Hooks"
-      makeChunk('merged-match', 'hooks documentation guide', ['hooks', 'documentation', 'guide'],
+      makeChunk('merged-match', 'hooks documentation guide', ['hook', 'document', 'guid'],
         '## Getting Started', ['## Hooks', '## Hook Events']),
       // No headings at all
-      makeChunk('no-heading', 'hooks documentation guide', ['hooks', 'documentation', 'guide']),
+      makeChunk('no-heading', 'hooks documentation guide', ['hook', 'document', 'guid']),
     ];
     const index = buildBM25Index(chunks);
     const results = search(index, 'hooks');
@@ -359,10 +392,10 @@ describe('heading boost', () => {
   it('unions primary heading and merged_headings for coverage calculation', () => {
     const chunks = [
       // Primary heading covers "hooks", merged_headings covers "guide" — union covers 2/2
-      makeChunk('union-match', 'hooks guide content', ['hooks', 'guide', 'content'],
+      makeChunk('union-match', 'hooks guide content', ['hook', 'guid', 'content'],
         '## Hooks', ['## Configuration Guide']),
       // Only primary heading, covers 1/2 — below 0.5 threshold
-      makeChunk('partial-match', 'hooks guide content', ['hooks', 'guide', 'content'],
+      makeChunk('partial-match', 'hooks guide content', ['hook', 'guid', 'content'],
         '## Hooks'),
     ];
     const index = buildBM25Index(chunks);
@@ -375,9 +408,9 @@ describe('heading boost', () => {
   it('does not boost merged_headings below coverage threshold', () => {
     const chunks = [
       // merged_headings match 1 of 3 query terms — below 0.5 threshold
-      makeChunk('low-coverage', 'hooks guide content', ['hooks', 'guide', 'content'],
+      makeChunk('low-coverage', 'hooks guide content', ['hook', 'guid', 'content'],
         '## Overview', ['## Hooks']),
-      makeChunk('no-heading', 'hooks guide content', ['hooks', 'guide', 'content']),
+      makeChunk('no-heading', 'hooks guide content', ['hook', 'guid', 'content']),
     ];
     const index = buildBM25Index(chunks);
     const results = search(index, 'hooks guide content');
@@ -385,6 +418,44 @@ describe('heading boost', () => {
     // Both should have same score — merged_headings covers only 1/3 (below threshold)
     expect(results).toHaveLength(2);
     // Verify multiplier is 1.0 when merged_headings cover only 1/3 of query terms
-    expect(headingBoostMultiplier(['hooks', 'guide', 'content'], '## Overview', ['## Hooks'])).toBe(1.0);
+    expect(headingBoostMultiplier(['hook', 'guid', 'content'], '## Overview', ['## Hooks'])).toBe(1.0);
+  });
+});
+
+describe('pairwise ranking (recalibration gate)', () => {
+  // These tests verify that stemming + heading boost produce correct
+  // relative rankings. They are NEVER updated during recalibration —
+  // they are the external quality signal.
+
+  it('stemmed query ranks heading-match above body-only-match', () => {
+    const chunks = [
+      makeChunk('heading-match', 'permission system overview', ['permiss', 'system', 'overview'], '## Permission System'),
+      makeChunk('body-only', 'permission system overview', ['permiss', 'system', 'overview'], '## Getting Started'),
+    ];
+    const index = buildBM25Index(chunks);
+    const results = search(index, 'permissions');
+    expect(results[0].chunk_id).toBe('heading-match');
+  });
+
+  it('plural query finds singular heading via stemming', () => {
+    const chunks = [
+      makeChunk('control-heading', 'boundary control docs', ['boundari', 'control', 'doc'], '## Boundary Control'),
+      makeChunk('no-heading', 'boundary control docs', ['boundari', 'control', 'doc']),
+    ];
+    const index = buildBM25Index(chunks);
+    const results = search(index, 'boundary controls');
+    expect(results[0].chunk_id).toBe('control-heading');
+  });
+
+  it('multi-term stemmed query with merged_headings coverage', () => {
+    const chunks = [
+      makeChunk('merged-coverage', 'hook config docs', ['hook', 'configur', 'doc'],
+        '## Hooks', ['## Configuration Guide']),
+      makeChunk('partial-coverage', 'hook config docs', ['hook', 'configur', 'doc'],
+        '## Hooks'),
+    ];
+    const index = buildBM25Index(chunks);
+    const results = search(index, 'configuring hooks');
+    expect(results[0].chunk_id).toBe('merged-coverage');
   });
 });

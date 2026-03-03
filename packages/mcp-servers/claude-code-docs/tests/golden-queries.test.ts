@@ -293,6 +293,9 @@ describe('golden queries (URL-based)', () => {
     { query: 'agent teams leader worker coordination', expectedTopCategory: 'agents' },
     { query: 'authentication login API key', expectedTopCategory: 'security' },
     { query: 'permission system approval levels', expectedTopCategory: 'security' },
+    // Morphological variant queries (stemming coverage)
+    { query: 'configuring MCP servers', expectedTopCategory: 'mcp' },
+    { query: 'creating custom skills', expectedTopCategory: 'skills' },
   ];
 
   for (const { query, expectedTopCategory } of goldenQueries) {

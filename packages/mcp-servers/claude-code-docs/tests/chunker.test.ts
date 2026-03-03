@@ -159,7 +159,8 @@ describe('chunkFile', () => {
       const chunks = chunkFile(file);
 
       for (const chunk of chunks) {
-        expect(chunk.tokens).toContain('hooks');
+        // "hooks" stems to "hook" via Porter stemmer
+        expect(chunk.tokens).toContain('hook');
         expect(chunk.tokens).toContain('api');
         expect(chunk.tokens).toContain('schema');
       }
@@ -184,10 +185,10 @@ describe('chunkFile', () => {
       const chunks = chunkFile(file);
       const tokens = chunks[0].tokens;
 
-      // Verify relationship metadata appears in tokens
-      expect(tokens).toContain('hooks');
+      // Verify relationship metadata appears in tokens (stemmed)
+      expect(tokens).toContain('hook');
       expect(tokens).toContain('overview');
-      expect(tokens).toContain('events');
+      expect(tokens).toContain('event');
     });
 
     it('includes id and topic in tokens', () => {
@@ -227,9 +228,10 @@ describe('chunkFile', () => {
       const chunks = chunkFile(file);
       const tokens = chunks[0].tokens;
 
-      expect(tokens).toContain('single');
+      // "single" stems to "singl", "related" stems to "relat"
+      expect(tokens).toContain('singl');
       expect(tokens).toContain('prereq');
-      expect(tokens).toContain('related');
+      expect(tokens).toContain('relat');
     });
   });
 
