@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ServerState, type ServerStateDeps } from '../src/lifecycle.js';
 import type { BM25Index } from '../src/bm25.js';
 import type { Chunk } from '../src/types.js';
-import { INDEX_FORMAT_VERSION, TOKENIZER_VERSION, CHUNKER_VERSION } from '../src/index-cache.js';
+import { INDEX_FORMAT_VERSION, TOKENIZER_VERSION, CHUNKER_VERSION, INGESTION_VERSION } from '../src/index-cache.js';
 
 function makeMockIndex(chunkCount = 3): BM25Index {
   const chunks: Chunk[] = Array.from({ length: chunkCount }, (_, i) => ({
@@ -194,6 +194,7 @@ describe('ServerState', () => {
         metadata: {
           tokenizerVersion: TOKENIZER_VERSION,
           chunkerVersion: CHUNKER_VERSION,
+          ingestionVersion: INGESTION_VERSION,
         },
         chunks: [],
         docFreqs: [],
@@ -256,6 +257,29 @@ describe('ServerState', () => {
       await state.ensureIndex();
 
       expect(deps.buildIndexFn).toHaveBeenCalledOnce();
+    });
+
+    it('rebuilds when ingestionVersion mismatches (B4)', async () => {
+      const serializedIndex = {
+        version: INDEX_FORMAT_VERSION,
+        contentHash: 'abc123',
+        metadata: {
+          tokenizerVersion: TOKENIZER_VERSION,
+          chunkerVersion: CHUNKER_VERSION,
+          ingestionVersion: 999, // Wrong version
+        },
+      };
+
+      const deps = makeDeps({
+        parseSerializedIndexFn: vi.fn().mockReturnValue(serializedIndex),
+        readCacheFn: vi.fn().mockResolvedValue(serializedIndex),
+      });
+      const state = new ServerState(deps);
+
+      await state.ensureIndex();
+
+      expect(deps.buildIndexFn).toHaveBeenCalledOnce();
+      expect(deps.deserializeIndexFn).not.toHaveBeenCalled();
     });
   });
 

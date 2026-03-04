@@ -6,6 +6,21 @@ export const INDEX_FORMAT_VERSION = 3; // Bumped for headingTokens + tokenCount
 export const TOKENIZER_VERSION = 2; // Bumped: added Porter stemming with CamelCase protection
 export const CHUNKER_VERSION = 1;
 
+/**
+ * Bump when any corpus-shaping subsystem changes:
+ * - parser.ts (section/heading extraction)
+ * - frontmatter.ts (metadata extraction)
+ * - categories.ts (URL-to-category mapping)
+ * - chunk-helpers.ts (term freq computation, chunk ID generation)
+ * - loader.ts (content fetching/parsing pipeline)
+ * - url-helpers.ts (URL normalization — affects category derivation and chunk IDs) (D5)
+ *
+ * NOT included (separately versioned):
+ * - tokenizer.ts → TOKENIZER_VERSION
+ * - chunker.ts → CHUNKER_VERSION
+ */
+export const INGESTION_VERSION = 1;
+
 export interface SerializedIndex {
   version: number;
   contentHash: string;
@@ -18,6 +33,7 @@ export interface SerializedIndex {
     bm25?: { k1: number; b: number };
     tokenizerVersion?: number;
     chunkerVersion?: number;
+    ingestionVersion?: number;
   };
 }
 
@@ -62,6 +78,7 @@ const SerializedIndexSchema = z.object({
       bm25: z.object({ k1: z.number(), b: z.number() }).optional(),
       tokenizerVersion: z.number().optional(),
       chunkerVersion: z.number().optional(),
+      ingestionVersion: z.number().optional(),
     })
     .optional(),
 });
@@ -99,6 +116,7 @@ export function serializeIndex(index: BM25Index, contentHash: string): Serialize
       bm25: BM25_CONFIG,
       tokenizerVersion: TOKENIZER_VERSION,
       chunkerVersion: CHUNKER_VERSION,
+      ingestionVersion: INGESTION_VERSION,
     },
   };
 }
