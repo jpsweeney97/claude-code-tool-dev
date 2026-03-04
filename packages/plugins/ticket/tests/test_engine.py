@@ -239,8 +239,8 @@ class TestEnginePreflight:
         assert resp.state == "preflight_failed"
         assert "confidence" in resp.message.lower()
 
-    def test_agent_hard_blocked_phase1(self, tmp_tickets):
-        """Phase 1 strict fail-closed: all agent mutations are hard-blocked."""
+    def test_agent_blocked_without_hook_injected(self, tmp_tickets):
+        """Agent without hook_injected → policy_blocked (hook trust check)."""
         resp = engine_preflight(
             ticket_id=None,
             action="create",
@@ -253,10 +253,10 @@ class TestEnginePreflight:
             tickets_dir=tmp_tickets,
         )
         assert resp.state == "policy_blocked"
-        assert "phase 1" in resp.message.lower() or "hard-blocked" in resp.message.lower()
+        assert "hook_injected" in resp.message.lower()
 
-    def test_agent_reopen_hard_blocked_phase1(self, tmp_tickets):
-        """Agent reopen also hard-blocked (not just user-only check)."""
+    def test_agent_reopen_user_only(self, tmp_tickets):
+        """Agent reopen → policy_blocked (user-only in v1.0)."""
         resp = engine_preflight(
             ticket_id="T-20260302-01",
             action="reopen",
@@ -266,6 +266,7 @@ class TestEnginePreflight:
             classify_intent="reopen",
             dedup_fingerprint=None,
             target_fingerprint=None,
+            hook_injected=True,
             tickets_dir=tmp_tickets,
         )
         assert resp.state == "policy_blocked"
@@ -926,7 +927,7 @@ class TestTransportValidation:
     """Test hook_injected transport-layer validation."""
 
     def test_agent_without_hook_injected_rejected(self, tmp_tickets):
-        """Agent requests are policy_blocked (Phase 1 hard-block fires first)."""
+        """Agent without hook_injected → policy_blocked (transport validation)."""
         resp = engine_execute(
             action="create", ticket_id=None,
             fields={"title": "Test", "problem": "Problem"},

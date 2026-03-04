@@ -292,3 +292,36 @@ class TestSessionCounting:
             assert result is AUDIT_UNAVAILABLE
         finally:
             os.chmod(audit_file, 0o644)
+
+    def test_count_spans_midnight_boundary(self, tmp_tickets: Path) -> None:
+        """Session audit files in multiple date directories are summed."""
+        session_id = "sess-midnight"
+        for day in ("2026-03-03", "2026-03-04"):
+            audit_dir = tmp_tickets / ".audit" / day
+            audit_dir.mkdir(parents=True, exist_ok=True)
+            audit_file = audit_dir / f"{session_id}.jsonl"
+            audit_file.write_text(
+                json.dumps({"action": "create", "result": "ok_create", "ts": f"{day}T00:00:00Z"}) + "\n",
+                encoding="utf-8",
+            )
+        assert engine_count_session_creates(session_id, tmp_tickets) == 2
+
+    def test_count_no_audit_dir_returns_zero(self, tmp_tickets: Path) -> None:
+        """Missing .audit directory returns 0."""
+        assert engine_count_session_creates("any-session", tmp_tickets) == 0
+
+    def test_path_traversal_sanitized(self, tmp_tickets: Path) -> None:
+        """session_id with path separators is sanitized to prevent traversal."""
+        malicious_id = "../../etc/passwd"
+        safe_id = ".._.._etc_passwd"
+        # Create audit file with sanitized name.
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{safe_id}.jsonl"
+        audit_file.write_text(
+            json.dumps({"action": "create", "result": "ok_create"}) + "\n",
+            encoding="utf-8",
+        )
+        # Malicious ID should be sanitized and match the safe file.
+        assert engine_count_session_creates(malicious_id, tmp_tickets) == 1

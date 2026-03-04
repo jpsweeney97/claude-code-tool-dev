@@ -12,10 +12,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 
 # --- Response envelope ---
@@ -55,6 +56,58 @@ class EngineResponse:
 
 # Sentinel for audit read failures.
 AUDIT_UNAVAILABLE = object()
+
+AutonomyMode = Literal["suggest", "auto_audit", "auto_silent"]
+_VALID_AUTONOMY_MODES = frozenset({"suggest", "auto_audit", "auto_silent"})
+
+
+@dataclass(frozen=True)
+class AutonomyConfig:
+    """Autonomy configuration parsed from .claude/ticket.local.md.
+
+    Frozen and self-validating: invalid mode/max_creates are self-healed
+    to safe defaults in __post_init__. Immutable after construction to
+    prevent TOCTOU mutations between preflight and execute.
+
+    mode: "suggest" (default) | "auto_audit" | "auto_silent"
+    max_creates: per-session create cap (default 5, 0 = disable agent creates)
+    warnings: parsing/validation warnings (empty tuple if clean)
+    """
+
+    mode: AutonomyMode = "suggest"
+    max_creates: int = 5
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        extra_warnings: list[str] = []
+        if self.mode not in _VALID_AUTONOMY_MODES:
+            extra_warnings.append(f"Invalid mode {self.mode!r}, defaulted to 'suggest'")
+            object.__setattr__(self, "mode", "suggest")
+        if not isinstance(self.max_creates, int) or self.max_creates < 0:
+            extra_warnings.append(f"Invalid max_creates {self.max_creates!r}, defaulted to 5")
+            object.__setattr__(self, "max_creates", 5)
+        if extra_warnings:
+            object.__setattr__(self, "warnings", self.warnings + tuple(extra_warnings))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "max_creates": self.max_creates,
+            "warnings": list(self.warnings),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AutonomyConfig:
+        """Reconstruct from dict (snapshot deserialization).
+
+        Validates through __post_init__ — invalid values are self-healed
+        to safe defaults with warnings appended.
+        """
+        return cls(
+            mode=data.get("mode", "suggest"),
+            max_creates=data.get("max_creates", 5),
+            warnings=tuple(data.get("warnings", ())),
+        )
 
 
 # --- Valid actions and origins ---
@@ -250,12 +303,16 @@ _ORIGIN_MODIFIER: dict[str, float] = {"user": 0.0, "agent": 0.15}
 _TERMINAL_STATUSES = frozenset({"done", "wontfix"})
 
 
-def _read_autonomy_mode(tickets_dir: Path) -> str:
-    """Read autonomy mode from .claude/ticket.local.md.
+def read_autonomy_config(tickets_dir: Path) -> AutonomyConfig:
+    """Read autonomy config from .claude/ticket.local.md YAML frontmatter.
 
-    Returns 'suggest' as default if file missing or malformed.
+    Fail-closed: returns AutonomyConfig(mode="suggest") on any error.
+    Emits warnings to stderr for malformed/unknown values.
     """
-    # Walk up from tickets_dir to find project root.
+
+    warnings: list[str] = []
+
+    # Walk up from tickets_dir to find project root (.claude/ directory).
     project_root = tickets_dir
     while project_root != project_root.parent:
         if (project_root / ".claude").is_dir():
@@ -264,25 +321,58 @@ def _read_autonomy_mode(tickets_dir: Path) -> str:
 
     config_path = project_root / ".claude" / "ticket.local.md"
     if not config_path.is_file():
-        return "suggest"
+        return AutonomyConfig()
 
     try:
         import yaml
 
         text = config_path.read_text(encoding="utf-8")
-        # Parse YAML frontmatter (--- delimited).
-        if text.startswith("---"):
-            parts = text.split("---", 2)
-            if len(parts) >= 3:
-                data = yaml.safe_load(parts[1])
-                if isinstance(data, dict):
-                    mode = data.get("autonomy_mode", "suggest")
-                    if mode in ("suggest", "auto_audit", "auto_silent"):
-                        return mode
-    except Exception:
-        pass
+        if not text.startswith("---"):
+            warnings.append("ticket.local.md: file exists but has no valid frontmatter (missing --- delimiters)")
+            print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+            return AutonomyConfig(warnings=tuple(warnings))
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            warnings.append("ticket.local.md: file exists but has no valid frontmatter (incomplete --- delimiters)")
+            print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+            return AutonomyConfig(warnings=tuple(warnings))
+        data = yaml.safe_load(parts[1])
+        if not isinstance(data, dict):
+            warnings.append("ticket.local.md: frontmatter is not a dict")
+            print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+            return AutonomyConfig(warnings=tuple(warnings))
+    except (OSError, ValueError) as exc:
+        warnings.append(f"ticket.local.md: failed to parse YAML: {exc}")
+        print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+        return AutonomyConfig(warnings=tuple(warnings))
+    except Exception as exc:
+        # yaml.YAMLError doesn't share a base with OSError/ValueError.
+        # Import may fail, so catch broadly but only for YAML parsing.
+        if "yaml" in type(exc).__module__.lower():
+            warnings.append(f"ticket.local.md: failed to parse YAML: {exc}")
+            print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+            return AutonomyConfig(warnings=tuple(warnings))
+        raise
 
-    return "suggest"
+    # Parse mode.
+    mode = data.get("autonomy_mode", "suggest")
+    if mode not in _VALID_AUTONOMY_MODES:
+        warnings.append(
+            f"ticket.local.md: unknown autonomy_mode {mode!r}, defaulting to 'suggest'"
+        )
+        print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+        mode = "suggest"
+
+    # Parse max_creates.
+    max_creates = data.get("max_creates_per_session", 5)
+    if not isinstance(max_creates, int) or max_creates < 0:
+        warnings.append(
+            f"ticket.local.md: invalid max_creates_per_session {max_creates!r}, defaulting to 5"
+        )
+        print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+        max_creates = 5
+
+    return AutonomyConfig(mode=mode, max_creates=max_creates, warnings=tuple(warnings))
 
 
 def engine_preflight(
@@ -298,11 +388,12 @@ def engine_preflight(
     duplicate_of: str | None = None,
     dedup_override: bool = False,
     dependency_override: bool = False,
+    hook_injected: bool = False,
     tickets_dir: Path,
 ) -> EngineResponse:
     """Preflight: single enforcement point for all mutating operations.
 
-    Checks in order: origin, action, agent policy, confidence, intent match,
+    Checks in order: origin, action, autonomy policy, confidence, intent match,
     dedup, ticket existence, dependency integrity, TOCTOU fingerprint.
     """
     checks_passed: list[str] = []
@@ -334,20 +425,115 @@ def engine_preflight(
         )
     checks_passed.append("action")
 
-    # --- Agent policy: Phase 1 strict fail-closed (Codex finding 5: before confidence) ---
-    # Moved before confidence gate so all agent requests get policy_blocked,
-    # not a misleading preflight_failed for coincidental confidence issues.
+    # --- Autonomy policy (Codex finding 5: agent checks before confidence) ---
+    config = read_autonomy_config(tickets_dir)
+    notification: str | None = None
+
     if request_origin == "agent":
-        return EngineResponse(
-            state="policy_blocked",
-            message="Agent mutations are hard-blocked in Phase 1. "
-            "The PreToolUse hook (Phase 2) is required for legitimate agent invocations.",
-            error_code="policy_blocked",
-            data={
-                "checks_passed": checks_passed,
-                "checks_failed": [{"check": "agent_phase1_block", "reason": "Phase 1 fail-closed policy"}],
-            },
-        )
+        # Action exclusions: reopen is user-only in v1.0.
+        if action == "reopen":
+            return EngineResponse(
+                state="policy_blocked",
+                message="Reopen is user-only in v1.0",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "agent_action_exclusion", "reason": "reopen is user-only"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+
+        # Override rejection: agents cannot use dedup_override or dependency_override.
+        if dedup_override:
+            return EngineResponse(
+                state="policy_blocked",
+                message="Agents cannot use dedup_override",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "agent_override_rejection", "reason": "dedup_override not allowed for agents"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+        if dependency_override:
+            return EngineResponse(
+                state="policy_blocked",
+                message="Agents cannot use dependency_override",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "agent_override_rejection", "reason": "dependency_override not allowed for agents"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+
+        # Hook validation: agent must have hook_injected.
+        if not hook_injected:
+            return EngineResponse(
+                state="policy_blocked",
+                message="Agent mutations require hook_injected=True (missing trust field)",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "hook_injected", "reason": "missing trust field"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+
+        # Autonomy mode enforcement.
+        if config.mode == "suggest":
+            return EngineResponse(
+                state="policy_blocked",
+                message=f"Autonomy mode 'suggest': agent {action} requires user approval",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "autonomy_mode", "reason": "suggest mode blocks agents"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+
+        if config.mode == "auto_silent":
+            return EngineResponse(
+                state="policy_blocked",
+                message="Autonomy mode 'auto_silent' is not available in v1.0",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "autonomy_mode", "reason": "auto_silent gated in v1.0"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+
+        # auto_audit: check session cap for create actions.
+        if config.mode == "auto_audit" and action == "create":
+            count = engine_count_session_creates(session_id, tickets_dir)
+            if count is AUDIT_UNAVAILABLE:
+                return EngineResponse(
+                    state="policy_blocked",
+                    message="Cannot verify session create count (audit trail unavailable)",
+                    error_code="policy_blocked",
+                    data={
+                        "checks_passed": checks_passed,
+                        "checks_failed": [{"check": "session_cap", "reason": "audit unavailable"}],
+                        "autonomy_config": config.to_dict(),
+                    },
+                )
+            if count >= config.max_creates:
+                return EngineResponse(
+                    state="policy_blocked",
+                    message=f"Session create cap reached: {count}/{config.max_creates}",
+                    error_code="policy_blocked",
+                    data={
+                        "checks_passed": checks_passed,
+                        "checks_failed": [{"check": "session_cap", "reason": f"{count}/{config.max_creates}"}],
+                        "autonomy_config": config.to_dict(),
+                    },
+                )
+            notification = f"Auto-audit: agent {action} approved (session creates: {count}/{config.max_creates})"
+        elif config.mode == "auto_audit":
+            notification = f"Auto-audit: agent {action} approved"
+
     checks_passed.append("autonomy_policy")
 
     # --- Confidence gate ---
@@ -470,10 +656,17 @@ def engine_preflight(
                 )
             checks_passed.append("target_fingerprint")
 
+    response_data: dict[str, Any] = {
+        "checks_passed": checks_passed,
+        "checks_failed": checks_failed,
+        "autonomy_config": config.to_dict(),
+    }
+    if notification:
+        response_data["notification"] = notification
     return EngineResponse(
         state="ok",
         message="All preflight checks passed",
-        data={"checks_passed": checks_passed, "checks_failed": checks_failed},
+        data=response_data,
     )
 
 
@@ -637,58 +830,78 @@ def _check_transition_preconditions(
     return None
 
 
+def _sanitize_session_id(session_id: str) -> str:
+    """Sanitize session_id for safe use as a filename component.
+
+    Strips path separators and null bytes to prevent path traversal.
+    Logs a warning to stderr if sanitization changes the value.
+    """
+    sanitized = session_id.replace("/", "_").replace("\\", "_").replace("\0", "_")
+    if sanitized != session_id:
+        print(f"WARNING: session_id sanitized: {session_id!r} -> {sanitized!r}", file=sys.stderr)
+    return sanitized
+
+
 def _audit_append(session_id: str, tickets_dir: Path, entry: dict[str, Any]) -> bool:
     """Append a JSONL audit entry for the given session.
 
     Location: <tickets_dir>/.audit/YYYY-MM-DD/<session_id>.jsonl
-    Returns True on success, False on failure.
+    Returns True on success, False on failure. Logs failures to stderr.
     """
     try:
+        safe_id = _sanitize_session_id(session_id)
         date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         audit_dir = tickets_dir / ".audit" / date_dir
         audit_dir.mkdir(parents=True, exist_ok=True)
-        audit_file = audit_dir / f"{session_id}.jsonl"
+        audit_file = audit_dir / f"{safe_id}.jsonl"
         with open(audit_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
             f.flush()
             os.fsync(f.fileno())
         return True
-    except Exception:
+    except Exception as exc:
+        print(f"AUDIT WRITE FAILED: {exc}", file=sys.stderr)
         return False
 
 
 def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | object:
-    """Count successful create actions in a session's audit file.
+    """Count successful create actions in a session's audit files.
 
-    Reads <tickets_dir>/.audit/YYYY-MM-DD/<session_id>.jsonl for today's
-    date and counts entries where action == "create" and result starts
-    with "ok_".
+    Scans all date directories under <tickets_dir>/.audit/ for
+    <session_id>.jsonl and counts entries where action == "create"
+    and result starts with "ok_".  This handles sessions that span
+    a UTC midnight boundary.
 
     Returns:
-        int: count of successful creates (0 if file doesn't exist)
-        AUDIT_UNAVAILABLE: on permission error reading the audit file
+        int: count of successful creates (0 if no audit files exist)
+        AUDIT_UNAVAILABLE: on permission error reading an audit file
     """
-    date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    audit_file = tickets_dir / ".audit" / date_dir / f"{session_id}.jsonl"
-
-    if not audit_file.exists():
+    safe_id = _sanitize_session_id(session_id)
+    audit_base = tickets_dir / ".audit"
+    if not audit_base.is_dir():
         return 0
 
-    try:
-        text = audit_file.read_text(encoding="utf-8")
-    except OSError:
-        return AUDIT_UNAVAILABLE
-
     count = 0
-    for line in text.strip().split("\n"):
-        if not line.strip():
+    for date_dir in audit_base.iterdir():
+        if not date_dir.is_dir():
+            continue
+        audit_file = date_dir / f"{safe_id}.jsonl"
+        if not audit_file.exists():
             continue
         try:
-            entry = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if entry.get("action") == "create" and isinstance(entry.get("result"), str) and entry["result"].startswith("ok_"):
-            count += 1
+            text = audit_file.read_text(encoding="utf-8")
+        except OSError:
+            return AUDIT_UNAVAILABLE
+        for line in text.strip().split("\n"):
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                print(f"WARNING: corrupt audit line in {audit_file}: {line[:100]!r}", file=sys.stderr)
+                continue
+            if entry.get("action") == "create" and isinstance(entry.get("result"), str) and entry["result"].startswith("ok_"):
+                count += 1
     return count
 
 
@@ -702,7 +915,7 @@ def engine_execute(
     dedup_override: bool,
     dependency_override: bool,
     tickets_dir: Path,
-    autonomy_mode: str = "suggest",
+    autonomy_config: AutonomyConfig | None = None,
     hook_injected: bool = False,
 ) -> EngineResponse:
     """Execute the mutation: create, update, close, or reopen.
@@ -710,19 +923,10 @@ def engine_execute(
     Assumes preflight has already passed. Writes ticket files.
     Wraps dispatch with JSONL audit trail.
     """
-    # Phase 1: hard-block all agent mutations (defense-in-depth, mirrors preflight).
-    # M8: Remove this block. The transport-layer validation below becomes the primary gate.
-    if request_origin == "agent":
-        return EngineResponse(
-            state="policy_blocked",
-            message="Phase 1: agent mutations are hard-blocked",
-            error_code="policy_blocked",
-        )
+    config = autonomy_config or AutonomyConfig()
 
     # --- Transport-layer validation ---
     # Agent mutations without hook_injected are rejected (defense-in-depth).
-    # The Phase 1 hard-block above catches this first, but when M8 removes
-    # the hard-block, this validation becomes the primary gate.
     if request_origin == "agent" and not hook_injected:
         return EngineResponse(
             state="policy_blocked",
@@ -731,18 +935,58 @@ def engine_execute(
         )
     # User without hook_injected: proceed (warn only — unverified in audit).
 
-    # Audit: attempt_started
+    # --- Autonomy defense-in-depth (self-contained allowlist) ---
+    if request_origin == "agent":
+        if action == "reopen":
+            return EngineResponse(
+                state="policy_blocked",
+                message="Defense-in-depth: reopen is user-only in v1.0",
+                error_code="policy_blocked",
+            )
+        if dedup_override:
+            return EngineResponse(
+                state="policy_blocked",
+                message="Defense-in-depth: agents cannot use dedup_override",
+                error_code="policy_blocked",
+            )
+        if dependency_override:
+            return EngineResponse(
+                state="policy_blocked",
+                message="Defense-in-depth: agents cannot use dependency_override",
+                error_code="policy_blocked",
+            )
+        if config.mode != "auto_audit":
+            return EngineResponse(
+                state="policy_blocked",
+                message=f"Defense-in-depth: autonomy mode {config.mode!r} blocks agent mutations",
+                error_code="policy_blocked",
+            )
+        if action == "create":
+            count = engine_count_session_creates(session_id, tickets_dir)
+            if count is AUDIT_UNAVAILABLE or (isinstance(count, int) and count >= config.max_creates):
+                return EngineResponse(
+                    state="policy_blocked",
+                    message=f"Defense-in-depth: session create cap ({config.max_creates})",
+                    error_code="policy_blocked",
+                )
+
+    # Audit: attempt_started (fail-closed for agents — audit is a security gate).
     base_entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "action": "attempt_started",
         "ticket_id": ticket_id,
         "session_id": session_id,
         "request_origin": request_origin,
-        "autonomy_mode": autonomy_mode,
+        "autonomy_mode": config.mode,
         "result": None,
         "changes": None,
     }
-    _audit_append(session_id, tickets_dir, base_entry)
+    if not _audit_append(session_id, tickets_dir, base_entry) and request_origin == "agent":
+        return EngineResponse(
+            state="policy_blocked",
+            message="Audit trail write failed — agent mutation blocked (fail-closed)",
+            error_code="policy_blocked",
+        )
 
     # Dispatch
     try:
@@ -768,7 +1012,7 @@ def engine_execute(
             "ticket_id": ticket_id,
             "session_id": session_id,
             "request_origin": request_origin,
-            "autonomy_mode": autonomy_mode,
+            "autonomy_mode": config.mode,
             "result": f"error:{type(exc).__name__}",
             "changes": None,
         }
@@ -782,7 +1026,7 @@ def engine_execute(
         "ticket_id": resp.ticket_id if resp.ticket_id else ticket_id,
         "session_id": session_id,
         "request_origin": request_origin,
-        "autonomy_mode": autonomy_mode,
+        "autonomy_mode": config.mode,
         "result": resp.state,
         "changes": resp.data.get("changes") if resp.data else None,
     }
@@ -818,7 +1062,7 @@ def _execute_create(
     today = Date.today()
     ticket_id = allocate_id(tickets_dir, today)
     title = fields.get("title", "Untitled")
-    filename = build_filename(ticket_id, title)
+    filename = build_filename(ticket_id, title, tickets_dir)
 
     source = fields.get("source", {"type": "ad-hoc", "ref": "", "session": session_id})
     if "session" not in source:

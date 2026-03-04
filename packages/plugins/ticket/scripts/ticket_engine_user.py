@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.ticket_engine_core import (
+    AutonomyConfig,
     EngineResponse,
     engine_classify,
     engine_execute,
@@ -93,9 +94,13 @@ def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineRespon
             target_fingerprint=payload.get("target_fingerprint"),
             duplicate_of=payload.get("duplicate_of"),
             dedup_override=payload.get("dedup_override", False),
+            dependency_override=payload.get("dependency_override", False),
+            hook_injected=payload.get("hook_injected", False),
             tickets_dir=tickets_dir,
         )
     elif subcommand == "execute":
+        config_data = payload.get("autonomy_config")
+        autonomy_config = AutonomyConfig.from_dict(config_data) if isinstance(config_data, dict) else None
         return engine_execute(
             action=payload.get("action", ""),
             ticket_id=payload.get("ticket_id"),
@@ -105,6 +110,7 @@ def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineRespon
             dedup_override=payload.get("dedup_override", False),
             dependency_override=payload.get("dependency_override", False),
             tickets_dir=tickets_dir,
+            autonomy_config=autonomy_config,
             hook_injected=payload.get("hook_injected", False),
         )
     else:
