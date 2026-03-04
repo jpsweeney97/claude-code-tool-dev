@@ -214,6 +214,110 @@ Claude Code uses a tiered permission model. Tools are categorized by risk level 
 ## Permission profiles
 
 Choose between different permission modes: default, plan, or acceptEdits for varying levels of autonomy.
+---
+# Slash Commands
+Source: https://code.claude.com/docs/en/slash-commands
+
+Create and use custom slash commands in Claude Code for task automation.
+
+## Defining custom commands
+
+Create command files in .claude/commands/ with YAML frontmatter specifying name and description. Commands can accept arguments and execute shell scripts.
+
+## Built-in commands
+
+Claude Code includes built-in slash commands like /help, /clear, /compact, and /init for common operations.
+---
+# Plugins
+Source: https://code.claude.com/docs/en/plugins
+
+Extend Claude Code functionality with plugins. Plugins bundle commands, skills, hooks, agents, and MCP servers.
+
+## Plugin structure
+
+A plugin requires a plugin.json manifest file defining its components. Plugins are distributed via marketplaces.
+
+## Installing plugins
+
+Install plugins from marketplaces using claude plugin install or by specifying a local path.
+---
+# Settings
+Source: https://code.claude.com/docs/en/settings
+
+Configure Claude Code behavior through settings.json and environment variables.
+
+## Settings hierarchy
+
+Settings follow a hierarchy: global (~/.claude/settings.json), project (.claude/settings.json), and environment variables. More specific settings override general ones.
+
+## Common settings
+
+Configure model preferences, permission modes, and tool restrictions through the settings system.
+---
+# Memory and CLAUDE.md
+Source: https://code.claude.com/docs/en/memory
+
+Claude Code uses CLAUDE.md files as persistent memory across sessions. Project instructions are stored in CLAUDE.md.
+
+## CLAUDE.md locations
+
+CLAUDE.md files can exist at global (~/.claude/CLAUDE.md), project root, and subdirectory levels. Each level adds context for that scope.
+
+## Auto-memory
+
+Claude Code can automatically save insights to memory files for future reference across sessions.
+---
+# CLI Reference
+Source: https://code.claude.com/docs/en/cli-reference
+
+Command-line interface reference for Claude Code. Run claude with various flags and options.
+
+## CLI flags
+
+Common CLI flags include --model for model selection, --allowedTools for tool restrictions, and --print for non-interactive output mode.
+
+## Environment variables
+
+Configure Claude Code behavior through environment variables like ANTHROPIC_API_KEY and CLAUDE_DEBUG.
+---
+# Interactive Features
+Source: https://code.claude.com/docs/en/interactive-mode
+
+Interactive features in Claude Code including vim mode, multi-line editing, and fast mode.
+
+## Vim mode
+
+Enable vim keybindings for efficient text editing in the Claude Code terminal interface.
+
+## Fast mode
+
+Toggle fast mode for faster responses. Fast mode uses the same model with optimized output speed.
+---
+# Desktop Application
+Source: https://code.claude.com/docs/en/desktop
+
+Claude Code desktop application for macOS and Windows. Native app with terminal integration.
+
+## Desktop installation
+
+Download and install the Claude Code desktop app from the official website. The desktop app bundles the CLI.
+
+## Desktop features
+
+The desktop app provides a native window, system tray integration, and automatic updates.
+---
+# Overview
+Source: https://code.claude.com/docs/en/overview
+
+Claude Code is an agentic coding tool that lives in your terminal. It understands your codebase and helps with software engineering tasks.
+
+## What Claude Code can do
+
+Claude Code can edit files, run commands, search code, manage git, create pull requests, and more — all from your terminal.
+
+## How Claude Code works
+
+Claude Code operates as an interactive agent with access to tools for file editing, code search, and command execution.
 `;
 
 describe('golden queries (URL-based)', () => {
@@ -290,6 +394,15 @@ describe('golden queries (URL-based)', () => {
     { query: 'agent teams leader worker coordination', expectedTopCategory: 'agents' },
     { query: 'authentication login API key', expectedTopCategory: 'security' },
     { query: 'permission system approval levels', expectedTopCategory: 'security' },
+    // New priority categories (B12)
+    { query: 'slash command definition YAML', expectedTopCategory: 'commands' },
+    { query: 'plugin manifest structure install', expectedTopCategory: 'plugins' },
+    { query: 'settings hierarchy configuration', expectedTopCategory: 'settings' },
+    { query: 'CLAUDE.md memory persistent sessions', expectedTopCategory: 'memory' },
+    { query: 'CLI flags model allowedTools', expectedTopCategory: 'cli' },
+    { query: 'vim mode interactive editing', expectedTopCategory: 'interactive' },
+    { query: 'desktop application native install', expectedTopCategory: 'desktop' },
+    { query: 'overview agentic terminal tool', expectedTopCategory: 'overview' },
     // Morphological variant queries (stemming coverage)
     { query: 'configuring MCP servers', expectedTopCategory: 'mcp' },
     { query: 'creating custom skills', expectedTopCategory: 'skills' },
@@ -368,6 +481,61 @@ describe('golden queries (URL-based)', () => {
     // sub-agents URL maps to 'agents' category via SECTION_TO_CATEGORY
     for (const chunk of subagentChunks) {
       expect(chunk.category).toBe('agents');
+    }
+  });
+
+  it('B12 priority category chunks exist and have correct categories', () => {
+    // Verify the 8 new priority category sections are indexed correctly
+    const commandsChunks = index.chunks.filter((c) => c.source_file.includes('slash-commands'));
+    const pluginsChunks = index.chunks.filter((c) =>
+      c.source_file.includes('plugins') && !c.source_file.includes('plugin-marketplaces'),
+    );
+    const settingsChunks = index.chunks.filter((c) =>
+      c.source_file.includes('settings') && !c.source_file.includes('server-managed'),
+    );
+    const memoryChunks = index.chunks.filter((c) => c.source_file.includes('memory'));
+    const cliChunks = index.chunks.filter((c) => c.source_file.includes('cli-reference'));
+    const interactiveChunks = index.chunks.filter((c) =>
+      c.source_file.includes('interactive-mode'),
+    );
+    const desktopChunks = index.chunks.filter((c) =>
+      c.source_file.includes('desktop') && !c.source_file.includes('desktop-quickstart'),
+    );
+    const overviewChunks = index.chunks.filter((c) => c.source_file.includes('overview'));
+
+    expect(commandsChunks.length).toBeGreaterThan(0);
+    expect(pluginsChunks.length).toBeGreaterThan(0);
+    expect(settingsChunks.length).toBeGreaterThan(0);
+    expect(memoryChunks.length).toBeGreaterThan(0);
+    expect(cliChunks.length).toBeGreaterThan(0);
+    expect(interactiveChunks.length).toBeGreaterThan(0);
+    expect(desktopChunks.length).toBeGreaterThan(0);
+    expect(overviewChunks.length).toBeGreaterThan(0);
+
+    // Verify categories are correctly derived from URLs
+    for (const chunk of commandsChunks) {
+      expect(chunk.category).toBe('commands');
+    }
+    for (const chunk of pluginsChunks) {
+      expect(chunk.category).toBe('plugins');
+    }
+    for (const chunk of settingsChunks) {
+      expect(chunk.category).toBe('settings');
+    }
+    for (const chunk of memoryChunks) {
+      expect(chunk.category).toBe('memory');
+    }
+    for (const chunk of cliChunks) {
+      expect(chunk.category).toBe('cli');
+    }
+    for (const chunk of interactiveChunks) {
+      expect(chunk.category).toBe('interactive');
+    }
+    for (const chunk of desktopChunks) {
+      expect(chunk.category).toBe('desktop');
+    }
+    for (const chunk of overviewChunks) {
+      expect(chunk.category).toBe('overview');
     }
   });
 
