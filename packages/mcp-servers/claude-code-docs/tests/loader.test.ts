@@ -4,10 +4,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 
-let loadMarkdownFiles: typeof import('../src/loader.js').loadMarkdownFiles;
 let parseFrontmatter: typeof import('../src/frontmatter.js').parseFrontmatter;
-
-vi.mock('glob', () => ({ glob: vi.fn() }));
 
 describe('fetchAndParse with TTL', () => {
   let tempDir: string;
@@ -75,113 +72,6 @@ Stale hooks content`;
     expect(mockFetch).toHaveBeenCalled();
     expect(files).toHaveLength(1);
     expect(files[0].path).toContain('hooks');
-  });
-});
-
-describe('loadMarkdownFiles', () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    vi.resetModules();
-    ({ loadMarkdownFiles } = await import('../src/loader.js'));
-    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-test-'));
-  });
-
-  afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true });
-  });
-
-  it('returns empty array for non-existent directory', async () => {
-    const { glob } = await import('glob');
-    vi.mocked(glob).mockResolvedValueOnce([]);
-    const files = await loadMarkdownFiles('/nonexistent/path');
-    expect(files).toEqual([]);
-  });
-
-  it('returns empty array for empty directory', async () => {
-    const { glob } = await import('glob');
-    vi.mocked(glob).mockResolvedValueOnce([]);
-    const files = await loadMarkdownFiles(tempDir);
-    expect(files).toEqual([]);
-  });
-
-  it('loads markdown files', async () => {
-    const filePath = path.join(tempDir, 'test.md');
-    await fs.writeFile(filePath, '# Test');
-    const { glob } = await import('glob');
-    vi.mocked(glob).mockResolvedValueOnce([filePath]);
-    const files = await loadMarkdownFiles(tempDir);
-    expect(files).toHaveLength(1);
-    expect(files[0].path).toBe('test.md');
-    expect(files[0].content).toBe('# Test');
-  });
-
-  it('loads from subdirectories', async () => {
-    await fs.mkdir(path.join(tempDir, 'hooks'));
-    const filePath = path.join(tempDir, 'hooks', 'test.md');
-    await fs.writeFile(filePath, '# Hooks Test');
-    const { glob } = await import('glob');
-    vi.mocked(glob).mockResolvedValueOnce([filePath]);
-    const files = await loadMarkdownFiles(tempDir);
-    expect(files).toHaveLength(1);
-    expect(files[0].path).toBe('hooks/test.md');
-  });
-
-  it('ignores non-markdown files', async () => {
-    const mdPath = path.join(tempDir, 'test.md');
-    const txtPath = path.join(tempDir, 'test.txt');
-    await fs.writeFile(mdPath, '# Markdown');
-    await fs.writeFile(txtPath, 'Plain text');
-    const { glob } = await import('glob');
-    vi.mocked(glob).mockResolvedValueOnce([mdPath]);
-    const files = await loadMarkdownFiles(tempDir);
-    expect(files).toHaveLength(1);
-    expect(files[0].path).toBe('test.md');
-  });
-
-  it('normalizes path separators', async () => {
-    await fs.mkdir(path.join(tempDir, 'deep', 'nested'), { recursive: true });
-    const filePath = path.join(tempDir, 'deep', 'nested', 'file.md');
-    await fs.writeFile(filePath, '# Nested');
-    const { glob } = await import('glob');
-    vi.mocked(glob).mockResolvedValueOnce([filePath]);
-    const files = await loadMarkdownFiles(tempDir);
-    expect(files[0].path).toBe('deep/nested/file.md'); // Forward slashes
-  });
-});
-
-describe('loadMarkdownFiles glob failures', () => {
-  const docsPath = '/protected/path';
-
-  beforeEach(async () => {
-    vi.resetModules();
-    ({ loadMarkdownFiles } = await import('../src/loader.js'));
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('logs permission error on glob failure', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { glob } = await import('glob');
-    vi.mocked(glob).mockRejectedValueOnce(
-      Object.assign(new Error('permission denied'), { code: 'EACCES' })
-    );
-    const files = await loadMarkdownFiles(docsPath);
-
-    expect(files).toEqual([]);
-    expect(errorSpy).toHaveBeenCalled();
-  });
-
-  it('logs code when glob fails with permission error', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { glob } = await import('glob');
-    vi.mocked(glob).mockRejectedValueOnce(
-      Object.assign(new Error('permission denied'), { code: 'EACCES' })
-    );
-    await loadMarkdownFiles(docsPath);
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('EACCES'));
   });
 });
 
