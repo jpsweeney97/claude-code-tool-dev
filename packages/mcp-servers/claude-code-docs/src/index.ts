@@ -5,157 +5,29 @@ import { z } from 'zod';
 
 import { loadFromOfficial } from './loader.js';
 import { chunkFile } from './chunker.js';
-import { buildBM25Index, search, type BM25Index } from './bm25.js';
+import { buildBM25Index, search } from './bm25.js';
 import { getParseWarnings, clearParseWarnings } from './frontmatter.js';
-import { KNOWN_CATEGORIES, CATEGORY_ALIASES } from './categories.js';
 import {
   serializeIndex,
   deserializeIndex,
-  INDEX_FORMAT_VERSION,
-  TOKENIZER_VERSION,
-  CHUNKER_VERSION,
-  type SerializedIndex,
   parseSerializedIndex,
 } from './index-cache.js';
 import { readIndexCache, writeIndexCache, getDefaultIndexCachePath, clearIndexCache } from './cache.js';
 import { formatSearchError } from './error-messages.js';
+import { ServerState } from './lifecycle.js';
+import { SearchInputSchema, SearchOutputSchema } from './schemas.js';
 
-// === State Management ===
-let index: BM25Index | null = null;
-let loadError: string | null = null;
-let lastLoadAttempt = 0;
-let loadingPromise: Promise<BM25Index | null> | null = null;
-
-// === Configuration ===
-const RETRY_INTERVAL_MS = parseInt(process.env.RETRY_INTERVAL_MS ?? '60000', 10);
-const EFFECTIVE_RETRY_INTERVAL =
-  RETRY_INTERVAL_MS >= 1000 && RETRY_INTERVAL_MS <= 600000 ? RETRY_INTERVAL_MS : 60000;
-
-async function ensureIndex(forceRefresh = false): Promise<BM25Index | null> {
-  if (index && !forceRefresh) return index;
-
-  if (loadingPromise) return loadingPromise;
-
-  const now = Date.now();
-  if (loadError && now - lastLoadAttempt < EFFECTIVE_RETRY_INTERVAL && !forceRefresh) {
-    return null;
-  }
-
-  loadingPromise = doLoadIndex(forceRefresh);
-
-  try {
-    return await loadingPromise;
-  } finally {
-    loadingPromise = null;
-  }
-}
-
-async function doLoadIndex(forceRefresh = false): Promise<BM25Index | null> {
-  const isRetry = loadError !== null;
-
-  lastLoadAttempt = Date.now();
-  loadError = null;
-  clearParseWarnings();
-
-  if (isRetry) {
-    console.error('Retrying documentation load...');
-  }
-
-  const docsUrl = process.env.DOCS_URL ?? 'https://code.claude.com/docs/llms-full.txt';
-
-  try {
-    const { files, contentHash } = await loadFromOfficial(docsUrl, undefined, forceRefresh);
-    if (files.length === 0) {
-      loadError = 'No extension documentation found after filtering';
-      console.error(`ERROR: ${loadError}`);
-      return null;
-    }
-
-    // Try to load cached index
-    const indexCachePath = getDefaultIndexCachePath();
-    const cached = parseSerializedIndex(await readIndexCache(indexCachePath));
-
-    if (
-      cached &&
-      cached.version === INDEX_FORMAT_VERSION &&
-      cached.contentHash === contentHash &&
-      cached.metadata?.tokenizerVersion === TOKENIZER_VERSION &&
-      cached.metadata?.chunkerVersion === CHUNKER_VERSION
-    ) {
-      index = deserializeIndex(cached);
-      console.error(`Loaded cached index (${index.chunks.length} chunks)`);
-      return index;
-    }
-
-    // Build fresh index
-    const chunks = files.flatMap((f) => chunkFile(f));
-
-    const warnings = getParseWarnings();
-    if (warnings.length > 0) {
-      console.error(`\nWARNING: ${warnings.length} file(s) with parse issues:`);
-      for (const w of warnings) {
-        console.error(`  - ${w.file}: ${w.issue}`);
-      }
-      console.error('');
-    }
-
-    index = buildBM25Index(chunks);
-    console.error(`Built fresh index (${chunks.length} chunks from ${files.length} sections)`);
-
-    // Persist index
-    try {
-      const serialized = serializeIndex(index, contentHash);
-      await writeIndexCache(indexCachePath, serialized);
-      console.error('Index cached for future use');
-    } catch (err) {
-      console.error(`WARN: Failed to write index cache: ${err instanceof Error ? err.message : 'unknown'}`);
-    }
-
-    return index;
-  } catch (err) {
-    loadError = `Failed to load docs: ${err instanceof Error ? err.message : 'unknown'}`;
-    console.error(`ERROR: ${loadError}`);
-    return null;
-  }
-}
-
-// === Zod Schemas ===
-const CATEGORY_VALUES = [...KNOWN_CATEGORIES] as const;
-
-const SearchInputSchema = z.object({
-  query: z
-    .string()
-    .max(500, 'Query too long: maximum 500 characters')
-    .transform((s) => s.trim())
-    .pipe(z.string().min(1, 'Query cannot be empty'))
-    .describe(
-      'Search query — be specific (e.g., "PreToolUse JSON output", "skill frontmatter properties")',
-    ),
-  limit: z
-    .number()
-    .int()
-    .min(1)
-    .max(20)
-    .optional()
-    .describe('Maximum results to return (default: 5, max: 20)'),
-  category: z
-    .enum([...CATEGORY_VALUES, ...Object.keys(CATEGORY_ALIASES)] as [string, ...string[]])
-    .transform((val) => CATEGORY_ALIASES[val] ?? val)
-    .optional()
-    .describe('Filter to a specific category (e.g., "hooks", "plugins", "security")'),
-});
-
-const SearchOutputSchema = z.object({
-  results: z.array(
-    z.object({
-      chunk_id: z.string(),
-      content: z.string(),
-      snippet: z.string(),
-      category: z.string(),
-      source_file: z.string(),
-    }),
-  ),
-  error: z.string().optional().describe('Error message if search failed'),
+const serverState = new ServerState({
+  loadFn: loadFromOfficial,
+  chunkFn: chunkFile,
+  buildIndexFn: buildBM25Index,
+  readCacheFn: readIndexCache,
+  writeCacheFn: writeIndexCache,
+  clearCacheFn: clearIndexCache,
+  indexCachePathFn: getDefaultIndexCachePath,
+  serializeIndexFn: serializeIndex,
+  deserializeIndexFn: deserializeIndex,
+  parseSerializedIndexFn: parseSerializedIndex,
 });
 
 async function main() {
@@ -174,9 +46,9 @@ async function main() {
       outputSchema: SearchOutputSchema,
     },
     async ({ query, limit = 5, category }: z.infer<typeof SearchInputSchema>) => {
-      const idx = await ensureIndex();
+      const idx = await serverState.ensureIndex();
       if (!idx) {
-        const error = loadError ?? 'Index not available';
+        const error = serverState.getLoadError() ?? 'Index not available';
         return {
           isError: true,
           content: [{ type: 'text' as const, text: `Search unavailable: ${error}` }],
@@ -211,31 +83,31 @@ async function main() {
       inputSchema: z.object({}),
     },
     async () => {
-      if (loadingPromise) {
+      const inProgress = serverState.getLoadingPromise();
+      if (inProgress) {
         console.error('Waiting for in-progress load to complete before reload...');
-        await loadingPromise;
+        await inProgress;
       }
 
       // Keep old index alive during reload — concurrent searches continue to work.
-      // doLoadIndex() overwrites `index` on success (lines 85, 102) and preserves
-      // it on failure (returns null without touching `index`).
+      // doLoadIndex() overwrites index on success and preserves it on failure.
       clearParseWarnings();
 
       console.error('Forcing documentation reload...');
 
       await clearIndexCache();
 
-      const idx = await ensureIndex(true);
+      const idx = await serverState.ensureIndex(true);
       if (!idx) {
-        const hasStaleIndex = index !== null;
+        const hasStaleIndex = serverState.getIndex() !== null;
         return {
           isError: true,
           content: [
             {
               type: 'text' as const,
               text: hasStaleIndex
-                ? `Reload failed (serving previous index): ${loadError}`
-                : `Reload failed: ${loadError}`,
+                ? `Reload failed (serving previous index): ${serverState.getLoadError()}`
+                : `Reload failed: ${serverState.getLoadError()}`,
             },
           ],
         };
@@ -260,7 +132,7 @@ async function main() {
 
   // Eagerly load the index to avoid first-search latency.
   // If a search arrives while loading, ensureIndex() will wait for this same promise.
-  ensureIndex().then((idx) => {
+  serverState.ensureIndex().then((idx) => {
     if (idx) {
       console.error(`Index ready (${idx.chunks.length} chunks)`);
     }
