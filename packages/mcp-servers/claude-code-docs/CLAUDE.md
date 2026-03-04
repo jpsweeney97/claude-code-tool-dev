@@ -2,6 +2,14 @@
 
 BM25-based search server for Claude Code documentation. Fetches docs from `https://code.claude.com/docs/llms-full.txt`, chunks into semantic sections, builds an in-memory BM25 index, and exposes two tools (`search_docs`, `reload_docs`) via MCP stdio transport.
 
+### Search Tool Parameters
+
+| Parameter | Type | Required | Default | Constraints |
+|-----------|------|----------|---------|-------------|
+| `query` | string | yes | — | Max 500 chars, trimmed |
+| `limit` | integer | no | `5` | 1–20 |
+| `category` | string | no | — | One of 24 categories or 5 aliases (see `categories.ts`) |
+
 ## Commands
 
 ```bash
@@ -57,6 +65,17 @@ loadFromOfficial (fetch + parse docs)
 - **Two-cache architecture**: content cache (TTL-based, raw HTTP response) and index cache (version-based, serialized BM25 index) invalidate independently
 - **Chunking hierarchy**: H2 → H3 → paragraph → hard split with overlap. Each level cascades when chunks exceed size limits.
 
+### Cache Paths
+
+Both caches resolve via `getDefaultCachePath()` / `getDefaultIndexCachePath()` in `cache.ts`. Override with `CACHE_PATH` env var.
+
+| Platform | Content cache | Index cache |
+|----------|--------------|-------------|
+| macOS | `~/Library/Caches/claude-code-docs/llms-full.txt` | `~/Library/Caches/claude-code-docs/llms-full.index.json` |
+| Linux | `$XDG_CACHE_HOME/claude-code-docs/` (or `~/.cache/claude-code-docs/`) | Same directory |
+
+Writes use a PID-based lock file (`llms-full.txt.lock`) with stale-lock detection.
+
 ## Testing
 
 Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test files:
@@ -77,6 +96,8 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 | `RETRY_INTERVAL_MS` | `60000` | Retry interval after fetch failure |
 | `CACHE_TTL_MS` | `86400000` (24h) | Content cache TTL |
 | `DOCS_CACHE_MAX_STALE_MS` | `0` (disabled) | Hard limit on stale content cache age. Set to enable (e.g. `604800000` for 7d). |
+| `MIN_SECTION_COUNT` | `40` | Minimum sections in fetched content. Rejects truncated docs. Set to `0` to disable. |
+| `MAX_INDEX_CACHE_BYTES` | `52428800` (50 MB) | Hard limit on serialized index size before write |
 | `INTEGRATION` | (unset) | Set to `1` to run `integration.test.ts` against live `code.claude.com` |
 
 ## Gotchas
