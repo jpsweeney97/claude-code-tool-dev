@@ -189,3 +189,70 @@ class TestAuditReport:
         result = triage_audit_report(tmp_tickets)
         assert result["total_entries"] == 0
         assert result["sessions"] == 0
+
+
+class TestOrphanDetection:
+    """Test handoff orphan detection with three matching strategies."""
+
+    @pytest.fixture
+    def orphan_env(self, tmp_path):
+        """Set up tickets and handoffs directories."""
+        tickets_dir = tmp_path / "docs" / "tickets"
+        tickets_dir.mkdir(parents=True)
+        handoffs_dir = tmp_path / "handoffs"
+        handoffs_dir.mkdir()
+        return tickets_dir, handoffs_dir
+
+    def test_uid_match_by_session(self, orphan_env):
+        """Handoff matching ticket's source.session -> uid_match."""
+        tickets_dir, handoffs_dir = orphan_env
+        make_ticket(tickets_dir, "t1.md", id="T-20260302-01", session="session-abc")
+        (handoffs_dir / "handoff-1.md").write_text(
+            "# Handoff\nSession session-abc produced this work.\n"
+        )
+        from scripts.ticket_triage import triage_orphan_detection
+        result = triage_orphan_detection(tickets_dir, handoffs_dir)
+        assert len(result["matched"]) == 1
+        assert result["matched"][0]["match_type"] == "uid_match"
+        assert result["matched"][0]["matched_ticket"] == "T-20260302-01"
+
+    def test_id_ref_match(self, orphan_env):
+        """Handoff mentioning ticket ID -> id_ref match."""
+        tickets_dir, handoffs_dir = orphan_env
+        make_ticket(tickets_dir, "t1.md", id="T-20260302-01")
+        (handoffs_dir / "handoff-1.md").write_text(
+            "# Handoff\nRelated to T-20260302-01.\n"
+        )
+        from scripts.ticket_triage import triage_orphan_detection
+        result = triage_orphan_detection(tickets_dir, handoffs_dir)
+        assert len(result["matched"]) == 1
+        assert result["matched"][0]["match_type"] == "id_ref"
+
+    def test_manual_review_fallback(self, orphan_env):
+        """Handoff with no matching ticket -> manual_review."""
+        tickets_dir, handoffs_dir = orphan_env
+        (handoffs_dir / "handoff-1.md").write_text(
+            "# Handoff\nSome unrelated work.\n"
+        )
+        from scripts.ticket_triage import triage_orphan_detection
+        result = triage_orphan_detection(tickets_dir, handoffs_dir)
+        assert len(result["orphaned"]) == 1
+        assert result["orphaned"][0]["match_type"] == "manual_review"
+
+    def test_no_handoffs_dir(self, tmp_tickets):
+        """Missing handoffs directory -> empty results."""
+        from scripts.ticket_triage import triage_orphan_detection
+        result = triage_orphan_detection(tmp_tickets, Path("/nonexistent"))
+        assert result["total_items"] == 0
+
+    def test_uid_match_takes_priority_over_id_ref(self, orphan_env):
+        """uid_match is checked before id_ref -- first match wins."""
+        tickets_dir, handoffs_dir = orphan_env
+        make_ticket(tickets_dir, "t1.md", id="T-20260302-01", session="session-xyz")
+        (handoffs_dir / "handoff-1.md").write_text(
+            "# Handoff\nSession session-xyz about T-20260302-01.\n"
+        )
+        from scripts.ticket_triage import triage_orphan_detection
+        result = triage_orphan_detection(tickets_dir, handoffs_dir)
+        assert len(result["matched"]) == 1
+        assert result["matched"][0]["match_type"] == "uid_match"

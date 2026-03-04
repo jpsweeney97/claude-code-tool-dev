@@ -10,6 +10,13 @@ from typing import Any
 
 _TERMINAL_STATUSES = frozenset({"done", "wontfix"})
 
+# Ticket ID patterns for id_ref matching.
+_TICKET_ID_PATTERNS = [
+    re.compile(r"T-\d{8}-\d{2,}"),  # v1.0: T-YYYYMMDD-NN
+    re.compile(r"T-\d{3}"),          # Gen 3: T-NNN
+    re.compile(r"T-[A-F]"),          # Gen 2: T-X
+]
+
 
 def triage_dashboard(tickets_dir: Path) -> dict[str, Any]:
     """Generate a triage dashboard with ticket counts and alerts.
@@ -150,4 +157,74 @@ def triage_audit_report(tickets_dir: Path, days: int = 7) -> dict[str, Any]:
         "by_action": by_action,
         "by_result": by_result,
         "sessions": len(session_ids),
+    }
+
+
+def triage_orphan_detection(
+    tickets_dir: Path,
+    handoffs_dir: Path,
+) -> dict[str, Any]:
+    """Detect orphaned handoff items not linked to any ticket.
+
+    Three matching strategies (ported from handoff triage.py):
+    1. uid_match: handoff text contains ticket's source.session
+    2. id_ref: handoff text contains a ticket ID
+    3. manual_review: no deterministic match
+    """
+    from scripts.ticket_read import list_tickets
+
+    tickets = list_tickets(tickets_dir, include_closed=True)
+    ticket_ids = {t.id for t in tickets}
+    session_map: dict[str, str] = {}  # session_id -> ticket_id
+    for t in tickets:
+        sid = t.source.get("session", "")
+        if sid:
+            session_map[sid] = t.id
+
+    matched: list[dict[str, Any]] = []
+    orphaned: list[dict[str, Any]] = []
+
+    if not handoffs_dir.is_dir():
+        return {"matched": matched, "orphaned": orphaned, "total_items": 0}
+
+    for hf in sorted(handoffs_dir.glob("*.md")):
+        try:
+            text = hf.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        item: dict[str, str] = {"file": hf.name, "path": str(hf)}
+        match_found = False
+
+        # Strategy 1: uid_match -- session ID in handoff text.
+        for sid, tid in session_map.items():
+            if sid in text:
+                matched.append({"match_type": "uid_match", "matched_ticket": tid, "item": item})
+                match_found = True
+                break
+
+        if match_found:
+            continue
+
+        # Strategy 2: id_ref -- ticket ID referenced in handoff text.
+        for pattern in _TICKET_ID_PATTERNS:
+            refs = pattern.findall(text)
+            for ref in refs:
+                if ref in ticket_ids:
+                    matched.append({"match_type": "id_ref", "matched_ticket": ref, "item": item})
+                    match_found = True
+                    break
+            if match_found:
+                break
+
+        if match_found:
+            continue
+
+        # Strategy 3: manual_review -- no deterministic match.
+        orphaned.append({"match_type": "manual_review", "matched_ticket": None, "item": item})
+
+    return {
+        "matched": matched,
+        "orphaned": orphaned,
+        "total_items": len(matched) + len(orphaned),
     }
