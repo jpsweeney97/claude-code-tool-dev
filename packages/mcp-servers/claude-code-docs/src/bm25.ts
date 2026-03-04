@@ -13,6 +13,7 @@ export const BM25_CONFIG = {
   b: 0.75,
   headingBoost: 0.2,
   headingMinCoverage: 0.5,
+  snippetMaxLength: 400,
 };
 
 const METADATA_HEADER_RE = /^(Topic:.*\n)?(ID:.*\n)?(Category:.*\n)?(Tags:.*\n)?\n?/m;
@@ -104,7 +105,7 @@ export function headingBoostMultiplier(
 export function extractSnippet(
   content: string,
   queryTerms: string[],
-  maxLength = 400
+  maxLength = BM25_CONFIG.snippetMaxLength
 ): string {
   // Strip metadata header (Topic/ID/Category/Tags lines at start)
   const bodyOnly = content.replace(METADATA_HEADER_RE, '');

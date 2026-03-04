@@ -226,6 +226,11 @@ describe('search using inverted index', () => {
 });
 
 describe('extractSnippet', () => {
+  it('uses BM25_CONFIG.snippetMaxLength as default', async () => {
+    const { BM25_CONFIG } = await import('../src/bm25.js');
+    expect(BM25_CONFIG.snippetMaxLength).toBe(400);
+  });
+
   it('returns snippet containing query terms', () => {
     const content = `Topic: Hooks Guide
 ID: hooks-guide
