@@ -100,6 +100,32 @@ class TestAuditAppend:
         # Result should reflect the error state, not None
         assert entries[1]["result"] is not None
 
+    def test_audit_on_exception_writes_error_and_reraises(self, tmp_tickets: Path) -> None:
+        """On exception in dispatch, audit writes error entry then re-raises."""
+        from unittest.mock import patch
+
+        session_id = "sess-exception-1"
+        with patch(
+            "scripts.ticket_engine_core._execute_create",
+            side_effect=RuntimeError("boom"),
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                engine_execute(
+                    action="create",
+                    ticket_id=None,
+                    fields={"title": "Test", "problem": "A problem"},
+                    session_id=session_id,
+                    request_origin="user",
+                    dedup_override=False,
+                    dependency_override=False,
+                    tickets_dir=tmp_tickets,
+                )
+        entries = _read_audit_lines(tmp_tickets, session_id)
+        assert len(entries) == 2
+        assert entries[0]["action"] == "attempt_started"
+        assert entries[1]["action"] == "create"
+        assert entries[1]["result"] == "error:RuntimeError"
+
     def test_audit_directory_creation(self, tmp_tickets: Path) -> None:
         """.audit directory is created if it doesn't exist."""
         session_id = "sess-dir-1"
