@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.ticket_engine_core import engine_execute
+from scripts.ticket_engine_core import AUDIT_UNAVAILABLE, engine_count_session_creates, engine_execute
 
 
 def _read_audit_lines(tickets_dir: Path, session_id: str) -> list[dict]:
@@ -188,3 +188,107 @@ class TestAuditAppend:
             # Should parse as ISO 8601 with timezone
             parsed = datetime.fromisoformat(ts)
             assert parsed.tzinfo is not None, f"Timestamp {ts!r} should have timezone info"
+
+
+class TestSessionCounting:
+    """Tests for engine_count_session_creates."""
+
+    def test_count_creates_in_session(self, tmp_tickets: Path) -> None:
+        """Creating 3 tickets yields a count of 3."""
+        session_id = "sess-count-1"
+        for i in range(3):
+            engine_execute(
+                action="create",
+                ticket_id=None,
+                fields={"title": f"Count test {i}", "problem": f"Problem {i}"},
+                session_id=session_id,
+                request_origin="user",
+                dedup_override=False,
+                dependency_override=False,
+                tickets_dir=tmp_tickets,
+            )
+        assert engine_count_session_creates(session_id, tmp_tickets) == 3
+
+    def test_count_ignores_non_create_actions(self, tmp_tickets: Path) -> None:
+        """Create + update in same session counts only the create."""
+        session_id = "sess-count-2"
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={"title": "Update target", "problem": "A problem"},
+            session_id=session_id,
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        tid = resp.ticket_id
+        engine_execute(
+            action="update",
+            ticket_id=tid,
+            fields={"priority": "high"},
+            session_id=session_id,
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert engine_count_session_creates(session_id, tmp_tickets) == 1
+
+    def test_count_missing_file_returns_zero(self, tmp_tickets: Path) -> None:
+        """Non-existent session returns 0."""
+        assert engine_count_session_creates("nonexistent-session", tmp_tickets) == 0
+
+    def test_count_corrupt_line_skipped(self, tmp_tickets: Path) -> None:
+        """Corrupt JSONL lines are skipped; valid create entries are still counted."""
+        session_id = "sess-count-corrupt"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+        lines = [
+            json.dumps({"action": "create", "result": "ok_create", "ts": "t1"}),
+            "NOT VALID JSON {{{",
+            json.dumps({"action": "create", "result": "ok_create", "ts": "t2"}),
+        ]
+        audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        assert engine_count_session_creates(session_id, tmp_tickets) == 2
+
+    def test_count_ignores_error_results(self, tmp_tickets: Path) -> None:
+        """Create entries with error results are not counted."""
+        session_id = "sess-count-errors"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+        lines = [
+            json.dumps({"action": "create", "result": "ok_create", "ts": "t1"}),
+            json.dumps({"action": "create", "result": "error:RuntimeError", "ts": "t2"}),
+            json.dumps({"action": "create", "result": "need_fields", "ts": "t3"}),
+        ]
+        audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        assert engine_count_session_creates(session_id, tmp_tickets) == 1
+
+    def test_count_permission_error_returns_sentinel(self, tmp_tickets: Path) -> None:
+        """Permission error reading audit file returns AUDIT_UNAVAILABLE."""
+        import os
+        import sys
+
+        if sys.platform == "win32":
+            pytest.skip("chmod not effective on Windows")
+
+        session_id = "sess-count-perm"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+        audit_file.write_text(
+            json.dumps({"action": "create", "result": "ok_create"}) + "\n",
+            encoding="utf-8",
+        )
+        try:
+            os.chmod(audit_file, 0o000)
+            result = engine_count_session_creates(session_id, tmp_tickets)
+            assert result is AUDIT_UNAVAILABLE
+        finally:
+            os.chmod(audit_file, 0o644)

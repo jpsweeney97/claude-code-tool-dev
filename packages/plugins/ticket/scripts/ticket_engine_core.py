@@ -53,6 +53,10 @@ class EngineResponse:
         return json.dumps(self.to_dict(), indent=2)
 
 
+# Sentinel for audit read failures.
+AUDIT_UNAVAILABLE = object()
+
+
 # --- Valid actions and origins ---
 
 VALID_ACTIONS = frozenset({"create", "update", "close", "reopen"})
@@ -651,6 +655,41 @@ def _audit_append(session_id: str, tickets_dir: Path, entry: dict[str, Any]) -> 
         return True
     except Exception:
         return False
+
+
+def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | object:
+    """Count successful create actions in a session's audit file.
+
+    Reads <tickets_dir>/.audit/YYYY-MM-DD/<session_id>.jsonl for today's
+    date and counts entries where action == "create" and result starts
+    with "ok_".
+
+    Returns:
+        int: count of successful creates (0 if file doesn't exist)
+        AUDIT_UNAVAILABLE: on permission error reading the audit file
+    """
+    date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    audit_file = tickets_dir / ".audit" / date_dir / f"{session_id}.jsonl"
+
+    if not audit_file.exists():
+        return 0
+
+    try:
+        text = audit_file.read_text(encoding="utf-8")
+    except PermissionError:
+        return AUDIT_UNAVAILABLE
+
+    count = 0
+    for line in text.strip().split("\n"):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if entry.get("action") == "create" and isinstance(entry.get("result"), str) and entry["result"].startswith("ok_"):
+            count += 1
+    return count
 
 
 def engine_execute(
