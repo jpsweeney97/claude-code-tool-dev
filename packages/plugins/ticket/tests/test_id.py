@@ -8,6 +8,7 @@ import pytest
 
 from scripts.ticket_id import (
     allocate_id,
+    build_filename,
     generate_slug,
     is_legacy_id,
     parse_id_date,
@@ -102,6 +103,57 @@ class TestParseIdDate:
         assert parse_id_date("T-A") is None
         assert parse_id_date("T-003") is None
         assert parse_id_date("handoff-chain-viz") is None
+
+
+class TestBuildFilenameCollision:
+    """build_filename appends collision suffixes when tickets_dir is provided."""
+
+    def test_collision_suffix_when_file_exists(self, tmp_tickets):
+        """Existing file with same slug → returns <base>-2.md."""
+        existing = tmp_tickets / "2026-03-02-fix-the-bug.md"
+        existing.write_text("placeholder")
+
+        filename = build_filename("T-20260302-01", "Fix the bug", tmp_tickets)
+        assert filename == "2026-03-02-fix-the-bug-2.md"
+
+    def test_collision_suffix_increments(self, tmp_tickets):
+        """Multiple collisions → suffix increments until unique."""
+        (tmp_tickets / "2026-03-02-fix-the-bug.md").write_text("placeholder")
+        (tmp_tickets / "2026-03-02-fix-the-bug-2.md").write_text("placeholder")
+        (tmp_tickets / "2026-03-02-fix-the-bug-3.md").write_text("placeholder")
+
+        filename = build_filename("T-20260302-01", "Fix the bug", tmp_tickets)
+        assert filename == "2026-03-02-fix-the-bug-4.md"
+
+    def test_no_collision_without_tickets_dir(self, tmp_tickets):
+        """tickets_dir=None skips collision check (backward compat)."""
+        (tmp_tickets / "2026-03-02-fix-the-bug.md").write_text("placeholder")
+
+        filename = build_filename("T-20260302-01", "Fix the bug")
+        assert filename == "2026-03-02-fix-the-bug.md"
+
+
+class TestAllocateIdArchived:
+    """allocate_id scans closed-tickets/ to prevent ID reuse."""
+
+    def test_skips_archived_ticket_ids(self, tmp_tickets):
+        """Archived ticket ID is not reissued."""
+        from tests.conftest import make_ticket
+
+        closed_dir = tmp_tickets / "closed-tickets"
+        closed_dir.mkdir()
+        make_ticket(closed_dir, "2026-03-02-old-bug.md", id="T-20260302-01")
+
+        ticket_id = allocate_id(tmp_tickets, date(2026, 3, 2))
+        assert ticket_id == "T-20260302-02"
+
+    def test_no_closed_dir_still_works(self, tmp_tickets):
+        """Missing closed-tickets/ dir → behaves as before."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-first.md", id="T-20260302-01")
+        ticket_id = allocate_id(tmp_tickets, date(2026, 3, 2))
+        assert ticket_id == "T-20260302-02"
 
 
 class TestVariableWidthSequence:

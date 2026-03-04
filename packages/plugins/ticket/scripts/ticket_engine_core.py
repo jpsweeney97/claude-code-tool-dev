@@ -818,7 +818,7 @@ def _execute_create(
     today = Date.today()
     ticket_id = allocate_id(tickets_dir, today)
     title = fields.get("title", "Untitled")
-    filename = build_filename(ticket_id, title)
+    filename = build_filename(ticket_id, title, tickets_dir)
 
     source = fields.get("source", {"type": "ad-hoc", "ref": "", "session": session_id})
     if "session" not in source:

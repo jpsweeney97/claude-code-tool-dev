@@ -29,8 +29,16 @@ def allocate_id(tickets_dir: Path, today: date | None = None) -> str:
     prefix = f"T-{date_str}-"
 
     max_seq = 0
-    if tickets_dir.is_dir():
-        for ticket_file in tickets_dir.glob("*.md"):
+    # Scan both active and archived tickets to prevent ID reuse.
+    scan_dirs = [tickets_dir]
+    closed_dir = tickets_dir / "closed-tickets"
+    if closed_dir.is_dir():
+        scan_dirs.append(closed_dir)
+
+    for scan_dir in scan_dirs:
+        if not scan_dir.is_dir():
+            continue
+        for ticket_file in scan_dir.glob("*.md"):
             try:
                 text = ticket_file.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
@@ -75,10 +83,12 @@ def generate_slug(title: str) -> str:
     return slug or "untitled"
 
 
-def build_filename(ticket_id: str, title: str) -> str:
+def build_filename(ticket_id: str, title: str, tickets_dir: Path | None = None) -> str:
     """Build a ticket filename from ID and title.
 
     Format: YYYY-MM-DD-<slug>.md (date from ID, slug from title).
+    When tickets_dir is provided, appends a collision suffix (-2, -3, ...)
+    if the filename already exists.
     """
     m = _DATE_ID_RE.match(ticket_id)
     if m:
@@ -88,7 +98,16 @@ def build_filename(ticket_id: str, title: str) -> str:
         date_str = date.today().strftime("%Y-%m-%d")
 
     slug = generate_slug(title)
-    return f"{date_str}-{slug}.md"
+    base = f"{date_str}-{slug}"
+    filename = f"{base}.md"
+
+    if tickets_dir is not None:
+        suffix = 2
+        while (tickets_dir / filename).exists():
+            filename = f"{base}-{suffix}.md"
+            suffix += 1
+
+    return filename
 
 
 def is_legacy_id(ticket_id: str) -> bool:
