@@ -360,11 +360,12 @@ def engine_preflight(
     duplicate_of: str | None = None,
     dedup_override: bool = False,
     dependency_override: bool = False,
+    hook_injected: bool = False,
     tickets_dir: Path,
 ) -> EngineResponse:
     """Preflight: single enforcement point for all mutating operations.
 
-    Checks in order: origin, action, agent policy, confidence, intent match,
+    Checks in order: origin, action, autonomy policy, confidence, intent match,
     dedup, ticket existence, dependency integrity, TOCTOU fingerprint.
     """
     checks_passed: list[str] = []
@@ -396,20 +397,115 @@ def engine_preflight(
         )
     checks_passed.append("action")
 
-    # --- Agent policy: Phase 1 strict fail-closed (Codex finding 5: before confidence) ---
-    # Moved before confidence gate so all agent requests get policy_blocked,
-    # not a misleading preflight_failed for coincidental confidence issues.
+    # --- Autonomy policy (Codex finding 5: agent checks before confidence) ---
+    config = read_autonomy_config(tickets_dir)
+    notification: str | None = None
+
     if request_origin == "agent":
-        return EngineResponse(
-            state="policy_blocked",
-            message="Agent mutations are hard-blocked in Phase 1. "
-            "The PreToolUse hook (Phase 2) is required for legitimate agent invocations.",
-            error_code="policy_blocked",
-            data={
-                "checks_passed": checks_passed,
-                "checks_failed": [{"check": "agent_phase1_block", "reason": "Phase 1 fail-closed policy"}],
-            },
-        )
+        # Action exclusions: reopen is user-only in v1.0.
+        if action == "reopen":
+            return EngineResponse(
+                state="policy_blocked",
+                message="Reopen is user-only in v1.0",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "agent_action_exclusion", "reason": "reopen is user-only"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+
+        # Override rejection: agents cannot use dedup_override or dependency_override.
+        if dedup_override:
+            return EngineResponse(
+                state="policy_blocked",
+                message="Agents cannot use dedup_override",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "agent_override_rejection", "reason": "dedup_override not allowed for agents"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+        if dependency_override:
+            return EngineResponse(
+                state="policy_blocked",
+                message="Agents cannot use dependency_override",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "agent_override_rejection", "reason": "dependency_override not allowed for agents"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+
+        # Hook validation: agent must have hook_injected.
+        if not hook_injected:
+            return EngineResponse(
+                state="policy_blocked",
+                message="Agent mutations require hook_injected=True (missing trust field)",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "hook_injected", "reason": "missing trust field"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+
+        # Autonomy mode enforcement.
+        if config.mode == "suggest":
+            return EngineResponse(
+                state="policy_blocked",
+                message=f"Autonomy mode 'suggest': agent {action} requires user approval",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "autonomy_mode", "reason": "suggest mode blocks agents"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+
+        if config.mode == "auto_silent":
+            return EngineResponse(
+                state="policy_blocked",
+                message="Autonomy mode 'auto_silent' is not available in v1.0",
+                error_code="policy_blocked",
+                data={
+                    "checks_passed": checks_passed,
+                    "checks_failed": [{"check": "autonomy_mode", "reason": "auto_silent gated in v1.0"}],
+                    "autonomy_config": config.to_dict(),
+                },
+            )
+
+        # auto_audit: check session cap for create actions.
+        if config.mode == "auto_audit" and action == "create":
+            count = engine_count_session_creates(session_id, tickets_dir)
+            if count is AUDIT_UNAVAILABLE:
+                return EngineResponse(
+                    state="policy_blocked",
+                    message="Cannot verify session create count (audit trail unavailable)",
+                    error_code="policy_blocked",
+                    data={
+                        "checks_passed": checks_passed,
+                        "checks_failed": [{"check": "session_cap", "reason": "audit unavailable"}],
+                        "autonomy_config": config.to_dict(),
+                    },
+                )
+            if count >= config.max_creates:
+                return EngineResponse(
+                    state="policy_blocked",
+                    message=f"Session create cap reached: {count}/{config.max_creates}",
+                    error_code="policy_blocked",
+                    data={
+                        "checks_passed": checks_passed,
+                        "checks_failed": [{"check": "session_cap", "reason": f"{count}/{config.max_creates}"}],
+                        "autonomy_config": config.to_dict(),
+                    },
+                )
+            notification = f"Auto-audit: agent {action} approved (session creates: {count}/{config.max_creates})"
+        elif config.mode == "auto_audit":
+            notification = f"Auto-audit: agent {action} approved"
+
     checks_passed.append("autonomy_policy")
 
     # --- Confidence gate ---
@@ -532,10 +628,17 @@ def engine_preflight(
                 )
             checks_passed.append("target_fingerprint")
 
+    response_data: dict[str, Any] = {
+        "checks_passed": checks_passed,
+        "checks_failed": checks_failed,
+        "autonomy_config": config.to_dict(),
+    }
+    if notification:
+        response_data["notification"] = notification
     return EngineResponse(
         state="ok",
         message="All preflight checks passed",
-        data={"checks_passed": checks_passed, "checks_failed": checks_failed},
+        data=response_data,
     )
 
 
@@ -764,7 +867,7 @@ def engine_execute(
     dedup_override: bool,
     dependency_override: bool,
     tickets_dir: Path,
-    autonomy_mode: str = "suggest",
+    autonomy_config: AutonomyConfig | None = None,
     hook_injected: bool = False,
 ) -> EngineResponse:
     """Execute the mutation: create, update, close, or reopen.
@@ -772,19 +875,10 @@ def engine_execute(
     Assumes preflight has already passed. Writes ticket files.
     Wraps dispatch with JSONL audit trail.
     """
-    # Phase 1: hard-block all agent mutations (defense-in-depth, mirrors preflight).
-    # M8: Remove this block. The transport-layer validation below becomes the primary gate.
-    if request_origin == "agent":
-        return EngineResponse(
-            state="policy_blocked",
-            message="Phase 1: agent mutations are hard-blocked",
-            error_code="policy_blocked",
-        )
+    config = autonomy_config or AutonomyConfig()
 
     # --- Transport-layer validation ---
     # Agent mutations without hook_injected are rejected (defense-in-depth).
-    # The Phase 1 hard-block above catches this first, but when M8 removes
-    # the hard-block, this validation becomes the primary gate.
     if request_origin == "agent" and not hook_injected:
         return EngineResponse(
             state="policy_blocked",
@@ -793,6 +887,47 @@ def engine_execute(
         )
     # User without hook_injected: proceed (warn only — unverified in audit).
 
+    # --- Autonomy defense-in-depth (self-contained allowlist) ---
+    if request_origin == "agent":
+        if action == "reopen":
+            return EngineResponse(
+                state="policy_blocked",
+                message="Defense-in-depth: reopen is user-only in v1.0",
+                error_code="policy_blocked",
+            )
+        if dedup_override:
+            return EngineResponse(
+                state="policy_blocked",
+                message="Defense-in-depth: agents cannot use dedup_override",
+                error_code="policy_blocked",
+            )
+        if dependency_override:
+            return EngineResponse(
+                state="policy_blocked",
+                message="Defense-in-depth: agents cannot use dependency_override",
+                error_code="policy_blocked",
+            )
+        if config.mode != "auto_audit":
+            return EngineResponse(
+                state="policy_blocked",
+                message=f"Defense-in-depth: autonomy mode {config.mode!r} blocks agent mutations",
+                error_code="policy_blocked",
+            )
+        if action == "create":
+            if not isinstance(config.max_creates, int):
+                return EngineResponse(
+                    state="policy_blocked",
+                    message="Defense-in-depth: invalid max_creates type in config",
+                    error_code="policy_blocked",
+                )
+            count = engine_count_session_creates(session_id, tickets_dir)
+            if count is AUDIT_UNAVAILABLE or (isinstance(count, int) and count >= config.max_creates):
+                return EngineResponse(
+                    state="policy_blocked",
+                    message=f"Defense-in-depth: session create cap ({config.max_creates})",
+                    error_code="policy_blocked",
+                )
+
     # Audit: attempt_started
     base_entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -800,7 +935,7 @@ def engine_execute(
         "ticket_id": ticket_id,
         "session_id": session_id,
         "request_origin": request_origin,
-        "autonomy_mode": autonomy_mode,
+        "autonomy_mode": config.mode,
         "result": None,
         "changes": None,
     }
@@ -830,7 +965,7 @@ def engine_execute(
             "ticket_id": ticket_id,
             "session_id": session_id,
             "request_origin": request_origin,
-            "autonomy_mode": autonomy_mode,
+            "autonomy_mode": config.mode,
             "result": f"error:{type(exc).__name__}",
             "changes": None,
         }
@@ -844,7 +979,7 @@ def engine_execute(
         "ticket_id": resp.ticket_id if resp.ticket_id else ticket_id,
         "session_id": session_id,
         "request_origin": request_origin,
-        "autonomy_mode": autonomy_mode,
+        "autonomy_mode": config.mode,
         "result": resp.state,
         "changes": resp.data.get("changes") if resp.data else None,
     }
