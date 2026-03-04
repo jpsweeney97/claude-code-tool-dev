@@ -216,9 +216,9 @@ async function main() {
         await loadingPromise;
       }
 
-      index = null;
-      loadError = null;
-      lastLoadAttempt = 0;
+      // Keep old index alive during reload — concurrent searches continue to work.
+      // doLoadIndex() overwrites `index` on success (lines 85, 102) and preserves
+      // it on failure (returns null without touching `index`).
       clearParseWarnings();
 
       console.error('Forcing documentation reload...');
@@ -227,9 +227,17 @@ async function main() {
 
       const idx = await ensureIndex(true);
       if (!idx) {
+        const hasStaleIndex = index !== null;
         return {
           isError: true,
-          content: [{ type: 'text' as const, text: `Reload failed: ${loadError}` }],
+          content: [
+            {
+              type: 'text' as const,
+              text: hasStaleIndex
+                ? `Reload failed (serving previous index): ${loadError}`
+                : `Reload failed: ${loadError}`,
+            },
+          ],
         };
       }
 
