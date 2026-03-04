@@ -39,6 +39,14 @@ export class ContentValidationError extends Error {
   }
 }
 
+function getMaxStaleCacheMs(): number {
+  const raw = process.env.DOCS_CACHE_MAX_STALE_MS?.trim();
+  if (!raw) return 0;
+  const val = Number(raw);
+  if (!Number.isFinite(val) || val < 0) return 0;
+  return val;
+}
+
 function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
@@ -250,6 +258,17 @@ async function fetchAndParse(
     const cached = await readCache(cachePath);
     if (cached) {
       const ageHours = (cached.age / 3600000).toFixed(1);
+
+      // Reject stale cache exceeding hard age limit (if configured)
+      const maxStaleMs = getMaxStaleCacheMs();
+      if (maxStaleMs > 0 && cached.age > maxStaleMs) {
+        const maxHours = (maxStaleMs / 3600000).toFixed(1);
+        console.error(
+          `Stale cache rejected: ${ageHours}h old exceeds max stale limit of ${maxHours}h`,
+        );
+        throw err;
+      }
+
       console.warn(`Using cached docs (${ageHours}h old)`);
       return {
         sections: parseSections(cached.content),

@@ -615,3 +615,142 @@ describe('fetchAndParse error discrimination', () => {
     expect(files.length).toBeGreaterThan(0);
   });
 });
+
+describe('stale cache handling (B7)', () => {
+  let tempDir: string;
+  let originalMaxStale: string | undefined;
+  let originalCacheTtl: string | undefined;
+  let originalMinSectionCount: string | undefined;
+
+  const cachedContent = `# Stale Section
+Source: https://code.claude.com/docs/en/hooks
+
+Stale hooks content`;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-stale-b7-'));
+    originalMaxStale = process.env.DOCS_CACHE_MAX_STALE_MS;
+    originalCacheTtl = process.env.CACHE_TTL_MS;
+    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
+    process.env.MIN_SECTION_COUNT = '0';
+    // Force stale path: 1ms TTL means any cache is stale (D4)
+    process.env.CACHE_TTL_MS = '1';
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(async () => {
+    if (originalMaxStale === undefined) {
+      delete process.env.DOCS_CACHE_MAX_STALE_MS;
+    } else {
+      process.env.DOCS_CACHE_MAX_STALE_MS = originalMaxStale;
+    }
+    if (originalCacheTtl === undefined) {
+      delete process.env.CACHE_TTL_MS;
+    } else {
+      process.env.CACHE_TTL_MS = originalCacheTtl;
+    }
+    if (originalMinSectionCount === undefined) {
+      delete process.env.MIN_SECTION_COUNT;
+    } else {
+      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
+    }
+    vi.unstubAllGlobals();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('rejects cache exceeding DOCS_CACHE_MAX_STALE_MS (72h old, 24h limit)', async () => {
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, cachedContent);
+    // Set cache to 72 hours old
+    const staleTime = new Date(Date.now() - 72 * 60 * 60 * 1000);
+    await fs.utimes(cachePath, staleTime, staleTime);
+
+    process.env.DOCS_CACHE_MAX_STALE_MS = String(24 * 60 * 60 * 1000); // 24h limit
+
+    const mockFetch = vi.fn().mockRejectedValue(new Error('connection refused'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    await expect(
+      loadFromOfficial('https://example.com/docs', cachePath),
+    ).rejects.toThrow();
+  });
+
+  it('accepts cache within DOCS_CACHE_MAX_STALE_MS (12h old, 24h limit)', async () => {
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, cachedContent);
+    // Set cache to 12 hours old
+    const staleTime = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    await fs.utimes(cachePath, staleTime, staleTime);
+
+    process.env.DOCS_CACHE_MAX_STALE_MS = String(24 * 60 * 60 * 1000); // 24h limit
+
+    const mockFetch = vi.fn().mockRejectedValue(new Error('connection refused'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
+    expect(files).toHaveLength(1);
+    expect(files[0].path).toContain('hooks');
+  });
+
+  it('accepts any age when DOCS_CACHE_MAX_STALE_MS is unset (7 days old)', async () => {
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, cachedContent);
+    // Set cache to 7 days old
+    const staleTime = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    await fs.utimes(cachePath, staleTime, staleTime);
+
+    delete process.env.DOCS_CACHE_MAX_STALE_MS;
+
+    const mockFetch = vi.fn().mockRejectedValue(new Error('connection refused'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
+    expect(files).toHaveLength(1);
+    expect(files[0].path).toContain('hooks');
+  });
+
+  it('ignores invalid DOCS_CACHE_MAX_STALE_MS values ("banana")', async () => {
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, cachedContent);
+    // Set cache to 7 days old
+    const staleTime = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    await fs.utimes(cachePath, staleTime, staleTime);
+
+    process.env.DOCS_CACHE_MAX_STALE_MS = 'banana';
+
+    const mockFetch = vi.fn().mockRejectedValue(new Error('connection refused'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
+    expect(files).toHaveLength(1);
+    expect(files[0].path).toContain('hooks');
+  });
+
+  it('accepts cache at exactly DOCS_CACHE_MAX_STALE_MS boundary (age === max, D4)', async () => {
+    const maxStaleMs = 24 * 60 * 60 * 1000; // 24h
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, cachedContent);
+    // Set cache to maxStaleMs old minus a small buffer for execution time.
+    // readCache computes age = Date.now() - mtimeMs, so a few ms elapse
+    // between utimes and readCache. The 500ms buffer ensures the measured
+    // age stays <= maxStaleMs, exercising the strict > boundary.
+    const exactTime = new Date(Date.now() - maxStaleMs + 500);
+    await fs.utimes(cachePath, exactTime, exactTime);
+
+    process.env.DOCS_CACHE_MAX_STALE_MS = String(maxStaleMs);
+
+    const mockFetch = vi.fn().mockRejectedValue(new Error('connection refused'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
+    // age === max uses strict >, so exactly at boundary is accepted
+    expect(files).toHaveLength(1);
+    expect(files[0].path).toContain('hooks');
+  });
+});

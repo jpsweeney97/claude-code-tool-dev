@@ -5,7 +5,7 @@ import type { LoadResult } from './loader.js';
 import type { SerializedIndex } from './index-cache.js';
 import type { ParseWarning } from './frontmatter.js';
 import type { ChunkResult } from './chunker.js';
-import { INDEX_FORMAT_VERSION, TOKENIZER_VERSION, CHUNKER_VERSION } from './index-cache.js';
+import { INDEX_FORMAT_VERSION, TOKENIZER_VERSION, CHUNKER_VERSION, INGESTION_VERSION } from './index-cache.js';
 
 export interface ServerStateDeps {
   loadFn: (url: string, cachePath?: string, forceRefresh?: boolean) => Promise<LoadResult>;
@@ -123,7 +123,8 @@ export class ServerState {
         cached.version === INDEX_FORMAT_VERSION &&
         cached.contentHash === contentHash &&
         cached.metadata?.tokenizerVersion === TOKENIZER_VERSION &&
-        cached.metadata?.chunkerVersion === CHUNKER_VERSION
+        cached.metadata?.chunkerVersion === CHUNKER_VERSION &&
+        cached.metadata?.ingestionVersion === INGESTION_VERSION
       ) {
         this.index = this.deps.deserializeIndexFn(cached);
         console.error(`Loaded cached index (${this.index.chunks.length} chunks)`);
