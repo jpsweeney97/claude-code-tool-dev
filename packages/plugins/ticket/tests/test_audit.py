@@ -309,3 +309,19 @@ class TestSessionCounting:
     def test_count_no_audit_dir_returns_zero(self, tmp_tickets: Path) -> None:
         """Missing .audit directory returns 0."""
         assert engine_count_session_creates("any-session", tmp_tickets) == 0
+
+    def test_path_traversal_sanitized(self, tmp_tickets: Path) -> None:
+        """session_id with path separators is sanitized to prevent traversal."""
+        malicious_id = "../../etc/passwd"
+        safe_id = ".._.._etc_passwd"
+        # Create audit file with sanitized name.
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{safe_id}.jsonl"
+        audit_file.write_text(
+            json.dumps({"action": "create", "result": "ok_create"}) + "\n",
+            encoding="utf-8",
+        )
+        # Malicious ID should be sanitized and match the safe file.
+        assert engine_count_session_creates(malicious_id, tmp_tickets) == 1

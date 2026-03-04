@@ -12,10 +12,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 
 # --- Response envelope ---
@@ -56,36 +57,56 @@ class EngineResponse:
 # Sentinel for audit read failures.
 AUDIT_UNAVAILABLE = object()
 
+AutonomyMode = Literal["suggest", "auto_audit", "auto_silent"]
 _VALID_AUTONOMY_MODES = frozenset({"suggest", "auto_audit", "auto_silent"})
 
 
-@dataclass
+@dataclass(frozen=True)
 class AutonomyConfig:
     """Autonomy configuration parsed from .claude/ticket.local.md.
 
+    Frozen and self-validating: invalid mode/max_creates are self-healed
+    to safe defaults in __post_init__. Immutable after construction to
+    prevent TOCTOU mutations between preflight and execute.
+
     mode: "suggest" (default) | "auto_audit" | "auto_silent"
-    max_creates: per-session create cap (default 5)
-    warnings: parsing warnings (empty if clean parse)
+    max_creates: per-session create cap (default 5, 0 = disable agent creates)
+    warnings: parsing/validation warnings (empty tuple if clean)
     """
 
-    mode: str = "suggest"
+    mode: AutonomyMode = "suggest"
     max_creates: int = 5
-    warnings: list[str] = field(default_factory=list)
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        extra_warnings: list[str] = []
+        if self.mode not in _VALID_AUTONOMY_MODES:
+            extra_warnings.append(f"Invalid mode {self.mode!r}, defaulted to 'suggest'")
+            object.__setattr__(self, "mode", "suggest")
+        if not isinstance(self.max_creates, int) or self.max_creates < 0:
+            extra_warnings.append(f"Invalid max_creates {self.max_creates!r}, defaulted to 5")
+            object.__setattr__(self, "max_creates", 5)
+        if extra_warnings:
+            object.__setattr__(self, "warnings", self.warnings + tuple(extra_warnings))
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "mode": self.mode,
             "max_creates": self.max_creates,
-            "warnings": self.warnings,
+            "warnings": list(self.warnings),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AutonomyConfig:
-        """Reconstruct from dict (snapshot deserialization). No validation."""
+        """Reconstruct from dict (snapshot deserialization).
+
+        Validates through __post_init__ — invalid values are self-healed
+        to safe defaults with warnings appended.
+        """
         return cls(
             mode=data.get("mode", "suggest"),
             max_creates=data.get("max_creates", 5),
-            warnings=data.get("warnings", []),
+            warnings=tuple(data.get("warnings", ())),
         )
 
 
@@ -288,7 +309,6 @@ def read_autonomy_config(tickets_dir: Path) -> AutonomyConfig:
     Fail-closed: returns AutonomyConfig(mode="suggest") on any error.
     Emits warnings to stderr for malformed/unknown values.
     """
-    import sys
 
     warnings: list[str] = []
 
@@ -310,21 +330,29 @@ def read_autonomy_config(tickets_dir: Path) -> AutonomyConfig:
         if not text.startswith("---"):
             warnings.append("ticket.local.md: file exists but has no valid frontmatter (missing --- delimiters)")
             print(f"WARNING: {warnings[-1]}", file=sys.stderr)
-            return AutonomyConfig(warnings=warnings)
+            return AutonomyConfig(warnings=tuple(warnings))
         parts = text.split("---", 2)
         if len(parts) < 3:
             warnings.append("ticket.local.md: file exists but has no valid frontmatter (incomplete --- delimiters)")
             print(f"WARNING: {warnings[-1]}", file=sys.stderr)
-            return AutonomyConfig(warnings=warnings)
+            return AutonomyConfig(warnings=tuple(warnings))
         data = yaml.safe_load(parts[1])
         if not isinstance(data, dict):
             warnings.append("ticket.local.md: frontmatter is not a dict")
             print(f"WARNING: {warnings[-1]}", file=sys.stderr)
-            return AutonomyConfig(warnings=warnings)
-    except Exception as exc:
+            return AutonomyConfig(warnings=tuple(warnings))
+    except (OSError, ValueError) as exc:
         warnings.append(f"ticket.local.md: failed to parse YAML: {exc}")
         print(f"WARNING: {warnings[-1]}", file=sys.stderr)
-        return AutonomyConfig(warnings=warnings)
+        return AutonomyConfig(warnings=tuple(warnings))
+    except Exception as exc:
+        # yaml.YAMLError doesn't share a base with OSError/ValueError.
+        # Import may fail, so catch broadly but only for YAML parsing.
+        if "yaml" in type(exc).__module__.lower():
+            warnings.append(f"ticket.local.md: failed to parse YAML: {exc}")
+            print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+            return AutonomyConfig(warnings=tuple(warnings))
+        raise
 
     # Parse mode.
     mode = data.get("autonomy_mode", "suggest")
@@ -344,7 +372,7 @@ def read_autonomy_config(tickets_dir: Path) -> AutonomyConfig:
         print(f"WARNING: {warnings[-1]}", file=sys.stderr)
         max_creates = 5
 
-    return AutonomyConfig(mode=mode, max_creates=max_creates, warnings=warnings)
+    return AutonomyConfig(mode=mode, max_creates=max_creates, warnings=tuple(warnings))
 
 
 def engine_preflight(
@@ -802,23 +830,37 @@ def _check_transition_preconditions(
     return None
 
 
+def _sanitize_session_id(session_id: str) -> str:
+    """Sanitize session_id for safe use as a filename component.
+
+    Strips path separators and null bytes to prevent path traversal.
+    Logs a warning to stderr if sanitization changes the value.
+    """
+    sanitized = session_id.replace("/", "_").replace("\\", "_").replace("\0", "_")
+    if sanitized != session_id:
+        print(f"WARNING: session_id sanitized: {session_id!r} -> {sanitized!r}", file=sys.stderr)
+    return sanitized
+
+
 def _audit_append(session_id: str, tickets_dir: Path, entry: dict[str, Any]) -> bool:
     """Append a JSONL audit entry for the given session.
 
     Location: <tickets_dir>/.audit/YYYY-MM-DD/<session_id>.jsonl
-    Returns True on success, False on failure.
+    Returns True on success, False on failure. Logs failures to stderr.
     """
     try:
+        safe_id = _sanitize_session_id(session_id)
         date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         audit_dir = tickets_dir / ".audit" / date_dir
         audit_dir.mkdir(parents=True, exist_ok=True)
-        audit_file = audit_dir / f"{session_id}.jsonl"
+        audit_file = audit_dir / f"{safe_id}.jsonl"
         with open(audit_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
             f.flush()
             os.fsync(f.fileno())
         return True
-    except Exception:
+    except Exception as exc:
+        print(f"AUDIT WRITE FAILED: {exc}", file=sys.stderr)
         return False
 
 
@@ -834,6 +876,7 @@ def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | ob
         int: count of successful creates (0 if no audit files exist)
         AUDIT_UNAVAILABLE: on permission error reading an audit file
     """
+    safe_id = _sanitize_session_id(session_id)
     audit_base = tickets_dir / ".audit"
     if not audit_base.is_dir():
         return 0
@@ -842,7 +885,7 @@ def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | ob
     for date_dir in audit_base.iterdir():
         if not date_dir.is_dir():
             continue
-        audit_file = date_dir / f"{session_id}.jsonl"
+        audit_file = date_dir / f"{safe_id}.jsonl"
         if not audit_file.exists():
             continue
         try:
@@ -855,6 +898,7 @@ def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | ob
             try:
                 entry = json.loads(line)
             except (json.JSONDecodeError, ValueError):
+                print(f"WARNING: corrupt audit line in {audit_file}: {line[:100]!r}", file=sys.stderr)
                 continue
             if entry.get("action") == "create" and isinstance(entry.get("result"), str) and entry["result"].startswith("ok_"):
                 count += 1
@@ -918,12 +962,6 @@ def engine_execute(
                 error_code="policy_blocked",
             )
         if action == "create":
-            if not isinstance(config.max_creates, int):
-                return EngineResponse(
-                    state="policy_blocked",
-                    message="Defense-in-depth: invalid max_creates type in config",
-                    error_code="policy_blocked",
-                )
             count = engine_count_session_creates(session_id, tickets_dir)
             if count is AUDIT_UNAVAILABLE or (isinstance(count, int) and count >= config.max_creates):
                 return EngineResponse(
@@ -932,7 +970,7 @@ def engine_execute(
                     error_code="policy_blocked",
                 )
 
-    # Audit: attempt_started
+    # Audit: attempt_started (fail-closed for agents — audit is a security gate).
     base_entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "action": "attempt_started",
@@ -943,7 +981,12 @@ def engine_execute(
         "result": None,
         "changes": None,
     }
-    _audit_append(session_id, tickets_dir, base_entry)
+    if not _audit_append(session_id, tickets_dir, base_entry) and request_origin == "agent":
+        return EngineResponse(
+            state="policy_blocked",
+            message="Audit trail write failed — agent mutation blocked (fail-closed)",
+            error_code="policy_blocked",
+        )
 
     # Dispatch
     try:

@@ -206,6 +206,61 @@ class TestAuditReport:
         result = triage_audit_report(tmp_tickets, days=7)
         assert result["total_entries"] == 1, "Boundary day should be included in the lookback window"
 
+    def test_skipped_lines_counted(self, tmp_tickets):
+        """Corrupt JSONL lines are counted in skipped_lines."""
+        from scripts.ticket_triage import triage_audit_report
+        date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / date_dir
+        audit_dir.mkdir(parents=True)
+        s_file = audit_dir / "corrupt-session.jsonl"
+        s_file.write_text(
+            json.dumps({"action": "create", "result": "ok_create"}) + "\n"
+            + "NOT VALID JSON\n"
+            + json.dumps({"action": "update", "result": "ok_update"}) + "\n"
+        )
+        result = triage_audit_report(tmp_tickets)
+        assert result["total_entries"] == 2
+        assert result["skipped_lines"] == 1
+
+    def test_read_errors_counted(self, tmp_tickets):
+        """Unreadable audit files are counted in read_errors."""
+        import os
+        import sys
+        if sys.platform == "win32":
+            pytest.skip("chmod not effective on Windows")
+        from scripts.ticket_triage import triage_audit_report
+        date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / date_dir
+        audit_dir.mkdir(parents=True)
+        s_file = audit_dir / "unreadable-session.jsonl"
+        s_file.write_text(json.dumps({"action": "create"}) + "\n")
+        try:
+            os.chmod(s_file, 0o000)
+            result = triage_audit_report(tmp_tickets)
+            assert result["read_errors"] == 1
+        finally:
+            os.chmod(s_file, 0o644)
+
+
+class TestStaleEdgeCases:
+    """Test _is_stale edge case behavior."""
+
+    def test_corrupt_date_is_stale(self, tmp_tickets):
+        """Tickets with unparseable dates are marked stale (fail toward visibility)."""
+        make_ticket(tmp_tickets, "bad-date.md", date="not-a-date", status="open")
+        from scripts.ticket_triage import triage_dashboard
+        result = triage_dashboard(tmp_tickets)
+        assert len(result["stale"]) == 1
+
+    def test_unreadable_file_shows_size_warning(self, tmp_tickets):
+        """Missing/unreadable ticket files get a size warning."""
+        make_ticket(tmp_tickets, "test.md", status="open")
+        # Corrupt the path so stat fails.
+        from scripts.ticket_triage import _check_doc_size
+        from types import SimpleNamespace
+        fake_ticket = SimpleNamespace(path="/nonexistent/path.md")
+        assert _check_doc_size(fake_ticket) == "error: file unreadable"
+
 
 class TestOrphanDetection:
     """Test handoff orphan detection with three matching strategies."""

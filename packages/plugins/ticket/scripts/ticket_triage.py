@@ -63,14 +63,17 @@ def triage_dashboard(tickets_dir: Path) -> dict[str, Any]:
 
 
 def _is_stale(ticket: Any, cutoff_days: int = 7) -> bool:
-    """Check if ticket is stale (open/in_progress >7 days by ticket date)."""
+    """Check if ticket is stale (open/in_progress >7 days by ticket date).
+
+    Returns True for unparseable dates (fail toward visibility).
+    """
     if ticket.status not in ("open", "in_progress"):
         return False
     try:
         ticket_date = datetime.strptime(ticket.date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         return (datetime.now(timezone.utc) - ticket_date).days > cutoff_days
     except ValueError:
-        return False
+        return True
 
 
 def _find_root_blockers(ticket: Any, ticket_map: dict[str, Any]) -> list[str]:
@@ -95,11 +98,11 @@ def _find_root_blockers(ticket: Any, ticket_map: dict[str, Any]) -> list[str]:
 
 
 def _check_doc_size(ticket: Any) -> str | None:
-    """Check ticket document size, return warning string if large."""
+    """Check ticket document size, return warning string if large or unreadable."""
     try:
         size = Path(ticket.path).stat().st_size
     except OSError:
-        return None
+        return "error: file unreadable"
     if size >= 32768:
         return f"strong_warn: {size // 1024}KB (>32KB)"
     if size >= 16384:
@@ -111,16 +114,20 @@ def triage_audit_report(tickets_dir: Path, days: int = 7) -> dict[str, Any]:
     """Summarize recent autonomous actions from audit trail.
 
     Reads .audit/YYYY-MM-DD/<session_id>.jsonl files within the lookback window.
-    Returns dict with: total_entries, by_action, by_result, sessions.
+    Returns dict with: total_entries, by_action, by_result, sessions,
+    skipped_lines, read_errors.
     """
     audit_base = tickets_dir / ".audit"
     if not audit_base.is_dir():
-        return {"total_entries": 0, "by_action": {}, "by_result": {}, "sessions": 0}
+        return {"total_entries": 0, "by_action": {}, "by_result": {}, "sessions": 0,
+                "skipped_lines": 0, "read_errors": 0}
 
     now = datetime.now(timezone.utc)
     cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days)
     entries: list[dict[str, Any]] = []
     session_ids: set[str] = set()
+    skipped_lines = 0
+    read_errors = 0
 
     for date_dir in sorted(audit_base.iterdir()):
         if not date_dir.is_dir():
@@ -140,9 +147,9 @@ def triage_audit_report(tickets_dir: Path, days: int = 7) -> dict[str, Any]:
                     try:
                         entries.append(json.loads(line))
                     except (json.JSONDecodeError, ValueError):
-                        continue
+                        skipped_lines += 1
             except OSError:
-                continue
+                read_errors += 1
 
     by_action: dict[str, int] = {}
     by_result: dict[str, int] = {}
@@ -158,6 +165,8 @@ def triage_audit_report(tickets_dir: Path, days: int = 7) -> dict[str, Any]:
         "by_action": by_action,
         "by_result": by_result,
         "sessions": len(session_ids),
+        "skipped_lines": skipped_lines,
+        "read_errors": read_errors,
     }
 
 
@@ -184,14 +193,16 @@ def triage_orphan_detection(
 
     matched: list[dict[str, Any]] = []
     orphaned: list[dict[str, Any]] = []
+    read_errors: list[str] = []
 
     if not handoffs_dir.is_dir():
-        return {"matched": matched, "orphaned": orphaned, "total_items": 0}
+        return {"matched": matched, "orphaned": orphaned, "total_items": 0, "read_errors": read_errors}
 
     for hf in sorted(handoffs_dir.glob("*.md")):
         try:
             text = hf.read_text(encoding="utf-8")
         except OSError:
+            read_errors.append(hf.name)
             continue
 
         item: dict[str, str] = {"file": hf.name, "path": str(hf)}
@@ -228,4 +239,5 @@ def triage_orphan_detection(
         "matched": matched,
         "orphaned": orphaned,
         "total_items": len(matched) + len(orphaned),
+        "read_errors": read_errors,
     }

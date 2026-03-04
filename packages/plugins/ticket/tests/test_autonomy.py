@@ -42,7 +42,7 @@ class TestAutonomyConfig:
         config = read_autonomy_config(tickets_dir)
         assert config.mode == "suggest"
         assert config.max_creates == 5
-        assert config.warnings == []
+        assert config.warnings == ()
 
     def test_valid_auto_audit_config(self, autonomy_env):
         """Valid auto_audit config with custom max_creates."""
@@ -53,7 +53,7 @@ class TestAutonomyConfig:
         config = read_autonomy_config(tickets_dir)
         assert config.mode == "auto_audit"
         assert config.max_creates == 10
-        assert config.warnings == []
+        assert config.warnings == ()
 
     def test_valid_auto_silent_config(self, autonomy_env):
         """Valid auto_silent config."""
@@ -96,7 +96,7 @@ class TestAutonomyConfig:
         config_path.write_text("---\nsome_other_field: value\n---\n")
         config = read_autonomy_config(tickets_dir)
         assert config.mode == "suggest"
-        assert config.warnings == []
+        assert config.warnings == ()
 
     def test_non_int_max_creates_warns(self, autonomy_env):
         """Non-integer max_creates → default 5 + warning."""
@@ -118,7 +118,7 @@ class TestAutonomyConfig:
         )
         config = read_autonomy_config(tickets_dir)
         assert config.max_creates == 0
-        assert config.warnings == []
+        assert config.warnings == ()
 
     def test_negative_max_creates_warns(self, autonomy_env):
         """Negative max_creates → default 5 + warning."""
@@ -141,7 +141,7 @@ class TestAutonomyConfig:
 
     def test_to_dict_from_dict_round_trip(self):
         """AutonomyConfig serialization round-trips correctly."""
-        original = AutonomyConfig(mode="auto_audit", max_creates=10, warnings=["w1"])
+        original = AutonomyConfig(mode="auto_audit", max_creates=10, warnings=("w1",))
         restored = AutonomyConfig.from_dict(original.to_dict())
         assert restored.mode == original.mode
         assert restored.max_creates == original.max_creates
@@ -265,6 +265,52 @@ class TestAutonomyPreflight:
         assert "autonomy_config" in resp.data
         assert resp.data["autonomy_config"]["mode"] == "suggest"
 
+    def test_agent_audit_unavailable_blocks_create(self, auto_audit_env):
+        """AUDIT_UNAVAILABLE from count → policy_blocked in preflight."""
+        import os
+        import sys
+        if sys.platform == "win32":
+            pytest.skip("chmod not effective on Windows")
+        import json
+        from datetime import datetime, timezone
+        # Create an audit file, then make it unreadable.
+        date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = auto_audit_env / ".audit" / date_dir
+        audit_dir.mkdir(parents=True)
+        audit_file = audit_dir / "test-session.jsonl"
+        audit_file.write_text(
+            json.dumps({"action": "create", "result": "ok_create"}) + "\n"
+        )
+        try:
+            os.chmod(audit_file, 0o000)
+            resp = self._preflight(
+                auto_audit_env, request_origin="agent", hook_injected=True,
+            )
+            assert resp.state == "policy_blocked"
+            assert "audit" in resp.message.lower()
+        finally:
+            os.chmod(audit_file, 0o644)
+
+    def test_agent_update_allowed_under_auto_audit(self, auto_audit_env):
+        """Agent update succeeds under auto_audit (no session cap for updates)."""
+        from tests.conftest import make_ticket
+        make_ticket(auto_audit_env, "2026-03-02-test.md")
+        resp = self._preflight(
+            auto_audit_env, request_origin="agent", hook_injected=True,
+            action="update", classify_intent="update", ticket_id="T-20260302-01",
+        )
+        assert resp.state == "ok"
+
+    def test_agent_close_allowed_under_auto_audit(self, auto_audit_env):
+        """Agent close succeeds under auto_audit."""
+        from tests.conftest import make_ticket
+        make_ticket(auto_audit_env, "2026-03-02-test.md")
+        resp = self._preflight(
+            auto_audit_env, request_origin="agent", hook_injected=True,
+            action="close", classify_intent="close", ticket_id="T-20260302-01",
+        )
+        assert resp.state == "ok"
+
 
 class TestAutonomyExecute:
     """Test autonomy defense-in-depth in engine_execute."""
@@ -280,8 +326,11 @@ class TestAutonomyExecute:
         )
         assert resp.state == "policy_blocked"
 
-    def test_execute_agent_unknown_mode_blocked(self, tmp_tickets):
-        config = AutonomyConfig(mode="yolo")
+    def test_execute_agent_unknown_mode_self_heals_to_suggest(self, tmp_tickets):
+        config = AutonomyConfig(mode="yolo")  # type: ignore[arg-type]
+        # __post_init__ self-heals invalid mode to "suggest" with warning.
+        assert config.mode == "suggest"
+        assert any("Invalid mode" in w for w in config.warnings)
         resp = engine_execute(
             action="create", ticket_id=None,
             fields={"title": "Test", "problem": "Problem"},
@@ -289,6 +338,7 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
         )
+        # suggest mode blocks agents.
         assert resp.state == "policy_blocked"
 
     def test_execute_agent_none_config_blocked(self, tmp_tickets):
@@ -356,11 +406,17 @@ class TestAutonomyExecute:
         )
         assert resp.state == "policy_blocked"
 
-    def test_execute_agent_max_creates_type_safety(self, tmp_tickets):
-        config = AutonomyConfig.__new__(AutonomyConfig)
-        config.mode = "auto_audit"
-        config.max_creates = "5"  # type: ignore[assignment]
-        config.warnings = []
+    def test_frozen_prevents_post_construction_mutation(self, tmp_tickets):
+        """Frozen dataclass prevents field mutation after construction."""
+        config = AutonomyConfig(mode="auto_audit")
+        with pytest.raises(AttributeError):
+            config.mode = "suggest"  # type: ignore[misc]
+
+    def test_post_init_heals_invalid_max_creates(self, tmp_tickets):
+        """Invalid max_creates type self-heals to default 5 with warning."""
+        config = AutonomyConfig(mode="auto_audit", max_creates="5")  # type: ignore[arg-type]
+        assert config.max_creates == 5
+        assert any("Invalid max_creates" in w for w in config.warnings)
         resp = engine_execute(
             action="create", ticket_id=None,
             fields={"title": "Test", "problem": "Problem"},
@@ -368,4 +424,55 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
         )
-        assert resp.state == "policy_blocked"
+        assert resp.state == "ok_create"
+
+    def test_execute_agent_update_auto_audit_allowed(self, tmp_tickets):
+        """Agent update under auto_audit succeeds (no session cap for updates)."""
+        from tests.conftest import make_ticket
+        make_ticket(tmp_tickets, "2026-03-02-test.md")
+        config = AutonomyConfig(mode="auto_audit")
+        resp = engine_execute(
+            action="update", ticket_id="T-20260302-01",
+            fields={"priority": "high"},
+            session_id="sess", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+        )
+        assert resp.state == "ok_update"
+
+    def test_execute_agent_close_auto_audit_allowed(self, tmp_tickets):
+        """Agent close under auto_audit succeeds."""
+        from tests.conftest import make_ticket
+        make_ticket(tmp_tickets, "2026-03-02-test.md", status="in_progress")
+        config = AutonomyConfig(mode="auto_audit")
+        resp = engine_execute(
+            action="close", ticket_id="T-20260302-01",
+            fields={"resolution": "done"},
+            session_id="sess", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+        )
+        assert resp.state == "ok_close"
+
+    def test_execute_agent_audit_write_failure_blocks(self, tmp_tickets):
+        """If audit trail can't be written, agent mutation is blocked (fail-closed)."""
+        import os
+        import sys as _sys
+        if _sys.platform == "win32":
+            pytest.skip("chmod not effective on Windows")
+        config = AutonomyConfig(mode="auto_audit")
+        audit_dir = tmp_tickets / ".audit"
+        audit_dir.mkdir(parents=True)
+        try:
+            os.chmod(audit_dir, 0o444)
+            resp = engine_execute(
+                action="create", ticket_id=None,
+                fields={"title": "Test", "problem": "Problem"},
+                session_id="sess", request_origin="agent",
+                dedup_override=False, dependency_override=False,
+                tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+            )
+            assert resp.state == "policy_blocked"
+            assert "audit" in resp.message.lower()
+        finally:
+            os.chmod(audit_dir, 0o755)
