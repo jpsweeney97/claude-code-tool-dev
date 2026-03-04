@@ -676,7 +676,7 @@ def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | ob
 
     try:
         text = audit_file.read_text(encoding="utf-8")
-    except PermissionError:
+    except OSError:
         return AUDIT_UNAVAILABLE
 
     count = 0
@@ -711,6 +711,7 @@ def engine_execute(
     Wraps dispatch with JSONL audit trail.
     """
     # Phase 1: hard-block all agent mutations (defense-in-depth, mirrors preflight).
+    # M8: Remove this block. The transport-layer validation below becomes the primary gate.
     if request_origin == "agent":
         return EngineResponse(
             state="policy_blocked",
