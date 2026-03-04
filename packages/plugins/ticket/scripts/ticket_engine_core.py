@@ -10,6 +10,7 @@ Subcommand contract: each function returns an EngineResponse with
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -632,6 +633,26 @@ def _check_transition_preconditions(
     return None
 
 
+def _audit_append(session_id: str, tickets_dir: Path, entry: dict[str, Any]) -> bool:
+    """Append a JSONL audit entry for the given session.
+
+    Location: <tickets_dir>/.audit/YYYY-MM-DD/<session_id>.jsonl
+    Returns True on success, False on failure.
+    """
+    try:
+        date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tickets_dir / ".audit" / date_dir
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+        with open(audit_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        return True
+    except Exception:
+        return False
+
+
 def engine_execute(
     *,
     action: str,
@@ -642,10 +663,12 @@ def engine_execute(
     dedup_override: bool,
     dependency_override: bool,
     tickets_dir: Path,
+    autonomy_mode: str = "suggest",
 ) -> EngineResponse:
     """Execute the mutation: create, update, close, or reopen.
 
     Assumes preflight has already passed. Writes ticket files.
+    Wraps dispatch with JSONL audit trail.
     """
     # Phase 1: hard-block all agent mutations (defense-in-depth, mirrors preflight).
     if request_origin == "agent":
@@ -655,20 +678,64 @@ def engine_execute(
             error_code="policy_blocked",
         )
 
-    if action == "create":
-        return _execute_create(fields, session_id, request_origin, tickets_dir)
-    elif action == "update":
-        return _execute_update(ticket_id, fields, session_id, request_origin, tickets_dir)
-    elif action == "close":
-        return _execute_close(ticket_id, fields, session_id, request_origin, tickets_dir)
-    elif action == "reopen":
-        return _execute_reopen(ticket_id, fields, session_id, request_origin, tickets_dir)
-    else:
-        return EngineResponse(
-            state="escalate",
-            message=f"Unknown action: {action!r}",
-            error_code="intent_mismatch",
-        )
+    # Audit: attempt_started
+    base_entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "action": "attempt_started",
+        "ticket_id": ticket_id,
+        "session_id": session_id,
+        "request_origin": request_origin,
+        "autonomy_mode": autonomy_mode,
+        "result": None,
+        "changes": None,
+    }
+    _audit_append(session_id, tickets_dir, base_entry)
+
+    # Dispatch
+    try:
+        if action == "create":
+            resp = _execute_create(fields, session_id, request_origin, tickets_dir)
+        elif action == "update":
+            resp = _execute_update(ticket_id, fields, session_id, request_origin, tickets_dir)
+        elif action == "close":
+            resp = _execute_close(ticket_id, fields, session_id, request_origin, tickets_dir)
+        elif action == "reopen":
+            resp = _execute_reopen(ticket_id, fields, session_id, request_origin, tickets_dir)
+        else:
+            resp = EngineResponse(
+                state="escalate",
+                message=f"Unknown action: {action!r}",
+                error_code="intent_mismatch",
+            )
+    except Exception as exc:
+        # Audit: error entry
+        error_entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "action": action,
+            "ticket_id": ticket_id,
+            "session_id": session_id,
+            "request_origin": request_origin,
+            "autonomy_mode": autonomy_mode,
+            "result": f"error:{type(exc).__name__}",
+            "changes": None,
+        }
+        _audit_append(session_id, tickets_dir, error_entry)
+        raise
+
+    # Audit: attempt_result
+    result_entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "ticket_id": resp.ticket_id if resp.ticket_id else ticket_id,
+        "session_id": session_id,
+        "request_origin": request_origin,
+        "autonomy_mode": autonomy_mode,
+        "result": resp.state,
+        "changes": resp.data.get("changes") if resp.data else None,
+    }
+    _audit_append(session_id, tickets_dir, result_entry)
+
+    return resp
 
 
 # --- Execute sub-functions (stubs replaced in subsequent slices) ---
