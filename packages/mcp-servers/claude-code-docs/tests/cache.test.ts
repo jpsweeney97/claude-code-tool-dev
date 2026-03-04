@@ -117,6 +117,18 @@ describe('readCache and writeCache', () => {
     expect(warnSpy).toHaveBeenCalled();
   });
 
+  it('steals stale lock from dead process', async () => {
+    const lockPath = `${cachePath}.lock`;
+    // Write a PID that does not exist (use a very high PID unlikely to be running)
+    await fs.writeFile(lockPath, '2147483647');
+
+    // writeCache should detect the dead PID and steal the lock
+    await cache.writeCache(cachePath, 'after stale lock');
+    const result = await cache.readCache(cachePath);
+    expect(result).not.toBeNull();
+    expect(result!.content).toBe('after stale lock');
+  });
+
   it('throws when lock timeout is hit', async () => {
     const originalEnv = process.env.CACHE_LOCK_TIMEOUT_MS;
     process.env.CACHE_LOCK_TIMEOUT_MS = '50';

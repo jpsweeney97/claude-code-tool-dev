@@ -425,15 +425,23 @@ function hardSplitWithOverlap(text: string): string[] {
     // Ensure at least one line per chunk (handles single lines exceeding char limit)
     if (end === start) {
       end = start + 1;
+      // If a single line exceeds MAX_CHUNK_CHARS, truncate it
+      if (lines[start].length > MAX_CHUNK_CHARS) {
+        lines[start] = lines[start].slice(0, MAX_CHUNK_CHARS);
+      }
     }
 
     chunks.push(lines.slice(start, end).join('\n'));
 
     // If not the last chunk, apply overlap
     if (end < lines.length) {
+      const prevStart = start;
       start = end - OVERLAP_LINES_FOR_FORCED_SPLITS;
       // Ensure start doesn't go negative
       if (start < 0) start = 0;
+      // Ensure monotonic progress to prevent infinite loops when overlap
+      // pulls start back to where it was (e.g., short line + oversized line)
+      if (start <= prevStart) start = prevStart + 1;
     } else {
       break;
     }

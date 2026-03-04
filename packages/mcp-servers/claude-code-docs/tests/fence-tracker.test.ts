@@ -70,6 +70,56 @@ describe('FenceTracker', () => {
   });
 });
 
+describe('FenceTracker safety limit', () => {
+  it('force-closes unclosed fence after MAX_FENCE_LINES lines', () => {
+    const tracker = new FenceTracker();
+
+    // Open a fence that never closes
+    tracker.processLine('```typescript');
+    expect(tracker.isInFence).toBe(true);
+
+    // Feed 200+ non-fence lines (exceeds MAX_FENCE_LINES = 150)
+    for (let i = 0; i < 200; i++) {
+      tracker.processLine(`line ${i}`);
+    }
+
+    // Fence should have been force-closed after MAX_FENCE_LINES
+    expect(tracker.isInFence).toBe(false);
+  });
+
+  it('stays in fence when line count is within MAX_FENCE_LINES', () => {
+    const tracker = new FenceTracker();
+
+    tracker.processLine('```');
+    // Feed lines up to but not exceeding the limit (opening line counts as 1)
+    // MAX_FENCE_LINES = 150, opening line is line 1, so 149 more lines = still in fence
+    for (let i = 0; i < 148; i++) {
+      tracker.processLine(`line ${i}`);
+    }
+
+    expect(tracker.isInFence).toBe(true);
+  });
+
+  it('resets line count on normal fence close', () => {
+    const tracker = new FenceTracker();
+
+    tracker.processLine('```');
+    for (let i = 0; i < 10; i++) {
+      tracker.processLine(`line ${i}`);
+    }
+    tracker.processLine('```'); // Close normally
+
+    // Open a new fence — line count should be fresh
+    tracker.processLine('```');
+    expect(tracker.isInFence).toBe(true);
+    // Feed 140 lines — should still be in fence (fresh count)
+    for (let i = 0; i < 140; i++) {
+      tracker.processLine(`line ${i}`);
+    }
+    expect(tracker.isInFence).toBe(true);
+  });
+});
+
 describe('FenceTracker edge cases', () => {
   it('handles null fencePattern gracefully', () => {
     const tracker = new FenceTracker();
