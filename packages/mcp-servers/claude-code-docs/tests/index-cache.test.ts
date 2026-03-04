@@ -9,19 +9,32 @@ import {
 } from '../src/index-cache.js';
 import { buildBM25Index } from '../src/bm25.js';
 import { computeTermFreqs } from '../src/chunk-helpers.js';
+import { tokenize } from '../src/tokenizer.js';
 import type { Chunk } from '../src/types.js';
 
-function makeChunk(id: string, content: string, tokens: string[]): Chunk {
+function makeChunk(
+  id: string,
+  content: string,
+  tokens: string[],
+  heading?: string,
+  merged_headings?: string[],
+): Chunk {
+  const headingTokens = new Set<string>();
+  if (heading) for (const t of tokenize(heading)) headingTokens.add(t);
+  if (merged_headings) for (const h of merged_headings) for (const t of tokenize(h)) headingTokens.add(t);
+
   return {
     id,
     content,
     tokens,
+    tokenCount: tokens.length,
     termFreqs: computeTermFreqs(tokens),
     category: 'hooks',
     tags: ['test'],
     source_file: 'hooks/test.md',
-    heading: 'Test Heading',
-    merged_headings: ['Heading 1', 'Heading 2'],
+    heading: heading ?? 'Test Heading',
+    merged_headings: merged_headings ?? ['Heading 1', 'Heading 2'],
+    headingTokens: headingTokens.size > 0 ? headingTokens : undefined,
   };
 }
 
@@ -93,5 +106,21 @@ describe('index serialization', () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.version).toBe(INDEX_FORMAT_VERSION);
     expect(parsed?.contentHash).toBe('hash');
+  });
+
+  it('round-trips headingTokens and tokenCount through serialization', () => {
+    const chunks = [
+      makeChunk('test', 'hooks guide', ['hook', 'guid'], '## Hooks Guide'),
+    ];
+    const index = buildBM25Index(chunks);
+    const serialized = serializeIndex(index, 'hash123');
+    const parsed = parseSerializedIndex(serialized);
+    expect(parsed).not.toBeNull();
+    const restored = deserializeIndex(parsed!);
+
+    expect(restored.chunks[0].tokenCount).toBe(2);
+    expect(restored.chunks[0].headingTokens).toBeInstanceOf(Set);
+    expect(restored.chunks[0].headingTokens!.has('hook')).toBe(true);
+    expect(restored.chunks[0].headingTokens!.has('guid')).toBe(true);
   });
 });

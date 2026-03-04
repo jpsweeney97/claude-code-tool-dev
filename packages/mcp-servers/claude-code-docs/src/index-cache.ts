@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Chunk } from './types.js';
 import { BM25_CONFIG, type BM25Index } from './bm25.js';
 
-export const INDEX_FORMAT_VERSION = 2; // Bumped for inverted index serialization
+export const INDEX_FORMAT_VERSION = 3; // Bumped for headingTokens + tokenCount
 export const TOKENIZER_VERSION = 2; // Bumped: added Porter stemming with CamelCase protection
 export const CHUNKER_VERSION = 1;
 
@@ -31,6 +31,8 @@ export interface SerializedChunk {
   source_file: string;
   heading?: string;
   merged_headings?: string[];
+  headingTokens?: string[];
+  tokenCount: number;
 }
 
 const SerializedChunkSchema = z.object({
@@ -43,6 +45,8 @@ const SerializedChunkSchema = z.object({
   source_file: z.string(),
   heading: z.string().optional(),
   merged_headings: z.array(z.string()).optional(),
+  headingTokens: z.array(z.string()).optional(),
+  tokenCount: z.number(),
 });
 
 const SerializedIndexSchema = z.object({
@@ -87,6 +91,8 @@ export function serializeIndex(index: BM25Index, contentHash: string): Serialize
       source_file: c.source_file,
       heading: c.heading,
       merged_headings: c.merged_headings,
+      headingTokens: c.headingTokens ? Array.from(c.headingTokens) : undefined,
+      tokenCount: c.tokenCount,
     })),
     metadata: {
       createdAt: Date.now(),
@@ -109,6 +115,8 @@ export function deserializeIndex(serialized: SerializedIndex): BM25Index {
       source_file: c.source_file,
       heading: c.heading,
       merged_headings: c.merged_headings,
+      headingTokens: c.headingTokens ? new Set(c.headingTokens) : undefined,
+      tokenCount: c.tokenCount,
     })),
     avgDocLength: serialized.avgDocLength,
     docFrequency: new Map(serialized.docFrequency),
