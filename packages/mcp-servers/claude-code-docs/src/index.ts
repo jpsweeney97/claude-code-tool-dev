@@ -6,7 +6,6 @@ import { z } from 'zod';
 import { loadFromOfficial } from './loader.js';
 import { chunkFile } from './chunker.js';
 import { buildBM25Index, search } from './bm25.js';
-import { getParseWarnings, clearParseWarnings } from './frontmatter.js';
 import {
   serializeIndex,
   deserializeIndex,
@@ -91,8 +90,6 @@ async function main() {
 
       // Keep old index alive during reload — concurrent searches continue to work.
       // doLoadIndex() overwrites index on success and preserves it on failure.
-      clearParseWarnings();
-
       console.error('Forcing documentation reload...');
 
       await clearIndexCache();
@@ -113,7 +110,7 @@ async function main() {
         };
       }
 
-      const warnings = getParseWarnings();
+      const warnings = serverState.getWarnings();
       return {
         content: [
           {

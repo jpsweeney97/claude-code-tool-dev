@@ -3,12 +3,13 @@ import type { BM25Index } from './bm25.js';
 import type { MarkdownFile, Chunk } from './types.js';
 import type { LoadResult } from './loader.js';
 import type { SerializedIndex } from './index-cache.js';
+import type { ParseWarning } from './frontmatter.js';
+import type { ChunkResult } from './chunker.js';
 import { INDEX_FORMAT_VERSION, TOKENIZER_VERSION, CHUNKER_VERSION } from './index-cache.js';
-import { getParseWarnings, clearParseWarnings } from './frontmatter.js';
 
 export interface ServerStateDeps {
   loadFn: (url: string, cachePath?: string, forceRefresh?: boolean) => Promise<LoadResult>;
-  chunkFn: (file: MarkdownFile) => Chunk[];
+  chunkFn: (file: MarkdownFile) => ChunkResult;
   buildIndexFn: (chunks: Chunk[]) => BM25Index;
   readCacheFn: (cachePath: string) => Promise<unknown>;
   writeCacheFn: (cachePath: string, data: SerializedIndex) => Promise<void>;
@@ -27,6 +28,7 @@ export class ServerState {
   private loadError: string | null = null;
   private lastLoadAttempt = 0;
   private loadingPromise: Promise<BM25Index | null> | null = null;
+  private warnings: ParseWarning[] = [];
   private readonly effectiveRetryInterval: number;
   private readonly deps: ServerStateDeps;
   private readonly docsUrl: string;
@@ -73,12 +75,8 @@ export class ServerState {
     return this.loadingPromise;
   }
 
-  clearWarningState(): void {
-    clearParseWarnings();
-  }
-
-  getWarnings() {
-    return getParseWarnings();
+  getWarnings(): ParseWarning[] {
+    return [...this.warnings];
   }
 
   private async doLoadIndex(forceRefresh = false): Promise<BM25Index | null> {
@@ -86,7 +84,7 @@ export class ServerState {
 
     this.lastLoadAttempt = this.timer();
     this.loadError = null;
-    clearParseWarnings();
+    this.warnings = [];
 
     if (isRetry) {
       console.error('Retrying documentation load...');
@@ -116,13 +114,14 @@ export class ServerState {
         return this.index;
       }
 
-      // Build fresh index
-      const chunks = files.flatMap((f) => this.deps.chunkFn(f));
+      // Build fresh index — aggregate chunks and warnings from all files
+      const chunkResults = files.map((f) => this.deps.chunkFn(f));
+      const chunks = chunkResults.flatMap((r) => r.chunks);
+      this.warnings = chunkResults.flatMap((r) => r.warnings);
 
-      const warnings = getParseWarnings();
-      if (warnings.length > 0) {
-        console.error(`\nWARNING: ${warnings.length} file(s) with parse issues:`);
-        for (const w of warnings) {
+      if (this.warnings.length > 0) {
+        console.error(`\nWARNING: ${this.warnings.length} file(s) with parse issues:`);
+        for (const w of this.warnings) {
           console.error(`  - ${w.file}: ${w.issue}`);
         }
         console.error('');

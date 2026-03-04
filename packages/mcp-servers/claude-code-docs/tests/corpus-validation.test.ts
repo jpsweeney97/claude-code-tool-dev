@@ -44,7 +44,7 @@ describe.skipIf(!docsExist)('corpus validation', () => {
 
     for (const filePath of walkMarkdownFiles(DOCS_PATH)) {
       const content = readFileSync(filePath, 'utf-8');
-      const chunks = chunkFile({ path: filePath, content });
+      const { chunks } = chunkFile({ path: filePath, content });
 
       stats.totalFiles++;
       stats.totalChunks += chunks.length;
@@ -77,7 +77,7 @@ describe.skipIf(!docsExist)('corpus validation', () => {
 
     for (const filePath of walkMarkdownFiles(DOCS_PATH)) {
       const content = readFileSync(filePath, 'utf-8');
-      const chunks = chunkFile({ path: filePath, content });
+      const { chunks } = chunkFile({ path: filePath, content });
 
       for (const chunk of chunks) {
         if (ids.has(chunk.id)) {
