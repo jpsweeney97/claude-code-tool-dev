@@ -125,11 +125,11 @@ class TestEnginePlan:
         assert "problem" in resp.data["missing_fields"]
 
     def test_dedup_detection(self, tmp_tickets):
-        from datetime import date
+        from datetime import datetime, timezone
 
         from tests.conftest import make_ticket
 
-        today = date.today()
+        today = datetime.now(timezone.utc).date()
         today_str = today.isoformat()
         today_compact = today_str.replace("-", "")
         make_ticket(
