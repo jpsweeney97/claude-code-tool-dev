@@ -2,27 +2,13 @@
 import { describe, it, expect } from 'vitest';
 
 import { z } from 'zod';
-
-import { KNOWN_CATEGORIES, CATEGORY_ALIASES } from '../src/categories.js';
+import { KNOWN_CATEGORIES } from '../src/categories.js';
+import { SearchInputSchema } from '../src/schemas.js';
 
 // Test the state management and schema validation logic
 // Full MCP integration tests require spawning the server process
 
 const CATEGORY_VALUES = [...KNOWN_CATEGORIES] as const;
-
-// Import the schemas we'll define
-const SearchInputSchema = z.object({
-  query: z
-    .string()
-    .max(500, 'Query too long: maximum 500 characters')
-    .transform((s) => s.trim())
-    .pipe(z.string().min(1, 'Query cannot be empty')),
-  limit: z.number().int().min(1).max(20).optional(),
-  category: z
-    .enum([...CATEGORY_VALUES, ...Object.keys(CATEGORY_ALIASES)] as [string, ...string[]])
-    .transform((val) => CATEGORY_ALIASES[val] ?? val)
-    .optional(),
-});
 
 describe('SearchInputSchema validation', () => {
   it('rejects empty query', () => {
@@ -78,7 +64,7 @@ describe('SearchInputSchema validation', () => {
 });
 
 describe('Category Schema Validation', () => {
-  const CategorySchema = z.enum(CATEGORY_VALUES).optional();
+  const CategorySchema = z.enum(CATEGORY_VALUES as [string, ...string[]]).optional();
 
   it('accepts valid categories', () => {
     expect(CategorySchema.parse('hooks')).toBe('hooks');

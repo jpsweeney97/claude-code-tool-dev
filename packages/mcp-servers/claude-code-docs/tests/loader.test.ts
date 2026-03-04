@@ -10,8 +10,72 @@ let parseFrontmatter: typeof import('../src/frontmatter.js').parseFrontmatter;
 vi.mock('glob', () => ({ glob: vi.fn() }));
 
 describe('fetchAndParse with TTL', () => {
-  it.todo('uses fresh cache and skips fetch when TTL not expired');
-  it.todo('falls back to stale cache when fetch fails');
+  let tempDir: string;
+  let originalMinSectionCount: string | undefined;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-ttl-test-'));
+    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
+    process.env.MIN_SECTION_COUNT = '0';
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(async () => {
+    if (originalMinSectionCount === undefined) {
+      delete process.env.MIN_SECTION_COUNT;
+    } else {
+      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
+    }
+    vi.unstubAllGlobals();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('uses fresh cache and skips fetch when TTL not expired', async () => {
+    const cachedContent = `# Cached Hooks
+Source: https://code.claude.com/docs/en/hooks
+
+Cached hooks content`;
+
+    // Write cache file (will have fresh mtime)
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, cachedContent);
+
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    // Fetch should NOT be called — fresh cache serves the request
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(files).toHaveLength(1);
+    expect(files[0].path).toContain('hooks');
+  });
+
+  it('falls back to stale cache when fetch fails', async () => {
+    const cachedContent = `# Stale Hooks
+Source: https://code.claude.com/docs/en/hooks
+
+Stale hooks content`;
+
+    // Write cache file, then set mtime to 25 hours ago to make it stale
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, cachedContent);
+    const staleTime = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    await fs.utimes(cachePath, staleTime, staleTime);
+
+    const mockFetch = vi.fn().mockRejectedValue(new Error('connection refused'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    // Fetch was attempted (cache was stale) but failed, so stale cache served
+    expect(mockFetch).toHaveBeenCalled();
+    expect(files).toHaveLength(1);
+    expect(files[0].path).toContain('hooks');
+  });
 });
 
 describe('loadMarkdownFiles', () => {
