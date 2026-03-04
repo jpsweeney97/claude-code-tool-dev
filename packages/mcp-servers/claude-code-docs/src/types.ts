@@ -13,6 +13,8 @@ export interface Chunk {
   source_file: string; // "hooks/input-schema.md"
   heading?: string; // H2 heading if split chunk
   merged_headings?: string[]; // All headings if chunks were merged
+  headingTokens?: Set<string>; // Precomputed union of tokenize(heading) + tokenize(merged_headings)
+  tokenCount: number; // tokens.length — avoids depending on array post-build
 }
 
 export interface SearchResult {
