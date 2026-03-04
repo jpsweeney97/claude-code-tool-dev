@@ -1,0 +1,14 @@
+[project]
+name = "cross-model-plugin"
+version = "1.0.0"
+description = "Cross-model consultation plugin for Claude Code"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
