@@ -109,6 +109,45 @@ class TestAgentEntrypoint:
         assert output["state"] == "policy_blocked"
 
 
+class TestMalformedAutonomyConfig:
+    """Malformed autonomy_config payloads must not crash entrypoints."""
+
+    @pytest.mark.parametrize("bad_value", ["not-a-dict", ["a", "list"], 42, True])
+    def test_user_execute_with_bad_autonomy_config(self, tmp_path, bad_value):
+        """Non-dict autonomy_config is ignored, not deserialized."""
+        output = run_entrypoint(
+            "ticket_engine_user.py",
+            "execute",
+            {
+                "action": "create",
+                "fields": {"title": "test", "problem": "test"},
+                "session_id": "test",
+                "autonomy_config": bad_value,
+                "tickets_dir": str(tmp_path),
+            },
+            tmp_path,
+        )
+        # Should produce a structured response, not crash.
+        assert "state" in output
+
+    @pytest.mark.parametrize("bad_value", ["not-a-dict", ["a", "list"], 42, True])
+    def test_agent_execute_with_bad_autonomy_config(self, tmp_path, bad_value):
+        """Non-dict autonomy_config is ignored, not deserialized."""
+        output = run_entrypoint(
+            "ticket_engine_agent.py",
+            "execute",
+            {
+                "action": "create",
+                "fields": {"title": "test", "problem": "test"},
+                "session_id": "test",
+                "autonomy_config": bad_value,
+                "tickets_dir": str(tmp_path),
+            },
+            tmp_path,
+        )
+        assert "state" in output
+
+
 class TestEntrypointErrors:
     def test_missing_subcommand(self, tmp_path):
         payload_file = tmp_path / "input.json"

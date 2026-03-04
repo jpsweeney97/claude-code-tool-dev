@@ -823,37 +823,41 @@ def _audit_append(session_id: str, tickets_dir: Path, entry: dict[str, Any]) -> 
 
 
 def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | object:
-    """Count successful create actions in a session's audit file.
+    """Count successful create actions in a session's audit files.
 
-    Reads <tickets_dir>/.audit/YYYY-MM-DD/<session_id>.jsonl for today's
-    date and counts entries where action == "create" and result starts
-    with "ok_".
+    Scans all date directories under <tickets_dir>/.audit/ for
+    <session_id>.jsonl and counts entries where action == "create"
+    and result starts with "ok_".  This handles sessions that span
+    a UTC midnight boundary.
 
     Returns:
-        int: count of successful creates (0 if file doesn't exist)
-        AUDIT_UNAVAILABLE: on permission error reading the audit file
+        int: count of successful creates (0 if no audit files exist)
+        AUDIT_UNAVAILABLE: on permission error reading an audit file
     """
-    date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    audit_file = tickets_dir / ".audit" / date_dir / f"{session_id}.jsonl"
-
-    if not audit_file.exists():
+    audit_base = tickets_dir / ".audit"
+    if not audit_base.is_dir():
         return 0
 
-    try:
-        text = audit_file.read_text(encoding="utf-8")
-    except OSError:
-        return AUDIT_UNAVAILABLE
-
     count = 0
-    for line in text.strip().split("\n"):
-        if not line.strip():
+    for date_dir in audit_base.iterdir():
+        if not date_dir.is_dir():
+            continue
+        audit_file = date_dir / f"{session_id}.jsonl"
+        if not audit_file.exists():
             continue
         try:
-            entry = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if entry.get("action") == "create" and isinstance(entry.get("result"), str) and entry["result"].startswith("ok_"):
-            count += 1
+            text = audit_file.read_text(encoding="utf-8")
+        except OSError:
+            return AUDIT_UNAVAILABLE
+        for line in text.strip().split("\n"):
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if entry.get("action") == "create" and isinstance(entry.get("result"), str) and entry["result"].startswith("ok_"):
+                count += 1
     return count
 
 

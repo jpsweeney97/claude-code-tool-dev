@@ -190,6 +190,22 @@ class TestAuditReport:
         assert result["total_entries"] == 0
         assert result["sessions"] == 0
 
+    def test_boundary_day_included(self, tmp_tickets):
+        """Audit directory exactly N days old is included, not excluded."""
+        from scripts.ticket_triage import triage_audit_report
+
+        # Create an audit entry exactly 7 days ago (at midnight).
+        boundary_date = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / boundary_date
+        audit_dir.mkdir(parents=True)
+        s_file = audit_dir / "boundary-session.jsonl"
+        s_file.write_text(
+            json.dumps({"action": "create", "result": "ok_create", "session_id": "boundary-session"}) + "\n"
+        )
+
+        result = triage_audit_report(tmp_tickets, days=7)
+        assert result["total_entries"] == 1, "Boundary day should be included in the lookback window"
+
 
 class TestOrphanDetection:
     """Test handoff orphan detection with three matching strategies."""

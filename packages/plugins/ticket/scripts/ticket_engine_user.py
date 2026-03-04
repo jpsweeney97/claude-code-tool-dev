@@ -100,7 +100,7 @@ def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineRespon
         )
     elif subcommand == "execute":
         config_data = payload.get("autonomy_config")
-        autonomy_config = AutonomyConfig.from_dict(config_data) if config_data else None
+        autonomy_config = AutonomyConfig.from_dict(config_data) if isinstance(config_data, dict) else None
         return engine_execute(
             action=payload.get("action", ""),
             ticket_id=payload.get("ticket_id"),

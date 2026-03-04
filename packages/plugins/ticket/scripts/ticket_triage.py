@@ -117,7 +117,8 @@ def triage_audit_report(tickets_dir: Path, days: int = 7) -> dict[str, Any]:
     if not audit_base.is_dir():
         return {"total_entries": 0, "by_action": {}, "by_result": {}, "sessions": 0}
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    now = datetime.now(timezone.utc)
+    cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days)
     entries: list[dict[str, Any]] = []
     session_ids: set[str] = set()
 
