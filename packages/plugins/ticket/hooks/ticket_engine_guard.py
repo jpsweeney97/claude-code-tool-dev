@@ -27,7 +27,7 @@ from pathlib import Path
 VALID_SUBCOMMANDS = frozenset({"classify", "plan", "preflight", "execute"})
 
 # Shell metacharacters that indicate command chaining or redirection.
-SHELL_METACHAR_RE = re.compile(r"[|;&`$><]")
+SHELL_METACHAR_RE = re.compile(r"[|;&`$><\n\r]")
 
 
 def _plugin_root() -> str:
@@ -96,6 +96,7 @@ def _inject_payload(
 
     # Atomic write: temp file in same directory -> fsync -> os.replace.
     parent = path.parent
+    tmp_path: str | None = None
     try:
         fd, tmp_path = tempfile.mkstemp(dir=str(parent), suffix=".tmp")
         try:
@@ -107,10 +108,11 @@ def _inject_payload(
         os.replace(tmp_path, str(path))
     except OSError as exc:
         # Clean up temp file on failure.
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
         return f"Payload write failed: {exc}"
 
     return None

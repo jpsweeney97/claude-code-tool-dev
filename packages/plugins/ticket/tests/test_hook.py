@@ -115,14 +115,13 @@ class TestAllowlist:
         assert _decision(output) == "allow"
 
     def test_blocks_direct_core_import(self) -> None:
-        """A command importing ticket_engine_core is not an allowlisted shape — passes through."""
+        """Direct import of ticket_engine_core doesn't match allowlist — denied."""
         inp = make_hook_input(
             "python3 -c 'from scripts.ticket_engine_core import engine_plan'",
             plugin_root="/fake/plugin",
         )
-        # Contains "ticket_engine" but has metacharacter '
-        # Actually this has single quotes which aren't in the metachar set.
-        # The command doesn't match the allowlist pattern, so it gets denied.
+        # Contains "ticket_engine" so strict checks apply, but -c flag
+        # doesn't match the allowlist regex pattern — denied.
         output = run_hook(inp, plugin_root="/fake/plugin")
         assert _decision(output) == "deny"
 
@@ -331,3 +330,28 @@ class TestPayloadInjection:
         output = run_hook(inp, plugin_root=plugin_root)
         assert _decision(output) == "deny"
         assert "invalid json" in _reason(output).lower()
+
+    def test_deny_on_non_dict_payload(self, tmp_path: Path) -> None:
+        """Rejects JSON arrays and other non-object payloads."""
+        plugin_root = str(tmp_path / "plugin")
+        (Path(plugin_root) / "scripts").mkdir(parents=True)
+        array_file = tmp_path / "array.json"
+        array_file.write_text("[1, 2, 3]", encoding="utf-8")
+
+        inp = make_hook_input(
+            f"python3 {plugin_root}/scripts/ticket_engine_user.py plan {array_file}",
+            plugin_root=plugin_root,
+        )
+        output = run_hook(inp, plugin_root=plugin_root)
+        assert _decision(output) == "deny"
+
+    def test_blocks_newline_injection(self, tmp_path: Path) -> None:
+        """Blocks commands containing newlines (command injection vector)."""
+        plugin_root = str(tmp_path / "plugin")
+        inp = make_hook_input(
+            f"python3 {plugin_root}/scripts/ticket_engine_user.py plan /tmp/p.json\nrm -rf /",
+            plugin_root=plugin_root,
+        )
+        output = run_hook(inp, plugin_root=plugin_root)
+        assert _decision(output) == "deny"
+        assert "metacharacters" in _reason(output).lower()
