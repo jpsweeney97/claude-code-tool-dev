@@ -98,7 +98,7 @@ function createWholeFileChunk(file: MarkdownFile, content: string, fm: Frontmatt
 }
 
 function splitAtH2(file: MarkdownFile, content: string, frontmatter: Frontmatter): Chunk[] {
-  const { parts } = splitBounded(content, []);
+  const parts = splitBounded(content);
   const chunks: Chunk[] = [];
 
   // Track split indices per heading for ID generation
@@ -622,10 +622,7 @@ function splitH2Section(
  * Main bounded splitting function implementing the hierarchy:
  * H2 -> H3 -> paragraph -> hard split
  */
-function splitBounded(
-  content: string,
-  introContent: string[]
-): { parts: BoundedPart[]; intro: string[] } {
+function splitBounded(content: string): BoundedPart[] {
   const h2Parts = splitByHeadingOutsideFences(content, 2);
   const result: BoundedPart[] = [];
 
@@ -644,9 +641,6 @@ function splitBounded(
     let contentToProcess = h2Part.content;
     if (isFirstH2 && intro.length > 0) {
       contentToProcess = [...intro, '', h2Part.content].join('\n');
-      isFirstH2 = false;
-    } else if (isFirstH2 && introContent.length > 0) {
-      contentToProcess = [...introContent, '', h2Part.content].join('\n');
       isFirstH2 = false;
     }
 
@@ -680,5 +674,5 @@ function splitBounded(
     }
   }
 
-  return { parts: result, intro };
+  return result;
 }

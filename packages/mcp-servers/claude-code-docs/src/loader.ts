@@ -51,6 +51,7 @@ function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
+/** @deprecated Not used in production pipeline. Retained for local testing only. */
 export async function loadMarkdownFiles(docsPath: string): Promise<MarkdownFile[]> {
   const files: MarkdownFile[] = [];
   const pattern = path.join(docsPath, '**/*.md').replace(/\\/g, '/');
