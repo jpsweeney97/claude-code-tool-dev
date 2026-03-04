@@ -27,6 +27,10 @@ const serverState = new ServerState({
   serializeIndexFn: serializeIndex,
   deserializeIndexFn: deserializeIndex,
   parseSerializedIndexFn: parseSerializedIndex,
+  docsUrl: process.env.DOCS_URL,
+  retryIntervalMs: process.env.RETRY_INTERVAL_MS
+    ? parseInt(process.env.RETRY_INTERVAL_MS, 10)
+    : undefined,
 });
 
 async function main() {
@@ -82,19 +86,7 @@ async function main() {
       inputSchema: z.object({}),
     },
     async () => {
-      const inProgress = serverState.getLoadingPromise();
-      if (inProgress) {
-        console.error('Waiting for in-progress load to complete before reload...');
-        await inProgress;
-      }
-
-      // Keep old index alive during reload — concurrent searches continue to work.
-      // doLoadIndex() overwrites index on success and preserves it on failure.
-      console.error('Forcing documentation reload...');
-
-      await clearIndexCache();
-
-      const idx = await serverState.ensureIndex(true);
+      const idx = await serverState.clearAndReload();
       if (!idx) {
         const hasStaleIndex = serverState.getIndex() !== null;
         return {
@@ -134,6 +126,8 @@ async function main() {
       console.error(`Index ready (${idx.chunks.length} chunks)`);
     }
     // If idx is null, loadError was already logged by doLoadIndex
+  }).catch((err) => {
+    console.error(`Startup index load failed: ${err instanceof Error ? err.message : 'unknown'}`);
   });
 
   const shutdown = async (signal: string) => {

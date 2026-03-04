@@ -37,9 +37,9 @@ export class ServerState {
   constructor(deps: ServerStateDeps) {
     this.deps = deps;
     this.timer = deps.timerFn ?? Date.now;
-    this.docsUrl = deps.docsUrl ?? process.env.DOCS_URL ?? 'https://code.claude.com/docs/llms-full.txt';
+    this.docsUrl = deps.docsUrl ?? 'https://code.claude.com/docs/llms-full.txt';
 
-    const retryMs = deps.retryIntervalMs ?? parseInt(process.env.RETRY_INTERVAL_MS ?? '60000', 10);
+    const retryMs = deps.retryIntervalMs ?? 60000;
     this.effectiveRetryInterval =
       retryMs >= 1000 && retryMs <= 600000 ? retryMs : 60000;
   }
@@ -77,6 +77,22 @@ export class ServerState {
 
   getWarnings(): ParseWarning[] {
     return [...this.warnings];
+  }
+
+  async clearAndReload(): Promise<BM25Index | null> {
+    const inProgress = this.loadingPromise;
+    if (inProgress) {
+      console.error('Waiting for in-progress load to complete before reload...');
+      try {
+        await inProgress;
+      } catch {
+        // In-progress load failed — proceeding with forced reload
+      }
+    }
+
+    console.error('Forcing documentation reload...');
+    await this.deps.clearCacheFn();
+    return this.ensureIndex(true);
   }
 
   private async doLoadIndex(forceRefresh = false): Promise<BM25Index | null> {

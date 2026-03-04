@@ -101,6 +101,34 @@ describe('ServerState', () => {
       expect(deps.loadFn).toHaveBeenCalledOnce();
     });
 
+    it('shares loadingPromise for concurrent calls when load fails', async () => {
+      let rejectLoad: (err: Error) => void;
+      const loadPromise = new Promise<never>((_, r) => { rejectLoad = r; });
+
+      const deps = makeDeps({
+        loadFn: vi.fn().mockReturnValue(loadPromise),
+      });
+      const state = new ServerState(deps);
+
+      // Start two concurrent calls
+      const p1 = state.ensureIndex();
+      const p2 = state.ensureIndex();
+
+      // Reject the shared promise
+      rejectLoad!(new Error('network down'));
+
+      const [r1, r2] = await Promise.all([p1, p2]);
+
+      // Both receive null (failure)
+      expect(r1).toBeNull();
+      expect(r2).toBeNull();
+      expect(deps.loadFn).toHaveBeenCalledOnce();
+      expect(state.getLoadError()).toContain('network down');
+
+      // loadingPromise is cleared — subsequent call after retry interval can proceed
+      expect(state.getLoadingPromise()).toBeNull();
+    });
+
     it('respects retry interval after failure (A1 retry)', async () => {
       let time = 1000;
       const deps = makeDeps({
@@ -372,6 +400,52 @@ describe('ServerState', () => {
       const idx = await state.ensureIndex();
       expect(idx).toBeNull();
       expect(state.getLoadError()).toContain('No extension documentation found');
+    });
+  });
+
+  describe('clearAndReload', () => {
+    it('clears cache and force-refreshes index', async () => {
+      const deps = makeDeps();
+      const state = new ServerState(deps);
+
+      // Initial load
+      await state.ensureIndex();
+      expect(deps.loadFn).toHaveBeenCalledOnce();
+
+      // clearAndReload clears cache then reloads
+      await state.clearAndReload();
+      expect(deps.clearCacheFn).toHaveBeenCalledOnce();
+      expect(deps.loadFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('handles in-progress load failure gracefully before reload', async () => {
+      let rejectLoad: (err: Error) => void;
+      const loadPromise = new Promise<never>((_, r) => { rejectLoad = r; });
+
+      const deps = makeDeps({
+        loadFn: vi.fn()
+          .mockReturnValueOnce(loadPromise)
+          .mockResolvedValue({
+            files: [{ path: 'test.md', content: '# Test' }],
+            contentHash: 'hash2',
+          }),
+      });
+      const state = new ServerState(deps);
+
+      // Start a load that will fail
+      const initialLoad = state.ensureIndex();
+
+      // Start clearAndReload — it should wait for in-progress load
+      const reloadPromise = state.clearAndReload();
+
+      // Reject the initial load
+      rejectLoad!(new Error('timeout'));
+      await initialLoad;
+
+      // clearAndReload should succeed with the second loadFn call
+      const idx = await reloadPromise;
+      expect(idx).not.toBeNull();
+      expect(deps.clearCacheFn).toHaveBeenCalledOnce();
     });
   });
 
