@@ -5,7 +5,6 @@ import * as path from 'path';
 import * as os from 'os';
 import { chunkFile } from '../src/chunker.js';
 import { buildBM25Index, search } from '../src/bm25.js';
-import { clearParseWarnings } from '../src/frontmatter.js';
 
 // Mock content that simulates the llms-full.txt format from code.claude.com
 // IMPORTANT: This content is used for testing search quality, not loading.
@@ -223,8 +222,6 @@ describe('golden queries (URL-based)', () => {
   let tempDir: string;
 
   beforeAll(async () => {
-    clearParseWarnings();
-
     // Create isolated temp directory for cache to avoid polluting production cache
     // This is critical: without this, the mock content would overwrite the real
     // cached docs at ~/Library/Caches/claude-code-docs/llms-full.txt
@@ -256,7 +253,7 @@ describe('golden queries (URL-based)', () => {
     );
 
     // Build the search index
-    const chunks = files.flatMap((f) => chunkFile(f));
+    const chunks = files.flatMap((f) => chunkFile(f).chunks);
     index = buildBM25Index(chunks);
   });
 

@@ -1,13 +1,9 @@
 // tests/chunker.test.ts
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { chunkFile, MAX_CHUNK_CHARS } from '../src/chunker.js';
-import { clearParseWarnings } from '../src/frontmatter.js';
 import type { MarkdownFile } from '../src/types.js';
 
 describe('chunkFile', () => {
-  beforeEach(() => {
-    clearParseWarnings();
-  });
 
   describe('whole file chunks', () => {
     it('keeps small file as single chunk', () => {
@@ -15,7 +11,7 @@ describe('chunkFile', () => {
         path: 'test/small.md',
         content: '# Title\n\nSome content here.',
       };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
       expect(chunks).toHaveLength(1);
       expect(chunks[0].id).toBe('test-small');
     });
@@ -25,7 +21,7 @@ describe('chunkFile', () => {
         path: 'hooks/test.md',
         content: '---\ncategory: hooks\ntags: [api]\n---\n# Title\nContent',
       };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
       expect(chunks[0].content).toContain('Category: hooks');
       expect(chunks[0].content).toContain('Tags: api');
     });
@@ -35,7 +31,7 @@ describe('chunkFile', () => {
         path: 'hooks/test.md',
         content: '# Title\nContent',
       };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
       expect(chunks[0].category).toBe('hooks');
     });
   });
@@ -52,7 +48,7 @@ describe('chunkFile', () => {
         path: 'test/large.md',
         content: lines.join('\n'),
       };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
       expect(chunks.length).toBeGreaterThan(1);
     });
 
@@ -61,7 +57,7 @@ describe('chunkFile', () => {
       // Pad to exceed 150 lines
       const padded = content + '\n' + Array(150).fill('padding').join('\n');
       const file: MarkdownFile = { path: 'test/intro.md', content: padded };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // First chunk should contain both intro and Section 1
       expect(chunks[0].content).toContain('Intro paragraph');
@@ -83,7 +79,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/fence.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Should NOT split at "## This is not a real heading" inside fence
       const fenceChunk = chunks.find((c) => c.content.includes('```markdown'));
@@ -105,7 +101,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/indented.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Indented fence should be recognized
       const fenceChunk = chunks.find((c) => c.content.includes('```python'));
@@ -120,7 +116,7 @@ describe('chunkFile', () => {
       const content = ['# Title', '', ...sections, '', ...Array(150).fill('pad')].join('\n');
 
       const file: MarkdownFile = { path: 'test/merge.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Should have fewer chunks than sections due to merging
       expect(chunks.length).toBeLessThan(10);
@@ -131,7 +127,7 @@ describe('chunkFile', () => {
       const content = ['# Title', '', ...sections, '', ...Array(150).fill('pad')].join('\n');
 
       const file: MarkdownFile = { path: 'test/merged.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // At least one chunk should have merged_headings
       const mergedChunk = chunks.find((c) => c.merged_headings && c.merged_headings.length > 1);
@@ -156,7 +152,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'hooks/meta.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       for (const chunk of chunks) {
         // "hooks" stems to "hook" via Porter stemmer
@@ -182,7 +178,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'hooks/x.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
       const tokens = chunks[0].tokens;
 
       // Verify relationship metadata appears in tokens (stemmed)
@@ -203,7 +199,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/meta.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
       const tokens = chunks[0].tokens;
 
       // id tokens
@@ -225,7 +221,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/single.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
       const tokens = chunks[0].tokens;
 
       // "single" stems to "singl", "related" stems to "relat"
@@ -252,7 +248,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'hooks/oversized.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Should produce multiple chunks
       expect(chunks.length).toBeGreaterThan(1);
@@ -281,7 +277,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/no-h3.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Should produce multiple chunks via paragraph splitting
       expect(chunks.length).toBeGreaterThan(1);
@@ -307,7 +303,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/overlap.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Should produce multiple chunks due to size
       expect(chunks.length).toBeGreaterThan(1);
@@ -333,7 +329,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/no-overlap.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Section 2 chunk should NOT start with Section 1 content
       const section2Chunk = chunks.find((c) => c.content.includes('## Section 2'));
@@ -354,7 +350,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/chars.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       expect(chunks.length).toBeGreaterThan(1);
     });
@@ -371,7 +367,7 @@ describe('chunkFile', () => {
       // Pad to force splitting
       const padded = content + '\n' + Array(150).fill('pad').join('\n');
       const file: MarkdownFile = { path: 'test/charmerge.md', content: padded };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Each section's content is 5000 chars; merging would exceed 8000
       // So they should remain separate
@@ -394,7 +390,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/longlines.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Should produce multiple chunks since total chars exceed limit
       expect(chunks.length).toBeGreaterThan(1);
@@ -423,7 +419,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/small-table.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Small file should be one chunk
       expect(chunks.length).toBe(1);
@@ -449,7 +445,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/fence-pipe.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Code block should stay intact
       const codeChunk = chunks.find((c) => c.content.includes('```bash'));
@@ -474,7 +470,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/mixed.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Content should preserve table integrity
       const contentStr = chunks.map((c) => c.content).join('');
@@ -502,7 +498,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/big-table.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Should produce multiple chunks due to oversized table
       expect(chunks.length).toBeGreaterThan(1);
@@ -540,7 +536,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/table-para.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Paragraphs after table should not be merged incorrectly
       const contentStr = chunks.map((c) => c.content).join('');
@@ -566,7 +562,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/bad-table.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Should not crash, should preserve content
       expect(chunks.length).toBeGreaterThan(0);
@@ -585,7 +581,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/empty-table.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       expect(chunks.length).toBeGreaterThan(0);
       const allContent = chunks.map((c) => c.content).join('');
@@ -608,7 +604,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/oversized-bad-table.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Should not crash, should preserve content
       expect(chunks.length).toBeGreaterThan(0);
@@ -629,7 +625,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/no-h2.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       expect(chunks.length).toBeGreaterThan(1);
       for (const chunk of chunks) {
@@ -648,7 +644,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/overlap.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       const allContent = chunks.map(c => c.content).join('|||');
       const wordCount = (allContent.match(/word/g) || []).length;
@@ -670,7 +666,7 @@ describe('chunkFile', () => {
       ].join('\n');
 
       const file: MarkdownFile = { path: 'test/oversized-line.md', content };
-      const chunks = chunkFile(file);
+      const { chunks } = chunkFile(file);
 
       // Every chunk's content must respect the MAX_CHUNK_CHARS limit
       for (const chunk of chunks) {

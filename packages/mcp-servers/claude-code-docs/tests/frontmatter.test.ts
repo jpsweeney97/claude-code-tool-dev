@@ -1,17 +1,12 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   parseFrontmatter,
   formatMetadataHeader,
   deriveCategory,
-  getParseWarnings,
-  clearParseWarnings,
   getUnmappedSegments,
 } from '../src/frontmatter.js';
 
 describe('parseFrontmatter', () => {
-  beforeEach(() => {
-    clearParseWarnings();
-  });
 
   it('returns empty frontmatter for content without YAML', () => {
     const { frontmatter, body } = parseFrontmatter('Just content', 'test.md');
@@ -36,8 +31,7 @@ describe('parseFrontmatter', () => {
 
   it('warns on non-string tag values', () => {
     const content = '---\ntags: [123, "valid"]\n---\nBody';
-    parseFrontmatter(content, 'test.md');
-    const warnings = getParseWarnings();
+    const { warnings } = parseFrontmatter(content, 'test.md');
     expect(warnings).toContainEqual({
       file: 'test.md',
       issue: 'Non-string tag value ignored: number',
@@ -46,8 +40,7 @@ describe('parseFrontmatter', () => {
 
   it('warns on non-string category', () => {
     const content = '---\ncategory: [hooks, skills]\n---\nBody';
-    parseFrontmatter(content, 'test.md');
-    const warnings = getParseWarnings();
+    const { warnings } = parseFrontmatter(content, 'test.md');
     expect(warnings).toContainEqual({
       file: 'test.md',
       issue: 'Invalid category type: expected string, got object',
@@ -56,8 +49,7 @@ describe('parseFrontmatter', () => {
 
   it('warns on non-string topic', () => {
     const content = '---\ntopic: 123\n---\nBody';
-    parseFrontmatter(content, 'test.md');
-    const warnings = getParseWarnings();
+    const { warnings } = parseFrontmatter(content, 'test.md');
     expect(warnings).toContainEqual({
       file: 'test.md',
       issue: 'Invalid topic type: expected string, got number',
@@ -66,10 +58,9 @@ describe('parseFrontmatter', () => {
 
   it('warns on malformed YAML', () => {
     const content = '---\n[unclosed\n---\nBody';
-    const { frontmatter, body } = parseFrontmatter(content, 'test.md');
+    const { frontmatter, body, warnings } = parseFrontmatter(content, 'test.md');
     expect(frontmatter).toEqual({});
     expect(body).toBe('---\n[unclosed\n---\nBody');
-    const warnings = getParseWarnings();
     expect(warnings.length).toBeGreaterThan(0);
     expect(warnings[0].file).toBe('test.md');
   });
@@ -176,9 +167,6 @@ describe('deriveCategory', () => {
 });
 
 describe('parseFrontmatter - requires and related_to', () => {
-  beforeEach(() => {
-    clearParseWarnings();
-  });
 
   it('parses requires as array of strings', () => {
     const content = '---\nrequires: [hooks-overview, hooks-events]\n---\nBody';
@@ -206,8 +194,7 @@ describe('parseFrontmatter - requires and related_to', () => {
 
   it('warns on non-string requires items', () => {
     const content = '---\nrequires: [123, "valid"]\n---\nBody';
-    parseFrontmatter(content, 'test.md');
-    const warnings = getParseWarnings();
+    const { warnings } = parseFrontmatter(content, 'test.md');
     expect(warnings).toContainEqual({
       file: 'test.md',
       issue: 'Invalid requires item type: expected string, got number',
@@ -216,8 +203,7 @@ describe('parseFrontmatter - requires and related_to', () => {
 
   it('warns on invalid requires type', () => {
     const content = '---\nrequires: 123\n---\nBody';
-    parseFrontmatter(content, 'test.md');
-    const warnings = getParseWarnings();
+    const { warnings } = parseFrontmatter(content, 'test.md');
     expect(warnings).toContainEqual({
       file: 'test.md',
       issue: 'Invalid requires type: expected string or array, got number',
@@ -232,8 +218,7 @@ describe('parseFrontmatter - requires and related_to', () => {
 
   it('warns on non-string id', () => {
     const content = '---\nid: 123\n---\nBody';
-    parseFrontmatter(content, 'test.md');
-    const warnings = getParseWarnings();
+    const { warnings } = parseFrontmatter(content, 'test.md');
     expect(warnings).toContainEqual({
       file: 'test.md',
       issue: 'Invalid id type: expected string, got number',

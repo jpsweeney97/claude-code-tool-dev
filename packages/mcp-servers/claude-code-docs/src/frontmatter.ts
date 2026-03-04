@@ -26,18 +26,6 @@ export interface ParseResult {
   warnings: ParseWarning[];
 }
 
-// Deprecated global state - kept for backward compatibility
-const parseWarnings: ParseWarning[] = [];
-
-/** @deprecated Use warnings returned from parseFrontmatter() */
-export function getParseWarnings(): ParseWarning[] {
-  return [...parseWarnings];
-}
-
-/** @deprecated Use warnings returned from parseFrontmatter() */
-export function clearParseWarnings(): void {
-  parseWarnings.length = 0;
-}
 
 /**
  * Parse a field that can be either a single string or an array of strings.
@@ -153,9 +141,6 @@ export function parseFrontmatter(
     // Parse related_to (string or array of strings)
     const related_to = parseStringArrayField(yaml.related_to, 'related_to', filePath, warnings);
 
-    // Also push to deprecated global for backward compatibility
-    parseWarnings.push(...warnings);
-
     return {
       frontmatter: {
         category,
@@ -173,8 +158,6 @@ export function parseFrontmatter(
       file: filePath,
       issue: `Invalid YAML frontmatter: ${err instanceof Error ? err.message : 'unknown error'}`,
     });
-    // Also push to deprecated global for backward compatibility
-    parseWarnings.push(...warnings);
     return { frontmatter: {}, body: content, warnings };
   }
 }

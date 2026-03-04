@@ -6,6 +6,7 @@ import {
   formatMetadataHeader,
   deriveCategory,
   type Frontmatter,
+  type ParseWarning,
 } from './frontmatter.js';
 import { generateChunkId, computeTermFreqs } from './chunk-helpers.js';
 import { ProtectedBlockTracker } from './protected-block-tracker.js';
@@ -14,7 +15,12 @@ export const MAX_CHUNK_CHARS = 8000;
 const MAX_CHUNK_LINES = 150;
 const OVERLAP_LINES_FOR_FORCED_SPLITS = 5;
 
-export function chunkFile(file: MarkdownFile): Chunk[] {
+export interface ChunkResult {
+  chunks: Chunk[];
+  warnings: ParseWarning[];
+}
+
+export function chunkFile(file: MarkdownFile): ChunkResult {
   // Input validation
   if (!file.path) {
     throw new Error('chunkFile: file.path is required');
@@ -24,20 +30,17 @@ export function chunkFile(file: MarkdownFile): Chunk[] {
   }
 
   try {
-    const { frontmatter, body } = parseFrontmatter(file.content, file.path);
-    // Warnings are pushed to the deprecated global by parseFrontmatter() for
-    // backward compatibility. The caller (index.ts) handles warning display
-    // via getParseWarnings()/clearParseWarnings().
+    const { frontmatter, body, warnings } = parseFrontmatter(file.content, file.path);
 
     const metadataHeader = formatMetadataHeader(frontmatter);
     const preparedContent = metadataHeader + body;
 
     if (isSmallEnoughForWholeFile(preparedContent)) {
-      return [createWholeFileChunk(file, preparedContent, frontmatter)];
+      return { chunks: [createWholeFileChunk(file, preparedContent, frontmatter)], warnings };
     }
 
     const rawChunks = splitAtH2(file, preparedContent, frontmatter);
-    return mergeSmallChunks(rawChunks, frontmatter);
+    return { chunks: mergeSmallChunks(rawChunks, frontmatter), warnings };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to chunk file ${file.path}: ${message}`);
