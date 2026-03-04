@@ -133,3 +133,59 @@ class TestDocSize:
         from scripts.ticket_triage import triage_dashboard
         result = triage_dashboard(tmp_tickets)
         assert result["size_warnings"] == []
+
+
+class TestAuditReport:
+    """Test audit trail report generation."""
+
+    @pytest.fixture
+    def audit_env(self, tmp_tickets):
+        """Create audit trail with sample entries."""
+        date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / date_dir
+        audit_dir.mkdir(parents=True)
+
+        # Session 1: 2 creates, 1 update.
+        s1_file = audit_dir / "session-1.jsonl"
+        entries = [
+            {"action": "create", "result": "ok_create", "session_id": "session-1"},
+            {"action": "create", "result": "ok_create", "session_id": "session-1"},
+            {"action": "update", "result": "ok_update", "session_id": "session-1"},
+        ]
+        s1_file.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+
+        # Session 2: 1 blocked attempt.
+        s2_file = audit_dir / "session-2.jsonl"
+        s2_file.write_text(json.dumps(
+            {"action": "create", "result": "policy_blocked", "session_id": "session-2"}
+        ) + "\n")
+
+        return tmp_tickets
+
+    def test_total_entries_counted(self, audit_env):
+        from scripts.ticket_triage import triage_audit_report
+        result = triage_audit_report(audit_env)
+        assert result["total_entries"] == 4
+
+    def test_by_action_aggregation(self, audit_env):
+        from scripts.ticket_triage import triage_audit_report
+        result = triage_audit_report(audit_env)
+        assert result["by_action"]["create"] == 3
+        assert result["by_action"]["update"] == 1
+
+    def test_by_result_aggregation(self, audit_env):
+        from scripts.ticket_triage import triage_audit_report
+        result = triage_audit_report(audit_env)
+        assert result["by_result"]["ok_create"] == 2
+        assert result["by_result"]["policy_blocked"] == 1
+
+    def test_session_count(self, audit_env):
+        from scripts.ticket_triage import triage_audit_report
+        result = triage_audit_report(audit_env)
+        assert result["sessions"] == 2
+
+    def test_no_audit_dir_returns_empty(self, tmp_tickets):
+        from scripts.ticket_triage import triage_audit_report
+        result = triage_audit_report(tmp_tickets)
+        assert result["total_entries"] == 0
+        assert result["sessions"] == 0
