@@ -1,39 +1,38 @@
 // tests/corpus-validation.test.ts
 import { describe, it, expect } from 'vitest';
 import { chunkFile, MAX_CHUNK_CHARS } from '../src/chunker.js';
-import { readdirSync, readFileSync, statSync, existsSync } from 'fs';
-import { join, dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { parseSections } from '../src/parser.js';
+import { readCache, getDefaultCachePath } from '../src/cache.js';
+import { existsSync } from 'fs';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DOCS_PATH =
-  process.env.DOCS_PATH ?? resolve(__dirname, '../../../../docs/extension-reference');
-const docsExist = existsSync(DOCS_PATH);
+const cachePath = getDefaultCachePath();
+const cacheExists = existsSync(cachePath);
 
-// Log skip reason at module level
-if (!docsExist) {
+if (!cacheExists) {
   console.warn(
-    `SKIPPING corpus validation: DOCS_PATH not found at ${DOCS_PATH}\n` +
-      `Set DOCS_PATH environment variable to run this test.`
+    `SKIPPING corpus validation: content cache not found at ${cachePath}\n` +
+      `Run the server once to populate the cache, then re-run tests.`
   );
 }
 
 const MAX_CHUNK_LINES = 150;
 
-function* walkMarkdownFiles(dir: string): Generator<string> {
-  if (!existsSync(dir)) return;
-  for (const entry of readdirSync(dir)) {
-    const fullPath = join(dir, entry);
-    if (statSync(fullPath).isDirectory()) {
-      yield* walkMarkdownFiles(fullPath);
-    } else if (entry.endsWith('.md')) {
-      yield fullPath;
-    }
-  }
+async function loadCorpusFiles() {
+  const cached = await readCache(cachePath);
+  if (!cached) throw new Error(`Cache not readable at ${cachePath}`);
+
+  const sections = parseSections(cached.content);
+  return sections
+    .filter((s) => s.content.trim().length > 0)
+    .map((s) => ({
+      path: s.sourceUrl || s.title || 'unknown',
+      content: s.content,
+    }));
 }
 
-describe.skipIf(!docsExist)('corpus validation', () => {
-  it('all chunks within size bounds', () => {
+describe.skipIf(!cacheExists)('corpus validation', () => {
+  it('all chunks within size bounds', async () => {
+    const files = await loadCorpusFiles();
     const stats = {
       totalFiles: 0,
       totalChunks: 0,
@@ -42,9 +41,8 @@ describe.skipIf(!docsExist)('corpus validation', () => {
       oversizedChunks: [] as string[],
     };
 
-    for (const filePath of walkMarkdownFiles(DOCS_PATH)) {
-      const content = readFileSync(filePath, 'utf-8');
-      const { chunks } = chunkFile({ path: filePath, content });
+    for (const file of files) {
+      const { chunks } = chunkFile(file);
 
       stats.totalFiles++;
       stats.totalChunks += chunks.length;
@@ -66,18 +64,17 @@ describe.skipIf(!docsExist)('corpus validation', () => {
       oversizedChunks: stats.oversizedChunks.length,
     });
 
-    // Assertion: no oversized chunks
     expect(stats.oversizedChunks).toEqual([]);
     expect(stats.totalFiles).toBeGreaterThan(0);
   });
 
-  it('all chunks have valid IDs', () => {
+  it('all chunks have valid IDs', async () => {
+    const files = await loadCorpusFiles();
     const ids = new Set<string>();
     const duplicates: string[] = [];
 
-    for (const filePath of walkMarkdownFiles(DOCS_PATH)) {
-      const content = readFileSync(filePath, 'utf-8');
-      const { chunks } = chunkFile({ path: filePath, content });
+    for (const file of files) {
+      const { chunks } = chunkFile(file);
 
       for (const chunk of chunks) {
         if (ids.has(chunk.id)) {
