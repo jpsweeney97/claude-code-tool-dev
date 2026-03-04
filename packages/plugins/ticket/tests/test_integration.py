@@ -1,7 +1,7 @@
 """Integration tests — full engine pipeline end-to-end."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -130,7 +130,7 @@ class TestFullCreatePipeline:
         from tests.conftest import make_ticket
 
         # Use dynamic date so ticket stays within 24h dedup window.
-        today = date.today().isoformat()
+        today = datetime.now(timezone.utc).date().isoformat()
         make_ticket(
             tmp_tickets,
             f"{today}-existing.md",

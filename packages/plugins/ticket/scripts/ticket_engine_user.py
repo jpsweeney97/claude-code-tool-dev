@@ -105,6 +105,7 @@ def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineRespon
             dedup_override=payload.get("dedup_override", False),
             dependency_override=payload.get("dependency_override", False),
             tickets_dir=tickets_dir,
+            hook_injected=payload.get("hook_injected", False),
         )
     else:
         return EngineResponse(state="escalate", message=f"Unknown subcommand: {subcommand!r}", error_code="intent_mismatch")

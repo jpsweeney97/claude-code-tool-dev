@@ -75,14 +75,25 @@ function createWholeFileChunk(file: MarkdownFile, content: string, fm: Frontmatt
   const category = fm.category ?? deriveCategory(file.path);
   const metadataTerms = getMetadataTerms(fm, category);
   const tokens = [...tokenize(content), ...metadataTerms];
+
+  // Derive headingTokens: fm.topic (official docs) -> first # heading (local files)
+  // (R3 + D3: avoid size-dependent ranking; D6: regex has no fence protection — known limitation)
+  const headingSource = fm.topic
+    ?? content.match(/^#\s+(.+)$/m)?.[1];
+  const headingTokens = headingSource
+    ? new Set(tokenize(headingSource))
+    : undefined;
+
   return {
     id: generateChunkId(file),
     content,
     tokens,
+    tokenCount: tokens.length,
     termFreqs: computeTermFreqs(tokens),
     category,
     tags: fm.tags ?? [],
     source_file: file.path,
+    headingTokens,
   };
 }
 
@@ -134,16 +145,19 @@ function createSplitChunk(
   // Include all metadata terms in tokens so chunks are searchable by category/tags/relationships
   const metadataTerms = getMetadataTerms(frontmatter, category);
   const tokens = [...tokenize(content), ...metadataTerms];
+  const headingTokens = heading ? new Set(tokenize(heading)) : undefined;
 
   return {
     id: generateChunkId(file, heading, splitIndex),
     content,
     tokens,
+    tokenCount: tokens.length,
     termFreqs: computeTermFreqs(tokens),
     category,
     tags,
     source_file: file.path,
     heading,
+    headingTokens,
   };
 }
 
@@ -195,13 +209,23 @@ function combineChunks(chunks: Chunk[], frontmatter: Frontmatter): Chunk {
   const metadataTerms = getMetadataTerms(frontmatter, category);
   const tokens = [...tokenize(combinedContent), ...metadataTerms];
 
+  // Merge headingTokens from all constituent chunks
+  const mergedHeadingTokens = new Set<string>();
+  for (const c of chunks) {
+    if (c.headingTokens) {
+      for (const t of c.headingTokens) mergedHeadingTokens.add(t);
+    }
+  }
+
   return {
     ...chunks[0],
     content: combinedContent,
     tokens,
+    tokenCount: tokens.length,
     termFreqs: computeTermFreqs(tokens),
     heading: chunks[0].heading,
     merged_headings: chunks.map((c) => c.heading).filter(Boolean) as string[],
+    headingTokens: mergedHeadingTokens.size > 0 ? mergedHeadingTokens : undefined,
   };
 }
 

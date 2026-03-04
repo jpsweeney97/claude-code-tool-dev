@@ -10,6 +10,7 @@ Subcommand contract: each function returns an EngineResponse with
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -50,6 +51,10 @@ class EngineResponse:
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), indent=2)
+
+
+# Sentinel for audit read failures.
+AUDIT_UNAVAILABLE = object()
 
 
 # --- Valid actions and origins ---
@@ -632,6 +637,61 @@ def _check_transition_preconditions(
     return None
 
 
+def _audit_append(session_id: str, tickets_dir: Path, entry: dict[str, Any]) -> bool:
+    """Append a JSONL audit entry for the given session.
+
+    Location: <tickets_dir>/.audit/YYYY-MM-DD/<session_id>.jsonl
+    Returns True on success, False on failure.
+    """
+    try:
+        date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tickets_dir / ".audit" / date_dir
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+        with open(audit_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        return True
+    except Exception:
+        return False
+
+
+def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | object:
+    """Count successful create actions in a session's audit file.
+
+    Reads <tickets_dir>/.audit/YYYY-MM-DD/<session_id>.jsonl for today's
+    date and counts entries where action == "create" and result starts
+    with "ok_".
+
+    Returns:
+        int: count of successful creates (0 if file doesn't exist)
+        AUDIT_UNAVAILABLE: on permission error reading the audit file
+    """
+    date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    audit_file = tickets_dir / ".audit" / date_dir / f"{session_id}.jsonl"
+
+    if not audit_file.exists():
+        return 0
+
+    try:
+        text = audit_file.read_text(encoding="utf-8")
+    except OSError:
+        return AUDIT_UNAVAILABLE
+
+    count = 0
+    for line in text.strip().split("\n"):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if entry.get("action") == "create" and isinstance(entry.get("result"), str) and entry["result"].startswith("ok_"):
+            count += 1
+    return count
+
+
 def engine_execute(
     *,
     action: str,
@@ -642,12 +702,16 @@ def engine_execute(
     dedup_override: bool,
     dependency_override: bool,
     tickets_dir: Path,
+    autonomy_mode: str = "suggest",
+    hook_injected: bool = False,
 ) -> EngineResponse:
     """Execute the mutation: create, update, close, or reopen.
 
     Assumes preflight has already passed. Writes ticket files.
+    Wraps dispatch with JSONL audit trail.
     """
     # Phase 1: hard-block all agent mutations (defense-in-depth, mirrors preflight).
+    # M8: Remove this block. The transport-layer validation below becomes the primary gate.
     if request_origin == "agent":
         return EngineResponse(
             state="policy_blocked",
@@ -655,20 +719,76 @@ def engine_execute(
             error_code="policy_blocked",
         )
 
-    if action == "create":
-        return _execute_create(fields, session_id, request_origin, tickets_dir)
-    elif action == "update":
-        return _execute_update(ticket_id, fields, session_id, request_origin, tickets_dir)
-    elif action == "close":
-        return _execute_close(ticket_id, fields, session_id, request_origin, tickets_dir)
-    elif action == "reopen":
-        return _execute_reopen(ticket_id, fields, session_id, request_origin, tickets_dir)
-    else:
+    # --- Transport-layer validation ---
+    # Agent mutations without hook_injected are rejected (defense-in-depth).
+    # The Phase 1 hard-block above catches this first, but when M8 removes
+    # the hard-block, this validation becomes the primary gate.
+    if request_origin == "agent" and not hook_injected:
         return EngineResponse(
-            state="escalate",
-            message=f"Unknown action: {action!r}",
-            error_code="intent_mismatch",
+            state="policy_blocked",
+            message="Agent mutations require hook_injected=True (missing trust field)",
+            error_code="policy_blocked",
         )
+    # User without hook_injected: proceed (warn only — unverified in audit).
+
+    # Audit: attempt_started
+    base_entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "action": "attempt_started",
+        "ticket_id": ticket_id,
+        "session_id": session_id,
+        "request_origin": request_origin,
+        "autonomy_mode": autonomy_mode,
+        "result": None,
+        "changes": None,
+    }
+    _audit_append(session_id, tickets_dir, base_entry)
+
+    # Dispatch
+    try:
+        if action == "create":
+            resp = _execute_create(fields, session_id, request_origin, tickets_dir)
+        elif action == "update":
+            resp = _execute_update(ticket_id, fields, session_id, request_origin, tickets_dir)
+        elif action == "close":
+            resp = _execute_close(ticket_id, fields, session_id, request_origin, tickets_dir)
+        elif action == "reopen":
+            resp = _execute_reopen(ticket_id, fields, session_id, request_origin, tickets_dir)
+        else:
+            resp = EngineResponse(
+                state="escalate",
+                message=f"Unknown action: {action!r}",
+                error_code="intent_mismatch",
+            )
+    except Exception as exc:
+        # Audit: error entry
+        error_entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "action": action,
+            "ticket_id": ticket_id,
+            "session_id": session_id,
+            "request_origin": request_origin,
+            "autonomy_mode": autonomy_mode,
+            "result": f"error:{type(exc).__name__}",
+            "changes": None,
+        }
+        _audit_append(session_id, tickets_dir, error_entry)
+        raise
+
+    # Audit: attempt_result
+    result_entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "ticket_id": resp.ticket_id if resp.ticket_id else ticket_id,
+        "session_id": session_id,
+        "request_origin": request_origin,
+        "autonomy_mode": autonomy_mode,
+        "result": resp.state,
+        "changes": resp.data.get("changes") if resp.data else None,
+    }
+    _audit_append(session_id, tickets_dir, result_entry)
+
+    return resp
 
 
 # --- Execute sub-functions (stubs replaced in subsequent slices) ---
