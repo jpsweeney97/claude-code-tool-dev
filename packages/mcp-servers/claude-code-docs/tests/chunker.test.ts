@@ -675,6 +675,110 @@ describe('chunkFile', () => {
     });
   });
 
+  describe('chunk metadata fields', () => {
+    it('sets tokenCount equal to tokens.length', () => {
+      const file = { path: 'test.md', content: '# Title\n\nSome content here' };
+      const { chunks } = chunkFile(file);
+      expect(chunks.length).toBeGreaterThan(0);
+      for (const chunk of chunks) {
+        expect(chunk.tokenCount).toBe(chunk.tokens.length);
+      }
+    });
+
+    it('computes headingTokens from heading when present', () => {
+      // (D2) Content must exceed whole-file thresholds (MAX_CHUNK_LINES=150 or
+      // MAX_CHUNK_CHARS=8000) to force H2 splitting. 80 lines/section x 2 sections
+      // + headings = ~165 lines total, safely above 150.
+      const sections = Array.from({ length: 80 }, (_, i) =>
+        `Line ${i} of content for this section to ensure splitting occurs`
+      ).join('\n');
+      const file = {
+        path: 'test.md',
+        content: `# Title\n\n## Hooks Guide\n\n${sections}\n\n## Skills Overview\n\n${sections}`,
+      };
+      const { chunks } = chunkFile(file);
+      // Precondition: verify H2 splitting actually occurred (non-vacuous)
+      expect(chunks.length).toBeGreaterThan(1);
+      const headingChunk = chunks.find(c => c.heading?.includes('Hooks'));
+      expect(headingChunk).toBeDefined();
+      expect(headingChunk!.headingTokens).toBeDefined();
+      expect(headingChunk!.headingTokens).toBeInstanceOf(Set);
+      // "## Hooks Guide" tokenizes to ["hook", "guid"]
+      expect(headingChunk!.headingTokens!.has('hook')).toBe(true);
+      expect(headingChunk!.headingTokens!.has('guid')).toBe(true);
+    });
+
+    it('derives headingTokens from first # heading for whole-file chunks', () => {
+      const file = { path: 'test.md', content: '# Hooks Guide\n\nShort content about hooks.' };
+      const { chunks } = chunkFile(file);
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0].headingTokens).toBeDefined();
+      expect(chunks[0].headingTokens).toBeInstanceOf(Set);
+      expect(chunks[0].headingTokens!.has('hook')).toBe(true);
+      expect(chunks[0].headingTokens!.has('guid')).toBe(true);
+    });
+
+    it('derives headingTokens from fm.topic for whole-file chunks (D3)', () => {
+      // Official docs: parser consumes # Title, body has no H1, but fm.topic is set
+      const file = {
+        path: 'test.md',
+        content: '---\ntopic: Hooks Guide\n---\nBody content with no heading at all.',
+      };
+      const { chunks } = chunkFile(file);
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0].headingTokens).toBeDefined();
+      expect(chunks[0].headingTokens!.has('hook')).toBe(true);
+      expect(chunks[0].headingTokens!.has('guid')).toBe(true);
+    });
+
+    it('headingTokens is undefined for whole-file chunks with no heading or topic', () => {
+      const file = { path: 'test.md', content: 'Short content with no heading at all' };
+      const { chunks } = chunkFile(file);
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0].headingTokens).toBeUndefined();
+    });
+
+    it('merges headingTokens from all chunks when combining', () => {
+      // (D1) Content must exceed whole-file thresholds to force H2 splitting,
+      // but each section must be small enough to trigger mergeSmallChunks.
+      // Strategy: 3+ H2 sections with ~50 lines each. Total ~155 lines exceeds
+      // MAX_CHUNK_LINES=150, forcing splitAtH2. Individual sections (~50 lines)
+      // are below merge thresholds, so adjacent small sections get merged.
+      const filler = (tag: string) => Array.from({ length: 50 }, (_, i) =>
+        `${tag} content line ${i} with enough words to count as real content`
+      ).join('\n');
+      const file = {
+        path: 'test.md',
+        content: [
+          '# Title',
+          '',
+          '## Alpha Section',
+          '',
+          filler('alpha'),
+          '',
+          '## Beta Section',
+          '',
+          filler('beta'),
+          '',
+          '## Gamma Section',
+          '',
+          filler('gamma'),
+        ].join('\n'),
+      };
+      const { chunks } = chunkFile(file);
+      // Precondition: verify merge actually happened (non-vacuous)
+      const mergedChunk = chunks.find(c => c.merged_headings && c.merged_headings.length > 0);
+      expect(mergedChunk).toBeDefined();
+      // headingTokens should contain tokens from both headings
+      expect(mergedChunk!.headingTokens).toBeDefined();
+      expect(mergedChunk!.headingTokens).toBeInstanceOf(Set);
+      // Check for tokens from at least two sections in the merged chunk
+      const headingTokens = mergedChunk!.headingTokens!;
+      const matchedSections = ['alpha', 'beta', 'gamma'].filter(t => headingTokens.has(t));
+      expect(matchedSections.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
   describe('chunkFile error handling', () => {
     it('throws with file context on parse error', () => {
       // Malformed content that will cause an error
