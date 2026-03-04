@@ -703,6 +703,7 @@ def engine_execute(
     dependency_override: bool,
     tickets_dir: Path,
     autonomy_mode: str = "suggest",
+    hook_injected: bool = False,
 ) -> EngineResponse:
     """Execute the mutation: create, update, close, or reopen.
 
@@ -716,6 +717,18 @@ def engine_execute(
             message="Phase 1: agent mutations are hard-blocked",
             error_code="policy_blocked",
         )
+
+    # --- Transport-layer validation ---
+    # Agent mutations without hook_injected are rejected (defense-in-depth).
+    # The Phase 1 hard-block above catches this first, but when M8 removes
+    # the hard-block, this validation becomes the primary gate.
+    if request_origin == "agent" and not hook_injected:
+        return EngineResponse(
+            state="policy_blocked",
+            message="Agent mutations require hook_injected=True (missing trust field)",
+            error_code="policy_blocked",
+        )
+    # User without hook_injected: proceed (warn only — unverified in audit).
 
     # Audit: attempt_started
     base_entry = {

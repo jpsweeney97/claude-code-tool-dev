@@ -920,3 +920,40 @@ class TestEngineExecuteIntegration:
         )
         assert resp.state == "escalate"
         assert resp.error_code == "intent_mismatch"
+
+
+class TestTransportValidation:
+    """Test hook_injected transport-layer validation."""
+
+    def test_agent_without_hook_injected_rejected(self, tmp_tickets):
+        """Agent requests are policy_blocked (Phase 1 hard-block fires first)."""
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="sess", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "policy_blocked"
+
+    def test_user_without_hook_injected_proceeds(self, tmp_tickets):
+        """User mutations without hook_injected proceed normally."""
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_create"
+
+    def test_user_with_hook_injected_proceeds(self, tmp_tickets):
+        """User mutations with hook_injected=True proceed normally."""
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets, hook_injected=True,
+        )
+        assert resp.state == "ok_create"
