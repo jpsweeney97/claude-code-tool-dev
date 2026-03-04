@@ -56,6 +56,38 @@ class EngineResponse:
 # Sentinel for audit read failures.
 AUDIT_UNAVAILABLE = object()
 
+_VALID_AUTONOMY_MODES = frozenset({"suggest", "auto_audit", "auto_silent"})
+
+
+@dataclass
+class AutonomyConfig:
+    """Autonomy configuration parsed from .claude/ticket.local.md.
+
+    mode: "suggest" (default) | "auto_audit" | "auto_silent"
+    max_creates: per-session create cap (default 5)
+    warnings: parsing warnings (empty if clean parse)
+    """
+
+    mode: str = "suggest"
+    max_creates: int = 5
+    warnings: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "max_creates": self.max_creates,
+            "warnings": self.warnings,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AutonomyConfig:
+        """Reconstruct from dict (snapshot deserialization). No validation."""
+        return cls(
+            mode=data.get("mode", "suggest"),
+            max_creates=data.get("max_creates", 5),
+            warnings=data.get("warnings", []),
+        )
+
 
 # --- Valid actions and origins ---
 
@@ -250,12 +282,17 @@ _ORIGIN_MODIFIER: dict[str, float] = {"user": 0.0, "agent": 0.15}
 _TERMINAL_STATUSES = frozenset({"done", "wontfix"})
 
 
-def _read_autonomy_mode(tickets_dir: Path) -> str:
-    """Read autonomy mode from .claude/ticket.local.md.
+def read_autonomy_config(tickets_dir: Path) -> AutonomyConfig:
+    """Read autonomy config from .claude/ticket.local.md YAML frontmatter.
 
-    Returns 'suggest' as default if file missing or malformed.
+    Fail-closed: returns AutonomyConfig(mode="suggest") on any error.
+    Emits warnings to stderr for malformed/unknown values.
     """
-    # Walk up from tickets_dir to find project root.
+    import sys
+
+    warnings: list[str] = []
+
+    # Walk up from tickets_dir to find project root (.claude/ directory).
     project_root = tickets_dir
     while project_root != project_root.parent:
         if (project_root / ".claude").is_dir():
@@ -264,25 +301,50 @@ def _read_autonomy_mode(tickets_dir: Path) -> str:
 
     config_path = project_root / ".claude" / "ticket.local.md"
     if not config_path.is_file():
-        return "suggest"
+        return AutonomyConfig()
 
     try:
         import yaml
 
         text = config_path.read_text(encoding="utf-8")
-        # Parse YAML frontmatter (--- delimited).
-        if text.startswith("---"):
-            parts = text.split("---", 2)
-            if len(parts) >= 3:
-                data = yaml.safe_load(parts[1])
-                if isinstance(data, dict):
-                    mode = data.get("autonomy_mode", "suggest")
-                    if mode in ("suggest", "auto_audit", "auto_silent"):
-                        return mode
-    except Exception:
-        pass
+        if not text.startswith("---"):
+            warnings.append("ticket.local.md: file exists but has no valid frontmatter (missing --- delimiters)")
+            print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+            return AutonomyConfig(warnings=warnings)
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            warnings.append("ticket.local.md: file exists but has no valid frontmatter (incomplete --- delimiters)")
+            print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+            return AutonomyConfig(warnings=warnings)
+        data = yaml.safe_load(parts[1])
+        if not isinstance(data, dict):
+            warnings.append("ticket.local.md: frontmatter is not a dict")
+            print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+            return AutonomyConfig(warnings=warnings)
+    except Exception as exc:
+        warnings.append(f"ticket.local.md: failed to parse YAML: {exc}")
+        print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+        return AutonomyConfig(warnings=warnings)
 
-    return "suggest"
+    # Parse mode.
+    mode = data.get("autonomy_mode", "suggest")
+    if mode not in _VALID_AUTONOMY_MODES:
+        warnings.append(
+            f"ticket.local.md: unknown autonomy_mode {mode!r}, defaulting to 'suggest'"
+        )
+        print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+        mode = "suggest"
+
+    # Parse max_creates.
+    max_creates = data.get("max_creates_per_session", 5)
+    if not isinstance(max_creates, int) or max_creates < 0:
+        warnings.append(
+            f"ticket.local.md: invalid max_creates_per_session {max_creates!r}, defaulting to 5"
+        )
+        print(f"WARNING: {warnings[-1]}", file=sys.stderr)
+        max_creates = 5
+
+    return AutonomyConfig(mode=mode, max_creates=max_creates, warnings=warnings)
 
 
 def engine_preflight(
