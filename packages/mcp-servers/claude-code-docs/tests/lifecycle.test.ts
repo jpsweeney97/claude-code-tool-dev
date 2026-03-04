@@ -10,6 +10,7 @@ function makeMockIndex(chunkCount = 3): BM25Index {
     id: `chunk-${i}`,
     content: `content ${i}`,
     tokens: ['content', `${i}`],
+    tokenCount: 2,
     termFreqs: new Map([['content', 1], [`${i}`, 1]]),
     category: 'hooks',
     tags: [],

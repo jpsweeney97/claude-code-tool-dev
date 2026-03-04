@@ -187,6 +187,7 @@ describe('search_docs tool with category', () => {
       id: 'test',
       content: 'test content',
       tokens: ['test', 'content'],
+      tokenCount: 2,
       termFreqs: computeTermFreqs(['test', 'content']),
       category: 'hooks',
       tags: [],

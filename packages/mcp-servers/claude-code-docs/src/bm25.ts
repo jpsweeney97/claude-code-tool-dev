@@ -38,7 +38,7 @@ export function buildBM25Index(chunks: Chunk[]): BM25Index {
   return {
     chunks,
     avgDocLength:
-      chunks.length > 0 ? chunks.reduce((sum, c) => sum + c.tokens.length, 0) / chunks.length : 0,
+      chunks.length > 0 ? chunks.reduce((sum, c) => sum + c.tokenCount, 0) / chunks.length : 0,
     docFrequency,
     invertedIndex,
   };
@@ -52,7 +52,7 @@ function bm25Score(queryTerms: string[], chunk: Chunk, index: BM25Index): number
   const { k1, b } = BM25_CONFIG;
   const N = index.chunks.length;
   const avgdl = index.avgDocLength;
-  const dl = chunk.tokens.length;
+  const dl = chunk.tokenCount;
 
   if (N === 0 || avgdl === 0) return 0;
 
@@ -67,28 +67,15 @@ function bm25Score(queryTerms: string[], chunk: Chunk, index: BM25Index): number
 
 /**
  * Post-score multiplier for heading relevance.
- * Returns 1.0 (no boost) when no headings exist or coverage is below threshold.
- * Coverage formula: |unique(queryTerms) ∩ allHeadingTokens| / |unique(queryTerms)|
- * where allHeadingTokens = union of tokenize(heading) and tokenize(each merged_heading).
+ * Returns 1.0 (no boost) when headingTokens is empty/undefined or coverage is below threshold.
+ * Coverage formula: |unique(queryTerms) ∩ headingTokens| / |unique(queryTerms)|
  */
 export function headingBoostMultiplier(
   queryTerms: string[],
-  heading: string | undefined,
-  mergedHeadings: string[] | undefined,
+  headingTokens: Set<string> | undefined,
 ): number {
-  if (!heading && (!mergedHeadings || mergedHeadings.length === 0)) return 1.0;
+  if (!headingTokens || headingTokens.size === 0) return 1.0;
   const { headingBoost, headingMinCoverage } = BM25_CONFIG;
-
-  // Build token set from union of primary heading + all merged headings
-  const headingTokens = new Set<string>();
-  if (heading) {
-    for (const t of tokenize(heading)) headingTokens.add(t);
-  }
-  if (mergedHeadings) {
-    for (const h of mergedHeadings) {
-      for (const t of tokenize(h)) headingTokens.add(t);
-    }
-  }
 
   const uniqueQueryTerms = new Set(queryTerms);
   if (uniqueQueryTerms.size === 0) return 1.0;
@@ -182,7 +169,7 @@ export function search(
     .map((idx) => ({
       chunk: index.chunks[idx],
       score: bm25Score(queryTerms, index.chunks[idx], index) *
-             headingBoostMultiplier(queryTerms, index.chunks[idx].heading, index.chunks[idx].merged_headings),
+             headingBoostMultiplier(queryTerms, index.chunks[idx].headingTokens),
     }))
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score)

@@ -2,18 +2,26 @@ import { describe, it, expect } from 'vitest';
 import { buildBM25Index, search, extractSnippet, headingBoostMultiplier, type BM25Index } from '../src/bm25.js';
 import type { Chunk } from '../src/types.js';
 import { computeTermFreqs } from '../src/chunk-helpers.js';
+import { tokenize } from '../src/tokenizer.js';
 
 function makeChunk(id: string, content: string, tokens: string[], heading?: string, merged_headings?: string[]): Chunk {
+  // Compute headingTokens from heading and merged_headings
+  const headingTokens = new Set<string>();
+  if (heading) for (const t of tokenize(heading)) headingTokens.add(t);
+  if (merged_headings) for (const h of merged_headings) for (const t of tokenize(h)) headingTokens.add(t);
+
   return {
     id,
     content,
     tokens,
+    tokenCount: tokens.length,
     termFreqs: computeTermFreqs(tokens),
     category: 'test',
     tags: [],
     source_file: 'test.md',
     heading,
     merged_headings,
+    headingTokens: headingTokens.size > 0 ? headingTokens : undefined,
   };
 }
 
@@ -147,6 +155,7 @@ describe('search with category filtering', () => {
       id,
       content,
       tokens,
+      tokenCount: tokens.length,
       termFreqs: computeTermFreqs(tokens),
       category,
       tags: [],
@@ -352,7 +361,7 @@ describe('heading boost', () => {
     expect(results).toHaveLength(2);
     // Verify directly that the multiplier returns 1.0 for below-threshold coverage
     // "Hooks" covers 1/3 of stemmed query terms — below 0.5 threshold
-    expect(headingBoostMultiplier(['hook', 'document', 'guid'], '## Hooks', undefined)).toBe(1.0);
+    expect(headingBoostMultiplier(['hook', 'document', 'guid'], new Set(tokenize('## Hooks')))).toBe(1.0);
   });
 
   it('does not boost chunks without headings', () => {
@@ -423,7 +432,18 @@ describe('heading boost', () => {
     // Both should have same score — merged_headings covers only 1/3 (below threshold)
     expect(results).toHaveLength(2);
     // Verify multiplier is 1.0 when merged_headings cover only 1/3 of query terms
-    expect(headingBoostMultiplier(['hook', 'guid', 'content'], '## Overview', ['## Hooks'])).toBe(1.0);
+    const headingTokens = new Set([...tokenize('## Overview'), ...tokenize('## Hooks')]);
+    expect(headingBoostMultiplier(['hook', 'guid', 'content'], headingTokens)).toBe(1.0);
+  });
+
+  it('accepts precomputed headingTokens Set', () => {
+    const headingTokens = new Set(['hook', 'guid']);
+    // 2/2 coverage → boost applied
+    expect(headingBoostMultiplier(['hook', 'guid'], headingTokens)).toBeGreaterThan(1.0);
+    // 0/2 coverage → no boost
+    expect(headingBoostMultiplier(['skill', 'overview'], headingTokens)).toBe(1.0);
+    // undefined → no boost
+    expect(headingBoostMultiplier(['hook'], undefined)).toBe(1.0);
   });
 });
 
