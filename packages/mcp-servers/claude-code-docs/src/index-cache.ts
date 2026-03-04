@@ -30,7 +30,13 @@ export interface SerializedIndex {
   chunks: SerializedChunk[];
   metadata?: {
     createdAt: number;
-    bm25?: { k1: number; b: number };
+    bm25?: {
+      k1: number;
+      b: number;
+      headingBoost: number;
+      headingMinCoverage: number;
+      snippetMaxLength: number;
+    };
     tokenizerVersion?: number;
     chunkerVersion?: number;
     ingestionVersion?: number;
@@ -75,7 +81,15 @@ const SerializedIndexSchema = z.object({
   metadata: z
     .object({
       createdAt: z.number(),
-      bm25: z.object({ k1: z.number(), b: z.number() }).optional(),
+      bm25: z
+        .object({
+          k1: z.number(),
+          b: z.number(),
+          headingBoost: z.number(),
+          headingMinCoverage: z.number(),
+          snippetMaxLength: z.number(),
+        })
+        .optional(),
       tokenizerVersion: z.number().optional(),
       chunkerVersion: z.number().optional(),
       ingestionVersion: z.number().optional(),
