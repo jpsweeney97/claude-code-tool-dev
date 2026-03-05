@@ -10,12 +10,26 @@
 
 **Design doc:** `docs/plans/2026-03-05-m9-skill-layer-design.md`
 
+**Adversarial review (2026-03-05):** Codex dialogue (thread `019cbc9b-b2bf-7bc3-9103-4d3cddda3838`, adversarial, 6/10 turns, converged) found 28 issues (4 P0, 5 P1, 15 P2, 4 P3). All P0/P1 fixes integrated into tasks below.
+
+| ID | Sev | Finding | Fix Location |
+|----|-----|---------|--------------|
+| F08 | P0 | `${CLAUDE_PLUGIN_ROOT}` triggers guard `$` metachar deny before allowlist | T4, T5: resolve to absolute path first |
+| F09 | P0 | `/tmp` payload breaks guard workspace containment check | T4: use workspace-relative payload path |
+| F10 | P0 | Plan's `_is_ticket_command` broadens false-denial surface — security regression | T3: 4-branch hook redesign |
+| F21 | P0 | Pipeline payload evolution between classify/plan/preflight/execute unspecified | T4: add state propagation to pipeline-guide |
+| F01 | P1 | `_ticket_to_dict` references `ticket.title` — `ParsedTicket` has no `title` field | T1: remove title from dict |
+| F02 | P1 | `fake_plugin_root` fixture does not exist in test infrastructure | T3: use `"/fake/plugin"` constant |
+| F07 | P1 | `ticket_read.py` needs `sys.path` bootstrap for standalone CLI execution | T1: add bootstrap before module imports |
+| F12 | P1 | argparse exits code 2 for unknown subcommands, tests expect 1 | T1, T2: fix assertions |
+| F13 | P1 | Test uses `Path(...)` without `from pathlib import Path` | T1: add import |
+
 ---
 
 ### Task 1: `ticket_read.py` CLI block
 
 **Files:**
-- Modify: `packages/plugins/ticket/scripts/ticket_read.py:89` (append after line 89)
+- Modify: `packages/plugins/ticket/scripts/ticket_read.py` (add sys.path bootstrap at top + append CLI block after line 89)
 - Test: `packages/plugins/ticket/tests/test_read.py`
 
 **Step 1: Write failing tests for CLI dispatch**
@@ -23,8 +37,10 @@
 Add to end of `test_read.py`:
 
 ```python
+import json
 import subprocess
 import sys
+from pathlib import Path
 
 READ_SCRIPT = Path(__file__).parent.parent / "scripts" / "ticket_read.py"
 
@@ -67,12 +83,13 @@ class TestReadCLI:
         assert data["state"] == "ok"
         assert len(data["data"]["tickets"]) >= 1
 
-    def test_unknown_subcommand_exits_1(self, tmp_tickets):
+    def test_unknown_subcommand_exits_2(self, tmp_tickets):
+        """argparse exits 2 for invalid subcommand choice, not 1."""
         result = subprocess.run(
             [sys.executable, str(READ_SCRIPT), "bogus", str(tmp_tickets)],
             capture_output=True, text=True, timeout=10,
         )
-        assert result.returncode == 1
+        assert result.returncode == 2
 
     def test_missing_args_exits_1(self):
         result = subprocess.run(
@@ -91,23 +108,36 @@ class TestReadCLI:
         assert data["data"]["tickets"] == []
 ```
 
-Add `import json` and `import subprocess` and `import sys` to test file imports if not already present.
+Add `import json`, `import subprocess`, `import sys`, and `from pathlib import Path` to test file imports if not already present.
 
 **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/plugins/ticket && uv run pytest tests/test_read.py::TestReadCLI -v`
 Expected: FAIL — `ticket_read.py` has no `__main__` block.
 
-**Step 3: Implement CLI block**
+**Step 3: Implement changes to `ticket_read.py`**
 
-Append to `ticket_read.py` after the `fuzzy_match_id` function:
+**3a. Add sys.path bootstrap** (insert after `from pathlib import Path`, before `from scripts.ticket_parse`):
+
+```python
+import sys
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+```
+
+This is required because `from scripts.ticket_parse import ...` fails when the script is invoked standalone via `python3 ticket_read.py` — the package root isn't on `sys.path`. Pattern matches `ticket_engine_user.py:14`.
+
+**3b. Append CLI block** after the `fuzzy_match_id` function:
 
 ```python
 def _ticket_to_dict(ticket: ParsedTicket) -> dict:
-    """Convert ParsedTicket to JSON-serializable dict."""
+    """Convert ParsedTicket to JSON-serializable dict.
+
+    Note: ParsedTicket has no `title` field. Title lives in the markdown
+    heading (# ID: Title), not in the dataclass. Omitted from CLI output.
+    """
     return {
         "id": ticket.id,
-        "title": ticket.title,
         "date": ticket.date,
         "status": ticket.status,
         "priority": ticket.priority,
@@ -121,7 +151,6 @@ def _ticket_to_dict(ticket: ParsedTicket) -> dict:
 def main() -> None:
     import argparse
     import json
-    import sys
 
     parser = argparse.ArgumentParser(description="Ticket read operations")
     subparsers = parser.add_subparsers(dest="subcommand")
@@ -233,12 +262,13 @@ class TestTriageCLI:
         data = json.loads(result.stdout)
         assert data["state"] == "ok"
 
-    def test_unknown_subcommand_exits_1(self, tmp_tickets):
+    def test_unknown_subcommand_exits_2(self, tmp_tickets):
+        """argparse exits 2 for invalid subcommand choice, not 1."""
         result = subprocess.run(
             [sys.executable, str(TRIAGE_SCRIPT), "bogus", str(tmp_tickets)],
             capture_output=True, text=True, timeout=10,
         )
-        assert result.returncode == 1
+        assert result.returncode == 2
 
     def test_missing_args_exits_1(self):
         result = subprocess.run(
@@ -254,6 +284,8 @@ Run: `cd packages/plugins/ticket && uv run pytest tests/test_triage.py::TestTria
 Expected: FAIL.
 
 **Step 3: Implement CLI block**
+
+Note: `ticket_triage.py` uses only stdlib imports (json, re, datetime, pathlib) — no `sys.path` bootstrap needed (unlike `ticket_read.py` which imports from `scripts.ticket_parse`).
 
 Append to `ticket_triage.py` after `triage_orphan_detection`:
 
@@ -320,40 +352,40 @@ git commit -m "feat(ticket): add CLI block to ticket_triage.py for dashboard/aud
 
 **Step 1: Write failing tests for read/triage allowlist branches**
 
-Add to `test_hook.py`:
+Add to `test_hook.py`. Uses the existing `"/fake/plugin"` default from `make_hook_input` — no fixture needed (F02 fix):
 
 ```python
+FAKE_ROOT = "/fake/plugin"
+
+
 class TestReadAllowlist:
-    def test_read_list_allowed(self, fake_plugin_root):
+    def test_read_list_allowed(self):
         result = run_hook(
             make_hook_input(
-                f"python3 {fake_plugin_root}/scripts/ticket_read.py list /tmp/tickets",
-                plugin_root=fake_plugin_root,
+                f"python3 {FAKE_ROOT}/scripts/ticket_read.py list /tmp/tickets",
             ),
-            plugin_root=fake_plugin_root,
+            plugin_root=FAKE_ROOT,
         )
         decision = result.get("hookSpecificOutput", {})
         assert decision.get("permissionDecision") == "allow"
 
-    def test_read_query_allowed(self, fake_plugin_root):
+    def test_read_query_allowed(self):
         result = run_hook(
             make_hook_input(
-                f"python3 {fake_plugin_root}/scripts/ticket_read.py query /tmp/tickets T-20260302",
-                plugin_root=fake_plugin_root,
+                f"python3 {FAKE_ROOT}/scripts/ticket_read.py query /tmp/tickets T-20260302",
             ),
-            plugin_root=fake_plugin_root,
+            plugin_root=FAKE_ROOT,
         )
         decision = result.get("hookSpecificOutput", {})
         assert decision.get("permissionDecision") == "allow"
 
-    def test_read_no_payload_injection(self, fake_plugin_root, tmp_path):
+    def test_read_no_payload_injection(self):
         """Read commands should pass through without modifying any files."""
         result = run_hook(
             make_hook_input(
-                f"python3 {fake_plugin_root}/scripts/ticket_read.py list /tmp/tickets",
-                plugin_root=fake_plugin_root,
+                f"python3 {FAKE_ROOT}/scripts/ticket_read.py list /tmp/tickets",
             ),
-            plugin_root=fake_plugin_root,
+            plugin_root=FAKE_ROOT,
         )
         decision = result.get("hookSpecificOutput", {})
         assert decision.get("permissionDecision") == "allow"
@@ -361,86 +393,86 @@ class TestReadAllowlist:
 
 
 class TestTriageAllowlist:
-    def test_triage_dashboard_allowed(self, fake_plugin_root):
+    def test_triage_dashboard_allowed(self):
         result = run_hook(
             make_hook_input(
-                f"python3 {fake_plugin_root}/scripts/ticket_triage.py dashboard /tmp/tickets",
-                plugin_root=fake_plugin_root,
+                f"python3 {FAKE_ROOT}/scripts/ticket_triage.py dashboard /tmp/tickets",
             ),
-            plugin_root=fake_plugin_root,
+            plugin_root=FAKE_ROOT,
         )
         decision = result.get("hookSpecificOutput", {})
         assert decision.get("permissionDecision") == "allow"
 
-    def test_triage_audit_allowed(self, fake_plugin_root):
+    def test_triage_audit_allowed(self):
         result = run_hook(
             make_hook_input(
-                f"python3 {fake_plugin_root}/scripts/ticket_triage.py audit /tmp/tickets --days 30",
-                plugin_root=fake_plugin_root,
+                f"python3 {FAKE_ROOT}/scripts/ticket_triage.py audit /tmp/tickets --days 30",
             ),
-            plugin_root=fake_plugin_root,
+            plugin_root=FAKE_ROOT,
         )
         decision = result.get("hookSpecificOutput", {})
         assert decision.get("permissionDecision") == "allow"
 
-    def test_triage_no_payload_injection(self, fake_plugin_root):
+    def test_triage_no_payload_injection(self):
         result = run_hook(
             make_hook_input(
-                f"python3 {fake_plugin_root}/scripts/ticket_triage.py dashboard /tmp/tickets",
-                plugin_root=fake_plugin_root,
+                f"python3 {FAKE_ROOT}/scripts/ticket_triage.py dashboard /tmp/tickets",
             ),
-            plugin_root=fake_plugin_root,
+            plugin_root=FAKE_ROOT,
         )
         decision = result.get("hookSpecificOutput", {})
         assert "validated (read-only)" in decision.get("permissionDecisionReason", "")
 
 
 class TestExecutionShapeMatching:
-    def test_cat_ticket_file_passes_through(self, fake_plugin_root):
-        """cat/rg/wc on ticket files should NOT be caught by allowlist."""
+    def test_cat_ticket_file_passes_through(self):
+        """Non-python commands on ticket files pass through (empty JSON)."""
         result = run_hook(
             make_hook_input(
-                f"cat {fake_plugin_root}/scripts/ticket_triage.py",
-                plugin_root=fake_plugin_root,
+                f"cat {FAKE_ROOT}/scripts/ticket_triage.py",
             ),
-            plugin_root=fake_plugin_root,
+            plugin_root=FAKE_ROOT,
         )
-        # Should pass through (empty dict = no opinion)
-        assert result == {} or result.get("hookSpecificOutput", {}).get("permissionDecision") != "deny"
+        # cat is not a python invocation — passes through as empty dict
+        assert result == {}
 
-    def test_unknown_ticket_script_denied(self, fake_plugin_root):
+    def test_rg_ticket_file_passes_through(self):
+        """rg/grep on ticket files pass through."""
         result = run_hook(
             make_hook_input(
-                f"python3 {fake_plugin_root}/scripts/ticket_evil.py attack",
-                plugin_root=fake_plugin_root,
+                f"rg ticket_engine {FAKE_ROOT}/scripts/ticket_engine_core.py",
             ),
-            plugin_root=fake_plugin_root,
+            plugin_root=FAKE_ROOT,
+        )
+        assert result == {}
+
+    def test_unknown_ticket_script_denied(self):
+        """Python invocation of an unrecognized ticket script is denied."""
+        result = run_hook(
+            make_hook_input(
+                f"python3 {FAKE_ROOT}/scripts/ticket_evil.py attack",
+            ),
+            plugin_root=FAKE_ROOT,
         )
         decision = result.get("hookSpecificOutput", {})
         assert decision.get("permissionDecision") == "deny"
 ```
-
-Check if `fake_plugin_root` fixture already exists in conftest or test_hook.py — if not, use `tmp_path` and adjust accordingly.
 
 **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/plugins/ticket && uv run pytest tests/test_hook.py::TestReadAllowlist tests/test_hook.py::TestTriageAllowlist tests/test_hook.py::TestExecutionShapeMatching -v`
 Expected: FAIL — current hook doesn't match read/triage patterns.
 
-**Step 3: Implement guard hook changes**
+**Step 3: Implement 4-branch guard hook (F10 fix)**
 
-Modify `ticket_engine_guard.py`:
+Modify `ticket_engine_guard.py`. The redesign replaces the substring check at line 160 with a 4-branch structure:
 
-1. Change the substring check at line 160 from `"ticket_engine" not in command` to match all ticket scripts:
+1. Engine exact allowlist → allow + payload injection (existing behavior)
+2. Read-only exact allowlist → allow, no injection (new)
+3. Python invocation of unrecognized ticket script → deny (new — catches `ticket_evil.py`)
+4. Everything else → passthrough (non-python commands like `cat`, `rg`, `wc`)
 
-```python
-# Non-ticket commands pass through.
-if not _is_ticket_command(command, _plugin_root()):
-    print("{}")
-    return
-```
-
-2. Add a helper function and read-only pattern builder:
+**3a. Add helper functions** (after `_build_allowlist_pattern`, before `_make_allow`):
 
 ```python
 def _build_readonly_pattern(plugin_root: str) -> re.Pattern[str]:
@@ -451,33 +483,95 @@ def _build_readonly_pattern(plugin_root: str) -> re.Pattern[str]:
     )
 
 
-def _is_ticket_command(command: str, plugin_root: str) -> bool:
-    """Check if command invokes any ticket plugin script."""
+def _is_ticket_invocation(command: str, plugin_root: str) -> bool:
+    """Check if command is a Python invocation of any ticket plugin script.
+
+    Only matches `python3 <root>/scripts/ticket_*.py ...` — NOT non-python
+    commands like `cat`, `rg`, or `wc` that happen to reference ticket files.
+    This distinction is critical: non-python commands pass through (branch 4),
+    while unrecognized ticket script invocations are denied (branch 3).
+    """
     escaped = re.escape(plugin_root)
-    return bool(re.search(rf"{escaped}/scripts/ticket_", command))
+    return bool(re.match(rf"^python3\s+{escaped}/scripts/ticket_\w+\.py\b", command))
 ```
 
-3. Add a read-only allowlist check before the engine allowlist check in `main()`. After the shell metacharacter check, before the engine pattern match:
+**3b. Replace the substring check** at line 160. Change:
 
 ```python
-# Check read-only scripts first (no payload injection needed).
-readonly_pattern = _build_readonly_pattern(plugin_root)
-readonly_match = readonly_pattern.match(command)
-if readonly_match:
-    print(json.dumps(_make_allow(
-        f"Ticket {readonly_match.group(1)}/{readonly_match.group(2)} validated (read-only)"
-    )))
-    return
+    # Non-ticket commands pass through.
+    if "ticket_engine" not in command:
+        print("{}")
+        return
 ```
 
-4. If neither read-only nor engine pattern matches, deny:
+To:
 
 ```python
-if not match:
+    # Non-ticket-script invocations pass through (branch 4).
+    plugin_root = _plugin_root()
+    if not _is_ticket_invocation(command, plugin_root):
+        print("{}")
+        return
+```
+
+**3c. Move `plugin_root = _plugin_root()` up** — it's now used in the gate check (3b) before the metachar check. Remove the duplicate `plugin_root = _plugin_root()` that was at line 174.
+
+**3d. Add readonly check** after the engine allowlist check. After the existing `if not match: deny` block, add:
+
+```python
+    # Branch 1 handled above (engine allowlist → allow + inject).
+    # If engine didn't match, try read-only allowlist.
+
+    # Branch 2: Read-only scripts (no payload injection needed).
+    readonly_pattern = _build_readonly_pattern(plugin_root)
+    readonly_match = readonly_pattern.match(command)
+    if readonly_match:
+        print(json.dumps(_make_allow(
+            f"Ticket {readonly_match.group(1)}/{readonly_match.group(2)} validated (read-only)"
+        )))
+        return
+
+    # Branch 3: Unrecognized ticket script invocation → deny.
     print(json.dumps(_make_deny(
-        f"Command does not match ticket allowlist. Got: {command!r:.100}"
+        f"Command invokes unrecognized ticket script. Got: {command!r:.100}"
     )))
     return
+```
+
+**3e. Restructure the engine match block** — change `if not match: deny; return` to just `if match:` with the existing validation+injection logic inside. Then fall through to the readonly check (3d) if engine doesn't match. The full flow in main() after metachar check:
+
+```python
+    # Branch 1: Engine exact allowlist → allow + inject.
+    engine_pattern = _build_allowlist_pattern(plugin_root)
+    engine_match = engine_pattern.match(command)
+    if engine_match:
+        entrypoint_type = engine_match.group(1)
+        subcommand = engine_match.group(2)
+        payload_path = engine_match.group(3)
+
+        if subcommand not in VALID_SUBCOMMANDS:
+            print(json.dumps(_make_deny(...)))
+            return
+        if re.search(r"\s", payload_path):
+            print(json.dumps(_make_deny(...)))
+            return
+        # ... existing payload path validation + injection ...
+        print(json.dumps(_make_allow(...)))
+        return
+
+    # Branch 2: Read-only scripts → allow (no injection).
+    readonly_pattern = _build_readonly_pattern(plugin_root)
+    readonly_match = readonly_pattern.match(command)
+    if readonly_match:
+        print(json.dumps(_make_allow(
+            f"Ticket {readonly_match.group(1)}/{readonly_match.group(2)} validated (read-only)"
+        )))
+        return
+
+    # Branch 3: Unrecognized ticket script → deny.
+    print(json.dumps(_make_deny(
+        f"Command invokes unrecognized ticket script. Got: {command!r:.100}"
+    )))
 ```
 
 **Step 4: Run tests to verify they pass**
@@ -494,7 +588,7 @@ Expected: 318+ tests pass.
 
 ```
 git add packages/plugins/ticket/hooks/ticket_engine_guard.py packages/plugins/ticket/tests/test_hook.py
-git commit -m "feat(ticket): expand guard hook with read/triage allowlist branches"
+git commit -m "feat(ticket): redesign guard hook with 4-branch allowlist (read/triage/deny/passthrough)"
 ```
 
 ---
@@ -524,14 +618,28 @@ Create `packages/plugins/ticket/skills/ticket/SKILL.md`. Target ~250 lines. Must
 - Response state handling table (ok_create, need_fields, duplicate_candidate, etc.)
 - Reference to `references/pipeline-guide.md` for detailed schemas
 - Use imperative/infinitive form (not second person)
-- Use `${CLAUDE_PLUGIN_ROOT}` for script paths
+
+**Path resolution (F08 fix):** SKILL.md must NOT use `${CLAUDE_PLUGIN_ROOT}` in Bash commands — the guard hook's `SHELL_METACHAR_RE` blocks `$` before reaching the allowlist. Instead, SKILL.md must instruct Claude to:
+1. Resolve the plugin root first: `PLUGIN_ROOT=$(echo $CLAUDE_PLUGIN_ROOT)`
+2. Use the resolved absolute path in all subsequent commands
+
+Example resolution block for SKILL.md:
+```
+## Setup
+Run once at skill start to resolve the plugin root:
+\`\`\`bash
+echo $CLAUDE_PLUGIN_ROOT
+\`\`\`
+Store the output as the resolved plugin root path. Use this absolute path
+(not the env var) in all subsequent Bash commands.
+```
 
 Content reference: `docs/plans/2026-03-05-m9-skill-layer-design.md` sections "Routing", "Mutation Flow", "Confirmation Gate".
 
-Engine CLI pattern: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/ticket_engine_user.py <subcommand> <payload.json>`
-Read CLI pattern: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/ticket_read.py <subcommand> <tickets_dir> [args]`
+Engine CLI pattern: `python3 <resolved_plugin_root>/scripts/ticket_engine_user.py <subcommand> <payload.json>`
+Read CLI pattern: `python3 <resolved_plugin_root>/scripts/ticket_read.py <subcommand> <tickets_dir> [args]`
 
-Payload file: write to `/tmp/ticket_payload_<random>.json` via Write tool.
+**Payload location (F09 fix):** Payload file must be workspace-relative, NOT `/tmp`. The guard hook's `_resolve_payload_path` enforces workspace containment — `/tmp` is outside the workspace root and will be denied. Write payload to `<project_root>/.claude/ticket-tmp/payload_<random>.json` via Write tool. Create the directory first if it doesn't exist. Add `.claude/ticket-tmp/` to `.gitignore`.
 
 **Step 3: Write pipeline-guide.md**
 
@@ -542,16 +650,23 @@ Create `packages/plugins/ticket/skills/ticket/references/pipeline-guide.md`. Con
 - `need_fields` loop: which fields to ask for, how to re-run from plan
 - `duplicate_candidate` loop: how to present the match, dedup_override payload
 - Exit code meanings (0, 1, 2)
-- Response state → UX mapping table (all 15 machine states)
+- Response state → UX mapping table (all 15 machine states, including reserved `merge_into_existing`)
 - Key file fields disambiguation (`key_file_paths` vs `key_files`)
 - Example payloads for each operation
+- **Pipeline state propagation (F21 fix):** Document how output from each stage feeds into the next. The 4 stages are not independent — each takes a payload file, but the skill must know:
+  - What fields `classify` adds to the payload (operation type, confidence)
+  - Whether `plan` reads the classify output or the original payload
+  - What `preflight` checks depend on (plan output? classify output?)
+  - Whether `execute` needs a fresh payload or the enriched one from prior stages
+  - How to handle re-running from `plan` after `need_fields` (does the payload need classify fields?)
+  Read `ticket_engine_core.py` during implementation to trace the actual data flow between `engine_classify` → `engine_plan` → `engine_preflight` → `engine_execute`. Document what each stage reads and writes.
 
 Content reference: `packages/plugins/ticket/references/ticket-contract.md` (schema, states, error codes).
 
 **Step 4: Remove .gitkeep**
 
 ```bash
-rm packages/plugins/ticket/skills/.gitkeep
+trash packages/plugins/ticket/skills/.gitkeep
 ```
 
 **Step 5: Verify skill structure**
@@ -591,7 +706,7 @@ Create `packages/plugins/ticket/skills/ticket-triage/SKILL.md`. Target ~80 lines
 - Description with trigger phrases (inline string)
 - No `disable-model-invocation` (proactive, auto-invocable)
 - Procedure: run dashboard, run audit, format report, add opinionated analysis
-- CLI patterns: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/ticket_triage.py dashboard <tickets_dir>` and `audit`
+- CLI patterns: `python3 <resolved_plugin_root>/scripts/ticket_triage.py dashboard <tickets_dir>` and `audit` (same F08 path resolution as `/ticket` — resolve `CLAUDE_PLUGIN_ROOT` first, use the absolute path)
 - `<tickets_dir>` resolution: `git rev-parse --show-toplevel` + `/docs/tickets`
 - Use imperative/infinitive form
 
@@ -661,12 +776,15 @@ Run through the gate checklist from the design doc. This is manual testing in a 
 | 5 | `/ticket reopen` works | |
 | 6 | `/ticket-triage` works | |
 | 7 | `/ticket-triage` auto-invokes | |
-| 8 | Guard hook allows read/triage | |
-| 9 | Guard hook blocks unknown scripts | |
-| 10 | `need_fields` loop works | |
-| 11 | `duplicate_candidate` loop works | |
-| 12 | Confirmation gate works | |
-| 13 | Plugin skill namespacing resolved | |
-| 14 | All tests pass | |
-| 15 | Ruff clean | |
-| 16 | Version at 1.1.0 | |
+| 8 | Guard hook allows read/triage (branch 2) | |
+| 9 | Guard hook blocks unknown ticket scripts (branch 3) | |
+| 10 | Guard hook passes through `cat`/`rg`/`wc` on ticket files (branch 4) | |
+| 11 | `need_fields` loop works | |
+| 12 | `duplicate_candidate` loop works | |
+| 13 | Confirmation gate works | |
+| 14 | Plugin skill namespacing resolved (`/ticket` vs `/ticket:ticket`) | |
+| 15 | Commands use resolved absolute path, not `${CLAUDE_PLUGIN_ROOT}` (F08) | |
+| 16 | Payload written to workspace-relative path, not `/tmp` (F09) | |
+| 17 | All tests pass | |
+| 18 | Ruff clean | |
+| 19 | Version at 1.1.0 | |
