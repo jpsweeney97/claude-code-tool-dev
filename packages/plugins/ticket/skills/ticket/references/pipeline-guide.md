@@ -27,8 +27,6 @@ The skill must carry state between stages manually:
 
 After `need_fields`, re-run from `plan` (not `classify`) — `intent`, `classify_intent`, and `classify_confidence` are already in the payload.
 
-After `need_fields`, re-run from `plan` (not `classify`) — `intent` is already in the merged payload.
-
 ---
 
 ## Payload Schemas
