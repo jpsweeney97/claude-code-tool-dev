@@ -1,6 +1,6 @@
 {
   "name": "ticket",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Repo-local ticket management with lifecycle operations, smart routing, and autonomous creation",
   "author": {
     "name": "JP"
