@@ -5,7 +5,10 @@ Read-only — never modifies ticket files.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.ticket_parse import ParsedTicket, parse_ticket
 
@@ -87,3 +90,69 @@ def fuzzy_match_id(
 ) -> list[ParsedTicket]:
     """Find tickets whose ID starts with the given prefix."""
     return [t for t in tickets if t.id.startswith(partial_id)]
+
+
+def _ticket_to_dict(ticket: ParsedTicket) -> dict:
+    """Convert ParsedTicket to JSON-serializable dict.
+
+    Note: ParsedTicket has no `title` field. Title lives in the markdown
+    heading (# ID: Title), not in the dataclass. Omitted from CLI output.
+    """
+    return {
+        "id": ticket.id,
+        "date": ticket.date,
+        "status": ticket.status,
+        "priority": ticket.priority,
+        "tags": ticket.tags,
+        "blocked_by": ticket.blocked_by,
+        "blocks": ticket.blocks,
+        "path": str(ticket.path),
+    }
+
+
+def main() -> None:
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="Ticket read operations")
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    list_p = subparsers.add_parser("list")
+    list_p.add_argument("tickets_dir", type=Path)
+    list_p.add_argument("--status", default=None)
+    list_p.add_argument("--priority", default=None)
+    list_p.add_argument("--tag", default=None)
+    list_p.add_argument("--include-closed", action="store_true")
+
+    query_p = subparsers.add_parser("query")
+    query_p.add_argument("tickets_dir", type=Path)
+    query_p.add_argument("search_term")
+    query_p.add_argument("--fuzzy", action="store_true", default=True)
+
+    args = parser.parse_args()
+
+    if args.subcommand is None:
+        parser.print_usage(sys.stderr)
+        sys.exit(1)
+
+    if args.subcommand == "list":
+        tickets = list_tickets(args.tickets_dir, include_closed=args.include_closed)
+        tickets = filter_tickets(
+            tickets, status=args.status, priority=args.priority, tag=args.tag,
+        )
+        print(json.dumps({
+            "state": "ok",
+            "data": {"tickets": [_ticket_to_dict(t) for t in tickets]},
+        }))
+
+    elif args.subcommand == "query":
+        all_tickets = list_tickets(args.tickets_dir, include_closed=True)
+        matches = fuzzy_match_id(all_tickets, args.search_term)
+        print(json.dumps({
+            "state": "ok",
+            "data": {"tickets": [_ticket_to_dict(t) for t in matches]},
+        }))
+
+
+if __name__ == "__main__":
+    main()
