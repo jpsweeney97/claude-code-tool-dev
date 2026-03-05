@@ -574,3 +574,14 @@ class TestExecutionShapeMatching:
         )
         decision = result.get("hookSpecificOutput", {})
         assert decision.get("permissionDecision") == "deny"
+
+    def test_env_python3_denied(self):
+        """`env python3` engine invocation is denied, not bypassed."""
+        result = run_hook(
+            make_hook_input(
+                f"env python3 {FAKE_ROOT}/scripts/ticket_engine_user.py plan payload.json",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "deny"

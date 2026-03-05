@@ -6,16 +6,26 @@ Reference for `/ticket` skill. Covers payload schemas, pipeline state propagatio
 
 ## Pipeline State Propagation
 
-The payload file is the pipeline's running state. Each stage reads the file, enriches it with its outputs, and writes it back. Run all 4 commands against the same file path.
+**The engine CLI is stateless.** Each invocation reads the payload file, calls one engine function, prints the response JSON to stdout, and exits. It does NOT write stage outputs back to the payload file.
 
-| Stage | Reads from payload | Adds to payload |
-|-------|--------------------|----------------|
+The skill must carry state between stages manually:
+
+1. Run the stage command
+2. Parse stdout as JSON — the response is `{state, ticket_id, message, data}`
+3. Merge `response.data` fields into the current payload dict
+4. Write the updated payload back to `.claude/ticket-tmp/payload.json` using the Write tool
+5. Only then run the next stage
+
+| Stage | Reads from payload | `response.data` fields (merge into payload after this stage) |
+|-------|--------------------|--------------------------------------------------------------|
 | `classify` | `action`, `args`, `session_id`, `request_origin` | `intent`, `confidence`, `resolved_ticket_id` |
-| `plan` | `intent`, `fields`, `session_id`, `request_origin` | `dedup_fingerprint`, `target_fingerprint`, `duplicate_of`, `missing_fields`, `action_plan` |
-| `preflight` | All classify+plan fields, `action`, `fields`, `dedup_override`, `dependency_override`, `hook_injected` | `checks_passed`, `checks_failed`, `autonomy_config` |
-| `execute` | `action`, `ticket_id`, `fields`, `session_id`, `request_origin`, `dedup_override`, `dependency_override` | Writes ticket file to disk. Does not enrich payload. |
+| `plan` | `intent` (from classify merge), `fields`, `session_id`, `request_origin` | `dedup_fingerprint`, `target_fingerprint`, `duplicate_of`, `missing_fields`, `action_plan` |
+| `preflight` | All classify+plan merged fields, `action`, `fields`, `dedup_override`, `dependency_override`, `hook_injected` | `checks_passed`, `checks_failed`, `autonomy_config` |
+| `execute` | `action`, `ticket_id`, `fields`, `session_id`, `request_origin`, `dedup_override`, `dependency_override` | (no merge needed — execute writes the ticket file to disk) |
 
-**Key:** `plan` reads `intent` (written by `classify`). After `need_fields`, re-run from `plan` — not from `classify`. `execute` re-computes dedup internally as a defense-in-depth check; it does not consume preflight's `checks_passed`.
+**Key:** After `classify`, merge `intent` into the payload before running `plan` — otherwise `plan` falls back to `action` and loses classification confidence. After `plan`, merge `dedup_fingerprint` and related fields before running `preflight` — otherwise preflight runs with `classify_confidence=0.0` and null fingerprints.
+
+After `need_fields`, re-run from `plan` (not `classify`) — `intent` is already in the merged payload.
 
 ---
 
@@ -165,11 +175,11 @@ All 15 machine states from the ticket contract:
 | `need_fields` | Required fields missing | Run `need_fields` loop (above) |
 | `duplicate_candidate` | Fingerprint matches existing ticket | Run `duplicate_candidate` loop (above) |
 | `preflight_failed` | Policy or state check failed | Report `data.checks_failed` list; stop |
-| `policy_blocked` | Operation blocked by policy | Report policy message from `data.message`; stop |
+| `policy_blocked` | Operation blocked by policy | Report policy message from `top-level `message``; stop |
 | `invalid_transition` | Status change not allowed | Report current status and valid transitions; stop |
 | `dependency_blocked` | Blocked-by tickets not resolved | Report `data.blocking_ids` list; stop |
 | `not_found` | Ticket ID does not exist | "Ticket T-... not found in docs/tickets/"; stop |
-| `escalate` | Engine hit unrecoverable state | Report `data.message`; stop; do not retry automatically |
+| `escalate` | Engine hit unrecoverable state | Report `top-level `message``; stop; do not retry automatically |
 | `merge_into_existing` | Reserved — not emitted in v1.0 | N/A |
 
 ---

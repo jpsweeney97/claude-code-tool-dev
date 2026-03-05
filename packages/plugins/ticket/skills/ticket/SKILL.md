@@ -53,7 +53,7 @@ Dispatch on the first token of the text typed after `/ticket` (e.g., `/ticket cr
 | `close` | "close ticket T-...", "mark T-... done" | Engine pipeline |
 | `reopen` | "reopen T-...", "T-... needs more work" | Engine pipeline |
 | `list` | "list tickets", "show open tickets", "what's in-progress" | `ticket_read.py list` (direct) |
-| `query` | "find ticket about...", "do we have a ticket for..." | `ticket_read.py query` (direct) |
+| `query` | "find ticket T-20260302", "show tickets from March 2" (ID-prefix match) | `ticket_read.py query` (direct) |
 
 ---
 
@@ -66,9 +66,9 @@ Read operations call `ticket_read.py` directly — no engine pipeline, no payloa
 python3 <PLUGIN_ROOT>/scripts/ticket_read.py list <TICKETS_DIR> [--status open|blocked|in_progress] [--priority high|critical] [--tag <tag>]
 ```
 
-**Query (fuzzy ID or text search):**
+**Query (ID-prefix match — e.g., `T-20260302` matches `T-20260302-01`, `T-20260302-02`):**
 ```bash
-python3 <PLUGIN_ROOT>/scripts/ticket_read.py query <TICKETS_DIR> <search_term>
+python3 <PLUGIN_ROOT>/scripts/ticket_read.py query <TICKETS_DIR> <id_prefix>
 ```
 
 Both return `{"state": "ok", "data": {"tickets": [...]}}` where each ticket has: `id`, `date`, `status`, `priority`, `tags`, `blocked_by`, `blocks`, `path`. Present as a table with ID, status, priority, and tags (if non-empty).
@@ -122,16 +122,33 @@ The payload file is the pipeline's running state — each stage enriches it. Con
 
 ### Step 4: Run the 4-stage pipeline
 
-Run each command and inspect the response before proceeding to the next stage.
+**The engine CLI is stateless** — each call reads the payload file, prints a response to stdout, and exits. It does NOT write stage outputs back to the file. After each stage, merge the response `data` fields into the payload and rewrite the file before the next call.
 
+**Stage 1 — classify:**
 ```bash
 python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py classify .claude/ticket-tmp/payload.json
+```
+Parse stdout. Check `state`. If not `ok`, handle per Step 5 table. If `ok`, merge `response.data` (adds `intent`, `confidence`, `resolved_ticket_id`) into the payload and write it back using the Write tool.
+
+**Stage 2 — plan:**
+```bash
 python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py plan .claude/ticket-tmp/payload.json
+```
+Parse stdout. Check `state`. If `need_fields` or `duplicate_candidate`, handle loops (see [pipeline-guide](references/pipeline-guide.md)). If `ok`, merge `response.data` (adds `dedup_fingerprint`, `target_fingerprint`, `duplicate_of`) into the payload and write it back.
+
+**Stage 3 — preflight:**
+```bash
 python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py preflight .claude/ticket-tmp/payload.json
+```
+Parse stdout. Check `state`. If `ok`, merge `response.data` (adds `autonomy_config`) into the payload and write it back.
+
+**Stage 4 — execute:**
+```bash
 python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py execute .claude/ticket-tmp/payload.json
 ```
+Parse stdout. Check `state`. No payload write-back needed — execute writes the ticket file to disk.
 
-After each stage, check the `state` field. States handled by the Step 5 table (need_fields, duplicate_candidate, etc.) require action — do not call the next stage until resolved. Stop immediately on any `state` not listed in the Step 5 table.
+Stop on any `state` not handled by a loop or the Step 5 table.
 
 ### Step 5: Handle the response state
 
@@ -151,7 +168,7 @@ Read `state` from the JSON response (`{"state": ..., "data": {...}}`):
 | `invalid_transition` | Report current status and valid transitions, stop |
 | `dependency_blocked` | Report blocking ticket IDs, stop |
 | `not_found` | Report "Ticket T-... not found", stop |
-| `escalate` | Report the escalation message, stop |
+| `escalate` | Report `message` (top-level field), stop |
 
 ---
 
