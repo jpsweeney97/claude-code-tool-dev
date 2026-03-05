@@ -156,6 +156,30 @@ class TestAllowlist:
         assert _decision(output) == "deny"
         assert "Extra arguments" in _reason(output)
 
+    def test_allows_stderr_redirect_suffix(self, tmp_path: Path) -> None:
+        """2>&1 is a diagnostic suffix, not injection — should be stripped and allowed."""
+        payload_file = make_payload_file(tmp_path)
+        plugin_root = str(tmp_path / "plugin")
+        scripts_dir = Path(plugin_root) / "scripts"
+        scripts_dir.mkdir(parents=True)
+        inp = make_hook_input(
+            f"python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload_file} 2>&1",
+            plugin_root=plugin_root,
+        )
+        output = run_hook(inp, plugin_root=plugin_root)
+        assert _decision(output) == "allow"
+
+    def test_blocks_stderr_redirect_with_pipe_chained(self, tmp_path: Path) -> None:
+        """2>&1 followed by a pipe is still injection and must be blocked."""
+        plugin_root = str(tmp_path / "plugin")
+        inp = make_hook_input(
+            f"python3 {plugin_root}/scripts/ticket_engine_user.py plan /tmp/p.json 2>&1 | cat",
+            plugin_root=plugin_root,
+        )
+        output = run_hook(inp, plugin_root=plugin_root)
+        assert _decision(output) == "deny"
+        assert "metacharacters" in _reason(output).lower()
+
     def test_blocks_ticket_engine_with_pipe(self, tmp_path: Path) -> None:
         plugin_root = str(tmp_path / "plugin")
         inp = make_hook_input(

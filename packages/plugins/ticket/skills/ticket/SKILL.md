@@ -1,6 +1,6 @@
 ---
 name: ticket
-description: "Manage codebase tickets: create, update, close, reopen, list, and query. Use when the user says \"create a ticket\", \"update ticket T-...\", \"close ticket\", \"reopen ticket\", \"list tickets\", \"show open tickets\", \"find ticket about...\", or asks to track a bug, feature, or task as a ticket."
+description: "Manage codebase tickets: create, update, close, reopen, list, and query. Use when the user says 'create a ticket', 'update ticket T-...', 'close ticket', 'reopen ticket', 'list tickets', 'show open tickets', 'find ticket about...', 'track this bug', 'log this issue', 'I want to remember this task', or asks to track a bug, feature, or task persistently — even if they don't say 'ticket' explicitly."
 disable-model-invocation: true
 argument-hint: "[create|update|close|reopen|list|query] [ticket-id or details]"
 allowed-tools:
@@ -35,10 +35,11 @@ git rev-parse --show-toplevel
 ```
 Append `/docs/tickets`. Store as `TICKETS_DIR`.
 
-**Step 3 — Ensure payload directory exists (mutations only):**
+**Step 3 — Prepare payload path (mutations only):**
 ```bash
 mkdir -p .claude/ticket-tmp
 ```
+Choose a unique payload filename: `.claude/ticket-tmp/payload-<action>-<YYYYMMDD>.json` (e.g., `.claude/ticket-tmp/payload-create-20260305.json`). Store this relative path as `PAYLOAD_PATH`. A distinct filename per operation avoids collisions with payloads from prior or concurrent sessions.
 
 ---
 
@@ -94,8 +95,9 @@ From the conversation history, extract:
 python3 <PLUGIN_ROOT>/scripts/ticket_read.py query <TICKETS_DIR> <ticket-id>
 ```
 
-Present the proposed operation before writing any files:
+Present the proposed operation before writing any files. Use the template for the operation:
 
+**create:**
 ```
 I'll create a ticket with:
   Title: <title>
@@ -106,19 +108,42 @@ I'll create a ticket with:
 Continue? [y / edit / n]
 ```
 
-For update/close/reopen: show current ticket state (from the read above) alongside proposed changes.
+**update:** (show current state from the read above alongside proposed changes)
+```
+I'll update T-YYYYMMDD-NN:
+  <field>: <current value> → <new value>
+  (unchanged fields omitted)
+
+Continue? [y / edit / n]
+```
+
+**close:**
+```
+I'll close T-YYYYMMDD-NN (status: <current status>):
+  Resolution: <extracted resolution, or "none provided">
+
+Continue? [y / edit / n]
+```
+
+**reopen:**
+```
+I'll reopen T-YYYYMMDD-NN (status: closed):
+  Reason: <extracted reason>
+
+Continue? [y / edit / n]
+```
 
 - `y` → proceed to pipeline
 - `edit` → ask which fields to change, update, re-confirm
 - `n` → stop
 
-**NEVER call execute without user confirmation.**
+**Always confirm before calling execute.** Execute writes a ticket file to disk. Once written, tickets require manual removal — there is no undo. The confirmation gate is the only safety check before a permanent write.
 
 ### Step 3: Write initial payload
 
-Write to `.claude/ticket-tmp/payload.json` using the Write tool. See [references/pipeline-guide.md](references/pipeline-guide.md) for per-operation field schemas.
+Write to `<PAYLOAD_PATH>` using the Write tool. See [references/pipeline-guide.md](references/pipeline-guide.md) for per-operation field schemas.
 
-The payload file is the pipeline's running state — each stage enriches it. Construct the initial payload with all known fields; the engine fills in the rest.
+The top-level key for the operation is `action` (not `operation`). The payload file is the pipeline's running state — each stage enriches it. Construct the initial payload with all known fields; the engine fills in the rest.
 
 ### Step 4: Run the 4-stage pipeline
 
@@ -126,29 +151,29 @@ The payload file is the pipeline's running state — each stage enriches it. Con
 
 **Stage 1 — classify:**
 ```bash
-python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py classify .claude/ticket-tmp/payload.json
+python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py classify <PAYLOAD_PATH>
 ```
-Parse stdout. Check `state`. If not `ok`, handle per Step 5 table. If `ok`, add these fields to the payload and write it back using the Write tool:
+Parse stdout. Check `state`. If not `ok`, handle per Step 5 table. If `ok`, write these four fields back to the payload. **Critical:** preflight reads `classify_intent` and `classify_confidence` (not `intent`/`confidence`) — set both the original and renamed keys:
 - `intent` = `response.data.intent`
-- `classify_intent` = `response.data.intent`  ← preflight reads this key, not `intent`
-- `classify_confidence` = `response.data.confidence`  ← preflight reads this key, not `confidence`
+- `classify_intent` = `response.data.intent`
+- `classify_confidence` = `response.data.confidence`
 - `resolved_ticket_id` = `response.data.resolved_ticket_id`
 
 **Stage 2 — plan:**
 ```bash
-python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py plan .claude/ticket-tmp/payload.json
+python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py plan <PAYLOAD_PATH>
 ```
 Parse stdout. Check `state`. If `need_fields` or `duplicate_candidate`, handle loops (see [pipeline-guide](references/pipeline-guide.md)). If `ok`, merge `response.data` (adds `dedup_fingerprint`, `target_fingerprint`, `duplicate_of`) into the payload and write it back.
 
 **Stage 3 — preflight:**
 ```bash
-python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py preflight .claude/ticket-tmp/payload.json
+python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py preflight <PAYLOAD_PATH>
 ```
 Parse stdout. Check `state`. If `ok`, merge `response.data` (adds `autonomy_config`) into the payload and write it back.
 
 **Stage 4 — execute:**
 ```bash
-python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py execute .claude/ticket-tmp/payload.json
+python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py execute <PAYLOAD_PATH>
 ```
 Parse stdout. Check `state`. No payload write-back needed — execute writes the ticket file to disk.
 
@@ -184,6 +209,6 @@ Read `state` from the JSON response (`{"state": ..., "data": {...}}`):
 
 **"Shell metacharacters detected":** A `$` appeared in the Bash command. Ensure you are using the resolved `PLUGIN_ROOT` string (from Step 1 above), not the env var `$CLAUDE_PLUGIN_ROOT`.
 
-**"Payload path outside workspace root":** The payload path must be inside the project root. Use `.claude/ticket-tmp/payload.json` (relative), not `/tmp/...`.
+**"Payload path outside workspace root":** The payload path must be inside the project root. Use `<PAYLOAD_PATH>` (relative), not `/tmp/...`.
 
 **Guard hook blocks command:** Verify the invocation uses `python3` (not `python3.11` or `/usr/bin/python3`) and the full absolute `PLUGIN_ROOT` path (not a relative path).
