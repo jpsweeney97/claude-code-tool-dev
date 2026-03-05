@@ -3,13 +3,15 @@
 ```yaml
 id: T-20260302-03
 date: "2026-03-02"
-status: open
+status: in_progress
 priority: medium
-effort: S (1-2 sessions)
+effort: "S (1-2 sessions)"
+tags: [ticket-plugin, audit, reliability]
 blocked_by: []
 blocks: []
 related: [T-20260302-01]
-tags: [ticket-plugin, audit, reliability]
+ticket_id: T-20260302-03
+notes: "Started investigating the audit repair work."
 ```
 
 ## Problem

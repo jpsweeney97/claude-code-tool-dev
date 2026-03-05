@@ -1,6 +1,6 @@
 ---
 name: ticket-triage
-description: "Analyze ticket health, detect stale tickets, blocked dependency chains, and audit activity. Use when the user says \"triage tickets\", \"what's in the backlog\", \"show ticket health\", \"any stale tickets\", \"ticket dashboard\", \"what tickets are blocked\", or at session start for project orientation."
+description: "Analyze ticket health, detect stale tickets, blocked dependency chains, and audit activity. Use when the user says 'triage tickets', 'what's in the backlog', 'show ticket health', 'any stale tickets', 'ticket dashboard', 'what tickets are blocked', 'what should I work on next', 'what's outstanding', or 'catch me up on the project'. Also use at session start when the user wants project orientation, or whenever they want any kind of health check or overview of the ticket system."
 allowed-tools:
   - Bash
   - Read
@@ -19,6 +19,8 @@ Read-only ticket health analysis. Runs dashboard + audit, then adds opinionated 
 echo $CLAUDE_PLUGIN_ROOT
 ```
 Store as `PLUGIN_ROOT`. Use this absolute path in all subsequent commands — not `$CLAUDE_PLUGIN_ROOT` directly.
+
+If the output is empty, stop and report: "CLAUDE_PLUGIN_ROOT is not set — the ticket plugin may not be installed. Check `claude plugin list`."
 
 **Resolve tickets directory:**
 ```bash
@@ -53,7 +55,7 @@ Present a structured summary:
 
 **Active:** X total (open: N, in_progress: N, blocked: N)
 
-**Stale (no activity > 7 days):**
+**Stale (no activity > 7 days — script default):**
 - T-YYYYMMDD-NN (status: open) — last date: YYYY-MM-DD
 
 **Blocked chains:**
@@ -66,6 +68,8 @@ Present a structured summary:
 Omit sections with no entries.
 
 ### Step 4: Add analysis
+
+Base all analysis on the dashboard and audit script outputs only — do not read individual ticket files. The dashboard and audit data is the authoritative source; reading files directly risks inconsistency with the script's own aggregation logic.
 
 Add opinionated recommendations beyond what the data shows:
 

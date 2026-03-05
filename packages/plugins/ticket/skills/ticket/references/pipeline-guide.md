@@ -2,6 +2,8 @@
 
 Reference for `/ticket` skill. Covers payload schemas, pipeline state propagation, response states, and loop procedures.
 
+Command examples use `.claude/ticket-tmp/payload.json` as a placeholder. Substitute your `PAYLOAD_PATH` from Setup step 3 wherever this appears.
+
 ---
 
 ## Pipeline State Propagation
@@ -59,7 +61,8 @@ After `need_fields`, re-run from `plan` (not `classify`) — `intent`, `classify
 ```json
 {
   "action": "update",
-  "args": "",
+  "ticket_id": "T-20260302-01",
+  "args": {"ticket_id": "T-20260302-01"},
   "session_id": "",
   "request_origin": "user",
   "fields": {
@@ -70,14 +73,17 @@ After `need_fields`, re-run from `plan` (not `classify`) — `intent`, `classify
 }
 ```
 
-Only include fields being changed. All fields are optional except `ticket_id`.
+`ticket_id` must appear in three places: top-level (for preflight/execute), `args.ticket_id` (for classify to resolve), and `fields.ticket_id` (for plan). `args` must be a dict — not an empty string.
+
+Only include fields to change in `fields`. Supported fields: `status`, `priority`, `tags`, `problem`, `approach`, `effort`, `key_file_paths`, `key_files`, plus any existing frontmatter key. Unsupported fields (e.g., `notes` added as new keys) are written to the ticket as unknown frontmatter keys, but won't appear in `changes.frontmatter` in the response (which only tracks modifications to pre-existing keys).
 
 ### close
 
 ```json
 {
   "action": "close",
-  "args": "",
+  "ticket_id": "T-20260302-01",
+  "args": {"ticket_id": "T-20260302-01"},
   "session_id": "",
   "request_origin": "user",
   "fields": {
@@ -94,7 +100,8 @@ Only include fields being changed. All fields are optional except `ticket_id`.
 ```json
 {
   "action": "reopen",
-  "args": "",
+  "ticket_id": "T-20260302-01",
+  "args": {"ticket_id": "T-20260302-01"},
   "session_id": "",
   "request_origin": "user",
   "fields": {
@@ -151,9 +158,8 @@ When `plan` returns `state: "duplicate_candidate"`:
    Create a new ticket anyway? [y/n]
    ```
 4. If `n` → stop and point the user to the existing ticket.
-5. If `y` → add `dedup_override: true` and `ticket_id: "<duplicate_of>"` to the payload at the top level (not inside `fields`). The `ticket_id` here is the duplicate's ID from `data.duplicate_of` — this tells the engine which existing ticket you are overriding. Then re-run:
+5. If `y` → add `dedup_override: true` to the payload at the top level. **Do not re-run plan** — plan does not consume `dedup_override` and will return `duplicate_candidate` again. Proceed directly to preflight:
    ```bash
-   python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py plan .claude/ticket-tmp/payload.json
    python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py preflight .claude/ticket-tmp/payload.json
    python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py execute .claude/ticket-tmp/payload.json
    ```

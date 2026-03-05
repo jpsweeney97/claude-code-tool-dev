@@ -195,8 +195,12 @@ def main() -> None:
 
     # --- From here, command is a python3 invocation of a ticket script. ---
 
+    # Strip trailing stderr redirect (2>&1) — diagnostic suffix, not injection risk.
+    # Use the stripped form for all subsequent validation; preserve original for error messages.
+    command_clean = re.sub(r"\s+2>&1\s*$", "", command)
+
     # Block shell metacharacters.
-    if SHELL_METACHAR_RE.search(command):
+    if SHELL_METACHAR_RE.search(command_clean):
         print(json.dumps(_make_deny(
             f"Shell metacharacters detected in ticket engine command. Got: {command!r:.100}"
         )))
@@ -204,7 +208,7 @@ def main() -> None:
 
     # Branch 1: Engine exact allowlist → validate subcommand/payload + inject.
     engine_pattern = _build_allowlist_pattern(plugin_root)
-    engine_match = engine_pattern.match(command)
+    engine_match = engine_pattern.match(command_clean)
 
     if engine_match:
         entrypoint_type = engine_match.group(1)  # "user" or "agent"
@@ -247,7 +251,7 @@ def main() -> None:
 
     # Branch 2: Read-only scripts (ticket_read.py, ticket_triage.py) → allow, no injection.
     readonly_pattern = _build_readonly_pattern(plugin_root)
-    readonly_match = readonly_pattern.match(command)
+    readonly_match = readonly_pattern.match(command_clean)
     if readonly_match:
         script_name = readonly_match.group(1)  # "read" or "triage"
         subcommand = readonly_match.group(2)
