@@ -57,15 +57,19 @@ def _is_ticket_invocation(command: str) -> bool:
 
     Intentionally broad — catches non-canonical Python launcher forms:
     python, python3, python3.11, /usr/bin/python3, /usr/local/bin/python3.11,
-    env python3, env /usr/bin/python3, as well as relative paths and path
-    traversal in the script argument. Exact validation happens in branches 1-3;
-    branch 3 denies anything that doesn't match the explicit allowlists.
+    env python3, env PYTHONPATH=. python3, PYTHONPATH=. python3,
+    as well as relative paths and path traversal in the script argument.
+    Exact validation happens in branches 1-3; branch 3 denies anything that
+    doesn't match the explicit allowlists.
 
     Non-python commands (cat, rg, wc) pass through — they don't match the
     Python launcher prefix so this returns False (branch 4).
     """
     return bool(
-        re.match(r"^(?:env\s+)?(?:/\S+/)?python[\d.]*\s+", command)
+        re.match(
+            r"^(?:env\s+)?(?:[A-Z_][A-Z0-9_]*=\S+\s+)*(?:/\S+/)?python[\d.]*\s+",
+            command,
+        )
         and re.search(r"\bscripts/ticket_\w+\.py\b", command)
     )
 

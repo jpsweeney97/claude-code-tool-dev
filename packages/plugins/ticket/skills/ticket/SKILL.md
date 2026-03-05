@@ -128,7 +128,11 @@ The payload file is the pipeline's running state — each stage enriches it. Con
 ```bash
 python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py classify .claude/ticket-tmp/payload.json
 ```
-Parse stdout. Check `state`. If not `ok`, handle per Step 5 table. If `ok`, merge `response.data` (adds `intent`, `confidence`, `resolved_ticket_id`) into the payload and write it back using the Write tool.
+Parse stdout. Check `state`. If not `ok`, handle per Step 5 table. If `ok`, add these fields to the payload and write it back using the Write tool:
+- `intent` = `response.data.intent`
+- `classify_intent` = `response.data.intent`  ← preflight reads this key, not `intent`
+- `classify_confidence` = `response.data.confidence`  ← preflight reads this key, not `confidence`
+- `resolved_ticket_id` = `response.data.resolved_ticket_id`
 
 **Stage 2 — plan:**
 ```bash
