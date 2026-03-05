@@ -1,7 +1,6 @@
 """Tests for ticket_dedup.py — normalization and fingerprinting."""
 from __future__ import annotations
 
-import pytest
 
 from scripts.ticket_dedup import (
     normalize,

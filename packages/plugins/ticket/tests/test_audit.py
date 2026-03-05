@@ -82,7 +82,7 @@ class TestAuditAppend:
     def test_audit_on_error_writes_result(self, tmp_tickets: Path) -> None:
         """On non-exception error (e.g., update non-existent ticket), audit still writes both entries."""
         session_id = "sess-error-1"
-        resp = engine_execute(
+        engine_execute(
             action="update",
             ticket_id="T-99999999-99",
             fields={"title": "Updated title"},

@@ -1,14 +1,12 @@
 """Tests for ticket_engine_core.py — engine pipeline."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 import scripts.ticket_engine_core as ticket_engine_core
 from scripts.ticket_engine_core import (
-    EngineResponse,
     engine_classify,
     engine_execute,
     engine_plan,

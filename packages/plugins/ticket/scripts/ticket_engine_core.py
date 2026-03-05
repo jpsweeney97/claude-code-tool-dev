@@ -20,6 +20,13 @@ from typing import Any, Literal
 
 import yaml
 
+from scripts.ticket_id import allocate_id, build_filename
+from scripts.ticket_parse import (
+    extract_fenced_yaml,
+    parse_yaml_block,
+)
+from scripts.ticket_render import render_ticket
+
 
 # --- Response envelope ---
 
@@ -28,8 +35,8 @@ import yaml
 class EngineResponse:
     """Common response envelope for all engine subcommands.
 
-    state: machine state (one of 14 defined states, or "ok" for classify/plan success)
-    error_code: machine-readable error code (one of 11 defined codes, or None on success)
+    state: machine state (15 total: 14 emittable + 1 reserved)
+    error_code: machine-readable error code (10 defined codes, or None on success)
     ticket_id: affected ticket ID or None
     message: human-readable description
     data: subcommand-specific output
@@ -717,15 +724,6 @@ def engine_preflight(
 
 
 # --- execute ---
-
-from scripts.ticket_id import allocate_id, build_filename
-from scripts.ticket_parse import (
-    ParsedTicket,
-    extract_fenced_yaml,
-    parse_yaml_block,
-    parse_ticket as _parse_ticket,
-)
-from scripts.ticket_render import render_ticket
 
 # Canonical field order for YAML frontmatter rendering.
 _CANONICAL_FIELD_ORDER = [

@@ -1,8 +1,6 @@
 """Integration tests: config → preflight → execute → audit trail."""
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -12,7 +10,6 @@ from scripts.ticket_engine_core import (
     engine_count_session_creates,
     engine_execute,
     engine_preflight,
-    read_autonomy_config,
 )
 
 

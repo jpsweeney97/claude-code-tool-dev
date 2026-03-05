@@ -1,7 +1,6 @@
 """Tests for ticket_render.py — markdown ticket rendering."""
 from __future__ import annotations
 
-import pytest
 
 from scripts.ticket_render import render_ticket
 

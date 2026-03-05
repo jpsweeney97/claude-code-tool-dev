@@ -2,20 +2,17 @@
 from __future__ import annotations
 
 import textwrap
-from pathlib import Path
 
 import pytest
 
 # Import path: tests run from packages/plugins/ticket/
 from scripts.ticket_parse import (
-    ParsedTicket,
     detect_generation,
     extract_fenced_yaml,
     extract_sections,
     normalize_status,
     parse_ticket,
     parse_yaml_block,
-    SECTION_RENAMES,
 )
 
 
