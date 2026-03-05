@@ -10,6 +10,7 @@ Allowlist matching:
 
 Payload injection (atomic):
 - Injects session_id, hook_injected, hook_request_origin into the payload file.
+- Resolves payload path relative to hook cwd and denies paths outside workspace root.
 - Uses temp file + fsync + os.replace for atomic writes.
 - Denies on any injection failure (unreadable file, invalid JSON, write error).
 
@@ -118,6 +119,23 @@ def _inject_payload(
     return None
 
 
+def _resolve_payload_path(payload_path: str, workspace_root: str) -> tuple[Path | None, str | None]:
+    """Resolve payload path and enforce workspace-root containment."""
+    if not isinstance(workspace_root, str) or not workspace_root:
+        return None, f"Invalid workspace root. Got: {workspace_root!r:.100}"
+    root = Path(workspace_root).resolve()
+    candidate = Path(payload_path)
+    resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        return (
+            None,
+            f"Payload path outside workspace root {str(root)!r}. Got: {payload_path!r:.100}",
+        )
+    return resolved, None
+
+
 def main() -> None:
     try:
         event = json.load(sys.stdin)
@@ -178,9 +196,17 @@ def main() -> None:
         )))
         return
 
+    workspace_root = event.get("cwd", "")
+    resolved_path, path_error = _resolve_payload_path(payload_path, workspace_root)
+    if path_error is not None or resolved_path is None:
+        print(json.dumps(_make_deny(
+            f"Payload path validation failed: {path_error or 'unknown error'}"
+        )))
+        return
+
     # Inject trust fields into payload.
     session_id = event.get("session_id", "")
-    error = _inject_payload(payload_path, session_id, entrypoint_type)
+    error = _inject_payload(str(resolved_path), session_id, entrypoint_type)
     if error is not None:
         print(json.dumps(_make_deny(f"Payload injection failed: {error}")))
         return

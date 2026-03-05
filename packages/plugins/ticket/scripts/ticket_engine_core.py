@@ -18,6 +18,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+import yaml
+
 
 # --- Response envelope ---
 
@@ -114,6 +116,38 @@ class AutonomyConfig:
 
 VALID_ACTIONS = frozenset({"create", "update", "close", "reopen"})
 VALID_ORIGINS = frozenset({"user", "agent"})
+
+
+def resolve_tickets_dir(
+    raw_tickets_dir: Any,
+    *,
+    project_root: Path,
+) -> tuple[Path | None, str | None]:
+    """Resolve and validate tickets_dir against project root.
+
+    Returns:
+        (resolved_path, None) on success
+        (None, error_message) on failure
+    """
+    value = "docs/tickets" if raw_tickets_dir is None else raw_tickets_dir
+    if not isinstance(value, (str, os.PathLike)):
+        return (
+            None,
+            f"tickets_dir validation failed: expected string path. Got: {value!r:.100}",
+        )
+
+    root = project_root.resolve()
+    candidate = Path(value)
+    resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        return (
+            None,
+            f"tickets_dir validation failed: path escapes project root {str(root)!r}. Got: {str(value)!r:.100}",
+        )
+    return resolved, None
 
 
 # --- classify ---
@@ -385,6 +419,7 @@ def engine_preflight(
     classify_intent: str,
     dedup_fingerprint: str | None,
     target_fingerprint: str | None,
+    fields: dict[str, Any] | None = None,
     duplicate_of: str | None = None,
     dedup_override: bool = False,
     dependency_override: bool = False,
@@ -398,6 +433,7 @@ def engine_preflight(
     """
     checks_passed: list[str] = []
     checks_failed: list[dict[str, str]] = []
+    preflight_fields = fields or {}
 
     # --- Origin check ---
     if request_origin not in VALID_ORIGINS:
@@ -611,31 +647,35 @@ def engine_preflight(
 
         # --- Dependency check (close action) ---
         if action == "close" and ticket.blocked_by:
-            from scripts.ticket_read import list_tickets as _list_tickets
-
-            all_tickets = _list_tickets(tickets_dir)
-            ticket_map = {t.id: t for t in all_tickets}
-            unresolved = [
-                bid for bid in ticket.blocked_by
-                if bid in ticket_map and ticket_map[bid].status not in _TERMINAL_STATUSES
-            ]
-            if unresolved:
-                if dependency_override:
-                    checks_passed.append("dependencies_overridden")
-                else:
-                    return EngineResponse(
-                        state="dependency_blocked",
-                        message=f"Ticket has open blockers: {unresolved}. "
-                        "Resolve or pass dependency_override: true.",
-                        ticket_id=ticket_id,
-                        error_code="dependency_blocked",
-                        data={
-                            "checks_passed": checks_passed,
-                            "checks_failed": [{"check": "dependencies", "reason": f"unresolved: {unresolved}"}],
-                        },
-                    )
+            resolution = preflight_fields.get("resolution", "done")
+            if resolution == "wontfix":
+                checks_passed.append("dependencies_not_required_for_wontfix")
             else:
-                checks_passed.append("dependencies")
+                from scripts.ticket_read import list_tickets as _list_tickets
+
+                all_tickets = _list_tickets(tickets_dir)
+                ticket_map = {t.id: t for t in all_tickets}
+                unresolved = [
+                    bid for bid in ticket.blocked_by
+                    if bid in ticket_map and ticket_map[bid].status not in _TERMINAL_STATUSES
+                ]
+                if unresolved:
+                    if dependency_override:
+                        checks_passed.append("dependencies_overridden")
+                    else:
+                        return EngineResponse(
+                            state="dependency_blocked",
+                            message=f"Ticket has open blockers: {unresolved}. "
+                            "Resolve or pass dependency_override: true.",
+                            ticket_id=ticket_id,
+                            error_code="dependency_blocked",
+                            data={
+                                "checks_passed": checks_passed,
+                                "checks_failed": [{"check": "dependencies", "reason": f"unresolved: {unresolved}"}],
+                            },
+                        )
+                else:
+                    checks_passed.append("dependencies")
 
         # --- TOCTOU fingerprint check ---
         if target_fingerprint is not None:
@@ -710,15 +750,60 @@ _TRANSITION_PRECONDITIONS: dict[tuple[str, str], str] = {
 }
 
 
-_YAML_SPECIAL_CHARS = frozenset(",[]{}:#&*?|>!%@`\"'")
+_PLAIN_YAML_SCALAR_RE = re.compile(r"^[A-Za-z0-9_./-]+$")
+_YAML_RESERVED_SCALARS = frozenset({
+    "null", "~", "true", "false", "yes", "no", "on", "off",
+})
+_INT_RE = re.compile(r"^[+-]?\d+$")
+_FLOAT_RE = re.compile(r"^[+-]?(?:\d+\.\d*|\.\d+|\d+[eE][+-]?\d+)$")
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def _yaml_quote_flow_item(item: Any) -> str:
-    """Quote a YAML flow sequence item if it contains special characters."""
-    s = str(item)
-    if any(c in s for c in _YAML_SPECIAL_CHARS) or not s:
-        return f'"{s}"'
-    return s
+def _yaml_scalar(value: Any) -> str:
+    """Render a scalar as safe YAML while preserving plain style when possible."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return "null"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if not isinstance(value, str):
+        return json.dumps(str(value), ensure_ascii=False)
+
+    if (
+        value
+        and "\n" not in value
+        and "\r" not in value
+        and "\t" not in value
+        and value.strip() == value
+        and _PLAIN_YAML_SCALAR_RE.match(value)
+        # Only "-" can pass _PLAIN_YAML_SCALAR_RE and still be a problematic
+        # plain-scalar prefix. Other YAML punctuation cannot pass the regex.
+        and not value.startswith("-")
+        and value.lower() not in _YAML_RESERVED_SCALARS
+        and _INT_RE.match(value) is None
+        and _FLOAT_RE.match(value) is None
+        and _DATE_RE.match(value) is None
+    ):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _yaml_value(value: Any) -> str:
+    """Render a YAML value in flow style for lists/dicts."""
+    if isinstance(value, list):
+        return "[" + ", ".join(_yaml_value(item) for item in value) + "]"
+    if isinstance(value, dict):
+        dumped = yaml.safe_dump(
+            value,
+            default_flow_style=True,
+            allow_unicode=True,
+            sort_keys=False,
+        ).strip()
+        if dumped.endswith("\n..."):
+            dumped = dumped.rsplit("\n...", 1)[0]
+        return dumped
+    return _yaml_scalar(value)
 
 
 def _render_canonical_frontmatter(data: dict[str, Any]) -> str:
@@ -737,38 +822,28 @@ def _render_canonical_frontmatter(data: dict[str, Any]) -> str:
         if value is None:
             continue
         if key == "date":
-            lines.append(f'{key}: "{value}"')
+            lines.append(f"{key}: {_yaml_scalar(value)}")
         elif key == "source" and isinstance(value, dict):
             lines.append("source:")
             for sk, sv in value.items():
-                lines.append(f'  {sk}: "{sv}"' if isinstance(sv, str) else f"  {sk}: {sv}")
+                lines.append(f"  {sk}: {_yaml_value(sv)}")
         elif key == "contract_version":
-            lines.append(f'{key}: "{value}"')
-        elif isinstance(value, list):
-            items = ", ".join(_yaml_quote_flow_item(item) for item in value)
-            lines.append(f"{key}: [{items}]")
-        elif isinstance(value, bool):
-            lines.append(f"{key}: {'true' if value else 'false'}")
-        elif isinstance(value, str):
-            lines.append(f"{key}: {value}")
+            lines.append(f"{key}: {_yaml_scalar(value)}")
         else:
-            lines.append(f"{key}: {value}")
+            lines.append(f"{key}: {_yaml_value(value)}")
     # Preserve unknown keys (forward-compat).
     known_keys = set(_CANONICAL_FIELD_ORDER) | {"defer"}
     for key in data:
         if key not in known_keys:
             value = data[key]
             if value is not None:
-                lines.append(f"{key}: {value}")
+                lines.append(f"{key}: {_yaml_value(value)}")
     # Include defer if present.
     if "defer" in data and data["defer"] is not None:
         defer = data["defer"]
         lines.append("defer:")
         for dk, dv in defer.items():
-            if isinstance(dv, bool):
-                lines.append(f"  {dk}: {'true' if dv else 'false'}")
-            else:
-                lines.append(f'  {dk}: "{dv}"' if isinstance(dv, str) else f"  {dk}: {dv}")
+            lines.append(f"  {dk}: {_yaml_value(dv)}")
     return "\n".join(lines) + "\n"
 
 
@@ -915,6 +990,7 @@ def engine_execute(
     dedup_override: bool,
     dependency_override: bool,
     tickets_dir: Path,
+    target_fingerprint: str | None = None,
     autonomy_config: AutonomyConfig | None = None,
     hook_injected: bool = False,
 ) -> EngineResponse:
@@ -969,6 +1045,53 @@ def engine_execute(
                     message=f"Defense-in-depth: session create cap ({config.max_creates})",
                     error_code="policy_blocked",
                 )
+
+    # Defense-in-depth dedup check for direct execute(create) calls.
+    if action == "create":
+        create_fields = dict(fields)
+        create_fields.setdefault("priority", "medium")
+        plan_resp = _plan_create(create_fields, session_id, request_origin, tickets_dir)
+        if plan_resp.state == "duplicate_candidate" and not dedup_override:
+            duplicate_of = plan_resp.data.get("duplicate_of")
+            return EngineResponse(
+                state="duplicate_candidate",
+                message=f"Duplicate of {duplicate_of} detected in execute stage. Pass dedup_override=True to proceed.",
+                error_code="duplicate_candidate",
+                ticket_id=duplicate_of if isinstance(duplicate_of, str) else None,
+                data={
+                    "duplicate_of": duplicate_of,
+                    "dedup_fingerprint": plan_resp.data.get("dedup_fingerprint"),
+                    "target_fingerprint": plan_resp.data.get("target_fingerprint"),
+                },
+            )
+
+    # Optional stale-plan defense-in-depth for non-create actions.
+    if action != "create" and target_fingerprint is not None:
+        if not ticket_id:
+            return EngineResponse(
+                state="need_fields",
+                message=f"ticket_id required for {action}",
+                error_code="need_fields",
+            )
+        from scripts.ticket_dedup import target_fingerprint as compute_fp
+        from scripts.ticket_read import find_ticket_by_id
+
+        target_ticket = find_ticket_by_id(tickets_dir, ticket_id)
+        if target_ticket is None:
+            return EngineResponse(
+                state="not_found",
+                message=f"No ticket matching {ticket_id}",
+                ticket_id=ticket_id,
+                error_code="not_found",
+            )
+        current_fp = compute_fp(Path(target_ticket.path))
+        if current_fp != target_fingerprint:
+            return EngineResponse(
+                state="preflight_failed",
+                message="Stale fingerprint — ticket was modified since read. Re-run to get a fresh plan.",
+                ticket_id=ticket_id,
+                error_code="stale_plan",
+            )
 
     # Audit: attempt_started (fail-closed for agents — audit is a security gate).
     base_entry = {
@@ -1251,6 +1374,16 @@ def _execute_close(
         closed_dir = tickets_dir / "closed-tickets"
         closed_dir.mkdir(exist_ok=True)
         dst = closed_dir / ticket_path.name
+        # Collision-safe: suffix with -2, -3, etc. if a file with the same
+        # name already exists (e.g., ticket A closed, ticket B created with
+        # same date+slug, then B closed).
+        if dst.exists():
+            stem = ticket_path.stem
+            suffix = ticket_path.suffix
+            n = 2
+            while dst.exists():
+                dst = closed_dir / f"{stem}-{n}{suffix}"
+                n += 1
         ticket_path.rename(dst)
         return EngineResponse(
             state="ok_close_archived",

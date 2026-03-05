@@ -7,6 +7,7 @@ Single source of truth for the ticket plugin. All components (skills, agents, en
 - Active tickets: `docs/tickets/`
 - Archived tickets: `docs/tickets/closed-tickets/`
 - Audit trail: `docs/tickets/.audit/YYYY-MM-DD/<session_id>.jsonl`
+- Path boundary: hook payload files and `tickets_dir` must resolve inside workspace/project root
 - Naming: `YYYY-MM-DD-<slug>.md`
 - Slug: first 6 words of title, kebab-case, `[a-z0-9-]` only, max 60 chars, sequence suffix on collision
 - Bootstrap: missing `docs/tickets/` → empty result for reads; create on first write
@@ -40,9 +41,11 @@ Single source of truth for the ticket plugin. All components (skills, agents, en
 | `blocks` | list[string] | [] | IDs of tickets this blocks |
 | `defer` | object | null | `{active: bool, reason: string, deferred_at: string}` |
 
-### Required Sections
+### Section Guidance
 
-Problem, Approach, Acceptance Criteria, Verification, Key Files
+Recommended core sections: Problem, Approach, Acceptance Criteria, Verification, Key Files
+
+Runtime note (v1.0): missing sections are advisory warnings/process failures, not hard runtime schema rejections.
 
 ### Optional Sections
 
@@ -64,13 +67,14 @@ Exit codes: 0 (success), 1 (engine error), 2 (validation failure)
 |-----------|-------|---------------|
 | classify | action, args, session_id, request_origin | intent, confidence, resolved_ticket_id |
 | plan | intent, fields (including `key_file_paths: list[str]` for dedup), session_id, request_origin | dedup_fingerprint, target_fingerprint, duplicate_of, missing_fields, action_plan |
-| preflight | ticket_id, action, session_id, request_origin, classify_confidence, classify_intent, dedup_fingerprint, target_fingerprint | checks_passed, checks_failed |
-| execute | action, ticket_id, fields (including `key_files: list[dict]` for rendering), session_id, request_origin, dedup_override, dependency_override | ticket_path, changes |
+| preflight | ticket_id, action, optional `fields`, session_id, request_origin, classify_confidence, classify_intent, dedup_fingerprint, target_fingerprint | checks_passed, checks_failed |
+| execute | action, ticket_id, fields (including `key_files: list[dict]` for rendering), session_id, request_origin, dedup_override, dependency_override, optional `target_fingerprint` | ticket_path, changes |
 
 **Field disambiguation:**
 - `key_file_paths: list[str]` — file paths for dedup fingerprinting (plan subcommand input)
 - `key_files: list[dict[str, str]]` — structured table rows `{file, role, look_for}` for rendering (execute subcommand input)
 - If both are present in input, `key_file_paths` is used for dedup. `key_files` is always used for rendering.
+- `fields` in preflight is used for resolution-aware policy checks (for example close `resolution=wontfix` bypasses blocker checks).
 
 ### Machine States (14 total: 13 emittable, 1 reserved)
 
@@ -88,6 +92,10 @@ Config: `.claude/ticket.local.md` YAML frontmatter
 
 `request_origin`: "user" (ticket_engine_user.py), "agent" (ticket_engine_agent.py), "unknown" (fail closed)
 
+Hook assumption: the guard matches commands containing `ticket_engine` in the command string. Renamed or wrapped entrypoints bypass the guard silently. This is proportionate for the accidental-autonomy threat model.
+
+Execute leniency: execute defaults optional fields (e.g., `priority` → `"medium"`) rather than rejecting. Plan reports missing fields as hints; execute always produces a valid ticket.
+
 ## 6. Dedup Policy
 
 Fingerprint: `sha256(normalize(problem_text) + "|" + sorted(key_file_paths))`
@@ -95,6 +103,8 @@ Fingerprint: `sha256(normalize(problem_text) + "|" + sorted(key_file_paths))`
 `normalize()` steps: (1) strip, (2) collapse whitespace, (3) lowercase, (4) remove punctuation except hyphens/underscores, (5) NFC Unicode normalization
 
 Window: 24 hours. Override: `dedup_override: true` with matching `ticket_id`.
+
+Defense-in-depth: execute stage repeats duplicate checks for create requests to prevent bypass via direct execute calls.
 
 ### Test Vectors
 

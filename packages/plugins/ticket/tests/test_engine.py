@@ -356,6 +356,31 @@ class TestEnginePreflight:
         )
         assert resp.state == "dependency_blocked"
 
+    def test_close_wontfix_with_open_blockers_allowed(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
+        make_ticket(
+            tmp_tickets,
+            "target.md",
+            id="T-20260302-02",
+            blocked_by=["T-20260302-01"],
+        )
+        resp = engine_preflight(
+            ticket_id="T-20260302-02",
+            action="close",
+            fields={"resolution": "wontfix"},
+            session_id="test-session",
+            request_origin="user",
+            classify_confidence=0.95,
+            classify_intent="close",
+            dedup_fingerprint=None,
+            target_fingerprint=None,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok"
+        assert "dependencies_not_required_for_wontfix" in resp.data["checks_passed"]
+
     def test_close_with_open_blockers_override(self, tmp_tickets):
         """dependency_override=True allows closing with open blockers."""
         from tests.conftest import make_ticket
@@ -568,6 +593,67 @@ class TestEngineExecute:
         assert "Fix auth bug" in content
         assert "## Problem" in content
 
+    def test_execute_create_blocks_duplicate_without_override(self, tmp_tickets):
+        fields = {
+            "title": "Duplicate target",
+            "problem": "Duplicate me",
+            "priority": "medium",
+        }
+        first = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields=fields,
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert first.state == "ok_create"
+
+        second = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields=fields,
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert second.state == "duplicate_candidate"
+        assert second.error_code == "duplicate_candidate"
+
+    def test_execute_create_duplicate_allowed_with_override(self, tmp_tickets):
+        fields = {
+            "title": "Duplicate override target",
+            "problem": "Duplicate with override",
+            "priority": "medium",
+        }
+        first = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields=fields,
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert first.state == "ok_create"
+
+        second = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields=fields,
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=True,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert second.state == "ok_create"
+
     def test_update_ticket(self, tmp_tickets):
         from tests.conftest import make_ticket
 
@@ -672,6 +758,69 @@ class TestEngineExecute:
         assert "tags: [bug, urgent]" in content
         assert "['bug'" not in content
 
+    def test_canonical_renderer_quotes_embedded_double_quote(self, tmp_tickets):
+        """Embedded quotes in list items remain valid YAML after update."""
+        from scripts.ticket_read import list_tickets
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"tags": ['bad"tag']},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        tickets = list_tickets(tmp_tickets)
+        assert len(tickets) == 1
+        assert 'bad"tag' in tickets[0].tags
+
+    def test_canonical_renderer_quotes_colon_strings(self, tmp_tickets):
+        """Strings with colon separators remain parseable YAML."""
+        from scripts.ticket_read import list_tickets
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"priority": "high: urgent"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        tickets = list_tickets(tmp_tickets)
+        assert len(tickets) == 1
+        assert tickets[0].priority == "high: urgent"
+
+    def test_canonical_renderer_preserves_hash_in_string(self, tmp_tickets):
+        """Strings containing # are preserved and not parsed as comments."""
+        from scripts.ticket_read import list_tickets
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"effort": "M # note"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        tickets = list_tickets(tmp_tickets)
+        assert len(tickets) == 1
+        assert tickets[0].effort == "M # note"
+
     def test_close_ticket(self, tmp_tickets):
         from tests.conftest import make_ticket
 
@@ -705,6 +854,42 @@ class TestEngineExecute:
         assert resp.state == "ok_close_archived"
         assert not (tmp_tickets / "2026-03-02-test.md").exists()
         assert (tmp_tickets / "closed-tickets" / "2026-03-02-test.md").exists()
+
+    def test_close_archive_collision_suffixes(self, tmp_tickets):
+        """Archiving with an existing file in closed-tickets/ uses -2 suffix."""
+        from tests.conftest import make_ticket
+
+        # Create and archive ticket A.
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
+        resp_a = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done", "archive": True},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp_a.state == "ok_close_archived"
+        assert (tmp_tickets / "closed-tickets" / "2026-03-02-test.md").exists()
+
+        # Create ticket B with same filename (A no longer blocks the name).
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-02", status="in_progress")
+        resp_b = engine_execute(
+            action="close",
+            ticket_id="T-20260302-02",
+            fields={"resolution": "done", "archive": True},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp_b.state == "ok_close_archived"
+        # Both files exist — B got the -2 suffix.
+        assert (tmp_tickets / "closed-tickets" / "2026-03-02-test.md").exists()
+        assert (tmp_tickets / "closed-tickets" / "2026-03-02-test-2.md").exists()
 
     def test_close_from_open_succeeds(self, tmp_tickets):
         """Close directly validates with action='close', not 'update'."""
@@ -833,6 +1018,28 @@ class TestEngineExecute:
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
         assert "status: open" in content
         assert "Reopen History" in content
+
+    def test_execute_stale_target_fingerprint_rejected(self, tmp_tickets):
+        from scripts.ticket_dedup import target_fingerprint
+        from tests.conftest import make_ticket
+
+        ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        stale_fp = target_fingerprint(ticket_path)
+        ticket_path.write_text(ticket_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"status": "in_progress"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            target_fingerprint=stale_fp,
+        )
+        assert resp.state == "preflight_failed"
+        assert resp.error_code == "stale_plan"
 
 
 class TestEngineExecuteIntegration:
