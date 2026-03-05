@@ -127,7 +127,6 @@ def main() -> None:
     query_p = subparsers.add_parser("query")
     query_p.add_argument("tickets_dir", type=Path)
     query_p.add_argument("search_term")
-    query_p.add_argument("--fuzzy", action="store_true", default=True)
 
     args = parser.parse_args()
 

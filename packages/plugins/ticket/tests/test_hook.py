@@ -519,3 +519,36 @@ class TestExecutionShapeMatching:
         )
         decision = result.get("hookSpecificOutput", {})
         assert decision.get("permissionDecision") == "deny"
+
+    def test_python_without_3_denied(self):
+        """python (not python3) invocation of engine script is denied, not bypassed."""
+        result = run_hook(
+            make_hook_input(
+                f"python {FAKE_ROOT}/scripts/ticket_engine_user.py plan payload.json",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "deny"
+
+    def test_relative_path_engine_invocation_denied(self):
+        """Relative path engine invocation is denied, not bypassed."""
+        result = run_hook(
+            make_hook_input(
+                "python3 scripts/ticket_engine_user.py plan payload.json",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "deny"
+
+    def test_path_traversal_engine_invocation_denied(self):
+        """Path traversal in engine invocation is denied, not bypassed."""
+        result = run_hook(
+            make_hook_input(
+                f"python3 {FAKE_ROOT}/scripts/../scripts/ticket_engine_user.py plan payload.json",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "deny"

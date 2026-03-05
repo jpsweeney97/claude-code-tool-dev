@@ -52,16 +52,20 @@ def _build_readonly_pattern(plugin_root: str) -> re.Pattern[str]:
     )
 
 
-def _is_ticket_invocation(command: str, plugin_root: str) -> bool:
-    """Check if command is a Python invocation of any ticket plugin script.
+def _is_ticket_invocation(command: str) -> bool:
+    """Check if command is a Python invocation that might target ticket scripts.
 
-    Only matches `python3 <root>/scripts/ticket_*.py ...` — NOT non-python
-    commands like `cat`, `rg`, or `wc` that happen to reference ticket files.
-    This distinction is critical: non-python commands pass through (branch 4),
-    while unrecognized ticket script invocations are denied (branch 3).
+    Intentionally broad — catches non-canonical forms (python vs python3,
+    relative paths, path traversal). Exact validation happens in branches 1-3;
+    branch 3 denies anything that doesn't match the explicit allowlists.
+
+    Non-python commands (cat, rg, wc) still pass through — they don't start
+    with python3? so this returns False for them (branch 4).
     """
-    escaped = re.escape(plugin_root)
-    return bool(re.match(rf"^python3\s+{escaped}/scripts/ticket_\w+\.py\b", command))
+    return bool(
+        re.match(r"^python3?\s+", command)
+        and re.search(r"\bscripts/ticket_\w+\.py\b", command)
+    )
 
 
 def _make_allow(reason: str) -> dict:
@@ -179,7 +183,7 @@ def main() -> None:
     # Branch 4: Non-ticket-script invocations pass through (cat, rg, wc, etc.).
     # Only python3 invocations of ticket_*.py scripts enter strict checks.
     plugin_root = _plugin_root()
-    if not _is_ticket_invocation(command, plugin_root):
+    if not _is_ticket_invocation(command):
         print("{}")
         return
 
