@@ -5,10 +5,12 @@ using sys.executable as the Python interpreter.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -69,6 +71,15 @@ def make_payload_file(tmp_path: Path, data: dict | None = None) -> Path:
     path = tmp_path / "payload.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
+
+
+def load_guard_module() -> ModuleType:
+    """Load the hook module for direct unit tests of helper functions."""
+    spec = importlib.util.spec_from_file_location("ticket_engine_guard", HOOK_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _decision(output: dict) -> str:
@@ -388,3 +399,15 @@ class TestPayloadPathBoundaries:
         output = run_hook(inp, plugin_root=plugin_root)
         assert _decision(output) == "deny"
         assert "outside workspace root" in _reason(output).lower()
+
+    def test_payload_path_resolution_oserror_returns_deny_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        guard = load_guard_module()
+
+        def fail_resolve(_: Path) -> Path:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(guard.Path, "resolve", fail_resolve)
+        resolved, err = guard._resolve_payload_path("payload.json", "/tmp")
+        assert resolved is None
+        assert err is not None
+        assert "resolution failed" in err.lower()

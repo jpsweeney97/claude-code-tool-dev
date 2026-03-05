@@ -123,9 +123,12 @@ def _resolve_payload_path(payload_path: str, workspace_root: str) -> tuple[Path 
     """Resolve payload path and enforce workspace-root containment."""
     if not isinstance(workspace_root, str) or not workspace_root:
         return None, f"Invalid workspace root. Got: {workspace_root!r:.100}"
-    root = Path(workspace_root).resolve()
-    candidate = Path(payload_path)
-    resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    try:
+        root = Path(workspace_root).resolve()
+        candidate = Path(payload_path)
+        resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    except OSError as exc:
+        return None, f"Payload path resolution failed: {exc}. Got: {payload_path!r:.100}"
     try:
         resolved.relative_to(root)
     except ValueError:

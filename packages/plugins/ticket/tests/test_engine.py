@@ -6,12 +6,14 @@ from pathlib import Path
 
 import pytest
 
+import scripts.ticket_engine_core as ticket_engine_core
 from scripts.ticket_engine_core import (
     EngineResponse,
     engine_classify,
     engine_execute,
     engine_plan,
     engine_preflight,
+    resolve_tickets_dir,
 )
 
 
@@ -192,6 +194,38 @@ class TestEnginePlan:
         assert resp.state == "ok"
         # No dedup for non-create.
         assert resp.data.get("dedup_fingerprint") is None
+
+
+class TestResolveTicketsDir:
+    def test_default_path_used_when_none(self, tmp_path: Path) -> None:
+        resolved, err = resolve_tickets_dir(None, project_root=tmp_path)
+        assert err is None
+        assert resolved == (tmp_path / "docs" / "tickets").resolve()
+
+    def test_rejects_path_outside_project_root(self, tmp_path: Path) -> None:
+        outside = tmp_path.parent / "outside-tickets"
+        resolved, err = resolve_tickets_dir(str(outside), project_root=tmp_path)
+        assert resolved is None
+        assert err is not None
+        assert "escapes project root" in err
+
+    def test_rejects_non_string_type(self, tmp_path: Path) -> None:
+        resolved, err = resolve_tickets_dir(123, project_root=tmp_path)
+        assert resolved is None
+        assert err is not None
+        assert "expected string path" in err
+
+    def test_resolution_error_returns_validation_message(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fail_resolve(_: Path) -> Path:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(ticket_engine_core.Path, "resolve", fail_resolve)
+        resolved, err = resolve_tickets_dir("docs/tickets", project_root=tmp_path)
+        assert resolved is None
+        assert err is not None
+        assert "resolution failed" in err
 
 
 class TestEnginePreflight:
@@ -654,6 +688,21 @@ class TestEngineExecute:
         )
         assert second.state == "ok_create"
 
+    def test_execute_create_propagates_plan_errors(self, tmp_tickets):
+        """Defense-in-depth should return plan-stage validation failures."""
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={"title": "Missing problem"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "need_fields"
+        assert resp.error_code == "need_fields"
+
     def test_update_ticket(self, tmp_tickets):
         from tests.conftest import make_ticket
 
@@ -912,6 +961,139 @@ class TestEngineExecute:
         assert (tmp_tickets / "closed-tickets" / "2026-03-02-test.md").exists()
         assert (tmp_tickets / "closed-tickets" / "2026-03-02-test-2.md").exists()
 
+    def test_close_with_open_blockers_rejected_without_override(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
+        make_ticket(
+            tmp_tickets,
+            "target.md",
+            id="T-20260302-02",
+            status="in_progress",
+            blocked_by=["T-20260302-01"],
+        )
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-02",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "dependency_blocked"
+        assert resp.error_code == "dependency_blocked"
+
+    def test_close_with_open_blockers_and_override_succeeds(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
+        make_ticket(
+            tmp_tickets,
+            "target.md",
+            id="T-20260302-02",
+            status="in_progress",
+            blocked_by=["T-20260302-01"],
+        )
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-02",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=True,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_close"
+
+    def test_close_wontfix_with_open_blockers_succeeds(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
+        make_ticket(
+            tmp_tickets,
+            "target.md",
+            id="T-20260302-02",
+            status="in_progress",
+            blocked_by=["T-20260302-01"],
+        )
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-02",
+            fields={"resolution": "wontfix"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_close"
+
+    def test_close_archive_rename_oserror_returns_escalate(
+        self, tmp_tickets: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
+        ticket_path = tmp_tickets / "2026-03-02-test.md"
+        real_rename = Path.rename
+
+        def fail_rename(self: Path, target: Path) -> None:
+            if self == ticket_path:
+                raise OSError("disk error")
+            real_rename(self, target)
+
+        monkeypatch.setattr(ticket_engine_core.Path, "rename", fail_rename)
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done", "archive": True},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "escalate"
+        assert "archive rename failed" in resp.message
+
+    def test_close_archive_collision_suffix_exhausted_returns_escalate(
+        self, tmp_tickets: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
+        closed_dir = tmp_tickets / "closed-tickets"
+        closed_dir.mkdir()
+        archived_stub = (
+            "# Archived ticket\n\n"
+            "```yaml\n"
+            "id: T-20260301-99\n"
+            "date: \"2026-03-01\"\n"
+            "status: done\n"
+            "priority: medium\n"
+            "source: {type: ad-hoc, ref: \"\", session: \"test\"}\n"
+            "contract_version: \"1.0\"\n"
+            "```\n"
+        )
+        (closed_dir / "2026-03-02-test.md").write_text(archived_stub, encoding="utf-8")
+        (closed_dir / "2026-03-02-test-2.md").write_text(archived_stub, encoding="utf-8")
+        monkeypatch.setattr(ticket_engine_core, "_MAX_ARCHIVE_COLLISION_SUFFIX", 1)
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done", "archive": True},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "escalate"
+        assert "collision resolution failed" in resp.message
+
     def test_close_from_open_succeeds(self, tmp_tickets):
         """Close directly validates with action='close', not 'update'."""
         from tests.conftest import make_ticket
@@ -1020,6 +1202,25 @@ class TestEngineExecute:
         )
         assert resp.state == "invalid_transition"
         assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
+
+    def test_update_handles_yaml_serialization_failure(self, tmp_tickets):
+        """Unserializable dict values return structured parse_error."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"custom": {"bad": object()}},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "escalate"
+        assert resp.error_code == "parse_error"
+        assert "yaml serialization failed" in resp.message.lower()
 
     def test_reopen_ticket(self, tmp_tickets):
         from tests.conftest import make_ticket
@@ -1186,3 +1387,44 @@ class TestTransportValidation:
             tickets_dir=tmp_tickets, hook_injected=True,
         )
         assert resp.state == "ok_create"
+
+
+class TestYamlScalarEdgeCases:
+    @pytest.mark.parametrize("reserved", ["true", "yes", "null"])
+    def test_reserved_scalar_round_trip_preserved(self, tmp_tickets, reserved: str):
+        from scripts.ticket_read import list_tickets
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"effort": reserved},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        tickets = list_tickets(tmp_tickets)
+        assert tickets[0].effort == reserved
+
+    def test_empty_string_round_trip_preserved(self, tmp_tickets):
+        from scripts.ticket_read import list_tickets
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open", effort="M")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"effort": ""},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        tickets = list_tickets(tmp_tickets)
+        assert tickets[0].effort == ""

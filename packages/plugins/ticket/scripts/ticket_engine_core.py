@@ -136,9 +136,15 @@ def resolve_tickets_dir(
             f"tickets_dir validation failed: expected string path. Got: {value!r:.100}",
         )
 
-    root = project_root.resolve()
-    candidate = Path(value)
-    resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    try:
+        root = project_root.resolve()
+        candidate = Path(value)
+        resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    except OSError as exc:
+        return (
+            None,
+            f"tickets_dir resolution failed: {exc}. Got: {str(value)!r:.100}",
+        )
 
     try:
         resolved.relative_to(root)
@@ -381,7 +387,7 @@ def read_autonomy_config(tickets_dir: Path) -> AutonomyConfig:
         return AutonomyConfig(warnings=tuple(warnings))
     except Exception as exc:
         # yaml.YAMLError doesn't share a base with OSError/ValueError.
-        # Import may fail, so catch broadly but only for YAML parsing.
+        # Keep unexpected non-YAML exceptions visible.
         if "yaml" in type(exc).__module__.lower():
             warnings.append(f"ticket.local.md: failed to parse YAML: {exc}")
             print(f"WARNING: {warnings[-1]}", file=sys.stderr)
@@ -738,6 +744,9 @@ _VALID_TRANSITIONS: dict[str, set[str]] = {
     "wontfix": set(),    # Terminal — reopen action required.
 }
 
+# Bounds archive collision search to avoid infinite loops in pathological trees.
+_MAX_ARCHIVE_COLLISION_SUFFIX = 1000
+
 # Transitions that require preconditions.
 _TRANSITION_PRECONDITIONS: dict[tuple[str, str], str] = {
     ("open", "blocked"): "blocked_by_required",
@@ -792,12 +801,17 @@ def _yaml_value(value: Any) -> str:
     if isinstance(value, list):
         return "[" + ", ".join(_yaml_value(item) for item in value) + "]"
     if isinstance(value, dict):
-        dumped = yaml.safe_dump(
-            value,
-            default_flow_style=True,
-            allow_unicode=True,
-            sort_keys=False,
-        ).strip()
+        try:
+            dumped = yaml.safe_dump(
+                value,
+                default_flow_style=True,
+                allow_unicode=True,
+                sort_keys=False,
+            ).strip()
+        except yaml.YAMLError as exc:
+            raise ValueError(
+                f"yaml serialization failed: {exc}. Got: {value!r:.100}"
+            ) from exc
         if dumped.endswith("\n..."):
             dumped = dumped.rsplit("\n...", 1)[0]
         return dumped
@@ -1049,6 +1063,8 @@ def engine_execute(
         create_fields = dict(fields)
         create_fields.setdefault("priority", "medium")
         plan_resp = _plan_create(create_fields, session_id, request_origin, tickets_dir)
+        if plan_resp.state not in {"ok", "duplicate_candidate"}:
+            return plan_resp
         if plan_resp.state == "duplicate_candidate" and not dedup_override:
             duplicate_of = plan_resp.data.get("duplicate_of")
             return EngineResponse(
@@ -1116,7 +1132,14 @@ def engine_execute(
         elif action == "update":
             resp = _execute_update(ticket_id, fields, session_id, request_origin, tickets_dir)
         elif action == "close":
-            resp = _execute_close(ticket_id, fields, session_id, request_origin, tickets_dir)
+            resp = _execute_close(
+                ticket_id,
+                fields,
+                session_id,
+                request_origin,
+                tickets_dir,
+                dependency_override=dependency_override,
+            )
         elif action == "reopen":
             resp = _execute_reopen(ticket_id, fields, session_id, request_origin, tickets_dir)
         else:
@@ -1156,7 +1179,7 @@ def engine_execute(
     return resp
 
 
-# --- Execute sub-functions (stubs replaced in subsequent slices) ---
+# --- Execute sub-functions ---
 
 
 def _execute_create(
@@ -1278,7 +1301,15 @@ def _execute_update(
         data[key] = value
 
     # Re-render using canonical frontmatter renderer (not yaml.dump).
-    new_yaml = _render_canonical_frontmatter(data)
+    try:
+        new_yaml = _render_canonical_frontmatter(data)
+    except ValueError as exc:
+        return EngineResponse(
+            state="escalate",
+            message=str(exc),
+            ticket_id=ticket_id,
+            error_code="parse_error",
+        )
     new_text = re.sub(
         r"^```ya?ml\s*\n.*?^```",
         f"```yaml\n{new_yaml}```",
@@ -1302,6 +1333,8 @@ def _execute_close(
     session_id: str,
     request_origin: str,
     tickets_dir: Path,
+    *,
+    dependency_override: bool = False,
 ) -> EngineResponse:
     """Close a ticket (set status to done or wontfix, optionally archive).
 
@@ -1319,6 +1352,24 @@ def _execute_close(
     ticket = find_ticket_by_id(tickets_dir, ticket_id)
     if ticket is None:
         return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
+
+    # Defense-in-depth: enforce blocker policy for direct execute calls.
+    if ticket.blocked_by and resolution != "wontfix":
+        from scripts.ticket_read import list_tickets as _list_tickets
+
+        all_tickets = _list_tickets(tickets_dir)
+        ticket_map = {t.id: t for t in all_tickets}
+        unresolved = [
+            bid for bid in ticket.blocked_by
+            if bid in ticket_map and ticket_map[bid].status not in _TERMINAL_STATUSES
+        ]
+        if unresolved and not dependency_override:
+            return EngineResponse(
+                state="dependency_blocked",
+                message=f"Ticket has open blockers: {unresolved}. Resolve or pass dependency_override: true.",
+                ticket_id=ticket_id,
+                error_code="dependency_blocked",
+            )
 
     # Validate transition with action="close" (not "update").
     if not _is_valid_transition(ticket.status, resolution, "close"):
@@ -1355,7 +1406,15 @@ def _execute_close(
 
     old_status = data.get("status", "")
     data["status"] = resolution
-    new_yaml = _render_canonical_frontmatter(data)
+    try:
+        new_yaml = _render_canonical_frontmatter(data)
+    except ValueError as exc:
+        return EngineResponse(
+            state="escalate",
+            message=str(exc),
+            ticket_id=ticket_id,
+            error_code="parse_error",
+        )
     new_text = re.sub(
         r"^```ya?ml\s*\n.*?^```",
         f"```yaml\n{new_yaml}```",
@@ -1378,11 +1437,25 @@ def _execute_close(
         if dst.exists():
             stem = ticket_path.stem
             suffix = ticket_path.suffix
-            n = 2
-            while dst.exists():
-                dst = closed_dir / f"{stem}-{n}{suffix}"
-                n += 1
-        ticket_path.rename(dst)
+            for n in range(2, _MAX_ARCHIVE_COLLISION_SUFFIX + 2):
+                candidate = closed_dir / f"{stem}-{n}{suffix}"
+                if not candidate.exists():
+                    dst = candidate
+                    break
+            else:
+                return EngineResponse(
+                    state="escalate",
+                    message=f"archive collision resolution failed: exhausted suffix search. Got: {ticket_path.name!r:.100}",
+                    ticket_id=ticket_id,
+                )
+        try:
+            ticket_path.rename(dst)
+        except OSError as exc:
+            return EngineResponse(
+                state="escalate",
+                message=f"archive rename failed: {exc}. Got: {str(dst)!r:.100}",
+                ticket_id=ticket_id,
+            )
         return EngineResponse(
             state="ok_close_archived",
             message=f"Closed and archived {ticket_id} to closed-tickets/",
@@ -1440,7 +1513,15 @@ def _execute_reopen(
 
     old_status = data.get("status", "")
     data["status"] = "open"
-    new_yaml = _render_canonical_frontmatter(data)
+    try:
+        new_yaml = _render_canonical_frontmatter(data)
+    except ValueError as exc:
+        return EngineResponse(
+            state="escalate",
+            message=str(exc),
+            ticket_id=ticket_id,
+            error_code="parse_error",
+        )
     new_text = re.sub(
         r"^```ya?ml\s*\n.*?^```",
         f"```yaml\n{new_yaml}```",

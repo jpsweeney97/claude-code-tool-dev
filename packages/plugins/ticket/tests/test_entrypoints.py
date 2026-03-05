@@ -202,3 +202,34 @@ class TestEntrypointTicketsDirBoundaries:
             tmp_path,
         )
         assert output["state"] == "ok_create"
+
+    def test_agent_rejects_tickets_dir_outside_project_root(self, tmp_path: Path):
+        outside = tmp_path.parent / "outside-tickets"
+        output = run_entrypoint(
+            "ticket_engine_agent.py",
+            "execute",
+            {
+                "action": "create",
+                "fields": {"title": "test", "problem": "test"},
+                "session_id": "test",
+                "tickets_dir": str(outside),
+            },
+            tmp_path,
+        )
+        assert output["state"] == "policy_blocked"
+        assert output["error_code"] == "policy_blocked"
+
+    def test_agent_allows_absolute_tickets_dir_inside_project_root(self, tmp_path: Path):
+        in_root = tmp_path / "docs" / "tickets"
+        output = run_entrypoint(
+            "ticket_engine_agent.py",
+            "classify",
+            {
+                "action": "create",
+                "args": {},
+                "session_id": "test",
+                "tickets_dir": str(in_root),
+            },
+            tmp_path,
+        )
+        assert output["state"] == "ok"
