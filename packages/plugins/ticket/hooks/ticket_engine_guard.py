@@ -44,6 +44,36 @@ def _build_allowlist_pattern(plugin_root: str) -> re.Pattern[str]:
     )
 
 
+def _build_readonly_pattern(plugin_root: str) -> re.Pattern[str]:
+    """Build pattern for read-only ticket scripts (no payload injection)."""
+    escaped = re.escape(plugin_root)
+    return re.compile(
+        rf"^python3\s+{escaped}/scripts/ticket_(read|triage)\.py\s+(\w+)\s+(.+)$"
+    )
+
+
+def _is_ticket_invocation(command: str) -> bool:
+    """Check if command is a Python invocation that might target ticket scripts.
+
+    Intentionally broad — catches non-canonical Python launcher forms:
+    python, python3, python3.11, /usr/bin/python3, /usr/local/bin/python3.11,
+    env python3, env PYTHONPATH=. python3, PYTHONPATH=. python3,
+    as well as relative paths and path traversal in the script argument.
+    Exact validation happens in branches 1-3; branch 3 denies anything that
+    doesn't match the explicit allowlists.
+
+    Non-python commands (cat, rg, wc) pass through — they don't match the
+    Python launcher prefix so this returns False (branch 4).
+    """
+    return bool(
+        re.match(
+            r"^(?:env\s+)?(?:[A-Z_][A-Z0-9_]*=\S+\s+)*(?:/\S+/)?python[\d.]*\s+",
+            command,
+        )
+        and re.search(r"\bscripts/ticket_\w+\.py\b", command)
+    )
+
+
 def _make_allow(reason: str) -> dict:
     return {
         "hookSpecificOutput": {
@@ -156,12 +186,14 @@ def main() -> None:
     tool_input = event.get("tool_input", {})
     command = tool_input.get("command", "")
 
-    # Non-ticket commands pass through.
-    if "ticket_engine" not in command:
+    # Branch 4: Non-ticket-script invocations pass through (cat, rg, wc, etc.).
+    # Only python3 invocations of ticket_*.py scripts enter strict checks.
+    plugin_root = _plugin_root()
+    if not _is_ticket_invocation(command):
         print("{}")
         return
 
-    # --- From here, the command mentions ticket_engine. Apply strict checks. ---
+    # --- From here, command is a python3 invocation of a ticket script. ---
 
     # Block shell metacharacters.
     if SHELL_METACHAR_RE.search(command):
@@ -170,52 +202,63 @@ def main() -> None:
         )))
         return
 
-    # Match against allowlist.
-    plugin_root = _plugin_root()
-    pattern = _build_allowlist_pattern(plugin_root)
-    match = pattern.match(command)
+    # Branch 1: Engine exact allowlist → validate subcommand/payload + inject.
+    engine_pattern = _build_allowlist_pattern(plugin_root)
+    engine_match = engine_pattern.match(command)
 
-    if not match:
-        print(json.dumps(_make_deny(
-            f"Command does not match ticket engine allowlist. Got: {command!r:.100}"
+    if engine_match:
+        entrypoint_type = engine_match.group(1)  # "user" or "agent"
+        subcommand = engine_match.group(2)
+        payload_path = engine_match.group(3)
+
+        # Validate subcommand.
+        if subcommand not in VALID_SUBCOMMANDS:
+            print(json.dumps(_make_deny(
+                f"Unknown subcommand '{subcommand}'. Valid: {sorted(VALID_SUBCOMMANDS)}"
+            )))
+            return
+
+        # Check for extra arguments (payload_path should not contain whitespace).
+        if re.search(r"\s", payload_path):
+            print(json.dumps(_make_deny(
+                f"Extra arguments after payload path. Got: {command!r:.100}"
+            )))
+            return
+
+        workspace_root = event.get("cwd", "")
+        resolved_path, path_error = _resolve_payload_path(payload_path, workspace_root)
+        if path_error is not None or resolved_path is None:
+            print(json.dumps(_make_deny(
+                f"Payload path validation failed: {path_error or 'unknown error'}"
+            )))
+            return
+
+        # Inject trust fields into payload.
+        session_id = event.get("session_id", "")
+        error = _inject_payload(str(resolved_path), session_id, entrypoint_type)
+        if error is not None:
+            print(json.dumps(_make_deny(f"Payload injection failed: {error}")))
+            return
+
+        print(json.dumps(_make_allow(
+            f"Ticket engine {entrypoint_type}/{subcommand} validated and payload injected"
         )))
         return
 
-    entrypoint_type = match.group(1)  # "user" or "agent"
-    subcommand = match.group(2)
-    payload_path = match.group(3)
-
-    # Validate subcommand.
-    if subcommand not in VALID_SUBCOMMANDS:
-        print(json.dumps(_make_deny(
-            f"Unknown subcommand '{subcommand}'. Valid: {sorted(VALID_SUBCOMMANDS)}"
+    # Branch 2: Read-only scripts (ticket_read.py, ticket_triage.py) → allow, no injection.
+    readonly_pattern = _build_readonly_pattern(plugin_root)
+    readonly_match = readonly_pattern.match(command)
+    if readonly_match:
+        script_name = readonly_match.group(1)  # "read" or "triage"
+        subcommand = readonly_match.group(2)
+        print(json.dumps(_make_allow(
+            f"Ticket {script_name}/{subcommand} validated (read-only)"
         )))
         return
 
-    # Check for extra arguments (payload_path should not contain whitespace).
-    if re.search(r"\s", payload_path):
-        print(json.dumps(_make_deny(
-            f"Extra arguments after payload path. Got: {command!r:.100}"
-        )))
-        return
-
-    workspace_root = event.get("cwd", "")
-    resolved_path, path_error = _resolve_payload_path(payload_path, workspace_root)
-    if path_error is not None or resolved_path is None:
-        print(json.dumps(_make_deny(
-            f"Payload path validation failed: {path_error or 'unknown error'}"
-        )))
-        return
-
-    # Inject trust fields into payload.
-    session_id = event.get("session_id", "")
-    error = _inject_payload(str(resolved_path), session_id, entrypoint_type)
-    if error is not None:
-        print(json.dumps(_make_deny(f"Payload injection failed: {error}")))
-        return
-
-    print(json.dumps(_make_allow(
-        f"Ticket engine {entrypoint_type}/{subcommand} validated and payload injected"
+    # Branch 3: Unrecognized ticket script invocation → deny.
+    print(json.dumps(_make_deny(
+        f"Command invokes unrecognized ticket script. Got: {command!r:.100}"
     )))
 
 

@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 _TERMINAL_STATUSES = frozenset({"done", "wontfix"})
@@ -241,3 +244,36 @@ def triage_orphan_detection(
         "total_items": len(matched) + len(orphaned),
         "read_errors": read_errors,
     }
+
+
+def main() -> None:
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Ticket triage operations")
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    dash_p = subparsers.add_parser("dashboard")
+    dash_p.add_argument("tickets_dir", type=Path)
+
+    audit_p = subparsers.add_parser("audit")
+    audit_p.add_argument("tickets_dir", type=Path)
+    audit_p.add_argument("--days", type=int, default=7)
+
+    args = parser.parse_args()
+
+    if args.subcommand is None:
+        parser.print_usage(sys.stderr)
+        sys.exit(1)
+
+    if args.subcommand == "dashboard":
+        result = triage_dashboard(args.tickets_dir)
+        print(json.dumps({"state": "ok", "data": result}))
+
+    elif args.subcommand == "audit":
+        result = triage_audit_report(args.tickets_dir, days=args.days)
+        print(json.dumps({"state": "ok", "data": result}))
+
+
+if __name__ == "__main__":
+    main()

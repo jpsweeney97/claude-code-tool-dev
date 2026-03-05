@@ -1,7 +1,10 @@
 """Tests for ticket_read.py — shared read module for query and list."""
 from __future__ import annotations
 
-
+import json
+import subprocess
+import sys
+from pathlib import Path
 
 from scripts.ticket_read import (
     find_ticket_by_id,
@@ -142,3 +145,69 @@ class TestFuzzyMatchId:
         tickets = list_tickets(tmp_tickets)
         matches = fuzzy_match_id(tickets, "T-20260302")
         assert len(matches) == 2
+
+
+READ_SCRIPT = Path(__file__).parent.parent / "scripts" / "ticket_read.py"
+
+
+class TestReadCLI:
+    def test_list_subcommand_returns_json(self, tmp_tickets):
+        from tests.conftest import make_ticket
+        make_ticket(tmp_tickets, "2026-03-02-first.md", id="T-20260302-01", status="open")
+        result = subprocess.run(
+            [sys.executable, str(READ_SCRIPT), "list", str(tmp_tickets)],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["state"] == "ok"
+        assert len(data["data"]["tickets"]) == 1
+
+    def test_list_with_status_filter(self, tmp_tickets):
+        from tests.conftest import make_ticket
+        make_ticket(tmp_tickets, "2026-03-02-open.md", id="T-20260302-01", status="open")
+        make_ticket(tmp_tickets, "2026-03-02-blocked.md", id="T-20260302-02", status="blocked")
+        result = subprocess.run(
+            [sys.executable, str(READ_SCRIPT), "list", str(tmp_tickets), "--status", "open"],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert len(data["data"]["tickets"]) == 1
+        assert data["data"]["tickets"][0]["id"] == "T-20260302-01"
+
+    def test_query_subcommand_fuzzy_match(self, tmp_tickets):
+        from tests.conftest import make_ticket
+        make_ticket(tmp_tickets, "2026-03-02-auth-bug.md", id="T-20260302-01", title="Fix auth bug")
+        result = subprocess.run(
+            [sys.executable, str(READ_SCRIPT), "query", str(tmp_tickets), "T-20260302"],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["state"] == "ok"
+        assert len(data["data"]["tickets"]) >= 1
+
+    def test_unknown_subcommand_exits_2(self, tmp_tickets):
+        """argparse exits 2 for invalid subcommand choice, not 1."""
+        result = subprocess.run(
+            [sys.executable, str(READ_SCRIPT), "bogus", str(tmp_tickets)],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 2
+
+    def test_missing_args_exits_1(self):
+        result = subprocess.run(
+            [sys.executable, str(READ_SCRIPT)],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 1
+
+    def test_list_nonexistent_dir_returns_empty(self, tmp_path):
+        result = subprocess.run(
+            [sys.executable, str(READ_SCRIPT), "list", str(tmp_path / "nope")],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["data"]["tickets"] == []
