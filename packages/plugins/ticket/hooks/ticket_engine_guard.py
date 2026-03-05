@@ -55,15 +55,17 @@ def _build_readonly_pattern(plugin_root: str) -> re.Pattern[str]:
 def _is_ticket_invocation(command: str) -> bool:
     """Check if command is a Python invocation that might target ticket scripts.
 
-    Intentionally broad — catches non-canonical forms (python vs python3,
-    relative paths, path traversal). Exact validation happens in branches 1-3;
-    branch 3 denies anything that doesn't match the explicit allowlists.
+    Intentionally broad — catches non-canonical Python launcher forms:
+    python, python3, python3.11, /usr/bin/python3, /usr/local/bin/python3.11,
+    as well as relative paths and path traversal in the script argument.
+    Exact validation happens in branches 1-3; branch 3 denies anything that
+    doesn't match the explicit allowlists.
 
-    Non-python commands (cat, rg, wc) still pass through — they don't start
-    with python3? so this returns False for them (branch 4).
+    Non-python commands (cat, rg, wc) pass through — they don't match the
+    Python launcher prefix so this returns False (branch 4).
     """
     return bool(
-        re.match(r"^python3?\s+", command)
+        re.match(r"^(?:/\S+/)?python[\d.]*\s+", command)
         and re.search(r"\bscripts/ticket_\w+\.py\b", command)
     )
 

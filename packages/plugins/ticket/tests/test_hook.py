@@ -552,3 +552,25 @@ class TestExecutionShapeMatching:
         )
         decision = result.get("hookSpecificOutput", {})
         assert decision.get("permissionDecision") == "deny"
+
+    def test_absolute_python_path_denied(self):
+        """/usr/bin/python3 engine invocation is denied, not bypassed."""
+        result = run_hook(
+            make_hook_input(
+                f"/usr/bin/python3 {FAKE_ROOT}/scripts/ticket_engine_user.py plan payload.json",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "deny"
+
+    def test_versioned_python_denied(self):
+        """python3.11 engine invocation is denied, not bypassed."""
+        result = run_hook(
+            make_hook_input(
+                f"python3.11 {FAKE_ROOT}/scripts/ticket_engine_user.py plan payload.json",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "deny"
