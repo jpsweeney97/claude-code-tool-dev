@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -327,3 +329,52 @@ class TestOrphanDetection:
         result = triage_orphan_detection(tickets_dir, handoffs_dir)
         assert len(result["matched"]) == 1
         assert result["matched"][0]["match_type"] == "uid_match"
+
+
+TRIAGE_SCRIPT = Path(__file__).parent.parent / "scripts" / "ticket_triage.py"
+
+
+class TestTriageCLI:
+    def test_dashboard_subcommand_returns_json(self, tmp_tickets):
+        result = subprocess.run(
+            [sys.executable, str(TRIAGE_SCRIPT), "dashboard", str(tmp_tickets)],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["state"] == "ok"
+        assert "counts" in data["data"]
+
+    def test_audit_subcommand_returns_json(self, tmp_tickets):
+        result = subprocess.run(
+            [sys.executable, str(TRIAGE_SCRIPT), "audit", str(tmp_tickets)],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["state"] == "ok"
+        assert "total_entries" in data["data"]
+
+    def test_audit_with_days_arg(self, tmp_tickets):
+        result = subprocess.run(
+            [sys.executable, str(TRIAGE_SCRIPT), "audit", str(tmp_tickets), "--days", "30"],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["state"] == "ok"
+
+    def test_unknown_subcommand_exits_2(self, tmp_tickets):
+        """argparse exits 2 for invalid subcommand choice, not 1."""
+        result = subprocess.run(
+            [sys.executable, str(TRIAGE_SCRIPT), "bogus", str(tmp_tickets)],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 2
+
+    def test_missing_args_exits_1(self):
+        result = subprocess.run(
+            [sys.executable, str(TRIAGE_SCRIPT)],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 1
