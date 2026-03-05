@@ -126,16 +126,21 @@ class TestAllowlist:
         output = run_hook(inp, plugin_root=plugin_root)
         assert _decision(output) == "allow"
 
-    def test_blocks_direct_core_import(self) -> None:
-        """Direct import of ticket_engine_core doesn't match allowlist — denied."""
+    def test_direct_core_import_passes_through(self) -> None:
+        """python3 -c one-liners don't match _is_ticket_invocation — pass through.
+
+        The 4-branch gate only matches `python3 <root>/scripts/ticket_*.py ...`
+        invocations. `python3 -c '...'` is not a ticket script invocation, so it
+        passes through as empty JSON (branch 4). The old substring gate denied
+        this, but that was overly broad — the hook's contract is to gate ticket
+        script execution, not all python invocations mentioning ticket internals.
+        """
         inp = make_hook_input(
             "python3 -c 'from scripts.ticket_engine_core import engine_plan'",
             plugin_root="/fake/plugin",
         )
-        # Contains "ticket_engine" so strict checks apply, but -c flag
-        # doesn't match the allowlist regex pattern — denied.
         output = run_hook(inp, plugin_root="/fake/plugin")
-        assert _decision(output) == "deny"
+        assert output == {}
 
     def test_blocks_ticket_engine_with_extra_args(self, tmp_path: Path) -> None:
         payload_file = make_payload_file(tmp_path)
@@ -411,3 +416,106 @@ class TestPayloadPathBoundaries:
         assert resolved is None
         assert err is not None
         assert "resolution failed" in err.lower()
+
+
+FAKE_ROOT = "/fake/plugin"
+
+
+class TestReadAllowlist:
+    def test_read_list_allowed(self):
+        result = run_hook(
+            make_hook_input(
+                f"python3 {FAKE_ROOT}/scripts/ticket_read.py list /tmp/tickets",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "allow"
+
+    def test_read_query_allowed(self):
+        result = run_hook(
+            make_hook_input(
+                f"python3 {FAKE_ROOT}/scripts/ticket_read.py query /tmp/tickets T-20260302",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "allow"
+
+    def test_read_no_payload_injection(self):
+        """Read commands should pass through without modifying any files."""
+        result = run_hook(
+            make_hook_input(
+                f"python3 {FAKE_ROOT}/scripts/ticket_read.py list /tmp/tickets",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "allow"
+        assert "validated (read-only)" in decision.get("permissionDecisionReason", "")
+
+
+class TestTriageAllowlist:
+    def test_triage_dashboard_allowed(self):
+        result = run_hook(
+            make_hook_input(
+                f"python3 {FAKE_ROOT}/scripts/ticket_triage.py dashboard /tmp/tickets",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "allow"
+
+    def test_triage_audit_allowed(self):
+        result = run_hook(
+            make_hook_input(
+                f"python3 {FAKE_ROOT}/scripts/ticket_triage.py audit /tmp/tickets --days 30",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "allow"
+
+    def test_triage_no_payload_injection(self):
+        result = run_hook(
+            make_hook_input(
+                f"python3 {FAKE_ROOT}/scripts/ticket_triage.py dashboard /tmp/tickets",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert "validated (read-only)" in decision.get("permissionDecisionReason", "")
+
+
+class TestExecutionShapeMatching:
+    def test_cat_ticket_file_passes_through(self):
+        """Non-python commands on ticket files pass through (empty JSON)."""
+        result = run_hook(
+            make_hook_input(
+                f"cat {FAKE_ROOT}/scripts/ticket_triage.py",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        # cat is not a python invocation — passes through as empty dict
+        assert result == {}
+
+    def test_rg_ticket_file_passes_through(self):
+        """rg/grep on ticket files pass through."""
+        result = run_hook(
+            make_hook_input(
+                f"rg ticket_engine {FAKE_ROOT}/scripts/ticket_engine_core.py",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        assert result == {}
+
+    def test_unknown_ticket_script_denied(self):
+        """Python invocation of an unrecognized ticket script is denied."""
+        result = run_hook(
+            make_hook_input(
+                f"python3 {FAKE_ROOT}/scripts/ticket_evil.py attack",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "deny"
