@@ -42,7 +42,7 @@ Response fields: `counts` (open/in_progress/blocked), `total`, `stale` (list), `
 python3 <PLUGIN_ROOT>/scripts/ticket_triage.py audit <TICKETS_DIR>
 ```
 
-Covers the last 7 days by default. Response fields: `total_entries`, `session_count`, `creates`, `updates`, `closes`, `reopens`.
+Covers the last 7 days by default. Response fields: `total_entries`, `sessions` (unique session count), `by_action` (dict of action → count, e.g. `{"create": 2, "update": 5}`), `by_result` (dict), `skipped_lines`, `read_errors`.
 
 ### Step 3: Format report
 
@@ -54,13 +54,13 @@ Present a structured summary:
 **Active:** X total (open: N, in_progress: N, blocked: N)
 
 **Stale (no activity > 7 days):**
-- T-YYYYMMDD-NN: <title> — last updated YYYY-MM-DD
+- T-YYYYMMDD-NN (status: open) — last date: YYYY-MM-DD
 
 **Blocked chains:**
 - T-YYYYMMDD-NN blocked by T-YYYYMMDD-MM (root blocker)
 
 **Recent activity (last 7 days):**
-- N creates, N updates, N closes
+- N creates, N updates, N closes  (from `by_action` dict)
 ```
 
 Omit sections with no entries.
@@ -81,4 +81,6 @@ Add opinionated recommendations beyond what the data shows:
 
 Both scripts return `{"state": "ok", "data": {...}}` on stdout. Exit 0 on success, 1 on error.
 
-If `TICKETS_DIR` does not exist: report "No tickets directory found at `<path>`" and stop.
+If exit code is 1 (no JSON on stdout): report the stderr output and stop — do not attempt to parse.
+
+If `TICKETS_DIR` does not exist: the dashboard still exits 0 with empty counts. Report "No tickets found" if `total` is 0.

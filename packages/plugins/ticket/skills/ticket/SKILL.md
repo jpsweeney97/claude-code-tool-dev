@@ -44,7 +44,7 @@ mkdir -p .claude/ticket-tmp
 
 ## Routing
 
-Dispatch on the first token of `$ARGUMENTS` or the user's intent. If `$ARGUMENTS` is empty and the user's intent is unclear, ask: "What would you like to do? (create / update / close / reopen / list / query)"
+Dispatch on the first token of the text typed after `/ticket` (e.g., `/ticket create Fix auth bug` → operation is `create`) or the user's intent. If no operation is clear, ask: "What would you like to do? (create / update / close / reopen / list / query)"
 
 | Operation | Trigger phrases | Execution path |
 |-----------|----------------|----------------|
@@ -89,6 +89,11 @@ From the conversation history, extract:
 
 ### Step 2: Confirmation gate
 
+**For update/close/reopen:** First read the existing ticket file to show current state:
+```bash
+python3 <PLUGIN_ROOT>/scripts/ticket_read.py query <TICKETS_DIR> <ticket-id>
+```
+
 Present the proposed operation before writing any files:
 
 ```
@@ -101,7 +106,7 @@ I'll create a ticket with:
 Continue? [y / edit / n]
 ```
 
-For update/close/reopen: show current ticket state alongside proposed changes.
+For update/close/reopen: show current ticket state (from the read above) alongside proposed changes.
 
 - `y` → proceed to pipeline
 - `edit` → ask which fields to change, update, re-confirm
@@ -134,6 +139,7 @@ Read `state` from the JSON response (`{"state": ..., "data": {...}}`):
 
 | State | Action |
 |-------|--------|
+| `ok` | Report success and stop (generic — rare in pipeline context) |
 | `ok_create` | Report success: "Created ticket T-YYYYMMDD-NN at docs/tickets/<slug>.md" |
 | `ok_update` | Report: "Updated ticket T-..." with list of changed fields |
 | `ok_close` / `ok_close_archived` | Report: "Closed ticket T-... (archived to closed-tickets/)" |

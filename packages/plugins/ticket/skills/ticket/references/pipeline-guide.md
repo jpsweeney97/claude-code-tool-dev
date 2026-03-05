@@ -124,7 +124,7 @@ When `plan` returns `state: "need_fields"`:
    python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py preflight .claude/ticket-tmp/payload.json
    python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py execute .claude/ticket-tmp/payload.json
    ```
-5. Loop until `plan` returns a non-`need_fields` state.
+5. If `plan` returns `duplicate_candidate` during this loop, enter the `duplicate_candidate` loop below before proceeding. If `plan` returns any other non-`need_fields` state, handle it per the Step 5 response state table in SKILL.md.
 
 ---
 
@@ -141,7 +141,7 @@ When `plan` returns `state: "duplicate_candidate"`:
    Create a new ticket anyway? [y/n]
    ```
 4. If `n` → stop and point the user to the existing ticket.
-5. If `y` → add `dedup_override: true` and `ticket_id: "<duplicate_of>"` to the payload, then re-run:
+5. If `y` → add `dedup_override: true` and `ticket_id: "<duplicate_of>"` to the payload at the top level (not inside `fields`). The `ticket_id` here is the duplicate's ID from `data.duplicate_of` — this tells the engine which existing ticket you are overriding. Then re-run:
    ```bash
    python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py plan .claude/ticket-tmp/payload.json
    python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py preflight .claude/ticket-tmp/payload.json
