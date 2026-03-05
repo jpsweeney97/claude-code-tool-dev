@@ -712,8 +712,6 @@ def engine_preflight(
 
 # --- execute ---
 
-from datetime import date as Date
-
 from scripts.ticket_id import allocate_id, build_filename
 from scripts.ticket_parse import (
     ParsedTicket,
@@ -1182,7 +1180,7 @@ def _execute_create(
 
     tickets_dir.mkdir(parents=True, exist_ok=True)
 
-    today = Date.today()
+    today = datetime.now(timezone.utc).date()
     ticket_id = allocate_id(tickets_dir, today)
     title = fields.get("title", "Untitled")
     filename = build_filename(ticket_id, title, tickets_dir)
