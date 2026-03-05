@@ -1,6 +1,12 @@
 # Context Metrics Plugin
 
+> **v0.1.0** · MIT · Python ≥3.11 · No runtime dependencies (stdlib only)
+
 Context window occupancy metrics — injects a summary line into conversations via JSONL transcript analysis.
+
+## What Problem Does This Solve?
+
+Claude Code doesn't tell you how full your context window is. You can't see how many tokens you've used, when compactions happened, or how close you are to degraded performance. The context-metrics plugin adds passive occupancy monitoring — a one-line summary injected into the conversation at meaningful moments (token growth, boundary crossings, compactions). You get awareness without distraction: it stays quiet when nothing changes, and speaks up when it matters.
 
 ## What this plugin provides
 
@@ -164,6 +170,29 @@ Lifecycle events:
 
 Session registry uses lease-based expiry (600s timeout) — stale sessions are cleaned up even if `SessionEnd` hooks fail to fire.
 
+## Hook Configuration
+
+| Event | Matcher | Script | Timeout | Status Message |
+|-------|---------|--------|---------|----------------|
+| `SessionStart` | `startup` | `start_sidecar.py` | 30s | "Starting context metrics" |
+| `SessionStart` | `compact` | `context_summary.py` | 5s | "Updating context metrics (post-compaction)" |
+| `UserPromptSubmit` | — | `context_summary.py` | 5s | "Updating context metrics" |
+| `SessionEnd` | — | `stop_sidecar.py` | 5s | — |
+
+## Script Reference
+
+| Script | Purpose |
+|--------|---------|
+| `server.py` | HTTP sidecar server: handles `/health`, `/sessions/*`, `/hooks/context-metrics` endpoints. Thread-safe session state management. |
+| `context_summary.py` | Hook entry point for `UserPromptSubmit` and `SessionStart(compact)`. POSTs to sidecar, prints response to stdout. |
+| `start_sidecar.py` | Hook entry point for `SessionStart(startup)`. Health-check-first: if running, just registers. Otherwise launches in background with up to 2s startup poll. |
+| `stop_sidecar.py` | Hook entry point for `SessionEnd`. Deregisters session; sends SIGTERM only when 0 active sessions remain. |
+| `trigger_engine.py` | 5-trigger OR-logic evaluation engine with format priority selection. |
+| `formatter.py` | Token count formatting for full, minimal, and compaction output formats. Soft boundary warning logic. |
+| `jsonl_reader.py` | Backward JSONL scan from EOF + forward message count. 4-condition positive selector with deduplication by message ID. |
+| `session_registry.py` | Lease-based session tracker (600s timeout). Thread-safe. Stale sessions cleaned even if `SessionEnd` hooks fail. |
+| `config.py` | Config reader: custom stdlib YAML parser (no runtime dependencies). Model detection and occupancy-based window auto-upgrade. |
+
 ## Skills
 
 ### `/context-dashboard`
@@ -171,3 +200,30 @@ Session registry uses lease-based expiry (600s timeout) — stale sessions are c
 Show detailed context window occupancy metrics by reading the current session's JSONL transcript. Use when the user asks about context usage, token counts, or window occupancy.
 
 Displays: current occupancy, message count, compaction count, and session phase. Warns when approaching or exceeding a configured soft boundary.
+
+## Tests
+
+96 tests across 8 test files:
+
+| Test File | Coverage Area |
+|-----------|--------------|
+| `test_config.py` | Config parsing, YAML frontmatter extraction, model detection, occupancy auto-upgrade |
+| `test_trigger_engine.py` | All 5 trigger types, OR semantics, format priority, heartbeat intervals, state transitions |
+| `test_formatter.py` | Token formatting, soft boundary warnings, all 3 output format functions |
+| `test_jsonl_reader.py` | Backward scan, malformed lines, empty files, message dedup, non-integer safety |
+| `test_session_registry.py` | Register/deregister/renew/expire, thread safety, lease timeout |
+| `test_server.py` | Live HTTP server, all endpoints, fail-open on bad input |
+| `test_hooks.py` | Hook script subprocess behavior, compaction notification path |
+| `test_integration.py` | End-to-end: start → register → hook → deregister → stop flows |
+
+```bash
+cd packages/plugins/context-metrics && uv run pytest
+```
+
+## Known Limitations
+
+1. **No category breakdown** — Context occupancy is reported as a single total. Per-category breakdown (system prompt, conversation, tool results) requires the devtools `/groups` endpoint, deferred to v1.1.
+2. **No phase history** — Phase tracking doesn't persist pre-compaction sizes. Showing "you were at 180k before compaction" requires tracking `compact_boundary` markers, deferred to v1.1.
+3. **No cost data** — Token cost estimation requires devtools integration, not available in the base plugin.
+4. **Large session performance** — Full JSONL scan for `/context-dashboard` may be slow for very large sessions (>100MB transcripts).
+5. **Hook process crash is fail-open** — If the hook script crashes at the OS level (not a Python exception), it exits non-zero but Claude Code treats this as "no output" rather than blocking. This is by design for a monitoring tool but means crashes are silent.

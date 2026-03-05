@@ -1,8 +1,6 @@
 """Integration tests: config → preflight → execute → audit trail."""
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -12,7 +10,6 @@ from scripts.ticket_engine_core import (
     engine_count_session_creates,
     engine_execute,
     engine_preflight,
-    read_autonomy_config,
 )
 
 
@@ -79,7 +76,7 @@ class TestAutonomyIntegration:
             config = AutonomyConfig(mode="auto_audit", max_creates=2)
             engine_execute(
                 action="create", ticket_id=None,
-                fields={"title": f"Ticket {i}", "problem": "Issue"},
+                fields={"title": f"Ticket {i}", "problem": f"Issue {i}"},
                 session_id="cap-session", request_origin="agent",
                 dedup_override=False, dependency_override=False,
                 tickets_dir=tickets_dir, autonomy_config=config, hook_injected=True,

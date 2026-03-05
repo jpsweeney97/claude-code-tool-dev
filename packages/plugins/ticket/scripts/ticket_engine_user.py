@@ -20,6 +20,7 @@ from scripts.ticket_engine_core import (
     engine_execute,
     engine_plan,
     engine_preflight,
+    resolve_tickets_dir,
 )
 
 REQUEST_ORIGIN = "user"
@@ -53,7 +54,16 @@ def main() -> None:
         print(resp.to_json())
         sys.exit(1)
 
-    tickets_dir = Path(payload.get("tickets_dir", "docs/tickets"))
+    tickets_dir_raw = payload.get("tickets_dir", "docs/tickets")
+    tickets_dir, path_error = resolve_tickets_dir(tickets_dir_raw, project_root=Path.cwd())
+    if path_error is not None or tickets_dir is None:
+        resp = EngineResponse(
+            state="policy_blocked",
+            message=path_error or "tickets_dir validation failed",
+            error_code="policy_blocked",
+        )
+        print(resp.to_json())
+        sys.exit(1)
 
     resp = _dispatch(subcommand, payload, tickets_dir)
     print(resp.to_json())
@@ -92,6 +102,7 @@ def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineRespon
             classify_intent=payload.get("classify_intent", ""),
             dedup_fingerprint=payload.get("dedup_fingerprint"),
             target_fingerprint=payload.get("target_fingerprint"),
+            fields=payload.get("fields"),
             duplicate_of=payload.get("duplicate_of"),
             dedup_override=payload.get("dedup_override", False),
             dependency_override=payload.get("dependency_override", False),
@@ -110,6 +121,7 @@ def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineRespon
             dedup_override=payload.get("dedup_override", False),
             dependency_override=payload.get("dependency_override", False),
             tickets_dir=tickets_dir,
+            target_fingerprint=payload.get("target_fingerprint"),
             autonomy_config=autonomy_config,
             hook_injected=payload.get("hook_injected", False),
         )

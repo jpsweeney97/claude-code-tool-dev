@@ -6,9 +6,7 @@ from pathlib import Path
 import pytest
 
 from scripts.ticket_engine_core import (
-    AUDIT_UNAVAILABLE,
     AutonomyConfig,
-    engine_count_session_creates,
     engine_execute,
     engine_preflight,
     read_autonomy_config,

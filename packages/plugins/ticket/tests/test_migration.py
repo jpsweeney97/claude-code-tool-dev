@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import textwrap
 
-import pytest
 
 from scripts.ticket_parse import parse_ticket
 

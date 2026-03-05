@@ -5,10 +5,12 @@ using sys.executable as the Python interpreter.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -48,12 +50,13 @@ def make_hook_input(
     plugin_root: str = "/fake/plugin",
     session_id: str = "test-session-123",
     tool_name: str = "Bash",
+    cwd: str = "/",
 ) -> dict:
     """Build a hook stdin JSON payload."""
     return {
         "session_id": session_id,
         "transcript_path": "/tmp/transcript.jsonl",
-        "cwd": "/tmp",
+        "cwd": cwd,
         "permission_mode": "default",
         "hook_event_name": "PreToolUse",
         "tool_name": tool_name,
@@ -68,6 +71,15 @@ def make_payload_file(tmp_path: Path, data: dict | None = None) -> Path:
     path = tmp_path / "payload.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
+
+
+def load_guard_module() -> ModuleType:
+    """Load the hook module for direct unit tests of helper functions."""
+    spec = importlib.util.spec_from_file_location("ticket_engine_guard", HOOK_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _decision(output: dict) -> str:
@@ -355,3 +367,47 @@ class TestPayloadInjection:
         output = run_hook(inp, plugin_root=plugin_root)
         assert _decision(output) == "deny"
         assert "metacharacters" in _reason(output).lower()
+
+
+class TestPayloadPathBoundaries:
+    def test_allows_payload_inside_workspace_root(self, tmp_path: Path) -> None:
+        payload_file = make_payload_file(tmp_path, {"action": "plan"})
+        plugin_root = str(tmp_path / "plugin")
+        (Path(plugin_root) / "scripts").mkdir(parents=True)
+
+        inp = make_hook_input(
+            f"python3 {plugin_root}/scripts/ticket_engine_user.py plan {payload_file}",
+            plugin_root=plugin_root,
+            cwd=str(tmp_path),
+        )
+        output = run_hook(inp, plugin_root=plugin_root)
+        assert _decision(output) == "allow"
+
+    def test_denies_payload_outside_workspace_root(self, tmp_path: Path) -> None:
+        payload_file = make_payload_file(tmp_path, {"action": "plan"})
+        plugin_root = str(tmp_path / "plugin")
+        (Path(plugin_root) / "scripts").mkdir(parents=True)
+
+        outside_root = tmp_path / "workspace"
+        outside_root.mkdir()
+
+        inp = make_hook_input(
+            f"python3 {plugin_root}/scripts/ticket_engine_user.py plan {payload_file}",
+            plugin_root=plugin_root,
+            cwd=str(outside_root),
+        )
+        output = run_hook(inp, plugin_root=plugin_root)
+        assert _decision(output) == "deny"
+        assert "outside workspace root" in _reason(output).lower()
+
+    def test_payload_path_resolution_oserror_returns_deny_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        guard = load_guard_module()
+
+        def fail_resolve(_: Path) -> Path:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(guard.Path, "resolve", fail_resolve)
+        resolved, err = guard._resolve_payload_path("payload.json", "/tmp")
+        assert resolved is None
+        assert err is not None
+        assert "resolution failed" in err.lower()

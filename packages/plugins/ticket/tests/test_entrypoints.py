@@ -21,7 +21,7 @@ def run_entrypoint(script: str, subcommand: str, payload: dict, tmp_path: Path) 
         [sys.executable, str(SCRIPTS_DIR / script), subcommand, str(payload_file)],
         capture_output=True,
         text=True,
-        cwd=str(SCRIPTS_DIR.parent),
+        cwd=str(tmp_path),
     )
     assert result.returncode in (0, 1, 2), f"Unexpected exit code: {result.returncode}\nstderr: {result.stderr}"
     return json.loads(result.stdout)
@@ -166,6 +166,70 @@ class TestEntrypointErrors:
             [sys.executable, str(SCRIPTS_DIR / "ticket_engine_user.py"), "classify", str(payload_file)],
             capture_output=True,
             text=True,
-            cwd=str(SCRIPTS_DIR.parent),
+            cwd=str(tmp_path),
         )
         assert result.returncode != 0
+
+
+class TestEntrypointTicketsDirBoundaries:
+    def test_user_rejects_tickets_dir_outside_project_root(self, tmp_path: Path):
+        outside = tmp_path.parent / "outside-tickets"
+        output = run_entrypoint(
+            "ticket_engine_user.py",
+            "execute",
+            {
+                "action": "create",
+                "fields": {"title": "test", "problem": "test"},
+                "session_id": "test",
+                "tickets_dir": str(outside),
+            },
+            tmp_path,
+        )
+        assert output["state"] == "policy_blocked"
+        assert output["error_code"] == "policy_blocked"
+
+    def test_user_allows_absolute_tickets_dir_inside_project_root(self, tmp_path: Path):
+        in_root = tmp_path / "docs" / "tickets"
+        output = run_entrypoint(
+            "ticket_engine_user.py",
+            "execute",
+            {
+                "action": "create",
+                "fields": {"title": "test", "problem": "test"},
+                "session_id": "test",
+                "tickets_dir": str(in_root),
+            },
+            tmp_path,
+        )
+        assert output["state"] == "ok_create"
+
+    def test_agent_rejects_tickets_dir_outside_project_root(self, tmp_path: Path):
+        outside = tmp_path.parent / "outside-tickets"
+        output = run_entrypoint(
+            "ticket_engine_agent.py",
+            "execute",
+            {
+                "action": "create",
+                "fields": {"title": "test", "problem": "test"},
+                "session_id": "test",
+                "tickets_dir": str(outside),
+            },
+            tmp_path,
+        )
+        assert output["state"] == "policy_blocked"
+        assert output["error_code"] == "policy_blocked"
+
+    def test_agent_allows_absolute_tickets_dir_inside_project_root(self, tmp_path: Path):
+        in_root = tmp_path / "docs" / "tickets"
+        output = run_entrypoint(
+            "ticket_engine_agent.py",
+            "classify",
+            {
+                "action": "create",
+                "args": {},
+                "session_id": "test",
+                "tickets_dir": str(in_root),
+            },
+            tmp_path,
+        )
+        assert output["state"] == "ok"

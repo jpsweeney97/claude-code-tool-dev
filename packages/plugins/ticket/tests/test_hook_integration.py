@@ -16,19 +16,18 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
 
 PLUGIN_ROOT = str(Path(__file__).parent.parent)
 HOOK_SCRIPT = str(Path(__file__).parent.parent / "hooks" / "ticket_engine_guard.py")
 USER_ENTRYPOINT = str(Path(__file__).parent.parent / "scripts" / "ticket_engine_user.py")
 
 
-def run_hook(command: str, session_id: str = "integration-sess") -> dict:
+def run_hook(command: str, session_id: str = "integration-sess", cwd: str = "/") -> dict:
     """Run the hook with a Bash command and return parsed output."""
     hook_input = {
         "session_id": session_id,
         "transcript_path": "/tmp/transcript.jsonl",
-        "cwd": "/tmp/project",
+        "cwd": cwd,
         "permission_mode": "default",
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
@@ -69,7 +68,7 @@ class TestFullCreateFlow:
 
         # Step 1: Run hook — verify allow + payload injected.
         command = f"python3 {PLUGIN_ROOT}/scripts/ticket_engine_user.py execute {payload_file}"
-        hook_output = run_hook(command, session_id="integration-sess")
+        hook_output = run_hook(command, session_id="integration-sess", cwd=str(tmp_path))
         assert hook_output != {}, "Hook should return a decision for ticket_engine commands"
         decision = hook_output["hookSpecificOutput"]["permissionDecision"]
         assert decision == "allow"
@@ -83,7 +82,7 @@ class TestFullCreateFlow:
         # Step 2: Run user entrypoint subprocess — verify ok_create.
         result = subprocess.run(
             [sys.executable, USER_ENTRYPOINT, "execute", str(payload_file)],
-            capture_output=True, text=True, cwd=PLUGIN_ROOT, timeout=10,
+            capture_output=True, text=True, cwd=str(tmp_path), timeout=10,
         )
         assert result.returncode == 0, f"Entrypoint failed: {result.stderr}"
         resp = json.loads(result.stdout)
@@ -118,7 +117,7 @@ class TestHookDenyPreventsExecution:
             f"python3 {PLUGIN_ROOT}/scripts/ticket_engine_user.py execute "
             f"{payload_file} --verbose"
         )
-        hook_output = run_hook(command)
+        hook_output = run_hook(command, cwd=str(tmp_path))
 
         # Verify deny.
         decision = hook_output["hookSpecificOutput"]["permissionDecision"]
@@ -151,13 +150,13 @@ class TestHookSessionIdPropagatesToAudit:
 
         # Step 1: Run hook with specific session_id.
         command = f"python3 {PLUGIN_ROOT}/scripts/ticket_engine_user.py execute {payload_file}"
-        hook_output = run_hook(command, session_id=unique_session)
+        hook_output = run_hook(command, session_id=unique_session, cwd=str(tmp_path))
         assert hook_output["hookSpecificOutput"]["permissionDecision"] == "allow"
 
         # Step 2: Run entrypoint.
         result = subprocess.run(
             [sys.executable, USER_ENTRYPOINT, "execute", str(payload_file)],
-            capture_output=True, text=True, cwd=PLUGIN_ROOT, timeout=10,
+            capture_output=True, text=True, cwd=str(tmp_path), timeout=10,
         )
         assert result.returncode == 0, f"Entrypoint failed: {result.stderr}"
 

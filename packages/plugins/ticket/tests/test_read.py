@@ -1,9 +1,7 @@
 """Tests for ticket_read.py — shared read module for query and list."""
 from __future__ import annotations
 
-from pathlib import Path
 
-import pytest
 
 from scripts.ticket_read import (
     find_ticket_by_id,
