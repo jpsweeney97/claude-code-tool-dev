@@ -779,6 +779,27 @@ class TestEngineExecute:
         assert len(tickets) == 1
         assert 'bad"tag' in tickets[0].tags
 
+    def test_canonical_renderer_quotes_integer_date(self, tmp_tickets):
+        """Integer date values are coerced to string and quoted to prevent type drift."""
+        from scripts.ticket_read import list_tickets
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"date": 20260305},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        tickets = list_tickets(tmp_tickets)
+        assert len(tickets) == 1
+        assert isinstance(tickets[0].date, str)
+
     def test_canonical_renderer_quotes_colon_strings(self, tmp_tickets):
         """Strings with colon separators remain parseable YAML."""
         from scripts.ticket_read import list_tickets

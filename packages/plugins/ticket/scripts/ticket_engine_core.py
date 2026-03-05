@@ -822,7 +822,7 @@ def _render_canonical_frontmatter(data: dict[str, Any]) -> str:
         if value is None:
             continue
         if key == "date":
-            lines.append(f"{key}: {_yaml_scalar(value)}")
+            lines.append(f"{key}: {_yaml_scalar(str(value))}")
         elif key == "source" and isinstance(value, dict):
             lines.append("source:")
             for sk, sv in value.items():
