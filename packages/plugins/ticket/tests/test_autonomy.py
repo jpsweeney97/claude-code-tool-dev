@@ -31,6 +31,16 @@ def autonomy_env(tmp_path: Path):
     return tickets_dir, config_path
 
 
+def write_autonomy_config(tickets_dir: Path, text: str) -> Path:
+    """Write .claude/ticket.local.md for tests using tmp_tickets."""
+    project_root = tickets_dir.parent.parent
+    claude_dir = project_root / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+    config_path = claude_dir / "ticket.local.md"
+    config_path.write_text(text, encoding="utf-8")
+    return config_path
+
+
 class TestAutonomyConfig:
     """Test AutonomyConfig dataclass and read_autonomy_config() parsing."""
 
@@ -314,29 +324,27 @@ class TestAutonomyExecute:
     """Test autonomy defense-in-depth in engine_execute."""
 
     def test_execute_agent_suggest_blocked(self, tmp_tickets):
-        config = AutonomyConfig(mode="suggest")
         resp = engine_execute(
             action="create", ticket_id=None,
             fields={"title": "Test", "problem": "Problem"},
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
-            tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+            tickets_dir=tmp_tickets, hook_injected=True,
         )
         assert resp.state == "policy_blocked"
 
     def test_execute_agent_unknown_mode_self_heals_to_suggest(self, tmp_tickets):
-        config = AutonomyConfig(mode="yolo")  # type: ignore[arg-type]
-        # __post_init__ self-heals invalid mode to "suggest" with warning.
+        write_autonomy_config(tmp_tickets, "---\nautonomy_mode: yolo\n---\n")
+        config = read_autonomy_config(tmp_tickets)
         assert config.mode == "suggest"
-        assert any("Invalid mode" in w for w in config.warnings)
+        assert any("yolo" in w for w in config.warnings)
         resp = engine_execute(
             action="create", ticket_id=None,
             fields={"title": "Test", "problem": "Problem"},
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
-            tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+            tickets_dir=tmp_tickets, hook_injected=True,
         )
-        # suggest mode blocks agents.
         assert resp.state == "policy_blocked"
 
     def test_execute_agent_none_config_blocked(self, tmp_tickets):
@@ -345,48 +353,116 @@ class TestAutonomyExecute:
             fields={"title": "Test", "problem": "Problem"},
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
-            tickets_dir=tmp_tickets, autonomy_config=None, hook_injected=True,
+            tickets_dir=tmp_tickets, hook_injected=True,
+        )
+        assert resp.state == "policy_blocked"
+
+    def test_agent_execute_uses_live_config_not_payload_snapshot(self, tmp_tickets):
+        write_autonomy_config(tmp_tickets, "---\nautonomy_mode: suggest\n---\n")
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="sess", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
+            hook_injected=True,
+        )
+        assert resp.state == "policy_blocked"
+        assert "changed since preflight" in resp.message.lower()
+
+    def test_agent_execute_blocks_when_snapshot_and_live_config_diverge_to_more_restrictive(self, tmp_tickets):
+        write_autonomy_config(tmp_tickets, "---\nautonomy_mode: suggest\n---\n")
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="sess", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
+            hook_injected=True,
+        )
+        assert resp.state == "policy_blocked"
+        assert "changed since preflight" in resp.message.lower()
+
+    def test_agent_execute_blocks_when_snapshot_and_live_config_diverge_to_less_restrictive(self, tmp_tickets):
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
+        )
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="sess", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            autonomy_config=AutonomyConfig(mode="suggest"),
+            hook_injected=True,
+        )
+        assert resp.state == "policy_blocked"
+        assert "changed since preflight" in resp.message.lower()
+
+    def test_agent_execute_fail_closed_on_malformed_live_config(self, tmp_tickets):
+        write_autonomy_config(tmp_tickets, "---\n: [invalid yaml\n---\n")
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="sess", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets, hook_injected=True,
         )
         assert resp.state == "policy_blocked"
 
     def test_execute_agent_reopen_blocked(self, tmp_tickets):
         from tests.conftest import make_ticket
         make_ticket(tmp_tickets, "t.md", id="T-20260302-01", status="done")
-        config = AutonomyConfig(mode="auto_audit")
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
+        )
         resp = engine_execute(
             action="reopen", ticket_id="T-20260302-01", fields={},
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
-            tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+            tickets_dir=tmp_tickets, hook_injected=True,
         )
         assert resp.state == "policy_blocked"
 
     def test_execute_agent_dedup_override_blocked(self, tmp_tickets):
-        config = AutonomyConfig(mode="auto_audit")
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
+        )
         resp = engine_execute(
             action="create", ticket_id=None,
             fields={"title": "Test", "problem": "Problem"},
             session_id="sess", request_origin="agent",
             dedup_override=True, dependency_override=False,
-            tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+            tickets_dir=tmp_tickets, hook_injected=True,
         )
         assert resp.state == "policy_blocked"
 
-    def test_execute_agent_auto_audit_allowed(self, tmp_tickets):
-        config = AutonomyConfig(mode="auto_audit", max_creates=5)
+    def test_agent_execute_allows_when_live_config_auto_audit_and_no_snapshot(self, tmp_tickets):
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
+        )
         resp = engine_execute(
             action="create", ticket_id=None,
             fields={"title": "Test", "problem": "Problem"},
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
-            tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+            tickets_dir=tmp_tickets, hook_injected=True,
         )
         assert resp.state == "ok_create"
 
     def test_execute_agent_auto_audit_cap_reached(self, tmp_tickets):
         import json
         from datetime import datetime, timezone
-        config = AutonomyConfig(mode="auto_audit", max_creates=2)
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 2\n---\n",
+        )
         date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         audit_dir = tmp_tickets / ".audit" / date_dir
         audit_dir.mkdir(parents=True)
@@ -400,7 +476,7 @@ class TestAutonomyExecute:
             fields={"title": "Test", "problem": "Problem"},
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
-            tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+            tickets_dir=tmp_tickets, hook_injected=True,
         )
         assert resp.state == "policy_blocked"
 
@@ -415,12 +491,16 @@ class TestAutonomyExecute:
         config = AutonomyConfig(mode="auto_audit", max_creates="5")  # type: ignore[arg-type]
         assert config.max_creates == 5
         assert any("Invalid max_creates" in w for w in config.warnings)
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
+        )
         resp = engine_execute(
             action="create", ticket_id=None,
             fields={"title": "Test", "problem": "Problem"},
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
-            tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+            tickets_dir=tmp_tickets, hook_injected=True,
         )
         assert resp.state == "ok_create"
 
@@ -428,13 +508,16 @@ class TestAutonomyExecute:
         """Agent update under auto_audit succeeds (no session cap for updates)."""
         from tests.conftest import make_ticket
         make_ticket(tmp_tickets, "2026-03-02-test.md")
-        config = AutonomyConfig(mode="auto_audit")
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
+        )
         resp = engine_execute(
             action="update", ticket_id="T-20260302-01",
             fields={"priority": "high"},
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
-            tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+            tickets_dir=tmp_tickets, hook_injected=True,
         )
         assert resp.state == "ok_update"
 
@@ -442,13 +525,16 @@ class TestAutonomyExecute:
         """Agent close under auto_audit succeeds."""
         from tests.conftest import make_ticket
         make_ticket(tmp_tickets, "2026-03-02-test.md", status="in_progress")
-        config = AutonomyConfig(mode="auto_audit")
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
+        )
         resp = engine_execute(
             action="close", ticket_id="T-20260302-01",
             fields={"resolution": "done"},
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
-            tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+            tickets_dir=tmp_tickets, hook_injected=True,
         )
         assert resp.state == "ok_close"
 
@@ -458,7 +544,10 @@ class TestAutonomyExecute:
         import sys as _sys
         if _sys.platform == "win32":
             pytest.skip("chmod not effective on Windows")
-        config = AutonomyConfig(mode="auto_audit")
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
+        )
         audit_dir = tmp_tickets / ".audit"
         audit_dir.mkdir(parents=True)
         try:
@@ -468,7 +557,7 @@ class TestAutonomyExecute:
                 fields={"title": "Test", "problem": "Problem"},
                 session_id="sess", request_origin="agent",
                 dedup_override=False, dependency_override=False,
-                tickets_dir=tmp_tickets, autonomy_config=config, hook_injected=True,
+                tickets_dir=tmp_tickets, hook_injected=True,
             )
             assert resp.state == "policy_blocked"
             assert "audit" in resp.message.lower()

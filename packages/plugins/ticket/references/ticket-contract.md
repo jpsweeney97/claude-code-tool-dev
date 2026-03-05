@@ -46,6 +46,7 @@ Single source of truth for the ticket plugin. All components (skills, agents, en
 Recommended core sections: Problem, Approach, Acceptance Criteria, Verification, Key Files
 
 Runtime note (v1.0): missing sections are advisory warnings/process failures, not hard runtime schema rejections.
+Runtime note (v1.0): `update` mutates YAML frontmatter only. Section-backed fields are not writable through the `update` action.
 
 ### Optional Sections
 
@@ -95,6 +96,7 @@ Config: `.claude/ticket.local.md` YAML frontmatter
 Hook assumption: the guard matches commands containing `ticket_engine` in the command string. Renamed or wrapped entrypoints bypass the guard silently. This is proportionate for the accidental-autonomy threat model.
 
 Execute leniency: execute defaults optional fields (e.g., `priority` → `"medium"`) rather than rejecting. Plan reports missing fields as hints; execute always produces a valid ticket.
+Agent execute re-reads live `.claude/ticket.local.md` policy and blocks if it diverges from the preflight snapshot.
 
 ## 6. Dedup Policy
 
@@ -132,6 +134,7 @@ Defense-in-depth: execute stage repeats duplicate checks for create requests to 
 | wontfix | open | reopen_reason required, user-only v1.0 |
 
 Non-status edits on terminal tickets (done/wontfix) are allowed without reopening.
+Missing blocker references are invalid and are not treated as resolved.
 
 ### Status Normalization (Legacy)
 

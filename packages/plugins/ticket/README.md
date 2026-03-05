@@ -110,6 +110,7 @@ Section ordering is canonicalized as:
 Problem → Context → Prior Investigation → Approach → Decisions Made → Acceptance Criteria → Verification → Key Files → Related
 
 Runtime note: v1.0 does not hard-fail create/update when sections are missing. These sections are strongly recommended and enforced by process/tests rather than strict runtime schema rejection.
+Runtime note: v1.0 `update` only mutates YAML frontmatter. Section-backed fields such as Problem and Approach are not writable through the `update` action.
 
 ### Status Transitions
 
@@ -127,6 +128,7 @@ Runtime note: v1.0 does not hard-fail create/update when sections are missing. T
 | wontfix | open | `reopen_reason` required, user-only |
 
 Terminal states (`done`, `wontfix`) allow non-status field edits without reopening.
+Missing blocker references are invalid and are not treated as resolved.
 
 ### The Engine Pipeline
 
@@ -135,7 +137,7 @@ Every ticket mutation flows through a 4-stage pipeline:
 1. **Classify** — Validates the requested action (create/update/close/reopen) and determines intent with a confidence score.
 2. **Plan** — For creates: validates required fields (title, problem, priority) and checks for duplicates within a 24-hour window using content fingerprinting (SHA-256 of normalized problem text + key file paths). For other actions: pass-through.
 3. **Preflight** — The enforcement checkpoint. Checks (in order): caller identity, action validity, autonomy policy, confidence threshold, intent consistency, dedup enforcement, ticket existence, dependency integrity (resolution-aware for close), and TOCTOU (time-of-check-time-of-use) fingerprint to catch concurrent modifications.
-4. **Execute** — Performs the mutation (writes the file). Has defense-in-depth: independently re-checks autonomy policy, dedup, and optional stale fingerprint checks even if preflight passed, because preflight could theoretically be bypassed. Execute is intentionally more lenient than plan for optional fields (e.g., `priority` defaults to `"medium"` if absent) — the goal is to always produce a valid ticket rather than fail at the last stage.
+4. **Execute** — Performs the mutation (writes the file). Has defense-in-depth: independently re-checks dedup, optional stale fingerprint checks, and for agent-origin requests re-reads live autonomy policy from `.claude/ticket.local.md` before allowing the write. If policy changed since preflight, execute blocks and requires a rerun. Execute is intentionally more lenient than plan for optional fields (e.g., `priority` defaults to `"medium"` if absent) — the goal is to always produce a valid ticket rather than fail at the last stage.
 
 ### Two Entrypoints, One Engine
 
@@ -176,7 +178,7 @@ Key security properties:
 - **Fail-closed audit**: If the audit trail can't be written (disk full, permissions), agent mutations are blocked. User mutations proceed (advisory only).
 - **Path traversal protection**: Session IDs from untrusted payloads are sanitized (stripping `/`, `\`, `\0`) before being used in filesystem paths.
 - **Workspace boundary enforcement**: hook payload paths and entrypoint `tickets_dir` must resolve inside project/workspace root.
-- **Immutable config snapshots**: The `AutonomyConfig` type is a frozen dataclass that self-heals invalid values to safe defaults. Once constructed, it can't be mutated between preflight and execute.
+- **Live policy reread for agent execute**: `AutonomyConfig` is still a frozen, self-healing type, but agent `execute` treats the on-disk config as authoritative and blocks if it diverges from the preflight snapshot.
 
 ## Module Reference
 
@@ -214,13 +216,30 @@ Path constraints:
 - Hook payload path must resolve under the current workspace root (`event.cwd`) or the command is denied.
 - `tickets_dir` must resolve under the entrypoint process root (`Path.cwd()`). The default remains `docs/tickets`.
 
-## Contract
+## Skills
 
-`references/ticket-contract.md` is the single source of truth for the ticket schema, engine interface, autonomy model, dedup policy, status transitions, and migration rules. All components reference this contract.
+| Skill | Trigger Phrases | Allowed Tools |
+|-------|----------------|---------------|
+| `/ticket` | "create a ticket", "update ticket T-...", "close/reopen ticket", "list tickets", "track this bug/feature/task" — or any request to persistently capture a work item, even without the word "ticket" | Bash, Write, Read |
+| `/ticket-triage` | "triage tickets", "ticket dashboard", "any stale tickets", "what should I work on next", "catch me up on the project" — or any health check or project orientation request | Bash, Read |
+
+## Hooks
+
+| Event | Matcher | Script | Timeout | Behavior |
+|-------|---------|--------|---------|----------|
+| `PreToolUse` | `Bash` | `hooks/ticket_engine_guard.py` | 10s | Command allowlist + trust-field injection; denies shell metacharacters and payload paths outside workspace root |
+
+See [The Hook Guard](#the-hook-guard-security-layer) for full architectural detail.
+
+## Reference Files
+
+| File | Authority |
+|------|-----------|
+| `references/ticket-contract.md` | Single source of truth for ticket schema, engine interface, autonomy model, dedup policy, status transitions, and migration rules. All engine components reference this. |
 
 ## Tests
 
-298 tests across 15 test files:
+363 tests across 15 test files:
 
 | Test File | Coverage Area |
 |-----------|--------------|
@@ -246,9 +265,6 @@ cd packages/plugins/ticket && uv run pytest
 
 ## What's Not Built Yet
 
-The `skills/` and `agents/` directories are empty. The engine is fully functional as a Python library with CLI entrypoints, but it doesn't yet have:
+The `agents/` directory is reserved but empty. Two production skills (`/ticket` and `/ticket-triage`) are deployed. What's missing:
 
-- A **skill** — instructions telling Claude *when and how* to invoke the engine in natural conversation
-- An **agent** — an autonomous sub-process for tasks like auto-creating tickets from code review findings
-
-These are the next milestone (M9), connecting the engine to Claude Code's skill system so that "create a ticket for this bug" gets routed through the pipeline automatically.
+- **Agent workflows** — autonomous sub-processes for tasks like auto-creating tickets from code review findings or session summaries. Planned for a future milestone.

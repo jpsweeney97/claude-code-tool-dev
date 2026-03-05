@@ -668,23 +668,29 @@ def engine_preflight(
 
                 all_tickets = _list_tickets(tickets_dir)
                 ticket_map = {t.id: t for t in all_tickets}
-                unresolved = [
-                    bid for bid in ticket.blocked_by
-                    if bid in ticket_map and ticket_map[bid].status not in _TERMINAL_STATUSES
-                ]
-                if unresolved:
+                missing, unresolved = _classify_blockers(ticket.blocked_by, ticket_map)
+                if missing or unresolved:
                     if dependency_override:
                         checks_passed.append("dependencies_overridden")
                     else:
                         return EngineResponse(
                             state="dependency_blocked",
-                            message=f"Ticket has open blockers: {unresolved}. "
-                            "Resolve or pass dependency_override: true.",
+                            message=_format_blocker_message(
+                                unresolved=unresolved,
+                                missing=missing,
+                                include_override=True,
+                            ),
                             ticket_id=ticket_id,
                             error_code="dependency_blocked",
                             data={
                                 "checks_passed": checks_passed,
-                                "checks_failed": [{"check": "dependencies", "reason": f"unresolved: {unresolved}"}],
+                                "checks_failed": [{
+                                    "check": "dependencies",
+                                    "reason": f"unresolved={unresolved}, missing={missing}",
+                                }],
+                                "blocking_ids": unresolved + missing,
+                                "unresolved_blockers": unresolved,
+                                "missing_blockers": missing,
                             },
                         )
                 else:
@@ -731,6 +737,19 @@ _CANONICAL_FIELD_ORDER = [
     "source", "tags", "blocked_by", "blocks",
     "contract_version",
 ]
+_UPDATE_FRONTMATTER_KEYS = frozenset(set(_CANONICAL_FIELD_ORDER) | {"defer"})
+_UPDATE_SECTION_FIELDS = frozenset({
+    "problem",
+    "context",
+    "prior_investigation",
+    "approach",
+    "decisions_made",
+    "acceptance_criteria",
+    "verification",
+    "key_files",
+    "related",
+})
+_UPDATE_IGNORED_FIELDS = frozenset({"ticket_id", "id"})
 
 # Valid status transitions for update action (from -> set of valid to statuses).
 # done/wontfix are terminal — only reopen (separate action) can transition out.
@@ -857,6 +876,36 @@ def _render_canonical_frontmatter(data: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _classify_update_fields(
+    fields: dict[str, Any],
+    ticket_id: str,
+) -> tuple[dict[str, Any], list[str], list[str], bool]:
+    """Split update payload keys into supported vs invalid categories."""
+    frontmatter_updates: dict[str, Any] = {}
+    section_fields: list[str] = []
+    unknown_fields: list[str] = []
+    ticket_id_mismatch = False
+
+    for key, value in fields.items():
+        if key in _UPDATE_IGNORED_FIELDS:
+            if key == "ticket_id" and value != ticket_id:
+                ticket_id_mismatch = True
+            continue
+        if key in _UPDATE_FRONTMATTER_KEYS:
+            frontmatter_updates[key] = value
+        elif key in _UPDATE_SECTION_FIELDS:
+            section_fields.append(key)
+        else:
+            unknown_fields.append(key)
+
+    return (
+        frontmatter_updates,
+        sorted(section_fields),
+        sorted(unknown_fields),
+        ticket_id_mismatch,
+    )
+
+
 def _is_valid_transition(current: str, target: str, action: str) -> bool:
     """Check if a status transition is valid per the contract."""
     if action == "close":
@@ -868,6 +917,46 @@ def _is_valid_transition(current: str, target: str, action: str) -> bool:
     # Update: follow transition table.
     valid = _VALID_TRANSITIONS.get(current, set())
     return target in valid
+
+
+def _classify_blockers(
+    blocked_by: list[str],
+    ticket_map: dict[str, Any],
+) -> tuple[list[str], list[str]]:
+    """Split blocker references into missing vs unresolved IDs."""
+    missing: list[str] = []
+    unresolved: list[str] = []
+    for bid in blocked_by:
+        blocker = ticket_map.get(bid)
+        if blocker is None:
+            missing.append(bid)
+        elif blocker.status not in _TERMINAL_STATUSES:
+            unresolved.append(bid)
+    return missing, unresolved
+
+
+def _format_blocker_message(
+    *,
+    unresolved: list[str],
+    missing: list[str],
+    include_override: bool,
+) -> str:
+    """Build a blocker message that distinguishes missing references."""
+    parts: list[str] = []
+    if unresolved:
+        parts.append(f"Ticket has open blockers: {unresolved}.")
+    if missing:
+        parts.append(f"Ticket has missing blocker references: {missing}.")
+    if include_override:
+        parts.append("Resolve blockers, remove stale references, or pass dependency_override: true.")
+    else:
+        parts.append("Resolve open blockers and remove stale/missing blocker references before changing status.")
+    return " ".join(parts)
+
+
+def _autonomy_policy_fingerprint(config: AutonomyConfig) -> tuple[str, int]:
+    """Return the policy-relevant autonomy fields."""
+    return (config.mode, config.max_creates)
 
 
 def _check_transition_preconditions(
@@ -904,12 +993,13 @@ def _check_transition_preconditions(
 
             all_tickets = _list_tickets(tickets_dir)
             ticket_map = {t.id: t for t in all_tickets}
-            unresolved = [
-                bid for bid in ticket.blocked_by
-                if bid in ticket_map and ticket_map[bid].status not in _TERMINAL_STATUSES
-            ]
-            if unresolved:
-                return f"Blockers still open: {unresolved}. Resolve or use dependency_override."
+            missing, unresolved = _classify_blockers(ticket.blocked_by, ticket_map)
+            if missing or unresolved:
+                return _format_blocker_message(
+                    unresolved=unresolved,
+                    missing=missing,
+                    include_override=False,
+                )
         return None
 
     return None
@@ -1009,7 +1099,22 @@ def engine_execute(
     Assumes preflight has already passed. Writes ticket files.
     Wraps dispatch with JSONL audit trail.
     """
-    config = autonomy_config or AutonomyConfig()
+    snapshot_config = autonomy_config
+    if request_origin == "agent":
+        config = read_autonomy_config(tickets_dir)
+        if (
+            snapshot_config is not None
+            and _autonomy_policy_fingerprint(snapshot_config)
+            != _autonomy_policy_fingerprint(config)
+        ):
+            return EngineResponse(
+                state="policy_blocked",
+                message="Autonomy policy changed since preflight. Rerun from preflight.",
+                error_code="policy_blocked",
+                data={"live_mode": config.mode},
+            )
+    else:
+        config = snapshot_config or AutonomyConfig()
 
     # --- Transport-layer validation ---
     # Agent mutations without hook_injected are rejected (defense-in-depth).
@@ -1292,8 +1397,34 @@ def _execute_update(
     if data is None:
         return EngineResponse(state="escalate", message="Cannot parse ticket YAML", ticket_id=ticket_id, error_code="parse_error")
 
+    (
+        frontmatter_updates,
+        section_fields,
+        unknown_fields,
+        ticket_id_mismatch,
+    ) = _classify_update_fields(fields, ticket_id)
+    if ticket_id_mismatch:
+        return EngineResponse(
+            state="escalate",
+            message=f"Update failed: fields.ticket_id must match top-level ticket_id. Got: {fields.get('ticket_id')!r:.100}",
+            ticket_id=ticket_id,
+        )
+    if section_fields or unknown_fields:
+        parts: list[str] = []
+        if section_fields:
+            parts.append(
+                f"section fields not supported by update: {', '.join(section_fields)}"
+            )
+        if unknown_fields:
+            parts.append(f"unknown fields: {', '.join(unknown_fields)}")
+        return EngineResponse(
+            state="escalate",
+            message=f"Update failed: {'; '.join(parts)}",
+            ticket_id=ticket_id,
+        )
+
     changes: dict[str, Any] = {"frontmatter": {}, "sections_changed": []}
-    for key, value in fields.items():
+    for key, value in frontmatter_updates.items():
         if key in data and data[key] != value:
             changes["frontmatter"][key] = [data[key], value]
         data[key] = value
@@ -1357,16 +1488,22 @@ def _execute_close(
 
         all_tickets = _list_tickets(tickets_dir)
         ticket_map = {t.id: t for t in all_tickets}
-        unresolved = [
-            bid for bid in ticket.blocked_by
-            if bid in ticket_map and ticket_map[bid].status not in _TERMINAL_STATUSES
-        ]
-        if unresolved and not dependency_override:
+        missing, unresolved = _classify_blockers(ticket.blocked_by, ticket_map)
+        if (missing or unresolved) and not dependency_override:
             return EngineResponse(
                 state="dependency_blocked",
-                message=f"Ticket has open blockers: {unresolved}. Resolve or pass dependency_override: true.",
+                message=_format_blocker_message(
+                    unresolved=unresolved,
+                    missing=missing,
+                    include_override=True,
+                ),
                 ticket_id=ticket_id,
                 error_code="dependency_blocked",
+                data={
+                    "blocking_ids": unresolved + missing,
+                    "unresolved_blockers": unresolved,
+                    "missing_blockers": missing,
+                },
             )
 
     # Validate transition with action="close" (not "update").

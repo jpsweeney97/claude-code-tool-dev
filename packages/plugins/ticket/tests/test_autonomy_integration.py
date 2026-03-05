@@ -113,8 +113,8 @@ class TestAutonomyIntegration:
         )
         assert ex_resp.state == "ok_create"
 
-    def test_config_snapshot_prevents_toctou(self, integration_env):
-        """Config snapshot from preflight is used in execute, not re-read."""
+    def test_execute_blocks_when_autonomy_policy_changes_after_preflight(self, integration_env):
+        """Agent execute re-reads live config and blocks if policy changed."""
         tickets_dir, config_path = integration_env
         config_path.write_text("---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n")
 
@@ -131,7 +131,6 @@ class TestAutonomyIntegration:
         # Config changes between preflight and execute.
         config_path.write_text("---\nautonomy_mode: suggest\n---\n")
 
-        # Execute uses snapshot (auto_audit) → proceeds.
         ex_resp = engine_execute(
             action="create", ticket_id=None,
             fields={"title": "TOCTOU test", "problem": "Testing snapshot"},
@@ -139,4 +138,5 @@ class TestAutonomyIntegration:
             dedup_override=False, dependency_override=False,
             tickets_dir=tickets_dir, autonomy_config=snapshot, hook_injected=True,
         )
-        assert ex_resp.state == "ok_create"
+        assert ex_resp.state == "policy_blocked"
+        assert "changed since preflight" in ex_resp.message.lower()

@@ -439,6 +439,30 @@ class TestEnginePreflight:
         assert resp.state == "ok"
         assert "dependencies_overridden" in resp.data["checks_passed"]
 
+    def test_preflight_close_reports_missing_blockers(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(
+            tmp_tickets,
+            "target.md",
+            id="T-20260302-02",
+            blocked_by=["T-MISSING-01"],
+        )
+        resp = engine_preflight(
+            ticket_id="T-20260302-02",
+            action="close",
+            session_id="test-session",
+            request_origin="user",
+            classify_confidence=0.95,
+            classify_intent="close",
+            dedup_fingerprint=None,
+            target_fingerprint=None,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "dependency_blocked"
+        assert resp.data["missing_blockers"] == ["T-MISSING-01"]
+        assert resp.data["unresolved_blockers"] == []
+
     def test_dedup_blocks_without_override(self, tmp_tickets):
         """Preflight blocks create when duplicate detected and no override."""
         resp = engine_preflight(
@@ -544,6 +568,29 @@ class TestEngineExecute:
         )
         assert resp.state == "invalid_transition"
         assert "blocked_by" in resp.message.lower()
+
+    def test_blocked_ticket_cannot_reopen_with_missing_blocker_reference(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(
+            tmp_tickets,
+            "2026-03-02-test.md",
+            id="T-20260302-01",
+            status="blocked",
+            blocked_by=["T-MISSING-01"],
+        )
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"status": "open"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+        assert "missing blocker" in resp.message.lower()
 
     def test_agent_override_rejected(self, tmp_tickets):
         from tests.conftest import make_ticket
@@ -719,6 +766,103 @@ class TestEngineExecute:
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
         assert "status: in_progress" in content
         assert 'date: "2026-03-02"' in content
+
+    def test_update_rejects_section_field_problem_and_leaves_file_unchanged(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        before = ticket_path.read_text(encoding="utf-8")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"problem": "New problem text"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "escalate"
+        assert "section fields not supported" in resp.message.lower()
+        assert ticket_path.read_text(encoding="utf-8") == before
+
+    def test_update_rejects_mixed_frontmatter_and_section_fields_atomically(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        before = ticket_path.read_text(encoding="utf-8")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"priority": "critical", "approach": "Different approach"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "escalate"
+        assert "section fields not supported" in resp.message.lower()
+        after = ticket_path.read_text(encoding="utf-8")
+        assert after == before
+        assert "priority: critical" not in after
+
+    def test_update_rejects_unknown_field_and_leaves_file_unchanged(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        before = ticket_path.read_text(encoding="utf-8")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"custom": {"bad": "value"}},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "escalate"
+        assert "unknown fields: custom" in resp.message.lower()
+        assert ticket_path.read_text(encoding="utf-8") == before
+
+    def test_update_ignores_matching_fields_ticket_id(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"ticket_id": "T-20260302-01", "priority": "critical"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        content = ticket_path.read_text(encoding="utf-8")
+        assert "priority: critical" in content
+        assert "ticket_id:" not in content
+
+    def test_update_rejects_mismatched_fields_ticket_id(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        before = ticket_path.read_text(encoding="utf-8")
+        resp = engine_execute(
+            action="update",
+            ticket_id="T-20260302-01",
+            fields={"ticket_id": "T-99999999-99"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "escalate"
+        assert "fields.ticket_id must match" in resp.message.lower()
+        assert ticket_path.read_text(encoding="utf-8") == before
 
     def test_update_preserves_field_order(self, tmp_tickets):
         """Canonical renderer emits fields in defined order, not alphabetical."""
@@ -983,6 +1127,30 @@ class TestEngineExecute:
         assert resp.state == "dependency_blocked"
         assert resp.error_code == "dependency_blocked"
 
+    def test_execute_close_reports_missing_blockers(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(
+            tmp_tickets,
+            "target.md",
+            id="T-20260302-02",
+            status="in_progress",
+            blocked_by=["T-MISSING-01"],
+        )
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-02",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "dependency_blocked"
+        assert resp.data["missing_blockers"] == ["T-MISSING-01"]
+        assert resp.data["unresolved_blockers"] == []
+
     def test_close_with_open_blockers_and_override_succeeds(self, tmp_tickets):
         from tests.conftest import make_ticket
 
@@ -993,6 +1161,53 @@ class TestEngineExecute:
             id="T-20260302-02",
             status="in_progress",
             blocked_by=["T-20260302-01"],
+        )
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-02",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=True,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_close"
+
+    def test_close_reports_missing_and_unresolved_blockers_together(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
+        make_ticket(
+            tmp_tickets,
+            "target.md",
+            id="T-20260302-02",
+            status="in_progress",
+            blocked_by=["T-20260302-01", "T-MISSING-01"],
+        )
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-02",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "dependency_blocked"
+        assert resp.data["unresolved_blockers"] == ["T-20260302-01"]
+        assert resp.data["missing_blockers"] == ["T-MISSING-01"]
+
+    def test_execute_close_allows_missing_blockers_with_dependency_override(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(
+            tmp_tickets,
+            "target.md",
+            id="T-20260302-02",
+            status="in_progress",
+            blocked_by=["T-MISSING-01"],
         )
         resp = engine_execute(
             action="close",
@@ -1017,6 +1232,41 @@ class TestEngineExecute:
             status="in_progress",
             blocked_by=["T-20260302-01"],
         )
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-02",
+            fields={"resolution": "wontfix"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_close"
+
+    def test_close_wontfix_ignores_missing_blockers(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(
+            tmp_tickets,
+            "target.md",
+            id="T-20260302-02",
+            status="in_progress",
+            blocked_by=["T-MISSING-01"],
+        )
+        preflight = engine_preflight(
+            ticket_id="T-20260302-02",
+            action="close",
+            fields={"resolution": "wontfix"},
+            session_id="test-session",
+            request_origin="user",
+            classify_confidence=0.95,
+            classify_intent="close",
+            dedup_fingerprint=None,
+            target_fingerprint=None,
+            tickets_dir=tmp_tickets,
+        )
+        assert preflight.state == "ok"
         resp = engine_execute(
             action="close",
             ticket_id="T-20260302-02",
@@ -1201,8 +1451,8 @@ class TestEngineExecute:
         assert resp.state == "invalid_transition"
         assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
 
-    def test_update_handles_yaml_serialization_failure(self, tmp_tickets):
-        """Unserializable dict values return structured parse_error."""
+    def test_update_rejects_unknown_fields_before_serialization(self, tmp_tickets):
+        """Unsupported update fields fail validation before YAML serialization."""
         from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
@@ -1217,8 +1467,8 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
         )
         assert resp.state == "escalate"
-        assert resp.error_code == "parse_error"
-        assert "yaml serialization failed" in resp.message.lower()
+        assert resp.error_code is None
+        assert "unknown fields: custom" in resp.message.lower()
 
     def test_reopen_ticket(self, tmp_tickets):
         from tests.conftest import make_ticket

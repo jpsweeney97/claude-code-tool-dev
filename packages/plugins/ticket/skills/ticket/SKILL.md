@@ -84,9 +84,11 @@ All mutations (create, update, close, reopen) follow this flow:
 
 From the conversation history, extract:
 - **create**: title (required), problem statement, priority (default: medium), key files, tags
-- **update**: ticket ID (required), fields to change (status, priority, problem, approach, tags)
+- **update**: ticket ID (required), frontmatter fields to change (`status`, `priority`, `tags`, `effort`, `blocked_by`, `blocks`, `defer`)
 - **close**: ticket ID (required), resolution (optional)
 - **reopen**: ticket ID (required), reopen reason (required by engine)
+
+`update` does not edit markdown body sections in v1.0. Requests to change sections like Problem or Approach must not be encoded as `update` fields.
 
 ### Step 2: Confirmation gate
 
@@ -195,7 +197,7 @@ Read `state` from the JSON response (`{"state": ..., "data": {...}}`):
 | `preflight_failed` | Report failed checks from `data.checks_failed`, stop |
 | `policy_blocked` | Report the policy message, stop |
 | `invalid_transition` | Report current status and valid transitions, stop |
-| `dependency_blocked` | Report blocking ticket IDs, stop |
+| `dependency_blocked` | Report unresolved and/or missing blocker IDs from the response data, stop |
 | `not_found` | Report "Ticket T-... not found", stop |
 | `escalate` | Report `message` (top-level field), stop |
 

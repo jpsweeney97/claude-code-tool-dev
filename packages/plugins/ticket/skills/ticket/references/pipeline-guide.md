@@ -66,16 +66,15 @@ After `need_fields`, re-run from `plan` (not `classify`) — `intent`, `classify
   "session_id": "",
   "request_origin": "user",
   "fields": {
-    "ticket_id": "T-20260302-01",
     "priority": "critical",
     "status": "in_progress"
   }
 }
 ```
 
-`ticket_id` must appear in three places: top-level (for preflight/execute), `args.ticket_id` (for classify to resolve), and `fields.ticket_id` (for plan). `args` must be a dict — not an empty string.
+`ticket_id` must appear in two places: top-level (for preflight/execute) and `args.ticket_id` (for classify to resolve). `args` must be a dict — not an empty string.
 
-Only include fields to change in `fields`. Supported fields: `status`, `priority`, `tags`, `problem`, `approach`, `effort`, `key_file_paths`, `key_files`, plus any existing frontmatter key. Unsupported fields (e.g., `notes` added as new keys) are written to the ticket as unknown frontmatter keys, but won't appear in `changes.frontmatter` in the response (which only tracks modifications to pre-existing keys).
+Only include fields to change in `fields`. `update` supports YAML frontmatter fields only: `date`, `status`, `priority`, `effort`, `source`, `tags`, `blocked_by`, `blocks`, `contract_version`, and `defer`. Section-backed fields such as `problem`, `approach`, `acceptance_criteria`, `verification`, `key_files`, `context`, and `related` are not supported by `update` in v1.0. Unsupported fields are rejected; they are not persisted as unknown YAML keys.
 
 ### close
 
@@ -93,7 +92,7 @@ Only include fields to change in `fields`. Supported fields: `status`, `priority
 }
 ```
 
-`resolution` is optional. Valid values: `wontfix`, `duplicate`, `fixed`, or omit for default close.
+`resolution` is optional. Valid values: `done`, `wontfix`, or omit for the default close (`done`).
 
 ### reopen
 
@@ -183,7 +182,7 @@ All 15 machine states from the ticket contract:
 | `preflight_failed` | Policy or state check failed | Report `data.checks_failed` list; stop |
 | `policy_blocked` | Operation blocked by policy | Report policy message from `top-level `message``; stop |
 | `invalid_transition` | Status change not allowed | Report current status and valid transitions; stop |
-| `dependency_blocked` | Blocked-by tickets not resolved | Report `data.blocking_ids` list; stop |
+| `dependency_blocked` | Blocked-by tickets unresolved or missing | Report `data.unresolved_blockers` / `data.missing_blockers` (and `data.blocking_ids` if present); stop |
 | `not_found` | Ticket ID does not exist | "Ticket T-... not found in docs/tickets/"; stop |
 | `escalate` | Engine hit unrecoverable state | Report `top-level `message``; stop; do not retry automatically |
 | `merge_into_existing` | Reserved — not emitted in v1.0 | N/A |
