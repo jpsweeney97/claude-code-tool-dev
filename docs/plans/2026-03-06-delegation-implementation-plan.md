@@ -64,6 +64,64 @@
 - B23: Move `fnmatch` import to module level
 - B24: Remove redundant `if period_days:` guard — call `filter_by_period` unconditionally
 
+**Codex Review Round 4:** Codex audit of spec + plan (6 findings: 1 P0, 4 P1, 1 P2). Key changes:
+- R4-1: Add Task 9 (release) — version bump, CHANGELOG, README, install validation
+- R4-2: Fix `thread_id` spec contradiction — nullable everywhere, no fabricated UUIDs
+- R4-3: SKILL.md revert guidance adds confirmation step before discarding changes
+- R4-4: `append_log` spec comment changed from "Atomic append" to "Append-mode write"
+- R4-5: PostToolUseFailure hook interaction noted (low impact — nudge is opt-in)
+- R4-6: Clean-tree strictness acknowledged as settled decision (D3), no change
+
+**Codex Review Round 5:** Exploratory dialogue (5/10 turns, thread `019cc4f5-e732-7a03-89ee-14aed9411789`). 16 findings (7 blocking + 5 important + 4 deferrable). Key changes:
+- B1: Add `dispatched` field to adapter stdout — enables skill to distinguish "never ran" from "ran and failed" for mandatory post-dispatch review
+- B2: Tasks 2 and 4 need try/except import fallback for sibling modules (`credential_scan`, `event_log`)
+- B3: Phase B `_validate_input()` needs `isinstance` checks before set membership — `sandbox=[]` raises `TypeError`
+- B4: Step 10 `run()` catches `TimeoutExpired` and `FileNotFoundError` specifically with pinned stdout JSON error shapes
+- B5: `_emit_analytics()` derives `termination_reason` from dispatched/blocked_by hierarchy — prevents impossible state `dispatched=false, exit_code=0 → "complete"`
+- B6: `avg_commands_run` template changed from `0.0` to `None` — matches nullable `avg_turn_count` pattern
+- B7: Task 8 adds root-level `codex_guard` and `emit_analytics` test suites
+- I1: Schema-parity guard test for `delegation_outcome` (reader/emitter field parity)
+- I2: `report_version` stays `1.0.0` — document additive policy + add envelope key test
+- I3: consultation-stats SKILL.md/README add `--type delegation`
+- I4: SKILL.md adds input-temp cleanup step (F6 creation-ownership)
+- I5: `_parse_jsonl` adds `isinstance` type guards for extracted fields (`thread_id`, `command`, `text`)
+- D1: `thread.started` first-wins instead of last-wins
+- D2: Summary precedence test (output file over agent_message)
+- D3: Multi-`turn.completed` test to pin last-turn-only behavior
+- D4: `turn.started` ignored test to match spec
+
+**Codex Review Round 6:** Adversarial cross-layer dialogue (5/6 turns, thread `019cc529-1706-71e0-bb4c-783f41455baa`). 22 findings (14 resolved, 3 emerged). Key changes:
+- R6-B1: `blocked_paths` always-present `[]` in output schema — was emitted by GateBlockError handler but absent from spec output schema and other handlers
+- R6-B2: `gate="git_error"` distinct from `clean_tree`/`secret_files` — git command failure ≠ dirty tree; misattribution corrupts `dirty_tree_blocked`/`readable_secret_file_blocked` analytics
+- R6-B3: Non-zero `exit_code` surfacing — SKILL.md Step 5 adds explicit instruction to report exit_code prominently when non-zero with `status=ok`
+- R6-B4: Step 5 review surface — add `git diff --cached` for staged changes and explicit new-file reading instruction
+- R6-B5: `model=""` normalized to `None` in `_parse_input()` — empty string passes Phase B type check but silently dropped by `_build_command`'s `if model:`
+- R6-B6: Rename/copy NUL parser — `entry[0]` reads only index char; fix to `entry[:2]` for full XY status
+- R6-B7: `turn.started`/`item.started` added to `_KNOWN_EVENT_TYPES` — prevents misleading "no usable events" on early failure
+- R6-B8: JSONL parser structural type guards — `isinstance(item, dict)` and `isinstance(usage, dict)` before field access
+- R6-B9: `try/except` double-import fallback — second import attempt wrapped to prevent unhandled `ModuleNotFoundError`
+- R6-B10: Task 7 depends on Task 5 — schema-parity test (I1) imports `_REQUIRED_FIELDS` from `read_events.py`
+- R6-B11: `_emit_analytics` uses `parsed.get()` instead of `parsed[]` — prevents `KeyError` on partial dict
+- R6-B12: Spawn error test adds `dispatched` assertion
+- R6-B13: `_compute_delegation` invariant — `blocked_count` vs individual block flag consistency comment
+- R6-B14: SKILL.md uses `git restore` instead of deprecated `git checkout --`
+
+**Parallel Agent Review Round 7:** 5 independent agents reviewed spec+plan+SKILL.md (contract-consistency, implementation-readiness, adversarial-failures, security-safety, spec-completeness). 39 raw findings → 30 unique after dedup. 2 P0, 16 P1, 12 P2. Key changes:
+- R7-1: Spec `blocked` termination_reason now includes `git_error` as a cause
+- R7-2: SKILL.md Step 5 adds truncation warning for non-zero exit codes with signal guidance
+- R7-5: NUL byte preservation note added to `_check_clean_tree()`
+- R7-7: Version bump reads current version instead of hardcoding `2.0.0`
+- R7-8: `_output()` validates all required fields via `_OUTPUT_REQUIRED` assertion
+- R7-10: Switched Step 10 from `subprocess.run` to `Popen` with explicit `proc.kill()` on timeout
+- R7-11: Added 50MB stdout size cap to prevent OOM on pathological Codex output
+- R7-12: SKILL.md Step 5 uses `git -C` for CWD isolation
+- R7-13: SKILL.md flag values changed from "case-insensitive" to "case-sensitive lowercase"
+- R7-15: SKILL.md Step 5 adds review failure fallback guidance
+- R7-16: `append_log()` adds `os.chmod(LOG_PATH, 0o600)` after write
+- R7-27: `returncode` captured before `_parse_jsonl` for error-path availability
+- R7-28: SKILL.md removes `rm` fallback from cleanup step
+- R7-29: Non-string prompt type rejected before credential scan (governance rule 4)
+
 ---
 
 ## Task 1: Create `scripts/credential_scan.py`
@@ -404,7 +462,13 @@ Replace lines 37-159 (pattern definitions + detection helpers) with imports. Key
 
 1. Remove: `_STRICT`, `_CONTEXTUAL`, `_PLACEHOLDER_WORDS`, `_BROAD` pattern lists
 2. Remove: `_has_placeholder_context()`, `_check_strict()`, `_check_contextual()`, `_broad_tag()` functions
-3. Add: `from credential_scan import scan_text` import
+3. Add import with try/except fallback (R5-B2: bare sibling imports break when tests use package path):
+   ```python
+   try:
+       from credential_scan import scan_text
+   except ModuleNotFoundError:
+       from scripts.credential_scan import scan_text
+   ```
 4. Update `handle_pre()` to use `scan_text()`:
    - `scan_text(prompt)` returns `ScanResult`
    - `action == "block"` → log + return 2
@@ -415,7 +479,11 @@ The guard's `_LOG_PATH`, `_ts()`, `_append_log()` stay as-is (D26 — guard keep
 
 ```python
 # Replace the detection section in handle_pre with:
-from credential_scan import scan_text
+# R5-B2: try/except fallback for package-path imports in tests
+try:
+    from credential_scan import scan_text
+except ModuleNotFoundError:
+    from scripts.credential_scan import scan_text
 
 # In handle_pre():
     result = scan_text(prompt)
@@ -601,11 +669,17 @@ def ts() -> str:
 
 
 def append_log(entry: dict) -> bool:
-    """Append a JSON line to the event log. Returns True on success."""
+    """Append a JSON line to the event log. Returns True on success.
+
+    Append-mode write — POSIX atomic for single-line writes under PIPE_BUF (4KB).
+    """
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(LOG_PATH, "a") as f:
             f.write(json.dumps(entry) + "\n")
+        # R7-16: Ensure log file is not world-readable on shared systems.
+        # Default umask (typically 0o644) would allow other users to read.
+        os.chmod(LOG_PATH, 0o600)
         return True
     except OSError as exc:
         print(f"log write failed: {exc}", file=sys.stderr)
@@ -653,7 +727,13 @@ Expected: All pass.
 
 **Step 2: Update `emit_analytics.py`**
 
-1. Add import: `from event_log import LOG_PATH, ts as _ts, append_log as _append_log, session_id as _session_id`
+1. Add import with try/except fallback (R5-B2: bare sibling imports break when tests use package path):
+   ```python
+   try:
+       from event_log import LOG_PATH, ts as _ts, append_log as _append_log, session_id as _session_id
+   except ModuleNotFoundError:
+       from scripts.event_log import LOG_PATH, ts as _ts, append_log as _append_log, session_id as _session_id
+   ```
 2. Remove: local `_LOG_PATH` (line 37), `_ts()` (lines 146-148), `_append_log()` (lines 151-160), `_session_id()` (lines 163-169)
 3. The `finally` block (line ~692) cleans `input_path`, not `_LOG_PATH` — no cleanup-path change needed (B15: previous note was incorrect)
 
@@ -975,10 +1055,11 @@ class TestComputeDelegation:
         assert result["delegation"]["full_auto_count"] == 0
 
     def test_type_robust_commands_run_count(self) -> None:
-        """F13: Non-numeric commands_run_count handled defensively."""
+        """F13: Non-numeric commands_run_count handled defensively.
+        R5-B6: None means 'no observations', not 0.0."""
         events = [_make_delegation_event(commands_run_count="five")]
         result = compute(events, 0, 0, "delegation")
-        assert result["delegation"]["avg_commands_run"] == 0.0
+        assert result["delegation"]["avg_commands_run"] is None
 
     def test_type_robust_dispatched_non_bool(self) -> None:
         """B18: dispatched=1 or dispatched='true' are not counted as dispatched."""
@@ -1043,7 +1124,7 @@ _DELEGATION_TEMPLATE: dict = {
     "readable_secret_file_block_count": 0,
     "sandbox_counts": {},
     "full_auto_count": 0,
-    "avg_commands_run": 0.0,
+    "avg_commands_run": None,  # R5-B6: nullable — None means "no observations", 0.0 means "average is zero"
     "avg_commands_run_observed_count": 0,
 }
 ```
@@ -1074,6 +1155,11 @@ def _compute_delegation(delegation_outcomes: list[dict]) -> dict:
         elif reason == "blocked":
             result["blocked_count"] += 1
 
+        # R6-B13: Individual block flags are counted independently from
+        # blocked_count (which uses termination_reason). In well-formed events
+        # these are consistent, but malformed events (e.g., credential_blocked=True
+        # with termination_reason="error") could create a count mismatch.
+        # Defensive: count what the event claims, don't cross-validate here.
         if event.get("credential_blocked"):
             result["credential_block_count"] += 1
         if event.get("dirty_tree_blocked"):
@@ -1097,8 +1183,13 @@ def _compute_delegation(delegation_outcomes: list[dict]) -> dict:
         e for e in dispatched
         if isinstance(e.get("commands_run_count"), (int, float))
     ]
+    # R7-6: Verify stats_common.observed_avg exists and accepts
+    # (events: list[dict], field: str) -> tuple[float | None, int].
+    # Import at module level: import stats_common (or from scripts import stats_common).
     avg_cmd, obs_cmd = stats_common.observed_avg(numeric_dispatched, "commands_run_count")
-    result["avg_commands_run"] = avg_cmd if avg_cmd is not None else 0.0
+    # R5-B6: No None→0.0 coercion — preserve observed_avg semantics.
+    # None = no observations, 0.0 = average is zero. Matches avg_turn_count pattern.
+    result["avg_commands_run"] = avg_cmd
     result["avg_commands_run_observed_count"] = obs_cmd
 
     return result
@@ -1202,6 +1293,16 @@ After the event classifier loop and before calling `_compute_delegation()`, appl
     delegation_outcomes = stats_common.filter_by_period(
         delegation_outcomes, period_days, now=now
     ).events
+```
+
+**R5-I2: report_version stays `1.0.0`.** Adding a top-level `delegation` section is additive — existing consumers that don't know about `delegation` can ignore it. Document this decision: "Additive top-level sections are non-breaking; report_version bumps only for removals, renames, or semantic changes to existing fields." Add a test in `TestSectionMatrix` to assert the `report_version` envelope key exists and equals `"1.0.0"`:
+
+```python
+    def test_report_version_envelope(self) -> None:
+        """R5-I2: report_version stays 1.0.0 for additive changes."""
+        events = [_make_delegation_event()]
+        result = compute(events, 0, 0, "all")
+        assert result["report_version"] == "1.0.0"
 ```
 
 Add `--json` no-op flag to argparse:
@@ -1331,6 +1432,14 @@ class TestParseInput:
         f.write_text(json.dumps({"prompt": "test", "bogus": True}))
         result = _parse_input(f)
         assert "bogus" in result["_raw_keys"]
+
+    def test_empty_string_model_normalized_to_none(self, tmp_path: Path) -> None:
+        """R6-B5: model='' should be normalized to None in Phase A."""
+        from scripts.codex_delegate import _parse_input
+        f = tmp_path / "input.json"
+        f.write_text(json.dumps({"prompt": "test", "model": ""}))
+        result = _parse_input(f)
+        assert result["model"] is None
 
 
 class TestValidateInput:
@@ -1715,6 +1824,380 @@ class TestRunOrchestrator:
         assert log_event["dispatched"] is True
         assert log_event["thread_id"] == "t-123"
         assert log_event["commands_run_count"] == 1
+
+    @patch("scripts.codex_delegate.append_log", return_value=True)
+    @patch("scripts.codex_delegate.subprocess")
+    def test_success_path_dispatched_in_stdout(
+        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
+    ) -> None:
+        """R5-B1: Adapter stdout includes dispatched=true for skill branching."""
+        from scripts.codex_delegate import run
+        output_file = tmp_path / "codex_output.txt"
+        output_file.write_text("Summary.")
+        jsonl_output = '{"type":"thread.started","thread_id":"t-1"}\n{"type":"turn.completed","usage":{}}\n'
+        responses = [
+            MagicMock(returncode=0, stdout=str(tmp_path) + "\n"),
+            MagicMock(returncode=0, stdout="codex 0.111.0\n"),
+            MagicMock(returncode=0, stdout=""),
+            MagicMock(returncode=0, stdout=""),
+            MagicMock(returncode=0, stdout=jsonl_output, stderr=""),
+        ]
+        mock_sub.run.side_effect = responses
+        mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+        f = self._write_input(tmp_path, {"prompt": "fix tests"})
+        fd = os.open(str(output_file), os.O_RDWR)
+        with patch("scripts.codex_delegate.tempfile") as mock_tmp:
+            mock_tmp.mkstemp.return_value = (fd, str(output_file))
+            run(f)
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert output["dispatched"] is True
+
+    @patch("scripts.codex_delegate.append_log", return_value=True)
+    @patch("scripts.codex_delegate.subprocess")
+    def test_error_dispatched_false_in_stdout(
+        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
+    ) -> None:
+        """R5-B1: Pre-dispatch error has dispatched=false in stdout."""
+        from scripts.codex_delegate import run
+        mock_sub.run.return_value = MagicMock(returncode=128, stdout="", stderr="not git")
+        f = self._write_input(tmp_path, {"prompt": "test"})
+        run(f)
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert output["dispatched"] is False
+
+
+class TestValidateInputTypeChecks:
+    """R5-B3: isinstance checks prevent TypeError on non-string enum values."""
+
+    def test_sandbox_list_rejected(self) -> None:
+        from scripts.codex_delegate import _validate_input, DelegationError
+        parsed = {"prompt": "test", "sandbox": [],
+                  "reasoning_effort": "high", "full_auto": False, "_raw_keys": {"prompt"}}
+        with pytest.raises(DelegationError, match="invalid sandbox"):
+            _validate_input(parsed)
+
+    def test_reasoning_effort_int_rejected(self) -> None:
+        from scripts.codex_delegate import _validate_input, DelegationError
+        parsed = {"prompt": "test", "sandbox": "workspace-write",
+                  "reasoning_effort": 123, "full_auto": False, "_raw_keys": {"prompt"}}
+        with pytest.raises(DelegationError, match="invalid reasoning_effort"):
+            _validate_input(parsed)
+
+    def test_model_int_rejected(self) -> None:
+        from scripts.codex_delegate import _validate_input, DelegationError
+        parsed = {"prompt": "test", "sandbox": "workspace-write",
+                  "reasoning_effort": "high", "full_auto": False,
+                  "model": 123, "_raw_keys": {"prompt", "model"}}
+        with pytest.raises(DelegationError, match="invalid model"):
+            _validate_input(parsed)
+
+
+class TestStep10ErrorShapes:
+    """R5-B4: Step 10 timeout/spawn produce pinned error messages."""
+
+    def _write_input(self, tmp_path: Path, data: dict) -> Path:
+        f = tmp_path / "input.json"
+        f.write_text(json.dumps(data))
+        return f
+
+    @patch("scripts.codex_delegate.append_log", return_value=True)
+    @patch("scripts.codex_delegate.subprocess")
+    def test_timeout_error_shape(
+        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
+    ) -> None:
+        """R5-B4: Timeout produces 'exec failed: process timeout' in stdout JSON."""
+        from scripts.codex_delegate import run
+        responses = [
+            MagicMock(returncode=0, stdout=str(tmp_path) + "\n"),
+            MagicMock(returncode=0, stdout="codex 0.111.0\n"),
+            MagicMock(returncode=0, stdout=""),
+            MagicMock(returncode=0, stdout=""),
+        ]
+        call_idx = 0
+        def side_effect(*args, **kwargs):
+            nonlocal call_idx
+            if call_idx < len(responses):
+                result = responses[call_idx]
+                call_idx += 1
+                return result
+            raise subprocess.TimeoutExpired(cmd=["codex"], timeout=600)
+        mock_sub.run.side_effect = side_effect
+        mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+        f = self._write_input(tmp_path, {"prompt": "fix tests"})
+        run(f)
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert output["error"] == "exec failed: process timeout"
+        assert output["dispatched"] is True
+
+    @patch("scripts.codex_delegate.append_log", return_value=True)
+    @patch("scripts.codex_delegate.subprocess")
+    def test_spawn_error_shape(
+        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
+    ) -> None:
+        """R5-B4: Spawn failure produces 'exec failed: subprocess spawn error' in stdout JSON."""
+        from scripts.codex_delegate import run
+        responses = [
+            MagicMock(returncode=0, stdout=str(tmp_path) + "\n"),
+            MagicMock(returncode=0, stdout="codex 0.111.0\n"),
+            MagicMock(returncode=0, stdout=""),
+            MagicMock(returncode=0, stdout=""),
+        ]
+        call_idx = 0
+        def side_effect(*args, **kwargs):
+            nonlocal call_idx
+            if call_idx < len(responses):
+                result = responses[call_idx]
+                call_idx += 1
+                return result
+            raise FileNotFoundError("codex not found")
+        mock_sub.run.side_effect = side_effect
+        mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+        f = self._write_input(tmp_path, {"prompt": "fix tests"})
+        run(f)
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert "subprocess spawn error" in output["error"]
+        # R6-B12: Verify dispatched field present in spawn error output
+        assert "dispatched" in output
+
+
+class TestEmitAnalyticsInvariants:
+    """R5-B5: termination_reason derivation hierarchy prevents impossible states."""
+
+    def test_not_dispatched_no_blocked_by_is_error(self) -> None:
+        """R5-B5: dispatched=false, exit_code=0, blocked_by=None → 'error', not 'complete'."""
+        from scripts.codex_delegate import _emit_analytics
+        with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
+            _emit_analytics(
+                phase_a={"prompt": "test", "sandbox": "workspace-write"},
+                parsed=None, exit_code=0, blocked_by=None, dispatched=False,
+            )
+            event = mock_log.call_args[0][0]
+            assert event["termination_reason"] == "error"
+
+    def test_not_dispatched_no_blocked_by_exit_none_is_error(self) -> None:
+        from scripts.codex_delegate import _emit_analytics
+        with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
+            _emit_analytics(
+                phase_a={"prompt": "test"}, parsed=None,
+                exit_code=None, blocked_by=None, dispatched=False,
+            )
+            event = mock_log.call_args[0][0]
+            assert event["termination_reason"] == "error"
+
+    def test_dispatched_exit_zero_is_complete(self) -> None:
+        from scripts.codex_delegate import _emit_analytics
+        with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
+            _emit_analytics(
+                phase_a={"prompt": "test"},
+                parsed={"thread_id": "t", "commands_run": []},
+                exit_code=0, blocked_by=None, dispatched=True,
+            )
+            event = mock_log.call_args[0][0]
+            assert event["termination_reason"] == "complete"
+
+    def test_blocked_by_overrides_dispatched(self) -> None:
+        from scripts.codex_delegate import _emit_analytics
+        with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
+            _emit_analytics(
+                phase_a={"prompt": "test"}, parsed=None,
+                exit_code=0, blocked_by="credential", dispatched=False,
+            )
+            event = mock_log.call_args[0][0]
+            assert event["termination_reason"] == "blocked"
+
+    def test_dispatched_nonzero_exit_is_error(self) -> None:
+        from scripts.codex_delegate import _emit_analytics
+        with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
+            _emit_analytics(
+                phase_a={"prompt": "test"},
+                parsed={"thread_id": None, "commands_run": []},
+                exit_code=1, blocked_by=None, dispatched=True,
+            )
+            event = mock_log.call_args[0][0]
+            assert event["termination_reason"] == "error"
+
+    def test_dispatched_exit_none_is_error(self) -> None:
+        from scripts.codex_delegate import _emit_analytics
+        with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
+            _emit_analytics(
+                phase_a={"prompt": "test"},
+                parsed={"thread_id": None, "commands_run": []},
+                exit_code=None, blocked_by=None, dispatched=True,
+            )
+            event = mock_log.call_args[0][0]
+            assert event["termination_reason"] == "error"
+
+    def test_git_error_gate_does_not_set_block_flags(self) -> None:
+        """R6-B2: gate='git_error' must not set dirty_tree_blocked or
+        readable_secret_file_blocked — git command failure ≠ dirty/secret."""
+        from scripts.codex_delegate import _emit_analytics
+        with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
+            _emit_analytics(
+                phase_a={"prompt": "test"}, parsed=None,
+                exit_code=None, blocked_by="git_error", dispatched=False,
+            )
+            event = mock_log.call_args[0][0]
+            assert event["termination_reason"] == "blocked"
+            assert event["dirty_tree_blocked"] is False
+            assert event["readable_secret_file_blocked"] is False
+            assert event["credential_blocked"] is False
+
+    def test_partial_parsed_dict_no_keyerror(self) -> None:
+        """R6-B11: Partially populated parsed dict (missing thread_id)
+        should not raise KeyError."""
+        from scripts.codex_delegate import _emit_analytics
+        with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
+            _emit_analytics(
+                phase_a={"prompt": "test"},
+                parsed={"commands_run": [{"command": "ls", "exit_code": 0}]},
+                exit_code=1, blocked_by=None, dispatched=True,
+            )
+            event = mock_log.call_args[0][0]
+            assert event["thread_id"] is None
+            assert event["commands_run_count"] == 1
+
+
+class TestSchemaParity:
+    """R5-I1: Reader/emitter parity guard for delegation_outcome."""
+
+    def test_emitter_fields_match_reader_required_fields(self) -> None:
+        """All fields emitted by _emit_analytics() must be in _REQUIRED_FIELDS."""
+        from scripts.codex_delegate import _emit_analytics
+        from scripts.read_events import _REQUIRED_FIELDS
+        with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
+            _emit_analytics(
+                phase_a={"prompt": "t", "sandbox": "workspace-write",
+                          "model": None, "reasoning_effort": "high", "full_auto": False},
+                parsed={"thread_id": "t-1", "commands_run": [{"command": "ls", "exit_code": 0}]},
+                exit_code=0, blocked_by=None, dispatched=True,
+            )
+            event = mock_log.call_args[0][0]
+            emitted_fields = set(event.keys())
+            required_fields = set(_REQUIRED_FIELDS["delegation_outcome"])
+            assert emitted_fields == required_fields, (
+                f"Mismatch: emitted-only={emitted_fields - required_fields}, "
+                f"required-only={required_fields - emitted_fields}"
+            )
+
+
+class TestParseJsonlDeferredCoverage:
+    """D1-D4: Deferred parser hardening tests."""
+
+    def test_thread_started_first_wins(self) -> None:
+        """R5-D1: First thread_id is kept, subsequent ignored."""
+        from scripts.codex_delegate import _parse_jsonl
+        lines = (
+            '{"type":"thread.started","thread_id":"first"}\n'
+            '{"type":"thread.started","thread_id":"second"}\n'
+            '{"type":"turn.completed","usage":{}}\n'
+        )
+        result = _parse_jsonl(lines)
+        assert result["thread_id"] == "first"
+
+    def test_summary_from_output_file_over_agent_message(self, tmp_path: Path) -> None:
+        """R5-D2: Output file content takes precedence over last agent_message.
+        This test validates the behavior at the _parse_jsonl level — the output
+        file read happens in run(), so _parse_jsonl always returns the last message."""
+        from scripts.codex_delegate import _parse_jsonl
+        lines = (
+            '{"type":"thread.started","thread_id":"t"}\n'
+            '{"type":"item.completed","item":{"type":"agent_message","text":"from agent"}}\n'
+            '{"type":"turn.completed","usage":{}}\n'
+        )
+        result = _parse_jsonl(lines)
+        assert result["summary"] == "from agent"
+        # In run(), output_file.read_text() overwrites this — tested in test_success_path
+
+    def test_multi_turn_completed_keeps_last(self) -> None:
+        """R5-D3: Multiple turn.completed events — last usage wins (B21 semantics)."""
+        from scripts.codex_delegate import _parse_jsonl
+        lines = (
+            '{"type":"thread.started","thread_id":"t"}\n'
+            '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}\n'
+            '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":50}}\n'
+        )
+        result = _parse_jsonl(lines)
+        assert result["token_usage"]["input_tokens"] == 100
+
+    def test_turn_started_event_ignored(self) -> None:
+        """R5-D4 + R6-B7: turn.started IS in _KNOWN_EVENT_TYPES (counted as usable)
+        but no data is extracted from it."""
+        from scripts.codex_delegate import _parse_jsonl
+        lines = (
+            '{"type":"thread.started","thread_id":"t"}\n'
+            '{"type":"turn.started"}\n'
+            '{"type":"turn.completed","usage":{}}\n'
+        )
+        result = _parse_jsonl(lines)
+        assert result["thread_id"] == "t"  # Other events still parsed
+
+    def test_only_turn_started_does_not_raise(self) -> None:
+        """R6-B7: A run emitting only turn.started should not raise
+        'no usable JSONL events' — turn.started is a known usable type."""
+        from scripts.codex_delegate import _parse_jsonl
+        lines = '{"type":"turn.started"}\n'
+        result = _parse_jsonl(lines)
+        assert result["thread_id"] is None
+        assert result["commands_run"] == []
+
+    def test_non_dict_item_skipped(self) -> None:
+        """R6-B8: Non-dict item field should not crash — degrade gracefully."""
+        from scripts.codex_delegate import _parse_jsonl
+        lines = (
+            '{"type":"thread.started","thread_id":"t"}\n'
+            '{"type":"item.completed","item":"not-a-dict"}\n'
+        )
+        result = _parse_jsonl(lines)
+        assert result["commands_run"] == []
+
+    def test_non_dict_usage_skipped(self) -> None:
+        """R6-B8: Non-dict usage field should not crash — degrade gracefully."""
+        from scripts.codex_delegate import _parse_jsonl
+        lines = (
+            '{"type":"thread.started","thread_id":"t"}\n'
+            '{"type":"turn.completed","usage":"not-a-dict"}\n'
+        )
+        result = _parse_jsonl(lines)
+        assert result["token_usage"] is None
+
+
+class TestOutputSchemaEnforcement:
+    """R7-8: _output() validates all required fields are present."""
+
+    def test_output_with_all_fields(self) -> None:
+        from scripts.codex_delegate import _output
+        import json
+        result = json.loads(_output(
+            "ok", dispatched=True, thread_id="t", summary=None,
+            commands_run=[], exit_code=0, token_usage=None,
+            runtime_failures=[], blocked_paths=[], error=None,
+        ))
+        assert result["status"] == "ok"
+
+    def test_output_missing_field_asserts(self) -> None:
+        from scripts.codex_delegate import _output
+        with pytest.raises(AssertionError, match="missing fields"):
+            _output("ok", dispatched=True)  # missing many required fields
+
+
+class TestNonStringPromptRejection:
+    """R7-29: Non-string prompt rejected before credential scan."""
+
+    @patch("scripts.codex_delegate.append_log", return_value=True)
+    @patch("scripts.codex_delegate.subprocess")
+    def test_list_prompt_rejected_before_scan(
+        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path,
+    ) -> None:
+        from scripts.codex_delegate import run
+        mock_sub.run.return_value = MagicMock(returncode=0, stdout=str(tmp_path) + "\n")
+        f = tmp_path / "input.json"
+        f.write_text(json.dumps({"prompt": ["AKIAIOSFODNN7EXAMPLE", "fix tests"]}))
+        exit_code = run(f)
+        assert exit_code == 1  # error, not blocked — rejected before scan
 ```
 
 ### Step 2: Run tests to verify they fail
@@ -1756,13 +2239,19 @@ import uuid
 from pathlib import Path
 
 # Sibling imports (same scripts/ directory)
+# R6-B9: Both import attempts wrapped — second attempt may also fail
+# (e.g., scripts/ not on sys.path AND parent insertion doesn't help)
 try:
     from credential_scan import scan_text
     from event_log import LOG_PATH, ts, append_log, session_id
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from credential_scan import scan_text
-    from event_log import LOG_PATH, ts, append_log, session_id
+    try:
+        from credential_scan import scan_text
+        from event_log import LOG_PATH, ts, append_log, session_id
+    except ModuleNotFoundError as exc:
+        print(f"codex-delegate: fatal: cannot import sibling modules: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -1842,9 +2331,14 @@ def _parse_input(input_path: Path) -> dict:
         raise DelegationError("input parse failed: expected JSON object")
 
     # Apply defaults but preserve raw values for analytics (F13)
+    # R6-B5: Normalize model="" to None — empty string passes Phase B
+    # isinstance check but is silently dropped by _build_command's `if model:`,
+    # causing analytics to log model="" while execution uses Codex default.
+    raw_model = data.get("model")
+    model = raw_model if raw_model else None  # "" → None, None → None
     return {
         "prompt": data.get("prompt"),
-        "model": data.get("model"),
+        "model": model,
         "sandbox": data.get("sandbox", "workspace-write"),
         "reasoning_effort": data.get("reasoning_effort", "high"),
         "full_auto": data.get("full_auto", False),
@@ -1869,15 +2363,28 @@ def _validate_input(parsed: dict) -> dict:
     if unknown:
         raise DelegationError(f"validation failed: unknown field '{next(iter(unknown))}'")
 
+    # R5-B3: isinstance checks before set membership — non-string values
+    # (e.g. sandbox=[], reasoning_effort=123) would raise TypeError on
+    # `not in set(...)` instead of the deterministic validation contract.
     sandbox = parsed["sandbox"]
+    if not isinstance(sandbox, str):
+        raise DelegationError("validation failed: invalid sandbox value")
     if sandbox == "danger-full-access":
         raise DelegationError("policy: danger-full-access not supported in Step 1")
     if sandbox not in _VALID_SANDBOXES:
         raise DelegationError("validation failed: invalid sandbox value")
 
     effort = parsed["reasoning_effort"]
+    if not isinstance(effort, str):
+        raise DelegationError("validation failed: invalid reasoning_effort value")
     if effort not in _VALID_EFFORTS:
         raise DelegationError("validation failed: invalid reasoning_effort value")
+
+    # R5-B3: model must be string if present — non-string causes non-string
+    # in subprocess command list
+    model = parsed.get("model")
+    if model is not None and not isinstance(model, str):
+        raise DelegationError("validation failed: invalid model value")
 
     full_auto = parsed["full_auto"]
     if not isinstance(full_auto, bool):
@@ -1929,11 +2436,20 @@ def _check_clean_tree() -> None:
         capture_output=True, text=True, timeout=10,
     )
     # B7: Fail closed on git command failure — empty stdout could mask dirty tree
+    # R6-B2: Use gate="git_error" — git command failure ≠ dirty tree;
+    # gate="clean_tree" would set dirty_tree_blocked=True in analytics
     if result.returncode != 0:
         raise GateBlockError(
             "clean-tree check failed: git status returned non-zero",
-            gate="clean_tree",
+            gate="git_error",
         )
+    # R6-note: strip() strips whitespace, not NUL bytes. With --porcelain=v1 -z,
+    # output is NUL-separated entries. Empty tree = empty stdout (""). Non-empty
+    # tree has entries like " M foo.py\0". strip() is safe for the "is non-empty?"
+    # check — a lone NUL byte would pass through but the parser handles empty entries.
+    # R7-5: Python's text=True preserves NUL bytes on macOS/Linux (verified).
+    # If targeting other platforms, switch to capture_output without text=True
+    # and decode with result.stdout.decode("utf-8", errors="replace").
     if result.stdout.strip():
         # B8: Parse NUL-separated entries correctly — rename/copy records
         # produce two NUL-separated path fields (old\0new). Split on NUL,
@@ -1946,11 +2462,13 @@ def _check_clean_tree() -> None:
             if not entry.strip():
                 i += 1
                 continue
-            status_char = entry[0] if entry else ""
+            # R6-B6: porcelain=v1 status codes are 2 chars (XY format) —
+            # entry[0] reads only index char; use entry[:2] for full status
+            status_xy = entry[:2] if len(entry) >= 2 else ""
             path = entry[3:] if len(entry) > 3 else entry
             paths.append(path)
             # Rename/copy records have a second path field
-            if status_char in ("R", "C") and i + 1 < len(raw_parts):
+            if status_xy[0:1] in ("R", "C") and i + 1 < len(raw_parts):
                 i += 1  # skip the second path (destination)
             i += 1
         if paths:
@@ -1972,10 +2490,11 @@ def _check_secret_files() -> None:
         capture_output=True, text=True, timeout=10,
     )
     # B7: Fail closed on git command failure — empty stdout could mask secret files
+    # R6-B2: Use gate="git_error" — git command failure ≠ secret files found
     if result.returncode != 0:
         raise GateBlockError(
             "secret-file check failed: git ls-files returned non-zero",
-            gate="secret_files",
+            gate="git_error",
         )
     if not result.stdout.strip():
         return
@@ -2044,7 +2563,14 @@ def _parse_jsonl(stdout: str) -> dict:
     # silently skipped. Prevents false status=ok when all events are
     # unrecognized (e.g., fabricated thread ID from unknown events).
     # B9: Include "error" — design spec JSONL event families table lists it
-    _KNOWN_EVENT_TYPES = {"thread.started", "item.completed", "turn.completed", "turn.failed", "error"}
+    # R6-B7: Include "turn.started" and "item.started" — spec lists them as
+    # "Ignored" but they must be in _KNOWN_EVENT_TYPES so they count as usable.
+    # Without this, a Codex run that emits only turn.started before early failure
+    # would hit usable_count==0 and raise a misleading "no usable events" error.
+    _KNOWN_EVENT_TYPES = {
+        "thread.started", "turn.started", "turn.completed", "turn.failed",
+        "item.started", "item.completed", "error",
+    }
 
     for line in stdout.split("\n"):
         line = line.strip()
@@ -2064,23 +2590,37 @@ def _parse_jsonl(stdout: str) -> dict:
         usable_count += 1
 
         if event_type == "thread.started":
-            thread_id = event.get("thread_id")
+            # R5-I5+D1: Type guard + first-wins — keep first thread_id only
+            tid = event.get("thread_id")
+            if isinstance(tid, str) and thread_id is None:
+                thread_id = tid
 
         elif event_type == "item.completed":
             item = event.get("item", {})
+            # R6-B8: Structural type guard — non-dict item would crash on .get()
+            if not isinstance(item, dict):
+                continue
             if item.get("type") == "command_execution":
+                # R5-I5: Type guard — non-string command would corrupt output
+                cmd_val = item.get("command", "")
                 commands_run.append({
-                    "command": item.get("command", ""),
+                    "command": cmd_val if isinstance(cmd_val, str) else str(cmd_val),
                     "exit_code": item.get("exit_code"),
                 })
             elif item.get("type") == "agent_message":
-                last_message = item.get("text")
+                # R5-I5: Type guard — non-string text would corrupt summary
+                text_val = item.get("text")
+                if isinstance(text_val, str):
+                    last_message = text_val
 
         elif event_type == "turn.completed":
             # B21: Keeps last turn.completed usage only (intentional —
             # Codex exec typically has one turn; multi-turn accumulation
             # deferred to Step 1b resume support).
             usage = event.get("usage", {})
+            # R6-B8: Structural type guard — non-dict usage would crash on .get()
+            if not isinstance(usage, dict):
+                continue
             if usage:
                 token_usage = {
                     "input_tokens": usage.get("input_tokens", 0),
@@ -2098,11 +2638,10 @@ def _parse_jsonl(stdout: str) -> dict:
         raise DelegationError("parse failed: no usable JSONL events from codex exec")
 
     if thread_id is None:
-        thread_id = str(uuid.uuid4())
-        print("codex-delegate: no thread.started event, generated UUID", file=sys.stderr)
+        print("codex-delegate: no thread.started event, thread_id will be null", file=sys.stderr)
 
     return {
-        "thread_id": thread_id,
+        "thread_id": thread_id,  # nullable — no fabricated UUIDs
         "commands_run": commands_run,
         "token_usage": token_usage,
         "runtime_failures": runtime_failures,
@@ -2129,7 +2668,9 @@ def _emit_analytics(
         "ts": ts(),
         "consultation_id": str(uuid.uuid4()),
         "session_id": session_id(),
-        "thread_id": parsed["thread_id"] if parsed else None,
+        # R6-B11: Use .get() — parsed may be partially populated dict
+        # missing "thread_id" (e.g., DelegationError during JSONL parse)
+        "thread_id": parsed.get("thread_id") if parsed else None,
         "dispatched": dispatched,
         "sandbox": phase_a.get("sandbox", "workspace-write"),
         "model": phase_a.get("model"),
@@ -2138,10 +2679,14 @@ def _emit_analytics(
         "credential_blocked": blocked_by == "credential",
         "dirty_tree_blocked": blocked_by == "clean_tree",
         "readable_secret_file_blocked": blocked_by == "secret_files",
-        "commands_run_count": len(parsed["commands_run"]) if parsed else 0,
+        # R6-B11: Use .get() — same partial-dict safety as thread_id
+        "commands_run_count": len(parsed.get("commands_run", [])) if parsed else 0,
         "exit_code": exit_code,
+        # R5-B5: Derive termination_reason from dispatched/blocked_by hierarchy
+        # — prevents impossible state dispatched=false,exit_code=0 → "complete"
         "termination_reason": (
             "blocked" if blocked_by
+            else "error" if not dispatched
             else "complete" if exit_code == 0
             else "error"
         ),
@@ -2155,10 +2700,22 @@ def _emit_analytics(
 # ---------------------------------------------------------------------------
 
 
+_OUTPUT_REQUIRED = {
+    "status", "dispatched", "thread_id", "summary", "commands_run",
+    "exit_code", "token_usage", "runtime_failures", "blocked_paths", "error",
+}
+
+
 def _output(status: str, **kwargs: object) -> str:
-    """Format adapter output as JSON."""
+    """Format adapter output as JSON.
+
+    R7-8: Validates all required fields are present to prevent silent
+    omissions when adding new status paths or exception handlers.
+    """
     result: dict = {"status": status}
     result.update(kwargs)
+    missing = _OUTPUT_REQUIRED - set(result.keys())
+    assert not missing, f"_output missing fields: {missing}"
     return json.dumps(result)
 
 
@@ -2191,7 +2748,12 @@ def run(input_path: Path) -> int:
         phase_a = _parse_input(input_path)
 
         # Step 4: credential scan on prompt (governance rule 4: fail-closed)
+        # R7-29: Validate prompt type before credential scan to prevent bypass.
+        # Non-string prompt (e.g., list) would skip scan entirely, violating
+        # governance rule 4 (fail-closed). Reject early with clear error.
         prompt = phase_a.get("prompt")
+        if prompt is not None and not isinstance(prompt, str):
+            raise DelegationError("validation failed: prompt must be string")
         if prompt and isinstance(prompt, str):
             try:
                 scan_result = scan_text(prompt)
@@ -2234,10 +2796,28 @@ def run(input_path: Path) -> int:
         # subprocess.run(), so setting it after would leave did_dispatch=False
         # even though the process actually ran (and may have modified files).
         did_dispatch = True
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        # R7-10: Use Popen instead of subprocess.run to enable explicit kill on timeout.
+        # subprocess.run's TimeoutExpired does NOT kill the child — orphaned Codex
+        # continues modifying files after the adapter reports timeout.
+        # R7-11: Impose stdout size cap (50MB) to prevent OOM on pathological output.
+        _STDOUT_MAX_BYTES = 50 * 1024 * 1024
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                stdout, stderr = proc.communicate(timeout=600)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                raise DelegationError("exec failed: process timeout")
+            if len(stdout.encode("utf-8", errors="replace")) > _STDOUT_MAX_BYTES:
+                print("codex-delegate: stdout truncated (exceeded 50MB cap)", file=sys.stderr)
+                stdout = stdout[:_STDOUT_MAX_BYTES]  # approximate truncation
+        except FileNotFoundError:
+            # R5-B4: Codex binary not found at exec time (different from version check)
+            raise DelegationError("exec failed: subprocess spawn error. codex not found")
 
         # Steps 11-12: parse JSONL + read output file
-        parsed = _parse_jsonl(proc.stdout)
+        parsed = _parse_jsonl(stdout)
 
         # Read -o output for summary (nullable)
         if output_file.exists():
@@ -2245,18 +2825,25 @@ def run(input_path: Path) -> int:
             if content:
                 parsed["summary"] = content
 
+        # R7-27: Capture returncode before _parse_jsonl so it's available in error output
+        returncode = proc.returncode
+
         # Step 13: emit analytics
-        _emit_analytics(phase_a, parsed, proc.returncode, None, dispatched=True)
+        _emit_analytics(phase_a, parsed, returncode, None, dispatched=True)
 
         # Return structured output
+        # R5-B1: Include dispatched field — enables skill to branch on error+dispatched
+        # R6-B1: blocked_paths always present (empty list for non-blocked)
         print(_output(
             "ok",
+            dispatched=True,
             thread_id=parsed["thread_id"],
             summary=parsed["summary"],
             commands_run=parsed["commands_run"],
-            exit_code=proc.returncode,
+            exit_code=returncode,
             token_usage=parsed["token_usage"],
             runtime_failures=parsed["runtime_failures"],
+            blocked_paths=[],
             error=None,
         ))
         return 0
@@ -2265,14 +2852,18 @@ def run(input_path: Path) -> int:
         # F1+F8: Always emit — phase_a is set (step 3 succeeded)
         if phase_a:
             _emit_analytics(phase_a, None, None, "credential", dispatched=False)
-        print(_output("blocked", error=str(exc), thread_id=None, summary=None,
-                       commands_run=[], exit_code=None, token_usage=None, runtime_failures=[]))
+        # R5-B1: dispatched=False for credential blocks
+        # R6-B1: blocked_paths always present
+        print(_output("blocked", dispatched=False, error=str(exc), thread_id=None, summary=None,
+                       commands_run=[], exit_code=None, token_usage=None, runtime_failures=[],
+                       blocked_paths=[]))
         return 0
 
     except GateBlockError as exc:
         if phase_a:
             _emit_analytics(phase_a, None, None, exc.gate, dispatched=False)
-        print(_output("blocked", error=str(exc), thread_id=None, summary=None,
+        # R5-B1: dispatched=False for gate blocks
+        print(_output("blocked", dispatched=False, error=str(exc), thread_id=None, summary=None,
                        commands_run=[], exit_code=None, token_usage=None,
                        runtime_failures=[], blocked_paths=exc.paths))
         return 0
@@ -2281,17 +2872,22 @@ def run(input_path: Path) -> int:
         # B8: Use did_dispatch to correctly report whether subprocess ran
         if phase_a:
             _emit_analytics(phase_a, parsed, None, None, dispatched=did_dispatch)
-        print(_output("error", error=str(exc), thread_id=None, summary=None,
-                       commands_run=[], exit_code=None, token_usage=None, runtime_failures=[]))
+        # R5-B1: dispatched=did_dispatch — skill needs this to decide whether to review changes
+        # R6-B1: blocked_paths always present
+        print(_output("error", dispatched=did_dispatch, error=str(exc), thread_id=None, summary=None,
+                       commands_run=[], exit_code=None, token_usage=None, runtime_failures=[],
+                       blocked_paths=[]))
         return 1
 
     except Exception as exc:
         # B8: Use did_dispatch — generic handler may catch post-dispatch failures
         if phase_a:
             _emit_analytics(phase_a, parsed, None, None, dispatched=did_dispatch)
-        print(_output("error", error=f"internal error: {exc}", thread_id=None,
+        # R5-B1: dispatched=did_dispatch
+        # R6-B1: blocked_paths always present
+        print(_output("error", dispatched=did_dispatch, error=f"internal error: {exc}", thread_id=None,
                        summary=None, commands_run=[], exit_code=None,
-                       token_usage=None, runtime_failures=[]))
+                       token_usage=None, runtime_failures=[], blocked_paths=[]))
         return 1
 
     finally:
@@ -2350,10 +2946,10 @@ Run the full test suite and verify all modules work together.
 Run: `cd packages/plugins/cross-model && uv run pytest tests/ -v --tb=short`
 Expected: All pass across all 6 test files.
 
-**Step 1b: Run root-level test suite (B7, B10)**
+**Step 1b: Run root-level test suite (B7, B10, R5-B7)**
 
-Run: `uv run pytest tests/test_compute_stats.py tests/test_read_events.py -v --tb=short`
-Expected: All pass. These tests exercise `_compute_usage()` (now 6 args) and usage key assertions (now includes `delegations_completed_total`). B7: Update root-level tests first if they fail — see Task 6 Step 3b below.
+Run: `uv run pytest tests/test_compute_stats.py tests/test_read_events.py tests/test_codex_guard.py tests/test_emit_analytics.py -v --tb=short`
+Expected: All pass. These tests exercise `_compute_usage()` (now 6 args) and usage key assertions (now includes `delegations_completed_total`). R5-B7: Root-level `codex_guard` and `emit_analytics` suites contain comprehensive regression coverage for the security-sensitive extraction work (placeholder context, second-match handling, false suppressors). B7: Update root-level tests first if they fail — see Task 6 Step 3b below.
 
 **Step 2: Verify imports resolve correctly**
 
@@ -2385,23 +2981,84 @@ Task 1 (credential_scan.py) ──┬──→ Task 2 (codex_guard.py update)
                                └──→ Task 7 (codex_delegate.py)
 Task 3 (event_log.py) ────────┬──→ Task 4 (emit_analytics.py update)
                                └──→ Task 7 (codex_delegate.py)
-Task 5 (read_events.py) ──────→ Task 6 (compute_stats.py)
-                                  └──→ Task 6 Step 3b (root-level test updates [B3: gated])
-Task 7 depends on Tasks 1 + 3
+Task 5 (read_events.py) ──────┬──→ Task 6 (compute_stats.py)
+                               ├──→ Task 6 Step 3b (root-level test updates [B3: gated])
+                               └──→ Task 7 (R6-B10: schema-parity test imports _REQUIRED_FIELDS)
+Task 7 depends on Tasks 1 + 3 + 5 (R6-B10: schema-parity test [I1] imports _REQUIRED_FIELDS from read_events.py)
 Task 8 depends on all (includes root-level test suite [B10])
+Task 9 depends on Task 8
 ```
 
 **Parallel opportunities:**
 - Tasks 1, 3, 5 have no dependencies — can run in parallel
 - Tasks 2 and 4 can run in parallel (after 1 and 3 respectively)
-- Task 7 waits for 1 + 3
+- Task 7 waits for 1 + 3 + 5 (R6-B10)
 - Task 6 Step 3b (root-level test updates) runs after Task 6 Step 3
+- Task 9 runs last (release gate)
+
+## Task 9: Release
+
+Bump the plugin version, update docs, and validate the install path.
+
+**Step 1: Bump plugin version**
+
+Read current `version` from `packages/plugins/cross-model/.claude-plugin/plugin.json`. Bump major version (current major + 1). If current is not `"2.0.0"`, note the discrepancy and bump major regardless (R7-7).
+
+**Step 2: Update CHANGELOG**
+
+Add a `## 3.0.0` entry to `packages/plugins/cross-model/CHANGELOG.md` documenting:
+- New `/delegate` skill for autonomous Codex execution
+- New `delegation_outcome` analytics event type
+- New shared modules: `credential_scan.py`, `event_log.py`
+- `codex_guard.py` refactored to import from `credential_scan.py`
+- `emit_analytics.py` refactored to import from `event_log.py`
+- `read_events.py` and `compute_stats.py` updated for delegation support
+
+**Step 3: Update README**
+
+Add `/delegate` to the plugin's `packages/plugins/cross-model/README.md`:
+- Document the command surface alongside `/codex` and `/dialogue`
+- Note the narrower trust model (sandbox containment vs. prompt sanitization)
+- Reference the clean-tree and secret-file gates
+
+**Step 3b: Update consultation-stats SKILL.md (R5-I3)**
+
+Update the consultation-stats skill (`skills/consultation-stats/SKILL.md` relative to `packages/plugins/cross-model/`) to reflect delegation support (R7-30):
+- Add `--type delegation` to the choices table
+- Add delegation section description to report documentation
+- Add delegation stats surface to report output description
+
+**Step 4: Validate install path**
+
+```bash
+# Update marketplace and reinstall
+claude plugin marketplace update turbo-mode
+claude plugin install cross-model@turbo-mode
+
+# Verify /delegate skill is visible
+# Verify version shows 3.0.0
+```
+
+**Step 5: Commit**
+
+```bash
+git add packages/plugins/cross-model/.claude-plugin/plugin.json packages/plugins/cross-model/CHANGELOG.md packages/plugins/cross-model/README.md
+git commit -m "chore(delegation): bump plugin to 3.0.0 with release docs
+
+New /delegate skill, delegation_outcome analytics, shared credential_scan
+and event_log modules. README updated with delegation surface."
+```
+
+---
 
 ## Risk Notes
 
 - **Codex CLI availability:** Task 7's integration tests require `codex` in PATH. Unit tests mock subprocess calls, so they run without Codex. End-to-end testing requires a valid OpenAI API key.
 - **Clean-tree gate testing:** Tests mock `git status`. Real integration testing requires a real git repo with known state.
-- **`stats_common.observed_avg`:** Task 6 assumes `observed_avg` handles the `commands_run_count` field correctly for delegation events. Verify the function works with delegation event shapes. F13 adds a numeric type filter before calling `observed_avg`, so non-numeric values won't reach it.
+- **`stats_common.observed_avg`:** Task 6 assumes `observed_avg` handles the `commands_run_count` field correctly for delegation events. Verify the function exists and accepts `(events: list[dict], field: str) -> tuple[float | None, int]` (R7-6). F13 adds a numeric type filter before calling `observed_avg`, so non-numeric values won't reach it.
+- **Orphaned Codex process (R7-10):** Switched from `subprocess.run` to `Popen` with explicit `proc.kill()` on timeout. Verify `Popen.kill()` terminates Codex subprocess trees (not just the parent process) on macOS/Linux.
+- **Stdout size cap (R7-11):** 50MB cap is approximate — truncation happens on the decoded string, not raw bytes. Verify that truncated JSONL still produces a meaningful error from `_parse_jsonl`.
+- **Symlink traversal (R7-17):** Secret-file gate checks filenames, not symlink targets. Whether Codex follows symlinks outside the project root depends on Codex's sandbox implementation (external). Document limitation — verify sandbox behavior when practical.
 
 ## Task 6 Step 3b: Root-level test suite updates
 

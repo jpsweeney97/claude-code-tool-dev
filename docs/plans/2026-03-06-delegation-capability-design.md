@@ -1,7 +1,7 @@
 # Delegation Capability — Design Spec
 
 **Date:** 2026-03-06
-**Status:** Design — reviewed (4 rounds: 7 evaluative + 10 adversarial/collaborative + 5 adversarial amendments + 4 adversarial plan review)
+**Status:** Design — reviewed (8 rounds: 7 evaluative + 10 adversarial/collaborative + 5 adversarial amendments + 4 adversarial plan review + 6 Codex audit of spec+plan + 5 exploratory plan review + 5 adversarial cross-layer review + 5 parallel agent review)
 **Source:** Comparison with [skill-codex](https://github.com/skills-directory/skill-codex.git) + 2 Codex consultations + 3 Codex dialogues (evaluative `019cc3c6`, adversarial `019cc3f0`, collaborative `019cc41a`)
 
 ---
@@ -146,7 +146,7 @@ Extract log infrastructure into a shared module for use by `emit_analytics.py` a
 ```python
 LOG_PATH: Path          # ~/.claude/.codex-events.jsonl
 def ts() -> str         # ISO 8601 UTC with Z suffix (second precision)
-def append_log(entry: dict) -> bool  # Atomic append, returns success
+def append_log(entry: dict) -> bool  # Append-mode write, returns success
 def session_id() -> str | None       # From CLAUDE_SESSION_ID, nullable, never fabricated
 ```
 
@@ -186,6 +186,8 @@ JSON file with fields:
 | `model` | string | No | Codex default |
 | `sandbox` | enum | No | `workspace-write` |
 | `reasoning_effort` | enum | No | `high` |
+
+**Reasoning effort values:** `minimal`, `low`, `medium`, `high`, `xhigh`.
 | `full_auto` | bool | No | `false` |
 
 **Sandbox values:** `read-only`, `workspace-write`. `danger-full-access` is rejected: `"policy: danger-full-access not supported in Step 1"`.
@@ -200,14 +202,14 @@ JSON file with fields:
  3. Read input JSON (Phase A — file exists, parses as JSON object)
  4. Credential scan on prompt field (before any user content is echoed)
  5. Validate fields (Phase B — reject unknown, check enums, check conflicts)
- 6. CLI version check: codex --version → require >= 0.111.0
- 7. Clean-tree gate: git status --porcelain=v1 -z --ignore-submodules=none
- 8. Readable-secret-file gate: git ls-files --others --ignored --exclude-standard
+ 6. CLI version check: codex --version → require >= 0.111.0 (timeout=10s)
+ 7. Clean-tree gate: git status --porcelain=v1 -z --ignore-submodules=none (timeout=10s)
+ 8. Readable-secret-file gate: git ls-files --others --ignored --exclude-standard (timeout=10s)
  9. Build codex exec command:
     codex exec --json -o {output_tempfile}
     Resolved flags: -s, -m, -c model_reasoning_effort=..., --full-auto
     No --skip-git-repo-check
-10. Run subprocess, capture JSONL stdout + exit code
+10. Run subprocess (timeout=600s), capture JSONL stdout + exit code
 11. Parse JSONL events (tolerant — see JSONL Parsing below)
 12. Read -o output file → summary (nullable)
 13. Emit delegation_outcome event to log (only if step 3 succeeded)
@@ -216,6 +218,10 @@ JSON file with fields:
 ```
 
 **Split validation (P0-3 fix):** Steps 3-5 implement a two-phase validation. Phase A (step 3) parses the input without echoing content. Step 4 runs the credential scan on the `prompt` field. Phase B (step 5) performs semantic validation (enums, conflicts) and may reference field names and enum literals in error messages but never echoes arbitrary user-provided string values. This ensures no credential can leak via error messages.
+
+**Type validation (Round 5 B3, Round 7 R7-24):** Phase B must verify types before membership tests. `sandbox=[]` or `reasoning_effort=123` would raise `TypeError` on `not in set(...)` instead of the deterministic "validation failed" contract. Add `isinstance(value, str)` checks before set membership for `sandbox`, `reasoning_effort`, and `model` (non-string model would cause non-string in subprocess command). Add `isinstance(value, bool)` check for `full_auto` — non-bool values like `1` or `"true"` must be rejected.
+
+**Empty-string normalization (R6-B5):** Phase A (`_parse_input`) must normalize `model=""` to `None`. An empty string passes Phase B's `isinstance(model, str)` check but is silently dropped by `_build_command`'s `if model:` guard, causing the analytics event to log `model=""` while execution uses Codex's default model. Normalizing in Phase A ensures analytics and execution agree.
 
 **`-c` config overrides:** The adapter synthesizes `-c model_reasoning_effort={value}` from the `reasoning_effort` input field. This is the only `-c` override. Arbitrary `-c` passthrough is not exposed in the input schema.
 
@@ -231,13 +237,13 @@ Tolerance model matches `read_events.py:read_all()` — parse what you can, skip
 | Known event missing expected fields | Degrade gracefully — use `None` for missing fields |
 | `turn.failed` event | Capture as runtime failure detail in output |
 | `error` event | Capture error details for reporting |
-| Zero usable events after parsing | Fatal — return `status=error` with reason `"no usable JSONL events"` |
+| Zero usable events after parsing | Fatal — return `status=error` with reason `"no usable JSONL events"`. Only events whose `type` matches a known event family (the seven types in the table below) count as usable. Unknown event types are skipped. |
 
 **Extraction targets:**
 
 | Event | Extraction | Nullable |
 |-------|-----------|----------|
-| `thread.started` | `thread_id` | Yes — if missing, generate UUID and log warning |
+| `thread.started` | `thread_id` | Yes — nullable; if missing, keep `None` and log warning |
 | `item.completed` (type=`command_execution`) | `command`, `exit_code` → `commands_run` | Yes — empty list if no commands |
 | `item.completed` (type=`agent_message`) | `text` → last message as candidate summary | Yes |
 | `turn.completed` | `usage.input_tokens`, `usage.output_tokens` → `token_usage` | Yes |
@@ -262,10 +268,12 @@ Each pipeline step has deterministic failure handling:
 | 6 | Version below 0.111.0 | `error` | 1 | `"version check failed: codex {version} < 0.111.0"` |
 | 6 | Unparseable version output | `error` | 1 | `"version check failed: cannot parse codex --version output"` |
 | 7 | Dirty tree | `blocked` | 0 | List dirty paths in error field |
+| 7 | Git command failure (non-zero returncode) | `blocked` | 0 | `"clean-tree check failed: git status returned non-zero"` (R6-B2: gate=`git_error`, not `clean_tree`) |
 | 8 | Readable secret file found | `blocked` | 0 | List matched secret file paths |
+| 8 | Git ls-files command failure | `blocked` | 0 | `"secret-file check failed: git ls-files returned non-zero"` (R6-B2: gate=`git_error`) |
 | 9 | Flag-building logic error | `error` | 1 | `"command build failed: {reason}"` |
 | 10 | Subprocess spawn failure | `error` | 1 | `"exec failed: subprocess spawn error. {reason}"` |
-| 10 | Subprocess timeout/signal | `error` | 1 | `"exec failed: process {signal/timeout}. Exit: {code}"` |
+| 10 | Subprocess timeout | `error` | 1 | `"exec failed: process timeout"` |
 | 11 | Zero usable JSONL events | `error` | 1 | `"parse failed: no usable JSONL events from codex exec"` |
 | 11 | Partial parse (some malformed) | `ok` (degraded) | 0 | Log warnings, proceed with parsed events |
 | 12 | Output file absent | `ok` (degraded) | 0 | `summary=null`, log warning |
@@ -290,6 +298,7 @@ Exit 0 for `blocked` is intentional — the adapter communicates blocks cleanly 
 ```json
 {
   "status": "ok|error|blocked",
+  "dispatched": true,
   "thread_id": "...",
   "summary": null,
   "commands_run": [
@@ -298,11 +307,14 @@ Exit 0 for `blocked` is intentional — the adapter communicates blocks cleanly 
   "exit_code": null,
   "token_usage": null,
   "runtime_failures": [],
+  "blocked_paths": [],
   "error": null
 }
 ```
 
-`summary` is nullable — a failing run may not produce a final assistant message. `token_usage` is nullable — an erroring run may not emit `turn.completed`. `exit_code` is nullable — only present when Codex actually ran (status `ok`). `runtime_failures` captures `turn.failed` events (empty list if none).
+**`blocked_paths`:** Always present, defaults to `[]`. Non-empty when `status=blocked` and the block was caused by dirty files or readable secret files. Contains the list of paths that triggered the gate. Enables the skill to report specific files to the user (R6-B1).
+
+`dispatched` is `true` if the subprocess was launched (step 10 executed), `false` otherwise. Enables the skill to distinguish "Codex never ran" from "Codex ran and failed" — on `status=error` with `dispatched=true`, the skill must run change review (Codex may have modified files before the error). `summary` is nullable — a failing run may not produce a final assistant message. `token_usage` is nullable — an erroring run may not emit `turn.completed`. `exit_code` is always present in output. `null` when `dispatched=false` or when the subprocess exit code could not be captured. Integer when `dispatched=true` and the process completed. `runtime_failures` captures `turn.failed` events (empty list if none).
 
 **Status values:**
 
@@ -407,7 +419,26 @@ New event type in the JSONL log.
 |-------|---------|
 | `complete` | Codex ran and exited 0 |
 | `error` | Codex ran with non-zero exit, or adapter failure post-gates |
-| `blocked` | Pre-dispatch gate failed (credential, dirty tree, readable secret) |
+| `blocked` | Pre-dispatch gate failed (credential, dirty tree, readable secret, or git error) |
+
+**Derivation hierarchy (Round 5 B5):** `termination_reason` is derived from `dispatched` and `blocked_by` first, then `exit_code`. The adapter must not trust arbitrary caller combinations — derive deterministically:
+
+1. If `blocked_by` is set → `"blocked"` (regardless of dispatched/exit_code)
+2. If `dispatched=false` and no `blocked_by` → `"error"` (pre-dispatch adapter failure)
+3. If `dispatched=true` and `exit_code == 0` → `"complete"`
+4. If `dispatched=true` and `exit_code != 0` (or None) → `"error"`
+
+This prevents impossible states like `dispatched=false, exit_code=0, blocked_by=None → "complete"`.
+
+**`blocked_by` values:**
+
+| Value | Sets analytics boolean |
+|-------|----------------------|
+| `credential` | `credential_blocked=True` |
+| `clean_tree` | `dirty_tree_blocked=True` |
+| `secret_files` | `readable_secret_file_blocked=True` |
+| `git_error` | none (all three `False`) |
+| `None` | none (not blocked) |
 
 **`dispatched` field:** `true` if Codex actually ran (steps 10+ executed), `false` if blocked or errored before dispatch. Separates "Codex ran" from "adapter handled an invocation."
 
@@ -433,7 +464,7 @@ Add `delegation_outcome` to `_REQUIRED_FIELDS` with schema validation:
 _REQUIRED_FIELDS = {
     "dialogue_outcome": [...existing...],
     "consultation_outcome": [...existing...],
-    "delegation_outcome": [
+    "delegation_outcome": {
         "schema_version",
         "event",
         "ts",
@@ -451,7 +482,7 @@ _REQUIRED_FIELDS = {
         "commands_run_count",
         "exit_code",
         "termination_reason",
-    ],
+    },
 }
 ```
 
@@ -475,7 +506,7 @@ _DELEGATION_TEMPLATE = {
     "readable_secret_file_block_count": 0,
     "sandbox_counts": {},            # {"workspace-write": N, "read-only": N}
     "full_auto_count": 0,
-    "avg_commands_run": 0.0,
+    "avg_commands_run": null,
     "avg_commands_run_observed_count": 0,
 }
 ```
@@ -520,10 +551,10 @@ Step 2 of the roadmap adds a Bash hook or adapter-level credential scan for user
 | Event type | Key fields | Adapter use |
 |------------|-----------|-------------|
 | `thread.started` | `thread_id` | Extract thread ID |
-| `turn.started` | — | Ignored |
+| `turn.started` | — | Ignored (R6-B7: must be in `_KNOWN_EVENT_TYPES` — counted as usable but no extraction) |
 | `turn.completed` | `usage.input_tokens`, `usage.output_tokens` | Token usage (nullable) |
 | `turn.failed` | Error details | Capture as runtime failure |
-| `item.started` | `item.type`, `item.command` | Ignored |
+| `item.started` | `item.type`, `item.command` | Ignored (R6-B7: must be in `_KNOWN_EVENT_TYPES` — prevents misleading "no usable events" on early failure) |
 | `item.completed` | `item.type`, `item.command`, `item.exit_code`, `item.text` | Commands run, messages |
 | `error` | Error details | Capture for reporting |
 
@@ -580,6 +611,15 @@ These are explicitly deferred to future steps:
 | D28 | `--json` no-op flag in `compute_stats.py` | Pre-existing bug: `consultation-stats/SKILL.md` passes `--json` which errors | Adversarial review |
 | D29 | `consultation_id` is an opaque event instance UUID | Name preserved for compatibility; prose clarifies it is not consultation-scoped | Adversarial review + collaborative ideation |
 | D30 | No user content echoed before credential scan (governance rule 6) | Error messages before scan could leak credentials via `Got: {value!r}` patterns | Adversarial review (P0-3) |
+| D31 | `blocked_paths` always-present `[]` in output schema | Enables skill to report specific blocking files; prevents undocumented field drift | R6-B1 adversarial cross-layer review |
+| D32 | `gate="git_error"` distinct from `clean_tree`/`secret_files` | Git command failure ≠ dirty tree; misattribution corrupts analytics booleans | R6-B2 adversarial cross-layer review |
+| D33 | `model=""` normalized to `None` in Phase A | Empty string passes Phase B but diverges execution from analytics | R6-B5 adversarial cross-layer review |
+| D34 | `turn.started`/`item.started` in `_KNOWN_EVENT_TYPES` (ignored) | Prevents misleading "no usable events" when Codex emits only early-lifecycle events | R6-B7 adversarial cross-layer review |
+| D35 | JSONL parser structural type guards for `item` and `usage` dicts | Non-dict values would crash instead of degrading per tolerant parsing contract | R6-B8 adversarial cross-layer review |
+| D36 | `blocked` termination_reason includes `git_error` as cause | Spec parenthetical omitted `git_error`; `blocked_count` can exceed sum of three specific block booleans | R7-1 parallel agent review |
+| D37 | `blocked_by` enum values documented with gate-to-boolean mapping | Derivation logic implicit; explicit table prevents implementation divergence | R7-19 parallel agent review |
+| D38 | Subprocess timeouts specified: 600s for `codex exec`, 10s for git/version | Values hardcoded in plan but absent from spec; implementer would choose arbitrarily | R7-9 parallel agent review |
+| D39 | `full_auto` added to Phase B type validation (B3 amendment) | Non-bool like `1` or `"true"` would pass Phase B without explicit `isinstance(bool)` check | R7-24 parallel agent review |
 
 ---
 
