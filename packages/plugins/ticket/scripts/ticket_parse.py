@@ -27,6 +27,7 @@ _FENCED_YAML_RE = re.compile(
 
 # Match ## headings (level 2 only — ### and deeper are section content).
 _SECTION_HEADING_RE = re.compile(r"^## (.+)$", re.MULTILINE)
+_H1_HEADING_RE = re.compile(r"^# (.+)$", re.MULTILINE)
 
 # Legacy section renames (3-tier: exact → near-equivalent → preserve).
 SECTION_RENAMES: dict[str, str] = {
@@ -87,6 +88,7 @@ class ParsedTicket:
 
     path: str
     id: str
+    title: str
     date: str
     status: str
     priority: str
@@ -156,6 +158,22 @@ def extract_sections(body: str) -> dict[str, str]:
         sections[name] = content
 
     return sections
+
+
+def extract_title(text: str, ticket_id: str) -> str:
+    """Extract title text from the first H1 heading."""
+    match = _H1_HEADING_RE.search(text)
+    if match is None:
+        return ""
+
+    heading = match.group(1).strip()
+    if not heading:
+        return ""
+
+    prefix = f"{ticket_id}:"
+    if heading.startswith(prefix):
+        return heading[len(prefix):].strip()
+    return heading
 
 
 def detect_generation(frontmatter: dict[str, Any]) -> int:
@@ -314,10 +332,12 @@ def parse_ticket(path: Path) -> ParsedTicket | None:
 
     # Build source dict (copy default to prevent shared mutable state).
     source = frontmatter.get("source") or copy.deepcopy(_FIELD_DEFAULTS["source"])
+    title = extract_title(text, frontmatter["id"])
 
     return ParsedTicket(
         path=str(path),
         id=frontmatter["id"],
+        title=title,
         date=frontmatter.get("date", ""),
         status=canonical_status,
         priority=frontmatter.get("priority", "medium"),

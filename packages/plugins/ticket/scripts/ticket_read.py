@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from scripts.ticket_paths import resolve_tickets_dir
 from scripts.ticket_parse import ParsedTicket, parse_ticket
 
 
@@ -94,12 +95,10 @@ def fuzzy_match_id(
 
 def _ticket_to_dict(ticket: ParsedTicket) -> dict:
     """Convert ParsedTicket to JSON-serializable dict.
-
-    Note: ParsedTicket has no `title` field. Title lives in the markdown
-    heading (# ID: Title), not in the dataclass. Omitted from CLI output.
     """
     return {
         "id": ticket.id,
+        "title": ticket.title,
         "date": ticket.date,
         "status": ticket.status,
         "priority": ticket.priority,
@@ -134,8 +133,17 @@ def main() -> None:
         parser.print_usage(sys.stderr)
         sys.exit(1)
 
+    tickets_dir, path_error = resolve_tickets_dir(args.tickets_dir, project_root=Path.cwd())
+    if path_error is not None or tickets_dir is None:
+        print(json.dumps({
+            "state": "policy_blocked",
+            "message": path_error or "tickets_dir validation failed",
+            "error_code": "policy_blocked",
+        }))
+        sys.exit(1)
+
     if args.subcommand == "list":
-        tickets = list_tickets(args.tickets_dir, include_closed=args.include_closed)
+        tickets = list_tickets(tickets_dir, include_closed=args.include_closed)
         tickets = filter_tickets(
             tickets, status=args.status, priority=args.priority, tag=args.tag,
         )
@@ -145,7 +153,7 @@ def main() -> None:
         }))
 
     elif args.subcommand == "query":
-        all_tickets = list_tickets(args.tickets_dir, include_closed=True)
+        all_tickets = list_tickets(tickets_dir, include_closed=True)
         matches = fuzzy_match_id(all_tickets, args.search_term)
         print(json.dumps({
             "state": "ok",

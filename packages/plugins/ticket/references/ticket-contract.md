@@ -7,7 +7,7 @@ Single source of truth for the ticket plugin. All components (skills, agents, en
 - Active tickets: `docs/tickets/`
 - Archived tickets: `docs/tickets/closed-tickets/`
 - Audit trail: `docs/tickets/.audit/YYYY-MM-DD/<session_id>.jsonl`
-- Path boundary: hook payload files and `tickets_dir` must resolve inside workspace/project root
+- Path boundary: hook payload files and all CLI `tickets_dir` arguments must resolve inside workspace/project root
 - Naming: `YYYY-MM-DD-<slug>.md`
 - Slug: first 6 words of title, kebab-case, `[a-z0-9-]` only, max 60 chars, sequence suffix on collision
 - Bootstrap: missing `docs/tickets/` → empty result for reads; create on first write
@@ -93,10 +93,14 @@ Config: `.claude/ticket.local.md` YAML frontmatter
 
 `request_origin`: "user" (ticket_engine_user.py), "agent" (ticket_engine_agent.py), "unknown" (fail closed)
 
+Hook trust source: `agent_id` in `PreToolUse` input is the authoritative signal for subagent-origin requests. Entrypoint choice is routing convenience, not trust establishment.
+
 Hook assumption: the guard matches commands containing `ticket_engine` in the command string. Renamed or wrapped entrypoints bypass the guard silently. This is proportionate for the accidental-autonomy threat model.
 
 Execute leniency: execute defaults optional fields (e.g., `priority` → `"medium"`) rather than rejecting. Plan reports missing fields as hints; execute always produces a valid ticket.
 Agent execute re-reads live `.claude/ticket.local.md` policy and blocks if it diverges from the preflight snapshot.
+
+Known limitation (v1.1): concurrent autonomous creates are not serialized. Session create cap enforcement and ID allocation are not lock-based, so parallel subagent execution is not a hard safety boundary.
 
 ## 6. Dedup Policy
 

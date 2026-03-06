@@ -21,6 +21,7 @@ from typing import Any, Literal
 import yaml
 
 from scripts.ticket_id import allocate_id, build_filename
+from scripts.ticket_paths import resolve_tickets_dir
 from scripts.ticket_parse import (
     extract_fenced_yaml,
     parse_yaml_block,
@@ -123,44 +124,6 @@ class AutonomyConfig:
 
 VALID_ACTIONS = frozenset({"create", "update", "close", "reopen"})
 VALID_ORIGINS = frozenset({"user", "agent"})
-
-
-def resolve_tickets_dir(
-    raw_tickets_dir: Any,
-    *,
-    project_root: Path,
-) -> tuple[Path | None, str | None]:
-    """Resolve and validate tickets_dir against project root.
-
-    Returns:
-        (resolved_path, None) on success
-        (None, error_message) on failure
-    """
-    value = "docs/tickets" if raw_tickets_dir is None else raw_tickets_dir
-    if not isinstance(value, (str, os.PathLike)):
-        return (
-            None,
-            f"tickets_dir validation failed: expected string path. Got: {value!r:.100}",
-        )
-
-    try:
-        root = project_root.resolve()
-        candidate = Path(value)
-        resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
-    except OSError as exc:
-        return (
-            None,
-            f"tickets_dir resolution failed: {exc}. Got: {str(value)!r:.100}",
-        )
-
-    try:
-        resolved.relative_to(root)
-    except ValueError:
-        return (
-            None,
-            f"tickets_dir validation failed: path escapes project root {str(root)!r}. Got: {str(value)!r:.100}",
-        )
-    return resolved, None
 
 
 # --- classify ---

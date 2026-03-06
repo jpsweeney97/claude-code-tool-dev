@@ -60,6 +60,21 @@ class TestUserEntrypoint:
         # Should succeed because origin is forced to "user".
         assert output["state"] == "ok"
 
+    def test_user_entrypoint_rejects_hook_agent_origin(self, tmp_path):
+        output = run_entrypoint(
+            "ticket_engine_user.py",
+            "classify",
+            {
+                "action": "create",
+                "args": {},
+                "session_id": "test",
+                "hook_request_origin": "agent",
+                "tickets_dir": str(tmp_path),
+            },
+            tmp_path,
+        )
+        assert output["error_code"] == "origin_mismatch"
+
 
 class TestAgentEntrypoint:
     def test_classify_create(self, tmp_path):
@@ -107,6 +122,21 @@ class TestAgentEntrypoint:
             tmp_path,
         )
         assert output["state"] == "policy_blocked"
+
+    def test_agent_entrypoint_rejects_hook_user_origin(self, tmp_path):
+        output = run_entrypoint(
+            "ticket_engine_agent.py",
+            "classify",
+            {
+                "action": "create",
+                "args": {},
+                "session_id": "test",
+                "hook_request_origin": "user",
+                "tickets_dir": str(tmp_path),
+            },
+            tmp_path,
+        )
+        assert output["error_code"] == "origin_mismatch"
 
 
 class TestMalformedAutonomyConfig:

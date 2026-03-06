@@ -51,6 +51,7 @@ class TestStaleDetection:
         result = triage_dashboard(tmp_tickets)
         assert len(result["stale"]) == 1
         assert result["stale"][0]["id"] == "T-20260220-01"
+        assert result["stale"][0]["title"] == "Test ticket"
 
     def test_recent_ticket_not_stale(self, tmp_tickets):
         """Ticket from today -> not stale."""
@@ -84,6 +85,7 @@ class TestBlockedChain:
         chains = {c["id"]: c for c in result["blocked_chains"]}
         assert "T-20260302-03" in chains
         assert "T-20260302-01" in chains["T-20260302-03"]["root_blockers"]
+        assert chains["T-20260302-03"]["title"] == "Test ticket"
 
     def test_missing_blocker_is_root(self, tmp_tickets):
         """Blocker not found in ticket map -> treated as root."""
@@ -117,6 +119,7 @@ class TestDocSize:
         result = triage_dashboard(tmp_tickets)
         assert len(result["size_warnings"]) == 1
         assert "strong_warn" in result["size_warnings"][0]["warning"]
+        assert result["size_warnings"][0]["title"] == "Test ticket"
 
     def test_medium_doc_warning(self, tmp_tickets):
         """Ticket >16KB but <32KB -> warn."""
@@ -336,9 +339,10 @@ TRIAGE_SCRIPT = Path(__file__).parent.parent / "scripts" / "ticket_triage.py"
 
 class TestTriageCLI:
     def test_dashboard_subcommand_returns_json(self, tmp_tickets):
+        project_root = tmp_tickets.parent.parent
         result = subprocess.run(
             [sys.executable, str(TRIAGE_SCRIPT), "dashboard", str(tmp_tickets)],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, cwd=str(project_root),
         )
         assert result.returncode == 0
         data = json.loads(result.stdout)
@@ -346,9 +350,10 @@ class TestTriageCLI:
         assert "counts" in data["data"]
 
     def test_audit_subcommand_returns_json(self, tmp_tickets):
+        project_root = tmp_tickets.parent.parent
         result = subprocess.run(
             [sys.executable, str(TRIAGE_SCRIPT), "audit", str(tmp_tickets)],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, cwd=str(project_root),
         )
         assert result.returncode == 0
         data = json.loads(result.stdout)
@@ -356,9 +361,10 @@ class TestTriageCLI:
         assert "total_entries" in data["data"]
 
     def test_audit_with_days_arg(self, tmp_tickets):
+        project_root = tmp_tickets.parent.parent
         result = subprocess.run(
             [sys.executable, str(TRIAGE_SCRIPT), "audit", str(tmp_tickets), "--days", "30"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, cwd=str(project_root),
         )
         assert result.returncode == 0
         data = json.loads(result.stdout)
@@ -378,3 +384,13 @@ class TestTriageCLI:
             capture_output=True, text=True, timeout=10,
         )
         assert result.returncode == 1
+
+    def test_dashboard_rejects_path_outside_project_root(self, tmp_path):
+        outside = tmp_path.parent / "outside-tickets"
+        result = subprocess.run(
+            [sys.executable, str(TRIAGE_SCRIPT), "dashboard", str(outside)],
+            capture_output=True, text=True, timeout=10, cwd=str(tmp_path),
+        )
+        assert result.returncode == 1
+        data = json.loads(result.stdout)
+        assert data["state"] == "policy_blocked"
