@@ -568,30 +568,35 @@ def run(input_path: Path) -> int:
         )
 
         # Step 10: run subprocess
-        # B11: Set did_dispatch BEFORE run() — TimeoutExpired is raised from
-        # subprocess.run(), so setting it after would leave did_dispatch=False
+        # B11: Set did_dispatch BEFORE Popen — TimeoutExpired is raised from
+        # proc.communicate(), so setting it after would leave did_dispatch=False
         # even though the process actually ran (and may have modified files).
         did_dispatch = True
         # R7-11: Impose stdout size cap (50MB) to prevent OOM on pathological output.
         _STDOUT_MAX_BYTES = 50 * 1024 * 1024
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=600,
+            # R7-10: Use Popen instead of subprocess.run to enable explicit kill
+            # on timeout. subprocess.run's TimeoutExpired does NOT kill the child
+            # — orphaned Codex continues modifying files after adapter reports timeout.
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             )
-        except subprocess.TimeoutExpired:
-            raise DelegationError("exec failed: process timeout")
+            try:
+                stdout, stderr = proc.communicate(timeout=600)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                raise DelegationError("exec failed: process timeout")
         except FileNotFoundError:
             # R5-B4: Codex binary not found at exec time (different from version check)
             raise DelegationError("exec failed: subprocess spawn error. codex not found")
 
-        stdout = result.stdout
-        stderr = result.stderr
         if len(stdout.encode("utf-8", errors="replace")) > _STDOUT_MAX_BYTES:
             print("codex-delegate: stdout truncated (exceeded 50MB cap)", file=sys.stderr)
             stdout = stdout[:_STDOUT_MAX_BYTES]  # approximate truncation
 
         # R7-27: Capture returncode before _parse_jsonl so it's available in error output
-        returncode = result.returncode
+        returncode = proc.returncode
 
         # Steps 11-12: parse JSONL + read output file
         parsed = _parse_jsonl(stdout)

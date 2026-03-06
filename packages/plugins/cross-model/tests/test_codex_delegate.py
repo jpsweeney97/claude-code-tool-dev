@@ -360,25 +360,22 @@ class TestRunOrchestrator:
         self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path,
     ) -> None:
         from scripts.codex_delegate import run
-        responses = [
+        mock_sub.run.side_effect = [
             MagicMock(returncode=0, stdout=str(tmp_path) + "\n"),
             MagicMock(returncode=0, stdout="codex 0.111.0\n"),
             MagicMock(returncode=0, stdout=""),
             MagicMock(returncode=0, stdout=""),
         ]
-        call_idx = 0
-        def side_effect(*args, **kwargs):
-            nonlocal call_idx
-            if call_idx < len(responses):
-                result = responses[call_idx]
-                call_idx += 1
-                return result
-            raise subprocess.TimeoutExpired(cmd=["codex"], timeout=600)
-        mock_sub.run.side_effect = side_effect
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+        mock_sub.PIPE = subprocess.PIPE
+        mock_proc = MagicMock()
+        mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=600)
+        mock_sub.Popen.return_value = mock_proc
         f = self._write_input(tmp_path, {"prompt": "fix tests"})
         exit_code = run(f)
         assert exit_code == 1
+        mock_proc.kill.assert_called_once()
+        mock_proc.wait.assert_called_once()
 
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
@@ -404,15 +401,18 @@ class TestRunOrchestrator:
             '{"type":"item.completed","item":{"type":"command_execution","command":"ls","exit_code":0}}\n'
             '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":50}}\n'
         )
-        responses = [
+        mock_sub.run.side_effect = [
             MagicMock(returncode=0, stdout=str(tmp_path) + "\n"),
             MagicMock(returncode=0, stdout="codex 0.111.0\n"),
             MagicMock(returncode=0, stdout=""),
             MagicMock(returncode=0, stdout=""),
-            MagicMock(returncode=0, stdout=jsonl_output, stderr=""),
         ]
-        mock_sub.run.side_effect = responses
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+        mock_sub.PIPE = subprocess.PIPE
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = (jsonl_output, "")
+        mock_proc.returncode = 0
+        mock_sub.Popen.return_value = mock_proc
         f = self._write_input(tmp_path, {"prompt": "fix the tests"})
         fd = os.open(str(output_file), os.O_RDWR)
         with patch("scripts.codex_delegate.tempfile") as mock_tmp:
@@ -434,15 +434,18 @@ class TestRunOrchestrator:
         output_file = tmp_path / "codex_output.txt"
         output_file.write_text("Summary.")
         jsonl_output = '{"type":"thread.started","thread_id":"t-1"}\n{"type":"turn.completed","usage":{}}\n'
-        responses = [
+        mock_sub.run.side_effect = [
             MagicMock(returncode=0, stdout=str(tmp_path) + "\n"),
             MagicMock(returncode=0, stdout="codex 0.111.0\n"),
             MagicMock(returncode=0, stdout=""),
             MagicMock(returncode=0, stdout=""),
-            MagicMock(returncode=0, stdout=jsonl_output, stderr=""),
         ]
-        mock_sub.run.side_effect = responses
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+        mock_sub.PIPE = subprocess.PIPE
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = (jsonl_output, "")
+        mock_proc.returncode = 0
+        mock_sub.Popen.return_value = mock_proc
         f = self._write_input(tmp_path, {"prompt": "fix tests"})
         fd = os.open(str(output_file), os.O_RDWR)
         with patch("scripts.codex_delegate.tempfile") as mock_tmp:
@@ -506,22 +509,17 @@ class TestStep10ErrorShapes:
         self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
     ) -> None:
         from scripts.codex_delegate import run
-        responses = [
+        mock_sub.run.side_effect = [
             MagicMock(returncode=0, stdout=str(tmp_path) + "\n"),
             MagicMock(returncode=0, stdout="codex 0.111.0\n"),
             MagicMock(returncode=0, stdout=""),
             MagicMock(returncode=0, stdout=""),
         ]
-        call_idx = 0
-        def side_effect(*args, **kwargs):
-            nonlocal call_idx
-            if call_idx < len(responses):
-                result = responses[call_idx]
-                call_idx += 1
-                return result
-            raise subprocess.TimeoutExpired(cmd=["codex"], timeout=600)
-        mock_sub.run.side_effect = side_effect
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+        mock_sub.PIPE = subprocess.PIPE
+        mock_proc = MagicMock()
+        mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=600)
+        mock_sub.Popen.return_value = mock_proc
         f = self._write_input(tmp_path, {"prompt": "fix tests"})
         run(f)
         captured = capsys.readouterr()
@@ -535,22 +533,15 @@ class TestStep10ErrorShapes:
         self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
     ) -> None:
         from scripts.codex_delegate import run
-        responses = [
+        mock_sub.run.side_effect = [
             MagicMock(returncode=0, stdout=str(tmp_path) + "\n"),
             MagicMock(returncode=0, stdout="codex 0.111.0\n"),
             MagicMock(returncode=0, stdout=""),
             MagicMock(returncode=0, stdout=""),
         ]
-        call_idx = 0
-        def side_effect(*args, **kwargs):
-            nonlocal call_idx
-            if call_idx < len(responses):
-                result = responses[call_idx]
-                call_idx += 1
-                return result
-            raise FileNotFoundError("codex not found")
-        mock_sub.run.side_effect = side_effect
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+        mock_sub.PIPE = subprocess.PIPE
+        mock_sub.Popen.side_effect = FileNotFoundError("codex not found")
         f = self._write_input(tmp_path, {"prompt": "fix tests"})
         run(f)
         captured = capsys.readouterr()
