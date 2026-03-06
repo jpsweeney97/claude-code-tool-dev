@@ -22,19 +22,25 @@ Exit codes:
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 import traceback
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    from event_log import ts as _ts, append_log as _append_log, session_id as _session_id
+except ModuleNotFoundError:
+    from scripts.event_log import (
+        ts as _ts,
+        append_log as _append_log,
+        session_id as _session_id,
+    )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-_LOG_PATH = Path.home() / ".claude" / ".codex-events.jsonl"
 _SCHEMA_VERSION = "0.1.0"
 
 _VALID_POSTURES = {"adversarial", "collaborative", "exploratory", "evaluative", "comparative"}
@@ -136,37 +142,6 @@ _CONSULTATION_REQUIRED = {
     "termination_reason",
     "mode",
 }
-
-
-# ---------------------------------------------------------------------------
-# Utilities
-# ---------------------------------------------------------------------------
-
-
-def _ts() -> str:
-    """ISO 8601 UTC timestamp with Z suffix."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _append_log(entry: dict) -> bool:
-    """Append a JSON line to the event log. Returns True on success."""
-    try:
-        _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(_LOG_PATH, "a") as f:
-            f.write(json.dumps(entry) + "\n")
-        return True
-    except OSError as exc:
-        print(f"log write failed: {exc}", file=sys.stderr)
-        return False
-
-
-def _session_id() -> str | None:
-    """Read session ID from environment. Never fabricated.
-
-    Returns None if CLAUDE_SESSION_ID is absent, empty, or whitespace-only.
-    """
-    value = os.environ.get("CLAUDE_SESSION_ID", "").strip()
-    return value or None
 
 
 # ---------------------------------------------------------------------------
