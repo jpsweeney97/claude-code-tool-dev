@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 
+from scripts.ticket_parse import extract_fenced_yaml
 from scripts.ticket_render import render_ticket
 
 
@@ -33,7 +34,7 @@ class TestRenderTicket:
         assert "- [ ] Timeout configurable per route" in result
         assert "## Verification" in result
         assert "## Key Files" in result
-        assert "contract_version: '1.0'" in result
+        assert 'contract_version: "1.0"' in result
 
     def test_minimal_ticket(self):
         result = render_ticket(
@@ -79,8 +80,8 @@ class TestRenderTicket:
             blocked_by=["T-20260302-02"],
             blocks=["T-20260302-03"],
         )
-        assert "- T-20260302-02" in result
-        assert "- T-20260302-03" in result
+        assert "blocked_by: [T-20260302-02]" in result
+        assert "blocks: [T-20260302-03]" in result
 
     def test_defer_field(self):
         result = render_ticket(
@@ -94,6 +95,34 @@ class TestRenderTicket:
         )
         assert "defer:" in result
         assert "active: true" in result
+
+    def test_render_ticket_uses_canonical_frontmatter_shape(self):
+        result = render_ticket(
+            id="T-20260302-01",
+            title="Canonical serializer",
+            date="2026-03-02",
+            status="open",
+            priority="high",
+            effort="S",
+            source={"type": "ad-hoc", "ref": "", "session": "test-session"},
+            tags=["auth", "api"],
+            problem="Serializer shape should match mutation paths.",
+        )
+        assert extract_fenced_yaml(result) == (
+            "id: T-20260302-01\n"
+            'date: "2026-03-02"\n'
+            "status: open\n"
+            "priority: high\n"
+            "effort: S\n"
+            "source:\n"
+            "  type: ad-hoc\n"
+            '  ref: ""\n'
+            "  session: test-session\n"
+            "tags: [auth, api]\n"
+            "blocked_by: []\n"
+            "blocks: []\n"
+            'contract_version: "1.0"\n'
+        )
 
 
 def test_render_ticket_yaml_injection_source_ref(tmp_path):

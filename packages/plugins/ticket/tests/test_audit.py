@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from scripts.ticket_engine_core import AUDIT_UNAVAILABLE, engine_count_session_creates, engine_execute
+
+
+_AUDIT_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "ticket_audit.py"
 
 
 def _read_audit_lines(tickets_dir: Path, session_id: str) -> list[dict]:
@@ -18,6 +23,16 @@ def _read_audit_lines(tickets_dir: Path, session_id: str) -> list[dict]:
         return []
     lines = audit_file.read_text(encoding="utf-8").strip().split("\n")
     return [json.loads(line) for line in lines if line.strip()]
+
+
+def _run_audit_cli(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(_AUDIT_SCRIPT), *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 _REQUIRED_FIELDS = {"ts", "action", "ticket_id", "session_id", "request_origin", "autonomy_mode", "result", "changes"}
@@ -325,3 +340,108 @@ class TestSessionCounting:
         )
         # Malicious ID should be sanitized and match the safe file.
         assert engine_count_session_creates(malicious_id, tmp_tickets) == 1
+
+
+class TestAuditRepairCli:
+    def test_audit_repair_dry_run_reports_corruption_without_writing(self, tmp_tickets: Path) -> None:
+        project_root = tmp_tickets.parents[1]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / "dry-run.jsonl"
+        original = (
+            json.dumps({"action": "create", "result": "ok_create"}) + "\n"
+            + "NOT VALID JSON\n"
+        )
+        audit_file.write_text(original, encoding="utf-8")
+
+        result = _run_audit_cli("repair", "docs/tickets", "--dry-run", cwd=project_root)
+
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["state"] == "ok"
+        assert payload["data"]["files_scanned"] == 1
+        assert payload["data"]["corrupt_files"] == 1
+        assert payload["data"]["repaired_files"] == []
+        assert payload["data"]["backup_paths"] == []
+        assert payload["data"]["issues"]
+        assert audit_file.read_text(encoding="utf-8") == original
+        assert list(audit_dir.glob("*.bak-*")) == []
+
+    def test_audit_repair_creates_backup_and_rewrites_valid_lines(self, tmp_tickets: Path) -> None:
+        project_root = tmp_tickets.parents[1]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / "rewrite.jsonl"
+        valid_one = {"action": "create", "result": "ok_create", "ticket_id": "T-1"}
+        valid_two = {"action": "update", "result": "ok_update", "ticket_id": "T-1"}
+        audit_file.write_text(
+            json.dumps(valid_one) + "\n" + "BROKEN LINE\n" + json.dumps(valid_two),
+            encoding="utf-8",
+        )
+
+        result = _run_audit_cli("repair", "docs/tickets", cwd=project_root)
+
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["state"] == "ok"
+        assert payload["data"]["files_scanned"] == 1
+        assert payload["data"]["corrupt_files"] == 1
+        assert payload["data"]["repaired_files"] == [str(audit_file)]
+        assert len(payload["data"]["backup_paths"]) == 1
+
+        backup_path = Path(payload["data"]["backup_paths"][0])
+        assert backup_path.exists()
+        assert backup_path.parent == audit_dir
+        assert backup_path.name.startswith("rewrite.jsonl.bak-")
+        assert backup_path.read_text(encoding="utf-8") == (
+            json.dumps(valid_one) + "\n" + "BROKEN LINE\n" + json.dumps(valid_two)
+        )
+
+        repaired_text = audit_file.read_text(encoding="utf-8")
+        assert repaired_text == json.dumps(valid_one) + "\n" + json.dumps(valid_two) + "\n"
+        assert [json.loads(line) for line in repaired_text.splitlines()] == [valid_one, valid_two]
+
+    def test_audit_repair_ignores_clean_files(self, tmp_tickets: Path) -> None:
+        project_root = tmp_tickets.parents[1]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        clean_file = audit_dir / "clean.jsonl"
+        clean_text = json.dumps({"action": "create", "result": "ok_create"}) + "\n"
+        clean_file.write_text(clean_text, encoding="utf-8")
+        ignored_backup = audit_dir / "clean.jsonl.bak-20260306T000000Z"
+        ignored_backup.write_text("NOT JSON\n", encoding="utf-8")
+
+        result = _run_audit_cli("repair", "docs/tickets", cwd=project_root)
+
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["state"] == "ok"
+        assert payload["data"]["files_scanned"] == 1
+        assert payload["data"]["corrupt_files"] == 0
+        assert payload["data"]["repaired_files"] == []
+        assert payload["data"]["backup_paths"] == []
+        assert payload["data"]["issues"] == []
+        assert clean_file.read_text(encoding="utf-8") == clean_text
+
+    def test_audit_repair_drops_trailing_partial_line(self, tmp_tickets: Path) -> None:
+        project_root = tmp_tickets.parents[1]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / "partial.jsonl"
+        valid_entry = {"action": "create", "result": "ok_create", "ticket_id": "T-1"}
+        audit_file.write_text(
+            json.dumps(valid_entry) + "\n" + '{"action": "close"',
+            encoding="utf-8",
+        )
+
+        result = _run_audit_cli("repair", "docs/tickets", cwd=project_root)
+
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["state"] == "ok"
+        assert payload["data"]["corrupt_files"] == 1
+        assert audit_file.read_text(encoding="utf-8") == json.dumps(valid_entry) + "\n"

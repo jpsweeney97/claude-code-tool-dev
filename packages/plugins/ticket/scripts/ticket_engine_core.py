@@ -26,7 +26,7 @@ from scripts.ticket_parse import (
     extract_fenced_yaml,
     parse_yaml_block,
 )
-from scripts.ticket_render import render_ticket
+from scripts.ticket_render import render_ticket, replace_fenced_yaml
 
 
 # --- Response envelope ---
@@ -170,6 +170,8 @@ def engine_classify(
         data={
             "intent": action,
             "confidence": confidence,
+            "classify_intent": action,
+            "classify_confidence": confidence,
             "resolved_ticket_id": resolved_ticket_id,
         },
     )
@@ -694,13 +696,20 @@ def engine_preflight(
 
 # --- execute ---
 
-# Canonical field order for YAML frontmatter rendering.
-_CANONICAL_FIELD_ORDER = [
-    "id", "date", "status", "priority", "effort",
-    "source", "tags", "blocked_by", "blocks",
+# Supported YAML frontmatter fields for update.
+_UPDATE_FRONTMATTER_KEYS = frozenset({
+    "id",
+    "date",
+    "status",
+    "priority",
+    "effort",
+    "source",
+    "tags",
+    "blocked_by",
+    "blocks",
     "contract_version",
-]
-_UPDATE_FRONTMATTER_KEYS = frozenset(set(_CANONICAL_FIELD_ORDER) | {"defer"})
+    "defer",
+})
 _UPDATE_SECTION_FIELDS = frozenset({
     "problem",
     "context",
@@ -726,6 +735,7 @@ _VALID_TRANSITIONS: dict[str, set[str]] = {
 
 # Bounds archive collision search to avoid infinite loops in pathological trees.
 _MAX_ARCHIVE_COLLISION_SUFFIX = 1000
+_CREATE_WRITE_RETRY_LIMIT = 3
 
 # Transitions that require preconditions.
 _TRANSITION_PRECONDITIONS: dict[tuple[str, str], str] = {
@@ -735,108 +745,6 @@ _TRANSITION_PRECONDITIONS: dict[tuple[str, str], str] = {
     ("blocked", "open"): "blockers_resolved_required",
     ("blocked", "in_progress"): "blockers_resolved_required",
 }
-
-
-_PLAIN_YAML_SCALAR_RE = re.compile(r"^[A-Za-z0-9_./-]+$")
-_YAML_RESERVED_SCALARS = frozenset({
-    "null", "~", "true", "false", "yes", "no", "on", "off",
-})
-_INT_RE = re.compile(r"^[+-]?\d+$")
-_FLOAT_RE = re.compile(r"^[+-]?(?:\d+\.\d*|\.\d+|\d+[eE][+-]?\d+)$")
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-
-
-def _yaml_scalar(value: Any) -> str:
-    """Render a scalar as safe YAML while preserving plain style when possible."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if value is None:
-        return "null"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if not isinstance(value, str):
-        return json.dumps(str(value), ensure_ascii=False)
-
-    if (
-        value
-        and "\n" not in value
-        and "\r" not in value
-        and "\t" not in value
-        and value.strip() == value
-        and _PLAIN_YAML_SCALAR_RE.match(value)
-        # Only "-" can pass _PLAIN_YAML_SCALAR_RE and still be a problematic
-        # plain-scalar prefix. Other YAML punctuation cannot pass the regex.
-        and not value.startswith("-")
-        and value.lower() not in _YAML_RESERVED_SCALARS
-        and _INT_RE.match(value) is None
-        and _FLOAT_RE.match(value) is None
-        and _DATE_RE.match(value) is None
-    ):
-        return value
-    return json.dumps(value, ensure_ascii=False)
-
-
-def _yaml_value(value: Any) -> str:
-    """Render a YAML value in flow style for lists/dicts."""
-    if isinstance(value, list):
-        return "[" + ", ".join(_yaml_value(item) for item in value) + "]"
-    if isinstance(value, dict):
-        try:
-            dumped = yaml.safe_dump(
-                value,
-                default_flow_style=True,
-                allow_unicode=True,
-                sort_keys=False,
-            ).strip()
-        except yaml.YAMLError as exc:
-            raise ValueError(
-                f"yaml serialization failed: {exc}. Got: {value!r:.100}"
-            ) from exc
-        if dumped.endswith("\n..."):
-            dumped = dumped.rsplit("\n...", 1)[0]
-        return dumped
-    return _yaml_scalar(value)
-
-
-def _render_canonical_frontmatter(data: dict[str, Any]) -> str:
-    """Render YAML frontmatter with controlled field order and quoting.
-
-    Unlike yaml.dump(), this function:
-    - Preserves field order (canonical, not alphabetical)
-    - Always quotes date strings (prevents PyYAML date coercion)
-    - Uses consistent list formatting (flow style for simple lists)
-    """
-    lines: list[str] = []
-    for key in _CANONICAL_FIELD_ORDER:
-        if key not in data:
-            continue
-        value = data[key]
-        if value is None:
-            continue
-        if key == "date":
-            lines.append(f"{key}: {_yaml_scalar(str(value))}")
-        elif key == "source" and isinstance(value, dict):
-            lines.append("source:")
-            for sk, sv in value.items():
-                lines.append(f"  {sk}: {_yaml_value(sv)}")
-        elif key == "contract_version":
-            lines.append(f"{key}: {_yaml_scalar(value)}")
-        else:
-            lines.append(f"{key}: {_yaml_value(value)}")
-    # Preserve unknown keys (forward-compat).
-    known_keys = set(_CANONICAL_FIELD_ORDER) | {"defer"}
-    for key in data:
-        if key not in known_keys:
-            value = data[key]
-            if value is not None:
-                lines.append(f"{key}: {_yaml_value(value)}")
-    # Include defer if present.
-    if "defer" in data and data["defer"] is not None:
-        defer = data["defer"]
-        lines.append("defer:")
-        for dk, dv in defer.items():
-            lines.append(f"  {dk}: {_yaml_value(dv)}")
-    return "\n".join(lines) + "\n"
 
 
 def _classify_update_fields(
@@ -1248,6 +1156,31 @@ def engine_execute(
 # --- Execute sub-functions ---
 
 
+def _write_text_exclusive(ticket_path: Path, content: str) -> None:
+    """Write a new ticket file exclusively and fsync before returning."""
+    encoded = content.encode("utf-8")
+    fd = os.open(ticket_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    write_succeeded = False
+    try:
+        view = memoryview(encoded)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError(
+                    f"exclusive write failed: short write. Got: {str(ticket_path)!r:.100}"
+                )
+            view = view[written:]
+        os.fsync(fd)
+        write_succeeded = True
+    finally:
+        os.close(fd)
+        if not write_succeeded:
+            try:
+                os.unlink(ticket_path)
+            except OSError:
+                pass
+
+
 def _execute_create(
     fields: dict[str, Any],
     session_id: str,
@@ -1270,42 +1203,57 @@ def _execute_create(
     tickets_dir.mkdir(parents=True, exist_ok=True)
 
     today = datetime.now(timezone.utc).date()
-    ticket_id = allocate_id(tickets_dir, today)
     title = fields.get("title", "Untitled")
-    filename = build_filename(ticket_id, title, tickets_dir)
 
-    source = fields.get("source", {"type": "ad-hoc", "ref": "", "session": session_id})
+    source = dict(fields.get("source", {"type": "ad-hoc", "ref": "", "session": session_id}))
     if "session" not in source:
         source["session"] = session_id
 
-    content = render_ticket(
-        id=ticket_id,
-        title=title,
-        date=today.isoformat(),
-        status="open",
-        priority=fields.get("priority", "medium"),
-        effort=fields.get("effort", ""),
-        source=source,
-        tags=fields.get("tags", []),
-        problem=fields.get("problem", ""),
-        approach=fields.get("approach", ""),
-        acceptance_criteria=fields.get("acceptance_criteria"),
-        verification=fields.get("verification", ""),
-        key_files=fields.get("key_files"),
-        context=fields.get("context", ""),
-        prior_investigation=fields.get("prior_investigation", ""),
-        decisions_made=fields.get("decisions_made", ""),
-        related=fields.get("related", ""),
-    )
-
-    ticket_path = tickets_dir / filename
-    ticket_path.write_text(content, encoding="utf-8")
+    for _attempt in range(_CREATE_WRITE_RETRY_LIMIT):
+        ticket_id = allocate_id(tickets_dir, today)
+        filename = build_filename(ticket_id, title, tickets_dir)
+        ticket_path = tickets_dir / filename
+        content = render_ticket(
+            id=ticket_id,
+            title=title,
+            date=today.isoformat(),
+            status="open",
+            priority=fields.get("priority", "medium"),
+            effort=fields.get("effort", ""),
+            source=source,
+            tags=fields.get("tags", []),
+            problem=fields.get("problem", ""),
+            approach=fields.get("approach", ""),
+            acceptance_criteria=fields.get("acceptance_criteria"),
+            verification=fields.get("verification", ""),
+            key_files=fields.get("key_files"),
+            context=fields.get("context", ""),
+            prior_investigation=fields.get("prior_investigation", ""),
+            decisions_made=fields.get("decisions_made", ""),
+            related=fields.get("related", ""),
+        )
+        try:
+            _write_text_exclusive(ticket_path, content)
+        except FileExistsError:
+            continue
+        except OSError as exc:
+            return EngineResponse(
+                state="escalate",
+                message=f"create failed: {exc}. Got: {str(ticket_path)!r:.100}",
+            )
+        return EngineResponse(
+            state="ok_create",
+            message=f"Created {ticket_id} at {ticket_path}",
+            ticket_id=ticket_id,
+            data={"ticket_path": str(ticket_path), "changes": None},
+        )
 
     return EngineResponse(
-        state="ok_create",
-        message=f"Created {ticket_id} at {ticket_path}",
-        ticket_id=ticket_id,
-        data={"ticket_path": str(ticket_path), "changes": None},
+        state="escalate",
+        message=(
+            "create failed: exclusive write retry budget exhausted after "
+            f"{_CREATE_WRITE_RETRY_LIMIT} attempts. Got: {title!r:.100}"
+        ),
     )
 
 
@@ -1392,9 +1340,8 @@ def _execute_update(
             changes["frontmatter"][key] = [data[key], value]
         data[key] = value
 
-    # Re-render using canonical frontmatter renderer (not yaml.dump).
     try:
-        new_yaml = _render_canonical_frontmatter(data)
+        new_text = replace_fenced_yaml(text, data)
     except ValueError as exc:
         return EngineResponse(
             state="escalate",
@@ -1402,13 +1349,6 @@ def _execute_update(
             ticket_id=ticket_id,
             error_code="parse_error",
         )
-    new_text = re.sub(
-        r"^```ya?ml\s*\n.*?^```",
-        f"```yaml\n{new_yaml}```",
-        text,
-        count=1,
-        flags=re.MULTILINE | re.DOTALL,
-    )
     ticket_path.write_text(new_text, encoding="utf-8")
 
     return EngineResponse(
@@ -1491,7 +1431,6 @@ def _execute_close(
             error_code="invalid_transition",
         )
 
-    # Write status change using canonical frontmatter renderer.
     ticket_path = Path(ticket.path)
     text = ticket_path.read_text(encoding="utf-8")
     yaml_text = extract_fenced_yaml(text)
@@ -1505,7 +1444,7 @@ def _execute_close(
     old_status = data.get("status", "")
     data["status"] = resolution
     try:
-        new_yaml = _render_canonical_frontmatter(data)
+        new_text = replace_fenced_yaml(text, data)
     except ValueError as exc:
         return EngineResponse(
             state="escalate",
@@ -1513,13 +1452,6 @@ def _execute_close(
             ticket_id=ticket_id,
             error_code="parse_error",
         )
-    new_text = re.sub(
-        r"^```ya?ml\s*\n.*?^```",
-        f"```yaml\n{new_yaml}```",
-        text,
-        count=1,
-        flags=re.MULTILINE | re.DOTALL,
-    )
     ticket_path.write_text(new_text, encoding="utf-8")
 
     changes = {"frontmatter": {"status": [old_status, resolution]}}
@@ -1612,7 +1544,7 @@ def _execute_reopen(
     old_status = data.get("status", "")
     data["status"] = "open"
     try:
-        new_yaml = _render_canonical_frontmatter(data)
+        new_text = replace_fenced_yaml(text, data)
     except ValueError as exc:
         return EngineResponse(
             state="escalate",
@@ -1620,13 +1552,6 @@ def _execute_reopen(
             ticket_id=ticket_id,
             error_code="parse_error",
         )
-    new_text = re.sub(
-        r"^```ya?ml\s*\n.*?^```",
-        f"```yaml\n{new_yaml}```",
-        text,
-        count=1,
-        flags=re.MULTILINE | re.DOTALL,
-    )
 
     # Append to Reopen History section (newest-last).
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")

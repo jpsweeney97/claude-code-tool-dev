@@ -1,8 +1,8 @@
 ---
 name: ticket
-description: "Manage codebase tickets: create, update, close, reopen, list, and query. Use when the user says 'create a ticket', 'update ticket T-...', 'close ticket', 'reopen ticket', 'list tickets', 'show open tickets', 'find ticket about...', 'track this bug', 'log this issue', 'I want to remember this task', or asks to track a bug, feature, or task persistently — even if they don't say 'ticket' explicitly."
+description: "Manage codebase tickets: create, update, close, reopen, list, query, and repair corrupt audit logs. Use when the user says 'create a ticket', 'update ticket T-...', 'close ticket', 'reopen ticket', 'list tickets', 'show open tickets', 'find ticket about...', 'track this bug', 'log this issue', 'repair the ticket audit log', 'ticket audit repair', 'I want to remember this task', or asks to track a bug, feature, or task persistently — even if they don't say 'ticket' explicitly."
 disable-model-invocation: true
-argument-hint: "[create|update|close|reopen|list|query] [ticket-id or details]"
+argument-hint: "[create|update|close|reopen|list|query|audit repair] [ticket-id or details]"
 allowed-tools:
   - Bash
   - Write
@@ -45,7 +45,7 @@ Choose a unique payload filename: `.claude/ticket-tmp/payload-<action>-<YYYYMMDD
 
 ## Routing
 
-Dispatch on the first token of the text typed after `/ticket` (e.g., `/ticket create Fix auth bug` → operation is `create`) or the user's intent. If no operation is clear, ask: "What would you like to do? (create / update / close / reopen / list / query)"
+Dispatch on the first token of the text typed after `/ticket` (e.g., `/ticket create Fix auth bug` → operation is `create`) or the user's intent. If no operation is clear, ask: "What would you like to do? (create / update / close / reopen / list / query / audit)"
 
 | Operation | Trigger phrases | Execution path |
 |-----------|----------------|----------------|
@@ -55,6 +55,7 @@ Dispatch on the first token of the text typed after `/ticket` (e.g., `/ticket cr
 | `reopen` | "reopen T-...", "T-... needs more work" | Engine pipeline |
 | `list` | "list tickets", "show open tickets", "what's in-progress" | `ticket_read.py list` (direct) |
 | `query` | "find ticket T-20260302", "show tickets from March 2" (ID-prefix match) | `ticket_read.py query` (direct) |
+| `audit repair` | "repair audit log", "fix corrupt ticket audit trail", "ticket audit repair" | `ticket_audit.py repair` (direct, user-only) |
 
 ---
 
@@ -73,6 +74,21 @@ python3 <PLUGIN_ROOT>/scripts/ticket_read.py query <TICKETS_DIR> <id_prefix>
 ```
 
 Both return `{"state": "ok", "data": {"tickets": [...]}}` where each ticket has: `id`, `title`, `date`, `status`, `priority`, `tags`, `blocked_by`, `blocks`, `path`. Present as a table with ID, title, status, priority, and tags (if non-empty).
+
+---
+
+## Audit Utility
+
+Use this path only when the user explicitly asks to inspect or repair corrupt audit logs. It is not part of the 4-stage engine pipeline.
+
+**Repair audit logs:**
+```bash
+python3 <PLUGIN_ROOT>/scripts/ticket_audit.py repair <TICKETS_DIR> [--dry-run]
+```
+
+- `--dry-run` reports corrupt JSONL lines and writes nothing.
+- Without `--dry-run`, the script creates a sibling backup `*.jsonl.bak-<YYYYMMDDTHHMMSSZ>` and rewrites the original file with only valid JSON-object lines.
+- Report the JSON response summary to the user. This utility is user-only; do not use it for agent-origin requests.
 
 ---
 
@@ -155,11 +171,7 @@ The top-level key for the operation is `action` (not `operation`). The payload f
 ```bash
 python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py classify <PAYLOAD_PATH>
 ```
-Parse stdout. Check `state`. If not `ok`, handle per Step 5 table. If `ok`, write these four fields back to the payload. **Critical:** preflight reads `classify_intent` and `classify_confidence` (not `intent`/`confidence`) — set both the original and renamed keys:
-- `intent` = `response.data.intent`
-- `classify_intent` = `response.data.intent`
-- `classify_confidence` = `response.data.confidence`
-- `resolved_ticket_id` = `response.data.resolved_ticket_id`
+Parse stdout. Check `state`. If not `ok`, handle per Step 5 table. If `ok`, merge `response.data` directly into the payload and write it back. `classify` now emits both `intent` / `confidence` and the canonical preflight aliases `classify_intent` / `classify_confidence`.
 
 **Stage 2 — plan:**
 ```bash
