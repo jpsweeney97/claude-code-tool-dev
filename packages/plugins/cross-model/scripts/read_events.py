@@ -6,7 +6,7 @@
 """Typed reader for the cross-model event log (~/.claude/.codex-events.jsonl).
 
 Reads heterogeneous JSONL events (block, shadow, consultation,
-dialogue_outcome, consultation_outcome), classifies by event type,
+dialogue_outcome, consultation_outcome, delegation_outcome), classifies by event type,
 and validates per-event required fields.
 
 Usage as library:
@@ -54,6 +54,25 @@ _REQUIRED_FIELDS: dict[str, set[str]] = {
         "turn_budget",
         "termination_reason",
         "mode",
+    },
+    "delegation_outcome": {
+        "schema_version",
+        "event",
+        "ts",
+        "consultation_id",
+        "session_id",
+        "thread_id",
+        "dispatched",
+        "sandbox",
+        "full_auto",
+        "credential_blocked",
+        "dirty_tree_blocked",
+        "readable_secret_file_blocked",
+        "commands_run_count",
+        "exit_code",
+        "termination_reason",
+        "model",              # F10: nullable but present in event
+        "reasoning_effort",   # F10: nullable but present in event
     },
 }
 
