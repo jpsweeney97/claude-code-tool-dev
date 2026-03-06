@@ -2,7 +2,7 @@
 
 Reference for `/ticket` skill. Covers payload schemas, pipeline state propagation, response states, and loop procedures.
 
-Command examples use `.claude/ticket-tmp/payload.json` as a placeholder. Substitute your `PAYLOAD_PATH` from Setup step 3 wherever this appears.
+Command examples use `.claude/ticket-tmp/payload.json` as a placeholder. Substitute your unique `PAYLOAD_PATH` from Setup step 3 wherever this appears and reuse that same path for all four stages of one operation.
 
 ---
 
@@ -15,7 +15,7 @@ The skill must carry state between stages manually:
 1. Run the stage command
 2. Parse stdout as JSON — the response is `{state, ticket_id, message, data}`
 3. Merge `response.data` fields into the current payload dict
-4. Write the updated payload back to `.claude/ticket-tmp/payload.json` using the Write tool
+4. Write the updated payload back to `PAYLOAD_PATH` using the Write tool
 5. Only then run the next stage
 
 | Stage | Reads from payload | Fields to write into payload after this stage |
@@ -133,12 +133,12 @@ When `plan` returns `state: "need_fields"`:
 
 1. Read `data.missing_fields` — list of field names the engine requires.
 2. Ask the user for each missing field. Example: "To create this ticket I need: priority (critical/high/medium/low). What priority?"
-3. Update `.claude/ticket-tmp/payload.json` — write the user's answers into `fields`.
+3. Update `PAYLOAD_PATH` — write the user's answers into `fields`.
 4. Re-run from `plan` (not from `classify` — `intent` is already in the payload):
    ```bash
-   python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py plan .claude/ticket-tmp/payload.json
-   python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py preflight .claude/ticket-tmp/payload.json
-   python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py execute .claude/ticket-tmp/payload.json
+   python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py plan <PAYLOAD_PATH>
+   python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py preflight <PAYLOAD_PATH>
+   python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py execute <PAYLOAD_PATH>
    ```
 5. If `plan` returns `duplicate_candidate` during this loop, enter the `duplicate_candidate` loop below before proceeding. If `plan` returns any other non-`need_fields` state, handle it per the Step 5 response state table in SKILL.md.
 
@@ -150,7 +150,7 @@ When `plan` returns `state: "duplicate_candidate"`:
 
 1. Read `data.duplicate_of` — the ID of the existing ticket that matches.
 2. Read the existing ticket: `python3 <PLUGIN_ROOT>/scripts/ticket_read.py query <TICKETS_DIR> <duplicate_of>`
-3. Present the match to the user:
+3. Present the match to the user using the returned ticket title from the query response:
    ```
    Found a similar ticket: T-20260302-01 — "Fix auth token race condition" (open, high priority)
 
@@ -159,8 +159,8 @@ When `plan` returns `state: "duplicate_candidate"`:
 4. If `n` → stop and point the user to the existing ticket.
 5. If `y` → add `dedup_override: true` to the payload at the top level. **Do not re-run plan** — plan does not consume `dedup_override` and will return `duplicate_candidate` again. Proceed directly to preflight:
    ```bash
-   python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py preflight .claude/ticket-tmp/payload.json
-   python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py execute .claude/ticket-tmp/payload.json
+   python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py preflight <PAYLOAD_PATH>
+   python3 <PLUGIN_ROOT>/scripts/ticket_engine_user.py execute <PAYLOAD_PATH>
    ```
 
 ---

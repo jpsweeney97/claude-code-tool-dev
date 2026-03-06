@@ -304,7 +304,37 @@ class TestPayloadInjection:
         run_hook(inp, plugin_root=plugin_root)
 
         result = json.loads(payload_file.read_text(encoding="utf-8"))
+        assert result["hook_request_origin"] == "user"
+
+    def test_injects_agent_origin_when_agent_id_present(self, tmp_path: Path) -> None:
+        payload_file = make_payload_file(tmp_path, {"action": "classify"})
+        plugin_root = str(tmp_path / "plugin")
+        (Path(plugin_root) / "scripts").mkdir(parents=True)
+
+        inp = make_hook_input(
+            f"python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload_file}",
+            plugin_root=plugin_root,
+        )
+        inp["agent_id"] = "agent-123"
+        run_hook(inp, plugin_root=plugin_root)
+
+        result = json.loads(payload_file.read_text(encoding="utf-8"))
         assert result["hook_request_origin"] == "agent"
+
+    def test_agent_type_without_agent_id_remains_user_origin(self, tmp_path: Path) -> None:
+        payload_file = make_payload_file(tmp_path, {"action": "classify"})
+        plugin_root = str(tmp_path / "plugin")
+        (Path(plugin_root) / "scripts").mkdir(parents=True)
+
+        inp = make_hook_input(
+            f"python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload_file}",
+            plugin_root=plugin_root,
+        )
+        inp["agent_type"] = "Explore"
+        run_hook(inp, plugin_root=plugin_root)
+
+        result = json.loads(payload_file.read_text(encoding="utf-8"))
+        assert result["hook_request_origin"] == "user"
 
     def test_preserves_existing_payload_fields(self, tmp_path: Path) -> None:
         payload_file = make_payload_file(tmp_path, {

@@ -39,7 +39,7 @@ Append `/docs/tickets`. Store as `TICKETS_DIR`.
 ```bash
 mkdir -p .claude/ticket-tmp
 ```
-Choose a unique payload filename: `.claude/ticket-tmp/payload-<action>-<YYYYMMDD>.json` (e.g., `.claude/ticket-tmp/payload-create-20260305.json`). Store this relative path as `PAYLOAD_PATH`. A distinct filename per operation avoids collisions with payloads from prior or concurrent sessions.
+Choose a unique payload filename: `.claude/ticket-tmp/payload-<action>-<YYYYMMDDTHHMMSSffffff>-<8hex>.json` (for example, `.claude/ticket-tmp/payload-create-20260305T142355123456-a1b2c3d4.json`). Store this relative path as `PAYLOAD_PATH` and reuse the same path for classify, plan, preflight, and execute. A timestamp-plus-random suffix avoids collisions with prior or concurrent operations.
 
 ---
 
@@ -72,7 +72,7 @@ python3 <PLUGIN_ROOT>/scripts/ticket_read.py list <TICKETS_DIR> [--status open|b
 python3 <PLUGIN_ROOT>/scripts/ticket_read.py query <TICKETS_DIR> <id_prefix>
 ```
 
-Both return `{"state": "ok", "data": {"tickets": [...]}}` where each ticket has: `id`, `date`, `status`, `priority`, `tags`, `blocked_by`, `blocks`, `path`. Present as a table with ID, status, priority, and tags (if non-empty).
+Both return `{"state": "ok", "data": {"tickets": [...]}}` where each ticket has: `id`, `title`, `date`, `status`, `priority`, `tags`, `blocked_by`, `blocks`, `path`. Present as a table with ID, title, status, priority, and tags (if non-empty).
 
 ---
 

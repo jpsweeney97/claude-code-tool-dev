@@ -79,6 +79,7 @@ class TestFindTicketById:
         ticket = find_ticket_by_id(tmp_tickets, "T-A")
         assert ticket is not None
         assert ticket.id == "T-A"
+        assert ticket.title == "Refactor analytics pipeline"
 
 
 class TestFilterTickets:
@@ -154,22 +155,25 @@ class TestReadCLI:
     def test_list_subcommand_returns_json(self, tmp_tickets):
         from tests.conftest import make_ticket
         make_ticket(tmp_tickets, "2026-03-02-first.md", id="T-20260302-01", status="open")
+        project_root = tmp_tickets.parent.parent
         result = subprocess.run(
             [sys.executable, str(READ_SCRIPT), "list", str(tmp_tickets)],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, cwd=str(project_root),
         )
         assert result.returncode == 0
         data = json.loads(result.stdout)
         assert data["state"] == "ok"
         assert len(data["data"]["tickets"]) == 1
+        assert data["data"]["tickets"][0]["title"] == "Test ticket"
 
     def test_list_with_status_filter(self, tmp_tickets):
         from tests.conftest import make_ticket
         make_ticket(tmp_tickets, "2026-03-02-open.md", id="T-20260302-01", status="open")
         make_ticket(tmp_tickets, "2026-03-02-blocked.md", id="T-20260302-02", status="blocked")
+        project_root = tmp_tickets.parent.parent
         result = subprocess.run(
             [sys.executable, str(READ_SCRIPT), "list", str(tmp_tickets), "--status", "open"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, cwd=str(project_root),
         )
         assert result.returncode == 0
         data = json.loads(result.stdout)
@@ -179,14 +183,16 @@ class TestReadCLI:
     def test_query_subcommand_fuzzy_match(self, tmp_tickets):
         from tests.conftest import make_ticket
         make_ticket(tmp_tickets, "2026-03-02-auth-bug.md", id="T-20260302-01", title="Fix auth bug")
+        project_root = tmp_tickets.parent.parent
         result = subprocess.run(
             [sys.executable, str(READ_SCRIPT), "query", str(tmp_tickets), "T-20260302"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, cwd=str(project_root),
         )
         assert result.returncode == 0
         data = json.loads(result.stdout)
         assert data["state"] == "ok"
         assert len(data["data"]["tickets"]) >= 1
+        assert data["data"]["tickets"][0]["title"] == "Fix auth bug"
 
     def test_unknown_subcommand_exits_2(self, tmp_tickets):
         """argparse exits 2 for invalid subcommand choice, not 1."""
@@ -206,8 +212,31 @@ class TestReadCLI:
     def test_list_nonexistent_dir_returns_empty(self, tmp_path):
         result = subprocess.run(
             [sys.executable, str(READ_SCRIPT), "list", str(tmp_path / "nope")],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, cwd=str(tmp_path),
         )
         assert result.returncode == 0
         data = json.loads(result.stdout)
         assert data["data"]["tickets"] == []
+
+    def test_list_rejects_path_outside_project_root(self, tmp_path):
+        outside = tmp_path.parent / "outside-tickets"
+        result = subprocess.run(
+            [sys.executable, str(READ_SCRIPT), "list", str(outside)],
+            capture_output=True, text=True, timeout=10, cwd=str(tmp_path),
+        )
+        assert result.returncode == 1
+        data = json.loads(result.stdout)
+        assert data["state"] == "policy_blocked"
+
+    def test_query_accepts_absolute_path_inside_project_root(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-auth-bug.md", id="T-20260302-01", title="Fix auth bug")
+        project_root = tmp_tickets.parent.parent
+        result = subprocess.run(
+            [sys.executable, str(READ_SCRIPT), "query", str(tmp_tickets), "T-20260302-01"],
+            capture_output=True, text=True, timeout=10, cwd=str(project_root),
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["data"]["tickets"][0]["title"] == "Fix auth bug"

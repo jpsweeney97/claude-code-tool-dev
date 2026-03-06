@@ -20,8 +20,8 @@ from scripts.ticket_engine_core import (
     engine_execute,
     engine_plan,
     engine_preflight,
-    resolve_tickets_dir,
 )
+from scripts.ticket_paths import resolve_tickets_dir
 
 REQUEST_ORIGIN = "agent"
 

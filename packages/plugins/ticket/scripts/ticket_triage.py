@@ -10,6 +10,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from scripts.ticket_paths import resolve_tickets_dir
 
 _TERMINAL_STATUSES = frozenset({"done", "wontfix"})
 
@@ -46,15 +47,24 @@ def triage_dashboard(tickets_dir: Path) -> dict[str, Any]:
             counts[ticket.status] += 1
 
         if _is_stale(ticket):
-            stale.append({"id": ticket.id, "status": ticket.status, "date": ticket.date})
+            stale.append({
+                "id": ticket.id,
+                "title": ticket.title,
+                "status": ticket.status,
+                "date": ticket.date,
+            })
 
         if ticket.status == "blocked" and ticket.blocked_by:
             root_blockers = _find_root_blockers(ticket, ticket_map)
-            blocked_chains.append({"id": ticket.id, "root_blockers": root_blockers})
+            blocked_chains.append({
+                "id": ticket.id,
+                "title": ticket.title,
+                "root_blockers": root_blockers,
+            })
 
         warning = _check_doc_size(ticket)
         if warning:
-            size_warnings.append({"id": ticket.id, "warning": warning})
+            size_warnings.append({"id": ticket.id, "title": ticket.title, "warning": warning})
 
     return {
         "counts": counts,
@@ -266,12 +276,21 @@ def main() -> None:
         parser.print_usage(sys.stderr)
         sys.exit(1)
 
+    tickets_dir, path_error = resolve_tickets_dir(args.tickets_dir, project_root=Path.cwd())
+    if path_error is not None or tickets_dir is None:
+        print(json.dumps({
+            "state": "policy_blocked",
+            "message": path_error or "tickets_dir validation failed",
+            "error_code": "policy_blocked",
+        }))
+        sys.exit(1)
+
     if args.subcommand == "dashboard":
-        result = triage_dashboard(args.tickets_dir)
+        result = triage_dashboard(tickets_dir)
         print(json.dumps({"state": "ok", "data": result}))
 
     elif args.subcommand == "audit":
-        result = triage_audit_report(args.tickets_dir, days=args.days)
+        result = triage_audit_report(tickets_dir, days=args.days)
         print(json.dumps({"state": "ok", "data": result}))
 
 

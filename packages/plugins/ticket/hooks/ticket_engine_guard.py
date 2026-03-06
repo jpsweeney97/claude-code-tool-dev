@@ -239,7 +239,8 @@ def main() -> None:
 
         # Inject trust fields into payload.
         session_id = event.get("session_id", "")
-        error = _inject_payload(str(resolved_path), session_id, entrypoint_type)
+        effective_origin = "agent" if event.get("agent_id") else "user"
+        error = _inject_payload(str(resolved_path), session_id, effective_origin)
         if error is not None:
             print(json.dumps(_make_deny(f"Payload injection failed: {error}")))
             return
