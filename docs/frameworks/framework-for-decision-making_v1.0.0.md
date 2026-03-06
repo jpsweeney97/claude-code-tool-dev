@@ -9,6 +9,9 @@ A reusable framework for structured, defensible decisions during agentic work. A
 | **Protocol ID** | `decision-making.framework` |
 | **Version** | `1.0.0` |
 | **Role** | Shared guidance for skills that require Claude to make decisions (implementation choices, task strategy, autonomy boundaries, etc.) |
+| **Status** | `Project-canonical` for this repository; not an external or vendor-issued standard |
+| **Authority** | Applies when a repo rule, skill, or document explicitly references `decision-making.framework@1.0.0`; see `.claude/rules/methodology/frameworks.md` |
+| **Maintainers** | Repository maintainers |
 | **See also** | `thoroughness.framework@1.0.0` — a companion protocol for coverage and understanding; use it first when the main uncertainty is *what is true* rather than *which option to choose*. `verification.framework@1.0.0` — use after implementation to confirm outputs are correct. |
 | **Compatibility** | Within a **major** version, meanings of: the nested loop stages (FRAME/EVALUATE), transition trees, activity definitions, convergence indicators, failure modes, and required decision record sections are stable. Minor versions may add optional guidance without changing existing meanings. |
 
@@ -131,6 +134,21 @@ Do a quick robustness check:
 
 **Example:** If Safety has weight 5 and the frontrunner wins by 8 points, increase Safety to 6 and recalculate. If second place now leads, the decision is sensitive to how much you value safety.
 
+## Confidence Levels (Required)
+
+Use one of these labels in the **Decision** section:
+
+| Level | Meaning | Minimum Conditions |
+|-------|---------|--------------------|
+| **High** | Strong evidence, no material contradictions | Required activities complete, no unresolved critical information gaps, no unresolved near-tie, and pressure-testing/disconfirmation did not reveal a reason to change the leader |
+| **Medium** | Reasonable evidence, some remaining uncertainty | Required activities complete, but the decision still depends on non-critical assumptions, a narrow margin, or follow-up verification |
+| **Low** | Provisional choice under significant uncertainty | Evidence is thin, a critical gap remains accepted, or time pressure forced a choice before strong convergence |
+
+**Rules:**
+
+- Use only **High**, **Medium**, or **Low**. Modifiers such as `Medium-High` are not allowed.
+- Confidence cannot exceed the actual evidence state. Any unresolved critical information gap or unresolved near-tie caps confidence at **at most Medium** until it is resolved or explicitly accepted by the user.
+
 ## Structure Overview
 
 **Principle:** Framing the decision and evaluating options are different activities that converge at different rates. The framework uses nested loops with decision trees at transitions.
@@ -184,6 +202,8 @@ Complete this gate before entering the outer loop. It calibrates rigor and sets 
 | **Known stakeholders** | Who's obviously affected? | Stakeholder list |
 
 **Gate check:** Cannot proceed to outer loop activities until stakes level chosen and initial frame drafted.
+
+**Recording note:** `Decision trigger` is typically recorded in **Context** rather than duplicated in **Entry Gate**. `Initial frame`, `Known constraints`, and `Known stakeholders` may be captured as concise previews in **Entry Gate** and then expanded immediately in **Frame**, but they MUST exist before entering the inner loop.
 
 ## Outer Loop — Frame the Decision
 
@@ -303,7 +323,7 @@ How to know when a decision is ready — not just made, but made well.
 
 | Level | Convergence Requirements |
 |-------|-------------------------|
-| **Adequate** | Frontrunner stable for 1 pass (unchanged from previous), trade-offs stated, criteria defined |
+| **Adequate** | Either: (a) adequate fast path after 1 pass with no near-tie signal, no unresolved critical information gap, and pressure-test leaves the same leader; or (b) frontrunner unchanged from previous pass, with trade-offs stated and criteria defined |
 | **Rigorous** | Frontrunner stable for 2 consecutive passes, objections resolved, all perspectives checked, bias check completed |
 | **Exhaustive** | Frontrunner stable for 2+ consecutive passes, disconfirmation yielded nothing new, sensitivity analysis shows robustness, all activities at full depth |
 
@@ -356,7 +376,7 @@ Each failure mode maps to an activity that prevents it. If a failure mode appear
 
 | Failure Mode | Signal | Countermeasure |
 |--------------|--------|----------------|
-| Analysis paralysis | >3 iterations, no progress | Transition tree forces escalation |
+| Analysis paralysis | Iteration cap reached with no progress | Transition tree forces escalation |
 | Premature exit | Decided before activities complete | Exit gate blocks incomplete decisions |
 | Frame lock | Never revisiting frame despite signals | Tree forces break-to-outer when all options fail |
 
@@ -378,7 +398,7 @@ Use this when the decision is low stakes and reversible, but you still want a de
 6) **Pressure test:** 2-3 strongest objections to the frontrunner and responses (or accepted risks).
 7) **Decision:** choice, trade-offs accepted, confidence, and what would change the decision.
 
-**Exit condition:** one pass is OK if the frontrunner is stable and trade-offs are explicit; otherwise do a second pass or escalate.
+**Exit condition:** one pass is OK only when the adequate fast path meets the adequate convergence rule: no near-tie signal, no unresolved critical information gap, pressure-test leaves the same leader, and trade-offs are explicit. Otherwise do a second pass or escalate.
 
 ### Activity Requirements by Level
 
@@ -424,11 +444,16 @@ Example of an "Adequate" decision record for a common agentic choice (implementa
 
 ## Entry Gate
 - Stakes level: adequate (reversible code change, low blast radius)
+- Rationale: reversible change, localized blast radius, low cost of error, and high time pressure justify adequate depth
 - Time budget: 30 minutes
 - Iteration cap: 2
 - Evidence bar: confirm approach is correct for idempotent requests; avoid retry storms
-- Allowed skips: deep stakeholder analysis; sensitivity analysis
+- Allowed skips: I13 sensitivity analysis because the leading option is not a near-tie and the change is easy to revert
+- Overrides: none
 - Escalation trigger: uncertainty about idempotency or request semantics
+- Initial frame: choose a retry strategy for transient HTTP client failures
+- Known constraints: idempotent safety, bounded retry time, no new infra
+- Known stakeholders: client maintainers, on-call responders, downstream callers
 
 ## Frame
 ### Decision Statement
@@ -446,6 +471,11 @@ How should we add retries to the HTTP client to reduce transient failures withou
 | Effectiveness | 4 | Reduces transient failure rate |
 | Complexity | 3 | Minimal code + cognitive load |
 | Observability | 2 | Can see retries and reasons in logs/metrics |
+
+### Stakeholders
+- Client maintainers: want simple, testable retry behavior
+- On-call responders: want fewer incidents without retry storms
+- Downstream callers: want better success rates without duplicate side effects
 
 ## Options Considered
 ### Option 1: Simple exponential backoff with jitter (client-side)
@@ -502,11 +532,16 @@ Example of a "Rigorous" decision record for a medium-stakes agentic choice where
 
 ## Entry Gate
 - Stakes level: rigorous (moderate blast radius; change touches many screens)
+- Rationale: moderate blast radius, some undo cost, and moderate uncertainty justify rigorous depth
 - Time budget: 2-4 hours
 - Iteration cap: 3
 - Evidence bar: confirm we can migrate incrementally; confirm dev UX + maintainability gains
-- Allowed skips: exhaustive stakeholder deep-dive; full sensitivity analysis (will do a light version)
+- Allowed skips: I13 exhaustive sensitivity sweep because rigorous level uses a light sensitivity check unless the ranking stays fragile
+- Overrides: none
 - Escalation trigger: two options remain effectively tied after pass 2
+- Initial frame: choose a client-side state management approach that enables incremental migration
+- Known constraints: incremental adoption, modest bundle impact, compatibility with current async fetching, testability
+- Known stakeholders: feature developers, QA, maintainers, end users
 
 ## Frame
 ### Decision Statement
@@ -540,8 +575,21 @@ What state management approach should we adopt to reduce bugs and improve mainta
 - A1: Most bugs stem from unclear state ownership. [Status: unverified]
 - A2: We can migrate a module at a time without breaking routing. [Status: unverified]
 
+### Scope
+- In bounds: client-side state ownership patterns and migration approach
+- Out of bounds: replacing server-state fetching, full app rewrite, unrelated component architecture
+- Related decisions: review guardrails and linting for the chosen pattern
+
 ### Reversibility
 Moderate: changing patterns later is possible but expensive once widely adopted.
+
+### Dependencies
+- Depends on: current routing boundaries remaining module-oriented; existing async fetching APIs staying compatible with module-level adoption
+- Blocks: migration guide, review checklist, and any lint rule that enforces state boundaries
+
+### Downstream Impact
+- Enables: clearer ownership, targeted module refactors, and a migration checklist
+- Precludes: continuing ad hoc state growth without explicit boundaries
 
 ## Options Considered
 ### Option 1: Centralized store + selectors (predictable updates)
@@ -573,6 +621,20 @@ Notes:
 ### Information Gaps
 - How much boilerplate Option 1 introduces in our codebase (needs spike)
 - Whether Option 3 boundaries will hold under real feature pressure
+
+### Risks per Option
+| Option | Key Risks | Mitigation |
+|--------|-----------|------------|
+| 1 | Over-centralizing state and adding boilerplate friction | Keep selectors/local escape hatches; pilot on one module first |
+| 2 | Inconsistency persists and hidden coupling keeps growing | Enforce conventions in review; revisit quickly if bug rate does not improve |
+| 3 | Boundary drift creates a bespoke framework that different teams apply differently | Define hard rules, publish examples, and add lint/review checks |
+| 4 | Ongoing bug growth and migration cost rise while patterns continue to diverge | Time-box deferment and reopen with data if no action this sprint |
+
+### Second-Order Effects
+- Option 1 standardizes tooling quickly but may encourage a single global state surface over time.
+- Option 2 preserves short-term speed but likely keeps the current bug sources in place.
+- Option 3 creates governance work now, but also creates cleaner seams for future module extraction.
+- Option 4 avoids disruption now while making a later migration harder and more politically expensive.
 
 ### Bias Check
 - Risk: anchoring to what the team used before.
@@ -612,9 +674,14 @@ Option 3 still leads, but the margin is small and depends on boundary discipline
 
 **Trade-offs Accepted:** More upfront architectural work and enforcement; less standardization than Option 1.
 
-**Confidence:** Medium-High (requires a short spike + documented boundaries)
+**Confidence:** Medium (requires a short spike + documented boundaries)
 
 **Caveats:** If spike reveals high inconsistency risk or tooling gaps, switch to Option 1.
+
+## Downstream Impact
+- This enables: module-level ownership docs, migration guide, and targeted guardrails
+- This precludes: continuing with purely ad hoc local-state conventions as the default long-term answer
+- Next decisions triggered: whether to add a lint rule, what the module boundary checklist requires, and where to pilot the pattern first
 
 ## Iteration Log
 | Pass | Frame Changes | Frontrunner | Key Findings |
@@ -724,7 +791,7 @@ When the framework cannot resolve:
 |-----------|------------|
 | Frame won't stabilize | Ask user to clarify the actual decision |
 | All options fail criteria | Ask user if constraints can change |
-| Stuck >3 passes | Present current state, ask user to decide |
+| Stuck at iteration cap for chosen level | Present current state, ask user to decide |
 | Stakeholders conflict irreconcilably | Surface conflict, ask user for priority |
 | Information gap is critical and unfillable | Document uncertainty, ask user for risk tolerance |
 
@@ -743,11 +810,16 @@ Use this template (or an equivalent structure) for any decision produced under t
 
 ## Entry Gate
 - Stakes level: adequate / rigorous / exhaustive
+- Rationale:
 - Time budget:
 - Iteration cap:
 - Evidence bar:
 - Allowed skips:
+- Overrides:
 - Escalation trigger:
+- Initial frame:
+- Known constraints:
+- Known stakeholders:
 
 ## Frame
 ### Decision Statement
