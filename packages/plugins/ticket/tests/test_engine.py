@@ -13,7 +13,40 @@ from scripts.ticket_engine_core import (
     engine_plan,
     engine_preflight,
 )
+from scripts.ticket_parse import extract_fenced_yaml
 from scripts.ticket_paths import resolve_tickets_dir
+
+
+def _expected_canonical_yaml(
+    *,
+    ticket_id: str,
+    date: str,
+    status: str,
+    priority: str,
+    effort: str,
+    source_type: str,
+    source_ref: str,
+    session: str,
+    tags: list[str],
+    blocked_by: list[str],
+    blocks: list[str],
+    contract_version: str = "1.0",
+) -> str:
+    return (
+        f"id: {ticket_id}\n"
+        f'date: "{date}"\n'
+        f"status: {status}\n"
+        f"priority: {priority}\n"
+        f"effort: {effort}\n"
+        "source:\n"
+        f"  type: {source_type}\n"
+        f'  ref: "{source_ref}"\n'
+        f"  session: {session}\n"
+        f"tags: [{', '.join(tags)}]\n"
+        f"blocked_by: [{', '.join(blocked_by)}]\n"
+        f"blocks: [{', '.join(blocks)}]\n"
+        f'contract_version: "{contract_version}"\n'
+    )
 
 
 class TestEngineClassify:
@@ -94,6 +127,20 @@ class TestEngineClassify:
             request_origin="user",
         )
         assert resp.data["resolved_ticket_id"] is None
+
+    def test_classify_emits_preflight_aliases(self):
+        resp = engine_classify(
+            action="update",
+            args={"ticket_id": "T-20260302-01"},
+            session_id="test-session",
+            request_origin="user",
+        )
+        assert resp.state == "ok"
+        assert resp.data["intent"] == "update"
+        assert resp.data["confidence"] >= 0.0
+        assert resp.data["classify_intent"] == "update"
+        assert resp.data["classify_confidence"] == resp.data["confidence"]
+        assert resp.data["resolved_ticket_id"] == "T-20260302-01"
 
 
 class TestEnginePlan:
@@ -673,6 +720,40 @@ class TestEngineExecute:
         assert "Fix auth bug" in content
         assert "## Problem" in content
 
+    def test_create_uses_canonical_yaml_shape(self, tmp_tickets):
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={
+                "title": "Canonical create",
+                "problem": "Create should use the same serializer as mutations.",
+                "priority": "high",
+                "effort": "S",
+                "source": {"type": "ad-hoc", "ref": "", "session": "test-session"},
+                "tags": ["auth", "api"],
+            },
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_create"
+        ticket_path = Path(resp.data["ticket_path"])
+        assert extract_fenced_yaml(ticket_path.read_text(encoding="utf-8")) == _expected_canonical_yaml(
+            ticket_id=resp.ticket_id,
+            date=ticket_path.name[:10],
+            status="open",
+            priority="high",
+            effort="S",
+            source_type="ad-hoc",
+            source_ref="",
+            session="test-session",
+            tags=["auth", "api"],
+            blocked_by=[],
+            blocks=[],
+        )
+
     def test_execute_create_blocks_duplicate_without_override(self, tmp_tickets):
         fields = {
             "title": "Duplicate target",
@@ -733,6 +814,88 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
         )
         assert second.state == "ok_create"
+
+    def test_execute_create_retries_on_file_exists(
+        self, tmp_tickets: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_write = ticket_engine_core._write_text_exclusive
+        attempts: list[Path] = []
+
+        def flaky_write(ticket_path: Path, content: str) -> None:
+            attempts.append(ticket_path)
+            if len(attempts) == 1:
+                real_write(ticket_path, content)
+                raise FileExistsError("simulated collision")
+            real_write(ticket_path, content)
+
+        monkeypatch.setattr(ticket_engine_core, "_write_text_exclusive", flaky_write)
+
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={
+                "title": "Retry on collision",
+                "problem": "Exclusive create should retry instead of overwriting.",
+                "priority": "medium",
+            },
+            session_id="retry-session",
+            request_origin="user",
+            dedup_override=True,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+
+        assert resp.state == "ok_create"
+        assert len(attempts) == 2
+        assert attempts[0].exists()
+        assert attempts[1].exists()
+        assert attempts[1] != attempts[0]
+        assert Path(resp.data["ticket_path"]) == attempts[1]
+
+    def test_execute_create_fails_after_retry_budget_exhausted(
+        self, tmp_tickets: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        attempts: list[Path] = []
+
+        def always_exists(ticket_path: Path, content: str) -> None:
+            attempts.append(ticket_path)
+            raise FileExistsError("still colliding")
+
+        monkeypatch.setattr(ticket_engine_core, "_write_text_exclusive", always_exists)
+
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={
+                "title": "Retry exhaustion",
+                "problem": "Create should fail after the exclusive-write retry budget.",
+                "priority": "medium",
+            },
+            session_id="retry-session",
+            request_origin="user",
+            dedup_override=True,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+
+        assert resp.state == "escalate"
+        assert "retry budget" in resp.message.lower()
+        assert len(attempts) == 3
+
+    def test_write_text_exclusive_unlinks_partial_file_on_fsync_failure(
+        self, tmp_tickets: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ticket_path = tmp_tickets / "partial-write.md"
+
+        def fail_fsync(fd: int) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(ticket_engine_core.os, "fsync", fail_fsync)
+
+        with pytest.raises(OSError, match="disk full"):
+            ticket_engine_core._write_text_exclusive(ticket_path, "partial content")
+
+        assert not ticket_path.exists()
 
     def test_execute_create_propagates_plan_errors(self, tmp_tickets):
         """Defense-in-depth should return plan-stage validation failures."""
@@ -1584,6 +1747,90 @@ class TestEngineExecuteIntegration:
         content = ticket_path.read_text(encoding="utf-8")
         assert "status: open" in content
         assert "Reopen History" in content
+
+    def test_full_lifecycle_preserves_canonical_yaml_shape(self, tmp_tickets):
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={
+                "title": "Serializer lifecycle",
+                "problem": "All mutation paths should share one YAML renderer.",
+                "priority": "medium",
+                "effort": "S",
+                "source": {"type": "ad-hoc", "ref": "", "session": "test-session"},
+                "tags": ["test"],
+                "blocked_by": [],
+                "blocks": [],
+            },
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_create"
+        ticket_id = resp.ticket_id
+        ticket_path = Path(resp.data["ticket_path"])
+        ticket_date = ticket_path.name[:10]
+
+        expected = _expected_canonical_yaml(
+            ticket_id=ticket_id,
+            date=ticket_date,
+            status="open",
+            priority="medium",
+            effort="S",
+            source_type="ad-hoc",
+            source_ref="",
+            session="test-session",
+            tags=["test"],
+            blocked_by=[],
+            blocks=[],
+        )
+        assert extract_fenced_yaml(ticket_path.read_text(encoding="utf-8")) == expected
+
+        resp = engine_execute(
+            action="update",
+            ticket_id=ticket_id,
+            fields={"status": "in_progress"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+        expected = expected.replace("status: open\n", "status: in_progress\n")
+        assert extract_fenced_yaml(ticket_path.read_text(encoding="utf-8")) == expected
+
+        resp = engine_execute(
+            action="close",
+            ticket_id=ticket_id,
+            fields={"resolution": "wontfix"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_close"
+        expected = expected.replace("status: in_progress\n", "status: wontfix\n")
+        assert extract_fenced_yaml(ticket_path.read_text(encoding="utf-8")) == expected
+
+        resp = engine_execute(
+            action="reopen",
+            ticket_id=ticket_id,
+            fields={"reopen_reason": "Follow-up work is required"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_reopen"
+        expected = expected.replace("status: wontfix\n", "status: open\n")
+        content = ticket_path.read_text(encoding="utf-8")
+        assert extract_fenced_yaml(content) == expected
+        assert "## Reopen History" in content
 
     def test_unknown_action_escalates(self, tmp_tickets):
         """Dispatcher rejects unknown actions."""

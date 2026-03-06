@@ -66,15 +66,16 @@ Exit codes: 0 (success), 1 (engine error), 2 (validation failure)
 
 | Subcommand | Input | Output `data` |
 |-----------|-------|---------------|
-| classify | action, args, session_id, request_origin | intent, confidence, resolved_ticket_id |
+| classify | action, args, session_id, request_origin | intent, confidence, classify_intent, classify_confidence, resolved_ticket_id |
 | plan | intent, fields (including `key_file_paths: list[str]` for dedup), session_id, request_origin | dedup_fingerprint, target_fingerprint, duplicate_of, missing_fields, action_plan |
 | preflight | ticket_id, action, optional `fields`, session_id, request_origin, classify_confidence, classify_intent, dedup_fingerprint, target_fingerprint | checks_passed, checks_failed |
 | execute | action, ticket_id, fields (including `key_files: list[dict]` for rendering), session_id, request_origin, dedup_override, dependency_override, optional `target_fingerprint` | ticket_path, changes |
 
 **Field disambiguation:**
-- `key_file_paths: list[str]` — file paths for dedup fingerprinting (plan subcommand input)
+- `key_file_paths: list[str]` — file paths for dedup fingerprinting only (plan subcommand input)
 - `key_files: list[dict[str, str]]` — structured table rows `{file, role, look_for}` for rendering (execute subcommand input)
 - If both are present in input, `key_file_paths` is used for dedup. `key_files` is always used for rendering.
+- If `key_files` is omitted, create still succeeds but no `## Key Files` section is rendered.
 - `fields` in preflight is used for resolution-aware policy checks (for example close `resolution=wontfix` bypasses blocker checks).
 
 ### Machine States (15 total: 14 emittable, 1 reserved)
@@ -100,7 +101,7 @@ Hook assumption: the guard matches commands containing `ticket_engine` in the co
 Execute leniency: execute defaults optional fields (e.g., `priority` → `"medium"`) rather than rejecting. Plan reports missing fields as hints; execute always produces a valid ticket.
 Agent execute re-reads live `.claude/ticket.local.md` policy and blocks if it diverges from the preflight snapshot.
 
-Known limitation (v1.1): concurrent autonomous creates are not serialized. Session create cap enforcement and ID allocation are not lock-based, so parallel subagent execution is not a hard safety boundary.
+Known limitation (v1.3): create now uses exclusive file creation with bounded retry to prevent same-path silent overwrite, but concurrent autonomous creates are still not fully serialized. Session create cap enforcement and ID allocation are not lock-based, so parallel subagent execution is not a hard safety boundary.
 
 ## 6. Dedup Policy
 

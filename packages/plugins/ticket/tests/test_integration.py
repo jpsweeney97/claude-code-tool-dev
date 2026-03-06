@@ -69,6 +69,66 @@ class TestFullCreatePipeline:
         assert execute_resp.state == "ok_create"
         assert Path(execute_resp.data["ticket_path"]).exists()
 
+    def test_user_create_end_to_end_with_plain_classify_data_merge(self, tmp_tickets):
+        """The skill can merge classify data directly without renaming fields."""
+        payload = {
+            "action": "create",
+            "args": {},
+            "session_id": "integration-plain-merge",
+            "request_origin": "user",
+            "fields": {
+                "title": "Integration plain merge ticket",
+                "problem": "This verifies classify aliases are emitted natively.",
+                "priority": "medium",
+                "key_file_paths": [],
+            },
+        }
+
+        classify_resp = engine_classify(
+            action=payload["action"],
+            args=payload["args"],
+            session_id=payload["session_id"],
+            request_origin=payload["request_origin"],
+        )
+        assert classify_resp.state == "ok"
+        payload.update(classify_resp.data)
+
+        plan_resp = engine_plan(
+            intent=payload["intent"],
+            fields=payload["fields"],
+            session_id=payload["session_id"],
+            request_origin=payload["request_origin"],
+            tickets_dir=tmp_tickets,
+        )
+        assert plan_resp.state == "ok"
+        payload.update(plan_resp.data)
+
+        preflight_resp = engine_preflight(
+            ticket_id=payload.get("resolved_ticket_id"),
+            action=payload["action"],
+            session_id=payload["session_id"],
+            request_origin=payload["request_origin"],
+            classify_confidence=payload.get("classify_confidence", 0.0),
+            classify_intent=payload.get("classify_intent", ""),
+            dedup_fingerprint=payload.get("dedup_fingerprint"),
+            target_fingerprint=payload.get("target_fingerprint"),
+            tickets_dir=tmp_tickets,
+        )
+        assert preflight_resp.state == "ok"
+
+        execute_resp = engine_execute(
+            action=payload["action"],
+            ticket_id=payload.get("resolved_ticket_id"),
+            fields=payload["fields"],
+            session_id=payload["session_id"],
+            request_origin=payload["request_origin"],
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert execute_resp.state == "ok_create"
+        assert Path(execute_resp.data["ticket_path"]).exists()
+
     def test_agent_blocked_phase1_fail_closed(self, tmp_tickets):
         """Agent create is hard-blocked by Phase 1 fail-closed policy."""
         classify_resp = engine_classify(
@@ -155,14 +215,11 @@ class TestFullCreatePipeline:
         )
         assert plan_resp.state == "duplicate_candidate"
 
-        # Override and create anyway.
-        # key_file_paths (list[str]) is plan/dedup only; key_files (list[dict]) is render only.
-        # Strip key_file_paths from execute fields — render_ticket treats None as "no section".
-        execute_fields = {k: v for k, v in fields.items() if k != "key_file_paths"}
+        # Override and create anyway with the same execute payload.
         execute_resp = engine_execute(
             action="create",
             ticket_id=None,
-            fields=execute_fields,
+            fields=fields,
             session_id="test",
             request_origin="user",
             dedup_override=True,
@@ -170,3 +227,40 @@ class TestFullCreatePipeline:
             tickets_dir=tmp_tickets,
         )
         assert execute_resp.state == "ok_create"
+
+    def test_create_with_key_file_paths_only_produces_valid_ticket_without_key_files_section(
+        self, tmp_tickets
+    ):
+        fields = {
+            "title": "Paths only create",
+            "problem": "Only dedup file paths are available for this ticket.",
+            "priority": "medium",
+            "key_file_paths": ["src/auth/token.py", "src/middleware/session.py"],
+        }
+
+        plan_resp = engine_plan(
+            intent="create",
+            fields=fields,
+            session_id="paths-only",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert plan_resp.state == "ok"
+        assert plan_resp.data["dedup_fingerprint"]
+
+        execute_resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields=fields,
+            session_id="paths-only",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert execute_resp.state == "ok_create"
+
+        ticket_path = Path(execute_resp.data["ticket_path"])
+        assert ticket_path.exists()
+        ticket_text = ticket_path.read_text(encoding="utf-8")
+        assert "## Key Files" not in ticket_text

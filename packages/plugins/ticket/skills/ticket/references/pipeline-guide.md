@@ -20,12 +20,10 @@ The skill must carry state between stages manually:
 
 | Stage | Reads from payload | Fields to write into payload after this stage |
 |-------|--------------------|-----------------------------------------------|
-| `classify` | `action`, `args`, `session_id`, `request_origin` | `intent` = data.intent, **`classify_intent`** = data.intent, **`classify_confidence`** = data.confidence, `resolved_ticket_id` = data.resolved_ticket_id |
+| `classify` | `action`, `args`, `session_id`, `request_origin` | Merge `response.data` directly: `intent`, `confidence`, `classify_intent`, `classify_confidence`, `resolved_ticket_id` |
 | `plan` | `intent`, `fields`, `session_id`, `request_origin` | `dedup_fingerprint`, `target_fingerprint`, `duplicate_of`, `missing_fields`, `action_plan` (all from data directly) |
 | `preflight` | All classify+plan fields, `action`, `fields`, `dedup_override`, `dependency_override`, `hook_injected` | `autonomy_config` = data.autonomy_config (if present) |
 | `execute` | `action`, `ticket_id`, `fields`, `session_id`, `request_origin`, `dedup_override`, `dependency_override` | (no merge — execute writes the ticket file to disk) |
-
-**Critical:** `classify` returns `confidence` and `intent` in `response.data`, but `preflight` reads `classify_confidence` and `classify_intent` from the payload. These are different key names. When writing the payload after classify, you MUST set both `intent` (for plan) AND `classify_intent` + `classify_confidence` (for preflight). A simple `data` merge without renaming will leave `classify_confidence=0.0` and cause preflight to fail.
 
 After `need_fields`, re-run from `plan` (not `classify`) — `intent`, `classify_intent`, and `classify_confidence` are already in the payload.
 
@@ -123,7 +121,7 @@ Two fields look similar but serve different purposes:
 | `key_file_paths` | `list[str]` | plan (input) | File paths for dedup fingerprinting. Include whenever files are relevant. |
 | `key_files` | `list[dict]` | execute (input) | Structured table rows `{file, role, look_for}` for rendering into the ticket body. |
 
-Include both in `create` payloads when you have file context. If only paths are known (no descriptions), populate `key_file_paths` and omit `key_files` — the engine will render paths-only.
+Include both in `create` payloads when you have file context. If only paths are known (no descriptions), populate `key_file_paths` and omit `key_files` — create still succeeds, but no `## Key Files` section is rendered.
 
 ---
 

@@ -180,7 +180,7 @@ Key security properties:
 - **Workspace boundary enforcement**: hook payload paths and all ticket CLI `tickets_dir` arguments must resolve inside project/workspace root.
 - **Live policy reread for agent execute**: `AutonomyConfig` is still a frozen, self-healing type, but agent `execute` treats the on-disk config as authoritative and blocks if it diverges from the preflight snapshot.
 
-Known limitation (v1.1): concurrent autonomous creates are not serialized. Session create cap enforcement and ID allocation are not lock-based, so parallel subagent execution can still overrun caps or allocate colliding IDs.
+Known limitation (v1.3): create now uses exclusive file creation with bounded retry to prevent same-path silent overwrite, but concurrent autonomous creates are still not fully serialized. Session create cap enforcement and ID allocation are not lock-based, so parallel subagent execution can still overrun caps or allocate colliding IDs.
 
 ## Module Reference
 
@@ -193,6 +193,7 @@ Known limitation (v1.1): concurrent autonomous creates are not serialized. Sessi
 | `ticket_parse.py` | Parses markdown files with fenced YAML and H1 titles. Supports 4 legacy ticket formats with automatic field defaults and section renames. |
 | `ticket_read.py` | Read-only queries: list tickets, find by ID, filter by status/priority/tag, fuzzy match, and return structured titles. |
 | `ticket_render.py` | Template-based rendering: generates markdown file content with proper YAML and section ordering. |
+| `ticket_audit.py` | Standalone audit maintenance utility: scans `docs/tickets/.audit/` JSONL files, reports corruption, and repairs them with backups when requested. |
 | `ticket_id.py` | ID allocation: scans existing tickets for the next available `T-YYYYMMDD-NN` sequence number. |
 | `ticket_dedup.py` | Content fingerprinting: 5-step text normalization + SHA-256 hashing for duplicate detection. |
 | `ticket_triage.py` | Read-only health analysis: dashboard, stale ticket detection, blocked dependency chains, audit reporting, orphan detection. |
@@ -213,6 +214,14 @@ Subcommands: `classify`, `plan`, `preflight`, `execute`. Each reads a JSON paylo
 ```
 
 Exit codes: `0` (success), `1` (engine error), `2` (validation failure).
+
+Standalone audit remediation stays outside the engine pipeline:
+
+```bash
+python3 scripts/ticket_audit.py repair <tickets_dir> [--dry-run]
+```
+
+Use `--dry-run` to report corrupt audit files without writing. Repair mode creates `*.jsonl.bak-<YYYYMMDDTHHMMSSZ>` backups and rewrites the original JSONL file with only valid JSON-object lines.
 
 Path constraints:
 - Hook payload path must resolve under the current workspace root (`event.cwd`) or the command is denied.
