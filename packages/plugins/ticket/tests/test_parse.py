@@ -10,6 +10,7 @@ from scripts.ticket_parse import (
     detect_generation,
     extract_fenced_yaml,
     extract_sections,
+    extract_title,
     normalize_status,
     parse_ticket,
     parse_yaml_block,
@@ -107,6 +108,20 @@ class TestExtractSections:
         assert "Sub text." in sections["Problem"]
 
 
+class TestExtractTitle:
+    def test_extracts_title_from_v10_heading(self):
+        text = "# T-20260302-01: Fix auth bug\n\n```yaml\nid: T-20260302-01\n```"
+        assert extract_title(text, "T-20260302-01") == "Fix auth bug"
+
+    def test_extracts_plain_title_heading(self):
+        text = "# Fix auth bug\n\n```yaml\nid: T-20260302-01\n```"
+        assert extract_title(text, "T-20260302-01") == "Fix auth bug"
+
+    def test_missing_h1_returns_empty_string(self):
+        text = "```yaml\nid: T-20260302-01\n```"
+        assert extract_title(text, "T-20260302-01") == ""
+
+
 # --- detect_generation ---
 
 
@@ -179,6 +194,7 @@ class TestParseTicket:
         ticket = parse_ticket(path)
         assert ticket is not None
         assert ticket.id == "T-20260302-01"
+        assert ticket.title == "Test ticket"
         assert ticket.status == "open"
         assert ticket.priority == "high"
         assert ticket.generation == 10
@@ -191,6 +207,7 @@ class TestParseTicket:
         ticket = parse_ticket(path)
         assert ticket is not None
         assert ticket.id == "handoff-chain-viz"
+        assert ticket.title == "Visualize handoff chains"
         assert ticket.generation == 1
         # Field defaults applied
         assert ticket.source == {"type": "legacy", "ref": "", "session": ""}
@@ -262,6 +279,7 @@ class TestParseTicket:
         ticket = parse_ticket(path)
         assert ticket is not None
         assert ticket.id == "123"
+        assert ticket.title == "Test"
         assert ticket.generation == 1  # Slug fallback
 
     def test_mutable_defaults_isolated(self, tmp_tickets):

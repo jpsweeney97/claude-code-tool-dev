@@ -20,9 +20,17 @@ from pathlib import Path
 PLUGIN_ROOT = str(Path(__file__).parent.parent)
 HOOK_SCRIPT = str(Path(__file__).parent.parent / "hooks" / "ticket_engine_guard.py")
 USER_ENTRYPOINT = str(Path(__file__).parent.parent / "scripts" / "ticket_engine_user.py")
+AGENT_ENTRYPOINT = str(Path(__file__).parent.parent / "scripts" / "ticket_engine_agent.py")
 
 
-def run_hook(command: str, session_id: str = "integration-sess", cwd: str = "/") -> dict:
+def run_hook(
+    command: str,
+    session_id: str = "integration-sess",
+    cwd: str = "/",
+    *,
+    agent_id: str | None = None,
+    agent_type: str | None = None,
+) -> dict:
     """Run the hook with a Bash command and return parsed output."""
     hook_input = {
         "session_id": session_id,
@@ -34,6 +42,10 @@ def run_hook(command: str, session_id: str = "integration-sess", cwd: str = "/")
         "tool_input": {"command": command},
         "tool_use_id": "toolu_integration",
     }
+    if agent_id is not None:
+        hook_input["agent_id"] = agent_id
+    if agent_type is not None:
+        hook_input["agent_type"] = agent_type
     env = {**os.environ, "CLAUDE_PLUGIN_ROOT": PLUGIN_ROOT}
     result = subprocess.run(
         [sys.executable, HOOK_SCRIPT],
@@ -170,3 +182,54 @@ class TestHookSessionIdPropagatesToAudit:
         assert len(lines) >= 2
         for entry in lines:
             assert entry["session_id"] == unique_session
+
+
+class TestOriginMismatchIntegration:
+    def test_agent_hook_origin_rejects_user_entrypoint(self, tmp_path: Path) -> None:
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        payload_file = tmp_path / "payload.json"
+        payload_file.write_text(json.dumps({
+            "action": "create",
+            "fields": {"title": "Mismatch", "problem": "Mismatch", "priority": "low"},
+            "tickets_dir": str(tickets_dir),
+        }), encoding="utf-8")
+
+        command = f"python3 {PLUGIN_ROOT}/scripts/ticket_engine_user.py execute {payload_file}"
+        hook_output = run_hook(
+            command,
+            cwd=str(tmp_path),
+            agent_id="agent-123",
+            agent_type="reviewer",
+        )
+        assert hook_output["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+        result = subprocess.run(
+            [sys.executable, USER_ENTRYPOINT, "execute", str(payload_file)],
+            capture_output=True, text=True, cwd=str(tmp_path), timeout=10,
+        )
+        assert result.returncode == 1
+        resp = json.loads(result.stdout)
+        assert resp["error_code"] == "origin_mismatch"
+
+    def test_user_hook_origin_rejects_agent_entrypoint(self, tmp_path: Path) -> None:
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        payload_file = tmp_path / "payload.json"
+        payload_file.write_text(json.dumps({
+            "action": "create",
+            "fields": {"title": "Mismatch", "problem": "Mismatch", "priority": "low"},
+            "tickets_dir": str(tickets_dir),
+        }), encoding="utf-8")
+
+        command = f"python3 {PLUGIN_ROOT}/scripts/ticket_engine_agent.py execute {payload_file}"
+        hook_output = run_hook(command, cwd=str(tmp_path))
+        assert hook_output["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+        result = subprocess.run(
+            [sys.executable, AGENT_ENTRYPOINT, "execute", str(payload_file)],
+            capture_output=True, text=True, cwd=str(tmp_path), timeout=10,
+        )
+        assert result.returncode == 1
+        resp = json.loads(result.stdout)
+        assert resp["error_code"] == "origin_mismatch"

@@ -6,13 +6,14 @@ from pathlib import Path
 import pytest
 
 import scripts.ticket_engine_core as ticket_engine_core
+import scripts.ticket_paths as ticket_paths
 from scripts.ticket_engine_core import (
     engine_classify,
     engine_execute,
     engine_plan,
     engine_preflight,
-    resolve_tickets_dir,
 )
+from scripts.ticket_paths import resolve_tickets_dir
 
 
 class TestEngineClassify:
@@ -219,7 +220,7 @@ class TestResolveTicketsDir:
         def fail_resolve(_: Path) -> Path:
             raise OSError("permission denied")
 
-        monkeypatch.setattr(ticket_engine_core.Path, "resolve", fail_resolve)
+        monkeypatch.setattr(ticket_paths.Path, "resolve", fail_resolve)
         resolved, err = resolve_tickets_dir("docs/tickets", project_root=tmp_path)
         assert resolved is None
         assert err is not None

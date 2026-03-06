@@ -146,7 +146,7 @@ The engine has two entrypoints that are identical in structure but differ in one
 - **`ticket_engine_user.py`** — Called when a human initiates a ticket operation. Sets `request_origin="user"`. Users are trusted and face fewer restrictions.
 - **`ticket_engine_agent.py`** — Called when Claude (or a sub-agent) initiates a ticket operation autonomously. Sets `request_origin="agent"`. Agents face strict policy enforcement.
 
-Both entrypoints call the same core engine functions. The origin field determines which policy rules apply.
+Both entrypoints call the same core engine functions. The split is a routing convenience and explicit entrypoint choice, not the trust boundary by itself.
 
 ### The Hook Guard (Security Layer)
 
@@ -157,7 +157,7 @@ A PreToolUse hook (`ticket_engine_guard.py`) intercepts every Bash command Claud
 3. Injects trust fields into the payload file (`session_id`, `hook_injected=true`, `hook_request_origin`) using atomic file writes (temp file -> fsync -> rename)
 4. Returns allow/deny to Claude Code's permission system
 
-This prevents Claude from forging trust fields or bypassing the entrypoint separation. If an agent tries to call the user entrypoint, the hook injects `hook_request_origin="agent"`, and the entrypoint detects the mismatch and rejects the request.
+Trust origin comes from hook metadata, not from whichever entrypoint path appears in the Bash command. If `agent_id` is present in the `PreToolUse` event, the hook injects `hook_request_origin="agent"`; otherwise it injects `"user"`. The entrypoints still reject mismatches, so using the wrong entrypoint now fails explicitly.
 
 **Assumption:** The hook matches commands containing `ticket_engine` in the command string. If an entrypoint is renamed, wrapped, or invoked via a path that drops this substring, the hook silently passes through (no payload injection, no origin enforcement). This is proportionate for the accidental-autonomy threat model — it is not designed to resist adversarial circumvention.
 
@@ -177,8 +177,10 @@ Key security properties:
 
 - **Fail-closed audit**: If the audit trail can't be written (disk full, permissions), agent mutations are blocked. User mutations proceed (advisory only).
 - **Path traversal protection**: Session IDs from untrusted payloads are sanitized (stripping `/`, `\`, `\0`) before being used in filesystem paths.
-- **Workspace boundary enforcement**: hook payload paths and entrypoint `tickets_dir` must resolve inside project/workspace root.
+- **Workspace boundary enforcement**: hook payload paths and all ticket CLI `tickets_dir` arguments must resolve inside project/workspace root.
 - **Live policy reread for agent execute**: `AutonomyConfig` is still a frozen, self-healing type, but agent `execute` treats the on-disk config as authoritative and blocks if it diverges from the preflight snapshot.
+
+Known limitation (v1.1): concurrent autonomous creates are not serialized. Session create cap enforcement and ID allocation are not lock-based, so parallel subagent execution can still overrun caps or allocate colliding IDs.
 
 ## Module Reference
 
@@ -188,8 +190,8 @@ Key security properties:
 | `ticket_engine_user.py` | User entrypoint — hardcodes `request_origin="user"` |
 | `ticket_engine_agent.py` | Agent entrypoint — hardcodes `request_origin="agent"` |
 | `ticket_engine_guard.py` | PreToolUse hook — command allowlist + payload injection |
-| `ticket_parse.py` | Parses markdown files with fenced YAML. Supports 4 legacy ticket formats with automatic field defaults and section renames. |
-| `ticket_read.py` | Read-only queries: list tickets, find by ID, filter by status/priority/tag, fuzzy match. |
+| `ticket_parse.py` | Parses markdown files with fenced YAML and H1 titles. Supports 4 legacy ticket formats with automatic field defaults and section renames. |
+| `ticket_read.py` | Read-only queries: list tickets, find by ID, filter by status/priority/tag, fuzzy match, and return structured titles. |
 | `ticket_render.py` | Template-based rendering: generates markdown file content with proper YAML and section ordering. |
 | `ticket_id.py` | ID allocation: scans existing tickets for the next available `T-YYYYMMDD-NN` sequence number. |
 | `ticket_dedup.py` | Content fingerprinting: 5-step text normalization + SHA-256 hashing for duplicate detection. |
@@ -214,7 +216,7 @@ Exit codes: `0` (success), `1` (engine error), `2` (validation failure).
 
 Path constraints:
 - Hook payload path must resolve under the current workspace root (`event.cwd`) or the command is denied.
-- `tickets_dir` must resolve under the entrypoint process root (`Path.cwd()`). The default remains `docs/tickets`.
+- `tickets_dir` must resolve under the calling process root (`Path.cwd()`) for entrypoint, read, and triage scripts. The default remains `docs/tickets`.
 
 ## Skills
 
@@ -239,7 +241,7 @@ See [The Hook Guard](#the-hook-guard-security-layer) for full architectural deta
 
 ## Tests
 
-363 tests across 15 test files:
+Plugin test coverage includes:
 
 | Test File | Coverage Area |
 |-----------|--------------|
