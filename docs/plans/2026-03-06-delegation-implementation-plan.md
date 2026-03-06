@@ -38,6 +38,32 @@
 - A2 (advisory): F6 risk note removed (design spec already correct)
 - A3 (advisory): Task 8 exit code claim fixed (exit 1 deterministic without codex)
 
+**Codex Review Round 3:** Adversarial dialogue (4/10 turns, thread `019cc4b4-d4e5-7c50-a01e-6e26613133bb`). 24 findings (5 P0, 9 P1, 5 P2, 5 P3). Key changes:
+- B1: Wrap `scan_text()` in `try/except` — scanner errors produce `status=blocked / exit 0` per governance rule 4
+- B2: Fix period-filtering test argument order: `compute(events, 0, 30, ...)` not `(events, 30, 0, ...)`
+- B3: Promote root-level test fix from appendix to gated substep within Task 6
+- B4: Remove `Got: {input!r}` from SKILL.md error format — governance rule 6 violation
+- B5: Pin classifier loop `delegation_outcome` branch insertion point in `compute()`
+- B6: Add `cmd.append("--")` before prompt in `_build_command` — prevents dash-prefix injection
+- B7: Add `returncode` checks to `_check_clean_tree()` and `_check_secret_files()` — fail closed
+- B8: Handle rename/copy records in `_check_clean_tree` NUL parser
+- B9: Add `"error"` to `_KNOWN_EVENT_TYPES` per design spec JSONL event families
+- B10: `_resolve_repo_root` raises `DelegationError` not `RuntimeError`
+- B11: Set `did_dispatch = True` before `subprocess.run()` — timeout leaves correct state
+- B12: Mock `tempfile.mkstemp` in `test_success_path` to exercise output-file-to-summary path
+- B13: Add `TimeoutExpired` catch and `returncode` check to `_check_codex_version`
+- B14: Add consultation event to `test_delegation_excluded_from_aggregate_metrics` — prevents false positive
+- B15: Fix Task 4 migration note — finally block cleans `input_path`, not `_LOG_PATH`
+- B16+B13: Add tests for unparseable version, timeout, and nonzero returncode
+- B17+B1: Add test for scanner error path (`scan_text` raises exception)
+- B18: Add test for `dispatched` non-bool values (1, "true")
+- B19: Consolidate `_SECTION_MATRIX` / `_SECTION_TYPE` / argparse choices as synchronized update
+- B20: SKILL.md adapter path uses parent traversal, not string replacement
+- B21: Document token_usage as intentionally last-turn-only (accumulation deferred to Step 1b)
+- B22: Document shadow/broad tier observability gap (accepted for Step 1)
+- B23: Move `fnmatch` import to module level
+- B24: Remove redundant `if period_days:` guard — call `filter_by_period` unconditionally
+
 ---
 
 ## Task 1: Create `scripts/credential_scan.py`
@@ -629,7 +655,7 @@ Expected: All pass.
 
 1. Add import: `from event_log import LOG_PATH, ts as _ts, append_log as _append_log, session_id as _session_id`
 2. Remove: local `_LOG_PATH` (line 37), `_ts()` (lines 146-148), `_append_log()` (lines 151-160), `_session_id()` (lines 163-169)
-3. Keep the `_LOG_PATH` reference in the `finally` cleanup block — update to use imported `LOG_PATH` name
+3. The `finally` block (line ~692) cleans `input_path`, not `_LOG_PATH` — no cleanup-path change needed (B15: previous note was incorrect)
 
 Import aliases (`ts as _ts`, etc.) preserve existing call sites throughout the file — no changes needed in `build_dialogue_outcome`, `build_consultation_outcome`, or `_process`.
 
@@ -909,12 +935,31 @@ class TestComputeDelegation:
         assert result["usage"]["invocations_completed_total"] == 0
 
     def test_delegation_excluded_from_aggregate_metrics(self) -> None:
-        """F7: Delegation does not widen active_utc_days or schema_version_counts."""
-        events = [_make_delegation_event()]
-        result = compute(events, 0, 0, "delegation")
-        # Delegation section has its own metrics; usage aggregates unchanged
-        assert result["usage"]["active_utc_days"] == 0
-        assert result["usage"]["schema_version_counts"] == {}
+        """F7/B14: Delegation does not widen active_utc_days or schema_version_counts.
+        B14 fix: Include a consultation event to prove delegation doesn't widen
+        aggregates — without it, the test passes for the wrong reason."""
+        consultation_event = {
+            "schema_version": "0.1.0",
+            "event": "consultation_outcome",
+            "ts": "2026-03-06T12:00:00Z",
+            "consultation_id": "c-uuid",
+            "session_id": None,
+            "posture": "collaborative",
+            "mode": "server_assisted",
+            "converged": True,
+            "convergence_reason_code": "all_resolved",
+            "turn_count": 3,
+            "turn_budget": 8,
+            "resolved_count": 2,
+            "unresolved_count": 0,
+            "emerged_count": 0,
+            "scope_breach": False,
+        }
+        events = [_make_delegation_event(), consultation_event]
+        result = compute(events, 0, 0, "all")
+        # Consultation contributes 1 active day; delegation must not add another
+        assert result["usage"]["active_utc_days"] == 1
+        assert result["usage"]["invocations_completed_total"] == 1  # consultation only
 
     def test_type_robust_sandbox_counts(self) -> None:
         """F13: Non-string sandbox value handled defensively."""
@@ -935,12 +980,22 @@ class TestComputeDelegation:
         result = compute(events, 0, 0, "delegation")
         assert result["delegation"]["avg_commands_run"] == 0.0
 
+    def test_type_robust_dispatched_non_bool(self) -> None:
+        """B18: dispatched=1 or dispatched='true' are not counted as dispatched."""
+        events = [
+            _make_delegation_event(dispatched=1),
+            _make_delegation_event(dispatched="true"),
+        ]
+        result = compute(events, 0, 0, "delegation")
+        assert result["usage"]["delegations_completed_total"] == 0
+
     def test_period_filtering_reduces_events(self) -> None:
         """B5: Period filtering with shared `now` reduces delegation_outcomes."""
         old_event = _make_delegation_event(ts="2025-01-01T00:00:00Z")
         recent_event = _make_delegation_event(ts="2026-03-06T12:00:00Z")
         events = [old_event, recent_event]
-        result = compute(events, 30, 0, "delegation")
+        # B2 fix: compute(events, skipped_count, period_days, section_type)
+        result = compute(events, 0, 30, "delegation")
         assert result["delegation"]["sample_size"] == 1
 
     def test_mixed_type_avg_commands_run(self) -> None:
@@ -1061,16 +1116,22 @@ _SECTION_MATRIX: dict[str, dict[str, bool]] = {
 }
 ```
 
-Update `_SECTION_TYPE` literal: add `"delegation"`.
+**B19: Synchronized update** — these three changes MUST be applied together (adding `"delegation"` to one but not the others causes runtime errors or silent omissions):
 
-Update event classifier in `compute()` to route `delegation_outcome`:
+1. Update `_SECTION_TYPE` literal: add `"delegation"`.
+2. Update `--type` choices in argparse: add `"delegation"`.
+3. The `_SECTION_MATRIX` update above adds `"delegation"` key to all rows.
+
+Update event classifier in `compute()` to route `delegation_outcome`. **B5: Pin insertion point** — add after the existing `elif event_type == "consultation_outcome":` branch (around line 397):
 
 ```python
     delegation_outcomes: list[dict] = []
-    # ... in the classifier loop:
+    # ... in the classifier loop, after the consultation_outcome branch:
     elif event_type == "delegation_outcome":
         delegation_outcomes.append(event)
 ```
+
+Without this branch, delegation events fall to `unclassified_count` even if `_validate_events()` recognizes them via the F2 schema registry — the validator and classifier are separate code paths.
 
 Update `_compute_usage()` to accept delegation outcomes (F3, F7, F9):
 
@@ -1136,10 +1197,11 @@ After the event classifier loop and before calling `_compute_delegation()`, appl
 ```python
     # Apply period filter (F11: delegation was missing from this)
     # B5: Use shared `now` for consistent period boundary
-    if period_days:
-        delegation_outcomes = stats_common.filter_by_period(
-            delegation_outcomes, period_days, now=now
-        ).events
+    # B24: Call unconditionally — matches other event types. filter_by_period
+    # returns all events when period_days=0, so the guard was redundant.
+    delegation_outcomes = stats_common.filter_by_period(
+        delegation_outcomes, period_days, now=now
+    ).events
 ```
 
 Add `--json` no-op flag to argparse:
@@ -1154,6 +1216,27 @@ Add `--json` no-op flag to argparse:
 ```
 
 Add `"delegation"` to `--type` choices.
+
+**Step 3b: Update root-level test suite (B3: promoted from appendix — must complete before Step 5 commit)**
+
+The root-level test suite (`tests/test_compute_stats.py`, `tests/test_read_events.py`) will break after Tasks 5 and 6 changes. Update these tests within Task 6:
+
+**`tests/test_compute_stats.py` — 2 breakages:**
+
+1. **Signature change:** `_compute_usage()` now takes 6 args (added `delegation_outcomes`). All call sites with 5 args (lines ~144, ~163, ~171, ~182, ~187) must add `[]` as the 3rd positional argument:
+
+```python
+# Before:
+result = MODULE._compute_usage(dialogues, consultations_out, raw_calls, blocks, shadows)
+# After (B3: add empty delegation_outcomes list):
+result = MODULE._compute_usage(dialogues, consultations_out, [], raw_calls, blocks, shadows)
+```
+
+2. **Usage key assertion:** The expected keys set (line ~454-469) must include `"delegations_completed_total"`.
+
+**`tests/test_read_events.py`:** Verify `_REQUIRED_FIELDS` now includes `"delegation_outcome"` with 17 fields. Add a test if one doesn't exist.
+
+Run: `uv run pytest tests/test_compute_stats.py tests/test_read_events.py -v --tb=short` — must pass before Step 5 commit.
 
 **Step 4: Run all tests**
 
@@ -1216,10 +1299,11 @@ class TestResolveRepoRoot:
             assert _resolve_repo_root() == tmp_path
 
     def test_raises_on_not_git_repo(self) -> None:
-        from scripts.codex_delegate import _resolve_repo_root
+        """B10: Raises DelegationError (not RuntimeError) for correct error shape."""
+        from scripts.codex_delegate import _resolve_repo_root, DelegationError
         with patch("scripts.codex_delegate.subprocess") as mock_sub:
             mock_sub.run.return_value = MagicMock(returncode=128, stdout="", stderr="not a git repo")
-            with pytest.raises(RuntimeError, match="not a git repository"):
+            with pytest.raises(DelegationError, match="not a git repository"):
                 _resolve_repo_root()
 
 
@@ -1296,6 +1380,20 @@ class TestCredentialScan:
         result = scan_text(phase_a["prompt"])
         assert result.action == "block"
 
+    @patch("scripts.codex_delegate.scan_text", side_effect=RuntimeError("regex engine failure"))
+    @patch("scripts.codex_delegate.append_log", return_value=True)
+    @patch("scripts.codex_delegate.subprocess")
+    def test_scanner_error_blocks_not_errors(
+        self, mock_sub: MagicMock, mock_log: MagicMock, mock_scan: MagicMock, tmp_path: Path,
+    ) -> None:
+        """B1+B17: Scanner exceptions produce status=blocked/exit 0 (governance rule 4)."""
+        from scripts.codex_delegate import run
+        mock_sub.run.return_value = MagicMock(returncode=0, stdout=str(tmp_path) + "\n")
+        f = tmp_path / "input.json"
+        f.write_text(json.dumps({"prompt": "fix the tests"}))
+        exit_code = run(f)
+        assert exit_code == 0  # blocked, not error
+
 
 class TestVersionCheck:
     """Pipeline step 6: CLI version check."""
@@ -1318,6 +1416,31 @@ class TestVersionCheck:
         with patch("scripts.codex_delegate.subprocess") as mock_sub:
             mock_sub.run.side_effect = FileNotFoundError
             with pytest.raises(DelegationError, match="not found"):
+                _check_codex_version()
+
+    def test_unparseable_version(self) -> None:
+        """B16: Unparseable version output (e.g. 'codex dev-build') fails closed."""
+        from scripts.codex_delegate import _check_codex_version, DelegationError
+        with patch("scripts.codex_delegate.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(returncode=0, stdout="codex dev-build\n")
+            with pytest.raises(DelegationError, match="cannot parse"):
+                _check_codex_version()
+
+    def test_version_timeout(self) -> None:
+        """B13: Version check timeout produces DelegationError with correct shape."""
+        from scripts.codex_delegate import _check_codex_version, DelegationError
+        with patch("scripts.codex_delegate.subprocess") as mock_sub:
+            mock_sub.run.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=10)
+            mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+            with pytest.raises(DelegationError, match="timed out"):
+                _check_codex_version()
+
+    def test_nonzero_returncode(self) -> None:
+        """B13: Nonzero returncode fails before version parsing."""
+        from scripts.codex_delegate import _check_codex_version, DelegationError
+        with patch("scripts.codex_delegate.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(returncode=1, stdout="codex 0.111.0\n")
+            with pytest.raises(DelegationError, match="non-zero"):
                 _check_codex_version()
 
 
@@ -1429,6 +1552,13 @@ class TestBuildCommand:
         assert "-m" in cmd
         idx = cmd.index("-m")
         assert cmd[idx + 1] == "o3"
+
+    def test_double_dash_before_prompt(self, tmp_path: Path) -> None:
+        """B6: Dash-prefixed prompts must not be parsed as flags."""
+        from scripts.codex_delegate import _build_command
+        cmd = _build_command("-fix the thing", "workspace-write", None, "high", False, tmp_path / "o.txt")
+        dash_idx = cmd.index("--")
+        assert cmd[dash_idx + 1] == "-fix the thing"
 
 
 class TestParseJsonlEvents:
@@ -1551,8 +1681,11 @@ class TestRunOrchestrator:
     def test_success_path(
         self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path,
     ) -> None:
-        """B4: Full success path — all steps pass, JSONL parsed, analytics emitted."""
+        """B4: Full success path — all steps pass, JSONL parsed, analytics emitted.
+        B12: Mock tempfile.mkstemp to exercise the output-file-to-summary path."""
         from scripts.codex_delegate import run
+        # B12: Create the output file at a known path, then mock mkstemp to
+        # return it so the adapter reads it during step 12
         output_file = tmp_path / "codex_output.txt"
         output_file.write_text("Summary of changes made.")
         jsonl_output = (
@@ -1570,7 +1703,11 @@ class TestRunOrchestrator:
         mock_sub.run.side_effect = responses
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
         f = self._write_input(tmp_path, {"prompt": "fix the tests"})
-        exit_code = run(f)
+        # B12: Mock mkstemp to return our known output file path
+        fd = os.open(str(output_file), os.O_RDWR)
+        with patch("scripts.codex_delegate.tempfile") as mock_tmp:
+            mock_tmp.mkstemp.return_value = (fd, str(output_file))
+            exit_code = run(f)
         assert exit_code == 0
         # Analytics emitted with dispatched=True
         assert mock_log.called
@@ -1608,6 +1745,7 @@ Exit codes:
 
 from __future__ import annotations
 
+import fnmatch  # B23: Module-level import, consistent with other stdlib usage
 import json
 import os
 import re
@@ -1667,12 +1805,16 @@ _TEMPLATE_EXEMPTIONS = {".env.example", ".env.sample", ".env.template"}
 
 def _resolve_repo_root() -> Path:
     """Step 1: Resolve git repo root."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True, timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        raise DelegationError("repo resolution failed: git timed out")
     if result.returncode != 0:
-        raise RuntimeError("repo resolution failed: not a git repository")
+        # B10: Raise DelegationError, not RuntimeError — ensures correct error shape
+        raise DelegationError("repo resolution failed: not a git repository")
     return Path(result.stdout.strip())
 
 
@@ -1761,6 +1903,13 @@ def _check_codex_version() -> None:
         )
     except FileNotFoundError:
         raise DelegationError("version check failed: codex not found in PATH")
+    except subprocess.TimeoutExpired:
+        # B13: Catch timeout — falls to generic handler otherwise with wrong error shape
+        raise DelegationError("version check failed: codex --version timed out")
+
+    # B13: Check returncode — broken install may produce parseable version on stderr
+    if result.returncode != 0:
+        raise DelegationError("version check failed: codex --version returned non-zero")
 
     match = re.search(r"(\d+)\.(\d+)\.(\d+)", result.stdout)
     if not match:
@@ -1779,13 +1928,35 @@ def _check_clean_tree() -> None:
         ["git", "status", "--porcelain=v1", "-z", "--ignore-submodules=none"],
         capture_output=True, text=True, timeout=10,
     )
-    if result.stdout.strip():
-        # Parse NUL-separated entries for path listing
-        entries = [e.strip() for e in result.stdout.split("\0") if e.strip()]
-        paths = [e[3:] if len(e) > 3 else e for e in entries]
+    # B7: Fail closed on git command failure — empty stdout could mask dirty tree
+    if result.returncode != 0:
         raise GateBlockError(
-            "dirty working tree", gate="clean_tree", paths=paths
+            "clean-tree check failed: git status returned non-zero",
+            gate="clean_tree",
         )
+    if result.stdout.strip():
+        # B8: Parse NUL-separated entries correctly — rename/copy records
+        # produce two NUL-separated path fields (old\0new). Split on NUL,
+        # then extract paths from status-prefixed entries (3-char prefix).
+        raw_parts = result.stdout.split("\0")
+        paths: list[str] = []
+        i = 0
+        while i < len(raw_parts):
+            entry = raw_parts[i]
+            if not entry.strip():
+                i += 1
+                continue
+            status_char = entry[0] if entry else ""
+            path = entry[3:] if len(entry) > 3 else entry
+            paths.append(path)
+            # Rename/copy records have a second path field
+            if status_char in ("R", "C") and i + 1 < len(raw_parts):
+                i += 1  # skip the second path (destination)
+            i += 1
+        if paths:
+            raise GateBlockError(
+                "dirty working tree", gate="clean_tree", paths=paths
+            )
 
 
 def _check_secret_files() -> None:
@@ -1794,12 +1965,18 @@ def _check_secret_files() -> None:
     F5: Clean separation of exact names and glob patterns. No mixed
     iteration or startswith fallback. Each matching path is added once.
     """
-    import fnmatch
+    # B23: fnmatch imported at module level
 
     result = subprocess.run(
         ["git", "ls-files", "--others", "--ignored", "--exclude-standard"],
         capture_output=True, text=True, timeout=10,
     )
+    # B7: Fail closed on git command failure — empty stdout could mask secret files
+    if result.returncode != 0:
+        raise GateBlockError(
+            "secret-file check failed: git ls-files returned non-zero",
+            gate="secret_files",
+        )
     if not result.stdout.strip():
         return
 
@@ -1849,6 +2026,8 @@ def _build_command(
     if full_auto:
         cmd.append("--full-auto")
 
+    # B6: Prevent dash-prefixed prompts from being parsed as flags
+    cmd.append("--")
     cmd.append(prompt)
     return cmd
 
@@ -1864,7 +2043,8 @@ def _parse_jsonl(stdout: str) -> dict:
     # B9: Only known event types count as usable — unknown types are
     # silently skipped. Prevents false status=ok when all events are
     # unrecognized (e.g., fabricated thread ID from unknown events).
-    _KNOWN_EVENT_TYPES = {"thread.started", "item.completed", "turn.completed", "turn.failed"}
+    # B9: Include "error" — design spec JSONL event families table lists it
+    _KNOWN_EVENT_TYPES = {"thread.started", "item.completed", "turn.completed", "turn.failed", "error"}
 
     for line in stdout.split("\n"):
         line = line.strip()
@@ -1897,6 +2077,9 @@ def _parse_jsonl(stdout: str) -> dict:
                 last_message = item.get("text")
 
         elif event_type == "turn.completed":
+            # B21: Keeps last turn.completed usage only (intentional —
+            # Codex exec typically has one turn; multi-turn accumulation
+            # deferred to Step 1b resume support).
             usage = event.get("usage", {})
             if usage:
                 token_usage = {
@@ -1906,6 +2089,10 @@ def _parse_jsonl(stdout: str) -> dict:
 
         elif event_type == "turn.failed":
             runtime_failures.append(str(event.get("error", "unknown error")))
+
+        elif event_type == "error":
+            # B9: Capture top-level error events for reporting
+            runtime_failures.append(str(event.get("message", event.get("error", "unknown error"))))
 
     if usable_count == 0:
         raise DelegationError("parse failed: no usable JSONL events from codex exec")
@@ -2003,12 +2190,22 @@ def run(input_path: Path) -> int:
         # Step 3 — Phase A: structural parse (captures data for analytics)
         phase_a = _parse_input(input_path)
 
-        # Step 4: credential scan on prompt
+        # Step 4: credential scan on prompt (governance rule 4: fail-closed)
         prompt = phase_a.get("prompt")
         if prompt and isinstance(prompt, str):
-            scan_result = scan_text(prompt)
+            try:
+                scan_result = scan_text(prompt)
+            except Exception as scan_exc:
+                raise CredentialBlockError(
+                    f"credential scan failed: {scan_exc}"
+                ) from scan_exc
             if scan_result.action == "block":
                 raise CredentialBlockError(scan_result.reason or "credential detected")
+            # B22: shadow/broad tier matches are intentionally not logged by the
+            # adapter — the hook (codex_guard.py) logs shadow telemetry for MCP
+            # calls, but delegation prompts don't traverse MCP. This creates an
+            # observability asymmetry that Step 2 can address with a unified
+            # telemetry path. Accepted for Step 1.
 
         # Step 5 — Phase B: field validation
         validated = _validate_input(phase_a)
@@ -2033,8 +2230,11 @@ def run(input_path: Path) -> int:
         )
 
         # Step 10: run subprocess
+        # B11: Set did_dispatch BEFORE run() — TimeoutExpired is raised from
+        # subprocess.run(), so setting it after would leave did_dispatch=False
+        # even though the process actually ran (and may have modified files).
+        did_dispatch = True
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-        did_dispatch = True  # B8: subprocess ran — even if it failed
 
         # Steps 11-12: parse JSONL + read output file
         parsed = _parse_jsonl(proc.stdout)
@@ -2185,7 +2385,8 @@ Task 1 (credential_scan.py) ──┬──→ Task 2 (codex_guard.py update)
                                └──→ Task 7 (codex_delegate.py)
 Task 3 (event_log.py) ────────┬──→ Task 4 (emit_analytics.py update)
                                └──→ Task 7 (codex_delegate.py)
-Task 5 (read_events.py) ──────→ Task 6 (compute_stats.py + root-level tests [B7])
+Task 5 (read_events.py) ──────→ Task 6 (compute_stats.py)
+                                  └──→ Task 6 Step 3b (root-level test updates [B3: gated])
 Task 7 depends on Tasks 1 + 3
 Task 8 depends on all (includes root-level test suite [B10])
 ```
@@ -2202,23 +2403,6 @@ Task 8 depends on all (includes root-level test suite [B10])
 - **Clean-tree gate testing:** Tests mock `git status`. Real integration testing requires a real git repo with known state.
 - **`stats_common.observed_avg`:** Task 6 assumes `observed_avg` handles the `commands_run_count` field correctly for delegation events. Verify the function works with delegation event shapes. F13 adds a numeric type filter before calling `observed_avg`, so non-numeric values won't reach it.
 
-## Task 6 Step 3b: Root-level test suite updates (B7)
+## Task 6 Step 3b: Root-level test suite updates
 
-The root-level test suite (`tests/test_compute_stats.py`, `tests/test_read_events.py`) will break after Task 5 and 6 changes. Update these tests as part of Task 6:
-
-**`tests/test_compute_stats.py` — 2 breakages:**
-
-1. **Signature change:** `_compute_usage()` now takes 6 args (added `delegation_outcomes`). All call sites with 5 args (lines ~144, ~163, ~171, ~182, ~187) must add `[]` as the 3rd positional argument:
-
-```python
-# Before:
-result = MODULE._compute_usage(dialogues, consultations_out, raw_calls, blocks, shadows)
-# After (B7: add empty delegation_outcomes list):
-result = MODULE._compute_usage(dialogues, consultations_out, [], raw_calls, blocks, shadows)
-```
-
-2. **Usage key assertion:** The expected keys set (line ~454-469) must include `"delegations_completed_total"`.
-
-**`tests/test_read_events.py`:** Verify `_REQUIRED_FIELDS` now includes `"delegation_outcome"` with 17 fields. Add a test if one doesn't exist.
-
-Run: `uv run pytest tests/test_compute_stats.py tests/test_read_events.py -v --tb=short` after updates.
+**B3: Promoted** — this content has been moved into Task 6 as a gated substep (Step 3b) that must complete before the Task 6 commit. See Task 6 above.

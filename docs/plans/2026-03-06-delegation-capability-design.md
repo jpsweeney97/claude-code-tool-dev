@@ -1,7 +1,7 @@
 # Delegation Capability — Design Spec
 
 **Date:** 2026-03-06
-**Status:** Design — reviewed (3 rounds: 7 evaluative + 10 adversarial/collaborative + 5 adversarial amendments)
+**Status:** Design — reviewed (4 rounds: 7 evaluative + 10 adversarial/collaborative + 5 adversarial amendments + 4 adversarial plan review)
 **Source:** Comparison with [skill-codex](https://github.com/skills-directory/skill-codex.git) + 2 Codex consultations + 3 Codex dialogues (evaluative `019cc3c6`, adversarial `019cc3f0`, collaborative `019cc41a`)
 
 ---
