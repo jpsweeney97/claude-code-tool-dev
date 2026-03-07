@@ -649,7 +649,7 @@ After the markdown synthesis, emit a fenced JSON block with structured fields fo
 | Field | Type | Description |
 |-------|------|-------------|
 | `mode` | string | `"server_assisted"` or `"manual_legacy"` |
-| `thread_id` | string or null | Codex thread ID, null if manual_legacy |
+| `thread_id` | string or null | Codex thread ID. Emit whenever available, including `manual_legacy`. |
 | `turn_count` | int | Actual Codex turns used |
 | `converged` | bool | Whether dialogue converged |
 | `convergence_reason_code` | string or null | Code from synthesis checkpoint |
@@ -664,7 +664,7 @@ After the markdown synthesis, emit a fenced JSON block with structured fields fo
 <!-- pipeline-data -->
 {
   "mode": "server_assisted",
-  "thread_id": null,
+  "thread_id": "codex-thread-id",
   "turn_count": 0,
   "converged": false,
   "convergence_reason_code": null,
@@ -677,7 +677,7 @@ After the markdown synthesis, emit a fenced JSON block with structured fields fo
 }
 ```
 
-The `<!-- pipeline-data -->` sentinel marks this block for machine parsing. The `/dialogue` skill extracts fields from this block. Substitute actual values from conversation state — the template above shows types and defaults.
+The `<!-- pipeline-data -->` sentinel marks this block for machine parsing. The `/dialogue` skill extracts fields from this block. Substitute actual values from conversation state — the template above shows types and placeholders.
 
 ### Example
 

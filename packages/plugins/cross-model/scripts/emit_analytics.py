@@ -197,6 +197,145 @@ def _split_sections(text: str) -> tuple[dict[str, str], bool]:
 # ---------------------------------------------------------------------------
 
 
+def _parse_epilogue(synthesis_text: str) -> tuple[dict | None, list[str]]:
+    """Parse the pipeline-data JSON epilogue from synthesis text.
+
+    Accepts either of these layouts:
+    1. Sentinel before the fenced JSON block
+    2. Sentinel as the first line inside the fenced JSON block
+    """
+    sentinel = r"<!--\s*pipeline-data\s*-->"
+    patterns = (
+        re.compile(
+            rf"```json[^\n]*\n\s*{sentinel}\s*(?P<body>.*?)```",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        re.compile(
+            rf"{sentinel}\s*```json[^\n]*\n\s*(?P<body>.*?)```",
+            re.IGNORECASE | re.DOTALL,
+        ),
+    )
+
+    for pattern in patterns:
+        match = pattern.search(synthesis_text)
+        if match is None:
+            continue
+        body = match.group("body").strip()
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError as exc:
+            return (None, [f"pipeline-data epilogue malformed: {exc.msg}"])
+        if not isinstance(payload, dict):
+            return (
+                None,
+                ["pipeline-data epilogue malformed: top-level JSON must be an object"],
+            )
+        return (payload, [])
+
+    return (None, ["pipeline-data epilogue missing"])
+
+
+def _has_usable_epilogue_data(payload: dict | None) -> bool:
+    """Report whether parsed epilogue contains any usable machine fields."""
+    if payload is None:
+        return False
+
+    keys_with_nullable_values = {"thread_id", "convergence_reason_code"}
+    keys_with_non_null_values = {
+        "turn_count",
+        "converged",
+        "scout_count",
+        "resolved_count",
+        "unresolved_count",
+        "emerged_count",
+        "mode",
+        "scope_breach_count",
+        "termination_reason",
+    }
+
+    if any(payload.get(key) is not None for key in keys_with_nullable_values):
+        return True
+    return any(key in payload for key in keys_with_non_null_values)
+
+
+def _parse_markdown_synthesis(text: str) -> tuple[dict, bool]:
+    """Extract legacy markdown heading fields from synthesis text."""
+    sections, truncated = _split_sections(text)
+
+    summary = sections.get("conversation summary", "")
+    continuation = sections.get("continuation", "")
+
+    # --- Counts from original text (not section-scoped) ---
+    # Checkpoint content lives inside fenced code blocks in the agent
+    # output, so searching the original text is correct here.
+    resolved_matches = re.findall(r"^RESOLVED:", text, re.MULTILINE | re.IGNORECASE)
+    unresolved_matches = re.findall(r"^UNRESOLVED:", text, re.MULTILINE | re.IGNORECASE)
+    emerged_matches = re.findall(r"^EMERGED:", text, re.MULTILINE | re.IGNORECASE)
+    resolved_count = len(resolved_matches)
+    unresolved_count = len(unresolved_matches)
+    emerged_count = len(emerged_matches)
+
+    # --- Converged from Summary (tolerant) ---
+    converged = False
+    converged_match = re.search(r"\*\*Converged:\*\*\s*(.+)", summary, re.IGNORECASE)
+    if converged_match:
+        converged = converged_match.group(1).strip().lower().startswith("yes")
+
+    # --- Turn count from Summary (handles "X of Y" and "X/Y") ---
+    turn_count = 0
+    turn_match = re.search(r"\*\*Turns:\*\*\s*(\d+)", summary, re.IGNORECASE)
+    if turn_match:
+        turn_count = int(turn_match.group(1))
+
+    # --- Thread ID from Continuation (strips backticks) ---
+    thread_id = None
+    thread_match = re.search(r"\*\*Thread ID:\*\*\s*(.+)", continuation, re.IGNORECASE)
+    if thread_match:
+        value = thread_match.group(1).strip().strip("`")
+        if value.lower() != "none":
+            thread_id = value
+
+    # --- Scout count from Summary Evidence (NOT Continuation) ---
+    # Summary format: "**Evidence:** X scouts / Y turns, ..."
+    # Continuation uses "**Evidence trajectory:**" — different field
+    scout_count = 0
+    scout_match = re.search(
+        r"\*\*Evidence:\*\*\s*(\d+)\s+scouts?", summary, re.IGNORECASE
+    )
+    if scout_match:
+        scout_count = int(scout_match.group(1))
+
+    usable = any(
+        (
+            bool(resolved_matches),
+            bool(unresolved_matches),
+            bool(emerged_matches),
+            converged_match is not None,
+            turn_match is not None,
+            thread_match is not None,
+            scout_match is not None,
+        )
+    )
+
+    return (
+        {
+            "resolved_count": resolved_count,
+            "unresolved_count": unresolved_count,
+            "emerged_count": emerged_count,
+            "converged": converged,
+            "turn_count": turn_count,
+            "thread_id": thread_id,
+            "scout_count": scout_count,
+            "mode": None,
+            "convergence_reason_code": None,
+            "scope_breach_count": 0,
+            "termination_reason": None,
+            "parse_truncated": truncated,
+        },
+        usable,
+    )
+
+
 def parse_synthesis(text: str) -> dict:
     """Extract structured fields from codex-dialogue agent output.
 
@@ -212,58 +351,34 @@ def parse_synthesis(text: str) -> dict:
     - strings: None
     - booleans: False
     """
-    sections, truncated = _split_sections(text)
+    payload, warnings = _parse_epilogue(text)
+    markdown_data, markdown_usable = _parse_markdown_synthesis(text)
 
-    summary = sections.get("conversation summary", "")
-    continuation = sections.get("continuation", "")
+    if _has_usable_epilogue_data(payload):
+        return {
+            "resolved_count": payload.get("resolved_count", 0),
+            "unresolved_count": payload.get("unresolved_count", 0),
+            "emerged_count": payload.get("emerged_count", 0),
+            "converged": payload.get("converged", False),
+            "turn_count": payload.get("turn_count", 0),
+            "thread_id": payload.get("thread_id"),
+            "scout_count": payload.get("scout_count", 0),
+            "mode": payload.get("mode"),
+            "convergence_reason_code": payload.get("convergence_reason_code"),
+            "scope_breach_count": payload.get("scope_breach_count", 0),
+            "termination_reason": payload.get("termination_reason"),
+            "parse_truncated": markdown_data["parse_truncated"],
+            "parse_failed": False,
+        }
 
-    # --- Counts from original text (not section-scoped) ---
-    # Checkpoint content lives inside fenced code blocks in the agent
-    # output, so searching the original text is correct here.
-    resolved_count = len(re.findall(r"^RESOLVED:", text, re.MULTILINE | re.IGNORECASE))
-    unresolved_count = len(
-        re.findall(r"^UNRESOLVED:", text, re.MULTILINE | re.IGNORECASE)
-    )
-    emerged_count = len(re.findall(r"^EMERGED:", text, re.MULTILINE | re.IGNORECASE))
+    if warnings:
+        print(
+            "epilogue missing or malformed, falling back to markdown parsing",
+            file=sys.stderr,
+        )
 
-    # --- Converged from Summary (tolerant) ---
-    converged = False
-    m = re.search(r"\*\*Converged:\*\*\s*(.+)", summary, re.IGNORECASE)
-    if m:
-        converged = m.group(1).strip().lower().startswith("yes")
-
-    # --- Turn count from Summary (handles "X of Y" and "X/Y") ---
-    turn_count = 0
-    m = re.search(r"\*\*Turns:\*\*\s*(\d+)", summary, re.IGNORECASE)
-    if m:
-        turn_count = int(m.group(1))
-
-    # --- Thread ID from Continuation (strips backticks) ---
-    thread_id = None
-    m = re.search(r"\*\*Thread ID:\*\*\s*(.+)", continuation, re.IGNORECASE)
-    if m:
-        value = m.group(1).strip().strip("`")
-        if value.lower() != "none":
-            thread_id = value
-
-    # --- Scout count from Summary Evidence (NOT Continuation) ---
-    # Summary format: "**Evidence:** X scouts / Y turns, ..."
-    # Continuation uses "**Evidence trajectory:**" — different field
-    scout_count = 0
-    m = re.search(r"\*\*Evidence:\*\*\s*(\d+)\s+scouts?", summary, re.IGNORECASE)
-    if m:
-        scout_count = int(m.group(1))
-
-    return {
-        "resolved_count": resolved_count,
-        "unresolved_count": unresolved_count,
-        "emerged_count": emerged_count,
-        "converged": converged,
-        "turn_count": turn_count,
-        "thread_id": thread_id,
-        "scout_count": scout_count,
-        "parse_truncated": truncated,
-    }
+    markdown_data["parse_failed"] = not markdown_usable
+    return markdown_data
 
 
 # ---------------------------------------------------------------------------
@@ -317,8 +432,15 @@ def build_dialogue_outcome(input_data: dict) -> dict:
     scope_breach = input_data.get("scope_breach", False)
 
     parsed = parse_synthesis(synthesis_text)
+    if parsed.get("parse_failed"):
+        raise ValueError(
+            "synthesis parse failed: epilogue and markdown parsing yielded no usable data"
+        )
 
     turn_budget = pipeline.get("turn_budget", 1)
+    scope_breach = scope_breach or parsed.get("scope_breach_count", 0) > 0
+    scope_breach = scope_breach or parsed.get("termination_reason") == "scope_breach"
+    scope_breach = scope_breach or parsed.get("convergence_reason_code") == "scope_breach"
     code, reason = map_convergence(
         converged=parsed["converged"],
         unresolved_count=parsed["unresolved_count"],
@@ -340,12 +462,12 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "turn_count": parsed["turn_count"],
         "turn_budget": turn_budget,
         "profile_name": pipeline.get("profile_name"),
-        "mode": pipeline.get("mode", "server_assisted"),
+        "mode": parsed.get("mode") or pipeline.get("mode", "server_assisted"),
         "mode_source": pipeline.get("mode_source"),
         # Outcome
         "converged": parsed["converged"],
-        "convergence_reason_code": code,
-        "termination_reason": reason,
+        "convergence_reason_code": parsed.get("convergence_reason_code") or code,
+        "termination_reason": parsed.get("termination_reason") or reason,
         "resolved_count": parsed["resolved_count"],
         "unresolved_count": parsed["unresolved_count"],
         "emerged_count": parsed["emerged_count"],
@@ -628,7 +750,7 @@ def _process(input_path: Path) -> int:
         else:
             print(_result("error", f"unknown event_type: {event_type!r}"))
             return 1
-    except (KeyError, TypeError, AttributeError) as exc:
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
         print(traceback.format_exc(), file=sys.stderr)
         print(_result("error", f"build failed: {exc}"))
         return 1
