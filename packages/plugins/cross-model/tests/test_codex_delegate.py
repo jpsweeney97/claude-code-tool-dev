@@ -6,7 +6,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -33,6 +32,14 @@ class TestResolveRepoRoot:
             with pytest.raises(DelegationError, match="not a git repository"):
                 _resolve_repo_root()
 
+    def test_raises_on_git_timeout(self) -> None:
+        from scripts.codex_delegate import _resolve_repo_root, DelegationError
+        with patch("scripts.codex_delegate.subprocess") as mock_sub:
+            mock_sub.run.side_effect = subprocess.TimeoutExpired(cmd=["git"], timeout=10)
+            mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+            with pytest.raises(DelegationError, match="git timed out"):
+                _resolve_repo_root()
+
 
 class TestParseInput:
     """F1+F8: Phase A parse (_parse_input) — structural only."""
@@ -51,6 +58,19 @@ class TestParseInput:
         f.write_text("not json at all")
         with pytest.raises(DelegationError, match="invalid JSON"):
             _parse_input(f)
+
+    def test_non_object_json_errors(self, tmp_path: Path) -> None:
+        from scripts.codex_delegate import _parse_input, DelegationError
+        f = tmp_path / "input.json"
+        f.write_text(json.dumps(["not", "an", "object"]))
+        with pytest.raises(DelegationError, match="expected JSON object"):
+            _parse_input(f)
+
+    def test_read_oserror_errors(self, tmp_path: Path) -> None:
+        from scripts.codex_delegate import _parse_input, DelegationError
+        missing = tmp_path / "missing.json"
+        with pytest.raises(DelegationError, match="input read failed"):
+            _parse_input(missing)
 
     def test_returns_raw_keys(self, tmp_path: Path) -> None:
         from scripts.codex_delegate import _parse_input
@@ -115,7 +135,7 @@ class TestCredentialScan:
     """Step 4: credential scan (between Phase A and Phase B in run())."""
 
     def test_credential_in_prompt_blocked(self, tmp_path: Path) -> None:
-        from scripts.codex_delegate import _parse_input, CredentialBlockError
+        from scripts.codex_delegate import _parse_input
         from scripts.credential_scan import scan_text
         f = tmp_path / "input.json"
         f.write_text(json.dumps({"prompt": "use key AKIAIOSFODNN7EXAMPLE"}))
@@ -200,6 +220,23 @@ class TestCleanTreeGate:
             with pytest.raises(GateBlockError, match="dirty"):
                 _check_clean_tree()
 
+    def test_git_timeout_blocks_with_git_error_gate(self) -> None:
+        from scripts.codex_delegate import _check_clean_tree, GateBlockError
+        with patch("scripts.codex_delegate.subprocess") as mock_sub:
+            mock_sub.run.side_effect = subprocess.TimeoutExpired(cmd=["git", "status"], timeout=10)
+            mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+            with pytest.raises(GateBlockError, match="timed out") as excinfo:
+                _check_clean_tree()
+        assert excinfo.value.gate == "git_error"
+
+    def test_rename_in_y_column_keeps_both_paths(self) -> None:
+        from scripts.codex_delegate import _check_clean_tree, GateBlockError
+        with patch("scripts.codex_delegate.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(returncode=0, stdout=" R old.py\0new.py\0")
+            with pytest.raises(GateBlockError) as excinfo:
+                _check_clean_tree()
+        assert excinfo.value.paths == ["old.py", "new.py"]
+
 
 class TestSecretFileGate:
     """Pipeline step 8: readable-secret-file gate (F5: clean pathspec split)."""
@@ -255,6 +292,15 @@ class TestSecretFileGate:
             mock_sub.run.return_value = MagicMock(returncode=0, stdout=".env.production\n")
             with pytest.raises(GateBlockError, match="secret"):
                 _check_secret_files()
+
+    def test_git_timeout_blocks_with_git_error_gate(self) -> None:
+        from scripts.codex_delegate import _check_secret_files, GateBlockError
+        with patch("scripts.codex_delegate.subprocess") as mock_sub:
+            mock_sub.run.side_effect = subprocess.TimeoutExpired(cmd=["git", "ls-files"], timeout=10)
+            mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+            with pytest.raises(GateBlockError, match="timed out") as excinfo:
+                _check_secret_files()
+        assert excinfo.value.gate == "git_error"
 
 
 class TestBuildCommand:
@@ -335,6 +381,26 @@ class TestRunOrchestrator:
         f.write_text(json.dumps(data))
         return f
 
+    def _mock_popen_with_stdout(
+        self,
+        mock_sub: MagicMock,
+        stdout_text: str,
+        *,
+        returncode: int = 0,
+    ) -> MagicMock:
+        proc = MagicMock()
+        proc.wait.return_value = returncode
+        proc.returncode = returncode
+
+        def _side_effect(*args: object, **kwargs: object) -> MagicMock:
+            stdout_handle = kwargs["stdout"]
+            stdout_handle.write(stdout_text.encode("utf-8"))
+            stdout_handle.flush()
+            return proc
+
+        mock_sub.Popen.side_effect = _side_effect
+        return proc
+
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_credential_block_emits_analytics(
@@ -376,15 +442,17 @@ class TestRunOrchestrator:
             MagicMock(returncode=0, stdout=""),
         ]
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
-        mock_sub.PIPE = subprocess.PIPE
         mock_proc = MagicMock()
-        mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=600)
+        mock_proc.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd=["codex"], timeout=600),
+            0,
+        ]
         mock_sub.Popen.return_value = mock_proc
         f = self._write_input(tmp_path, {"prompt": "fix tests"})
         exit_code = run(f)
         assert exit_code == 1
         mock_proc.kill.assert_called_once()
-        mock_proc.wait.assert_called_once()
+        assert mock_proc.wait.call_count == 2
 
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
@@ -417,13 +485,11 @@ class TestRunOrchestrator:
             MagicMock(returncode=0, stdout=""),
         ]
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
-        mock_sub.PIPE = subprocess.PIPE
-        mock_proc = MagicMock()
-        mock_proc.communicate.return_value = (jsonl_output, "")
-        mock_proc.returncode = 0
-        mock_sub.Popen.return_value = mock_proc
+        self._mock_popen_with_stdout(mock_sub, jsonl_output, returncode=0)
         f = self._write_input(tmp_path, {"prompt": "fix the tests"})
-        fd = os.open(str(output_file), os.O_RDWR)
+        original_fd = os.open(str(output_file), os.O_RDWR)
+        fd = os.dup(original_fd)
+        os.close(original_fd)
         with patch("scripts.codex_delegate.tempfile") as mock_tmp:
             mock_tmp.mkstemp.return_value = (fd, str(output_file))
             exit_code = run(f)
@@ -450,19 +516,67 @@ class TestRunOrchestrator:
             MagicMock(returncode=0, stdout=""),
         ]
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
-        mock_sub.PIPE = subprocess.PIPE
-        mock_proc = MagicMock()
-        mock_proc.communicate.return_value = (jsonl_output, "")
-        mock_proc.returncode = 0
-        mock_sub.Popen.return_value = mock_proc
+        self._mock_popen_with_stdout(mock_sub, jsonl_output, returncode=0)
         f = self._write_input(tmp_path, {"prompt": "fix tests"})
-        fd = os.open(str(output_file), os.O_RDWR)
+        original_fd = os.open(str(output_file), os.O_RDWR)
+        fd = os.dup(original_fd)
+        os.close(original_fd)
         with patch("scripts.codex_delegate.tempfile") as mock_tmp:
             mock_tmp.mkstemp.return_value = (fd, str(output_file))
             run(f)
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["dispatched"] is True
+
+    @patch("scripts.codex_delegate.append_log", return_value=True)
+    @patch("scripts.codex_delegate.subprocess")
+    def test_output_read_failure_keeps_success_status(
+        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
+    ) -> None:
+        from scripts.codex_delegate import run
+        output_file = tmp_path / "codex_output.txt"
+        output_file.write_bytes(b"\xff")
+        jsonl_output = (
+            '{"type":"thread.started","thread_id":"t-1"}\n'
+            '{"type":"item.completed","item":{"type":"agent_message","text":"agent summary"}}\n'
+            '{"type":"turn.completed","usage":{}}\n'
+        )
+        mock_sub.run.side_effect = [
+            MagicMock(returncode=0, stdout=str(tmp_path) + "\n"),
+            MagicMock(returncode=0, stdout="codex 0.111.0\n"),
+            MagicMock(returncode=0, stdout=""),
+            MagicMock(returncode=0, stdout=""),
+        ]
+        mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+        self._mock_popen_with_stdout(mock_sub, jsonl_output, returncode=0)
+        f = self._write_input(tmp_path, {"prompt": "fix tests"})
+        original_fd = os.open(str(output_file), os.O_RDWR)
+        fd = os.dup(original_fd)
+        os.close(original_fd)
+        with patch("scripts.codex_delegate.tempfile") as mock_tmp:
+            mock_tmp.mkstemp.return_value = (fd, str(output_file))
+            exit_code = run(f)
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert exit_code == 0
+        assert output["status"] == "ok"
+        assert output["summary"] == "agent summary"
+        assert "output read failed" in captured.err
+
+    @patch("scripts.codex_delegate.append_log", return_value=True)
+    @patch("scripts.codex_delegate.subprocess")
+    def test_restores_cwd_after_run(
+        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path,
+    ) -> None:
+        from scripts.codex_delegate import run
+        before = Path.cwd()
+        mock_sub.run.side_effect = [
+            MagicMock(returncode=0, stdout=str(tmp_path) + "\n"),
+            MagicMock(returncode=1, stdout="", stderr="bad version"),
+        ]
+        f = self._write_input(tmp_path, {"prompt": "fix tests"})
+        run(f)
+        assert Path.cwd() == before
 
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
@@ -503,6 +617,14 @@ class TestValidateInputTypeChecks:
         with pytest.raises(DelegationError, match="invalid model"):
             _validate_input(parsed)
 
+    def test_full_auto_string_rejected(self) -> None:
+        from scripts.codex_delegate import _validate_input, DelegationError
+        parsed = {"prompt": "test", "sandbox": "workspace-write",
+                  "reasoning_effort": "high", "full_auto": "yes",
+                  "_raw_keys": {"prompt", "full_auto"}}
+        with pytest.raises(DelegationError, match="full_auto must be boolean"):
+            _validate_input(parsed)
+
 
 class TestStep10ErrorShapes:
     """R5-B4: Step 10 timeout/spawn produce pinned error messages."""
@@ -525,9 +647,11 @@ class TestStep10ErrorShapes:
             MagicMock(returncode=0, stdout=""),
         ]
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
-        mock_sub.PIPE = subprocess.PIPE
         mock_proc = MagicMock()
-        mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=600)
+        mock_proc.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd=["codex"], timeout=600),
+            0,
+        ]
         mock_sub.Popen.return_value = mock_proc
         f = self._write_input(tmp_path, {"prompt": "fix tests"})
         run(f)
@@ -549,7 +673,6 @@ class TestStep10ErrorShapes:
             MagicMock(returncode=0, stdout=""),
         ]
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
-        mock_sub.PIPE = subprocess.PIPE
         mock_sub.Popen.side_effect = FileNotFoundError("codex not found")
         f = self._write_input(tmp_path, {"prompt": "fix tests"})
         run(f)

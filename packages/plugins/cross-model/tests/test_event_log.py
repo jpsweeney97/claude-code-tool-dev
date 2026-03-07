@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -48,7 +47,6 @@ class TestAppendLog:
         assert parsed["event"] == "test"
 
     def test_returns_false_on_write_error(self, tmp_path: Path) -> None:
-        bad_path = tmp_path / "nonexistent" / "deep" / "path" / "log.jsonl"
         # Patch to a directory that exists but file path is a dir
         dir_as_file = tmp_path / "adir"
         dir_as_file.mkdir()
@@ -63,6 +61,13 @@ class TestAppendLog:
             append_log({"event": "second"})
         lines = log_file.read_text().strip().split("\n")
         assert len(lines) == 2
+
+    def test_creates_log_with_private_permissions(self, tmp_path: Path) -> None:
+        log_file = tmp_path / ".codex-events.jsonl"
+        with patch("scripts.event_log.LOG_PATH", log_file):
+            assert append_log({"event": "first"}) is True
+        mode = stat.S_IMODE(log_file.stat().st_mode)
+        assert mode == 0o600
 
 
 class TestSessionId:

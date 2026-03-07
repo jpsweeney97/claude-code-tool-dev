@@ -418,7 +418,7 @@ def compute(
         skipped_count: Count of malformed lines skipped during reading.
         period_days: Time window in days (0 = all-time).
         section_type: Which sections to include ("all", "dialogue",
-            "consultation", "security").
+            "consultation", "security", "delegation").
 
     Returns:
         Structured report dict with usage, dialogue, context, security

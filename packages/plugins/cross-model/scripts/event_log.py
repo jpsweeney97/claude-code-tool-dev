@@ -1,8 +1,7 @@
 """Shared event log helpers for cross-model plugin analytics.
 
-Extracted from emit_analytics.py for reuse by codex_delegate.py.
-Scope: analytics-emitter consumers only. codex_guard.py is NOT migrated
-(D26 — keeps its own _ts and _append_log with different semantics).
+Used by analytics-emitting cross-model scripts. codex_guard.py is NOT
+migrated (D26 — keeps its own _ts and _append_log with different semantics).
 
 Exports:
     LOG_PATH: Path to ~/.claude/.codex-events.jsonl
@@ -34,11 +33,15 @@ def append_log(entry: dict) -> bool:
     """
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(LOG_PATH, "a") as f:
-            f.write(json.dumps(entry) + "\n")
-        # R7-16: Ensure log file is not world-readable on shared systems.
-        # Default umask (typically 0o644) would allow other users to read.
-        os.chmod(LOG_PATH, 0o600)
+        fd = os.open(LOG_PATH, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                fd = -1
+                f.write(json.dumps(entry) + "\n")
+        finally:
+            if fd >= 0:
+                os.close(fd)
         return True
     except OSError as exc:
         print(f"log write failed: {exc}", file=sys.stderr)

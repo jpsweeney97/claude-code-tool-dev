@@ -10,7 +10,7 @@ Usage:
     python3 codex_delegate.py <input_file.json>
 
 Exit codes:
-    0 — success, blocked, or degraded (check status field)
+    0 — success or blocked (check status field)
     1 — adapter error
 """
 
@@ -25,18 +25,19 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
+from tempfile import TemporaryFile
 
 # Sibling imports (same scripts/ directory)
 # R6-B9: Both import attempts wrapped — second attempt may also fail
 # (e.g., scripts/ not on sys.path AND parent insertion doesn't help)
 try:
     from credential_scan import scan_text
-    from event_log import LOG_PATH, ts, append_log, session_id
+    from event_log import ts, append_log, session_id
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
         from credential_scan import scan_text
-        from event_log import LOG_PATH, ts, append_log, session_id
+        from event_log import ts, append_log, session_id
     except ModuleNotFoundError as exc:
         print(f"codex-delegate: fatal: cannot import sibling modules: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -68,6 +69,7 @@ _VALID_SANDBOXES = {"read-only", "workspace-write"}
 _VALID_EFFORTS = {"minimal", "low", "medium", "high", "xhigh"}
 _KNOWN_FIELDS = {"prompt", "model", "sandbox", "reasoning_effort", "full_auto"}
 _MIN_VERSION = (0, 111, 0)
+_STDOUT_MAX_BYTES = 50 * 1024 * 1024
 
 # F5: Split into exact names and glob patterns for clarity
 _SECRET_EXACT_NAMES = {".env", ".npmrc", ".netrc", "auth.json"}
@@ -98,7 +100,7 @@ def _resolve_repo_root() -> Path:
 def _parse_input(input_path: Path) -> dict:
     """Step 3 — Phase A: structural parse. No user content echoed.
 
-    F1+F8: Split from _parse_and_validate_input so that run() can
+    F1+F8: Split from the old combined parse/validate path so that run() can
     capture Phase A data before credential scan. This ensures analytics
     emits for credential blocks (spec: emit if step 3 succeeds).
 
@@ -106,7 +108,7 @@ def _parse_input(input_path: Path) -> dict:
     Does NOT validate field values — that's Phase B (_validate_input).
     """
     try:
-        raw = input_path.read_text()
+        raw = input_path.read_text(encoding="utf-8")
     except OSError as exc:
         raise DelegationError(f"input read failed: {exc}") from exc
 
@@ -153,9 +155,9 @@ def _validate_input(parsed: dict) -> dict:
     if unknown:
         raise DelegationError(f"validation failed: unknown field '{next(iter(unknown))}'")
 
-    # R5-B3: isinstance checks before set membership — non-string values
-    # (e.g. sandbox=[], reasoning_effort=123) would raise TypeError on
-    # `not in set(...)` instead of the deterministic validation contract.
+    # R5-B3: isinstance checks before set membership keep non-string values
+    # deterministic. Unhashable values can raise TypeError; hashable
+    # non-strings silently fail membership tests and blur the true error.
     sandbox = parsed["sandbox"]
     if not isinstance(sandbox, str):
         raise DelegationError("validation failed: invalid sandbox value")
@@ -221,10 +223,21 @@ def _check_codex_version() -> None:
 
 def _check_clean_tree() -> None:
     """Step 7: Clean-tree gate."""
-    result = subprocess.run(
-        ["git", "status", "--porcelain=v1", "-z", "--ignore-submodules=none"],
-        capture_output=True, text=True, timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain=v1", "-z", "--ignore-submodules=none"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except FileNotFoundError as exc:
+        raise GateBlockError(
+            "clean-tree check failed: git not found",
+            gate="git_error",
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise GateBlockError(
+            "clean-tree check failed: git status timed out",
+            gate="git_error",
+        ) from exc
     # B7: Fail closed on git command failure — empty stdout could mask dirty tree
     # R6-B2: Use gate="git_error" — git command failure ≠ dirty tree;
     # gate="clean_tree" would set dirty_tree_blocked=True in analytics
@@ -250,9 +263,13 @@ def _check_clean_tree() -> None:
             status_xy = entry[:2] if len(entry) >= 2 else ""
             path = entry[3:] if len(entry) > 3 else entry
             paths.append(path)
-            # Rename/copy records have a second path field
-            if status_xy[0:1] in ("R", "C") and i + 1 < len(raw_parts):
-                i += 1  # skip the second path (destination)
+            # Rename/copy records have a second path field. Keep both path
+            # tokens instead of depending on git's -z field order.
+            if ("R" in status_xy or "C" in status_xy) and i + 1 < len(raw_parts):
+                second_path = raw_parts[i + 1].strip()
+                if second_path:
+                    paths.append(second_path)
+                i += 1
             i += 1
         if paths:
             raise GateBlockError(
@@ -265,13 +282,26 @@ def _check_secret_files() -> None:
 
     F5: Clean separation of exact names and glob patterns. No mixed
     iteration or startswith fallback. Each matching path is added once.
+    This gate inspects gitignored/untracked files only; tracked secrets
+    remain a repository-policy concern outside this check.
     """
     # B23: fnmatch imported at module level
 
-    result = subprocess.run(
-        ["git", "ls-files", "--others", "--ignored", "--exclude-standard"],
-        capture_output=True, text=True, timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--others", "--ignored", "--exclude-standard"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except FileNotFoundError as exc:
+        raise GateBlockError(
+            "secret-file check failed: git not found",
+            gate="git_error",
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise GateBlockError(
+            "secret-file check failed: git ls-files timed out",
+            gate="git_error",
+        ) from exc
     # B7: Fail closed on git command failure — empty stdout could mask secret files
     # R6-B2: Use gate="git_error" — git command failure ≠ secret files found
     if result.returncode != 0:
@@ -362,7 +392,7 @@ def _parse_jsonl(stdout: str) -> dict:
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
-            print(f"codex-delegate: skipped malformed JSONL line", file=sys.stderr)
+            print("codex-delegate: skipped malformed JSONL line", file=sys.stderr)
             continue
         if not isinstance(event, dict):
             continue
@@ -515,6 +545,7 @@ def run(input_path: Path) -> int:
     validated: dict | None = None
     parsed: dict | None = None
     did_dispatch: bool = False  # B8: Track whether subprocess actually ran
+    original_cwd = Path.cwd()
 
     try:
         # Step 1: resolve repo root
@@ -571,31 +602,37 @@ def run(input_path: Path) -> int:
 
         # Step 10: run subprocess
         # B11: Set did_dispatch BEFORE Popen — TimeoutExpired is raised from
-        # proc.communicate(), so setting it after would leave did_dispatch=False
+        # proc.wait(), so setting it after would leave did_dispatch=False
         # even though the process actually ran (and may have modified files).
         did_dispatch = True
-        # R7-11: Impose stdout size cap (50MB) to prevent OOM on pathological output.
-        _STDOUT_MAX_BYTES = 50 * 1024 * 1024
         try:
-            # R7-10: Use Popen instead of subprocess.run to enable explicit kill
-            # on timeout. subprocess.run's TimeoutExpired does NOT kill the child
-            # — orphaned Codex continues modifying files after adapter reports timeout.
-            proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            )
-            try:
-                stdout, stderr = proc.communicate(timeout=600)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-                raise DelegationError("exec failed: process timeout")
+            # Keep stdout on disk so pathological output cannot be buffered
+            # fully into memory before the size cap is enforced.
+            with TemporaryFile() as stdout_sink, TemporaryFile() as stderr_sink:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=stdout_sink,
+                    stderr=stderr_sink,
+                    text=False,
+                )
+                try:
+                    proc.wait(timeout=600)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                    raise DelegationError("exec failed: process timeout")
+
+                stdout_sink.seek(0, os.SEEK_END)
+                stdout_size = stdout_sink.tell()
+                stdout_sink.seek(0)
+                stdout_bytes = stdout_sink.read(_STDOUT_MAX_BYTES + 1)
         except FileNotFoundError:
             # R5-B4: Codex binary not found at exec time (different from version check)
             raise DelegationError("exec failed: subprocess spawn error. codex not found")
 
-        if len(stdout.encode("utf-8", errors="replace")) > _STDOUT_MAX_BYTES:
+        if stdout_size > _STDOUT_MAX_BYTES:
             print("codex-delegate: stdout truncated (exceeded 50MB cap)", file=sys.stderr)
-            stdout = stdout[:_STDOUT_MAX_BYTES]  # approximate truncation
+        stdout = stdout_bytes[:_STDOUT_MAX_BYTES].decode("utf-8", errors="replace")
 
         # R7-27: Capture returncode before _parse_jsonl so it's available in error output
         returncode = proc.returncode
@@ -605,9 +642,13 @@ def run(input_path: Path) -> int:
 
         # Read -o output for summary (nullable)
         if output_file.exists():
-            content = output_file.read_text().strip()
-            if content:
-                parsed["summary"] = content
+            try:
+                content = output_file.read_text(encoding="utf-8").strip()
+            except (OSError, UnicodeError) as exc:
+                print(f"codex-delegate: output read failed: {exc}", file=sys.stderr)
+            else:
+                if content:
+                    parsed["summary"] = content
 
         # Step 13: emit analytics
         _emit_analytics(phase_a, parsed, returncode, None, dispatched=True)
@@ -678,6 +719,10 @@ def run(input_path: Path) -> int:
                 output_file.unlink(missing_ok=True)
             except OSError as exc:
                 print(f"codex-delegate: output cleanup failed: {exc}", file=sys.stderr)
+        try:
+            os.chdir(original_cwd)
+        except OSError as exc:
+            print(f"codex-delegate: cwd restore failed: {exc}", file=sys.stderr)
 
 
 def main() -> int:
