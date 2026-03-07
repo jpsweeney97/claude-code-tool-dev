@@ -61,7 +61,7 @@ class ToolScanPolicy:
 
 CODEX_POLICY = ToolScanPolicy(
     expected_fields={"sandbox", "approval-policy", "model", "profile"},
-    content_fields={"prompt", "base-instructions", "developer-instructions"},
+    content_fields={"prompt", "base-instructions", "developer-instructions", "config"},
 )
 
 CODEX_REPLY_POLICY = ToolScanPolicy(
@@ -73,7 +73,7 @@ CODEX_REPLY_POLICY = ToolScanPolicy(
         "threadId",
         "conversationId",
     },
-    content_fields={"prompt", "base-instructions", "developer-instructions"},
+    content_fields={"prompt", "base-instructions", "developer-instructions", "config"},
 )
 
 
