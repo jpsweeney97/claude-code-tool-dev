@@ -34,24 +34,6 @@ docs/
 └── audits/       # Quality audits
 ```
 
-### Extension Rules (Blocking)
-
-Before creating or editing any extension, you MUST:
-
-1. Read the relevant rules file from the table below
-2. Confirm you have read it before proceeding
-
-| Extension  | Rules File                     |
-| ---------- | ------------------------------ |
-| Skill      | `.claude/rules/skills.md`      |
-| Hook       | `.claude/rules/hooks.md`       |
-| Subagent   | `.claude/rules/subagents.md`   |
-| Plugin     | `.claude/rules/plugins.md`     |
-| MCP Server | `.claude/rules/mcp-servers.md` |
-| Settings   | `.claude/rules/settings.md`    |
-
-Do not proceed with edits until you have read the file. This is non-negotiable.
-
 ## Systems
 
 Three systems form the cross-model collaboration stack, each building on the previous.
@@ -95,17 +77,6 @@ Persistent knowledge capture across Codex conversations. Insights from Claude-Co
 **Status:** Design complete. Implementation not started.
 
 ## Workflow
-
-### Creating Extensions
-
-| Extension  | Create in                        | Test with           |
-| ---------- | -------------------------------- | ------------------- |
-| Skill      | `.claude/skills/<name>/SKILL.md` | `/<name>`           |
-| Command    | `.claude/commands/<name>.md`     | `/<name>`           |
-| Hook       | `.claude/hooks/<name>.py`        | After sync-settings |
-| Agent      | `.claude/agents/<name>.md`       | Task tool           |
-| Plugin     | `packages/plugins/<name>/`       | Marketplace install |
-| MCP Server | `packages/mcp-servers/<name>/`   | After build         |
 
 ### Promoting to Production
 
