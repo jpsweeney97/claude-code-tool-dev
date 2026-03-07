@@ -1,0 +1,73 @@
+{
+  "expectations": [
+    {
+      "text": "HANDBOOK.md exists in outputs/ and has at least 1000 characters of content",
+      "passed": true,
+      "evidence": "File exists at with_skill/outputs/HANDBOOK.md with 33,596 characters"
+    },
+    {
+      "text": "The handbook has an Overview or introduction section that describes the system's purpose",
+      "passed": true,
+      "evidence": "Has '## Overview' as the first section heading, with system purpose description"
+    },
+    {
+      "text": "The handbook mentions both execute_scout and process_turn (the two main MCP tool entrypoints)",
+      "passed": true,
+      "evidence": "grep counts: execute_scout=3 mentions, process_turn=6 mentions. Both appear in the MCP Tools (Entry Points) table under At a Glance"
+    },
+    {
+      "text": "The handbook contains at least one table with symptom/cause/recovery columns (or equivalent failure mode documentation)",
+      "passed": true,
+      "evidence": "9 matches for 'symptom/failure mode/Recovery' keywords. Agent summary confirms every runbook section has at least one failure mode as required by skill Phase 4"
+    },
+    {
+      "text": "The handbook includes a numbered verification or smoke test procedure an operator can actually run",
+      "passed": true,
+      "evidence": "16 matches for verification/verify/smoke test. Agent Phase 4 summary confirms 'Verification procedure traces through correctly: pytest runs from source package, ruff lint runs, server startup check works, footgun tests are concrete and runnable'"
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "total_tool_calls": 35,
+    "output_chars": 33596
+  },
+  "timing": {
+    "executor_duration_seconds": 299.4
+  },
+  "claims": [
+    {
+      "claim": "All 21 cited source files were verified to exist",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Agent Phase 4 explicitly confirmed all 21 files exist in the vendored copy"
+    },
+    {
+      "claim": "All 12 key constants match source values",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Agent listed all constants with their values and confirmed match against source"
+    },
+    {
+      "claim": "The DD-2 invariant (MAX_CONVERSATION_TURNS < MAX_ENTRIES_BEFORE_COMPACT) is documented",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Agent summary explicitly calls this out as a non-obvious invariant enforced at import time"
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "reason": "has_overview_section passes trivially for any well-structured document — consider checking for the canonical skill section names (At a Glance, Core Components, Operating Model) which distinguish skill-guided output from generic documentation"
+      },
+      {
+        "reason": "has_failure_modes_table should verify the table actually has symptom/cause/recovery columns, not just keyword presence. A document with those words in prose would pass."
+      }
+    ],
+    "overall": "Assertions verify presence but not structural conformance to the skill's section templates. The clearest skill-specific value (Phase 4 constant verification, DD-2 invariant discovery) is not captured by any assertion."
+  }
+}

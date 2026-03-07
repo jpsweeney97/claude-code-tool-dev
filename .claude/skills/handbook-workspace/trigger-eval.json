@@ -1,0 +1,82 @@
+[
+  {
+    "query": "Write a handbook for our Kubernetes operator — it has multiple entrypoints (CLI, webhooks, controllers) and a complex reconciliation loop. The on-call team needs to know how to bring it up, what can go wrong, and how to recover.",
+    "should_trigger": true
+  },
+  {
+    "query": "Can you audit our HANDBOOK.md? We've had three releases since it was last updated and I'm worried it's drifted from the actual behavior.",
+    "should_trigger": true
+  },
+  {
+    "query": "The default retry policy changed from 3 to 5 in the latest release. Update the handbook to reflect this everywhere it mentions the retry count.",
+    "should_trigger": true
+  },
+  {
+    "query": "document how my event router service works internally — particularly the state machine and failure recovery paths. the on-call team needs this before the next oncall rotation.",
+    "should_trigger": true
+  },
+  {
+    "query": "my redis session manager has been running in prod for 6 months but nobody documented how to actually operate it. can you write something up? it has a config file with about 8 options and two failure modes i know of",
+    "should_trigger": true
+  },
+  {
+    "query": "write runbooks for my job scheduler — it has a leader election mechanism that trips people up when the primary fails over and nobody knows how to recover",
+    "should_trigger": true
+  },
+  {
+    "query": "document the bring-up procedure for our ML inference service — it needs the model weights downloaded first, then a specific startup order, and has 4 env vars that have to be set correctly",
+    "should_trigger": true
+  },
+  {
+    "query": "our authentication service has been running for 2 years but we have no operational docs. I want something covering startup, config options, what to do when JWTs fail to validate, and how to rotate the signing keys",
+    "should_trigger": true
+  },
+  {
+    "query": "our cross-model plugin has hooks and slash commands and nobody on the team knows how it runs day-to-day. can you write something comprehensive about how to operate it",
+    "should_trigger": true
+  },
+  {
+    "query": "write a technical reference for our data pipeline — I want sections on how each stage works, what happens when upstream data is late, and the verification steps before promoting to production",
+    "should_trigger": true
+  },
+  {
+    "query": "Write a README for my new npm library called 'react-query-utils' so people know what it does, how to install it, and see a basic usage example",
+    "should_trigger": false
+  },
+  {
+    "query": "add the v2.3.0 release to our CHANGELOG.md — we shipped new rate limiting and fixed a memory leak in the worker pool",
+    "should_trigger": false
+  },
+  {
+    "query": "Generate JSDoc comments for all the exported functions in src/api.ts and produce an API reference document I can publish to our docs site",
+    "should_trigger": false
+  },
+  {
+    "query": "write a post-mortem for last tuesday's outage — root cause was a deadlock in the connection pool when we hit 10k concurrent users",
+    "should_trigger": false
+  },
+  {
+    "query": "i need a quickstart guide for my SDK — just cover install, authenticate, and how to send your first message in under 5 minutes. keep it simple for new users",
+    "should_trigger": false
+  },
+  {
+    "query": "document our postgres schema — I need a reference showing each table, its columns with types, indexes, and the foreign key relationships between them",
+    "should_trigger": false
+  },
+  {
+    "query": "can you explain how this HANDBOOK.md is structured and what each section covers? I want to understand the format before I write my own",
+    "should_trigger": false
+  },
+  {
+    "query": "write an ADR for why we chose kafka over rabbitmq for our event bus — i need to document the trade-offs we considered",
+    "should_trigger": false
+  },
+  {
+    "query": "add inline comments to this authentication middleware — explain what the JWT verification block does and why we check the expiry before the signature",
+    "should_trigger": false
+  },
+  {
+    "query": "the team asked me to 'document the deploy process' — i just need a few bullet points in the README under a Deployment section covering our 3-step heroku deploy",
+    "should_trigger": false
+  }
+]

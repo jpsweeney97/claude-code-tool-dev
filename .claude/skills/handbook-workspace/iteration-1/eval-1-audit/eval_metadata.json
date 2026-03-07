@@ -1,0 +1,27 @@
+{
+  "eval_id": 1,
+  "eval_name": "audit-cross-model-handbook",
+  "prompt": "Audit the HANDBOOK.md at /Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/HANDBOOK.md. Check for accuracy issues, coverage gaps, currency concerns, and structural problems against the actual source code. Recent commits include: approval-policy default changed from on-failure to on-request, JSON epilogue made the sole machine contract for analytics, credential scan gaps closed, certifi CA bundle exempted from secret-file gate.",
+  "assertions": [
+    {
+      "name": "report_file_exists",
+      "description": "audit_report.md exists in outputs/ and has substantial content (at least 500 characters)"
+    },
+    {
+      "name": "has_four_audit_categories",
+      "description": "Report contains all four standard categories: Accuracy Issues (or Accuracy), Coverage Gaps (or Coverage), Currency Concerns (or Currency), and Structural Issues (or Structure)"
+    },
+    {
+      "name": "flags_approval_policy_drift",
+      "description": "Report explicitly identifies the approval-policy default change (on-failure to on-request) as an accuracy issue or currency concern"
+    },
+    {
+      "name": "no_edits_to_source",
+      "description": "The report is findings-only — it does not contain edited handbook text, only issue descriptions. The report does not claim to have modified the handbook."
+    },
+    {
+      "name": "has_priority_ranking",
+      "description": "Report ends with or contains a Recommended Priority or priority ranking section"
+    }
+  ]
+}

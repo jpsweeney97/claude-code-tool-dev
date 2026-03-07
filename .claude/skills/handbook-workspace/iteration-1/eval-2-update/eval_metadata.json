@@ -1,0 +1,23 @@
+{
+  "eval_id": 2,
+  "eval_name": "update-approval-policy-default",
+  "prompt": "The approval-policy default changed from on-failure to on-request in the cross-model plugin (commit fa1531b). Update the handbook at /Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/HANDBOOK.md to reflect this change. Find every section that references the approval-policy default and update them accurately.",
+  "assertions": [
+    {
+      "name": "output_file_exists",
+      "description": "HANDBOOK.md exists in outputs/ and has substantial content (at least 5000 characters — the full handbook)"
+    },
+    {
+      "name": "new_default_present",
+      "description": "The output HANDBOOK.md contains 'on-request' as the approval-policy default value"
+    },
+    {
+      "name": "old_default_not_current",
+      "description": "The output HANDBOOK.md does not present 'on-failure' as the current/default approval-policy value (it may appear in change notes or as a historical reference, but not as the operative default)"
+    },
+    {
+      "name": "structure_preserved",
+      "description": "The major section headings from the original handbook are preserved — this is a targeted update, not a full rewrite. At least 80% of the original section headings should appear in the output."
+    }
+  ]
+}
