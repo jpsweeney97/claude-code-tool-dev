@@ -1,10 +1,10 @@
 {
   "name": "cross-model",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Cross-model consultation: Codex integration, context injection, and enforcement hooks",
   "author": {
     "name": "JP"
   },
   "license": "MIT",
-  "keywords": ["codex", "consultation", "second-opinion", "cross-model", "context-injection"]
+  "keywords": ["codex", "consultation", "second-opinion", "cross-model", "context-injection", "delegation"]
 }

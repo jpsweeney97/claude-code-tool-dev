@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-03-06
+
+### Added
+
+- `/delegate` skill — autonomous Codex execution with sandbox containment, clean-tree gate, and secret-file gate
+- `delegation_outcome` analytics event type for tracking delegation results
+- `credential_scan.py` shared module — extracted credential detection logic for reuse across hooks and delegation
+- `event_log.py` shared module — extracted event logging logic for reuse across analytics emitters
+
+### Changed
+
+- `codex_guard.py` refactored to import credential detection from `credential_scan.py` (no behavior change)
+- `emit_analytics.py` refactored to import event logging from `event_log.py` (no behavior change)
+- `read_events.py` updated to parse and validate `delegation_outcome` events
+- `compute_stats.py` updated with delegation section (usage counts, success rates, sandbox mode distribution)
+- `consultation-stats` skill updated with `--type delegation` filter
+
 ## [2.0.0] — 2026-03-01
 
 ### Added
