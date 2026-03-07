@@ -194,7 +194,7 @@ Resolve execution controls before dispatch:
 | Control | Default |
 |---------|---------|
 | `sandbox` | `read-only` |
-| `approval-policy` | `never` if `read-only`; `on-failure` if `workspace-write` or `danger-full-access` |
+| `approval-policy` | `never` if `read-only`; `on-request` if `workspace-write` or `danger-full-access` |
 | `model_reasoning_effort` | `xhigh` |
 
 **Delegated precedence:** When the delegation envelope (§6) includes `reasoning_effort`, the agent uses it directly — no re-resolution of profile files. The delegating skill is responsible for resolution order (currently profile > §8 default; explicit `-t` flag is deferred). The agent's §8 resolver is the fallback when the delegation envelope omits the field.
