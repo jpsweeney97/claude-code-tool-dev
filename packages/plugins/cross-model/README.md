@@ -1,6 +1,6 @@
 # Cross-Model Plugin
 
-> **v3.0.0** · MIT · Python ≥3.11 · No runtime dependencies (stdlib only)
+> **v3.0.0** · MIT · Python ≥3.11 · Requires Codex CLI; `/dialogue` also uses `uv`, `git`, and the bundled `context-injection` helper
 
 Cross-model consultation via OpenAI Codex. Claude consults an independent model for second opinions on architecture, debugging, code review, plans, and decisions — then independently assesses every response before presenting it to the user. Claude is always primary; Codex is always advisory.
 
@@ -18,6 +18,13 @@ Prerequisites:
 npm install -g @openai/codex   # Codex CLI
 codex login                     # Or set OPENAI_API_KEY
 ```
+
+Additional runtime requirements for `/dialogue`:
+
+- `uv` must be available because the bundled `context-injection` MCP server is launched through `uv run`
+- `git` must be on `PATH`
+- `context-injection` is POSIX-only (`macOS`, `Linux`, `WSL`)
+- Start Claude from the repository you want `/dialogue` to inspect; `.mcp.json` exports `REPO_ROOT=${PWD}` to the helper
 
 Install:
 
@@ -93,15 +100,16 @@ Key design properties:
 - **Scope envelopes** — Each consultation declares allowed roots and source classes; breaches terminate the dialogue
 - **Analytics by default** — Every consultation emits structured telemetry for observability
 
-### Three Entrypoints
+### Four Entrypoints
 
 | Entrypoint | Use Case | Turns | Context Gathering | Profiles |
 |------------|----------|-------|-------------------|----------|
-| `/codex` | Quick second opinion | 1-2 | None | No |
-| `/dialogue` | Deep consultation | 1-15 (default 8) | Parallel gatherer agents + context injection | Yes |
+| `/codex` | Quick second opinion | 1-2 direct; may delegate longer sessions | None directly; can delegate to `codex-dialogue` | No |
+| `/dialogue` | Deep consultation | 1-15 (default 8) | Parallel gatherer agents + context injection in `server_assisted` mode | Yes |
 | `/delegate` | Autonomous execution | 1 | None | No |
+| `/consultation-stats` | Local analytics and reporting | N/A | Reads event log only | No |
 
-`/codex` is lightweight: it sends a prompt to Codex, relays the response, and emits analytics. It decides between inline execution (1-2 turns) and subagent delegation (3+ turns) based on topic complexity.
+`/codex` is lightweight: it sends a prompt to Codex, relays the response, and emits analytics. It decides between inline execution (1-2 turns) and subagent delegation (3+ turns) based on topic complexity. When it delegates, the work runs through `codex-dialogue`; operational continuation then follows the delegated subagent context rather than only a raw `threadId`.
 
 `/delegate` hands a task to Codex for autonomous execution in a sandboxed environment. Unlike `/codex` and `/dialogue` (which sanitize prompts to prevent credential exfiltration), `/delegate` relies on sandbox containment — Codex runs in a restricted environment where network access and filesystem writes are controlled by the sandbox provider. Two pre-flight gates enforce safety: the **clean-tree gate** requires a clean git working tree (so unwanted changes can be reverted), and the **secret-file gate** rejects tasks that reference known secret files (`.env`, credentials, key files).
 
@@ -113,7 +121,7 @@ Key design properties:
 4. **Step 3** — Deterministic briefing assembly from prefix-tagged lines (credential sanitization, dedup, provenance validation)
 5. **Step 4** — Health check (min 8 citations, min 5 unique files) and seed confidence scoring
 6. **Step 5** — Delegate to `codex-dialogue` agent with scope envelope and briefing
-7. **Step 6-7** — Present synthesis with resolved/unresolved/emerged checkpoint; emit analytics
+7. **Step 6-7** — Run the delegated session in `server_assisted` mode when context injection is available, or fall back early to `manual_legacy` when the agent cannot establish a successful initial `process_turn`; then present synthesis and emit analytics with the actual `mode`
 
 ### Named Profiles
 
@@ -150,6 +158,8 @@ All telemetry flows to `~/.claude/.codex-events.jsonl`:
 
 Schema versioning: `0.1.0` → `0.2.0` (provenance) → `0.3.0` (planning). Forward-compatible — older readers skip unknown fields.
 
+Dialogue analytics also record the actual execution `mode` (`server_assisted` or `manual_legacy`), which matters when interpreting scout-related metrics.
+
 ## Skills
 
 ### `/codex [-m model] [-s sandbox] [-a approval] [-t reasoning] [PROMPT]`
@@ -158,7 +168,7 @@ Single-turn or short multi-turn Codex consultation. Argument parsing is determin
 
 ### `/dialogue "question" [-p posture] [-n turns] [--profile name] [--plan]`
 
-Orchestrated multi-turn consultation with parallel context gathering. The `--plan` flag enables question decomposition (Claude-local, no Codex) before dispatching. Emits a `dialogue_outcome` event with full pipeline metrics including gatherer line counts, provenance stats, scope fingerprints, and seed confidence.
+Orchestrated multi-turn consultation with parallel context gathering. The `--plan` flag enables question decomposition (Claude-local, no Codex) before dispatching. The delegated `codex-dialogue` agent starts in `server_assisted` mode and can fall back to `manual_legacy` before the first successful `process_turn`. Emits a `dialogue_outcome` event with full pipeline metrics including gatherer line counts, provenance stats, scope fingerprints, seed confidence, and execution `mode`.
 
 ### `/delegate [PROMPT]`
 
@@ -207,11 +217,15 @@ Two MCP servers are auto-configured by the plugin (no manual setup):
 | Server | Transport | Purpose |
 |--------|-----------|---------|
 | `codex` | stdio (`codex mcp-server`) | Provides `codex` and `codex-reply` tools for Codex communication |
-| `context-injection` | stdio (`uv run python -m context_injection`) | Mid-conversation evidence gathering: scouting loop, claim verification, codebase reads |
+| `context-injection` | stdio (`uv run --directory ${CLAUDE_PLUGIN_ROOT}/context-injection python -m context_injection`) | Mid-conversation evidence gathering: scouting loop, claim verification, codebase reads |
 
 The context injection server is vendored from `packages/context-injection/` (969 tests in source package). Edits go in the source package; sync via `scripts/build-cross-model-plugin`.
 
-Environment: `CODEX_SANDBOX=seatbelt` is set automatically to prevent a macOS-specific Codex CLI panic.
+Runtime wiring:
+
+- `CODEX_SANDBOX=seatbelt` is set automatically for the `codex` server to prevent a macOS Codex CLI panic
+- `REPO_ROOT=${PWD}` is passed to `context-injection`, so the helper inspects the repository from which Claude was launched
+- `context-injection` requires `git` and a POSIX host at startup
 
 ## Hook Configuration
 
@@ -243,16 +257,29 @@ Environment: `CODEX_SANDBOX=seatbelt` is set automatically to prevent a macOS-sp
 
 ## Tests
 
-3 tests in 1 test file:
+Plugin-local suite: **160 tests across 8 files**.
 
 | Test File | Coverage Area |
 |-----------|--------------|
-| `test_emit_analytics.py` | Analytics validation: posture enum validation |
+| `test_codex_delegate.py` | `/delegate` adapter pipeline, validation, gates, JSONL parsing, analytics invariants |
+| `test_codex_guard.py` | PreToolUse / PostToolUse hook behavior, traversal limits, credential blocking |
+| `test_compute_stats.py` | analytics aggregation, delegation metrics, section inclusion, JSON flag compatibility |
+| `test_credential_scan.py` | strict/contextual/broad secret detection taxonomy |
+| `test_emit_analytics.py` | synthesis parsing, posture validation, schema/version behavior |
+| `test_event_log.py` | log append semantics, timestamp format, session ID handling |
+| `test_read_events.py` | event classification and required-field validation |
+| `test_secret_taxonomy.py` | pattern compilation and taxonomy consistency |
 
 The context injection server has 969 tests in its source package at `packages/context-injection/`.
 
 ```bash
 cd packages/plugins/cross-model && uv run pytest
+```
+
+To inspect the collected plugin-local tests without running them:
+
+```bash
+uv run pytest --co -q tests
 ```
 
 ## Environment Variables
@@ -261,6 +288,7 @@ cd packages/plugins/cross-model && uv run pytest
 |----------|---------|---------|
 | `CROSS_MODEL_NUDGE` | unset | Set to `1` to enable the opt-in failure nudge hook |
 | `CODEX_SANDBOX` | `seatbelt` | Set automatically by MCP config to prevent macOS Codex CLI panic |
+| `REPO_ROOT` | `${PWD}` via `.mcp.json` | Repository root consumed by the bundled `context-injection` helper |
 | `OPENAI_API_KEY` | — | Required if not using `codex login` |
 
 ## Known Limitations
@@ -268,6 +296,6 @@ cd packages/plugins/cross-model && uv run pytest
 1. **Hook process crash is fail-open** — If `codex_guard.py` crashes at the OS level (not a Python exception), Claude Code treats the non-zero exit as "no output" and allows the call. This is an OS-level constraint, not a design choice.
 2. **Broad-tier matches are logged only** — Generic credential assignments (e.g., `password = "..."`) are tracked via shadow telemetry but never blocked. This is by design to avoid false positives on example code.
 3. **Plugin disabled = no enforcement** — If the plugin is uninstalled or disabled, credential detection stops entirely. There is no fallback enforcement mechanism.
-4. **Low test coverage** — The plugin itself has only 3 tests (analytics validation). Most testing is in the vendored context injection server (969 tests) and in manual integration testing of the consultation pipeline.
+4. **Vendored helper tests are out-of-package** — The bundled `context-injection` copy excludes its own test suite. Deep helper validation still runs from the source package (`packages/context-injection`), not from this vendored plugin directory.
 5. **Codex CLI dependency** — Requires `@openai/codex` npm package installed globally. Version compatibility is not pinned.
 6. **`episode_id` field is reserved** — The `dialogue_outcome` event includes a nullable `episode_id` field for a planned cross-model learning system. Not yet populated.

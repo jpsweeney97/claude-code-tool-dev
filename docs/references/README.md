@@ -51,3 +51,8 @@
    - Complementary protocol: JSON contract between the `codex-dialogue` agent
      and the context injection Python helper (MCP server). Governs mid-conversation
      evidence gathering (process_turn / execute_scout calls).
+
+4. `./cross-model-plugin-operational-handbook.md`
+   - Practical operator's guide for the cross-model plugin. Covers architecture,
+     `/dialogue` end-to-end flow, context-injection runtime behavior, a worked
+     3-turn example, and a file-by-file change map for common modifications.

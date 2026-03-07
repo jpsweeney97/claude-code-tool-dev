@@ -8,7 +8,7 @@ Responsibilities:
 - Prune state files older than 24 hours
 
 Does NOT auto-inject or prompt for handoffs. Users must explicitly
-run /resume to load a handoff. This prevents stale handoffs from
+run /load to load a handoff. This prevents stale handoffs from
 being suggested in unrelated sessions.
 
 Exit Codes:
@@ -112,7 +112,7 @@ def main() -> int:
     """Main entry point for SessionStart hook.
 
     Silently prunes old handoffs. Does not output anything.
-    Users must explicitly run /resume to load handoffs.
+    Users must explicitly run /load to load handoffs.
 
     Returns:
         0 on best-effort completion. A SessionStart hook must never block

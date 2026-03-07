@@ -1,6 +1,6 @@
 # Handoff Plugin
 
-> **v1.5.0** · MIT · Python ≥3.11 · Requires: `pyyaml>=6.0`
+> **v1.5.0** · MIT · Python ≥3.11 · Runtime dependency: `pyyaml>=6.0` · Recommended host tool: `trash`
 
 Session handoff and resume for Claude Code. Captures decisions, changes, learnings, and next steps at the end of a session, then restores that context at the start of the next one. Sessions link together through a chain protocol, so you can trace how work evolved across multiple sessions.
 
@@ -11,6 +11,16 @@ Claude Code sessions are ephemeral — when a session ends, everything Claude le
 Beyond save/load, the plugin also provides tools for extracting durable knowledge from handoffs (`/distill`), creating work items from deferred tasks (`/defer`), triaging the backlog (`/triage`), and searching across handoff history (`/search`).
 
 ## Quick Start
+
+### Prerequisites
+
+| Requirement | Why it matters |
+|-------------|----------------|
+| Python 3.11+ | Runs the plugin's hook and helper scripts |
+| `pyyaml>=6.0` | Used by ticket parsing and related frontmatter helpers |
+| `trash` on `PATH` | Lets cleanup and state-file removal delete safely; without it, cleanup becomes best-effort and stale files persist until TTL pruning or manual cleanup |
+
+The plugin does not use a separate config file. Installation plus the runtime defaults below are enough.
 
 ```bash
 claude plugin install handoff@turbo-mode
@@ -132,6 +142,43 @@ title: "Checkpoint: mutex implementation WIP"
 
 A guardrail warns after 2 consecutive quicksaves (detected via chain walking) — suggests a full `/save` to avoid context loss.
 
+## Configuration
+
+The plugin is intentionally low-configuration: there is no plugin-local YAML or JSON settings file. Most behavior is fixed by the handoff contract so saved context stays portable and deterministic.
+
+### Fixed Conventions
+
+| Area | Default | User configurable? | Notes |
+|------|---------|--------------------|-------|
+| Storage root | `~/.claude/handoffs/<project>/` | No | `<project>` is the git root directory name, falling back to the current directory name |
+| Archive root | `~/.claude/handoffs/<project>/.archive/` | No | `/load` moves the loaded handoff or checkpoint here |
+| Session chain state | `~/.claude/.session-state/handoff-<session_id>` | No | Written by `/load`; read and trashed by `/save` and `/quicksave` |
+| Retention policy | Active: 30 days, archive: 90 days, state files: 24 hours | No | Enforced by `cleanup.py` during `SessionStart` |
+| Search scope | Active plus archived handoffs for the current project | No | `/search` does not cross project boundaries |
+
+### Overrideable Inputs
+
+| Surface | Defaults | Valid values |
+|---------|----------|--------------|
+| `/save [title]` | Auto-generated title when omitted | Any descriptive title string |
+| `/load [path]` | Most recent handoff for the current project | Optional path to a specific handoff or checkpoint |
+| `/quicksave [title]` | Auto-generated checkpoint title when omitted | Any descriptive title string |
+| `/search <query> [--regex]` | Literal, case-insensitive search | Query string; optional `--regex` for regex search |
+| `distill.py --learnings <path> --include-section <name>` | `docs/learnings/learnings.md`; all eligible sections | Any writable path; optional handoff section names |
+| `defer.py --tickets-dir <path> --date YYYY-MM-DD` | `docs/tickets/`; date is required | Any writable directory; date must match `YYYY-MM-DD` |
+| `triage.py --tickets-dir <path> --handoffs-dir <path>` | `docs/tickets/`; current project's handoffs dir | Any readable tickets directory and handoffs directory |
+
+## Environment Variables
+
+Claude Code provides these at runtime. In normal plugin use, you do not set them manually.
+
+| Variable | Provided by | Used by | Required? | Notes |
+|----------|-------------|---------|-----------|-------|
+| `CLAUDE_PLUGIN_ROOT` | Claude Code plugin runtime | Hook commands and skill shell snippets that invoke `scripts/*.py` | Yes for installed plugin execution | In the development repo, several skills document a git-root fallback when this variable is absent |
+| `CLAUDE_SESSION_ID` | Claude Code skill runtime | `/save`, `/load`, and `/quicksave` chain-state and frontmatter handling | Yes for session-linking commands | Saved as `session_id` and used to name the state file |
+
+No other plugin-specific environment variables are read by the current scripts.
+
 ## Skills
 
 ### `/save [title]`
@@ -164,10 +211,10 @@ Read-only backlog review. Lists open tickets grouped by priority and age. Scans 
 
 ## Hooks
 
-| Event | Script | Purpose |
-|-------|--------|---------|
-| `SessionStart` | `cleanup.py` | Silent pruning: active >30 days, archived >90 days, state files >24 hours. Always exits 0 — never blocks session start. |
-| `PostToolUse:Write` | `quality_check.py` | Validates handoff/checkpoint files: required frontmatter fields, required sections, body line count (400+ handoffs, 20-80 checkpoints), hollow-handoff guardrail. Returns `additionalContext` on issues. |
+| Event | Matcher | Script | Timeout | Behavior |
+|-------|---------|--------|---------|----------|
+| `SessionStart` | n/a | `cleanup.py` | Not overridden in `hooks.json` | Best-effort prune of active handoffs older than 30 days, archived handoffs older than 90 days, and state files older than 24 hours. Always exits `0` so session start is never blocked. |
+| `PostToolUse` | `Write` | `quality_check.py` | Not overridden in `hooks.json` | Validates newly written handoff and checkpoint files: required frontmatter fields, required sections, body line count bounds (400+ handoffs, 20-80 checkpoints), and the hollow-handoff guardrail. Returns `additionalContext` when it finds issues. |
 
 ## Script Reference
 

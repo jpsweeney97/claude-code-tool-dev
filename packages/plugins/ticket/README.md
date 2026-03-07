@@ -1,6 +1,8 @@
 # Ticket Plugin
 
-> **v1.0.0** · MIT · Python ≥3.11 · Requires: `pyyaml>=6.0`
+> **Plugin v1.2.0** · Ticket contract v1.0 · MIT · Python ≥3.11 · Requires: `pyyaml>=6.0`
+
+This README tracks the installed Claude Code plugin release. Ticket files written by the engine still use `contract_version: "1.0"`, so version references below call out the contract/runtime version only where that distinction matters.
 
 An issue tracker that lives inside your codebase, managed entirely by Claude Code. Instead of using an external tool like Jira or GitHub Issues, tickets are stored as markdown files in your repository at `docs/tickets/`. Claude creates, updates, closes, and triages these tickets through a structured engine — and critically, the plugin controls *how much autonomy* Claude has to do this on its own versus requiring human approval.
 
@@ -104,10 +106,12 @@ Add a mutex around the refresh call...
 | `blocks` | list | `[]` | IDs this ticket blocks |
 | `defer` | object | `null` | `{active, reason, deferred_at}` |
 
-#### Section Guidance (v1.0 Runtime)
+#### Section Guidance (Contract v1.0 Runtime)
 
 Section ordering is canonicalized as:
-Problem → Context → Prior Investigation → Approach → Decisions Made → Acceptance Criteria → Verification → Key Files → Related
+Problem → Context → Prior Investigation → Approach → Decisions Made → Acceptance Criteria → Verification → Key Files → Related → Reopen History
+
+`Reopen History` is only present after a terminal ticket has been reopened.
 
 Runtime note: v1.0 does not hard-fail create/update when sections are missing. These sections are strongly recommended and enforced by process/tests rather than strict runtime schema rejection.
 Runtime note: v1.0 `update` only mutates YAML frontmatter. Section-backed fields such as Problem and Approach are not writable through the `update` action.
@@ -169,7 +173,7 @@ The owner configures how much autonomy Claude gets in `.claude/ticket.local.md`:
 |------|----------|
 | `suggest` (default) | Agents are **blocked** from all mutations. Only humans can create/update/close tickets. |
 | `auto_audit` | Agents **can** mutate tickets, subject to a per-session create cap (default 5). Every mutation is logged to a JSONL audit trail. |
-| `auto_silent` | Reserved for v1.1 — currently blocked. |
+| `auto_silent` | Reserved for a future release — currently blocked. |
 
 The session create cap prevents runaway agents from flooding the ticket directory. The audit trail at `docs/tickets/.audit/YYYY-MM-DD/<session_id>.jsonl` records every mutation with timestamps for traceability.
 
@@ -180,7 +184,7 @@ Key security properties:
 - **Workspace boundary enforcement**: hook payload paths and all ticket CLI `tickets_dir` arguments must resolve inside project/workspace root.
 - **Live policy reread for agent execute**: `AutonomyConfig` is still a frozen, self-healing type, but agent `execute` treats the on-disk config as authoritative and blocks if it diverges from the preflight snapshot.
 
-Known limitation (v1.3): create now uses exclusive file creation with bounded retry to prevent same-path silent overwrite, but concurrent autonomous creates are still not fully serialized. Session create cap enforcement and ID allocation are not lock-based, so parallel subagent execution can still overrun caps or allocate colliding IDs.
+Known limitation (current implementation): create now uses exclusive file creation with bounded retry to prevent same-path silent overwrite, but concurrent autonomous creates are still not fully serialized. Session create cap enforcement and ID allocation are not lock-based, so parallel subagent execution can still overrun caps or allocate colliding IDs.
 
 ## Module Reference
 
@@ -197,10 +201,23 @@ Known limitation (v1.3): create now uses exclusive file creation with bounded re
 | `ticket_id.py` | ID allocation: scans existing tickets for the next available `T-YYYYMMDD-NN` sequence number. |
 | `ticket_dedup.py` | Content fingerprinting: 5-step text normalization + SHA-256 hashing for duplicate detection. |
 | `ticket_triage.py` | Read-only health analysis: dashboard, stale ticket detection, blocked dependency chains, audit reporting, orphan detection. |
+| `ticket_paths.py` | Shared path validation helpers: resolves `tickets_dir` and rejects paths that escape the workspace root. |
 
 ### CLI Interface
 
-Both entrypoints use the same subcommand pattern:
+The package exposes five script entrypoint families:
+
+| Script | Subcommands | Use Case |
+|--------|-------------|----------|
+| `ticket_engine_user.py` | `classify`, `plan`, `preflight`, `execute` | Mutating 4-stage pipeline for user-initiated operations |
+| `ticket_engine_agent.py` | `classify`, `plan`, `preflight`, `execute` | Same pipeline, but with agent-origin autonomy enforcement |
+| `ticket_read.py` | `list`, `query` | Read-only ticket lookup and metadata filtering |
+| `ticket_triage.py` | `dashboard`, `audit` | Read-only health summaries and recent audit aggregation |
+| `ticket_audit.py` | `repair` | Audit-log repair with optional dry-run mode |
+
+#### Engine entrypoints
+
+Both mutation entrypoints use the same subcommand pattern:
 
 ```bash
 python3 scripts/ticket_engine_user.py <subcommand> <payload.json>
@@ -215,17 +232,44 @@ Subcommands: `classify`, `plan`, `preflight`, `execute`. Each reads a JSON paylo
 
 Exit codes: `0` (success), `1` (engine error), `2` (validation failure).
 
-Standalone audit remediation stays outside the engine pipeline:
+#### Read-only utilities
+
+`ticket_read.py` exposes the operator-facing query surface:
+
+```bash
+python3 scripts/ticket_read.py list <tickets_dir> [--status <status>] [--priority <priority>] [--tag <tag>] [--include-closed]
+python3 scripts/ticket_read.py query <tickets_dir> <id_prefix>
+```
+
+- `list` returns parsed ticket metadata and supports status, priority, tag, and archived-ticket filtering.
+- `query` performs ID-prefix lookup and returns structured ticket summaries.
+
+`ticket_triage.py` exposes read-only health checks:
+
+```bash
+python3 scripts/ticket_triage.py dashboard <tickets_dir>
+python3 scripts/ticket_triage.py audit <tickets_dir> [--days <n>]
+```
+
+- `dashboard` reports open/in-progress/blocked counts, stale tickets, blocked chains, and document-size warnings.
+- `audit` summarizes recent JSONL audit activity, grouped by action and result, over a configurable day window.
+
+Both scripts emit JSON to stdout. On successful runs they exit `0`; path/runtime errors exit `1`; CLI argument errors come from `argparse` and exit `2`.
+
+#### Audit remediation
+
+Audit repair stays outside the mutation pipeline:
 
 ```bash
 python3 scripts/ticket_audit.py repair <tickets_dir> [--dry-run]
 ```
 
 Use `--dry-run` to report corrupt audit files without writing. Repair mode creates `*.jsonl.bak-<YYYYMMDDTHHMMSSZ>` backups and rewrites the original JSONL file with only valid JSON-object lines.
+`ticket_audit.py` exits `0` on success and `1` on invalid arguments or repair failures.
 
 Path constraints:
 - Hook payload path must resolve under the current workspace root (`event.cwd`) or the command is denied.
-- `tickets_dir` must resolve under the calling process root (`Path.cwd()`) for entrypoint, read, and triage scripts. The default remains `docs/tickets`.
+- `tickets_dir` must resolve under the calling process root (`Path.cwd()`) for entrypoint, read, triage, and audit scripts. The default remains `docs/tickets`.
 
 ## Skills
 
@@ -242,6 +286,12 @@ Path constraints:
 
 See [The Hook Guard](#the-hook-guard-security-layer) for full architectural detail.
 
+## Environment Variables
+
+| Variable | Default / Source | Purpose |
+|----------|------------------|---------|
+| `CLAUDE_PLUGIN_ROOT` | No explicit default in `hooks/hooks.json`; inside `ticket_engine_guard.py`, the guard falls back to its own parent directory when resolving its internal root | Used to register the hook command path and to anchor the guard's engine/read allowlist patterns |
+
 ## Reference Files
 
 | File | Authority |
@@ -251,6 +301,8 @@ See [The Hook Guard](#the-hook-guard-security-layer) for full architectural deta
 ## Tests
 
 Plugin test coverage includes:
+
+Current suite: 388 tests across 15 files (`cd packages/plugins/ticket && uv run pytest --co -q`).
 
 | Test File | Coverage Area |
 |-----------|--------------|
