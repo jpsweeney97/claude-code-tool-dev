@@ -293,6 +293,48 @@ class TestSecretFileGate:
             with pytest.raises(GateBlockError, match="secret"):
                 _check_secret_files()
 
+    def test_certifi_cacert_pem_exempt(self) -> None:
+        """certifi CA bundle is a known-safe public artifact and must not block delegation."""
+        from scripts.codex_delegate import _check_secret_files
+        with patch("scripts.codex_delegate.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(
+                returncode=0,
+                stdout=".venv/lib/python3.14/site-packages/certifi/cacert.pem\n",
+            )
+            _check_secret_files()  # must not raise
+
+    def test_certifi_cacert_pem_exempt_nested_venv(self) -> None:
+        """Exemption applies at any depth — covers packages/*/venv layouts."""
+        from scripts.codex_delegate import _check_secret_files
+        with patch("scripts.codex_delegate.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(
+                returncode=0,
+                stdout="packages/context-injection/.venv/lib/python3.14/site-packages/certifi/cacert.pem\n",
+            )
+            _check_secret_files()  # must not raise
+
+    def test_certifi_other_pem_still_blocked(self) -> None:
+        """Only cacert.pem is exempt — other .pem files under certifi/ still block."""
+        from scripts.codex_delegate import _check_secret_files, GateBlockError
+        with patch("scripts.codex_delegate.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(
+                returncode=0,
+                stdout=".venv/lib/python3.14/site-packages/certifi/private.pem\n",
+            )
+            with pytest.raises(GateBlockError, match="secret"):
+                _check_secret_files()
+
+    def test_node_modules_pem_still_blocked(self) -> None:
+        """node_modules .pem files are not exempt — only certifi/cacert.pem is."""
+        from scripts.codex_delegate import _check_secret_files, GateBlockError
+        with patch("scripts.codex_delegate.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(
+                returncode=0,
+                stdout="node_modules/some-pkg/cert.pem\n",
+            )
+            with pytest.raises(GateBlockError, match="secret"):
+                _check_secret_files()
+
     def test_git_timeout_blocks_with_git_error_gate(self) -> None:
         from scripts.codex_delegate import _check_secret_files, GateBlockError
         with patch("scripts.codex_delegate.subprocess") as mock_sub:

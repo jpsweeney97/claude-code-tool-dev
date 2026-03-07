@@ -75,6 +75,12 @@ _STDOUT_MAX_BYTES = 50 * 1024 * 1024
 _SECRET_EXACT_NAMES = {".env", ".npmrc", ".netrc", "auth.json"}
 _SECRET_GLOBS = {"*.pem", "*.key", "*.p12", ".env.*"}
 _TEMPLATE_EXEMPTIONS = {".env.example", ".env.sample", ".env.template"}
+# Known-safe public artifacts — exact path-tail match (component-based, not substring).
+# Each entry is a tuple of the final N path components that unambiguously identify a
+# non-secret public file. *.pem remains blocked everywhere else.
+_SAFE_ARTIFACT_TAILS: frozenset[tuple[str, ...]] = frozenset({
+    ("certifi", "cacert.pem"),  # Python certifi CA bundle — public root certificates only
+})
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +327,11 @@ def _check_secret_files() -> None:
 
         # Template exemptions (checked first)
         if name in _TEMPLATE_EXEMPTIONS:
+            continue
+
+        # Known-safe public artifacts — exempt by exact path tail
+        parts = Path(filepath).parts
+        if any(parts[-len(tail):] == tail for tail in _SAFE_ARTIFACT_TAILS):
             continue
 
         # Exact name match
