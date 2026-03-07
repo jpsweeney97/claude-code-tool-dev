@@ -1,8 +1,8 @@
 # Delegation Capability — Design Spec
 
 **Date:** 2026-03-06
-**Status:** Design — pending review
-**Source:** Comparison with [skill-codex](https://github.com/skills-directory/skill-codex.git) + 2 Codex consultations
+**Status:** Design — reviewed (8 rounds: 7 evaluative + 10 adversarial/collaborative + 5 adversarial amendments + 4 adversarial plan review + 6 Codex audit of spec+plan + 5 exploratory plan review + 5 adversarial cross-layer review + 5 parallel agent review)
+**Source:** Comparison with [skill-codex](https://github.com/skills-directory/skill-codex.git) + 2 Codex consultations + 3 Codex dialogues (evaluative `019cc3c6`, adversarial `019cc3f0`, collaborative `019cc41a`)
 
 ---
 
@@ -45,16 +45,91 @@ The skill does not construct `codex exec` commands inline. A local adapter scrip
 - Prompt credential scanning (pre-dispatch)
 - `codex exec` subprocess invocation
 - JSONL event stream parsing
-- Session/thread ID extraction
+- Thread ID extraction
 - Analytics event emission
 
 The skill's only job is to: parse user arguments, write input JSON, run the adapter, review changes, report results.
 
 ### Clean-tree gate
 
-`codex exec` modifies the working tree. Reliable diff attribution requires knowing what Codex changed vs. what was already dirty. Step 1 enforces a clean-tree precondition — the adapter checks `git status --porcelain` and fails deterministically if the tree is dirty.
+`codex exec` modifies the working tree. Reliable diff attribution requires knowing what Codex changed vs. what was already dirty. Step 1 enforces a clean-tree precondition.
+
+**Gate implementation:** The adapter runs `git status --porcelain=v1 -z --ignore-submodules=none` and blocks if the output is non-empty.
+
+| State | Blocks | Rationale |
+|-------|--------|-----------|
+| Staged changes | Yes | Would conflate with Codex's changes in `git diff` |
+| Unstaged modifications | Yes | Same attribution problem |
+| Untracked files | Yes | Codex may create files with conflicting names |
+| Dirty submodules | Yes | `--ignore-submodules=none` catches these |
+| Ignored files | No | Not visible to `git diff`, no attribution risk |
+
+**Non-git directories:** Fail deterministically with `"repo resolution failed: not a git repository"`. The adapter requires a git repo.
+
+**Scope:** The gate blocks on *any* dirty file, not just files in the task's scope. Task-scoped gating without a path envelope gives false precision — Codex may touch files the user didn't anticipate. Broad blocking is the correct Step 1 behavior.
 
 Future steps add worktree-based execution (create a disposable worktree, run Codex there, review changes, merge or discard).
+
+### Readable-secret-file gate
+
+The clean-tree gate passes ignored files (they don't affect `git diff` attribution). But `.gitignore`'d files like `.env`, `*.pem`, and `*.key` are fully readable by Codex within the `workspace-write` sandbox. The adapter includes a best-effort gate to catch common secret files.
+
+**Gate implementation:** After the clean-tree gate passes, run `git ls-files --others --ignored --exclude-standard` and match output against high-confidence secret pathspecs:
+
+```
+.env  .env.*  *.pem  *.key  *.p12  .npmrc  .netrc  auth.json
+```
+
+**Template exemptions:** Files matching `.env.example`, `.env.sample`, `.env.template` are excluded from the match.
+
+**On match:** Block with `status=blocked` listing matched paths. No bypass flag in Step 1 — per-invocation bypass undermines the guard. Allowlist configuration deferred to Step 2.
+
+**Limitations:** This is a best-effort gate, not a guarantee. It catches common patterns but cannot detect secrets in arbitrarily-named files. The trust model section documents this explicitly.
+
+---
+
+## Safety & Trust Model
+
+`/delegate` operates under a **narrower safety contract** than `/codex` or `/dialogue`. The consultation contract (`references/consultation-contract.md`) does NOT govern delegation.
+
+**Single-user assumption:** This plugin is used by a single developer who controls `.codex/config.toml` and the Codex CLI environment. Ambient Codex configuration (approval policy, network settings, writable roots) is always aligned with the user's intent. The adapter does not preflight or constrain Codex's effective configuration.
+
+| Layer | Consultation (`/codex`, `/dialogue`) | Delegation (`/delegate`) |
+|-------|--------------------------------------|--------------------------|
+| **Primary enforcement** | Prompt sanitization (credential guard hook) | Sandbox containment + repo-state gating |
+| **Secondary** | MCP transport isolation | Prompt credential scan (defense-in-depth) |
+| **Tertiary** | — | Readable-secret-file gate (best-effort) |
+| **Contract** | Consultation contract | This spec (delegation contract) |
+| **Trust boundary** | Codex sees only the prompt text | Codex reads repo files autonomously within sandbox |
+
+### Security posture
+
+`/delegate` is appropriate for repos whose **tracked readable contents** the user is willing to expose to Codex. The readable-secret-file gate provides best-effort blocking of common `.gitignore`'d secret files, but does not guarantee repos are secret-free.
+
+Specifically:
+- Tracked files in the repo are readable by Codex during autonomous execution.
+- Common untracked secret files (`.env`, `*.pem`, `*.key`) are blocked by the readable-secret-file gate.
+- Arbitrarily-named secret files in `.gitignore` are NOT detected.
+- The sandbox constrains writes and command execution, not reads.
+
+### Key implications
+
+1. **Sandbox is the primary enforcement layer.** The sandbox constrains what commands Codex can execute and what files it can write.
+
+2. **Prompt scanning is defense-in-depth only.** The adapter scans the delegation prompt for credentials before dispatch. This catches accidental credential inclusion in the user's instruction but does NOT prevent Codex from reading credentials in repo files.
+
+3. **`danger-full-access` is blocked entirely in Step 1.** This prevents arbitrary system access until stronger controls exist (Step 2+).
+
+4. **`-c` config overrides are adapter-synthesized only.** The adapter synthesizes exactly one `-c` override: `-c model_reasoning_effort=...` from the `reasoning_effort` enum field. Arbitrary `-c` is not exposed in the input schema.
+
+### Governance rules
+
+1. **No auto-escalation:** `danger-full-access` is blocked entirely in Step 1.
+2. **`--full-auto` is opt-in only:** Never auto-enable. Never "offer" it implicitly. Requires explicit user flag.
+3. **Clean tree required:** Delegation fails deterministically on dirty trees.
+4. **Credential scan is fail-closed:** If scan cannot complete (scanner error), block dispatch.
+5. **Claude reviews all changes:** The skill always runs `git status --short` after delegation and presents Claude's assessment before considering the task complete.
+6. **No user content echoed before credential scan:** Error messages from pipeline steps before the credential scan never include user-provided string values.
 
 ---
 
@@ -62,20 +137,42 @@ Future steps add worktree-based execution (create a disposable worktree, run Cod
 
 ### 1. Shared event log helper (`scripts/event_log.py`)
 
-Extract duplicated log infrastructure into a shared module. Currently duplicated across `codex_guard.py` and `emit_analytics.py`.
+Extract log infrastructure into a shared module for use by `emit_analytics.py` and `codex_delegate.py`.
+
+**Scope:** Analytics-emitter only. `codex_guard.py` is **not migrated** — it keeps its own `_ts()` (microsecond precision) and `session_id="unknown"` default. This avoids unrelated behavior changes to the guard's existing log shape.
 
 **Exports:**
 
 ```python
 LOG_PATH: Path          # ~/.claude/.codex-events.jsonl
-def ts() -> str         # ISO 8601 UTC with Z suffix
-def append_log(entry: dict) -> bool  # Atomic append, returns success
+def ts() -> str         # ISO 8601 UTC with Z suffix (second precision)
+def append_log(entry: dict) -> bool  # Append-mode write, returns success
 def session_id() -> str | None       # From CLAUDE_SESSION_ID, nullable, never fabricated
 ```
 
-**Migration:** Update `codex_guard.py` and `emit_analytics.py` to import from `event_log.py`. No behavior changes.
+**Consumers:** `emit_analytics.py` (replaces local `_append_log`, `_ts`, `_session_id`) and `codex_delegate.py` (new).
 
-### 2. Adapter script (`scripts/codex_delegate.py`)
+### 2. Shared credential scanner (`scripts/credential_scan.py`)
+
+Extract credential detection from `codex_guard.py` into a public module. Both the hook and the adapter import from it.
+
+**Exports:**
+
+```python
+@dataclass
+class ScanResult:
+    action: Literal["allow", "block", "shadow"]
+    tier: str | None       # "strict", "contextual", "broad", or None for allow
+    reason: str | None     # Human-readable match description
+
+def scan_text(text: str) -> ScanResult
+```
+
+**`scan_text` behavior:** Runs strict tier, then contextual tier (with placeholder suppression), then broad tier. Returns on first match. `action="allow"` if no patterns match.
+
+**Migration:** `codex_guard.py` imports `scan_text` from `credential_scan.py` and calls it from `_check_prompt()`. Hook entry point (`main()`), stdin parsing, exit code semantics, and all `PostToolUse` logic remain in `codex_guard.py`. The hook's external interface is unchanged.
+
+### 3. Adapter script (`scripts/codex_delegate.py`)
 
 Single entry point for all delegation. Claude makes one Bash call; the adapter handles everything.
 
@@ -85,82 +182,155 @@ JSON file with fields:
 
 | Field | Type | Required | Default |
 |-------|------|----------|---------|
-| `prompt` | string | Yes (fresh) | — |
+| `prompt` | string | Yes | — |
 | `model` | string | No | Codex default |
 | `sandbox` | enum | No | `workspace-write` |
 | `reasoning_effort` | enum | No | `high` |
+
+**Reasoning effort values:** `minimal`, `low`, `medium`, `high`, `xhigh`.
 | `full_auto` | bool | No | `false` |
-| `resume_last` | bool | No | `false` |
 
-**Sandbox values:** `read-only`, `workspace-write`. `danger-full-access` is rejected in Step 1.
+**Sandbox values:** `read-only`, `workspace-write`. `danger-full-access` is rejected: `"policy: danger-full-access not supported in Step 1"`.
 
-**Resume constraints:** When `resume_last=true`, `prompt` is optional (stdin prompt), `-m` is supported, `-s` is not (Codex CLI limitation). Fields `sandbox`, `reasoning_effort`, `full_auto` are ignored on resume.
+**`prompt` is required.** Absent or empty prompt → `"validation failed: prompt required"`.
 
 #### Pipeline
 
 ```
-1. Read input JSON
-2. Validate fields (reject unknown, check enums, check conflicts)
-3. Conflict check: --full-auto + -s read-only → deterministic error
-4. Clean-tree gate: git status --porcelain → block if dirty (list dirty paths)
-5. Credential scan: strict + contextual tiers from codex_guard.py patterns
-   → block on match (log block event)
-6. Build codex exec command:
-   - codex exec --json -o /tmp/codex_delegate_output_{uuid}.txt
-   - Resolved flags: -s, -m, -c model_reasoning_effort=..., --full-auto
-   - No --skip-git-repo-check (Codex's own repo guard is additive safety)
-7. Run subprocess, capture JSONL stdout + exit code
-8. Parse JSONL events:
-   - thread.started → extract thread_id
-   - item.completed → collect commands_run (type=command_execution)
-   - turn.completed → extract token_usage (nullable)
-   - error → capture error details
-9. Read -o output file → summary (nullable)
-10. Emit delegation_outcome event to log
-11. Return structured JSON to stdout
+ 1. Resolve repo root: git rev-parse --show-toplevel → chdir
+ 2. Allocate temp files (0600 permissions via Python tempfile API)
+ 3. Read input JSON (Phase A — file exists, parses as JSON object)
+ 4. Credential scan on prompt field (before any user content is echoed)
+ 5. Validate fields (Phase B — reject unknown, check enums, check conflicts)
+ 6. CLI version check: codex --version → require >= 0.111.0 (timeout=10s)
+ 7. Clean-tree gate: git status --porcelain=v1 -z --ignore-submodules=none (timeout=10s)
+ 8. Readable-secret-file gate: git ls-files --others --ignored --exclude-standard (timeout=10s)
+ 9. Build codex exec command:
+    codex exec --json -o {output_tempfile}
+    Resolved flags: -s, -m, -c model_reasoning_effort=..., --full-auto
+    No --skip-git-repo-check
+10. Run subprocess (timeout=600s), capture JSONL stdout + exit code
+11. Parse JSONL events (tolerant — see JSONL Parsing below)
+12. Read -o output file → summary (nullable)
+13. Emit delegation_outcome event to log (only if step 3 succeeded)
+14. Clean up temp files in finally block
+    → Return structured JSON to stdout
 ```
+
+**Split validation (P0-3 fix):** Steps 3-5 implement a two-phase validation. Phase A (step 3) parses the input without echoing content. Step 4 runs the credential scan on the `prompt` field. Phase B (step 5) performs semantic validation (enums, conflicts) and may reference field names and enum literals in error messages but never echoes arbitrary user-provided string values. This ensures no credential can leak via error messages.
+
+**Type validation (Round 5 B3, Round 7 R7-24):** Phase B must verify types before membership tests. `sandbox=[]` or `reasoning_effort=123` would raise `TypeError` on `not in set(...)` instead of the deterministic "validation failed" contract. Add `isinstance(value, str)` checks before set membership for `sandbox`, `reasoning_effort`, and `model` (non-string model would cause non-string in subprocess command). Add `isinstance(value, bool)` check for `full_auto` — non-bool values like `1` or `"true"` must be rejected.
+
+**Empty-string normalization (R6-B5):** Phase A (`_parse_input`) must normalize `model=""` to `None`. An empty string passes Phase B's `isinstance(model, str)` check but is silently dropped by `_build_command`'s `if model:` guard, causing the analytics event to log `model=""` while execution uses Codex's default model. Normalizing in Phase A ensures analytics and execution agree.
+
+**`-c` config overrides:** The adapter synthesizes `-c model_reasoning_effort={value}` from the `reasoning_effort` input field. This is the only `-c` override. Arbitrary `-c` passthrough is not exposed in the input schema.
+
+#### JSONL Parsing
+
+Tolerance model matches `read_events.py:read_all()` — parse what you can, skip what you can't.
+
+| Condition | Handling |
+|-----------|----------|
+| Non-JSON line | Skip, log warning to stderr, continue |
+| Valid JSON but not an object | Skip, continue |
+| Unknown event type | Ignore (forward compatibility) |
+| Known event missing expected fields | Degrade gracefully — use `None` for missing fields |
+| `turn.failed` event | Capture as runtime failure detail in output |
+| `error` event | Capture error details for reporting |
+| Zero usable events after parsing | Fatal — return `status=error` with reason `"no usable JSONL events"`. Only events whose `type` matches a known event family (the seven types in the table below) count as usable. Unknown event types are skipped. |
+
+**Extraction targets:**
+
+| Event | Extraction | Nullable |
+|-------|-----------|----------|
+| `thread.started` | `thread_id` | Yes — nullable; if missing, keep `None` and log warning |
+| `item.completed` (type=`command_execution`) | `command`, `exit_code` → `commands_run` | Yes — empty list if no commands |
+| `item.completed` (type=`agent_message`) | `text` → last message as candidate summary | Yes |
+| `turn.completed` | `usage.input_tokens`, `usage.output_tokens` → `token_usage` | Yes |
+| `turn.failed` | Error details → `runtime_failures` | Yes — empty list if none |
+
+#### Failure Modes
+
+Each pipeline step has deterministic failure handling:
+
+| Step | Failure | Status | Exit | Message pattern |
+|------|---------|--------|------|-----------------|
+| 1 | Not a git repo | `error` | 1 | `"repo resolution failed: not a git repository"` |
+| 2 | Temp file creation fails | `error` | 1 | `"temp allocation failed: {reason}"` |
+| 3 | Input file missing/unreadable | `error` | 1 | `"input read failed: {reason}"` |
+| 3 | Input is not valid JSON | `error` | 1 | `"input parse failed: invalid JSON"` |
+| 4 | Credential match | `blocked` | 0 | Log block event, report matched tier |
+| 4 | Scanner error | `blocked` | 0 | `"credential scan failed: {reason}"` |
+| 5 | Unknown field in input | `error` | 1 | `"validation failed: unknown field '{field}'"` |
+| 5 | Invalid enum value | `error` | 1 | `"validation failed: invalid {field} value"` |
+| 5 | --full-auto + read-only | `error` | 1 | `"conflict: --full-auto and -s read-only are mutually exclusive"` |
+| 6 | `codex` not found in PATH | `error` | 1 | `"version check failed: codex not found in PATH"` |
+| 6 | Version below 0.111.0 | `error` | 1 | `"version check failed: codex {version} < 0.111.0"` |
+| 6 | Unparseable version output | `error` | 1 | `"version check failed: cannot parse codex --version output"` |
+| 7 | Dirty tree | `blocked` | 0 | List dirty paths in error field |
+| 7 | Git command failure (non-zero returncode) | `blocked` | 0 | `"clean-tree check failed: git status returned non-zero"` (R6-B2: gate=`git_error`, not `clean_tree`) |
+| 8 | Readable secret file found | `blocked` | 0 | List matched secret file paths |
+| 8 | Git ls-files command failure | `blocked` | 0 | `"secret-file check failed: git ls-files returned non-zero"` (R6-B2: gate=`git_error`) |
+| 9 | Flag-building logic error | `error` | 1 | `"command build failed: {reason}"` |
+| 10 | Subprocess spawn failure | `error` | 1 | `"exec failed: subprocess spawn error. {reason}"` |
+| 10 | Subprocess timeout | `error` | 1 | `"exec failed: process timeout"` |
+| 11 | Zero usable JSONL events | `error` | 1 | `"parse failed: no usable JSONL events from codex exec"` |
+| 11 | Partial parse (some malformed) | `ok` (degraded) | 0 | Log warnings, proceed with parsed events |
+| 12 | Output file absent | `ok` (degraded) | 0 | `summary=null`, log warning |
+| 13 | Log write failure | `ok` (degraded) | 0 | Event lost, log warning to stderr |
+| 14 | Temp cleanup failure | N/A | N/A | Non-fatal, log warning to stderr |
+
+**Note:** Steps 3 and 5 never echo arbitrary user-provided string values in error messages. Step 3 reports structural parse errors only. Step 5 may reference field names and enum literals but not the prompt or other user-authored content.
+
+**Emission rule:** `delegation_outcome` events are emitted only if step 3 (Phase A parse) succeeds. If the input file is missing, unreadable, or not valid JSON, no event is logged — the adapter has insufficient data to construct a meaningful event.
+
+#### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success, blocked, or degraded (check `status` field) |
+| 1 | Adapter error (bad input, internal failure) |
+
+Exit 0 for `blocked` is intentional — the adapter communicates blocks cleanly via structured JSON. A non-zero exit for `blocked` would trigger the `PostToolUseFailure` Bash hook in `hooks.json`, causing unintended nudge behavior.
 
 #### Output
 
 ```json
 {
   "status": "ok|error|blocked",
+  "dispatched": true,
   "thread_id": "...",
   "summary": null,
   "commands_run": [
     {"command": "...", "exit_code": 0}
   ],
-  "exit_code": 0,
+  "exit_code": null,
   "token_usage": null,
+  "runtime_failures": [],
+  "blocked_paths": [],
   "error": null
 }
 ```
 
-`summary` is nullable — a failing run may not produce a final assistant message. `token_usage` is nullable — an erroring run may not emit `turn.completed`.
+**`blocked_paths`:** Always present, defaults to `[]`. Non-empty when `status=blocked` and the block was caused by dirty files or readable secret files. Contains the list of paths that triggered the gate. Enables the skill to report specific files to the user (R6-B1).
+
+`dispatched` is `true` if the subprocess was launched (step 10 executed), `false` otherwise. Enables the skill to distinguish "Codex never ran" from "Codex ran and failed" — on `status=error` with `dispatched=true`, the skill must run change review (Codex may have modified files before the error). `summary` is nullable — a failing run may not produce a final assistant message. `token_usage` is nullable — an erroring run may not emit `turn.completed`. `exit_code` is always present in output. `null` when `dispatched=false` or when the subprocess exit code could not be captured. Integer when `dispatched=true` and the process completed. `runtime_failures` captures `turn.failed` events (empty list if none).
 
 **Status values:**
 
 | Status | Meaning |
 |--------|---------|
 | `ok` | `codex exec` completed (exit code may still be non-zero) |
-| `blocked` | Pre-dispatch gate failed (credential match or dirty tree) |
-| `error` | Adapter-level failure (bad input, subprocess crash, parse failure) |
+| `blocked` | Pre-dispatch gate failed (credential, dirty tree, readable secret, or scanner error) |
+| `error` | Adapter-level failure (bad input, subprocess crash, parse failure, version mismatch) |
 
-#### Error format
+#### Temp file cleanup
 
-All errors follow the project convention:
-`"{operation} failed: {reason}. Got: {input!r:.100}"`
+> **Amended (F6):** Creation-ownership — each creator cleans its own file. The skill creates the input JSON and cleans it. The adapter creates the `-o` output file and cleans it. This replaces the original design where the adapter cleaned both.
 
-#### Exit codes
+The adapter must unlink the `-o` output file in a `finally` block on all Python exit paths (success, error, blocked). The skill cleans the input JSON file after the adapter returns. SIGKILL bypasses Python's `finally` — this is accepted as a local same-user residue risk, not a remote disclosure. Cleanup failure is non-fatal but logged to stderr.
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success or blocked (check `status` field) |
-| 1 | Adapter error (bad input, internal failure) |
-
-Exit 0 for blocked is intentional — the adapter communicated the block cleanly via structured output. Exit 1 means the adapter itself failed.
-
-### 3. Delegation skill (`skills/delegate/SKILL.md`)
+### 4. Delegation skill (`skills/delegate/SKILL.md`)
 
 #### Frontmatter
 
@@ -173,7 +343,7 @@ description: >-
   "run this with codex", or wants Codex to write code, fix bugs,
   or refactor autonomously. Not for consultation — use /codex
   or /dialogue for second opinions.
-argument-hint: "[-m <model>] [-s {read-only|workspace-write}] [-t {minimal|low|medium|high|xhigh}] [--full-auto] [--resume] PROMPT"
+argument-hint: "[-m <model>] [-s {read-only|workspace-write}] [-t {minimal|low|medium|high|xhigh}] [--full-auto] PROMPT"
 user-invocable: true
 ---
 ```
@@ -186,12 +356,10 @@ user-invocable: true
    -s <sandbox>         → sandbox (default: workspace-write)
    -t <effort>          → reasoning_effort (default: high)
    --full-auto          → full_auto (requires explicit flag)
-   --resume             → resume_last (mutually exclusive with fresh flags)
 
 2. Validate:
    - --full-auto + -s read-only → error
    - danger-full-access → error ("not supported in this version")
-   - --resume with -s → error ("-s not supported on resume")
 
 3. Write input JSON to $TMPDIR/codex_delegate_input_{random}.json
 
@@ -203,28 +371,23 @@ user-invocable: true
    - error → relay error to user
    - ok → proceed to review
 
-6. Review changes:
-   - Run: git status --short
-   - Run: git diff (for modified files)
+6. Resolve repo root for review:
+   - Run: git rev-parse --show-toplevel → cd to repo root
+
+7. Review changes:
+   - Run: git status --short (from repo root — catches all changes including new files)
+   - Run: git diff (for modified tracked files)
    - Present summary: what Codex did, which files changed, commands it ran
    - Claude's own assessment of the changes (quality, correctness, completeness)
 
-7. Report to user:
+8. Report to user:
    - Codex's summary (from adapter output)
    - Files changed (from git status --short)
    - Claude's assessment
-   - Thread ID for potential resume
+   - Thread ID (diagnostic — for manual codex exec resume if needed)
 ```
 
-#### Governance
-
-1. **No auto-escalation:** `danger-full-access` is blocked entirely in Step 1.
-2. **`--full-auto` is opt-in only:** Never auto-enable. Never "offer" it implicitly. Requires explicit user flag.
-3. **Clean tree required:** Delegation fails deterministically on dirty trees.
-4. **Credential scan is fail-closed:** If scan cannot complete, block dispatch.
-5. **Claude reviews all changes:** The skill always runs `git status --short` after delegation and presents Claude's assessment before considering the task complete.
-
-### 4. Analytics event (`delegation_outcome`)
+### 5. Analytics event (`delegation_outcome`)
 
 New event type in the JSONL log.
 
@@ -235,42 +398,130 @@ New event type in the JSONL log.
   "ts": "2026-03-06T12:00:00Z",
   "consultation_id": "uuid",
   "session_id": "from-env-or-null",
-  "thread_id": "from-codex-jsonl",
+  "thread_id": "from-codex-jsonl-or-null",
+  "dispatched": true,
   "sandbox": "workspace-write",
   "model": null,
   "reasoning_effort": "high",
   "full_auto": false,
-  "resume": false,
   "credential_blocked": false,
   "dirty_tree_blocked": false,
+  "readable_secret_file_blocked": false,
   "commands_run_count": 3,
   "exit_code": 0,
   "termination_reason": "complete"
 }
-
 ```
 
-**`termination_reason` values:** `complete`, `error`, `blocked`
+**`termination_reason` values:**
+
+| Value | Meaning |
+|-------|---------|
+| `complete` | Codex ran and exited 0 |
+| `error` | Codex ran with non-zero exit, or adapter failure post-gates |
+| `blocked` | Pre-dispatch gate failed (credential, dirty tree, readable secret, or git error) |
+
+**Derivation hierarchy (Round 5 B5):** `termination_reason` is derived from `dispatched` and `blocked_by` first, then `exit_code`. The adapter must not trust arbitrary caller combinations — derive deterministically:
+
+1. If `blocked_by` is set → `"blocked"` (regardless of dispatched/exit_code)
+2. If `dispatched=false` and no `blocked_by` → `"error"` (pre-dispatch adapter failure)
+3. If `dispatched=true` and `exit_code == 0` → `"complete"`
+4. If `dispatched=true` and `exit_code != 0` (or None) → `"error"`
+
+This prevents impossible states like `dispatched=false, exit_code=0, blocked_by=None → "complete"`.
+
+**`blocked_by` values:**
+
+| Value | Sets analytics boolean |
+|-------|----------------------|
+| `credential` | `credential_blocked=True` |
+| `clean_tree` | `dirty_tree_blocked=True` |
+| `secret_files` | `readable_secret_file_blocked=True` |
+| `git_error` | none (all three `False`) |
+| `None` | none (not blocked) |
+
+**`dispatched` field:** `true` if Codex actually ran (steps 10+ executed), `false` if blocked or errored before dispatch. Separates "Codex ran" from "adapter handled an invocation."
+
+**`exit_code`:** Nullable. Only present when `dispatched=true`. The subprocess exit code from `codex exec`.
+
+**`thread_id`:** Nullable. Only present when `dispatched=true` and JSONL contained a `thread.started` event. Diagnostic only — not used as a resume token in Step 1.
+
+**`consultation_id`:** Opaque event instance UUID. Preserved for compatibility as a universal event correlation key across `dialogue_outcome`, `consultation_outcome`, and `delegation_outcome`. Not a consultation-scoped key despite the name.
 
 **`session_id` contract:** Nullable, never fabricated. Read from `CLAUDE_SESSION_ID` environment variable. Absent or whitespace-only → `null`. Mirrors `emit_analytics.py` behavior exactly.
 
-**Emission:** The adapter writes directly to `~/.claude/.codex-events.jsonl` via the shared `event_log.py` helper. No routing through `emit_analytics.py` — delegation events don't need synthesis parsing or convergence mapping.
+**`token_usage` observability boundary:** The adapter output includes `token_usage` for the skill's benefit (Claude can report cost to the user). The analytics event intentionally omits it — consistent with `dialogue_outcome` and `consultation_outcome`, neither of which persists token usage.
 
-### 5. Event reader update (`read_events.py`)
+**`schema_version` bump policy:** Hard-coded `"0.1.0"` for initial release. Bump to `"0.2.0"` when adding new required fields.
 
-Add `delegation_outcome` to `_KNOWN_UNSTRUCTURED` set. This prevents `--validate` from reporting delegation events as unknown.
+**Emission:** The adapter writes directly to `~/.claude/.codex-events.jsonl` via the shared `event_log.py` helper. No routing through `emit_analytics.py` — delegation events don't need synthesis parsing or convergence mapping. Events are emitted only if input JSON parsing (step 3) succeeds.
+
+### 6. Event reader update (`read_events.py`)
+
+Add `delegation_outcome` to `_REQUIRED_FIELDS` with schema validation:
 
 ```python
-_KNOWN_UNSTRUCTURED = {"block", "shadow", "consultation", "delegation_outcome"}
+_REQUIRED_FIELDS = {
+    "dialogue_outcome": [...existing...],
+    "consultation_outcome": [...existing...],
+    "delegation_outcome": {
+        "schema_version",
+        "event",
+        "ts",
+        "consultation_id",
+        "session_id",
+        "thread_id",
+        "dispatched",
+        "sandbox",
+        "model",
+        "reasoning_effort",
+        "full_auto",
+        "credential_blocked",
+        "dirty_tree_blocked",
+        "readable_secret_file_blocked",
+        "commands_run_count",
+        "exit_code",
+        "termination_reason",
+    },
+}
 ```
 
-Full schema validation for `delegation_outcome` (like `dialogue_outcome` has) is deferred until the event shape stabilizes after real usage.
+**Nullable fields:** `session_id`, `model`, `reasoning_effort`, `thread_id`, `exit_code` — present in event but may be `null`. Validation checks field presence, not value.
+
+### 7. Stats update (`scripts/compute_stats.py`)
+
+Add delegation support with a new section type and template.
+
+**New `_DELEGATION_TEMPLATE`:**
+
+```python
+_DELEGATION_TEMPLATE = {
+    "included": False,
+    "sample_size": 0,
+    "complete_count": 0,
+    "error_count": 0,
+    "blocked_count": 0,
+    "credential_block_count": 0,
+    "dirty_tree_block_count": 0,
+    "readable_secret_file_block_count": 0,
+    "sandbox_counts": {},            # {"workspace-write": N, "read-only": N}
+    "full_auto_count": 0,
+    "avg_commands_run": null,
+    "avg_commands_run_observed_count": 0,
+}
+```
+
+**Section matrix:** Add `"delegation"` key mapping to `_compute_delegation` function. Add `--type delegation` support.
+
+**Usage template:** Add `delegations_completed_total` field to `_USAGE_TEMPLATE`. Computed as count of `delegation_outcome` events where `dispatched=true`. No `posture_counts` contribution — delegation has no posture.
+
+**`--json` no-op flag:** Add `--json` to `argparse` as a no-op flag (script always outputs JSON). Fixes pre-existing bug: `consultation-stats/SKILL.md` passes `--json` which currently causes an unrecognized argument error.
 
 ---
 
 ## Credential Scanning
 
-The adapter reuses the pattern lists from `codex_guard.py` (strict + contextual tiers). This is the same credential detection that guards MCP-based consultation, applied to the delegation prompt before it reaches `codex exec`.
+The adapter imports `scan_text()` from the shared `credential_scan.py` module (strict + contextual tiers). This is the same credential detection that guards MCP-based consultation, applied to the delegation prompt before it reaches `codex exec`.
 
 **Why not a Bash PreToolUse hook?** The existing hook infrastructure only matches the two Codex MCP tools. A Bash PreToolUse hook would fire on every Bash call — not just delegation. The adapter-level scan is more precise: it only runs when delegation is the intent.
 
@@ -280,6 +531,8 @@ Step 2 of the roadmap adds a Bash hook or adapter-level credential scan for user
 
 ## Codex CLI Surface (verified against codex-cli 0.111.0)
 
+**Minimum version:** `>= 0.111.0`. The adapter checks `codex --version` on every invocation and fails closed if the version is below the floor or unparseable.
+
 ### `codex exec` flags
 
 | Flag | Supported | Notes |
@@ -288,30 +541,20 @@ Step 2 of the roadmap adds a Bash hook or adapter-level credential scan for user
 | `-o / --output-last-message` | Yes | Writes final assistant message to file |
 | `-m / --model` | Yes | Model selection |
 | `-s / --sandbox` | Yes | `read-only`, `workspace-write`, `danger-full-access` |
-| `-c key=value` | Yes | Config overrides (used for `model_reasoning_effort`) |
+| `-c key=value` | Yes | Config overrides (adapter-synthesized `model_reasoning_effort` only) |
 | `--full-auto` | Yes | Convenience alias: `-s workspace-write` + approval `on-request` |
 | `--skip-git-repo-check` | Yes | **Not used** — adapter requires git repo |
 | `-a / --ask-for-approval` | **No** | Not available in exec mode |
-
-### `codex exec resume` flags
-
-| Flag | Supported | Notes |
-|------|-----------|-------|
-| `--last` | Yes | Resume most recent session |
-| `--json` | Yes | JSONL output |
-| `-o` | Yes | Output file |
-| `-m` | Yes | Model selection |
-| `--full-auto` | Yes | Auto-approve |
-| `-s / --sandbox` | **No** | Not available on resume |
 
 ### JSONL event families (from official docs)
 
 | Event type | Key fields | Adapter use |
 |------------|-----------|-------------|
 | `thread.started` | `thread_id` | Extract thread ID |
-| `turn.started` | — | Ignored |
+| `turn.started` | — | Ignored (R6-B7: must be in `_KNOWN_EVENT_TYPES` — counted as usable but no extraction) |
 | `turn.completed` | `usage.input_tokens`, `usage.output_tokens` | Token usage (nullable) |
-| `item.started` | `item.type`, `item.command` | Ignored |
+| `turn.failed` | Error details | Capture as runtime failure |
+| `item.started` | `item.type`, `item.command` | Ignored (R6-B7: must be in `_KNOWN_EVENT_TYPES` — prevents misleading "no usable events" on early failure) |
 | `item.completed` | `item.type`, `item.command`, `item.exit_code`, `item.text` | Commands run, messages |
 | `error` | Error details | Capture for reporting |
 
@@ -323,10 +566,14 @@ These are explicitly deferred to future steps:
 
 | Step | Capability | Depends on |
 |------|-----------|------------|
+| 1b | Resume support (`codex exec resume`) | Step 1 deployed + identity-based resume design |
 | 2 | Bash PreToolUse hook for manual `codex exec` calls | Step 1 deployed |
+| 2 | Per-invocation secret-file allowlist configuration | Step 1 deployed + usage feedback |
 | 3 | Dirty-tree gating with temp-worktree execution | Step 1 deployed |
 | 4 | MCP server wrapping `codex exec` (typed delegation tools) | Other skills/agents needing typed calls |
 | 5 | `codex-executor` agent (orchestrated multi-step delegation) | Stable transport contract from Steps 1-4 |
+
+**Resume rationale (D20):** `codex exec resume --last` is CWD-scoped and heuristic — any manual `codex exec` from the repo root can cause the next resume to target the wrong session. Identity-based resume (using `thread_id` as an explicit token) requires verifying that the JSONL `thread_id` is a valid resumable session identifier, which is not documented for `codex-cli 0.111.0`. Deferred until verified.
 
 ---
 
@@ -343,10 +590,36 @@ These are explicitly deferred to future steps:
 | D7 | Drop `--skip-git-repo-check` | Adapter requires git repo for clean-tree gate and diff review; Codex's own repo guard is additive | Codex consultation 2 |
 | D8 | `thread_id` canonical, no `session_id` from JSONL | Docs document `thread_id` in JSONL; no documented `session_id` in event stream | Codex consultation 2 |
 | D9 | `files_changed` from `git status --short`, not JSONL | JSONL shows commands, not authoritative file state; `git status --short` also catches new untracked files | Codex consultation 2 |
-| D10 | Add `delegation_outcome` to `read_events.py` `_KNOWN_UNSTRUCTURED` | Prevents false validation errors on `--validate`; full schema validation deferred | Codex consultation 2 |
-| D11 | Shared `event_log.py` module | Prevents third duplication of `_append_log` / `_ts` / `_session_id` across adapter, guard, and emitter | Codex consultation 2 |
+| D10 | `delegation_outcome` in `_REQUIRED_FIELDS` with schema validation | Prevents false validation on `--validate` and catches malformed events early | Codex consultations 2+3 |
+| D11 | Shared `event_log.py` module (analytics-emitter scope) | Prevents duplication between adapter and emitter; `codex_guard.py` stays untouched | Codex consultation 2 + adversarial review |
 | D12 | `summary` and `token_usage` nullable in adapter output | Docs guarantee JSONL event families, not that every run produces a final message or completed turn | Codex consultation 2 |
-| D13 | Resume supports `-m` but not `-s` | Verified against CLI help for `codex exec resume` | Codex consultation 1 |
+| D13 | Exit 0 for blocked status | Non-zero would trigger PostToolUseFailure Bash hook, causing unintended nudge behavior | Codex deep review |
+| D14 | Separate safety/trust model from consultation contract | Delegation has narrower trust: sandbox is primary, prompt scan is defense-in-depth | Codex deep review |
+| D15 | Pre-step for repo root resolution + secure temp allocation | Pipeline assumed CWD is repo root; explicit resolution prevents path mismatches | Codex deep review |
+| D16 | Tolerant JSONL parsing (skip malformed, degrade on missing fields) | Matches `read_events.py:read_all()` tolerance model; forward-compatible | Codex deep review |
+| D17 | Deterministic failure handling for all 14 pipeline steps | Each step has defined status/exit/message pattern; no silent failures | Codex deep review + adversarial review |
+| D18 | Temp file cleanup in finally block (best-effort, not SIGKILL-proof) | Matches `emit_analytics.py` cleanup pattern; SIGKILL bypass is accepted local risk | Codex deep review + adversarial review |
+| D19 | Readable-secret-file gate with pathspec matching | Best-effort protection against common `.gitignore`'d secret files; not a guarantee | Adversarial review (P0-2) |
+| D20 | Defer resume from Step 1 | `--last` is heuristic and prone to same-repo hijack; identity-based resume unverified | Adversarial review (P1-2) + collaborative ideation |
+| D21 | Split validation: Phase A / credential scan / Phase B | Credential scan must run before any user content is echoed in error messages | Adversarial review (P0-3) |
+| D22 | Per-invocation CLI version check (>= 0.111.0) | No version pinning means undefined behavior on older CLIs; fail closed on mismatch | Adversarial review (P1-3) |
+| D23 | Shared `credential_scan.py` with `ScanResult` + `scan_text` API | Patterns are private names in `codex_guard.py`; adapter needs public import contract | Adversarial review + collaborative ideation |
+| D24 | `dispatched:bool` in analytics + coarse `termination_reason` | Separates "Codex ran" from "adapter handled"; no Codex exit-code taxonomy exists for finer mapping | Adversarial review (P1-1) + collaborative ideation |
+| D25 | `-c` restricted to adapter-synthesized `model_reasoning_effort` only | Arbitrary `-c` is an unspecified security surface; single override is deterministic | Adversarial review + collaborative ideation |
+| D26 | `event_log.py` does NOT migrate `codex_guard.py` | Guard's `session_id="unknown"` and microsecond timestamps are existing behavior; changing them has no benefit and breaks downstream queries | Adversarial review |
+| D27 | `compute_stats.py` delegation section with `_DELEGATION_TEMPLATE` | One-sentence deliverable was not implementable; full template prevents undocumented decisions | Collaborative ideation |
+| D28 | `--json` no-op flag in `compute_stats.py` | Pre-existing bug: `consultation-stats/SKILL.md` passes `--json` which errors | Adversarial review |
+| D29 | `consultation_id` is an opaque event instance UUID | Name preserved for compatibility; prose clarifies it is not consultation-scoped | Adversarial review + collaborative ideation |
+| D30 | No user content echoed before credential scan (governance rule 6) | Error messages before scan could leak credentials via `Got: {value!r}` patterns | Adversarial review (P0-3) |
+| D31 | `blocked_paths` always-present `[]` in output schema | Enables skill to report specific blocking files; prevents undocumented field drift | R6-B1 adversarial cross-layer review |
+| D32 | `gate="git_error"` distinct from `clean_tree`/`secret_files` | Git command failure ≠ dirty tree; misattribution corrupts analytics booleans | R6-B2 adversarial cross-layer review |
+| D33 | `model=""` normalized to `None` in Phase A | Empty string passes Phase B but diverges execution from analytics | R6-B5 adversarial cross-layer review |
+| D34 | `turn.started`/`item.started` in `_KNOWN_EVENT_TYPES` (ignored) | Prevents misleading "no usable events" when Codex emits only early-lifecycle events | R6-B7 adversarial cross-layer review |
+| D35 | JSONL parser structural type guards for `item` and `usage` dicts | Non-dict values would crash instead of degrading per tolerant parsing contract | R6-B8 adversarial cross-layer review |
+| D36 | `blocked` termination_reason includes `git_error` as cause | Spec parenthetical omitted `git_error`; `blocked_count` can exceed sum of three specific block booleans | R7-1 parallel agent review |
+| D37 | `blocked_by` enum values documented with gate-to-boolean mapping | Derivation logic implicit; explicit table prevents implementation divergence | R7-19 parallel agent review |
+| D38 | Subprocess timeouts specified: 600s for `codex exec`, 10s for git/version | Values hardcoded in plan but absent from spec; implementer would choose arbitrarily | R7-9 parallel agent review |
+| D39 | `full_auto` added to Phase B type validation (B3 amendment) | Non-bool like `1` or `"true"` would pass Phase B without explicit `isinstance(bool)` check | R7-24 parallel agent review |
 
 ---
 
@@ -354,11 +627,13 @@ These are explicitly deferred to future steps:
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `scripts/event_log.py` | Create | Shared event log helper (extracted from existing scripts) |
-| `scripts/codex_delegate.py` | Create | Delegation adapter script |
+| `scripts/event_log.py` | Create | Shared event log helper (analytics-emitter scope) |
+| `scripts/credential_scan.py` | Create | Public credential scan API (extracted from codex_guard.py) |
+| `scripts/codex_delegate.py` | Create | Delegation adapter (14-step pipeline) |
 | `skills/delegate/SKILL.md` | Create | `/delegate` skill |
-| `scripts/codex_guard.py` | Edit | Import from `event_log.py` instead of local `_append_log`/`_ts` |
-| `scripts/emit_analytics.py` | Edit | Import from `event_log.py` instead of local `_append_log`/`_ts`/`_session_id` |
-| `scripts/read_events.py` | Edit | Add `delegation_outcome` to `_KNOWN_UNSTRUCTURED` |
+| `scripts/codex_guard.py` | Edit | Import `scan_text` from `credential_scan.py` |
+| `scripts/emit_analytics.py` | Edit | Import from `event_log.py` |
+| `scripts/read_events.py` | Edit | Add `delegation_outcome` to `_REQUIRED_FIELDS` |
+| `scripts/compute_stats.py` | Edit | Add delegation section, `_DELEGATION_TEMPLATE`, `--json` no-op |
 
 All paths relative to `packages/plugins/cross-model/`.

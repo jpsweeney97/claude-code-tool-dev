@@ -45,6 +45,7 @@ _USAGE_TEMPLATE: dict = {
     "dialogues_completed_total": 0,
     "consultations_completed_total": 0,
     "invocations_completed_total": 0,
+    "delegations_completed_total": 0,
     "tool_calls_success_total": 0,
     "tool_calls_blocked_total": 0,
     "shadow_count": 0,
@@ -100,6 +101,21 @@ _SECURITY_TEMPLATE: dict = {
     "sample_size": 0,
 }
 
+_DELEGATION_TEMPLATE: dict = {
+    "included": False,
+    "sample_size": 0,
+    "complete_count": 0,
+    "error_count": 0,
+    "blocked_count": 0,
+    "credential_block_count": 0,
+    "dirty_tree_block_count": 0,
+    "readable_secret_file_block_count": 0,
+    "sandbox_counts": {},
+    "full_auto_count": 0,
+    "avg_commands_run": None,
+    "avg_commands_run_observed_count": 0,
+}
+
 
 # ---------------------------------------------------------------------------
 # Section computation functions
@@ -109,6 +125,7 @@ _SECURITY_TEMPLATE: dict = {
 def _compute_usage(
     dialogue_outcomes: list[dict],
     consultation_outcomes: list[dict],
+    delegation_outcomes: list[dict],
     consultations: list[dict],
     blocks: list[dict],
     shadows: list[dict],
@@ -120,6 +137,10 @@ def _compute_usage(
     result["dialogues_completed_total"] = len(dialogue_outcomes)
     result["consultations_completed_total"] = len(consultation_outcomes)
     result["invocations_completed_total"] = len(dialogue_outcomes) + len(consultation_outcomes)
+    # F3: Count only dispatched=true events
+    result["delegations_completed_total"] = sum(
+        1 for e in delegation_outcomes if e.get("dispatched") is True
+    )
     result["tool_calls_success_total"] = len(consultations)
     result["tool_calls_blocked_total"] = len(blocks)
     result["shadow_count"] = len(shadows)
@@ -287,15 +308,61 @@ def _compute_security(
     return result
 
 
+def _compute_delegation(delegation_outcomes: list[dict]) -> dict:
+    """Compute the delegation section from delegation_outcome events.
+
+    F13: Type-robust — handles non-canonical types defensively.
+    """
+    result = copy.deepcopy(_DELEGATION_TEMPLATE)
+    result["included"] = True
+    result["sample_size"] = len(delegation_outcomes)
+
+    for event in delegation_outcomes:
+        reason = event.get("termination_reason")
+        if reason == "complete":
+            result["complete_count"] += 1
+        elif reason == "error":
+            result["error_count"] += 1
+        elif reason == "blocked":
+            result["blocked_count"] += 1
+
+        if event.get("credential_blocked"):
+            result["credential_block_count"] += 1
+        if event.get("dirty_tree_blocked"):
+            result["dirty_tree_block_count"] += 1
+        if event.get("readable_secret_file_blocked"):
+            result["readable_secret_file_block_count"] += 1
+
+        sandbox = event.get("sandbox")
+        if isinstance(sandbox, str) and sandbox:
+            result["sandbox_counts"][sandbox] = result["sandbox_counts"].get(sandbox, 0) + 1
+
+        if event.get("full_auto") is True:
+            result["full_auto_count"] += 1
+
+    # Average commands run (dispatched events only)
+    dispatched = [e for e in delegation_outcomes if e.get("dispatched") is True]
+    numeric_dispatched = [
+        e for e in dispatched
+        if isinstance(e.get("commands_run_count"), (int, float))
+    ]
+    avg_cmd, obs_cmd = stats_common.observed_avg(numeric_dispatched, "commands_run_count")
+    result["avg_commands_run"] = avg_cmd
+    result["avg_commands_run_observed_count"] = obs_cmd
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Section inclusion matrix
 # ---------------------------------------------------------------------------
 
 _SECTION_MATRIX: dict[str, dict[str, bool]] = {
-    "all":          {"usage": True,  "dialogue": True,  "context": True,  "security": True},
-    "dialogue":     {"usage": True,  "dialogue": True,  "context": True,  "security": False},
-    "consultation": {"usage": True,  "dialogue": False, "context": False, "security": False},
-    "security":     {"usage": False, "dialogue": False, "context": False, "security": True},
+    "all":          {"usage": True,  "dialogue": True,  "context": True,  "security": True,  "delegation": True},
+    "dialogue":     {"usage": True,  "dialogue": True,  "context": True,  "security": False, "delegation": False},
+    "consultation": {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": False},
+    "security":     {"usage": False, "dialogue": False, "context": False, "security": True,  "delegation": False},
+    "delegation":   {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": True},
 }
 
 
@@ -317,7 +384,8 @@ def _validate_events(events: list[dict]) -> tuple[list[dict], int]:
     invalid_count = 0
 
     for event in events:
-        if event.get("event") in ("dialogue_outcome", "consultation_outcome"):
+        et = event.get("event")
+        if isinstance(et, str) and et in read_events._REQUIRED_FIELDS:
             # validate_event() returns an error list: empty = valid
             if not read_events.validate_event(event):
                 valid_events.append(event)
@@ -334,7 +402,7 @@ def _validate_events(events: list[dict]) -> tuple[list[dict], int]:
 # ---------------------------------------------------------------------------
 
 
-_SECTION_TYPE = Literal["all", "dialogue", "consultation", "security"]
+_SECTION_TYPE = Literal["all", "dialogue", "consultation", "security", "delegation"]
 
 
 def compute(
@@ -350,7 +418,7 @@ def compute(
         skipped_count: Count of malformed lines skipped during reading.
         period_days: Time window in days (0 = all-time).
         section_type: Which sections to include ("all", "dialogue",
-            "consultation", "security").
+            "consultation", "security", "delegation").
 
     Returns:
         Structured report dict with usage, dialogue, context, security
@@ -376,6 +444,7 @@ def compute(
     # 3. Classify events by type
     dialogue_outcomes: list[dict] = []
     consultation_outcomes: list[dict] = []
+    delegation_outcomes: list[dict] = []
     consultations: list[dict] = []
     blocks: list[dict] = []
     shadows: list[dict] = []
@@ -387,6 +456,8 @@ def compute(
             dialogue_outcomes.append(event)
         elif event_type == "consultation_outcome":
             consultation_outcomes.append(event)
+        elif event_type == "delegation_outcome":
+            delegation_outcomes.append(event)
         elif event_type == "consultation":
             consultations.append(event)
         elif event_type == "block":
@@ -404,6 +475,7 @@ def compute(
     consultations = stats_common.filter_by_period(consultations, period_days, now).events
     blocks = stats_common.filter_by_period(blocks, period_days, now).events
     shadows = stats_common.filter_by_period(shadows, period_days, now).events
+    delegation_outcomes = stats_common.filter_by_period(delegation_outcomes, period_days, now).events
 
     # 5. Precompute shared counts
     invocations_completed_total = len(dialogue_outcomes) + len(consultation_outcomes)
@@ -422,7 +494,8 @@ def compute(
 
     if matrix["usage"]:
         usage_section = _compute_usage(
-            dialogue_outcomes, consultation_outcomes, consultations, blocks, shadows
+            dialogue_outcomes, consultation_outcomes, delegation_outcomes,
+            consultations, blocks, shadows
         )
     else:
         usage_section = copy.deepcopy(_USAGE_TEMPLATE)
@@ -444,6 +517,11 @@ def compute(
     else:
         security_section = copy.deepcopy(_SECURITY_TEMPLATE)
 
+    if matrix.get("delegation"):
+        delegation_section = _compute_delegation(delegation_outcomes)
+    else:
+        delegation_section = copy.deepcopy(_DELEGATION_TEMPLATE)
+
     # 8. Build output envelope
     return {
         "report_version": "1.0.0",
@@ -462,6 +540,7 @@ def compute(
         "dialogue": dialogue_section,
         "context": context_section,
         "security": security_section,
+        "delegation": delegation_section,
     }
 
 
@@ -492,8 +571,14 @@ def main() -> None:
         "--type",
         dest="section_type",
         default="all",
-        choices=["dialogue", "consultation", "security", "all"],
+        choices=["dialogue", "consultation", "security", "delegation", "all"],
         help="Which sections to include (default: all)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=True,
+        help="Output as JSON (default, kept for compatibility)",
     )
     args = parser.parse_args()
 

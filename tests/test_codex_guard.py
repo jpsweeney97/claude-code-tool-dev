@@ -8,8 +8,16 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from io import StringIO
 from pathlib import Path
+
+_SCRIPTS_DIR = str(
+    Path(__file__).resolve().parents[1]
+    / "packages" / "plugins" / "cross-model" / "scripts"
+)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
 
 MODULE_PATH = (
     Path(__file__).resolve().parents[1]

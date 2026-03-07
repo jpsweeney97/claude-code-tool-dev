@@ -1,6 +1,6 @@
 # Cross-Model Plugin
 
-> **v2.0.0** · MIT · Python ≥3.11 · No runtime dependencies (stdlib only)
+> **v3.0.0** · MIT · Python ≥3.11 · No runtime dependencies (stdlib only)
 
 Cross-model consultation via OpenAI Codex. Claude consults an independent model for second opinions on architecture, debugging, code review, plans, and decisions — then independently assesses every response before presenting it to the user. Claude is always primary; Codex is always advisory.
 
@@ -35,6 +35,12 @@ Deep multi-turn dialogue with context gathering:
 
 ```
 /dialogue "Should we use WebSockets or SSE for real-time updates?" --profile deep-review
+```
+
+Autonomous Codex execution (sandboxed):
+
+```
+/delegate "Refactor the auth module to use dependency injection"
 ```
 
 ## How It Works
@@ -87,14 +93,17 @@ Key design properties:
 - **Scope envelopes** — Each consultation declares allowed roots and source classes; breaches terminate the dialogue
 - **Analytics by default** — Every consultation emits structured telemetry for observability
 
-### Two Entrypoints
+### Three Entrypoints
 
 | Entrypoint | Use Case | Turns | Context Gathering | Profiles |
 |------------|----------|-------|-------------------|----------|
 | `/codex` | Quick second opinion | 1-2 | None | No |
 | `/dialogue` | Deep consultation | 1-15 (default 8) | Parallel gatherer agents + context injection | Yes |
+| `/delegate` | Autonomous execution | 1 | None | No |
 
 `/codex` is lightweight: it sends a prompt to Codex, relays the response, and emits analytics. It decides between inline execution (1-2 turns) and subagent delegation (3+ turns) based on topic complexity.
+
+`/delegate` hands a task to Codex for autonomous execution in a sandboxed environment. Unlike `/codex` and `/dialogue` (which sanitize prompts to prevent credential exfiltration), `/delegate` relies on sandbox containment — Codex runs in a restricted environment where network access and filesystem writes are controlled by the sandbox provider. Two pre-flight gates enforce safety: the **clean-tree gate** requires a clean git working tree (so unwanted changes can be reverted), and the **secret-file gate** rejects tasks that reference known secret files (`.env`, credentials, key files).
 
 `/dialogue` is a full 7-step pipeline:
 
@@ -137,6 +146,7 @@ All telemetry flows to `~/.claude/.codex-events.jsonl`:
 | `consultation` | `codex_guard.py` (PostToolUse) | Raw Codex tool call completed |
 | `consultation_outcome` | `emit_analytics.py` | `/codex` skill result with diagnostics |
 | `dialogue_outcome` | `emit_analytics.py` | `/dialogue` skill result with full pipeline metrics |
+| `delegation_outcome` | `emit_analytics.py` | `/delegate` skill result with sandbox mode and gate status |
 
 Schema versioning: `0.1.0` → `0.2.0` (provenance) → `0.3.0` (planning). Forward-compatible — older readers skip unknown fields.
 
@@ -149,6 +159,10 @@ Single-turn or short multi-turn Codex consultation. Argument parsing is determin
 ### `/dialogue "question" [-p posture] [-n turns] [--profile name] [--plan]`
 
 Orchestrated multi-turn consultation with parallel context gathering. The `--plan` flag enables question decomposition (Claude-local, no Codex) before dispatching. Emits a `dialogue_outcome` event with full pipeline metrics including gatherer line counts, provenance stats, scope fingerprints, and seed confidence.
+
+### `/delegate [PROMPT]`
+
+Autonomous Codex execution. Delegates a task to Codex for sandboxed execution rather than consultation. Uses a narrower trust model than `/codex` and `/dialogue`: instead of prompt sanitization, it relies on sandbox containment. Pre-flight gates: clean git working tree (dirty tree blocks execution) and secret-file rejection (references to `.env`, credentials, or key files block execution). Emits a `delegation_outcome` analytics event.
 
 ### `/consultation-stats [--period N] [--type TYPE]`
 
@@ -214,7 +228,7 @@ Environment: `CODEX_SANDBOX=seatbelt` is set automatically to prevent a macOS-sp
 | `codex_guard.py` | Single script for both PreToolUse and PostToolUse. Dispatches on `hook_event_name`. Tiered credential detection (strict/contextual/broad). Logs events to JSONL. |
 | `nudge_codex.py` | PostToolUseFailure hook. Tracks failure count per session in temp file with `fcntl.flock`. After 3 failures, injects `additionalContext` nudge. |
 | `emit_analytics.py` | Deterministic analytics emitter. Parses synthesis text (regex, no LLM), validates fields, appends to event log. Handles both `dialogue_outcome` and `consultation_outcome` events. Schema auto-bumps. |
-| `compute_stats.py` | Analytics computation. CLI: `--period` (7/30/all), `--type` (security/dialogue/consultation/all). 4 report sections with section-inclusion matrix. |
+| `compute_stats.py` | Analytics computation. CLI: `--period` (7/30/all), `--type` (security/dialogue/consultation/delegation/all). 5 report sections with section-inclusion matrix. |
 | `read_events.py` | JSONL reader and event classifier. Skips malformed lines silently. Returns `(events, skipped_count)`. |
 | `stats_common.py` | Shared analytics primitives: period filtering, observed-denominator averaging, timestamp parsing (rejects non-UTC). |
 

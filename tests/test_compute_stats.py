@@ -141,7 +141,7 @@ class TestComputeUsage:
         blocks = [_make_block()]
         shadows = [_make_shadow()]
 
-        result = MODULE._compute_usage(dialogues, consultations_out, raw_calls, blocks, shadows)
+        result = MODULE._compute_usage(dialogues, consultations_out, [], raw_calls, blocks, shadows)
 
         assert result["dialogues_completed_total"] == 2
         assert result["consultations_completed_total"] == 1
@@ -160,7 +160,7 @@ class TestComputeUsage:
         consultations_out = [
             _make_consultation(ts="2026-02-17T12:00:00Z"),
         ]
-        result = MODULE._compute_usage(dialogues, consultations_out, [], [], [])
+        result = MODULE._compute_usage(dialogues, consultations_out, [], [], [], [])
         assert result["active_utc_days"] == 3  # 15, 16, 17
 
     def test_posture_counts_from_outcomes_only(self) -> None:
@@ -168,7 +168,7 @@ class TestComputeUsage:
         dialogues = [_make_dialogue(posture="evaluative"), _make_dialogue(posture="adversarial")]
         consultations_out = [_make_consultation(posture="collaborative")]
         # Guard events have posture-like fields but should not be counted
-        result = MODULE._compute_usage(dialogues, consultations_out, [], [], [])
+        result = MODULE._compute_usage(dialogues, consultations_out, [], [], [], [])
         assert result["posture_counts"] == {
             "evaluative": 1,
             "adversarial": 1,
@@ -179,12 +179,12 @@ class TestComputeUsage:
         """Schema version counts come from outcome events only."""
         dialogues = [_make_dialogue(schema_version="0.1.0"), _make_dialogue(schema_version="0.2.0")]
         consultations_out = [_make_consultation(schema_version="0.1.0")]
-        result = MODULE._compute_usage(dialogues, consultations_out, [], [], [])
+        result = MODULE._compute_usage(dialogues, consultations_out, [], [], [], [])
         assert result["schema_version_counts"] == {"0.1.0": 2, "0.2.0": 1}
 
     def test_empty_events(self) -> None:
         """All-empty inputs produce zeroed counters."""
-        result = MODULE._compute_usage([], [], [], [], [])
+        result = MODULE._compute_usage([], [], [], [], [], [])
         assert result["dialogues_completed_total"] == 0
         assert result["invocations_completed_total"] == 0
         assert result["active_utc_days"] == 0
@@ -457,6 +457,7 @@ class TestCompute:
             "included",
             "dialogues_completed_total",
             "consultations_completed_total",
+            "delegations_completed_total",
             "invocations_completed_total",
             "tool_calls_success_total",
             "tool_calls_blocked_total",
@@ -567,9 +568,11 @@ class TestCompute:
 
     def test_end_to_end_with_period_filtering(self) -> None:
         """Full compute with period_days > 0 filters events by time window."""
-        in_window = _make_dialogue(ts="2026-02-27T12:00:00Z", converged=True, turn_count=4)
+        from datetime import datetime, timezone
+        recent_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        in_window = _make_dialogue(ts=recent_ts, converged=True, turn_count=4)
         out_of_window = _make_dialogue(ts="2020-01-01T00:00:00Z", converged=True, turn_count=8)
-        block_in = _make_block(ts="2026-02-27T11:00:00Z")
+        block_in = _make_block(ts=recent_ts)
         events = [in_window, out_of_window, block_in]
         result = MODULE.compute(events, 0, 7, "all")
         assert result["usage"]["dialogues_completed_total"] == 1
@@ -673,6 +676,13 @@ class TestValidation:
         valid, invalid_count = MODULE._validate_events(events)
         assert len(valid) == 3  # 1 dialogue + 1 consultation + 1 block
         assert invalid_count == 2
+
+    def test_non_hashable_event_type_does_not_crash(self) -> None:
+        """Malformed entry with non-hashable event type (e.g. list) passes through as guard."""
+        events = [{"event": [], "ts": "2026-01-01T00:00:00Z"}, _make_dialogue()]
+        valid, invalid_count = MODULE._validate_events(events)
+        assert len(valid) == 2  # both pass (malformed as guard, dialogue validated)
+        assert invalid_count == 0
 
 
 # ---------------------------------------------------------------------------

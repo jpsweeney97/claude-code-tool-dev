@@ -8,9 +8,17 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
+
+_SCRIPTS_DIR = str(
+    Path(__file__).resolve().parents[1]
+    / "packages" / "plugins" / "cross-model" / "scripts"
+)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
 
 # ---------------------------------------------------------------------------
 # Module import (same pattern as test_codex_guard.py)
@@ -27,6 +35,8 @@ MODULE_PATH = (
 SPEC = importlib.util.spec_from_file_location("emit_analytics", MODULE_PATH)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+
+import event_log  # noqa: E402 — imported after sys.path setup for LOG_PATH patching
 
 
 # ---------------------------------------------------------------------------
@@ -1451,7 +1461,7 @@ class TestValidate:
 class TestAppendLog:
     def test_appends_valid_jsonl(self, tmp_path, monkeypatch) -> None:
         log_path = tmp_path / "events.jsonl"
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
         entry = {"event": "test", "value": 42}
         assert MODULE._append_log(entry) is True
         line = log_path.read_text().strip()
@@ -1459,7 +1469,7 @@ class TestAppendLog:
 
     def test_appends_multiple(self, tmp_path, monkeypatch) -> None:
         log_path = tmp_path / "events.jsonl"
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
         MODULE._append_log({"n": 1})
         MODULE._append_log({"n": 2})
         lines = log_path.read_text().strip().split("\n")
@@ -1469,7 +1479,7 @@ class TestAppendLog:
 
     def test_creates_parent_dir(self, tmp_path, monkeypatch) -> None:
         log_path = tmp_path / "nested" / "dir" / "events.jsonl"
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
         assert MODULE._append_log({"test": True}) is True
         assert log_path.exists()
 
@@ -1477,7 +1487,7 @@ class TestAppendLog:
         log_path = tmp_path / "readonly" / "events.jsonl"
         (tmp_path / "readonly").mkdir()
         (tmp_path / "readonly").chmod(0o444)
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
         assert MODULE._append_log({"test": True}) is False
         (tmp_path / "readonly").chmod(0o755)  # cleanup
 
@@ -1488,7 +1498,7 @@ class TestAppendLog:
         import pytest
 
         log_path = tmp_path / "events.jsonl"
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
         with pytest.raises(TypeError):
             MODULE._append_log({"path": Path("/tmp")})
 
@@ -1501,7 +1511,7 @@ class TestAppendLog:
 class TestMain:
     def test_dialogue_end_to_end(self, tmp_path, monkeypatch, capsys) -> None:
         log_path = tmp_path / "events.jsonl"
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
 
         input_file = tmp_path / "input.json"
         input_file.write_text(json.dumps(_dialogue_input()))
@@ -1524,7 +1534,7 @@ class TestMain:
     def test_dialogue_provenance_end_to_end(self, tmp_path, monkeypatch) -> None:
         """E2E: provenance_unknown_count triggers schema_version 0.2.0 in log."""
         log_path = tmp_path / "events.jsonl"
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
 
         pipeline = {**SAMPLE_PIPELINE, "provenance_unknown_count": 5}
         input_file = tmp_path / "input.json"
@@ -1541,7 +1551,7 @@ class TestMain:
     def test_dialogue_planning_end_to_end(self, tmp_path, monkeypatch) -> None:
         """E2E: planning fields trigger schema_version 0.3.0 in log."""
         log_path = tmp_path / "events.jsonl"
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
 
         pipeline = _pipeline_with_planning()
         input_file = tmp_path / "input.json"
@@ -1561,7 +1571,7 @@ class TestMain:
     ) -> None:
         """E2E: planning takes precedence over provenance for schema_version."""
         log_path = tmp_path / "events.jsonl"
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
 
         pipeline = _pipeline_with_planning(provenance_unknown_count=5)
         input_file = tmp_path / "input.json"
@@ -1577,7 +1587,7 @@ class TestMain:
 
     def test_consultation_end_to_end(self, tmp_path, monkeypatch) -> None:
         log_path = tmp_path / "events.jsonl"
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
 
         input_file = tmp_path / "input.json"
         input_file.write_text(json.dumps(_consultation_input()))
@@ -1627,7 +1637,7 @@ class TestMain:
         readonly_dir.mkdir()
         log_path = readonly_dir / "events.jsonl"
         readonly_dir.chmod(0o444)
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
 
         input_file = tmp_path / "input.json"
         input_file.write_text(json.dumps(_consultation_input()))
@@ -1642,7 +1652,7 @@ class TestMain:
     def test_input_cleanup_on_validation_error(self, tmp_path, monkeypatch) -> None:
         """Input file must be deleted even when validation fails."""
         log_path = tmp_path / "events.jsonl"
-        monkeypatch.setattr(MODULE, "_LOG_PATH", log_path)
+        monkeypatch.setattr(event_log, "LOG_PATH", log_path)
 
         input_file = tmp_path / "input.json"
         input_file.write_text(json.dumps({"event_type": "unknown_type"}))

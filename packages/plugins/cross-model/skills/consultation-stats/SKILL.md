@@ -1,11 +1,11 @@
 ---
 name: consultation-stats
-description: Presents analytics and metrics for cross-model consultations and dialogues. Reads the event log, computes convergence rates, posture effectiveness, failure counts, and context quality metrics. Use when user says "consultation stats", "codex stats", "how are my consultations doing", "consultation metrics", "dialogue analytics", or asks about consultation performance, convergence rates, or posture effectiveness.
+description: Presents analytics and metrics for cross-model consultations, dialogues, and delegations. Reads the event log, computes convergence rates, posture effectiveness, failure counts, context quality metrics, and delegation success rates. Use when user says "consultation stats", "codex stats", "how are my consultations doing", "consultation metrics", "dialogue analytics", "delegation stats", or asks about consultation performance, convergence rates, posture effectiveness, or delegation results.
 ---
 
 # Consultation Stats
 
-Present analytics for cross-model consultations and dialogues from the event log at `~/.claude/.codex-events.jsonl`.
+Present analytics for cross-model consultations, dialogues, and delegations from the event log at `~/.claude/.codex-events.jsonl`.
 
 ## Instructions
 
@@ -23,6 +23,7 @@ If the user requests a specific time period or report focus, adjust accordingly:
 | "just security", "credential blocks" | `--type security` |
 | "just dialogues", "convergence" | `--type dialogue` |
 | "just consultations" | `--type consultation` |
+| "just delegations", "delegate stats" | `--type delegation` |
 
 If no specific request, use defaults: `--period 30 --type all`.
 
