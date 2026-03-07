@@ -44,6 +44,11 @@ class TestScanTextStrict:
         assert result.action == "block"
         assert result.tier == "strict"
 
+    def test_basic_auth_header_strict(self) -> None:
+        result = scan_text("Authorization: Basic dXNlcjpwYXNz")
+        assert result.action == "block"
+        assert result.tier == "strict"
+
 
 class TestScanTextContextual:
     """Contextual tier — block unless placeholder suppression."""
@@ -67,12 +72,47 @@ class TestScanTextContextual:
         assert result.action == "block"
         assert result.tier == "contextual"
 
+    def test_slack_xoxb_token(self) -> None:
+        result = scan_text("xoxb-1234-5678-abcdef")
+        assert result.action == "block"
+        assert result.tier == "contextual"
+
+    def test_slack_xoxp_token(self) -> None:
+        result = scan_text("xoxp-1234-5678-abcdef")
+        assert result.action == "block"
+        assert result.tier == "contextual"
+
+    def test_slack_xoxs_token(self) -> None:
+        result = scan_text("xoxs-1234-5678-abcdef")
+        assert result.action == "block"
+        assert result.tier == "contextual"
+
 
 class TestScanTextBroad:
     """Broad tier — shadow only, no blocking."""
 
     def test_password_assignment_shadows(self) -> None:
         result = scan_text("password = mysecretvalue123")
+        assert result.action == "shadow"
+        assert result.tier == "broad"
+
+    def test_encryption_key_assignment(self) -> None:
+        result = scan_text("encryption_key = mysecret123")
+        assert result.action == "shadow"
+        assert result.tier == "broad"
+
+    def test_signing_key_assignment(self) -> None:
+        result = scan_text("signing_key = mysecret123")
+        assert result.action == "shadow"
+        assert result.tier == "broad"
+
+    def test_api_secret_assignment(self) -> None:
+        result = scan_text("api_secret = mysecret123")
+        assert result.action == "shadow"
+        assert result.tier == "broad"
+
+    def test_credential_assignment(self) -> None:
+        result = scan_text("credential = mysecret123")
         assert result.action == "shadow"
         assert result.tier == "broad"
 

@@ -7,19 +7,21 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.codex_guard import handle_pre, handle_post
 
 
-def _make_pre_data(prompt: str, tool: str = "mcp__codex") -> dict:
+def _make_pre_data(
+    prompt: str = "safe prompt",
+    tool: str = "mcp__plugin_cross-model_codex__codex",
+    tool_input: dict | None = None,
+) -> dict:
     return {
         "hook_event_name": "PreToolUse",
         "tool_name": tool,
         "session_id": "test-session",
-        "tool_input": {"prompt": prompt},
+        "tool_input": tool_input if tool_input is not None else {"prompt": prompt},
     }
 
 
@@ -39,6 +41,66 @@ class TestHandlePre:
         """Broad tier is shadow-only, does not block."""
         assert handle_pre(_make_pre_data("password = mysecretvalue123")) == 0
 
+    @patch("scripts.codex_guard._append_log")
+    def test_scan_base_instructions(self, mock_log: object) -> None:
+        data = _make_pre_data(
+            tool_input={
+                "prompt": "safe prompt",
+                "base-instructions": "Authorization: Basic dXNlcjpwYXNz",
+            }
+        )
+        assert handle_pre(data) == 2
+
+    @patch("scripts.codex_guard._append_log")
+    def test_scan_developer_instructions(self, mock_log: object) -> None:
+        data = _make_pre_data(
+            tool_input={
+                "prompt": "safe prompt",
+                "developer-instructions": "xoxb-1234-5678-abcdef",
+            }
+        )
+        assert handle_pre(data) == 2
+
+    @patch("scripts.codex_guard._append_log")
+    def test_scan_nested_config(self, mock_log: object) -> None:
+        data = _make_pre_data(
+            tool_input={
+                "prompt": "safe prompt",
+                "config": {"notes": "Authorization: Basic dXNlcjpwYXNz"},
+            }
+        )
+        assert handle_pre(data) == 2
+
+    @patch("scripts.codex_guard._append_log")
+    def test_unknown_field_logged(self, mock_log: object) -> None:
+        data = _make_pre_data(
+            tool_input={
+                "prompt": "safe prompt",
+                "diagnostics": {"note": "still safe"},
+            }
+        )
+        assert handle_pre(data) == 0
+        first_call = mock_log.call_args_list[0].args[0]
+        assert first_call["event"] == "shadow"
+        assert first_call["reason"] == "unexpected_fields"
+        assert first_call["unexpected_fields"] == ["diagnostics"]
+
+    @patch("scripts.codex_guard._append_log")
+    def test_node_cap_exceeded(self, mock_log: object) -> None:
+        tool_input = {"prompt": "safe prompt", "payload": ["x"] * 10001}
+        assert handle_pre(_make_pre_data(tool_input=tool_input)) == 2
+        entry = mock_log.call_args.args[0]
+        assert entry["event"] == "block"
+        assert "node cap exceeded" in entry["reason"]
+
+    @patch("scripts.codex_guard._append_log")
+    def test_char_cap_exceeded(self, mock_log: object) -> None:
+        tool_input = {"prompt": "x" * ((256 * 1024) + 1)}
+        assert handle_pre(_make_pre_data(tool_input=tool_input)) == 2
+        entry = mock_log.call_args.args[0]
+        assert entry["event"] == "block"
+        assert "char cap exceeded" in entry["reason"]
+
 
 class TestHandlePost:
     """PostToolUse handler always returns 0."""
@@ -47,7 +109,7 @@ class TestHandlePost:
     def test_always_allows(self, mock_log: object) -> None:
         data = {
             "hook_event_name": "PostToolUse",
-            "tool_name": "mcp__codex",
+            "tool_name": "mcp__plugin_cross-model_codex__codex",
             "session_id": "test-session",
             "tool_input": {"prompt": "test"},
             "tool_response": {"content": "response"},

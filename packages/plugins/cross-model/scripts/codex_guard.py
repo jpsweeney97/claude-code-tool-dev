@@ -31,6 +31,7 @@ from __future__ import annotations
 import datetime
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
@@ -38,11 +39,46 @@ try:
 except ModuleNotFoundError:
     from scripts.credential_scan import scan_text
 
+
+_NODE_CAP = 10_000
+_CHAR_CAP = 256 * 1024
+
 # ---------------------------------------------------------------------------
 # Log path
 # ---------------------------------------------------------------------------
 
 _LOG_PATH = Path.home() / ".claude" / ".codex-events.jsonl"
+
+
+@dataclass(frozen=True)
+class ToolScanPolicy:
+    """Controls which tool_input fields are scanned for egress secrets."""
+
+    expected_fields: set[str]
+    content_fields: set[str]
+    scan_unknown_fields: bool = True
+
+
+CODEX_POLICY = ToolScanPolicy(
+    expected_fields={"sandbox", "approval-policy", "model", "profile"},
+    content_fields={"prompt", "base-instructions", "developer-instructions"},
+)
+
+CODEX_REPLY_POLICY = ToolScanPolicy(
+    expected_fields={
+        "sandbox",
+        "approval-policy",
+        "model",
+        "profile",
+        "threadId",
+        "conversationId",
+    },
+    content_fields={"prompt", "base-instructions", "developer-instructions"},
+)
+
+
+class ToolInputLimitExceeded(RuntimeError):
+    """Raised when tool_input traversal exceeds configured safety caps."""
 
 
 def _ts() -> str:
@@ -63,37 +99,126 @@ def _append_log(entry: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _policy_for_tool(tool_name: str) -> ToolScanPolicy:
+    if tool_name == "mcp__plugin_cross-model_codex__codex-reply":
+        return CODEX_REPLY_POLICY
+    return CODEX_POLICY
+
+
+def _extract_strings(tool_input: dict, policy: ToolScanPolicy) -> tuple[list[str], list[str]]:
+    """Extract string-bearing values selected by the scan policy."""
+
+    if not isinstance(tool_input, dict):
+        raise TypeError(f"tool_input must be dict. Got: {tool_input!r:.100}")
+
+    texts_to_scan: list[str] = []
+    unexpected_fields: list[str] = []
+    seen_unexpected: set[str] = set()
+    node_count = 0
+    char_count = 0
+    stack: list[tuple[object, bool, bool]] = [(tool_input, False, True)]
+
+    while stack:
+        value, scan_strings, is_root = stack.pop()
+        node_count += 1
+        if node_count > _NODE_CAP:
+            raise ToolInputLimitExceeded("tool_input traversal failed: node cap exceeded")
+
+        if isinstance(value, str):
+            char_count += len(value)
+            if char_count > _CHAR_CAP:
+                raise ToolInputLimitExceeded("tool_input traversal failed: char cap exceeded")
+            if scan_strings:
+                texts_to_scan.append(value)
+            continue
+
+        if value is None or isinstance(value, (bool, int, float)):
+            continue
+
+        if isinstance(value, dict):
+            for key, child in reversed(list(value.items())):
+                child_scan = scan_strings
+                if is_root:
+                    if key in policy.content_fields:
+                        child_scan = True
+                    elif key in policy.expected_fields:
+                        child_scan = False
+                    else:
+                        key_name = str(key)
+                        if key_name not in seen_unexpected:
+                            unexpected_fields.append(key_name)
+                            seen_unexpected.add(key_name)
+                        child_scan = policy.scan_unknown_fields
+                stack.append((child, child_scan, False))
+            continue
+
+        if isinstance(value, (list, tuple)):
+            for child in reversed(value):
+                stack.append((child, scan_strings, False))
+            continue
+
+        if isinstance(value, (set, frozenset)):
+            for child in value:
+                stack.append((child, scan_strings, False))
+            continue
+
+        raise TypeError(f"tool_input traversal failed: unsupported value. Got: {value!r:.100}")
+
+    return texts_to_scan, unexpected_fields
+
+
+def _log_block(tool: object, session_id: object, reason: str, prompt_length: int) -> int:
+    _append_log({
+        "ts": _ts(),
+        "event": "block",
+        "tool": tool,
+        "session_id": session_id,
+        "prompt_length": prompt_length,
+        "reason": reason,
+    })
+    print(f"codex-guard: dispatch blocked ({reason})", file=sys.stderr)
+    return 2
+
+
 def handle_pre(data: dict) -> int:
     """PreToolUse handler: detect credentials and block if found."""
     tool_input = data.get("tool_input", {})
-    prompt = tool_input.get("prompt", "")
-    if not isinstance(prompt, str):
-        prompt = str(prompt)
     session_id = data.get("session_id", "unknown")
     tool = data.get("tool_name", "unknown")
+    policy = _policy_for_tool(str(tool))
 
-    result = scan_text(prompt)
-    if result.action == "block":
-        _append_log({
-            "ts": _ts(),
-            "event": "block",
-            "tool": tool,
-            "session_id": session_id,
-            "prompt_length": len(prompt),
-            "reason": result.reason,
-        })
-        print(f"codex-guard: dispatch blocked ({result.reason})", file=sys.stderr)
-        return 2
+    try:
+        texts_to_scan, unexpected_fields = _extract_strings(tool_input, policy)
+    except (ToolInputLimitExceeded, TypeError) as exc:
+        return _log_block(tool, session_id, str(exc), 0)
 
-    if result.action == "shadow":
+    scanned_chars = sum(len(text) for text in texts_to_scan)
+
+    if unexpected_fields:
         _append_log({
             "ts": _ts(),
             "event": "shadow",
             "tool": tool,
             "session_id": session_id,
-            "prompt_length": len(prompt),
-            "reason": result.reason,
+            "prompt_length": scanned_chars,
+            "reason": "unexpected_fields",
+            "unexpected_fields": unexpected_fields,
         })
+
+    for text in texts_to_scan:
+        result = scan_text(text)
+        if result.action == "block":
+            return _log_block(tool, session_id, str(result.reason), scanned_chars)
+
+        if result.action == "shadow":
+            _append_log({
+                "ts": _ts(),
+                "event": "shadow",
+                "tool": tool,
+                "session_id": session_id,
+                "prompt_length": scanned_chars,
+                "reason": result.reason,
+            })
 
     return 0
 
