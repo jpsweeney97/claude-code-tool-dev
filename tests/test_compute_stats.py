@@ -677,6 +677,13 @@ class TestValidation:
         assert len(valid) == 3  # 1 dialogue + 1 consultation + 1 block
         assert invalid_count == 2
 
+    def test_non_hashable_event_type_does_not_crash(self) -> None:
+        """Malformed entry with non-hashable event type (e.g. list) passes through as guard."""
+        events = [{"event": [], "ts": "2026-01-01T00:00:00Z"}, _make_dialogue()]
+        valid, invalid_count = MODULE._validate_events(events)
+        assert len(valid) == 2  # both pass (malformed as guard, dialogue validated)
+        assert invalid_count == 0
+
 
 # ---------------------------------------------------------------------------
 # TestCLI

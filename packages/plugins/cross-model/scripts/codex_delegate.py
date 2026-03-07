@@ -123,7 +123,9 @@ def _parse_input(input_path: Path) -> dict:
     # isinstance check but is silently dropped by _build_command's `if model:`,
     # causing analytics to log model="" while execution uses Codex default.
     raw_model = data.get("model")
-    model = raw_model if raw_model else None  # "" → None, None → None
+    # R6-B5: Normalize "" to None. Use isinstance so falsy non-strings
+    # (0, False, []) reach Phase B type check instead of becoming None.
+    model = raw_model if not isinstance(raw_model, str) or raw_model else None
     return {
         "prompt": data.get("prompt"),
         "model": model,

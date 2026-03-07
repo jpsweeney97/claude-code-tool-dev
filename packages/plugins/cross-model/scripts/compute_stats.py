@@ -384,7 +384,8 @@ def _validate_events(events: list[dict]) -> tuple[list[dict], int]:
     invalid_count = 0
 
     for event in events:
-        if event.get("event") in read_events._REQUIRED_FIELDS:
+        et = event.get("event")
+        if isinstance(et, str) and et in read_events._REQUIRED_FIELDS:
             # validate_event() returns an error list: empty = valid
             if not read_events.validate_event(event):
                 valid_events.append(event)

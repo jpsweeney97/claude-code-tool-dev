@@ -67,6 +67,15 @@ class TestParseInput:
         result = _parse_input(f)
         assert result["model"] is None
 
+    def test_falsy_non_string_model_preserved_for_phase_b(self, tmp_path: Path) -> None:
+        """Falsy non-string model values (0, False) pass through to Phase B type check."""
+        from scripts.codex_delegate import _parse_input
+        f = tmp_path / "input.json"
+        for falsy_val in [0, False]:
+            f.write_text(json.dumps({"prompt": "test", "model": falsy_val}))
+            result = _parse_input(f)
+            assert result["model"] is not None, f"model={falsy_val!r} was incorrectly normalized to None"
+
 
 class TestValidateInput:
     """F1+F8: Phase B validate (_validate_input) — field validation."""
