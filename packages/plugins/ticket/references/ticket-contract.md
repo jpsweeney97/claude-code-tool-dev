@@ -8,6 +8,7 @@ Single source of truth for the ticket plugin. All components (skills, agents, en
 - Archived tickets: `docs/tickets/closed-tickets/`
 - Audit trail: `docs/tickets/.audit/YYYY-MM-DD/<session_id>.jsonl`
 - Path boundary: hook payload files and all CLI `tickets_dir` arguments must resolve inside workspace/project root
+- tickets_dir resolution: CLI entrypoints resolve tickets_dir against a marker-based project root (nearest ancestor containing .claude/ or .git/), not against cwd. Explicit tickets_dir must resolve inside the project root. If no project root is found, the operation is rejected (policy_blocked).
 - Naming: `YYYY-MM-DD-<slug>.md`
 - Slug: first 6 words of title, kebab-case, `[a-z0-9-]` only, max 60 chars, sequence suffix on collision
 - Bootstrap: missing `docs/tickets/` → empty result for reads; create on first write
@@ -98,8 +99,18 @@ Hook trust source: `agent_id` in `PreToolUse` input is the authoritative signal 
 
 Hook assumption: the guard matches commands containing `ticket_engine` in the command string. Renamed or wrapped entrypoints bypass the guard silently. This is proportionate for the accidental-autonomy threat model.
 
-Execute leniency: execute defaults optional fields (e.g., `priority` → `"medium"`) rather than rejecting. Plan reports missing fields as hints; execute always produces a valid ticket.
+Execute provenance: execute requires verified hook provenance (hook_injected=True, hook_request_origin matching entrypoint origin, non-empty session_id) for all mutations, both user and agent. Non-execute stages (classify, plan, preflight) remain directly runnable without hook metadata.
+
+Execute prerequisites: execute requires prior-stage artifacts:
+- classify_intent (must match action)
+- classify_confidence (must meet origin-specific threshold: 0.5 for user, 0.65 for agent)
+- dedup_fingerprint (create only, must match recomputed value from current fields)
+- target_fingerprint (non-create, mandatory — validates ticket unchanged since read)
+- autonomy_config (agent only, snapshot from preflight)
+
 Agent execute re-reads live `.claude/ticket.local.md` policy and blocks if it diverges from the preflight snapshot.
+
+Field validation: priority, status, and resolution are validated against contract enums before writes. tags, blocked_by, and blocks must be lists of strings. source must be a dict with string values. key_files must be a list of dicts. defer must be a dict. Invalid inputs are rejected (need_fields), not silently coerced.
 
 Known limitation (v1.3): create now uses exclusive file creation with bounded retry to prevent same-path silent overwrite, but concurrent autonomous creates are still not fully serialized. Session create cap enforcement and ID allocation are not lock-based, so parallel subagent execution is not a hard safety boundary.
 
