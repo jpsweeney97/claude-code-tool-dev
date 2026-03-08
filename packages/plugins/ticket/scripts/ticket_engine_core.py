@@ -250,12 +250,19 @@ def _plan_create(
 
     existing = list_tickets(tickets_dir)
     for ticket in existing:
-        # Check if ticket is within dedup window.
+        # Check if ticket is within dedup window using file mtime (second-level
+        # granularity). Falls back to YAML date field if mtime is unavailable.
+        # For updated tickets, mtime > creation time — over-inclusive, which is
+        # safe (checks more fingerprints, never misses a duplicate).
         try:
-            ticket_date = datetime.strptime(ticket.date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        except (ValueError, TypeError):
-            continue
-        if ticket_date < cutoff:
+            mtime = Path(ticket.path).stat().st_mtime
+            ticket_time = datetime.fromtimestamp(mtime, tz=timezone.utc)
+        except OSError:
+            try:
+                ticket_time = datetime.strptime(ticket.date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                continue
+        if ticket_time < cutoff:
             continue
 
         # Compute fingerprint for this ticket's problem text.
@@ -738,12 +745,16 @@ _MAX_ARCHIVE_COLLISION_SUFFIX = 1000
 _CREATE_WRITE_RETRY_LIMIT = 3
 
 # Transitions that require preconditions.
+# Pair-keyed: specific (current, target) combinations.
 _TRANSITION_PRECONDITIONS: dict[tuple[str, str], str] = {
     ("open", "blocked"): "blocked_by_required",
     ("in_progress", "blocked"): "blocked_by_required",
-    ("in_progress", "done"): "acceptance_criteria_required",
     ("blocked", "open"): "blockers_resolved_required",
     ("blocked", "in_progress"): "blockers_resolved_required",
+}
+# Target-keyed: preconditions that apply regardless of current status.
+_TARGET_PRECONDITIONS: dict[str, str] = {
+    "done": "acceptance_criteria_required",
 }
 
 
@@ -836,26 +847,31 @@ def _check_transition_preconditions(
 ) -> str | None:
     """Check transition preconditions. Returns error message or None if OK.
 
+    Checks target-keyed preconditions first (apply regardless of current status),
+    then pair-keyed preconditions (specific current→target combinations).
+
     Uses merged state: fields (pending update) take precedence over ticket
     (pre-update) for fields that are being changed in this operation.
     """
+    _fields = fields or {}
+
+    # Target-keyed preconditions (e.g., any status → done requires AC).
+    target_precondition = _TARGET_PRECONDITIONS.get(target)
+    if target_precondition == "acceptance_criteria_required":
+        ac = ticket.sections.get("Acceptance Criteria", "")
+        if not ac.strip():
+            return "Transition to 'done' requires acceptance criteria section"
+
+    # Pair-keyed preconditions (specific current→target).
     key = (current, target)
     precondition = _TRANSITION_PRECONDITIONS.get(key)
     if precondition is None:
         return None
 
-    _fields = fields or {}
-
     if precondition == "blocked_by_required":
         blocked_by = _fields.get("blocked_by", ticket.blocked_by)
         if not blocked_by:
             return "Transition to 'blocked' requires non-empty blocked_by"
-        return None
-
-    if precondition == "acceptance_criteria_required":
-        ac = ticket.sections.get("Acceptance Criteria", "")
-        if not ac.strip():
-            return "Transition to 'done' requires acceptance criteria section"
         return None
 
     if precondition == "blockers_resolved_required":

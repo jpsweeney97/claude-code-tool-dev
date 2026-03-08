@@ -541,6 +541,43 @@ class TestTriageAllowlist:
         assert "validated (read-only)" in decision.get("permissionDecisionReason", "")
 
 
+class TestAuditAllowlist:
+    def test_audit_allowed_for_user(self):
+        """ticket_audit.py is allowed for user invocations."""
+        result = run_hook(
+            make_hook_input(
+                f"python3 {FAKE_ROOT}/scripts/ticket_audit.py repair /tmp/tickets",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "allow"
+        assert "audit" in decision.get("permissionDecisionReason", "").lower()
+
+    def test_audit_denied_for_agent(self):
+        """ticket_audit.py is denied for agent invocations."""
+        hook_input = make_hook_input(
+            f"python3 {FAKE_ROOT}/scripts/ticket_audit.py repair /tmp/tickets",
+        )
+        hook_input["agent_id"] = "subagent-123"
+        result = run_hook(hook_input, plugin_root=FAKE_ROOT)
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "deny"
+        assert "user-only" in decision.get("permissionDecisionReason", "").lower()
+
+    def test_audit_no_payload_injection(self):
+        """Audit commands should pass through without modifying payload files."""
+        result = run_hook(
+            make_hook_input(
+                f"python3 {FAKE_ROOT}/scripts/ticket_audit.py check /tmp/tickets",
+            ),
+            plugin_root=FAKE_ROOT,
+        )
+        decision = result.get("hookSpecificOutput", {})
+        assert decision.get("permissionDecision") == "allow"
+        assert "validated (user-only)" in decision.get("permissionDecisionReason", "")
+
+
 class TestExecutionShapeMatching:
     def test_cat_ticket_file_passes_through(self):
         """Non-python commands on ticket files pass through (empty JSON)."""

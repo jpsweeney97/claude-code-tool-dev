@@ -52,6 +52,14 @@ def _build_readonly_pattern(plugin_root: str) -> re.Pattern[str]:
     )
 
 
+def _build_audit_pattern(plugin_root: str) -> re.Pattern[str]:
+    """Build pattern for ticket_audit.py (user-only, no payload injection)."""
+    escaped = re.escape(plugin_root)
+    return re.compile(
+        rf"^python3\s+{escaped}/scripts/ticket_audit\.py\s+(\w+)\s+(.+)$"
+    )
+
+
 def _is_ticket_invocation(command: str) -> bool:
     """Check if command is a Python invocation that might target ticket scripts.
 
@@ -258,6 +266,21 @@ def main() -> None:
         subcommand = readonly_match.group(2)
         print(json.dumps(_make_allow(
             f"Ticket {script_name}/{subcommand} validated (read-only)"
+        )))
+        return
+
+    # Branch 2b: Audit script (ticket_audit.py) → allow for users, deny for agents.
+    audit_pattern = _build_audit_pattern(plugin_root)
+    audit_match = audit_pattern.match(command_clean)
+    if audit_match:
+        if event.get("agent_id"):
+            print(json.dumps(_make_deny(
+                "Ticket audit is user-only — agents cannot invoke audit repair"
+            )))
+            return
+        subcommand = audit_match.group(1)
+        print(json.dumps(_make_allow(
+            f"Ticket audit/{subcommand} validated (user-only)"
         )))
         return
 

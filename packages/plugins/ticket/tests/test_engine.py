@@ -229,6 +229,79 @@ class TestEnginePlan:
         # Old ticket outside 24h window — no dedup match.
         assert resp.state == "ok"
 
+    def test_dedup_uses_mtime_not_date(self, tmp_tickets):
+        """Dedup uses file mtime, catching near-midnight duplicates (P0-3).
+
+        A ticket with yesterday's date but recent mtime should still be
+        within the 24h dedup window. The old date-only code would miss this.
+        """
+        import os
+        import time
+
+        from tests.conftest import make_ticket
+
+        # Use a date from 2 days ago — outside 24h window by date alone.
+        old_date = "2026-02-28"
+        path = make_ticket(
+            tmp_tickets,
+            f"{old_date}-midnight.md",
+            id="T-20260228-01",
+            date=old_date,
+            problem="Auth times out.",
+            title="Midnight edge case",
+        )
+        # Set mtime to NOW — within 24h window by mtime.
+        now = time.time()
+        os.utime(path, (now, now))
+        resp = engine_plan(
+            intent="create",
+            fields={
+                "title": "Fix auth bug",
+                "problem": "Auth times out.",
+                "priority": "high",
+                "key_file_paths": ["test.py"],
+            },
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        # With mtime-based window, this IS a duplicate despite old date.
+        assert resp.state == "duplicate_candidate"
+
+    def test_dedup_skips_old_mtime(self, tmp_tickets):
+        """Tickets with old mtime are excluded even with recent date field."""
+        import os
+        import time
+
+        from tests.conftest import make_ticket
+
+        today_str = "2026-03-07"
+        path = make_ticket(
+            tmp_tickets,
+            f"{today_str}-stale.md",
+            id="T-20260307-01",
+            date=today_str,
+            problem="Auth times out.",
+            title="Stale ticket",
+        )
+        # Set mtime to 3 days ago — outside 24h window.
+        old_time = time.time() - (3 * 86400)
+        os.utime(path, (old_time, old_time))
+        resp = engine_plan(
+            intent="create",
+            fields={
+                "title": "Fix auth bug",
+                "problem": "Auth times out.",
+                "priority": "high",
+                "key_file_paths": ["test.py"],
+            },
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        # Old mtime puts ticket outside window — no dedup match.
+        assert resp.state == "ok"
+
     def test_non_create_skips_dedup(self, tmp_tickets):
         resp = engine_plan(
             intent="update",
@@ -1614,6 +1687,103 @@ class TestEngineExecute:
         )
         assert resp.state == "invalid_transition"
         assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
+
+    def test_close_from_open_checks_acceptance_criteria(self, tmp_tickets):
+        """Close to 'done' from open requires AC — bypass path for P0-1."""
+        import textwrap
+
+        content = textwrap.dedent("""\
+            # T-20260302-01: Open no AC ticket
+
+            ```yaml
+            id: T-20260302-01
+            date: "2026-03-02"
+            status: open
+            priority: high
+            effort: S
+            source:
+              type: ad-hoc
+              ref: ""
+              session: "test"
+            tags: []
+            blocked_by: []
+            blocks: []
+            contract_version: "1.0"
+            ```
+
+            ## Problem
+            Test problem without acceptance criteria.
+        """)
+        (tmp_tickets / "2026-03-02-open-no-ac.md").write_text(content, encoding="utf-8")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+        assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
+
+    def test_close_from_blocked_checks_acceptance_criteria(self, tmp_tickets):
+        """Close to 'done' from blocked requires AC — bypass path for P0-1."""
+        import textwrap
+
+        content = textwrap.dedent("""\
+            # T-20260302-01: Blocked no AC ticket
+
+            ```yaml
+            id: T-20260302-01
+            date: "2026-03-02"
+            status: blocked
+            priority: high
+            effort: S
+            source:
+              type: ad-hoc
+              ref: ""
+              session: "test"
+            tags: []
+            blocked_by: ["T-OTHER-01"]
+            blocks: []
+            contract_version: "1.0"
+            ```
+
+            ## Problem
+            Test problem without acceptance criteria.
+        """)
+        (tmp_tickets / "2026-03-02-blocked-no-ac.md").write_text(content, encoding="utf-8")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=True,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "invalid_transition"
+        assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
+
+    def test_close_from_open_succeeds_with_acceptance_criteria(self, tmp_tickets):
+        """Close to 'done' from open succeeds when AC present — positive path."""
+        from tests.conftest import make_ticket
+
+        make_ticket(tmp_tickets, "2026-03-02-open-with-ac.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="close",
+            ticket_id="T-20260302-01",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_close", f"Expected ok_close but got {resp.state}: {resp.message}"
 
     def test_update_rejects_unknown_fields_before_serialization(self, tmp_tickets):
         """Unsupported update fields fail validation before YAML serialization."""
