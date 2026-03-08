@@ -250,18 +250,31 @@ def _plan_create(
 
     existing = list_tickets(tickets_dir)
     for ticket in existing:
-        # Check if ticket is within dedup window using file mtime (second-level
-        # granularity). Falls back to YAML date field if mtime is unavailable.
-        # For updated tickets, mtime > creation time — over-inclusive, which is
-        # safe (checks more fingerprints, never misses a duplicate).
-        try:
-            mtime = Path(ticket.path).stat().st_mtime
-            ticket_time = datetime.fromtimestamp(mtime, tz=timezone.utc)
-        except OSError:
+        # Check if ticket is within dedup window.
+        # Primary: created_at (ISO 8601 UTC, second-level precision).
+        # Fallback: date field (day-level) treated as end-of-day (23:59:59 UTC)
+        # for maximum inclusivity — never misses a near-midnight duplicate.
+        # No filesystem dependency (mtime) — immune to git checkout/clone.
+        if ticket.created_at:
             try:
-                ticket_time = datetime.strptime(ticket.date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                ticket_time = datetime.strptime(
+                    ticket.created_at, "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                ticket_time = None
+        else:
+            ticket_time = None
+
+        if ticket_time is None:
+            try:
+                day = datetime.strptime(ticket.date, "%Y-%m-%d").replace(
+                    tzinfo=timezone.utc
+                )
+                # End-of-day: assume latest possible creation time on that date.
+                ticket_time = day.replace(hour=23, minute=59, second=59)
             except (ValueError, TypeError):
                 continue
+
         if ticket_time < cutoff:
             continue
 
@@ -1218,7 +1231,8 @@ def _execute_create(
 
     tickets_dir.mkdir(parents=True, exist_ok=True)
 
-    today = datetime.now(timezone.utc).date()
+    now = datetime.now(timezone.utc)
+    today = now.date()
     title = fields.get("title", "Untitled")
 
     source = dict(fields.get("source", {"type": "ad-hoc", "ref": "", "session": session_id}))
@@ -1233,6 +1247,7 @@ def _execute_create(
             id=ticket_id,
             title=title,
             date=today.isoformat(),
+            created_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             status="open",
             priority=fields.get("priority", "medium"),
             effort=fields.get("effort", ""),

@@ -96,6 +96,7 @@ class ParsedTicket:
     generation: int
     frontmatter: dict[str, Any]
     sections: dict[str, str]
+    created_at: str = ""
     effort: str = ""
     tags: list[str] = field(default_factory=list)
     blocked_by: list[str] = field(default_factory=list)
@@ -345,6 +346,7 @@ def parse_ticket(path: Path) -> ParsedTicket | None:
         generation=generation,
         frontmatter=frontmatter,
         sections=sections,
+        created_at=frontmatter.get("created_at", ""),
         effort=frontmatter.get("effort", ""),
         tags=frontmatter.get("tags", []),
         blocked_by=frontmatter.get("blocked_by", []),

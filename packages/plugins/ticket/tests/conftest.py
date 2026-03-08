@@ -28,6 +28,7 @@ def make_ticket(
     *,
     id: str = "T-20260302-01",
     date: str = "2026-03-02",
+    created_at: str = "",
     status: str = "open",
     priority: str = "high",
     effort: str = "S",
@@ -51,13 +52,14 @@ def make_ticket(
     blocked_by = blocked_by or []
     blocks = blocks or []
 
+    created_at_line = f'created_at: "{created_at}"\n        ' if created_at else ""
     content = textwrap.dedent(f"""\
         # {id}: {title}
 
         ```yaml
         id: {id}
         date: "{date}"
-        status: {status}
+        {created_at_line}status: {status}
         priority: {priority}
         effort: {effort}
         source:

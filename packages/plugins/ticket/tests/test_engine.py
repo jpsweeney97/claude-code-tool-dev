@@ -30,11 +30,14 @@ def _expected_canonical_yaml(
     tags: list[str],
     blocked_by: list[str],
     blocks: list[str],
+    created_at: str = "",
     contract_version: str = "1.0",
 ) -> str:
+    created_at_line = f'created_at: "{created_at}"\n' if created_at else ""
     return (
         f"id: {ticket_id}\n"
         f'date: "{date}"\n'
+        f"{created_at_line}"
         f"status: {status}\n"
         f"priority: {priority}\n"
         f"effort: {effort}\n"
@@ -229,28 +232,136 @@ class TestEnginePlan:
         # Old ticket outside 24h window — no dedup match.
         assert resp.state == "ok"
 
-    def test_dedup_uses_mtime_not_date(self, tmp_tickets):
-        """Dedup uses file mtime, catching near-midnight duplicates (P0-3).
+    def test_dedup_uses_created_at_over_date(self, tmp_tickets):
+        """Dedup uses created_at for precise window check (P0-3).
 
-        A ticket with yesterday's date but recent mtime should still be
-        within the 24h dedup window. The old date-only code would miss this.
+        A ticket with a recent created_at but old date should still be
+        within the 24h dedup window. created_at has second-level precision
+        and is immune to git checkout/clone mtime resets.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from tests.conftest import make_ticket
+
+        # created_at = 1 hour ago (within 24h window).
+        recent = datetime.now(timezone.utc) - timedelta(hours=1)
+        created_at = recent.strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Date is 2 days ago — would be outside window with date-only logic.
+        old_date = "2026-02-28"
+        make_ticket(
+            tmp_tickets,
+            f"{old_date}-midnight.md",
+            id="T-20260228-01",
+            date=old_date,
+            created_at=created_at,
+            problem="Auth times out.",
+            title="Midnight edge case",
+        )
+        resp = engine_plan(
+            intent="create",
+            fields={
+                "title": "Fix auth bug",
+                "problem": "Auth times out.",
+                "priority": "high",
+                "key_file_paths": ["test.py"],
+            },
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        # created_at puts it within window — duplicate detected.
+        assert resp.state == "duplicate_candidate"
+
+    def test_dedup_skips_old_created_at(self, tmp_tickets):
+        """Tickets with old created_at are excluded even with recent date."""
+        from datetime import datetime, timedelta, timezone
+
+        from tests.conftest import make_ticket
+
+        # created_at = 3 days ago (outside 24h window).
+        old = datetime.now(timezone.utc) - timedelta(days=3)
+        created_at = old.strftime("%Y-%m-%dT%H:%M:%SZ")
+        make_ticket(
+            tmp_tickets,
+            "2026-03-07-stale.md",
+            id="T-20260307-01",
+            date="2026-03-07",
+            created_at=created_at,
+            problem="Auth times out.",
+            title="Stale ticket",
+        )
+        resp = engine_plan(
+            intent="create",
+            fields={
+                "title": "Fix auth bug",
+                "problem": "Auth times out.",
+                "priority": "high",
+                "key_file_paths": ["test.py"],
+            },
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        # Old created_at puts ticket outside window — no dedup match.
+        assert resp.state == "ok"
+
+    def test_dedup_end_of_day_fallback_catches_near_midnight(self, tmp_tickets):
+        """Legacy tickets without created_at use end-of-day fallback.
+
+        A ticket dated today (without created_at) should always be in the
+        24h window because its date is treated as 23:59:59 UTC.
+        """
+        from datetime import datetime, timezone
+
+        from tests.conftest import make_ticket
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        make_ticket(
+            tmp_tickets,
+            f"{today}-legacy.md",
+            id="T-20260307-01",
+            date=today,
+            # No created_at — exercises fallback path.
+            problem="Auth times out.",
+            title="Legacy ticket",
+        )
+        resp = engine_plan(
+            intent="create",
+            fields={
+                "title": "Fix auth bug",
+                "problem": "Auth times out.",
+                "priority": "high",
+                "key_file_paths": ["test.py"],
+            },
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        # End-of-day fallback puts today's ticket within window.
+        assert resp.state == "duplicate_candidate"
+
+    def test_dedup_ignores_mtime_after_git_clone(self, tmp_tickets):
+        """File mtime does NOT affect dedup — git clone safety (P0-3 review).
+
+        After git clone, all files get current mtime. Old tickets must NOT
+        be treated as recent just because mtime is now.
         """
         import os
         import time
 
         from tests.conftest import make_ticket
 
-        # Use a date from 2 days ago — outside 24h window by date alone.
-        old_date = "2026-02-28"
+        # Old ticket with old date, no created_at.
+        old_date = "2026-01-15"
         path = make_ticket(
             tmp_tickets,
-            f"{old_date}-midnight.md",
-            id="T-20260228-01",
+            f"{old_date}-cloned.md",
+            id="T-20260115-01",
             date=old_date,
             problem="Auth times out.",
-            title="Midnight edge case",
+            title="Old cloned ticket",
         )
-        # Set mtime to NOW — within 24h window by mtime.
+        # Simulate git clone: set mtime to NOW.
         now = time.time()
         os.utime(path, (now, now))
         resp = engine_plan(
@@ -265,41 +376,7 @@ class TestEnginePlan:
             request_origin="user",
             tickets_dir=tmp_tickets,
         )
-        # With mtime-based window, this IS a duplicate despite old date.
-        assert resp.state == "duplicate_candidate"
-
-    def test_dedup_skips_old_mtime(self, tmp_tickets):
-        """Tickets with old mtime are excluded even with recent date field."""
-        import os
-        import time
-
-        from tests.conftest import make_ticket
-
-        today_str = "2026-03-07"
-        path = make_ticket(
-            tmp_tickets,
-            f"{today_str}-stale.md",
-            id="T-20260307-01",
-            date=today_str,
-            problem="Auth times out.",
-            title="Stale ticket",
-        )
-        # Set mtime to 3 days ago — outside 24h window.
-        old_time = time.time() - (3 * 86400)
-        os.utime(path, (old_time, old_time))
-        resp = engine_plan(
-            intent="create",
-            fields={
-                "title": "Fix auth bug",
-                "problem": "Auth times out.",
-                "priority": "high",
-                "key_file_paths": ["test.py"],
-            },
-            session_id="test-session",
-            request_origin="user",
-            tickets_dir=tmp_tickets,
-        )
-        # Old mtime puts ticket outside window — no dedup match.
+        # mtime is ignored — old date puts ticket outside window.
         assert resp.state == "ok"
 
     def test_non_create_skips_dedup(self, tmp_tickets):
@@ -813,9 +890,16 @@ class TestEngineExecute:
         )
         assert resp.state == "ok_create"
         ticket_path = Path(resp.data["ticket_path"])
-        assert extract_fenced_yaml(ticket_path.read_text(encoding="utf-8")) == _expected_canonical_yaml(
+        ticket_yaml = extract_fenced_yaml(ticket_path.read_text(encoding="utf-8"))
+        # Extract dynamic created_at from actual output for comparison.
+        import re as _re
+        _ca_match = _re.search(r'created_at: "([^"]+)"', ticket_yaml or "")
+        _created_at = _ca_match.group(1) if _ca_match else ""
+        assert _created_at, "created_at should be present in newly created tickets"
+        assert ticket_yaml == _expected_canonical_yaml(
             ticket_id=resp.ticket_id,
             date=ticket_path.name[:10],
+            created_at=_created_at,
             status="open",
             priority="high",
             effort="S",
@@ -1943,9 +2027,16 @@ class TestEngineExecuteIntegration:
         ticket_path = Path(resp.data["ticket_path"])
         ticket_date = ticket_path.name[:10]
 
+        # Extract dynamic created_at from actual output.
+        import re as _re
+        _actual_yaml = extract_fenced_yaml(ticket_path.read_text(encoding="utf-8"))
+        _ca_match = _re.search(r'created_at: "([^"]+)"', _actual_yaml or "")
+        _created_at = _ca_match.group(1) if _ca_match else ""
+
         expected = _expected_canonical_yaml(
             ticket_id=ticket_id,
             date=ticket_date,
+            created_at=_created_at,
             status="open",
             priority="medium",
             effort="S",
@@ -1956,7 +2047,7 @@ class TestEngineExecuteIntegration:
             blocked_by=[],
             blocks=[],
         )
-        assert extract_fenced_yaml(ticket_path.read_text(encoding="utf-8")) == expected
+        assert _actual_yaml == expected
 
         resp = engine_execute(
             action="update",

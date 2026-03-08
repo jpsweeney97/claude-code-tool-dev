@@ -11,6 +11,7 @@ import yaml
 CANONICAL_FIELD_ORDER = [
     "id",
     "date",
+    "created_at",
     "status",
     "priority",
     "effort",
@@ -138,6 +139,7 @@ def render_ticket(
     status: str,
     priority: str,
     problem: str,
+    created_at: str = "",
     effort: str = "",
     source: dict[str, str] | None = None,
     tags: list[str] | None = None,
@@ -169,9 +171,11 @@ def render_ticket(
     frontmatter: dict[str, Any] = {
         "id": id,
         "date": date,
-        "status": status,
-        "priority": priority,
     }
+    if created_at:
+        frontmatter["created_at"] = created_at
+    frontmatter["status"] = status
+    frontmatter["priority"] = priority
     if effort:
         frontmatter["effort"] = effort
     frontmatter["source"] = {
