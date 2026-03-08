@@ -22,6 +22,13 @@ from scripts.ticket_engine_core import (
     engine_preflight,
 )
 from scripts.ticket_paths import discover_project_root, resolve_tickets_dir
+from scripts.ticket_stage_models import (
+    ClassifyInput,
+    ExecuteInput,
+    PayloadError,
+    PlanInput,
+    PreflightInput,
+)
 from scripts.ticket_trust import collect_trust_triple_errors
 
 REQUEST_ORIGIN = "agent"
@@ -104,60 +111,78 @@ def main() -> None:
 
 
 def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineResponse:
-    if subcommand == "classify":
-        return engine_classify(
-            action=payload.get("action", ""),
-            args=payload.get("args", {}),
-            session_id=payload.get("session_id", ""),
-            request_origin=REQUEST_ORIGIN,
+    try:
+        if subcommand == "classify":
+            inp = ClassifyInput.from_payload(payload)
+            return engine_classify(
+                action=inp.action,
+                args=inp.args,
+                session_id=inp.session_id,
+                request_origin=REQUEST_ORIGIN,
+            )
+        elif subcommand == "plan":
+            inp = PlanInput.from_payload(payload)
+            return engine_plan(
+                intent=inp.intent,
+                fields=inp.fields,
+                session_id=inp.session_id,
+                request_origin=REQUEST_ORIGIN,
+                tickets_dir=tickets_dir,
+            )
+        elif subcommand == "preflight":
+            inp = PreflightInput.from_payload(payload)
+            return engine_preflight(
+                ticket_id=inp.ticket_id,
+                action=inp.action,
+                session_id=inp.session_id,
+                request_origin=REQUEST_ORIGIN,
+                classify_confidence=inp.classify_confidence,
+                classify_intent=inp.classify_intent,
+                dedup_fingerprint=inp.dedup_fingerprint,
+                target_fingerprint=inp.target_fingerprint,
+                fields=inp.fields,
+                duplicate_of=inp.duplicate_of,
+                dedup_override=inp.dedup_override,
+                dependency_override=inp.dependency_override,
+                hook_injected=inp.hook_injected,
+                tickets_dir=tickets_dir,
+            )
+        elif subcommand == "execute":
+            inp = ExecuteInput.from_payload(payload)
+            autonomy_config = (
+                AutonomyConfig.from_dict(inp.autonomy_config_data)
+                if isinstance(inp.autonomy_config_data, dict)
+                else None
+            )
+            return engine_execute(
+                action=inp.action,
+                ticket_id=inp.ticket_id,
+                fields=inp.fields,
+                session_id=inp.session_id,
+                request_origin=REQUEST_ORIGIN,
+                dedup_override=inp.dedup_override,
+                dependency_override=inp.dependency_override,
+                tickets_dir=tickets_dir,
+                target_fingerprint=inp.target_fingerprint,
+                autonomy_config=autonomy_config,
+                hook_injected=inp.hook_injected,
+                hook_request_origin=inp.hook_request_origin,
+                classify_intent=inp.classify_intent,
+                classify_confidence=inp.classify_confidence,
+                dedup_fingerprint=inp.dedup_fingerprint,
+            )
+        else:
+            return EngineResponse(
+                state="escalate",
+                message=f"Unknown subcommand: {subcommand!r}",
+                error_code="intent_mismatch",
+            )
+    except PayloadError as exc:
+        return EngineResponse(
+            state=exc.state,
+            message=f"{subcommand} payload validation failed: {exc}",
+            error_code=exc.code,
         )
-    elif subcommand == "plan":
-        return engine_plan(
-            intent=payload.get("intent", payload.get("action", "")),
-            fields=payload.get("fields", {}),
-            session_id=payload.get("session_id", ""),
-            request_origin=REQUEST_ORIGIN,
-            tickets_dir=tickets_dir,
-        )
-    elif subcommand == "preflight":
-        return engine_preflight(
-            ticket_id=payload.get("ticket_id"),
-            action=payload.get("action", ""),
-            session_id=payload.get("session_id", ""),
-            request_origin=REQUEST_ORIGIN,
-            classify_confidence=payload.get("classify_confidence", 0.0),
-            classify_intent=payload.get("classify_intent", ""),
-            dedup_fingerprint=payload.get("dedup_fingerprint"),
-            target_fingerprint=payload.get("target_fingerprint"),
-            fields=payload.get("fields"),
-            duplicate_of=payload.get("duplicate_of"),
-            dedup_override=payload.get("dedup_override", False),
-            dependency_override=payload.get("dependency_override", False),
-            hook_injected=payload.get("hook_injected", False),
-            tickets_dir=tickets_dir,
-        )
-    elif subcommand == "execute":
-        config_data = payload.get("autonomy_config")
-        autonomy_config = AutonomyConfig.from_dict(config_data) if isinstance(config_data, dict) else None
-        return engine_execute(
-            action=payload.get("action", ""),
-            ticket_id=payload.get("ticket_id"),
-            fields=payload.get("fields", {}),
-            session_id=payload.get("session_id", ""),
-            request_origin=REQUEST_ORIGIN,
-            dedup_override=payload.get("dedup_override", False),
-            dependency_override=payload.get("dependency_override", False),
-            tickets_dir=tickets_dir,
-            target_fingerprint=payload.get("target_fingerprint"),
-            autonomy_config=autonomy_config,
-            hook_injected=payload.get("hook_injected", False),
-            hook_request_origin=payload.get("hook_request_origin"),
-            classify_intent=payload.get("classify_intent"),
-            classify_confidence=payload.get("classify_confidence"),
-            dedup_fingerprint=payload.get("dedup_fingerprint"),
-        )
-    else:
-        return EngineResponse(state="escalate", message=f"Unknown subcommand: {subcommand!r}", error_code="intent_mismatch")
 
 
 if __name__ == "__main__":
