@@ -4,8 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from scripts.ticket_engine_runner import run
 
 
@@ -209,6 +207,23 @@ class TestSuccessfulDispatch:
         assert code == 0
         out = json.loads(capsys.readouterr().out)
         assert out["state"] == "ok_create"
+
+
+class TestPayloadValidation:
+    def test_bad_field_type_returns_parse_error(self, capsys, tmp_path, monkeypatch):
+        """PayloadError from stage models is caught and returned as structured JSON."""
+        _ensure_project_root(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        payload_file = _write_payload(tmp_path, {
+            "action": 123,  # Must be a string — triggers PayloadError.
+            "args": {},
+            "session_id": "test",
+        })
+        code = run("user", ["classify", payload_file], prog="ticket_engine_user.py")
+        assert code == 1
+        out = json.loads(capsys.readouterr().out)
+        assert out["error_code"] == "parse_error"
+        assert "classify" in out["message"].lower()
 
 
 class TestExitCodes:
