@@ -5,13 +5,9 @@ requires-python = ">=3.11"
 
 [tool.uv.workspace]
 members = [
-    "packages/context-injection",
+    "packages/plugins/cross-model/context-injection",
     "packages/plugins/context-metrics",
     "packages/plugins/cross-model",
     "packages/plugins/handoff",
     "packages/plugins/ticket",
-]
-exclude = [
-    # Vendored copy of packages/context-injection — same project name causes collision
-    "packages/plugins/cross-model/context-injection",
 ]

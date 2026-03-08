@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `context-injection` is now maintained only in `packages/plugins/cross-model/context-injection`
+- The vendoring sync script and vendored marker file were removed
+- `docs/references/context-injection-contract.md` symlink was removed in favor of the plugin reference path
+
 ## [3.0.0] — 2026-03-06
 
 ### Added

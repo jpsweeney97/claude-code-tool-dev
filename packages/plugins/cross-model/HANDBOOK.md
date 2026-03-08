@@ -16,7 +16,7 @@ The cross-model plugin gives Claude a structured way to consult or delegate to C
 - agent-level dialogue management
 - credential and scope enforcement
 - autonomous execution gates for delegation
-- a vendored stateful MCP server for mid-conversation evidence gathering
+- a stateful MCP server for mid-conversation evidence gathering
 - deterministic analytics emission and reporting
 
 This document is plugin-wide. It is not limited to `/dialogue`.
@@ -71,7 +71,7 @@ The package is split into five layers:
 
 ### Context-injection server
 
-Important note: the copy under the plugin is vendored. [packages/plugins/cross-model/context-injection/README.vendored.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection/README.vendored.md) explicitly says edits here will be overwritten. Durable changes belong in the source package, then get synced back into the plugin.
+Important note: the copy under the plugin is the canonical `context-injection` package. Durable changes belong in [packages/plugins/cross-model/context-injection](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection), and its package-local tests live alongside the code.
 
 Primary modules:
 
@@ -97,7 +97,7 @@ Primary modules:
 
 - Codex CLI installed: `npm install -g @openai/codex`
 - Codex authenticated: `codex login` or `OPENAI_API_KEY` set
-- Python 3.11 available for plugin scripts and the vendored `context-injection` server
+- Python 3.11 available for plugin scripts and the `context-injection` server
 - `uv` available for `context-injection` server startup and local test execution
 - `git` available on `PATH`
 - POSIX runtime for `/dialogue` (`context-injection` rejects non-POSIX hosts)
@@ -655,12 +655,6 @@ Edit [packages/plugins/cross-model/.mcp.json](/Users/jp/Projects/active/claude-c
 - runtime environment wiring such as `CODEX_SANDBOX` or `REPO_ROOT`
 - which bundled server gets launched for `context-injection`
 
-Edit [scripts/build-cross-model-plugin](/Users/jp/Projects/active/claude-code-tool-dev/scripts/build-cross-model-plugin) when changing:
-
-- vendoring rules for the bundled `context-injection` copy
-- sync exclusions
-- post-sync integrity checks between plugin metadata and hook matchers
-
 ### Top-level consultation policy
 
 Edit [packages/plugins/cross-model/references/consultation-contract.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/references/consultation-contract.md) when changing:
@@ -717,7 +711,7 @@ Edit these together when changing helper startup or repo-root behavior:
 
 - [packages/plugins/cross-model/.mcp.json](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/.mcp.json)
 - [packages/plugins/cross-model/context-injection/context_injection/server.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection/context_injection/server.py)
-- [packages/plugins/cross-model/context-injection/README.vendored.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection/README.vendored.md)
+- [packages/plugins/cross-model/context-injection/README.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection/README.md)
 
 ### Context-injection protocol
 
@@ -797,7 +791,7 @@ Edit these when changing plugin-wide enforcement or reporting:
 ## Guardrails and Known Limitations
 
 - PreToolUse hook execution is fail-closed for normal runtime errors, but actual hook-process crashes are fail-open by OS semantics.
-- The vendored context-injection tests are not in this package copy. Source-package tests are the deeper coverage source.
+- The context-injection tests live in `packages/plugins/cross-model/context-injection/tests`, not in `packages/plugins/cross-model/tests`.
 - Scope re-consent after mid-dialogue scope expansion is still only partially implemented in the broader contract path.
 - `nudge_codex.py` is opt-in only. If `CROSS_MODEL_NUDGE` is unset, repeated Bash failures do nothing. When enabled, the nudge fires after 3 consecutive Bash failures per session and resets after each nudge (so the suggestion recurs after another 3 failures).
 - `/delegate` secret-file detection is conservative but incomplete: filename-based, not content-based.
@@ -814,7 +808,7 @@ uv run pytest tests
 
 All tests should pass with no failures.
 
-For deeper context-injection verification, run tests in the source package referenced by [packages/plugins/cross-model/context-injection/README.vendored.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection/README.vendored.md).
+For deeper context-injection verification, run tests in [packages/plugins/cross-model/context-injection](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection).
 
 ### `/delegate` pre-dispatch smoke test
 

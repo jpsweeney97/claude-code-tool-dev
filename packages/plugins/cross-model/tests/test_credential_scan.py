@@ -5,8 +5,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.credential_scan import ScanResult, scan_text
@@ -61,6 +59,14 @@ class TestScanTextContextual:
     def test_github_pat_suppressed_by_placeholder(self) -> None:
         result = scan_text("example: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn")
         assert result.action == "allow"
+
+    def test_second_contextual_match_still_blocks(self) -> None:
+        token1 = "ghp_" + "A" * 36
+        token2 = "ghp_" + "B" * 36
+        prompt = f"An example GitHub PAT: {token1} {'x' * 80} real: {token2}"
+        result = scan_text(prompt)
+        assert result.action == "block"
+        assert result.tier == "contextual"
 
     def test_openai_sk_key(self) -> None:
         result = scan_text("sk-" + "a" * 40)

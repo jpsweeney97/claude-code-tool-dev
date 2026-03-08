@@ -19,7 +19,7 @@ Composes the full v0.2.0 processing pipeline (17 steps per contract):
 16. Serialize checkpoint
 17. Generate ledger summary, store record, commit state, return TurnPacketSuccess
 
-Contract reference: docs/references/context-injection-contract.md
+Contract reference: packages/plugins/cross-model/references/context-injection-contract.md
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 
 from context_injection.checkpoint import (
+    MAX_ENTRIES_BEFORE_COMPACT,
     CheckpointError,
     compact_ledger,
     serialize_checkpoint,
@@ -58,8 +59,6 @@ logger = logging.getLogger(__name__)
 MAX_CONVERSATION_TURNS: int = 15
 
 # Import-time invariant: turn cap must be strictly less than compaction threshold.
-from context_injection.checkpoint import MAX_ENTRIES_BEFORE_COMPACT
-
 if MAX_CONVERSATION_TURNS >= MAX_ENTRIES_BEFORE_COMPACT:
     raise RuntimeError(
         f"MAX_CONVERSATION_TURNS ({MAX_CONVERSATION_TURNS}) must be strictly less than "

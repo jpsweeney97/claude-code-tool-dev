@@ -47,7 +47,7 @@
      `exploratory`, `code-review`) mapping to resolved execution controls.
      Stored separately from the contract for edit-frequency isolation.
 
-3. `./context-injection-contract.md`
+3. `packages/plugins/cross-model/references/context-injection-contract.md`
    - Complementary protocol: JSON contract between the `codex-dialogue` agent
      and the context injection Python helper (MCP server). Governs mid-conversation
      evidence gathering (process_turn / execute_scout calls).

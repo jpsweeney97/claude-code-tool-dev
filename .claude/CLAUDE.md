@@ -57,14 +57,14 @@ Mid-conversation evidence gathering for Codex dialogues. When Codex makes a fact
 
 | Resource          | Location                                                        |
 | ----------------- | --------------------------------------------------------------- |
-| MCP server (source) | `packages/context-injection/` (dev/test; vendored into plugin at runtime) |
-| Protocol contract | `docs/references/context-injection-contract.md`                 |
+| MCP server | `packages/plugins/cross-model/context-injection/` (canonical code + tests) |
+| Protocol contract | `packages/plugins/cross-model/references/context-injection-contract.md` |
 | Design spec       | `docs/plans/2026-02-11-conversation-aware-context-injection.md` |
 | MCP tools         | `mcp__plugin_cross-model_context-injection__process_turn`, `mcp__plugin_cross-model_context-injection__execute_scout` |
 
 **Security stance:** Over-redaction is always preferable to under-redaction. When adding format-specific redaction logic, verify that edge cases fail toward over-redaction (safe) not under-redaction (leak). Footgun tests (`test_footgun_*`) verify which pipeline layer catches secrets — check that they still test their stated contract after behavior changes.
 
-**Status:** MCP server and agent integration complete (969 tests). The codex-dialogue agent uses the 7-step scouting loop with context injection for mid-conversation evidence gathering.
+**Status:** MCP server and agent integration complete (991 tests). The codex-dialogue agent uses the 7-step scouting loop with context injection for mid-conversation evidence gathering.
 
 ### Cross-Model Learning
 

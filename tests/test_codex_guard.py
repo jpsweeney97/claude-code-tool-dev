@@ -29,6 +29,7 @@ MODULE_PATH = (
 )
 SPEC = importlib.util.spec_from_file_location("codex_guard", MODULE_PATH)
 MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 

@@ -11,7 +11,7 @@ Plus:
 - Dedupe via entity_key and template_id from evidence_history
 - Resolved-key dedupe for file_name entities that resolve to file_path
 
-Contract reference: docs/references/context-injection-contract.md
+Contract reference: packages/plugins/cross-model/references/context-injection-contract.md
 """
 
 from __future__ import annotations

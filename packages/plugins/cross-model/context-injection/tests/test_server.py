@@ -1,8 +1,8 @@
 """Tests for the MCP server setup."""
 
-import os
+from pathlib import Path
 import subprocess
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
 from context_injection.server import (
     _load_git_files,
@@ -32,11 +32,16 @@ def test_server_has_execute_scout_tool() -> None:
 
 def test_load_git_files_returns_set() -> None:
     """git ls-files from this repo should return non-empty set."""
-    # tests/test_server.py -> tests/ -> context-injection/ -> packages/ -> repo root
-    repo_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    repo_root = next(
+        (
+            parent
+            for parent in Path(__file__).resolve().parents
+            if (parent / ".git").exists()
+        ),
+        None,
     )
-    result = _load_git_files(repo_root)
+    assert repo_root is not None, "Could not find .git directory in any parent"
+    result = _load_git_files(str(repo_root))
     assert isinstance(result, set)
     assert len(result) > 0
 

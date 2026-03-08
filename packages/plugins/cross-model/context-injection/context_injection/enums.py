@@ -6,7 +6,7 @@ enum values participate in computation: EffectiveDelta, QualityLabel, Validation
 and TruncationReason. The remaining classes mirror Literal definitions for test
 convenience and documentation.
 
-All values match the contract at docs/references/context-injection-contract.md.
+All values match the contract at packages/plugins/cross-model/references/context-injection-contract.md.
 """
 
 from enum import StrEnum

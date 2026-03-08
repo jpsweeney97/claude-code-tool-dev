@@ -8,6 +8,7 @@ from typing import Literal
 
 
 Tier = Literal["strict", "contextual", "broad"]
+PLACEHOLDER_BYPASS_WINDOW = 100
 
 PLACEHOLDER_BYPASS_WORDS = [
     "format",
@@ -43,7 +44,7 @@ def check_placeholder_bypass(text: str, family: SecretFamily) -> bool:
     """Return True when placeholder/example language appears near a match.
 
     If ``text`` contains one or more family matches, each match is evaluated
-    against a 200-character window. If no match is present, ``text`` is
+    against a 100-character window. If no match is present, ``text`` is
     treated as a pre-sliced window.
     """
 
@@ -57,8 +58,8 @@ def check_placeholder_bypass(text: str, family: SecretFamily) -> bool:
         return any(word in context for word in bypass_words)
 
     for match in matches:
-        start = max(0, match.start() - 200)
-        end = min(len(text), match.end() + 200)
+        start = max(0, match.start() - PLACEHOLDER_BYPASS_WINDOW)
+        end = min(len(text), match.end() + PLACEHOLDER_BYPASS_WINDOW)
         context = text[start:end].lower()
         if any(word in context for word in bypass_words):
             return True

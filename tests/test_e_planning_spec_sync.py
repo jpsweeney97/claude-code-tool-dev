@@ -45,7 +45,7 @@ class TestEPlanningSpecSync:
         )
 
     def test_planning_profile_posture(self) -> None:
-        """Planning profile uses evaluative posture."""
+        """Planning profile uses comparative posture."""
         content = PROFILES_PATH.read_text()
         planning_match = re.search(
             r"^\s+planning:\s*\n((?:\s{4,}.*\n)*)",
@@ -57,8 +57,8 @@ class TestEPlanningSpecSync:
         )
         block = planning_match.group(1)
         posture_match = re.search(r"posture:\s*(\w+)", block)
-        assert posture_match and posture_match.group(1) == "evaluative", (
-            "Planning profile posture should be evaluative"
+        assert posture_match and posture_match.group(1) == "comparative", (
+            "Planning profile posture should be comparative"
         )
 
     def test_reasoning_effort_in_delegation_envelope(self) -> None:
