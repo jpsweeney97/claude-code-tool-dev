@@ -304,12 +304,12 @@ class TestSecretFileGate:
             _check_secret_files()  # must not raise
 
     def test_certifi_cacert_pem_exempt_nested_venv(self) -> None:
-        """Exemption applies at any depth — covers packages/*/venv layouts."""
+        """Exemption applies at any depth — covers the nested plugin helper venv."""
         from scripts.codex_delegate import _check_secret_files
         with patch("scripts.codex_delegate.subprocess") as mock_sub:
             mock_sub.run.return_value = MagicMock(
                 returncode=0,
-                stdout="packages/context-injection/.venv/lib/python3.14/site-packages/certifi/cacert.pem\n",
+                stdout="packages/plugins/cross-model/context-injection/.venv/lib/python3.14/site-packages/certifi/cacert.pem\n",
             )
             _check_secret_files()  # must not raise
 

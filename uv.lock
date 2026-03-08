@@ -151,7 +151,7 @@ wheels = [
 [[package]]
 name = "context-injection"
 version = "0.2.0"
-source = { editable = "packages/context-injection" }
+source = { editable = "packages/plugins/cross-model/context-injection" }
 dependencies = [
     { name = "mcp" },
 ]
