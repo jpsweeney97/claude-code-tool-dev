@@ -156,6 +156,38 @@ class TestAutonomyConfig:
         assert restored.max_creates == original.max_creates
         assert restored.warnings == original.warnings
 
+    def test_discovers_project_root_via_git_directory_marker(self, tmp_path: Path):
+        """Config lookup reuses marker-based root discovery, not a .claude-only walk."""
+        (tmp_path / ".git").mkdir()
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "ticket.local.md").write_text(
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 7\n---\n",
+            encoding="utf-8",
+        )
+        tickets_dir = tmp_path / "nested" / "docs" / "tickets"
+        tickets_dir.mkdir(parents=True)
+
+        config = read_autonomy_config(tickets_dir)
+        assert config.mode == "auto_audit"
+        assert config.max_creates == 7
+
+    def test_discovers_project_root_via_git_worktree_file_marker(self, tmp_path: Path):
+        """A .git file marker is also a valid project root for config lookup."""
+        (tmp_path / ".git").write_text("gitdir: /tmp/worktrees/example\n", encoding="utf-8")
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "ticket.local.md").write_text(
+            "---\nautonomy_mode: auto_silent\n---\n",
+            encoding="utf-8",
+        )
+        tickets_dir = tmp_path / "nested" / "docs" / "tickets"
+        tickets_dir.mkdir(parents=True)
+
+        config = read_autonomy_config(tickets_dir)
+        assert config.mode == "auto_silent"
+        assert config.max_creates == 5
+
 
 class TestAutonomyPreflight:
     """Test autonomy enforcement in engine_preflight."""

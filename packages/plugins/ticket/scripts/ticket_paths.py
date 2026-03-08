@@ -15,6 +15,10 @@ def discover_project_root(start: Path) -> Path | None:
     contains a .claude/ directory, a .git/ directory, or a .git file
     (git worktree marker).
 
+    The search starts from start.resolve(), so symlinked paths are
+    canonicalized before marker detection. The returned root is therefore
+    the resolved filesystem path, not the original symlink spelling.
+
     Returns None if no marker is found (caller should reject, not fallback).
     """
     current = start.resolve()

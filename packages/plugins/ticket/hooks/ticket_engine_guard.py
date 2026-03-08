@@ -358,9 +358,8 @@ def main() -> None:
     tool_input = event.get("tool_input", {})
     command = tool_input.get("command", "")
 
-    # Strip a trailing `2>&1` diagnostic suffix. Candidate detection trims
-    # leading whitespace, but exact matching keeps it so non-canonical forms
-    # still reach branch 3 (deny).
+    # Strip a trailing `2>&1` diagnostic suffix. Detection trims leading
+    # whitespace; exact matching does not, so non-canonical forms still deny.
     command_clean = re.sub(r"\s+2>&1\s*$", "", command)
     command_for_detection = command_clean.lstrip()
 

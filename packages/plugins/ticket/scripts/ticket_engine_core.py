@@ -23,7 +23,9 @@ from scripts.ticket_parse import (
     extract_fenced_yaml,
     parse_yaml_block,
 )
+from scripts.ticket_paths import discover_project_root
 from scripts.ticket_render import render_ticket, replace_fenced_yaml
+from scripts.ticket_trust import collect_trust_triple_errors
 from scripts.ticket_validate import validate_fields
 
 
@@ -346,18 +348,16 @@ _TERMINAL_STATUSES = frozenset({"done", "wontfix"})
 def read_autonomy_config(tickets_dir: Path) -> AutonomyConfig:
     """Read autonomy config from .claude/ticket.local.md YAML frontmatter.
 
+    Project root discovery reuses the same marker-based lookup as the
+    entrypoints (.claude/, .git/, or .git worktree file).
+
     Fail-closed: returns AutonomyConfig(mode="suggest") on any error.
     Emits warnings to stderr for malformed/unknown values.
     """
-
     warnings: list[str] = []
-
-    # Walk up from tickets_dir to find project root (.claude/ directory).
-    project_root = tickets_dir
-    while project_root != project_root.parent:
-        if (project_root / ".claude").is_dir():
-            break
-        project_root = project_root.parent
+    project_root = discover_project_root(tickets_dir)
+    if project_root is None:
+        return AutonomyConfig()
 
     config_path = project_root / ".claude" / "ticket.local.md"
     if not config_path.is_file():
@@ -1036,19 +1036,17 @@ def engine_execute(
         config = snapshot_config or AutonomyConfig()
 
     # --- Transport-layer trust triple (defense-in-depth for all origins) ---
-    trust_errors: list[str] = []
-    if not hook_injected:
-        trust_errors.append("hook_injected=False")
-    if hook_request_origin is None:
-        trust_errors.append("hook_request_origin missing")
-    elif hook_request_origin != request_origin:
+    if hook_request_origin is not None and hook_request_origin != request_origin:
         return EngineResponse(
             state="escalate",
             message=f"origin_mismatch: request_origin={request_origin!r}, hook_request_origin={hook_request_origin!r}",
             error_code="origin_mismatch",
         )
-    if not session_id:
-        trust_errors.append("session_id empty")
+    trust_errors = collect_trust_triple_errors(
+        hook_injected,
+        hook_request_origin,
+        session_id,
+    )
     if trust_errors:
         return EngineResponse(
             state="policy_blocked",

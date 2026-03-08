@@ -22,6 +22,7 @@ from scripts.ticket_engine_core import (
     engine_preflight,
 )
 from scripts.ticket_paths import discover_project_root, resolve_tickets_dir
+from scripts.ticket_trust import collect_trust_triple_errors
 
 REQUEST_ORIGIN = "user"
 
@@ -56,15 +57,11 @@ def main() -> None:
 
     # Execute requires the full trust triple.
     if subcommand == "execute":
-        hook_injected = payload.get("hook_injected", False)
-        session_id = payload.get("session_id", "")
-        trust_errors: list[str] = []
-        if not hook_injected:
-            trust_errors.append("hook_injected=False")
-        if hook_origin is None:
-            trust_errors.append("hook_request_origin missing")
-        if not session_id:
-            trust_errors.append("session_id empty")
+        trust_errors = collect_trust_triple_errors(
+            payload.get("hook_injected", False),
+            hook_origin,
+            payload.get("session_id", ""),
+        )
         if trust_errors:
             resp = EngineResponse(
                 state="policy_blocked",

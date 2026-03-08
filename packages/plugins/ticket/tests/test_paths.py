@@ -52,3 +52,15 @@ class TestDiscoverProjectRoot:
         (tmp_path / ".git").mkdir()
         root = discover_project_root(tmp_path)
         assert root == tmp_path
+
+    def test_resolves_symlink_before_marker_lookup(self, tmp_path: Path) -> None:
+        """Symlinked start paths resolve to the canonical project root."""
+        (tmp_path / ".git").mkdir()
+        real_nested = tmp_path / "real" / "src"
+        real_nested.mkdir(parents=True)
+        symlink_root = tmp_path.parent / f"{tmp_path.name}-link"
+        symlink_root.symlink_to(tmp_path, target_is_directory=True)
+        symlink_nested = symlink_root / "real" / "src"
+
+        root = discover_project_root(symlink_nested)
+        assert root == tmp_path.resolve()

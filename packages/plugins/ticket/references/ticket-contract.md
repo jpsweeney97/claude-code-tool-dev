@@ -8,7 +8,7 @@ Single source of truth for the ticket plugin. All components (skills, agents, en
 - Archived tickets: `docs/tickets/closed-tickets/`
 - Audit trail: `docs/tickets/.audit/YYYY-MM-DD/<session_id>.jsonl`
 - Path boundary: hook payload files and all CLI `tickets_dir` arguments must resolve inside workspace/project root
-- tickets_dir resolution: CLI entrypoints resolve tickets_dir against a marker-based project root (nearest ancestor containing .claude/ or .git/), not against cwd. Explicit tickets_dir must resolve inside the project root. If no project root is found, the operation is rejected (policy_blocked).
+- tickets_dir resolution: CLI entrypoints resolve tickets_dir against a marker-based project root (nearest ancestor containing .claude/ or .git/), not against cwd. Root discovery starts from a resolved path, so symlinked cwd values are canonicalized before marker lookup. Explicit tickets_dir must resolve inside the project root. If no project root is found, the operation is rejected (policy_blocked).
 - Naming: `YYYY-MM-DD-<slug>.md`
 - Slug: first 6 words of title, kebab-case, `[a-z0-9-]` only, max 60 chars, sequence suffix on collision
 - Bootstrap: missing `docs/tickets/` → empty result for reads; create on first write
