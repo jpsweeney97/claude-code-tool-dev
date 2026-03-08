@@ -1,9 +1,6 @@
 ---
 name: cc-docs
-description: |
-  Orchestrate parallel claude-code-docs-researcher subagents for Claude Code documentation questions. Use this skill when a documentation question spans multiple extension types (hooks + skills + agents), requires comparing features across categories, needs comprehensive "how does X work" coverage, or when a single researcher's 3-8 search budget isn't enough. Routes questions through a tiered system: inline search for quick lookups, single researcher for focused deep dives, parallel researchers for cross-cutting questions. Synthesizes findings across researchers into unified answers with citations.
-
-  Trigger this skill whenever you're about to answer a Claude Code documentation question that touches 2+ extension types, or when you're considering spawning a claude-code-docs-researcher agent. Even for simpler documentation questions, consult this skill — it tells you whether inline search is sufficient or whether delegation will produce a better answer.
+description: Orchestrate parallel claude-code-docs-researcher subagents for Claude Code documentation questions. Use this skill when a documentation question spans multiple extension types (hooks + skills + agents), requires comparing features across categories, needs comprehensive "how does X work" coverage, or when a single researcher's 3-8 search budget isn't enough. Routes questions through a tiered system: inline search for quick lookups, single researcher for focused deep dives, parallel researchers for cross-cutting questions. Synthesizes findings across researchers into unified answers with citations. Trigger this skill whenever you're about to answer a Claude Code documentation question that touches 2+ extension types, or when you're considering spawning a claude-code-docs-researcher agent. Even for simpler documentation questions, consult this skill — it tells you whether inline search is sufficient or whether delegation will produce a better answer.
 
 allowed-tools:
   - mcp__claude-code-docs__search_docs
