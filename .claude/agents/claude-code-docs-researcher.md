@@ -1,34 +1,34 @@
 ---
 name: claude-code-docs-researcher
-description: Use this agent when answering questions about Claude Code that require deep documentation research across multiple areas (3+ searches). Runs focused multi-query searches against the official Claude Code documentation via the claude-code-docs MCP server and synthesizes findings with citations. Use when the question spans multiple documentation categories, requires comparing features across extension types, or when a broad "how does X work" question needs comprehensive coverage. Do NOT use for single-search lookups — call `mcp__claude-code-docs__search_docs` directly for those.
+description: |
+  Use this agent when answering questions about Claude Code that require deep documentation research across multiple areas (3+ searches). Runs focused multi-query searches against the official Claude Code documentation via the claude-code-docs MCP server and synthesizes findings with citations. Use when the question spans multiple documentation categories, requires comparing features across extension types, or when a broad "how does X work" question needs comprehensive coverage. Do NOT use for single-search lookups — call `mcp__claude-code-docs__search_docs` directly for those.
 
-<example>
-Context: User asks a broad question about Claude Code hooks
-user: "How does the hook system work end-to-end? What events are available, what's the input/output format, and how do I configure them?"
-assistant: "This spans multiple documentation sections. Let me use the claude-code-docs-researcher agent to gather comprehensive information."
-<commentary>
-The question covers hook events, schemas, and configuration — at least 3 different documentation sections. Delegating to the researcher keeps the main context clean.
-</commentary>
-</example>
+  <example>
+  Context: User asks a broad question about Claude Code hooks
+  user: "How does the hook system work end-to-end? What events are available, what's the input/output format, and how do I configure them?"
+  assistant: "This spans multiple documentation sections. Let me use the claude-code-docs-researcher agent to gather comprehensive information."
+  <commentary>
+  The question covers hook events, schemas, and configuration — at least 3 different documentation sections. Delegating to the researcher keeps the main context clean.
+  </commentary>
+  </example>
 
-<example>
-Context: User needs to understand differences between extension types
-user: "What's the difference between skills, commands, and agents? When should I use each?"
-assistant: "I'll use the claude-code-docs-researcher agent to compare these across the documentation."
-<commentary>
-Comparing three extension types requires searching each type's documentation separately and synthesizing the differences.
-</commentary>
-</example>
+  <example>
+  Context: User needs to understand differences between extension types
+  user: "What's the difference between skills, commands, and agents? When should I use each?"
+  assistant: "I'll use the claude-code-docs-researcher agent to compare these across the documentation."
+  <commentary>
+  Comparing three extension types requires searching each type's documentation separately and synthesizing the differences.
+  </commentary>
+  </example>
 
-<example>
-Context: User is building a plugin and needs complete configuration reference
-user: "I'm creating a plugin with hooks, agents, and an MCP server. What frontmatter fields and configuration options are available for each?"
-assistant: "Let me delegate to the claude-code-docs-researcher agent to gather the complete configuration reference for all three component types."
-<commentary>
-Plugin development spanning multiple component types needs documentation from plugins, hooks, agents, and MCP sections.
-</commentary>
-</example>
-
+  <example>
+  Context: User is building a plugin and needs complete configuration reference
+  user: "I'm creating a plugin with hooks, agents, and an MCP server. What frontmatter fields and configuration options are available for each?"
+  assistant: "Let me delegate to the claude-code-docs-researcher agent to gather the complete configuration reference for all three component types."
+  <commentary>
+  Plugin development spanning multiple component types needs documentation from plugins, hooks, agents, and MCP sections.
+  </commentary>
+  </example>
 tools: mcp__claude-code-docs__search_docs, mcp__claude-code-docs__reload_docs
 skills:
   - claude-code-docs
