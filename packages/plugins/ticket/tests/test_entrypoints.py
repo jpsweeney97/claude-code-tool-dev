@@ -366,6 +366,56 @@ class TestEntrypointTicketsDirBoundaries:
         assert output["state"] == "ok"
 
 
+class TestPayloadValidation:
+    """Entrypoints translate PayloadError into structured EngineResponse."""
+
+    def test_classify_bad_args_type_returns_parse_error(self, tmp_path):
+        output = run_entrypoint(
+            "ticket_engine_user.py",
+            "classify",
+            {
+                "action": "create",
+                "args": "not a dict",
+                "session_id": "test",
+            },
+            tmp_path,
+        )
+        assert output["state"] == "escalate"
+        assert output["error_code"] == "parse_error"
+        assert "classify" in output["message"].lower()
+
+    def test_execute_bad_fields_type_returns_parse_error(self, tmp_path):
+        output = run_entrypoint(
+            "ticket_engine_user.py",
+            "execute",
+            {
+                "action": "create",
+                "fields": "not a dict",
+                "session_id": "test",
+                "hook_injected": True,
+                "hook_request_origin": "user",
+            },
+            tmp_path,
+        )
+        assert output["state"] == "escalate"
+        assert output["error_code"] == "parse_error"
+        assert "execute" in output["message"].lower()
+
+    def test_agent_entrypoint_also_validates(self, tmp_path):
+        output = run_entrypoint(
+            "ticket_engine_agent.py",
+            "classify",
+            {
+                "action": "create",
+                "args": 42,
+                "session_id": "test",
+            },
+            tmp_path,
+        )
+        assert output["state"] == "escalate"
+        assert output["error_code"] == "parse_error"
+
+
 class TestEntrypointProjectRootDiscovery:
     """Entrypoints use marker-based project root instead of bare cwd."""
 
