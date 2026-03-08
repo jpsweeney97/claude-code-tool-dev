@@ -16,12 +16,17 @@ from dataclasses import dataclass
 from typing import Literal
 
 try:
-    from secret_taxonomy import FAMILIES, check_placeholder_bypass
+    from secret_taxonomy import (
+        FAMILIES,
+        PLACEHOLDER_BYPASS_WINDOW,
+        check_placeholder_bypass,
+    )
 except ModuleNotFoundError:
-    from scripts.secret_taxonomy import FAMILIES, check_placeholder_bypass
-
-
-_PLACEHOLDER_WINDOW = 200
+    from scripts.secret_taxonomy import (
+        FAMILIES,
+        PLACEHOLDER_BYPASS_WINDOW,
+        check_placeholder_bypass,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -63,8 +68,8 @@ def scan_text(text: str) -> ScanResult:
     # Contextual tier
     for family in _families_for_tier("contextual"):
         for match in family.pattern.finditer(text):
-            start = max(0, match.start() - _PLACEHOLDER_WINDOW)
-            end = min(len(text), match.end() + _PLACEHOLDER_WINDOW)
+            start = max(0, match.start() - PLACEHOLDER_BYPASS_WINDOW)
+            end = min(len(text), match.end() + PLACEHOLDER_BYPASS_WINDOW)
             if not check_placeholder_bypass(text[start:end], family):
                 return ScanResult(
                     action="block",
