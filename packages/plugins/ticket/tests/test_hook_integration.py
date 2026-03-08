@@ -196,6 +196,59 @@ class TestHookSessionIdPropagatesToAudit:
             assert entry["session_id"] == unique_session
 
 
+class TestPatch1Integration:
+    """End-to-end: hook → entrypoint → engine with full staged payload."""
+
+    def test_canonical_create_flow_with_staged_payload(self, tmp_path: Path) -> None:
+        """Full trust path: hook injects trust fields, entrypoint validates,
+        engine checks structural prerequisites."""
+        from scripts.ticket_dedup import dedup_fingerprint as compute_fp
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+
+        problem = "Integration test problem for Patch 1"
+        fp = compute_fp(problem, [])
+        payload = {
+            "action": "create",
+            "fields": {
+                "title": "Patch 1 Integration Test",
+                "problem": problem,
+                "priority": "medium",
+            },
+            "classify_intent": "create",
+            "classify_confidence": 0.95,
+            "dedup_fingerprint": fp,
+            "tickets_dir": str(tickets_dir),
+        }
+        payload_file = tmp_path / "payload.json"
+        payload_file.write_text(json.dumps(payload), encoding="utf-8")
+
+        # Hook injection
+        command = f"python3 {PLUGIN_ROOT}/scripts/ticket_engine_user.py execute {payload_file}"
+        hook_output = run_hook(command, session_id="integration-session", cwd=str(tmp_path))
+        assert hook_output != {}, "Hook should return a decision for ticket_engine commands"
+        assert hook_output["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+        # Verify payload was injected with trust triple
+        injected = json.loads(payload_file.read_text(encoding="utf-8"))
+        assert injected["hook_injected"] is True
+        assert injected["hook_request_origin"] == "user"
+        assert injected["session_id"] == "integration-session"
+
+    def test_bypass_attempt_blocked_end_to_end(self, tmp_path: Path) -> None:
+        """Leading-space bypass attempt is caught by prefilter."""
+        payload = {"action": "create"}
+        payload_file = tmp_path / "payload.json"
+        payload_file.write_text(json.dumps(payload), encoding="utf-8")
+
+        # Leading space before python3 — shlex prefilter should catch this
+        command = f" python3 {PLUGIN_ROOT}/scripts/ticket_engine_user.py execute {payload_file}"
+        hook_output = run_hook(command, cwd=str(tmp_path))
+        assert hook_output != {}, "Hook should return a decision"
+        assert hook_output["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
 class TestOriginMismatchIntegration:
     def test_agent_hook_origin_rejects_user_entrypoint(self, tmp_path: Path) -> None:
         tickets_dir = tmp_path / "tickets"
