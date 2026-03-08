@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp, target_fingerprint as compute_target_fp
 from scripts.ticket_engine_core import AUDIT_UNAVAILABLE, engine_count_session_creates, engine_execute
 
 
@@ -55,6 +56,9 @@ class TestAuditAppend:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Test problem", []),
         )
         entries = _read_audit_lines(tmp_tickets, session_id)
         assert len(entries) >= 1, "Audit file should exist with at least one entry"
@@ -73,6 +77,9 @@ class TestAuditAppend:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Order problem", []),
         )
         entries = _read_audit_lines(tmp_tickets, session_id)
         assert len(entries) == 2
@@ -93,6 +100,9 @@ class TestAuditAppend:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Schema problem", []),
         )
         entries = _read_audit_lines(tmp_tickets, session_id)
         assert len(entries) == 2
@@ -101,12 +111,15 @@ class TestAuditAppend:
             assert not missing, f"Entry missing fields: {missing}"
 
     def test_audit_on_error_writes_result(self, tmp_tickets: Path) -> None:
-        """On non-exception error (e.g., update non-existent ticket), audit still writes both entries."""
+        """On non-exception error (e.g., invalid transition), audit still writes both entries."""
+        from tests.conftest import make_ticket
+
         session_id = "sess-error-1"
+        ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="done")
         engine_execute(
             action="update",
-            ticket_id="T-99999999-99",
-            fields={"title": "Updated title"},
+            ticket_id="T-20260302-01",
+            fields={"status": "in_progress"},
             session_id=session_id,
             request_origin="user",
             dedup_override=False,
@@ -114,8 +127,11 @@ class TestAuditAppend:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(ticket_path),
         )
-        # The update should fail (ticket doesn't exist) but not raise
+        # The update should fail (invalid transition done->in_progress) but not raise
         entries = _read_audit_lines(tmp_tickets, session_id)
         assert len(entries) == 2
         assert entries[0]["action"] == "attempt_started"
@@ -144,6 +160,9 @@ class TestAuditAppend:
                     tickets_dir=tmp_tickets,
                     hook_injected=True,
                     hook_request_origin="user",
+                    classify_intent="create",
+                    classify_confidence=0.95,
+                    dedup_fingerprint=compute_dedup_fp("A problem", []),
                 )
         entries = _read_audit_lines(tmp_tickets, session_id)
         assert len(entries) == 2
@@ -169,6 +188,9 @@ class TestAuditAppend:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Dir problem", []),
         )
 
         assert audit_dir.exists(), "Audit dir should be created by engine_execute"
@@ -179,10 +201,11 @@ class TestAuditAppend:
         """Multiple executions in same session append to same file (3 creates = 6 lines)."""
         session_id = "sess-multi-1"
         for i in range(3):
+            problem = f"Multi problem {i}"
             engine_execute(
                 action="create",
                 ticket_id=None,
-                fields={"title": f"Multi test {i}", "problem": f"Multi problem {i}"},
+                fields={"title": f"Multi test {i}", "problem": problem},
                 session_id=session_id,
                 request_origin="user",
                 dedup_override=False,
@@ -190,6 +213,9 @@ class TestAuditAppend:
                 tickets_dir=tmp_tickets,
                 hook_injected=True,
                 hook_request_origin="user",
+                classify_intent="create",
+                classify_confidence=0.95,
+                dedup_fingerprint=compute_dedup_fp(problem, []),
             )
         entries = _read_audit_lines(tmp_tickets, session_id)
         assert len(entries) == 6, f"Expected 6 entries (3 creates x 2), got {len(entries)}"
@@ -212,6 +238,9 @@ class TestAuditAppend:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("TS problem", []),
         )
         entries = _read_audit_lines(tmp_tickets, session_id)
         for entry in entries:
@@ -228,10 +257,11 @@ class TestSessionCounting:
         """Creating 3 tickets yields a count of 3."""
         session_id = "sess-count-1"
         for i in range(3):
+            problem = f"Problem {i}"
             engine_execute(
                 action="create",
                 ticket_id=None,
-                fields={"title": f"Count test {i}", "problem": f"Problem {i}"},
+                fields={"title": f"Count test {i}", "problem": problem},
                 session_id=session_id,
                 request_origin="user",
                 dedup_override=False,
@@ -239,6 +269,9 @@ class TestSessionCounting:
                 tickets_dir=tmp_tickets,
                 hook_injected=True,
                 hook_request_origin="user",
+                classify_intent="create",
+                classify_confidence=0.95,
+                dedup_fingerprint=compute_dedup_fp(problem, []),
             )
         assert engine_count_session_creates(session_id, tmp_tickets) == 3
 
@@ -256,6 +289,9 @@ class TestSessionCounting:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("A problem", []),
         )
         tid = resp.ticket_id
         engine_execute(
@@ -269,6 +305,9 @@ class TestSessionCounting:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert engine_count_session_creates(session_id, tmp_tickets) == 1
 

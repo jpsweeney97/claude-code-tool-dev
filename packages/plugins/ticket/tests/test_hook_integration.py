@@ -62,18 +62,24 @@ class TestFullCreateFlow:
     """Full flow: hook → user entrypoint → create → audit trail."""
 
     def test_full_create_flow(self, tmp_path: Path) -> None:
+        from scripts.ticket_dedup import dedup_fingerprint as compute_fp
+
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
 
+        problem = "Testing the full hook-engine-audit flow."
         # Create payload file with create action and required fields.
         payload = {
             "action": "create",
             "fields": {
                 "title": "Integration test ticket",
-                "problem": "Testing the full hook-engine-audit flow.",
+                "problem": problem,
                 "priority": "medium",
             },
             "tickets_dir": str(tickets_dir),
+            "classify_intent": "create",
+            "classify_confidence": 0.95,
+            "dedup_fingerprint": compute_fp(problem, []),
         }
         payload_file = tmp_path / "payload.json"
         payload_file.write_text(json.dumps(payload), encoding="utf-8")
@@ -144,18 +150,24 @@ class TestHookSessionIdPropagatesToAudit:
     """Session ID propagates end-to-end: hook → payload → engine → audit."""
 
     def test_hook_session_id_propagates_to_audit(self, tmp_path: Path) -> None:
+        from scripts.ticket_dedup import dedup_fingerprint as compute_fp
+
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
 
         unique_session = "unique-sess-xyz"
+        problem = "Verify session_id flows through entire pipeline."
         payload = {
             "action": "create",
             "fields": {
                 "title": "Session propagation test",
-                "problem": "Verify session_id flows through entire pipeline.",
+                "problem": problem,
                 "priority": "low",
             },
             "tickets_dir": str(tickets_dir),
+            "classify_intent": "create",
+            "classify_confidence": 0.95,
+            "dedup_fingerprint": compute_fp(problem, []),
         }
         payload_file = tmp_path / "payload.json"
         payload_file.write_text(json.dumps(payload), encoding="utf-8")

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp, target_fingerprint as compute_target_fp
 from scripts.ticket_engine_core import (
     engine_classify,
     engine_execute,
@@ -67,6 +68,9 @@ class TestFullCreatePipeline:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent=classify_resp.data["intent"],
+            classify_confidence=classify_resp.data["confidence"],
+            dedup_fingerprint=plan_resp.data["dedup_fingerprint"],
         )
         assert execute_resp.state == "ok_create"
         assert Path(execute_resp.data["ticket_path"]).exists()
@@ -129,6 +133,9 @@ class TestFullCreatePipeline:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent=payload.get("classify_intent"),
+            classify_confidence=payload.get("classify_confidence"),
+            dedup_fingerprint=payload.get("dedup_fingerprint"),
         )
         assert execute_resp.state == "ok_create"
         assert Path(execute_resp.data["ticket_path"]).exists()
@@ -174,6 +181,9 @@ class TestFullCreatePipeline:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert update_resp.state == "ok_update"
 
@@ -189,6 +199,9 @@ class TestFullCreatePipeline:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert close_resp.state == "ok_close"
 
@@ -235,6 +248,9 @@ class TestFullCreatePipeline:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp(fields["problem"], fields.get("key_file_paths", [])),
         )
         assert execute_resp.state == "ok_create"
 
@@ -269,6 +285,9 @@ class TestFullCreatePipeline:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=plan_resp.data["dedup_fingerprint"],
         )
         assert execute_resp.state == "ok_create"
 

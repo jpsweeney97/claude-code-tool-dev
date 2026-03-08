@@ -994,6 +994,9 @@ def engine_execute(
     autonomy_config: AutonomyConfig | None = None,
     hook_injected: bool = False,
     hook_request_origin: str | None = None,
+    classify_intent: str | None = None,
+    classify_confidence: float | None = None,
+    dedup_fingerprint: str | None = None,
 ) -> EngineResponse:
     """Execute the mutation: create, update, close, or reopen.
 
@@ -1035,6 +1038,74 @@ def engine_execute(
         return EngineResponse(
             state="policy_blocked",
             message=f"Execute requires verified hook provenance: {', '.join(trust_errors)}",
+            error_code="policy_blocked",
+        )
+
+    # --- Structural stage prerequisites ---
+    # classify_intent: must match action.
+    if classify_intent is None:
+        return EngineResponse(
+            state="policy_blocked",
+            message="Execute requires classify_intent (run classify stage first)",
+            error_code="policy_blocked",
+        )
+    if classify_intent != action:
+        return EngineResponse(
+            state="escalate",
+            message=f"intent_mismatch: classify_intent={classify_intent!r} but action={action!r}",
+            error_code="intent_mismatch",
+        )
+
+    # classify_confidence: must be present and above threshold.
+    if classify_confidence is None:
+        return EngineResponse(
+            state="policy_blocked",
+            message="Execute requires classify_confidence (run classify stage first)",
+            error_code="policy_blocked",
+        )
+    modifier = _ORIGIN_MODIFIER.get(request_origin, 0.0)
+    threshold = _T_BASE + modifier
+    if classify_confidence < threshold:
+        return EngineResponse(
+            state="preflight_failed",
+            message=f"Low confidence: {classify_confidence:.2f} (threshold: {threshold:.2f})",
+            error_code="preflight_failed",
+        )
+
+    # dedup_fingerprint: required for create, must match recomputed value.
+    if action == "create":
+        if dedup_fingerprint is None:
+            return EngineResponse(
+                state="policy_blocked",
+                message="Create execute requires dedup_fingerprint (run plan stage first)",
+                error_code="policy_blocked",
+            )
+        from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp
+
+        expected_fp = compute_dedup_fp(
+            fields.get("problem", ""),
+            fields.get("key_file_paths", []),
+        )
+        if dedup_fingerprint != expected_fp:
+            return EngineResponse(
+                state="preflight_failed",
+                message="dedup_fingerprint mismatch — create fields changed since plan",
+                error_code="stale_plan",
+            )
+
+    # target_fingerprint: required for non-create actions.
+    if action != "create" and target_fingerprint is None:
+        return EngineResponse(
+            state="policy_blocked",
+            message=f"{action} execute requires target_fingerprint (run plan stage first)",
+            error_code="policy_blocked",
+        )
+
+    # autonomy_config: required for agent-origin (snapshot from preflight).
+    if request_origin == "agent" and autonomy_config is None:
+        return EngineResponse(
+            state="policy_blocked",
+            message="Agent execute requires autonomy_config snapshot (rerun from preflight)",
             error_code="policy_blocked",
         )
 

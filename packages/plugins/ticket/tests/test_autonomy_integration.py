@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp, target_fingerprint as compute_target_fp
 from scripts.ticket_engine_core import (
     AutonomyConfig,
     engine_count_session_creates,
@@ -62,6 +63,9 @@ class TestAutonomyIntegration:
             dedup_override=False, dependency_override=False,
             tickets_dir=tickets_dir, autonomy_config=config, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Agent found an issue", []),
         )
         assert ex_resp.state == "ok_create"
 
@@ -74,14 +78,18 @@ class TestAutonomyIntegration:
         config_path.write_text("---\nautonomy_mode: auto_audit\nmax_creates_per_session: 2\n---\n")
 
         for i in range(2):
+            problem = f"Issue {i}"
             config = AutonomyConfig(mode="auto_audit", max_creates=2)
             engine_execute(
                 action="create", ticket_id=None,
-                fields={"title": f"Ticket {i}", "problem": f"Issue {i}"},
+                fields={"title": f"Ticket {i}", "problem": problem},
                 session_id="cap-session", request_origin="agent",
                 dedup_override=False, dependency_override=False,
                 tickets_dir=tickets_dir, autonomy_config=config, hook_injected=True,
                 hook_request_origin="agent",
+                classify_intent="create",
+                classify_confidence=0.95,
+                dedup_fingerprint=compute_dedup_fp(problem, []),
             )
 
         resp = engine_preflight(
@@ -114,6 +122,9 @@ class TestAutonomyIntegration:
             tickets_dir=tickets_dir,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("User issue", []),
         )
         assert ex_resp.state == "ok_create"
 
@@ -142,6 +153,9 @@ class TestAutonomyIntegration:
             dedup_override=False, dependency_override=False,
             tickets_dir=tickets_dir, autonomy_config=snapshot, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Testing snapshot", []),
         )
         assert ex_resp.state == "policy_blocked"
         assert "changed since preflight" in ex_resp.message.lower()

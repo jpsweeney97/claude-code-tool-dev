@@ -8,6 +8,7 @@ import pytest
 import scripts.ticket_engine_core as ticket_engine_core
 import scripts.ticket_paths as ticket_paths
 from scripts.ticket_engine_core import (
+    AutonomyConfig,
     engine_classify,
     engine_execute,
     engine_plan,
@@ -15,6 +16,7 @@ from scripts.ticket_engine_core import (
 )
 from scripts.ticket_parse import extract_fenced_yaml
 from scripts.ticket_paths import resolve_tickets_dir
+from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp, target_fingerprint as compute_target_fp
 
 
 def _expected_canonical_yaml(
@@ -731,6 +733,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "invalid_transition"
         assert "reopen" in resp.message.lower()
@@ -751,6 +756,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "invalid_transition"
 
@@ -769,6 +777,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "invalid_transition"
         assert "blocked_by" in resp.message.lower()
@@ -794,14 +805,22 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "invalid_transition"
         assert "missing blocker" in resp.message.lower()
 
     def test_agent_override_rejected(self, tmp_tickets):
         from tests.conftest import make_ticket
+        from tests.test_autonomy import write_autonomy_config
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01")
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
+        )
         resp = engine_execute(
             action="create",
             ticket_id=None,
@@ -813,6 +832,10 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Test", []),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "policy_blocked"
         assert "agent" in resp.message.lower() or "override" in resp.message.lower()
@@ -831,6 +854,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint="dummy-fp",
         )
         assert resp.state == "need_fields"
         assert resp.error_code == "need_fields"
@@ -847,6 +873,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint="dummy-fp",
         )
         assert resp.state == "not_found"
         assert resp.error_code == "not_found"
@@ -874,6 +903,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Auth times out for large payloads.", []),
         )
         assert resp.state == "ok_create"
         assert resp.ticket_id is not None
@@ -905,6 +937,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Create should use the same serializer as mutations.", []),
         )
         assert resp.state == "ok_create"
         ticket_path = Path(resp.data["ticket_path"])
@@ -935,6 +970,7 @@ class TestEngineExecute:
             "problem": "Duplicate me",
             "priority": "medium",
         }
+        fp = compute_dedup_fp(fields["problem"], fields.get("key_file_paths", []))
         first = engine_execute(
             action="create",
             ticket_id=None,
@@ -946,6 +982,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=fp,
         )
         assert first.state == "ok_create"
 
@@ -960,6 +999,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=fp,
         )
         assert second.state == "duplicate_candidate"
         assert second.error_code == "duplicate_candidate"
@@ -970,6 +1012,7 @@ class TestEngineExecute:
             "problem": "Duplicate with override",
             "priority": "medium",
         }
+        fp = compute_dedup_fp(fields["problem"], fields.get("key_file_paths", []))
         first = engine_execute(
             action="create",
             ticket_id=None,
@@ -981,6 +1024,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=fp,
         )
         assert first.state == "ok_create"
 
@@ -995,6 +1041,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=fp,
         )
         assert second.state == "ok_create"
 
@@ -1028,6 +1077,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Exclusive create should retry instead of overwriting.", []),
         )
 
         assert resp.state == "ok_create"
@@ -1063,6 +1115,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Create should fail after the exclusive-write retry budget.", []),
         )
 
         assert resp.state == "escalate"
@@ -1097,6 +1152,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("", []),
         )
         assert resp.state == "need_fields"
         assert resp.error_code == "need_fields"
@@ -1116,6 +1174,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -1138,6 +1199,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
         assert "section fields not supported" in resp.message.lower()
@@ -1159,6 +1223,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
         assert "section fields not supported" in resp.message.lower()
@@ -1182,6 +1249,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
         assert "unknown fields: custom" in resp.message.lower()
@@ -1202,6 +1272,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         content = ticket_path.read_text(encoding="utf-8")
@@ -1224,6 +1297,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
         assert "fields.ticket_id must match" in resp.message.lower()
@@ -1245,6 +1321,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -1269,6 +1348,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -1295,6 +1377,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -1316,6 +1401,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -1339,6 +1427,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
@@ -1362,6 +1453,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
@@ -1385,6 +1479,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
@@ -1408,6 +1505,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
@@ -1429,6 +1529,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_close"
 
@@ -1447,6 +1550,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_close_archived"
         assert not (tmp_tickets / "2026-03-02-test.md").exists()
@@ -1469,6 +1575,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp_a.state == "ok_close_archived"
         assert (tmp_tickets / "closed-tickets" / "2026-03-02-test.md").exists()
@@ -1486,6 +1595,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp_b.state == "ok_close_archived"
         # Both files exist — B got the -2 suffix.
@@ -1514,6 +1626,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "dependency_blocked"
         assert resp.error_code == "dependency_blocked"
@@ -1539,6 +1654,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "dependency_blocked"
         assert resp.data["missing_blockers"] == ["T-MISSING-01"]
@@ -1566,6 +1684,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_close"
 
@@ -1591,6 +1712,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "dependency_blocked"
         assert resp.data["unresolved_blockers"] == ["T-20260302-01"]
@@ -1617,6 +1741,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_close"
 
@@ -1642,6 +1769,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_close"
 
@@ -1679,6 +1809,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_close"
 
@@ -1708,6 +1841,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
         assert "archive rename failed" in resp.message
@@ -1745,6 +1881,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
         assert "collision resolution failed" in resp.message
@@ -1765,6 +1904,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_close"
 
@@ -1783,6 +1925,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "invalid_transition"
 
@@ -1802,6 +1947,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "invalid_transition"
         assert resp.error_code == "invalid_transition"
@@ -1822,6 +1970,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "invalid_transition"
 
@@ -1864,6 +2015,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "invalid_transition"
         assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
@@ -1906,6 +2060,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "invalid_transition"
         assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
@@ -1948,6 +2105,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "invalid_transition"
         assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
@@ -1968,6 +2128,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_close", f"Expected ok_close but got {resp.state}: {resp.message}"
 
@@ -1987,6 +2150,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
         assert resp.error_code is None
@@ -2007,6 +2173,9 @@ class TestEngineExecute:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="reopen",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_reopen"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -2033,6 +2202,8 @@ class TestEngineExecute:
             target_fingerprint=stale_fp,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
         )
         assert resp.state == "preflight_failed"
         assert resp.error_code == "stale_plan"
@@ -2062,6 +2233,9 @@ class TestEngineExecuteIntegration:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Integration test problem.", []),
         )
         assert resp.state == "ok_create"
         ticket_id = resp.ticket_id
@@ -2080,6 +2254,9 @@ class TestEngineExecuteIntegration:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
 
@@ -2095,6 +2272,9 @@ class TestEngineExecuteIntegration:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_close"
 
@@ -2110,6 +2290,9 @@ class TestEngineExecuteIntegration:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="reopen",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_reopen"
 
@@ -2139,6 +2322,9 @@ class TestEngineExecuteIntegration:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("All mutation paths should share one YAML renderer.", []),
         )
         assert resp.state == "ok_create"
         ticket_id = resp.ticket_id
@@ -2178,6 +2364,9 @@ class TestEngineExecuteIntegration:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         expected = expected.replace("status: open\n", "status: in_progress\n")
@@ -2194,6 +2383,9 @@ class TestEngineExecuteIntegration:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_close"
         expected = expected.replace("status: in_progress\n", "status: wontfix\n")
@@ -2210,6 +2402,9 @@ class TestEngineExecuteIntegration:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="reopen",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_reopen"
         expected = expected.replace("status: wontfix\n", "status: open\n")
@@ -2219,9 +2414,12 @@ class TestEngineExecuteIntegration:
 
     def test_unknown_action_escalates(self, tmp_tickets):
         """Dispatcher rejects unknown actions."""
+        from tests.conftest import make_ticket
+
+        ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01")
         resp = engine_execute(
             action="merge",
-            ticket_id=None,
+            ticket_id="T-20260302-01",
             fields={},
             session_id="test-session",
             request_origin="user",
@@ -2230,6 +2428,9 @@ class TestEngineExecuteIntegration:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="merge",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(ticket_path),
         )
         assert resp.state == "escalate"
         assert resp.error_code == "intent_mismatch"
@@ -2280,6 +2481,9 @@ class TestTransportValidation:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
         )
         assert resp.state == "ok_create"
 
@@ -2332,6 +2536,9 @@ class TestExecuteTrustTripleEngine:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
         )
         assert resp.state == "ok_create"
 
@@ -2379,6 +2586,9 @@ class TestYamlScalarEdgeCases:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
@@ -2400,7 +2610,144 @@ class TestYamlScalarEdgeCases:
             tickets_dir=tmp_tickets,
             hook_injected=True,
             hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
         assert tickets[0].effort == ""
+
+
+class TestExecuteStructuralPrerequisites:
+    """engine_execute() requires prior-stage artifacts."""
+
+    def test_missing_classify_intent_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "P"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            # classify_intent missing
+        )
+        assert resp.state == "policy_blocked"
+
+    def test_mismatched_classify_intent_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "P"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="update",  # Doesn't match action="create"
+            classify_confidence=0.95,
+        )
+        assert resp.error_code == "intent_mismatch"
+
+    def test_missing_classify_confidence_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "P"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="create",
+            # classify_confidence missing (defaults to None)
+        )
+        assert resp.state == "policy_blocked"
+
+    def test_low_confidence_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "P"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.3,  # Below 0.5 threshold
+        )
+        assert resp.state == "preflight_failed"
+
+    def test_missing_dedup_fingerprint_for_create_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "P"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            # dedup_fingerprint missing
+        )
+        assert resp.state == "policy_blocked"
+
+    def test_mismatched_dedup_fingerprint_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "P"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint="wrong-fingerprint",
+        )
+        assert resp.error_code == "stale_plan"
+
+    def test_correct_dedup_fingerprint_accepted(self, tmp_tickets):
+        fp = compute_dedup_fp("P", [])
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "P"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=fp,
+        )
+        assert resp.state == "ok_create"
+
+    def test_missing_target_fingerprint_for_update_rejected(self, tmp_tickets):
+        from tests.conftest import make_ticket
+        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        resp = engine_execute(
+            action="update", ticket_id="T-20260302-01",
+            fields={"status": "in_progress"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            # target_fingerprint missing (None)
+        )
+        assert resp.state == "policy_blocked"
+
+    def test_agent_missing_autonomy_config_rejected(self, tmp_tickets):
+        from tests.test_autonomy import write_autonomy_config
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
+        )
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "P"},
+            session_id="sess", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("P", []),
+            # autonomy_config=None (missing snapshot)
+        )
+        assert resp.state == "policy_blocked"

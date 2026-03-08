@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp, target_fingerprint as compute_target_fp
 from scripts.ticket_engine_core import (
     AutonomyConfig,
     engine_execute,
@@ -331,6 +332,10 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "policy_blocked"
 
@@ -346,6 +351,10 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "policy_blocked"
 
@@ -357,6 +366,10 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "policy_blocked"
 
@@ -371,6 +384,9 @@ class TestAutonomyExecute:
             autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
             hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
         )
         assert resp.state == "policy_blocked"
         assert "changed since preflight" in resp.message.lower()
@@ -386,6 +402,9 @@ class TestAutonomyExecute:
             autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
             hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
         )
         assert resp.state == "policy_blocked"
         assert "changed since preflight" in resp.message.lower()
@@ -404,6 +423,9 @@ class TestAutonomyExecute:
             autonomy_config=AutonomyConfig(mode="suggest"),
             hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
         )
         assert resp.state == "policy_blocked"
         assert "changed since preflight" in resp.message.lower()
@@ -417,6 +439,10 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "policy_blocked"
 
@@ -433,6 +459,10 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="reopen",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "policy_blocked"
 
@@ -448,10 +478,15 @@ class TestAutonomyExecute:
             dedup_override=True, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "policy_blocked"
 
-    def test_agent_execute_allows_when_live_config_auto_audit_and_no_snapshot(self, tmp_tickets):
+    def test_agent_execute_no_snapshot_now_rejected(self, tmp_tickets):
+        """Agent without autonomy_config snapshot is now rejected (structural prerequisite)."""
         write_autonomy_config(
             tmp_tickets,
             "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
@@ -463,6 +498,31 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
+            # autonomy_config intentionally omitted (None)
+        )
+        assert resp.state == "policy_blocked"
+        assert "autonomy_config" in resp.message.lower()
+
+    def test_agent_execute_with_snapshot_succeeds(self, tmp_tickets):
+        """Agent with matching autonomy_config snapshot succeeds."""
+        write_autonomy_config(
+            tmp_tickets,
+            "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
+        )
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="sess", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "ok_create"
 
@@ -488,6 +548,10 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "policy_blocked"
 
@@ -513,6 +577,10 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "ok_create"
 
@@ -531,6 +599,10 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "ok_update"
 
@@ -549,6 +621,10 @@ class TestAutonomyExecute:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
             hook_request_origin="agent",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
+            autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
         )
         assert resp.state == "ok_close"
 
@@ -573,6 +649,10 @@ class TestAutonomyExecute:
                 dedup_override=False, dependency_override=False,
                 tickets_dir=tmp_tickets, hook_injected=True,
                 hook_request_origin="agent",
+                classify_intent="create",
+                classify_confidence=0.95,
+                dedup_fingerprint=compute_dedup_fp("Problem", []),
+                autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
             )
             assert resp.state == "policy_blocked"
             assert "audit" in resp.message.lower()

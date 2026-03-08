@@ -145,6 +145,9 @@ def _dispatch(subcommand: str, payload: dict, tickets_dir: Path) -> EngineRespon
             autonomy_config=autonomy_config,
             hook_injected=payload.get("hook_injected", False),
             hook_request_origin=payload.get("hook_request_origin"),
+            classify_intent=payload.get("classify_intent"),
+            classify_confidence=payload.get("classify_confidence"),
+            dedup_fingerprint=payload.get("dedup_fingerprint"),
         )
     else:
         return EngineResponse(state="escalate", message=f"Unknown subcommand: {subcommand!r}", error_code="intent_mismatch")

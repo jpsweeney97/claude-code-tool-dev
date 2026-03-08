@@ -268,12 +268,18 @@ class TestExecuteTrustTriple:
 
     def test_user_execute_with_full_trust_triple_allowed(self, tmp_path):
         """User execute with complete trust triple succeeds."""
+        from scripts.ticket_dedup import dedup_fingerprint as compute_fp
+
+        problem = "Problem"
         payload = {
             "action": "create",
-            "fields": {"title": "Test", "problem": "Problem", "priority": "medium"},
+            "fields": {"title": "Test", "problem": problem, "priority": "medium"},
             "hook_injected": True,
             "hook_request_origin": "user",
             "session_id": "test-session",
+            "classify_intent": "create",
+            "classify_confidence": 0.95,
+            "dedup_fingerprint": compute_fp(problem, []),
         }
         result = run_entrypoint("ticket_engine_user.py", "execute", payload, tmp_path)
         assert result.get("state") == "ok_create"
@@ -299,17 +305,23 @@ class TestEntrypointTicketsDirBoundaries:
         assert output["error_code"] == "policy_blocked"
 
     def test_user_allows_absolute_tickets_dir_inside_project_root(self, tmp_path: Path):
+        from scripts.ticket_dedup import dedup_fingerprint as compute_fp
+
         in_root = tmp_path / "docs" / "tickets"
+        problem = "test"
         output = run_entrypoint(
             "ticket_engine_user.py",
             "execute",
             {
                 "action": "create",
-                "fields": {"title": "test", "problem": "test"},
+                "fields": {"title": "test", "problem": problem},
                 "session_id": "test",
                 "hook_injected": True,
                 "hook_request_origin": "user",
                 "tickets_dir": str(in_root),
+                "classify_intent": "create",
+                "classify_confidence": 0.95,
+                "dedup_fingerprint": compute_fp(problem, []),
             },
             tmp_path,
         )
