@@ -698,3 +698,105 @@ class TestExecutionShapeMatching:
         )
         decision = result.get("hookSpecificOutput", {})
         assert decision.get("permissionDecision") == "deny"
+
+
+# ---------------------------------------------------------------------------
+# Candidate detection tests (shlex-based)
+# ---------------------------------------------------------------------------
+
+
+class TestCandidateDetection:
+    """Tests for shlex-based ticket command candidate detection."""
+
+    # --- Leading-space bypass (F-001) ---
+    def test_leading_space_denied(self, tmp_path: Path) -> None:
+        """Leading space must not bypass hook — detected as candidate, denied as non-canonical."""
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f" python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def test_leading_tabs_denied(self, tmp_path: Path) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"\tpython3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    # --- env launcher variants (detected as candidate → denied as non-canonical) ---
+    def test_env_python3_denied(self, tmp_path: Path) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"/usr/bin/env python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def test_env_with_var_denied(self, tmp_path: Path) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"env PYTHONPATH=. python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    # --- Versioned python (detected as candidate → denied as non-canonical) ---
+    def test_versioned_python_denied(self, tmp_path: Path) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"python3.12 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def test_absolute_python_denied(self, tmp_path: Path) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"/usr/bin/python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    # --- Non-ticket commands pass through ---
+    def test_non_ticket_python_passes_through(self, tmp_path: Path) -> None:
+        """Python invocations that don't target ticket scripts pass through."""
+        result = run_hook(make_hook_input("python3 setup.py install", cwd=str(tmp_path)))
+        assert result == {} or result.get("hookSpecificOutput", {}).get("permissionDecision") != "deny"
+
+    def test_grep_for_ticket_script_name_passes_through(self, tmp_path: Path) -> None:
+        """Non-python commands mentioning ticket script basenames pass through."""
+        result = run_hook(make_hook_input("rg ticket_engine_user.py README.md", cwd=str(tmp_path)))
+        assert result == {} or result.get("hookSpecificOutput", {}).get("permissionDecision") != "deny"
+
+    # --- Malformed quoting with ticket basename → deny ---
+    def test_malformed_quoting_with_ticket_basename_denied(self, tmp_path: Path) -> None:
+        """shlex.split failure + ticket basename in raw string → deny."""
+        plugin_root = str(Path(__file__).parent.parent)
+        cmd = f"python3 '{plugin_root}/scripts/ticket_engine_user.py classify"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    # --- Malformed quoting without ticket basename → pass through ---
+    def test_malformed_quoting_without_ticket_basename_passes(self, tmp_path: Path) -> None:
+        cmd = "python3 'some_other_script.py"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result == {} or result.get("hookSpecificOutput", {}).get("permissionDecision") != "deny"
+
+    # --- Canonical form still allowed ---
+    def test_canonical_user_still_allowed(self, tmp_path: Path) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "allow"
+
+    def test_canonical_agent_still_allowed(self, tmp_path: Path) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"python3 {plugin_root}/scripts/ticket_engine_agent.py classify {payload}"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "allow"
+
+    def test_canonical_with_2_and_1_still_allowed(self, tmp_path: Path) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"python3 {plugin_root}/scripts/ticket_engine_user.py execute {payload} 2>&1"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "allow"

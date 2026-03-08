@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import sys
 import tempfile
 from pathlib import Path
@@ -60,26 +61,81 @@ def _build_audit_pattern(plugin_root: str) -> re.Pattern[str]:
     )
 
 
-def _is_ticket_invocation(command: str) -> bool:
-    """Check if command is a Python invocation that might target ticket scripts.
+# Known ticket script basenames for candidate detection.
+_TICKET_SCRIPT_BASENAMES = frozenset({
+    "ticket_engine_user.py",
+    "ticket_engine_agent.py",
+    "ticket_read.py",
+    "ticket_triage.py",
+    "ticket_audit.py",
+})
 
-    Intentionally broad — catches non-canonical Python launcher forms:
-    python, python3, python3.11, /usr/bin/python3, /usr/local/bin/python3.11,
-    env python3, env PYTHONPATH=. python3, PYTHONPATH=. python3,
-    as well as relative paths and path traversal in the script argument.
-    Exact validation happens in branches 1-3; branch 3 denies anything that
-    doesn't match the explicit allowlists.
+# Broad pattern for any ticket_*.py script — catches unknown/rogue scripts
+# so they route to branch 3 (deny) rather than bypassing the hook entirely.
+_TICKET_SCRIPT_RE = re.compile(r"^ticket_\w+\.py$")
 
-    Non-python commands (cat, rg, wc) pass through — they don't match the
-    Python launcher prefix so this returns False (branch 4).
+# Python-like launcher basenames.
+_PYTHON_LAUNCHER_RE = re.compile(r"^python[\d.]*$")
+
+
+def _is_ticket_candidate(command: str) -> bool:
+    """Detect if command is a Python invocation targeting a known ticket script.
+
+    Uses shlex.split() for token-based parsing. Identifies the script operand
+    to a Python-like launcher and checks if its basename is a known ticket script.
+
+    Supports:
+    - Direct: python3 script.py
+    - Versioned: python3.12 script.py
+    - Absolute: /usr/bin/python3 script.py
+    - env: env python3 script.py
+    - env with vars: env KEY=VAL python3 script.py
+    - Leading env assignments: KEY=VAL python3 script.py
+
+    Returns True if detected as a ticket script candidate (routes to exact
+    allowlist validation in branches 1-3). False means pass-through (branch 4).
     """
-    return bool(
-        re.match(
-            r"^(?:env\s+)?(?:[A-Z_][A-Z0-9_]*=\S+\s+)*(?:/\S+/)?python[\d.]*\s+",
-            command,
-        )
-        and re.search(r"\bscripts/ticket_\w+\.py\b", command)
-    )
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        # shlex.split() failed (unclosed quote, etc.).
+        # If the raw command mentions a known ticket script basename, deny
+        # as malformed; otherwise pass through.
+        return any(basename in command for basename in _TICKET_SCRIPT_BASENAMES)
+
+    if not tokens:
+        return False
+
+    # Find the Python launcher token, skipping:
+    # - "env" or absolute-path env (e.g., /usr/bin/env)
+    # - Environment variable assignments (KEY=VALUE)
+    i = 0
+
+    # Skip env launcher if present.
+    if tokens[i] == "env" or (tokens[i].endswith("/env") and "/" in tokens[i]):
+        i += 1
+
+    # Skip environment variable assignments (KEY=VALUE before Python token).
+    while i < len(tokens) and re.match(r"^[A-Z_][A-Z0-9_]*=", tokens[i]):
+        i += 1
+
+    if i >= len(tokens):
+        return False
+
+    # Check if current token is a Python launcher.
+    launcher = tokens[i]
+    launcher_basename = launcher.rsplit("/", 1)[-1] if "/" in launcher else launcher
+    if not _PYTHON_LAUNCHER_RE.match(launcher_basename):
+        return False
+
+    # Next token after launcher is the script argument.
+    script_idx = i + 1
+    if script_idx >= len(tokens):
+        return False
+
+    script_path = tokens[script_idx]
+    script_basename = script_path.rsplit("/", 1)[-1] if "/" in script_path else script_path
+    return script_basename in _TICKET_SCRIPT_BASENAMES or bool(_TICKET_SCRIPT_RE.match(script_basename))
 
 
 def _make_allow(reason: str) -> dict:
@@ -194,18 +250,19 @@ def main() -> None:
     tool_input = event.get("tool_input", {})
     command = tool_input.get("command", "")
 
+    # Normalize: strip trailing 2>&1 (diagnostic suffix, not injection risk).
+    # lstrip only for candidate detection — allowlist matching uses command_clean
+    # (preserving leading whitespace) so non-canonical forms are denied by branch 3.
+    command_clean = re.sub(r"\s+2>&1\s*$", "", command)
+    command_for_detection = command_clean.lstrip()
+
     # Branch 4: Non-ticket-script invocations pass through (cat, rg, wc, etc.).
-    # Only python3 invocations of ticket_*.py scripts enter strict checks.
     plugin_root = _plugin_root()
-    if not _is_ticket_invocation(command):
+    if not _is_ticket_candidate(command_for_detection):
         print("{}")
         return
 
-    # --- From here, command is a python3 invocation of a ticket script. ---
-
-    # Strip trailing stderr redirect (2>&1) — diagnostic suffix, not injection risk.
-    # Use the stripped form for all subsequent validation; preserve original for error messages.
-    command_clean = re.sub(r"\s+2>&1\s*$", "", command)
+    # --- From here, command is a candidate ticket script invocation. ---
 
     # Block shell metacharacters.
     if SHELL_METACHAR_RE.search(command_clean):
