@@ -156,6 +156,7 @@ def engine_classify(
         return EngineResponse(
             state="escalate",
             message=f"Unknown action: {action!r}. Valid: {', '.join(sorted(VALID_ACTIONS))}",
+            error_code="intent_mismatch",
         )
 
     # Resolve ticket ID from args (for non-create actions).
@@ -1384,6 +1385,7 @@ def _execute_create(
             return EngineResponse(
                 state="escalate",
                 message=f"create failed: {exc}. Got: {str(ticket_path)!r:.100}",
+                error_code="io_error",
             )
         return EngineResponse(
             state="ok_create",
@@ -1398,6 +1400,7 @@ def _execute_create(
             "create failed: exclusive write retry budget exhausted after "
             f"{_CREATE_WRITE_RETRY_LIMIT} attempts. Got: {title!r:.100}"
         ),
+        error_code="io_error",
     )
 
 
@@ -1473,6 +1476,7 @@ def _execute_update(
             state="escalate",
             message=f"Update failed: fields.ticket_id must match top-level ticket_id. Got: {fields.get('ticket_id')!r:.100}",
             ticket_id=ticket_id,
+            error_code="intent_mismatch",
         )
     if section_fields or unknown_fields:
         parts: list[str] = []
@@ -1486,6 +1490,7 @@ def _execute_update(
             state="escalate",
             message=f"Update failed: {'; '.join(parts)}",
             ticket_id=ticket_id,
+            error_code="intent_mismatch",
         )
 
     changes: dict[str, Any] = {"frontmatter": {}, "sections_changed": []}
@@ -1643,6 +1648,7 @@ def _execute_close(
                     state="escalate",
                     message=f"archive collision resolution failed: exhausted suffix search. Got: {ticket_path.name!r:.100}",
                     ticket_id=ticket_id,
+                    error_code="io_error",
                 )
         try:
             ticket_path.rename(dst)
@@ -1651,6 +1657,7 @@ def _execute_close(
                 state="escalate",
                 message=f"archive rename failed: {exc}. Got: {str(dst)!r:.100}",
                 ticket_id=ticket_id,
+                error_code="io_error",
             )
         return EngineResponse(
             state="ok_close_archived",
