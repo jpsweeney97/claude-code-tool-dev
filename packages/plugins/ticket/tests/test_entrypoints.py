@@ -152,6 +152,8 @@ class TestMalformedAutonomyConfig:
                 "action": "create",
                 "fields": {"title": "test", "problem": "test"},
                 "session_id": "test",
+                "hook_injected": True,
+                "hook_request_origin": "user",
                 "autonomy_config": bad_value,
                 "tickets_dir": str(tmp_path),
             },
@@ -170,6 +172,8 @@ class TestMalformedAutonomyConfig:
                 "action": "create",
                 "fields": {"title": "test", "problem": "test"},
                 "session_id": "test",
+                "hook_injected": True,
+                "hook_request_origin": "agent",
                 "autonomy_config": bad_value,
                 "tickets_dir": str(tmp_path),
             },
@@ -201,6 +205,80 @@ class TestEntrypointErrors:
         assert result.returncode != 0
 
 
+class TestExecuteTrustTriple:
+    """Execute requires the full trust triple at the entrypoint layer."""
+
+    def test_user_execute_without_hook_rejected(self, tmp_path):
+        """User execute without hook_injected is rejected."""
+        payload = {
+            "action": "create",
+            "fields": {"title": "Test", "problem": "Problem", "priority": "medium"},
+        }
+        result = run_entrypoint("ticket_engine_user.py", "execute", payload, tmp_path)
+        assert result.get("error_code") == "policy_blocked" or result.get("state") == "policy_blocked"
+
+    def test_user_execute_without_session_id_rejected(self, tmp_path):
+        """User execute with hook_injected but empty session_id is rejected."""
+        payload = {
+            "action": "create",
+            "fields": {"title": "Test", "problem": "Problem", "priority": "medium"},
+            "hook_injected": True,
+            "hook_request_origin": "user",
+            "session_id": "",
+        }
+        result = run_entrypoint("ticket_engine_user.py", "execute", payload, tmp_path)
+        assert result.get("error_code") == "policy_blocked" or result.get("state") == "policy_blocked"
+
+    def test_user_execute_without_hook_request_origin_rejected(self, tmp_path):
+        """User execute with hook_injected but missing hook_request_origin is rejected."""
+        payload = {
+            "action": "create",
+            "fields": {"title": "Test", "problem": "Problem", "priority": "medium"},
+            "hook_injected": True,
+            "session_id": "test-session",
+            # hook_request_origin missing
+        }
+        result = run_entrypoint("ticket_engine_user.py", "execute", payload, tmp_path)
+        assert result.get("error_code") in ("policy_blocked", "origin_mismatch") or result.get("state") == "policy_blocked"
+
+    def test_agent_execute_without_hook_rejected(self, tmp_path):
+        """Agent execute without hook_injected is rejected."""
+        payload = {
+            "action": "create",
+            "fields": {"title": "Test", "problem": "Problem", "priority": "medium"},
+        }
+        result = run_entrypoint("ticket_engine_agent.py", "execute", payload, tmp_path)
+        assert result.get("error_code") == "policy_blocked" or result.get("state") == "policy_blocked"
+
+    def test_user_classify_without_hook_allowed(self, tmp_path):
+        """Non-execute stages remain directly runnable without hook metadata."""
+        payload = {"action": "create", "args": {}}
+        result = run_entrypoint("ticket_engine_user.py", "classify", payload, tmp_path)
+        assert result.get("state") == "ok"
+
+    def test_user_plan_without_hook_allowed(self, tmp_path):
+        """Plan stage works without hook metadata."""
+        payload = {
+            "action": "create",
+            "intent": "create",
+            "fields": {"title": "Test", "problem": "Problem", "priority": "medium"},
+        }
+        result = run_entrypoint("ticket_engine_user.py", "plan", payload, tmp_path)
+        assert result.get("state") in ("ok", "duplicate_candidate")
+
+    def test_user_execute_with_full_trust_triple_allowed(self, tmp_path):
+        """User execute with complete trust triple succeeds."""
+        payload = {
+            "action": "create",
+            "fields": {"title": "Test", "problem": "Problem", "priority": "medium"},
+            "hook_injected": True,
+            "hook_request_origin": "user",
+            "session_id": "test-session",
+        }
+        result = run_entrypoint("ticket_engine_user.py", "execute", payload, tmp_path)
+        assert result.get("state") == "ok_create"
+
+
 class TestEntrypointTicketsDirBoundaries:
     def test_user_rejects_tickets_dir_outside_project_root(self, tmp_path: Path):
         outside = tmp_path.parent / "outside-tickets"
@@ -211,6 +289,8 @@ class TestEntrypointTicketsDirBoundaries:
                 "action": "create",
                 "fields": {"title": "test", "problem": "test"},
                 "session_id": "test",
+                "hook_injected": True,
+                "hook_request_origin": "user",
                 "tickets_dir": str(outside),
             },
             tmp_path,
@@ -227,6 +307,8 @@ class TestEntrypointTicketsDirBoundaries:
                 "action": "create",
                 "fields": {"title": "test", "problem": "test"},
                 "session_id": "test",
+                "hook_injected": True,
+                "hook_request_origin": "user",
                 "tickets_dir": str(in_root),
             },
             tmp_path,
@@ -242,6 +324,8 @@ class TestEntrypointTicketsDirBoundaries:
                 "action": "create",
                 "fields": {"title": "test", "problem": "test"},
                 "session_id": "test",
+                "hook_injected": True,
+                "hook_request_origin": "agent",
                 "tickets_dir": str(outside),
             },
             tmp_path,
