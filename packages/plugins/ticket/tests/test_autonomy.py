@@ -12,6 +12,7 @@ from scripts.ticket_engine_core import (
     engine_preflight,
     read_autonomy_config,
 )
+from tests.support.builders import make_ticket, write_autonomy_config
 
 
 @pytest.fixture
@@ -30,16 +31,6 @@ def autonomy_env(tmp_path: Path):
     tickets_dir.mkdir(parents=True)
     config_path = claude_dir / "ticket.local.md"
     return tickets_dir, config_path
-
-
-def write_autonomy_config(tickets_dir: Path, text: str) -> Path:
-    """Write .claude/ticket.local.md for tests using tmp_tickets."""
-    project_root = tickets_dir.parent.parent
-    claude_dir = project_root / ".claude"
-    claude_dir.mkdir(exist_ok=True)
-    config_path = claude_dir / "ticket.local.md"
-    config_path.write_text(text, encoding="utf-8")
-    return config_path
 
 
 class TestAutonomyConfig:
@@ -285,7 +276,6 @@ class TestAutonomyPreflight:
         assert "cap" in resp.message.lower() or "3/3" in resp.message
 
     def test_agent_auto_audit_update_no_cap_check(self, auto_audit_env):
-        from tests.conftest import make_ticket
         make_ticket(auto_audit_env, "2026-03-02-test.md")
         resp = self._preflight(
             auto_audit_env, request_origin="agent", hook_injected=True,
@@ -334,7 +324,6 @@ class TestAutonomyPreflight:
 
     def test_agent_update_allowed_under_auto_audit(self, auto_audit_env):
         """Agent update succeeds under auto_audit (no session cap for updates)."""
-        from tests.conftest import make_ticket
         make_ticket(auto_audit_env, "2026-03-02-test.md")
         resp = self._preflight(
             auto_audit_env, request_origin="agent", hook_injected=True,
@@ -344,7 +333,6 @@ class TestAutonomyPreflight:
 
     def test_agent_close_allowed_under_auto_audit(self, auto_audit_env):
         """Agent close succeeds under auto_audit."""
-        from tests.conftest import make_ticket
         make_ticket(auto_audit_env, "2026-03-02-test.md")
         resp = self._preflight(
             auto_audit_env, request_origin="agent", hook_injected=True,
@@ -479,7 +467,6 @@ class TestAutonomyExecute:
         assert resp.state == "policy_blocked"
 
     def test_execute_agent_reopen_blocked(self, tmp_tickets):
-        from tests.conftest import make_ticket
         make_ticket(tmp_tickets, "t.md", id="T-20260302-01", status="done")
         write_autonomy_config(
             tmp_tickets,
@@ -618,7 +605,6 @@ class TestAutonomyExecute:
 
     def test_execute_agent_update_auto_audit_allowed(self, tmp_tickets):
         """Agent update under auto_audit succeeds (no session cap for updates)."""
-        from tests.conftest import make_ticket
         make_ticket(tmp_tickets, "2026-03-02-test.md")
         write_autonomy_config(
             tmp_tickets,
@@ -640,7 +626,6 @@ class TestAutonomyExecute:
 
     def test_execute_agent_close_auto_audit_allowed(self, tmp_tickets):
         """Agent close under auto_audit succeeds."""
-        from tests.conftest import make_ticket
         make_ticket(tmp_tickets, "2026-03-02-test.md", status="in_progress")
         write_autonomy_config(
             tmp_tickets,

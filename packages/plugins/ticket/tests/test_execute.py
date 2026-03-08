@@ -1,4 +1,4 @@
-"""Tests for ticket_engine_core.py — engine pipeline."""
+"""Tests for engine_execute stage — dispatch, create, update, close, reopen, trust, validation."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,755 +6,18 @@ from pathlib import Path
 import pytest
 
 import scripts.ticket_engine_core as ticket_engine_core
-import scripts.ticket_paths as ticket_paths
 from scripts.ticket_engine_core import (
     AutonomyConfig,
-    EngineResponse,
-    engine_classify,
     engine_execute,
-    engine_plan,
     engine_preflight,
 )
-from scripts.ticket_parse import extract_fenced_yaml
-from scripts.ticket_paths import resolve_tickets_dir
 from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp, target_fingerprint as compute_target_fp
-
-
-def _expected_canonical_yaml(
-    *,
-    ticket_id: str,
-    date: str,
-    status: str,
-    priority: str,
-    effort: str,
-    source_type: str,
-    source_ref: str,
-    session: str,
-    tags: list[str],
-    blocked_by: list[str],
-    blocks: list[str],
-    created_at: str = "",
-    contract_version: str = "1.0",
-) -> str:
-    created_at_line = f'created_at: "{created_at}"\n' if created_at else ""
-    return (
-        f"id: {ticket_id}\n"
-        f'date: "{date}"\n'
-        f"{created_at_line}"
-        f"status: {status}\n"
-        f"priority: {priority}\n"
-        f"effort: {effort}\n"
-        "source:\n"
-        f"  type: {source_type}\n"
-        f'  ref: "{source_ref}"\n'
-        f"  session: {session}\n"
-        f"tags: [{', '.join(tags)}]\n"
-        f"blocked_by: [{', '.join(blocked_by)}]\n"
-        f"blocks: [{', '.join(blocks)}]\n"
-        f'contract_version: "{contract_version}"\n'
-    )
-
-
-class TestEngineClassify:
-    def test_create_intent(self):
-        resp = engine_classify(
-            action="create",
-            args={"title": "Fix auth bug"},
-            session_id="test-session",
-            request_origin="user",
-        )
-        assert resp.state == "ok"
-        assert resp.data["intent"] == "create"
-        assert resp.data["confidence"] >= 0.0
-
-    def test_update_intent(self):
-        resp = engine_classify(
-            action="update",
-            args={"ticket_id": "T-20260302-01"},
-            session_id="test-session",
-            request_origin="user",
-        )
-        assert resp.state == "ok"
-        assert resp.data["intent"] == "update"
-
-    def test_close_intent(self):
-        resp = engine_classify(
-            action="close",
-            args={"ticket_id": "T-20260302-01"},
-            session_id="test-session",
-            request_origin="user",
-        )
-        assert resp.state == "ok"
-        assert resp.data["intent"] == "close"
-
-    def test_reopen_intent(self):
-        resp = engine_classify(
-            action="reopen",
-            args={"ticket_id": "T-20260302-01"},
-            session_id="test-session",
-            request_origin="user",
-        )
-        assert resp.state == "ok"
-        assert resp.data["intent"] == "reopen"
-
-    def test_unknown_action(self):
-        resp = engine_classify(
-            action="banana",
-            args={},
-            session_id="test-session",
-            request_origin="user",
-        )
-        assert resp.state == "escalate"
-        assert resp.error_code == "intent_mismatch"
-
-    def test_unknown_origin_fails_closed(self):
-        resp = engine_classify(
-            action="create",
-            args={},
-            session_id="test-session",
-            request_origin="unknown",
-        )
-        assert resp.state == "escalate"
-        assert resp.error_code == "origin_mismatch"
-        assert "caller identity" in resp.message.lower()
-
-    def test_resolved_ticket_id(self):
-        resp = engine_classify(
-            action="update",
-            args={"ticket_id": "T-20260302-01"},
-            session_id="test-session",
-            request_origin="user",
-        )
-        assert resp.data["resolved_ticket_id"] == "T-20260302-01"
-
-    def test_create_has_no_resolved_id(self):
-        resp = engine_classify(
-            action="create",
-            args={},
-            session_id="test-session",
-            request_origin="user",
-        )
-        assert resp.data["resolved_ticket_id"] is None
-
-    def test_classify_emits_preflight_aliases(self):
-        resp = engine_classify(
-            action="update",
-            args={"ticket_id": "T-20260302-01"},
-            session_id="test-session",
-            request_origin="user",
-        )
-        assert resp.state == "ok"
-        assert resp.data["intent"] == "update"
-        assert resp.data["confidence"] >= 0.0
-        assert resp.data["classify_intent"] == "update"
-        assert resp.data["classify_confidence"] == resp.data["confidence"]
-        assert resp.data["resolved_ticket_id"] == "T-20260302-01"
-
-
-class TestEnginePlan:
-    def test_create_with_all_fields(self, tmp_tickets):
-        resp = engine_plan(
-            intent="create",
-            fields={
-                "title": "Fix auth bug",
-                "problem": "Auth times out.",
-                "priority": "high",
-                "key_file_paths": ["handler.py"],
-            },
-            session_id="test-session",
-            request_origin="user",
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "ok"
-        assert "dedup_fingerprint" in resp.data
-        assert resp.data["missing_fields"] == []
-
-    def test_create_missing_required_fields(self, tmp_tickets):
-        resp = engine_plan(
-            intent="create",
-            fields={"title": "No problem section"},
-            session_id="test-session",
-            request_origin="user",
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "need_fields"
-        assert "problem" in resp.data["missing_fields"]
-
-    def test_create_invalid_key_file_paths_rejected(self, tmp_tickets):
-        resp = engine_plan(
-            intent="create",
-            fields={
-                "title": "Fix auth bug",
-                "problem": "Auth times out.",
-                "priority": "high",
-                "key_file_paths": "handler.py",
-            },
-            session_id="test-session",
-            request_origin="user",
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "need_fields"
-        assert resp.error_code == "need_fields"
-        assert "key_file_paths" in resp.message
-
-    def test_dedup_detection(self, tmp_tickets):
-        from datetime import datetime, timezone
-
-        from tests.conftest import make_ticket
-
-        today = datetime.now(timezone.utc).date()
-        today_str = today.isoformat()
-        today_compact = today_str.replace("-", "")
-        make_ticket(
-            tmp_tickets,
-            f"{today_str}-auth.md",
-            id=f"T-{today_compact}-01",
-            date=today_str,
-            problem="Auth times out.",
-            title="Fix auth bug",
-        )
-        resp = engine_plan(
-            intent="create",
-            fields={
-                "title": "Fix auth bug",
-                "problem": "Auth times out.",
-                "priority": "high",
-                "key_file_paths": ["test.py"],  # Must match conftest's Key Files table
-            },
-            session_id="test-session",
-            request_origin="user",
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "duplicate_candidate"
-        assert resp.data["duplicate_of"] is not None
-
-    def test_no_dedup_outside_24h(self, tmp_tickets):
-        from tests.conftest import make_ticket
-
-        make_ticket(
-            tmp_tickets,
-            "2026-02-28-old.md",
-            id="T-20260228-01",
-            date="2026-02-28",
-            problem="Auth times out.",
-            title="Old auth bug",
-        )
-        resp = engine_plan(
-            intent="create",
-            fields={
-                "title": "Fix auth bug",
-                "problem": "Auth times out.",
-                "priority": "high",
-                "key_file_paths": [],
-            },
-            session_id="test-session",
-            request_origin="user",
-            tickets_dir=tmp_tickets,
-        )
-        # Old ticket outside 24h window — no dedup match.
-        assert resp.state == "ok"
-
-    def test_dedup_uses_created_at_over_date(self, tmp_tickets):
-        """Dedup uses created_at for precise window check (P0-3).
-
-        A ticket with a recent created_at but old date should still be
-        within the 24h dedup window. created_at has second-level precision
-        and is immune to git checkout/clone mtime resets.
-        """
-        from datetime import datetime, timedelta, timezone
-
-        from tests.conftest import make_ticket
-
-        # created_at = 1 hour ago (within 24h window).
-        recent = datetime.now(timezone.utc) - timedelta(hours=1)
-        created_at = recent.strftime("%Y-%m-%dT%H:%M:%SZ")
-        # Date is 2 days ago — would be outside window with date-only logic.
-        old_date = "2026-02-28"
-        make_ticket(
-            tmp_tickets,
-            f"{old_date}-midnight.md",
-            id="T-20260228-01",
-            date=old_date,
-            created_at=created_at,
-            problem="Auth times out.",
-            title="Midnight edge case",
-        )
-        resp = engine_plan(
-            intent="create",
-            fields={
-                "title": "Fix auth bug",
-                "problem": "Auth times out.",
-                "priority": "high",
-                "key_file_paths": ["test.py"],
-            },
-            session_id="test-session",
-            request_origin="user",
-            tickets_dir=tmp_tickets,
-        )
-        # created_at puts it within window — duplicate detected.
-        assert resp.state == "duplicate_candidate"
-
-    def test_dedup_skips_old_created_at(self, tmp_tickets):
-        """Tickets with old created_at are excluded even with recent date."""
-        from datetime import datetime, timedelta, timezone
-
-        from tests.conftest import make_ticket
-
-        # created_at = 3 days ago (outside 24h window).
-        old = datetime.now(timezone.utc) - timedelta(days=3)
-        created_at = old.strftime("%Y-%m-%dT%H:%M:%SZ")
-        make_ticket(
-            tmp_tickets,
-            "2026-03-07-stale.md",
-            id="T-20260307-01",
-            date="2026-03-07",
-            created_at=created_at,
-            problem="Auth times out.",
-            title="Stale ticket",
-        )
-        resp = engine_plan(
-            intent="create",
-            fields={
-                "title": "Fix auth bug",
-                "problem": "Auth times out.",
-                "priority": "high",
-                "key_file_paths": ["test.py"],
-            },
-            session_id="test-session",
-            request_origin="user",
-            tickets_dir=tmp_tickets,
-        )
-        # Old created_at puts ticket outside window — no dedup match.
-        assert resp.state == "ok"
-
-    def test_dedup_end_of_day_fallback_catches_near_midnight(self, tmp_tickets):
-        """Legacy tickets without created_at use end-of-day fallback.
-
-        A ticket dated today (without created_at) should always be in the
-        24h window because its date is treated as 23:59:59 UTC.
-        """
-        from datetime import datetime, timezone
-
-        from tests.conftest import make_ticket
-
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        make_ticket(
-            tmp_tickets,
-            f"{today}-legacy.md",
-            id="T-20260307-01",
-            date=today,
-            # No created_at — exercises fallback path.
-            problem="Auth times out.",
-            title="Legacy ticket",
-        )
-        resp = engine_plan(
-            intent="create",
-            fields={
-                "title": "Fix auth bug",
-                "problem": "Auth times out.",
-                "priority": "high",
-                "key_file_paths": ["test.py"],
-            },
-            session_id="test-session",
-            request_origin="user",
-            tickets_dir=tmp_tickets,
-        )
-        # End-of-day fallback puts today's ticket within window.
-        assert resp.state == "duplicate_candidate"
-
-    def test_dedup_ignores_mtime_after_git_clone(self, tmp_tickets):
-        """File mtime does NOT affect dedup — git clone safety (P0-3 review).
-
-        After git clone, all files get current mtime. Old tickets must NOT
-        be treated as recent just because mtime is now.
-        """
-        import os
-        import time
-
-        from tests.conftest import make_ticket
-
-        # Old ticket with old date, no created_at.
-        old_date = "2026-01-15"
-        path = make_ticket(
-            tmp_tickets,
-            f"{old_date}-cloned.md",
-            id="T-20260115-01",
-            date=old_date,
-            problem="Auth times out.",
-            title="Old cloned ticket",
-        )
-        # Simulate git clone: set mtime to NOW.
-        now = time.time()
-        os.utime(path, (now, now))
-        resp = engine_plan(
-            intent="create",
-            fields={
-                "title": "Fix auth bug",
-                "problem": "Auth times out.",
-                "priority": "high",
-                "key_file_paths": ["test.py"],
-            },
-            session_id="test-session",
-            request_origin="user",
-            tickets_dir=tmp_tickets,
-        )
-        # mtime is ignored — old date puts ticket outside window.
-        assert resp.state == "ok"
-
-    def test_non_create_skips_dedup(self, tmp_tickets):
-        resp = engine_plan(
-            intent="update",
-            fields={"ticket_id": "T-20260302-01"},
-            session_id="test-session",
-            request_origin="user",
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "ok"
-        # No dedup for non-create.
-        assert resp.data.get("dedup_fingerprint") is None
-
-
-class TestResolveTicketsDir:
-    def test_default_path_used_when_none(self, tmp_path: Path) -> None:
-        resolved, err = resolve_tickets_dir(None, project_root=tmp_path)
-        assert err is None
-        assert resolved == (tmp_path / "docs" / "tickets").resolve()
-
-    def test_rejects_path_outside_project_root(self, tmp_path: Path) -> None:
-        outside = tmp_path.parent / "outside-tickets"
-        resolved, err = resolve_tickets_dir(str(outside), project_root=tmp_path)
-        assert resolved is None
-        assert err is not None
-        assert "escapes project root" in err
-
-    def test_rejects_non_string_type(self, tmp_path: Path) -> None:
-        resolved, err = resolve_tickets_dir(123, project_root=tmp_path)
-        assert resolved is None
-        assert err is not None
-        assert "expected string path" in err
-
-    def test_resolution_error_returns_validation_message(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        def fail_resolve(_: Path) -> Path:
-            raise OSError("permission denied")
-
-        monkeypatch.setattr(ticket_paths.Path, "resolve", fail_resolve)
-        resolved, err = resolve_tickets_dir("docs/tickets", project_root=tmp_path)
-        assert resolved is None
-        assert err is not None
-        assert "resolution failed" in err
-
-
-class TestEnginePreflight:
-    def test_user_create_passes(self, tmp_tickets):
-        resp = engine_preflight(
-            ticket_id=None,
-            action="create",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.95,
-            classify_intent="create",
-            dedup_fingerprint="abc123",
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "ok"
-        assert len(resp.data["checks_passed"]) > 0
-
-    def test_unknown_origin_rejected(self, tmp_tickets):
-        resp = engine_preflight(
-            ticket_id=None,
-            action="create",
-            session_id="test-session",
-            request_origin="unknown",
-            classify_confidence=0.95,
-            classify_intent="create",
-            dedup_fingerprint=None,
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "escalate"
-
-    def test_low_confidence_rejected(self, tmp_tickets):
-        resp = engine_preflight(
-            ticket_id=None,
-            action="create",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.1,
-            classify_intent="create",
-            dedup_fingerprint=None,
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "preflight_failed"
-        assert "confidence" in resp.message.lower()
-
-    def test_exact_user_confidence_threshold_passes(self, tmp_tickets):
-        resp = engine_preflight(
-            ticket_id=None,
-            action="create",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.5,
-            classify_intent="create",
-            dedup_fingerprint="abc123",
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "ok"
-        assert "confidence" in resp.data["checks_passed"]
-
-    def test_agent_blocked_without_hook_injected(self, tmp_tickets):
-        """Agent without hook_injected → policy_blocked (hook trust check)."""
-        resp = engine_preflight(
-            ticket_id=None,
-            action="create",
-            session_id="test-session",
-            request_origin="agent",
-            classify_confidence=0.95,
-            classify_intent="create",
-            dedup_fingerprint="abc",
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "policy_blocked"
-        assert "hook_injected" in resp.message.lower()
-
-    def test_agent_reopen_user_only(self, tmp_tickets):
-        """Agent reopen → policy_blocked (user-only in v1.0)."""
-        resp = engine_preflight(
-            ticket_id="T-20260302-01",
-            action="reopen",
-            session_id="test-session",
-            request_origin="agent",
-            classify_confidence=0.95,
-            classify_intent="reopen",
-            dedup_fingerprint=None,
-            target_fingerprint=None,
-            hook_injected=True,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "policy_blocked"
-
-    def test_non_create_without_ticket_id_rejected(self, tmp_tickets):
-        """Non-create actions require ticket_id."""
-        resp = engine_preflight(
-            ticket_id=None,
-            action="update",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.95,
-            classify_intent="update",
-            dedup_fingerprint=None,
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "need_fields"
-
-    def test_intent_mismatch_escalates(self, tmp_tickets):
-        resp = engine_preflight(
-            ticket_id=None,
-            action="create",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.95,
-            classify_intent="update",  # Mismatch!
-            dedup_fingerprint=None,
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "escalate"
-        assert "mismatch" in resp.message.lower()
-
-    def test_stale_target_fingerprint(self, tmp_tickets):
-        from tests.conftest import make_ticket
-
-        make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01")
-        resp = engine_preflight(
-            ticket_id="T-20260302-01",
-            action="update",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.95,
-            classify_intent="update",
-            dedup_fingerprint=None,
-            target_fingerprint="stale-fingerprint",
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "preflight_failed"
-        assert "stale" in resp.message.lower() or "fingerprint" in resp.message.lower()
-
-    def test_update_ticket_not_found(self, tmp_tickets):
-        resp = engine_preflight(
-            ticket_id="T-99999999-99",
-            action="update",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.95,
-            classify_intent="update",
-            dedup_fingerprint=None,
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "not_found"
-
-    def test_close_with_open_blockers(self, tmp_tickets):
-        from tests.conftest import make_ticket
-
-        make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
-        make_ticket(
-            tmp_tickets,
-            "target.md",
-            id="T-20260302-02",
-            blocked_by=["T-20260302-01"],
-        )
-        resp = engine_preflight(
-            ticket_id="T-20260302-02",
-            action="close",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.95,
-            classify_intent="close",
-            dedup_fingerprint=None,
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "dependency_blocked"
-
-    def test_close_wontfix_with_open_blockers_allowed(self, tmp_tickets):
-        from tests.conftest import make_ticket
-
-        make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
-        make_ticket(
-            tmp_tickets,
-            "target.md",
-            id="T-20260302-02",
-            blocked_by=["T-20260302-01"],
-        )
-        resp = engine_preflight(
-            ticket_id="T-20260302-02",
-            action="close",
-            fields={"resolution": "wontfix"},
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.95,
-            classify_intent="close",
-            dedup_fingerprint=None,
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "ok"
-        assert "dependencies_not_required_for_wontfix" in resp.data["checks_passed"]
-
-    def test_close_with_open_blockers_override(self, tmp_tickets):
-        """dependency_override=True allows closing with open blockers."""
-        from tests.conftest import make_ticket
-
-        make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
-        make_ticket(
-            tmp_tickets,
-            "target.md",
-            id="T-20260302-02",
-            blocked_by=["T-20260302-01"],
-        )
-        resp = engine_preflight(
-            ticket_id="T-20260302-02",
-            action="close",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.95,
-            classify_intent="close",
-            dedup_fingerprint=None,
-            target_fingerprint=None,
-            dependency_override=True,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "ok"
-        assert "dependencies_overridden" in resp.data["checks_passed"]
-
-    def test_preflight_close_reports_missing_blockers(self, tmp_tickets):
-        from tests.conftest import make_ticket
-
-        make_ticket(
-            tmp_tickets,
-            "target.md",
-            id="T-20260302-02",
-            blocked_by=["T-MISSING-01"],
-        )
-        resp = engine_preflight(
-            ticket_id="T-20260302-02",
-            action="close",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.95,
-            classify_intent="close",
-            dedup_fingerprint=None,
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "dependency_blocked"
-        assert resp.data["missing_blockers"] == ["T-MISSING-01"]
-        assert resp.data["unresolved_blockers"] == []
-
-    def test_dedup_blocks_without_override(self, tmp_tickets):
-        """Preflight blocks create when duplicate detected and no override."""
-        resp = engine_preflight(
-            ticket_id=None,
-            action="create",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.95,
-            classify_intent="create",
-            dedup_fingerprint="abc123",
-            target_fingerprint=None,
-            duplicate_of="T-20260302-01",
-            dedup_override=False,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "duplicate_candidate"
-        assert resp.error_code == "duplicate_candidate"
-
-    def test_dedup_passes_with_override(self, tmp_tickets):
-        """Preflight allows create when duplicate detected but override=True."""
-        resp = engine_preflight(
-            ticket_id=None,
-            action="create",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.95,
-            classify_intent="create",
-            dedup_fingerprint="abc123",
-            target_fingerprint=None,
-            duplicate_of="T-20260302-01",
-            dedup_override=True,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "ok"
-        assert "dedup" in resp.data["checks_passed"]
-
-    def test_confidence_gate_no_policy_blocked_code(self, tmp_tickets):
-        """Confidence gate returns error_code=preflight_failed, not policy_blocked."""
-        resp = engine_preflight(
-            ticket_id=None,
-            action="create",
-            session_id="test-session",
-            request_origin="user",
-            classify_confidence=0.1,
-            classify_intent="create",
-            dedup_fingerprint=None,
-            target_fingerprint=None,
-            tickets_dir=tmp_tickets,
-        )
-        assert resp.state == "preflight_failed"
-        assert resp.error_code == "preflight_failed"
-
+from scripts.ticket_parse import extract_fenced_yaml
+from tests.support.builders import expected_canonical_yaml, make_ticket, write_autonomy_config
 
 class TestEngineExecute:
     def test_invalid_transition_terminal_via_update(self, tmp_tickets):
         """done -> in_progress via update is invalid (must reopen first)."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-done.md", id="T-20260302-01", status="done")
         resp = engine_execute(
@@ -777,7 +40,6 @@ class TestEngineExecute:
 
     def test_invalid_transition_wontfix_via_update(self, tmp_tickets):
         """wontfix -> open via update is invalid (must reopen)."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-wontfix.md", id="T-20260302-01", status="wontfix")
         resp = engine_execute(
@@ -798,7 +60,6 @@ class TestEngineExecute:
         assert resp.state == "invalid_transition"
 
     def test_transition_to_blocked_requires_blocked_by(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open", blocked_by=[])
         resp = engine_execute(
@@ -820,7 +81,6 @@ class TestEngineExecute:
         assert "blocked_by" in resp.message.lower()
 
     def test_blocked_ticket_cannot_reopen_with_missing_blocker_reference(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(
             tmp_tickets,
@@ -848,8 +108,6 @@ class TestEngineExecute:
         assert "missing blocker" in resp.message.lower()
 
     def test_agent_override_rejected(self, tmp_tickets):
-        from tests.conftest import make_ticket
-        from tests.test_autonomy import write_autonomy_config
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01")
         write_autonomy_config(
@@ -984,7 +242,7 @@ class TestEngineExecute:
         _ca_match = _re.search(r'created_at: "([^"]+)"', ticket_yaml or "")
         _created_at = _ca_match.group(1) if _ca_match else ""
         assert _created_at, "created_at should be present in newly created tickets"
-        assert ticket_yaml == _expected_canonical_yaml(
+        assert ticket_yaml == expected_canonical_yaml(
             ticket_id=resp.ticket_id,
             date=ticket_path.name[:10],
             created_at=_created_at,
@@ -1227,7 +485,6 @@ class TestEngineExecute:
         assert resp.error_code == "need_fields"
 
     def test_update_ticket(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -1251,7 +508,6 @@ class TestEngineExecute:
         assert 'date: "2026-03-02"' in content
 
     def test_update_rejects_section_field_problem_and_leaves_file_unchanged(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         before = ticket_path.read_text(encoding="utf-8")
@@ -1276,7 +532,6 @@ class TestEngineExecute:
         assert ticket_path.read_text(encoding="utf-8") == before
 
     def test_update_rejects_mixed_frontmatter_and_section_fields_atomically(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         before = ticket_path.read_text(encoding="utf-8")
@@ -1303,7 +558,6 @@ class TestEngineExecute:
         assert "priority: critical" not in after
 
     def test_update_rejects_unknown_field_and_leaves_file_unchanged(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         before = ticket_path.read_text(encoding="utf-8")
@@ -1328,7 +582,6 @@ class TestEngineExecute:
         assert ticket_path.read_text(encoding="utf-8") == before
 
     def test_update_ignores_matching_fields_ticket_id(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -1352,7 +605,6 @@ class TestEngineExecute:
         assert "ticket_id:" not in content
 
     def test_update_rejects_mismatched_fields_ticket_id(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         before = ticket_path.read_text(encoding="utf-8")
@@ -1378,7 +630,6 @@ class TestEngineExecute:
 
     def test_update_preserves_field_order(self, tmp_tickets):
         """Canonical renderer emits fields in defined order, not alphabetical."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -1404,7 +655,6 @@ class TestEngineExecute:
 
     def test_update_preserves_full_field_order(self, tmp_tickets):
         """Verify all canonical field positions."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open",
                      priority="medium", effort="S")
@@ -1434,7 +684,6 @@ class TestEngineExecute:
 
     def test_canonical_renderer_none_skipped(self, tmp_tickets):
         """Fields set to None are omitted, not rendered as 'key: None'."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -1458,7 +707,6 @@ class TestEngineExecute:
 
     def test_canonical_renderer_list_format(self, tmp_tickets):
         """Lists render as YAML flow sequences, not Python repr."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -1484,7 +732,6 @@ class TestEngineExecute:
     def test_canonical_renderer_quotes_embedded_double_quote(self, tmp_tickets):
         """Embedded quotes in list items remain valid YAML after update."""
         from scripts.ticket_read import list_tickets
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -1510,7 +757,6 @@ class TestEngineExecute:
     def test_canonical_renderer_quotes_integer_date(self, tmp_tickets):
         """Integer date values are coerced to string and quoted to prevent type drift."""
         from scripts.ticket_read import list_tickets
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -1536,7 +782,6 @@ class TestEngineExecute:
     def test_canonical_renderer_quotes_colon_strings(self, tmp_tickets):
         """Strings with colon separators remain parseable YAML."""
         from scripts.ticket_read import list_tickets
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -1562,7 +807,6 @@ class TestEngineExecute:
     def test_canonical_renderer_preserves_hash_in_string(self, tmp_tickets):
         """Strings containing # are preserved and not parsed as comments."""
         from scripts.ticket_read import list_tickets
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -1586,7 +830,6 @@ class TestEngineExecute:
         assert tickets[0].effort == "M # note"
 
     def test_close_ticket(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
         resp = engine_execute(
@@ -1607,7 +850,6 @@ class TestEngineExecute:
         assert resp.state == "ok_close"
 
     def test_close_with_archive(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
         resp = engine_execute(
@@ -1631,7 +873,6 @@ class TestEngineExecute:
 
     def test_close_archive_collision_suffixes(self, tmp_tickets):
         """Archiving with an existing file in closed-tickets/ uses -2 suffix."""
-        from tests.conftest import make_ticket
 
         # Create and archive ticket A.
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
@@ -1676,7 +917,6 @@ class TestEngineExecute:
         assert (tmp_tickets / "closed-tickets" / "2026-03-02-test-2.md").exists()
 
     def test_close_with_open_blockers_rejected_without_override(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
         make_ticket(
@@ -1705,7 +945,6 @@ class TestEngineExecute:
         assert resp.error_code == "dependency_blocked"
 
     def test_execute_close_reports_missing_blockers(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(
             tmp_tickets,
@@ -1734,7 +973,6 @@ class TestEngineExecute:
         assert resp.data["unresolved_blockers"] == []
 
     def test_close_with_open_blockers_and_override_succeeds(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
         make_ticket(
@@ -1762,7 +1000,6 @@ class TestEngineExecute:
         assert resp.state == "ok_close"
 
     def test_close_reports_missing_and_unresolved_blockers_together(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
         make_ticket(
@@ -1792,7 +1029,6 @@ class TestEngineExecute:
         assert resp.data["missing_blockers"] == ["T-MISSING-01"]
 
     def test_execute_close_allows_missing_blockers_with_dependency_override(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(
             tmp_tickets,
@@ -1819,7 +1055,6 @@ class TestEngineExecute:
         assert resp.state == "ok_close"
 
     def test_close_wontfix_with_open_blockers_succeeds(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "blocker.md", id="T-20260302-01", status="open")
         make_ticket(
@@ -1847,7 +1082,6 @@ class TestEngineExecute:
         assert resp.state == "ok_close"
 
     def test_close_wontfix_ignores_missing_blockers(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(
             tmp_tickets,
@@ -1889,7 +1123,6 @@ class TestEngineExecute:
     def test_close_archive_rename_oserror_returns_escalate(
         self, tmp_tickets: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
         ticket_path = tmp_tickets / "2026-03-02-test.md"
@@ -1923,7 +1156,6 @@ class TestEngineExecute:
     def test_close_archive_collision_suffix_exhausted_returns_escalate(
         self, tmp_tickets: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
         closed_dir = tmp_tickets / "closed-tickets"
@@ -1963,7 +1195,6 @@ class TestEngineExecute:
 
     def test_close_from_open_succeeds(self, tmp_tickets):
         """Close directly validates with action='close', not 'update'."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -1984,7 +1215,6 @@ class TestEngineExecute:
         assert resp.state == "ok_close"
 
     def test_close_with_invalid_resolution_rejected(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -2009,7 +1239,6 @@ class TestEngineExecute:
 
     def test_close_terminal_ticket_rejected(self, tmp_tickets):
         """Closing an already-done ticket is invalid — must reopen first."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-done.md", id="T-20260302-01", status="done")
         resp = engine_execute(
@@ -2032,7 +1261,6 @@ class TestEngineExecute:
 
     def test_close_wontfix_to_done_rejected(self, tmp_tickets):
         """wontfix -> done via close is invalid — terminal state."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-wf.md", id="T-20260302-01", status="wontfix")
         resp = engine_execute(
@@ -2190,7 +1418,6 @@ class TestEngineExecute:
 
     def test_close_from_open_succeeds_with_acceptance_criteria(self, tmp_tickets):
         """Close to 'done' from open succeeds when AC present — positive path."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-open-with-ac.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -2212,7 +1439,6 @@ class TestEngineExecute:
 
     def test_update_rejects_unknown_fields_before_serialization(self, tmp_tickets):
         """Unsupported update fields fail validation before YAML serialization."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -2235,7 +1461,6 @@ class TestEngineExecute:
         assert "unknown fields: custom" in resp.message.lower()
 
     def test_reopen_ticket(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="done")
         resp = engine_execute(
@@ -2259,7 +1484,6 @@ class TestEngineExecute:
         assert "Reopen History" in content
 
     def test_reopen_rejects_invalid_fields_before_write(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="done")
         resp = engine_execute(
@@ -2284,7 +1508,6 @@ class TestEngineExecute:
 
     def test_execute_stale_target_fingerprint_rejected(self, tmp_tickets):
         from scripts.ticket_dedup import target_fingerprint
-        from tests.conftest import make_ticket
 
         ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         stale_fp = target_fingerprint(ticket_path)
@@ -2308,232 +1531,6 @@ class TestEngineExecute:
         assert resp.state == "preflight_failed"
         assert resp.error_code == "stale_plan"
 
-
-class TestEngineExecuteIntegration:
-    """Integration tests exercising the full engine_execute dispatcher
-    across multiple lifecycle operations."""
-
-    def test_full_lifecycle_create_update_close_reopen(self, tmp_tickets):
-        """Create -> update -> close -> reopen lifecycle."""
-        # Create.
-        resp = engine_execute(
-            action="create",
-            ticket_id=None,
-            fields={
-                "title": "Lifecycle test",
-                "problem": "Integration test problem.",
-                "priority": "medium",
-                "source": {"type": "ad-hoc", "ref": "", "session": "test-session"},
-                "tags": ["test"],
-            },
-            session_id="test-session",
-            request_origin="user",
-            dedup_override=False,
-            dependency_override=False,
-            tickets_dir=tmp_tickets,
-            hook_injected=True,
-            hook_request_origin="user",
-            classify_intent="create",
-            classify_confidence=0.95,
-            dedup_fingerprint=compute_dedup_fp("Integration test problem.", []),
-        )
-        assert resp.state == "ok_create"
-        ticket_id = resp.ticket_id
-        ticket_path = Path(resp.data["ticket_path"])
-        assert ticket_path.exists()
-
-        # Update status to in_progress.
-        resp = engine_execute(
-            action="update",
-            ticket_id=ticket_id,
-            fields={"status": "in_progress"},
-            session_id="test-session",
-            request_origin="user",
-            dedup_override=False,
-            dependency_override=False,
-            tickets_dir=tmp_tickets,
-            hook_injected=True,
-            hook_request_origin="user",
-            classify_intent="update",
-            classify_confidence=0.95,
-            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
-        )
-        assert resp.state == "ok_update"
-
-        # Close with wontfix (avoids acceptance criteria requirement).
-        resp = engine_execute(
-            action="close",
-            ticket_id=ticket_id,
-            fields={"resolution": "wontfix"},
-            session_id="test-session",
-            request_origin="user",
-            dedup_override=False,
-            dependency_override=False,
-            tickets_dir=tmp_tickets,
-            hook_injected=True,
-            hook_request_origin="user",
-            classify_intent="close",
-            classify_confidence=0.95,
-            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
-        )
-        assert resp.state == "ok_close"
-
-        # Reopen.
-        resp = engine_execute(
-            action="reopen",
-            ticket_id=ticket_id,
-            fields={"reopen_reason": "Reconsidered — will fix after all"},
-            session_id="test-session",
-            request_origin="user",
-            dedup_override=False,
-            dependency_override=False,
-            tickets_dir=tmp_tickets,
-            hook_injected=True,
-            hook_request_origin="user",
-            classify_intent="reopen",
-            classify_confidence=0.95,
-            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
-        )
-        assert resp.state == "ok_reopen"
-
-        # Verify final state.
-        content = ticket_path.read_text(encoding="utf-8")
-        assert "status: open" in content
-        assert "Reopen History" in content
-
-    def test_full_lifecycle_preserves_canonical_yaml_shape(self, tmp_tickets):
-        resp = engine_execute(
-            action="create",
-            ticket_id=None,
-            fields={
-                "title": "Serializer lifecycle",
-                "problem": "All mutation paths should share one YAML renderer.",
-                "priority": "medium",
-                "effort": "S",
-                "source": {"type": "ad-hoc", "ref": "", "session": "test-session"},
-                "tags": ["test"],
-                "blocked_by": [],
-                "blocks": [],
-            },
-            session_id="test-session",
-            request_origin="user",
-            dedup_override=False,
-            dependency_override=False,
-            tickets_dir=tmp_tickets,
-            hook_injected=True,
-            hook_request_origin="user",
-            classify_intent="create",
-            classify_confidence=0.95,
-            dedup_fingerprint=compute_dedup_fp("All mutation paths should share one YAML renderer.", []),
-        )
-        assert resp.state == "ok_create"
-        ticket_id = resp.ticket_id
-        ticket_path = Path(resp.data["ticket_path"])
-        ticket_date = ticket_path.name[:10]
-
-        # Extract dynamic created_at from actual output.
-        import re as _re
-        _actual_yaml = extract_fenced_yaml(ticket_path.read_text(encoding="utf-8"))
-        _ca_match = _re.search(r'created_at: "([^"]+)"', _actual_yaml or "")
-        _created_at = _ca_match.group(1) if _ca_match else ""
-
-        expected = _expected_canonical_yaml(
-            ticket_id=ticket_id,
-            date=ticket_date,
-            created_at=_created_at,
-            status="open",
-            priority="medium",
-            effort="S",
-            source_type="ad-hoc",
-            source_ref="",
-            session="test-session",
-            tags=["test"],
-            blocked_by=[],
-            blocks=[],
-        )
-        assert _actual_yaml == expected
-
-        resp = engine_execute(
-            action="update",
-            ticket_id=ticket_id,
-            fields={"status": "in_progress"},
-            session_id="test-session",
-            request_origin="user",
-            dedup_override=False,
-            dependency_override=False,
-            tickets_dir=tmp_tickets,
-            hook_injected=True,
-            hook_request_origin="user",
-            classify_intent="update",
-            classify_confidence=0.95,
-            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
-        )
-        assert resp.state == "ok_update"
-        expected = expected.replace("status: open\n", "status: in_progress\n")
-        assert extract_fenced_yaml(ticket_path.read_text(encoding="utf-8")) == expected
-
-        resp = engine_execute(
-            action="close",
-            ticket_id=ticket_id,
-            fields={"resolution": "wontfix"},
-            session_id="test-session",
-            request_origin="user",
-            dedup_override=False,
-            dependency_override=False,
-            tickets_dir=tmp_tickets,
-            hook_injected=True,
-            hook_request_origin="user",
-            classify_intent="close",
-            classify_confidence=0.95,
-            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
-        )
-        assert resp.state == "ok_close"
-        expected = expected.replace("status: in_progress\n", "status: wontfix\n")
-        assert extract_fenced_yaml(ticket_path.read_text(encoding="utf-8")) == expected
-
-        resp = engine_execute(
-            action="reopen",
-            ticket_id=ticket_id,
-            fields={"reopen_reason": "Follow-up work is required"},
-            session_id="test-session",
-            request_origin="user",
-            dedup_override=False,
-            dependency_override=False,
-            tickets_dir=tmp_tickets,
-            hook_injected=True,
-            hook_request_origin="user",
-            classify_intent="reopen",
-            classify_confidence=0.95,
-            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
-        )
-        assert resp.state == "ok_reopen"
-        expected = expected.replace("status: wontfix\n", "status: open\n")
-        content = ticket_path.read_text(encoding="utf-8")
-        assert extract_fenced_yaml(content) == expected
-        assert "## Reopen History" in content
-
-    def test_unknown_action_escalates(self, tmp_tickets):
-        """Dispatcher rejects unknown actions."""
-        from tests.conftest import make_ticket
-
-        ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01")
-        resp = engine_execute(
-            action="merge",
-            ticket_id="T-20260302-01",
-            fields={},
-            session_id="test-session",
-            request_origin="user",
-            dedup_override=False,
-            dependency_override=False,
-            tickets_dir=tmp_tickets,
-            hook_injected=True,
-            hook_request_origin="user",
-            classify_intent="merge",
-            classify_confidence=0.95,
-            target_fingerprint=compute_target_fp(ticket_path),
-        )
-        assert resp.state == "escalate"
-        assert resp.error_code == "intent_mismatch"
 
 
 class TestTransportValidation:
@@ -2688,7 +1685,6 @@ class TestYamlScalarEdgeCases:
     @pytest.mark.parametrize("reserved", ["true", "yes", "null"])
     def test_reserved_scalar_round_trip_preserved(self, tmp_tickets, reserved: str):
         from scripts.ticket_read import list_tickets
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
@@ -2712,7 +1708,6 @@ class TestYamlScalarEdgeCases:
 
     def test_empty_string_round_trip_preserved(self, tmp_tickets):
         from scripts.ticket_read import list_tickets
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open", effort="M")
         resp = engine_execute(
@@ -2848,7 +1843,6 @@ class TestExecuteStructuralPrerequisites:
         assert resp.state == "ok_create"
 
     def test_missing_target_fingerprint_for_update_rejected(self, tmp_tickets):
-        from tests.conftest import make_ticket
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         resp = engine_execute(
             action="update", ticket_id="T-20260302-01",
@@ -2864,7 +1858,6 @@ class TestExecuteStructuralPrerequisites:
         assert resp.state == "policy_blocked"
 
     def test_agent_missing_autonomy_config_rejected(self, tmp_tickets):
-        from tests.test_autonomy import write_autonomy_config
         write_autonomy_config(
             tmp_tickets,
             "---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n",
@@ -2932,7 +1925,6 @@ class TestExecuteFieldValidation:
         assert "tags" in resp.message
 
     def test_update_scalar_blocked_by_rejected(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         tp = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
         tfp = compute_target_fp(tp)
@@ -2950,7 +1942,6 @@ class TestExecuteFieldValidation:
         assert "blocked_by" in resp.message
 
     def test_close_invalid_resolution_rejected(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         tp = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
         tfp = compute_target_fp(tp)
@@ -2968,34 +1959,3 @@ class TestExecuteFieldValidation:
         assert "resolution" in resp.message
 
 
-class TestEngineResponseInvariant:
-    """EngineResponse enforces error_code on non-success states."""
-
-    _OK_STATES = frozenset({
-        "ok", "ok_create", "ok_update", "ok_close", "ok_close_archived", "ok_reopen",
-    })
-
-    def test_success_state_allows_no_error_code(self):
-        for state in self._OK_STATES:
-            resp = EngineResponse(state=state, message="ok")
-            assert resp.error_code is None
-
-    def test_success_state_rejects_error_code(self):
-        with pytest.raises(ValueError, match="error_code must be None"):
-            EngineResponse(state="ok", message="ok", error_code="intent_mismatch")
-
-    def test_non_success_state_requires_error_code(self):
-        with pytest.raises(ValueError, match="error_code is required"):
-            EngineResponse(state="escalate", message="bad")
-
-    def test_non_success_state_accepts_error_code(self):
-        resp = EngineResponse(state="escalate", message="bad", error_code="intent_mismatch")
-        assert resp.error_code == "intent_mismatch"
-
-    def test_need_fields_state_requires_error_code(self):
-        resp = EngineResponse(state="need_fields", message="missing", error_code="need_fields")
-        assert resp.error_code == "need_fields"
-
-    def test_duplicate_candidate_state_requires_error_code(self):
-        resp = EngineResponse(state="duplicate_candidate", message="dup", error_code="duplicate_candidate")
-        assert resp.error_code == "duplicate_candidate"

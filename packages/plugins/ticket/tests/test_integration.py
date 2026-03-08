@@ -12,6 +12,8 @@ from scripts.ticket_engine_core import (
     engine_plan,
     engine_preflight,
 )
+from scripts.ticket_parse import extract_fenced_yaml
+from tests.support.builders import expected_canonical_yaml, make_ticket
 
 
 class TestFullCreatePipeline:
@@ -165,8 +167,6 @@ class TestFullCreatePipeline:
 
     def test_update_then_close_pipeline(self, tmp_tickets):
         """Create -> update to in_progress -> close."""
-        from tests.conftest import make_ticket
-
         make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
 
         # Update to in_progress.
@@ -207,8 +207,6 @@ class TestFullCreatePipeline:
 
     def test_dedup_then_override(self, tmp_tickets):
         """Create duplicate detected -> override -> create succeeds."""
-        from tests.conftest import make_ticket
-
         # Use dynamic date so ticket stays within 24h dedup window.
         today = datetime.now(timezone.utc).date().isoformat()
         make_ticket(
@@ -295,3 +293,228 @@ class TestFullCreatePipeline:
         assert ticket_path.exists()
         ticket_text = ticket_path.read_text(encoding="utf-8")
         assert "## Key Files" not in ticket_text
+
+
+class TestEngineExecuteIntegration:
+    """Integration tests exercising the full engine_execute dispatcher
+    across multiple lifecycle operations."""
+
+    def test_full_lifecycle_create_update_close_reopen(self, tmp_tickets):
+        """Create -> update -> close -> reopen lifecycle."""
+        # Create.
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={
+                "title": "Lifecycle test",
+                "problem": "Integration test problem.",
+                "priority": "medium",
+                "source": {"type": "ad-hoc", "ref": "", "session": "test-session"},
+                "tags": ["test"],
+            },
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Integration test problem.", []),
+        )
+        assert resp.state == "ok_create"
+        ticket_id = resp.ticket_id
+        ticket_path = Path(resp.data["ticket_path"])
+        assert ticket_path.exists()
+
+        # Update status to in_progress.
+        resp = engine_execute(
+            action="update",
+            ticket_id=ticket_id,
+            fields={"status": "in_progress"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
+        )
+        assert resp.state == "ok_update"
+
+        # Close with wontfix (avoids acceptance criteria requirement).
+        resp = engine_execute(
+            action="close",
+            ticket_id=ticket_id,
+            fields={"resolution": "wontfix"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
+        )
+        assert resp.state == "ok_close"
+
+        # Reopen.
+        resp = engine_execute(
+            action="reopen",
+            ticket_id=ticket_id,
+            fields={"reopen_reason": "Reconsidered — will fix after all"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="reopen",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
+        )
+        assert resp.state == "ok_reopen"
+
+        # Verify final state.
+        content = ticket_path.read_text(encoding="utf-8")
+        assert "status: open" in content
+        assert "Reopen History" in content
+
+    def test_full_lifecycle_preserves_canonical_yaml_shape(self, tmp_tickets):
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={
+                "title": "Serializer lifecycle",
+                "problem": "All mutation paths should share one YAML renderer.",
+                "priority": "medium",
+                "effort": "S",
+                "source": {"type": "ad-hoc", "ref": "", "session": "test-session"},
+                "tags": ["test"],
+                "blocked_by": [],
+                "blocks": [],
+            },
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("All mutation paths should share one YAML renderer.", []),
+        )
+        assert resp.state == "ok_create"
+        ticket_id = resp.ticket_id
+        ticket_path = Path(resp.data["ticket_path"])
+        ticket_date = ticket_path.name[:10]
+
+        # Extract dynamic created_at from actual output.
+        import re as _re
+        _actual_yaml = extract_fenced_yaml(ticket_path.read_text(encoding="utf-8"))
+        _ca_match = _re.search(r'created_at: "([^"]+)"', _actual_yaml or "")
+        _created_at = _ca_match.group(1) if _ca_match else ""
+
+        expected = expected_canonical_yaml(
+            ticket_id=ticket_id,
+            date=ticket_date,
+            created_at=_created_at,
+            status="open",
+            priority="medium",
+            effort="S",
+            source_type="ad-hoc",
+            source_ref="",
+            session="test-session",
+            tags=["test"],
+            blocked_by=[],
+            blocks=[],
+        )
+        assert _actual_yaml == expected
+
+        resp = engine_execute(
+            action="update",
+            ticket_id=ticket_id,
+            fields={"status": "in_progress"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="update",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
+        )
+        assert resp.state == "ok_update"
+        expected = expected.replace("status: open\n", "status: in_progress\n")
+        assert extract_fenced_yaml(ticket_path.read_text(encoding="utf-8")) == expected
+
+        resp = engine_execute(
+            action="close",
+            ticket_id=ticket_id,
+            fields={"resolution": "wontfix"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
+        )
+        assert resp.state == "ok_close"
+        expected = expected.replace("status: in_progress\n", "status: wontfix\n")
+        assert extract_fenced_yaml(ticket_path.read_text(encoding="utf-8")) == expected
+
+        resp = engine_execute(
+            action="reopen",
+            ticket_id=ticket_id,
+            fields={"reopen_reason": "Follow-up work is required"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="reopen",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
+        )
+        assert resp.state == "ok_reopen"
+        expected = expected.replace("status: wontfix\n", "status: open\n")
+        content = ticket_path.read_text(encoding="utf-8")
+        assert extract_fenced_yaml(content) == expected
+        assert "## Reopen History" in content
+
+    def test_unknown_action_escalates(self, tmp_tickets):
+        """Dispatcher rejects unknown actions."""
+        ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01")
+        resp = engine_execute(
+            action="merge",
+            ticket_id="T-20260302-01",
+            fields={},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="merge",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(ticket_path),
+        )
+        assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"

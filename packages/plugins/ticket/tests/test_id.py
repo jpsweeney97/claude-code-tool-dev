@@ -11,6 +11,7 @@ from scripts.ticket_id import (
     is_legacy_id,
     parse_id_date,
 )
+from tests.support.builders import make_ticket
 
 
 class TestAllocateId:
@@ -19,7 +20,6 @@ class TestAllocateId:
         assert ticket_id == "T-20260302-01"
 
     def test_sequential_allocation(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-first.md", id="T-20260302-01")
         ticket_id = allocate_id(tmp_tickets, date(2026, 3, 2))
@@ -27,7 +27,6 @@ class TestAllocateId:
 
     def test_gap_in_sequence(self, tmp_tickets):
         """Allocates next after highest, not gap-filling."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-first.md", id="T-20260302-01")
         make_ticket(tmp_tickets, "2026-03-02-third.md", id="T-20260302-03")
@@ -35,7 +34,6 @@ class TestAllocateId:
         assert ticket_id == "T-20260302-04"
 
     def test_different_day_no_conflict(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-01-old.md", id="T-20260301-05")
         ticket_id = allocate_id(tmp_tickets, date(2026, 3, 2))
@@ -136,7 +134,6 @@ class TestAllocateIdArchived:
 
     def test_skips_archived_ticket_ids(self, tmp_tickets):
         """Archived ticket ID is not reissued."""
-        from tests.conftest import make_ticket
 
         closed_dir = tmp_tickets / "closed-tickets"
         closed_dir.mkdir()
@@ -147,7 +144,6 @@ class TestAllocateIdArchived:
 
     def test_no_closed_dir_still_works(self, tmp_tickets):
         """Missing closed-tickets/ dir → behaves as before."""
-        from tests.conftest import make_ticket
 
         make_ticket(tmp_tickets, "2026-03-02-first.md", id="T-20260302-01")
         ticket_id = allocate_id(tmp_tickets, date(2026, 3, 2))
@@ -159,7 +155,6 @@ class TestVariableWidthSequence:
 
     def test_allocate_id_beyond_99(self, tmp_path):
         """allocate_id handles sequence numbers beyond 99."""
-        from tests.conftest import make_ticket
 
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()

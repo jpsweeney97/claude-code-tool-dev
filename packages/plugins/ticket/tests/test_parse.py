@@ -15,6 +15,7 @@ from scripts.ticket_parse import (
     parse_ticket,
     parse_yaml_block,
 )
+from tests.support.builders import make_gen1_ticket, make_gen2_ticket, make_gen3_ticket, make_gen4_ticket, make_ticket
 
 
 # --- extract_fenced_yaml ---
@@ -188,7 +189,6 @@ class TestNormalizeStatus:
 
 class TestParseTicket:
     def test_v10_ticket(self, tmp_tickets):
-        from tests.conftest import make_ticket
 
         path = make_ticket(tmp_tickets, "2026-03-02-test.md")
         ticket = parse_ticket(path)
@@ -201,7 +201,6 @@ class TestParseTicket:
         assert "Problem" in ticket.sections
 
     def test_gen1_ticket(self, tmp_tickets):
-        from tests.conftest import make_gen1_ticket
 
         path = make_gen1_ticket(tmp_tickets)
         ticket = parse_ticket(path)
@@ -214,7 +213,6 @@ class TestParseTicket:
         assert ticket.priority == "medium"
 
     def test_gen2_ticket(self, tmp_tickets):
-        from tests.conftest import make_gen2_ticket
 
         path = make_gen2_ticket(tmp_tickets)
         ticket = parse_ticket(path)
@@ -225,7 +223,6 @@ class TestParseTicket:
         assert "Problem" in ticket.sections
 
     def test_gen3_ticket(self, tmp_tickets):
-        from tests.conftest import make_gen3_ticket
 
         path = make_gen3_ticket(tmp_tickets)
         ticket = parse_ticket(path)
@@ -236,7 +233,6 @@ class TestParseTicket:
         assert "Prior Investigation" in ticket.sections
 
     def test_gen4_ticket(self, tmp_tickets):
-        from tests.conftest import make_gen4_ticket
 
         path = make_gen4_ticket(tmp_tickets)
         ticket = parse_ticket(path)
@@ -284,7 +280,6 @@ class TestParseTicket:
 
     def test_mutable_defaults_isolated(self, tmp_tickets):
         """Parsing two legacy tickets must not share mutable default state."""
-        from tests.conftest import make_gen1_ticket
 
         path1 = make_gen1_ticket(tmp_tickets, "gen1-a.md")
         path2 = make_gen1_ticket(tmp_tickets, "gen1-b.md")
