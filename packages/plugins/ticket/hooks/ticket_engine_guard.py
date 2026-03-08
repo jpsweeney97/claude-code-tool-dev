@@ -99,9 +99,16 @@ def _is_ticket_candidate(command: str) -> bool:
         tokens = shlex.split(command)
     except ValueError:
         # shlex.split() failed (unclosed quote, etc.).
-        # If the raw command mentions a known ticket script basename, deny
-        # as malformed; otherwise pass through.
-        return any(basename in command for basename in _TICKET_SCRIPT_BASENAMES)
+        # If the raw command mentions a known ticket script basename (exact or
+        # broad pattern), deny as malformed; otherwise pass through.
+        if any(basename in command for basename in _TICKET_SCRIPT_BASENAMES):
+            return True
+        # Check broad pattern: extract potential basenames and test against regex.
+        for word in command.split():
+            candidate = word.rsplit("/", 1)[-1] if "/" in word else word
+            if _TICKET_SCRIPT_RE.match(candidate):
+                return True
+        return False
 
     if not tokens:
         return False
