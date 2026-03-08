@@ -27,6 +27,7 @@ from scripts.ticket_parse import (
     parse_yaml_block,
 )
 from scripts.ticket_render import render_ticket, replace_fenced_yaml
+from scripts.ticket_validate import validate_fields
 
 
 # --- Response envelope ---
@@ -1312,6 +1313,15 @@ def _execute_create(
             error_code="need_fields",
         )
 
+    validation_errors = validate_fields(fields)
+    if validation_errors:
+        return EngineResponse(
+            state="need_fields",
+            message=f"Field validation failed: {'; '.join(validation_errors)}",
+            error_code="need_fields",
+            data={"validation_errors": validation_errors},
+        )
+
     tickets_dir.mkdir(parents=True, exist_ok=True)
 
     now = datetime.now(timezone.utc)
@@ -1387,6 +1397,16 @@ def _execute_update(
     ticket = find_ticket_by_id(tickets_dir, ticket_id)
     if ticket is None:
         return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
+
+    validation_errors = validate_fields(fields)
+    if validation_errors:
+        return EngineResponse(
+            state="need_fields",
+            message=f"Field validation failed: {'; '.join(validation_errors)}",
+            error_code="need_fields",
+            ticket_id=ticket_id,
+            data={"validation_errors": validation_errors},
+        )
 
     ticket_path = Path(ticket.path)
     text = ticket_path.read_text(encoding="utf-8")
@@ -1498,6 +1518,18 @@ def _execute_close(
     ticket = find_ticket_by_id(tickets_dir, ticket_id)
     if ticket is None:
         return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
+
+    close_fields = dict(fields)
+    close_fields["resolution"] = resolution  # Validate the resolved resolution too.
+    validation_errors = validate_fields(close_fields)
+    if validation_errors:
+        return EngineResponse(
+            state="need_fields",
+            message=f"Field validation failed: {'; '.join(validation_errors)}",
+            error_code="need_fields",
+            ticket_id=ticket_id,
+            data={"validation_errors": validation_errors},
+        )
 
     # Defense-in-depth: enforce blocker policy for direct execute calls.
     if ticket.blocked_by and resolution != "wontfix":

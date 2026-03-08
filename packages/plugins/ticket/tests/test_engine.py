@@ -1471,7 +1471,7 @@ class TestEngineExecute:
         resp = engine_execute(
             action="update",
             ticket_id="T-20260302-01",
-            fields={"priority": "high: urgent"},
+            fields={"effort": "S: small"},
             session_id="test-session",
             request_origin="user",
             dedup_override=False,
@@ -1486,7 +1486,7 @@ class TestEngineExecute:
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
         assert len(tickets) == 1
-        assert tickets[0].priority == "high: urgent"
+        assert tickets[0].effort == "S: small"
 
     def test_canonical_renderer_preserves_hash_in_string(self, tmp_tickets):
         """Strings containing # are preserved and not parsed as comments."""
@@ -1929,7 +1929,10 @@ class TestEngineExecute:
             classify_confidence=0.95,
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
-        assert resp.state == "invalid_transition"
+        # Schema validation now catches invalid resolutions before transition check.
+        assert resp.state == "need_fields"
+        assert resp.error_code == "need_fields"
+        assert "resolution" in resp.message
 
     def test_close_terminal_ticket_rejected(self, tmp_tickets):
         """Closing an already-done ticket is invalid — must reopen first."""
@@ -2751,3 +2754,73 @@ class TestExecuteStructuralPrerequisites:
             # autonomy_config=None (missing snapshot)
         )
         assert resp.state == "policy_blocked"
+
+
+class TestExecuteFieldValidation:
+    """engine_execute rejects invalid field types/values before writing."""
+
+    def test_create_invalid_priority_rejected(self, tmp_tickets):
+        fp = compute_dedup_fp("Problem", [])
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "Problem", "priority": "urgent"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="create", classify_confidence=0.95,
+            dedup_fingerprint=fp,
+        )
+        assert resp.error_code == "need_fields"
+        assert "priority" in resp.message
+
+    def test_create_scalar_tags_rejected(self, tmp_tickets):
+        fp = compute_dedup_fp("Problem", [])
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "Problem", "tags": "bug"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="create", classify_confidence=0.95,
+            dedup_fingerprint=fp,
+        )
+        assert resp.error_code == "need_fields"
+        assert "tags" in resp.message
+
+    def test_update_scalar_blocked_by_rejected(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        tp = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="open")
+        tfp = compute_target_fp(tp)
+        resp = engine_execute(
+            action="update", ticket_id="T-20260302-01",
+            fields={"blocked_by": "T-20260302-02"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="update", classify_confidence=0.95,
+            target_fingerprint=tfp,
+        )
+        assert resp.error_code == "need_fields"
+        assert "blocked_by" in resp.message
+
+    def test_close_invalid_resolution_rejected(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        tp = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="in_progress")
+        tfp = compute_target_fp(tp)
+        resp = engine_execute(
+            action="close", ticket_id="T-20260302-01",
+            fields={"resolution": "cancelled"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="close", classify_confidence=0.95,
+            target_fingerprint=tfp,
+        )
+        assert resp.error_code == "need_fields"
+        assert "resolution" in resp.message
