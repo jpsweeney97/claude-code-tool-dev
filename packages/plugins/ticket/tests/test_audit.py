@@ -11,6 +11,7 @@ import pytest
 
 from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp, target_fingerprint as compute_target_fp
 from scripts.ticket_engine_core import AUDIT_UNAVAILABLE, engine_count_session_creates, engine_execute
+from tests.support.builders import make_ticket
 
 
 _AUDIT_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "ticket_audit.py"
@@ -112,7 +113,6 @@ class TestAuditAppend:
 
     def test_audit_on_error_writes_result(self, tmp_tickets: Path) -> None:
         """On non-exception error (e.g., invalid transition), audit still writes both entries."""
-        from tests.conftest import make_ticket
 
         session_id = "sess-error-1"
         ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="done")

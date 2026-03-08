@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import make_ticket
+from tests.support.builders import make_ticket
 
 
 class TestDashboard:

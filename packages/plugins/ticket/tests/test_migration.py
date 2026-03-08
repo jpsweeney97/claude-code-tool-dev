@@ -9,11 +9,11 @@ import textwrap
 
 
 from scripts.ticket_parse import parse_ticket
+from tests.support.builders import make_gen1_ticket, make_gen2_ticket, make_gen3_ticket, make_gen4_ticket
 
 
 class TestGen1Migration:
     def test_golden_gen1(self, tmp_tickets):
-        from tests.conftest import make_gen1_ticket
 
         path = make_gen1_ticket(tmp_tickets)
         ticket = parse_ticket(path)
@@ -37,7 +37,6 @@ class TestGen1Migration:
 
 class TestGen2Migration:
     def test_golden_gen2(self, tmp_tickets):
-        from tests.conftest import make_gen2_ticket
 
         path = make_gen2_ticket(tmp_tickets)
         ticket = parse_ticket(path)
@@ -63,7 +62,6 @@ class TestGen2Migration:
 
 class TestGen3Migration:
     def test_golden_gen3(self, tmp_tickets):
-        from tests.conftest import make_gen3_ticket
 
         path = make_gen3_ticket(tmp_tickets)
         ticket = parse_ticket(path)
@@ -86,7 +84,6 @@ class TestGen3Migration:
 
 class TestGen4Migration:
     def test_golden_gen4(self, tmp_tickets):
-        from tests.conftest import make_gen4_ticket
 
         path = make_gen4_ticket(tmp_tickets)
         ticket = parse_ticket(path)
