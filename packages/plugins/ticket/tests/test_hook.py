@@ -800,3 +800,95 @@ class TestCandidateDetection:
         cmd = f"python3 {plugin_root}/scripts/ticket_engine_user.py execute {payload} 2>&1"
         result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
         assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "allow"
+
+
+# ---------------------------------------------------------------------------
+# Agent ID origin helper tests
+# ---------------------------------------------------------------------------
+
+
+class TestAgentIdOriginHelper:
+    """Tests for explicit agent_id handling in all hook branches."""
+
+    # --- Engine branch: empty string agent_id should deny ---
+    def test_engine_empty_agent_id_denied(self, tmp_path: Path) -> None:
+        """Present-but-empty agent_id on engine command -> deny as malformed."""
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        hook_input = make_hook_input(cmd, cwd=str(tmp_path))
+        hook_input["agent_id"] = ""  # Present but empty.
+        result = run_hook(hook_input)
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def test_engine_non_string_agent_id_denied(self, tmp_path: Path) -> None:
+        """Non-string agent_id (e.g., int) on engine command -> deny."""
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        hook_input = make_hook_input(cmd, cwd=str(tmp_path))
+        hook_input["agent_id"] = 42
+        result = run_hook(hook_input)
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def test_engine_missing_agent_id_is_user(self, tmp_path: Path) -> None:
+        """Missing agent_id key -> user origin, allowed."""
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        hook_input = make_hook_input(cmd, cwd=str(tmp_path))
+        assert "agent_id" not in hook_input  # Confirm missing.
+        result = run_hook(hook_input)
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "allow"
+        # Verify injected origin is "user".
+        injected = json.loads(payload.read_text(encoding="utf-8"))
+        assert injected["hook_request_origin"] == "user"
+
+    def test_engine_valid_agent_id_is_agent(self, tmp_path: Path) -> None:
+        """Non-empty string agent_id -> agent origin."""
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"python3 {plugin_root}/scripts/ticket_engine_agent.py classify {payload}"
+        hook_input = make_hook_input(cmd, cwd=str(tmp_path))
+        hook_input["agent_id"] = "agent-123"
+        result = run_hook(hook_input)
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "allow"
+        injected = json.loads(payload.read_text(encoding="utf-8"))
+        assert injected["hook_request_origin"] == "agent"
+
+    # --- Audit branch: empty/non-string agent_id should deny ---
+    def test_audit_empty_agent_id_denied(self, tmp_path: Path) -> None:
+        """Present-but-empty agent_id on audit command -> deny."""
+        plugin_root = str(Path(__file__).parent.parent)
+        cmd = f"python3 {plugin_root}/scripts/ticket_audit.py list /tmp/payload.json"
+        hook_input = make_hook_input(cmd, cwd=str(tmp_path))
+        hook_input["agent_id"] = ""
+        result = run_hook(hook_input)
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def test_audit_non_string_agent_id_denied(self, tmp_path: Path) -> None:
+        """Non-string agent_id on audit command -> deny."""
+        plugin_root = str(Path(__file__).parent.parent)
+        cmd = f"python3 {plugin_root}/scripts/ticket_audit.py list /tmp/payload.json"
+        hook_input = make_hook_input(cmd, cwd=str(tmp_path))
+        hook_input["agent_id"] = 0
+        result = run_hook(hook_input)
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def test_audit_valid_agent_id_denied(self, tmp_path: Path) -> None:
+        """Valid agent_id on audit command -> deny (audit is user-only)."""
+        plugin_root = str(Path(__file__).parent.parent)
+        cmd = f"python3 {plugin_root}/scripts/ticket_audit.py list /tmp/payload.json"
+        hook_input = make_hook_input(cmd, cwd=str(tmp_path))
+        hook_input["agent_id"] = "agent-456"
+        result = run_hook(hook_input)
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def test_audit_missing_agent_id_allowed(self, tmp_path: Path) -> None:
+        """Missing agent_id on audit command -> user -> allowed."""
+        plugin_root = str(Path(__file__).parent.parent)
+        cmd = f"python3 {plugin_root}/scripts/ticket_audit.py list /tmp/payload.json"
+        hook_input = make_hook_input(cmd, cwd=str(tmp_path))
+        assert "agent_id" not in hook_input
+        result = run_hook(hook_input)
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "allow"

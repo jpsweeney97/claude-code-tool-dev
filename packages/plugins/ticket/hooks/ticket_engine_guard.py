@@ -233,6 +233,34 @@ def _resolve_payload_path(payload_path: str, workspace_root: str) -> tuple[Path 
     return resolved, None
 
 
+def _resolve_origin(
+    event: dict, *, is_ticket_candidate: bool
+) -> tuple[str | None, str | None]:
+    """Determine request origin from agent_id field.
+
+    Returns (origin, error):
+    - ("user", None): agent_id key missing -> user origin
+    - ("agent", None): agent_id is a non-empty string -> agent origin
+    - (None, reason): present-but-empty or non-string agent_id on a ticket
+      candidate command -> deny with reason
+    """
+    if "agent_id" not in event:
+        return "user", None
+
+    agent_id = event["agent_id"]
+    if isinstance(agent_id, str) and agent_id:
+        return "agent", None
+
+    if is_ticket_candidate:
+        return None, (
+            f"Malformed agent_id: expected non-empty string or absent, "
+            f"got {type(agent_id).__name__}={agent_id!r:.50}"
+        )
+
+    # Non-ticket commands with weird agent_id: pass through (not our concern).
+    return "user", None
+
+
 def main() -> None:
     try:
         event = json.load(sys.stdin)
@@ -304,7 +332,11 @@ def main() -> None:
 
         # Inject trust fields into payload.
         session_id = event.get("session_id", "")
-        effective_origin = "agent" if event.get("agent_id") else "user"
+        effective_origin, origin_error = _resolve_origin(event, is_ticket_candidate=True)
+        if origin_error is not None:
+            print(json.dumps(_make_deny(origin_error)))
+            return
+        assert effective_origin is not None  # Guaranteed: origin_error is None ⟹ origin is str
         error = _inject_payload(str(resolved_path), session_id, effective_origin)
         if error is not None:
             print(json.dumps(_make_deny(f"Payload injection failed: {error}")))
@@ -330,7 +362,11 @@ def main() -> None:
     audit_pattern = _build_audit_pattern(plugin_root)
     audit_match = audit_pattern.match(command_clean)
     if audit_match:
-        if event.get("agent_id"):
+        origin, origin_error = _resolve_origin(event, is_ticket_candidate=True)
+        if origin_error is not None:
+            print(json.dumps(_make_deny(origin_error)))
+            return
+        if origin == "agent":
             print(json.dumps(_make_deny(
                 "Ticket audit is user-only — agents cannot invoke audit repair"
             )))
