@@ -104,6 +104,7 @@ class TestEngineClassify:
             request_origin="user",
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"
 
     def test_unknown_origin_fails_closed(self):
         resp = engine_classify(
@@ -1154,8 +1155,40 @@ class TestEngineExecute:
         )
 
         assert resp.state == "escalate"
+        assert resp.error_code == "io_error"
         assert "retry budget" in resp.message.lower()
         assert len(attempts) == 3
+
+    def test_execute_create_write_oserror_returns_escalate_with_io_error(
+        self, tmp_tickets: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def oserror_write(ticket_path: Path, content: str) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(ticket_engine_core, "_write_text_exclusive", oserror_write)
+
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={
+                "title": "Write failure",
+                "problem": "Create should return io_error on OSError.",
+                "priority": "medium",
+            },
+            session_id="oserror-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Create should return io_error on OSError.", []),
+        )
+        assert resp.state == "escalate"
+        assert resp.error_code == "io_error"
+        assert "create failed" in resp.message.lower()
 
     def test_write_text_exclusive_unlinks_partial_file_on_fsync_failure(
         self, tmp_tickets: Path, monkeypatch: pytest.MonkeyPatch
@@ -1237,6 +1270,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"
         assert "section fields not supported" in resp.message.lower()
         assert ticket_path.read_text(encoding="utf-8") == before
 
@@ -1261,6 +1295,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"
         assert "section fields not supported" in resp.message.lower()
         after = ticket_path.read_text(encoding="utf-8")
         assert after == before
@@ -1287,6 +1322,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"
         assert "unknown fields: custom" in resp.message.lower()
         assert ticket_path.read_text(encoding="utf-8") == before
 
@@ -1335,6 +1371,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"
         assert "fields.ticket_id must match" in resp.message.lower()
         assert ticket_path.read_text(encoding="utf-8") == before
 
@@ -1879,6 +1916,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "io_error"
         assert "archive rename failed" in resp.message
 
     def test_close_archive_collision_suffix_exhausted_returns_escalate(
@@ -1919,6 +1957,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "io_error"
         assert "collision resolution failed" in resp.message
 
     def test_close_from_open_succeeds(self, tmp_tickets):
@@ -2191,7 +2230,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
-        assert resp.error_code is None
+        assert resp.error_code == "intent_mismatch"
         assert "unknown fields: custom" in resp.message.lower()
 
     def test_reopen_ticket(self, tmp_tickets):
