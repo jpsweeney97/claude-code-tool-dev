@@ -20,8 +20,6 @@ Tests cover:
 from typing import Any
 from unittest.mock import patch
 
-import pytest
-
 from context_injection.control import ConversationAction
 from context_injection.pipeline import process_turn
 from context_injection.state import AppContext, ScoutOptionRecord
@@ -1385,7 +1383,7 @@ class TestTurnCapCC5:
             state_checkpoint=result1.state_checkpoint,
             checkpoint_id=result1.checkpoint_id,
         )
-        result_dup = process_turn(r1_dup, ctx)
+        process_turn(r1_dup, ctx)
         conv = ctx.conversations["conv_repeat"]
         assert len(conv.entries) <= 2
 

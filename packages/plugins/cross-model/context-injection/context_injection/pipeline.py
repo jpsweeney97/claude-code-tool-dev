@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 
 from context_injection.checkpoint import (
+    MAX_ENTRIES_BEFORE_COMPACT,
     CheckpointError,
     compact_ledger,
     serialize_checkpoint,
@@ -58,8 +59,6 @@ logger = logging.getLogger(__name__)
 MAX_CONVERSATION_TURNS: int = 15
 
 # Import-time invariant: turn cap must be strictly less than compaction threshold.
-from context_injection.checkpoint import MAX_ENTRIES_BEFORE_COMPACT
-
 if MAX_CONVERSATION_TURNS >= MAX_ENTRIES_BEFORE_COMPACT:
     raise RuntimeError(
         f"MAX_CONVERSATION_TURNS ({MAX_CONVERSATION_TURNS}) must be strictly less than "

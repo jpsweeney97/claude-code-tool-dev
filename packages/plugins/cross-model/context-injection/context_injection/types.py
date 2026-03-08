@@ -20,6 +20,8 @@ from context_injection.ledger import (
     ValidationWarning,
 )
 
+_ = LedgerEntryCounters
+
 
 SchemaVersionLiteral = Literal["0.2.0"]
 
