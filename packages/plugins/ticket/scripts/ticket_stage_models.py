@@ -154,8 +154,15 @@ class PlanInput:
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> PlanInput:
+        # Lazy fallback: only validate "action" type when "intent" is absent.
+        # Eager evaluation of _get_str for the default would reject a
+        # non-string "action" even when a valid "intent" is present.
+        if "intent" in payload:
+            intent = _get_str(payload, "intent", default="")
+        else:
+            intent = _get_str(payload, "action", default="")
         return cls(
-            intent=_get_str(payload, "intent", default=_get_str(payload, "action", default="")),
+            intent=intent,
             fields=_get_dict(payload, "fields", default={}),
             session_id=_get_str(payload, "session_id", default=""),
         )
@@ -224,7 +231,14 @@ class ExecuteInput:
             dedup_override=_get_bool(payload, "dedup_override", default=False),
             dependency_override=_get_bool(payload, "dependency_override", default=False),
             target_fingerprint=_get_optional_str(payload, "target_fingerprint"),
-            autonomy_config_data=_get_optional_dict(payload, "autonomy_config"),
+            # Tolerant extraction: coerce non-dict to None (preserves pre-A-002
+            # behavior where isinstance(config_data, dict) silently ignored
+            # non-dict values instead of raising).
+            autonomy_config_data=(
+                payload.get("autonomy_config")
+                if isinstance(payload.get("autonomy_config"), dict)
+                else None
+            ),
             hook_injected=_get_bool(payload, "hook_injected", default=False),
             hook_request_origin=_get_optional_str(payload, "hook_request_origin"),
             classify_intent=_get_optional_str(payload, "classify_intent"),

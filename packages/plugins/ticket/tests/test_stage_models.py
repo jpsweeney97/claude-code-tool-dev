@@ -102,6 +102,15 @@ class TestPlanInput:
         })
         assert inp.intent == "create"
 
+    def test_intent_ignores_malformed_action_when_intent_present(self):
+        """Lazy fallback: non-string action is not validated when intent is present."""
+        inp = PlanInput.from_payload({
+            "intent": "create",
+            "action": 42,
+            "session_id": "sess-1",
+        })
+        assert inp.intent == "create"
+
     def test_defaults(self):
         inp = PlanInput.from_payload({})
         assert inp.intent == ""
@@ -243,10 +252,14 @@ class TestExecuteInput:
         inp = ExecuteInput.from_payload({"classify_confidence": 0.95})
         assert inp.classify_confidence == 0.95
 
-    def test_autonomy_config_wrong_type_raises(self):
-        with pytest.raises(PayloadError) as exc_info:
-            ExecuteInput.from_payload({"autonomy_config": "not a dict"})
-        assert exc_info.value.code == "parse_error"
+    def test_autonomy_config_non_dict_coerced_to_none(self):
+        """Non-dict autonomy_config is silently ignored (preserves pre-A-002 behavior)."""
+        inp = ExecuteInput.from_payload({"autonomy_config": "not a dict"})
+        assert inp.autonomy_config_data is None
+
+    def test_autonomy_config_list_coerced_to_none(self):
+        inp = ExecuteInput.from_payload({"autonomy_config": [1, 2, 3]})
+        assert inp.autonomy_config_data is None
 
     def test_fields_wrong_type_raises(self):
         with pytest.raises(PayloadError) as exc_info:
