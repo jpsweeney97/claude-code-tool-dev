@@ -67,6 +67,7 @@ The package is split into five layers:
 - [packages/plugins/cross-model/scripts/compute_stats.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/compute_stats.py): report computation
 - [packages/plugins/cross-model/scripts/codex_delegate.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/codex_delegate.py): `/delegate` adapter
 - [packages/plugins/cross-model/scripts/event_log.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/event_log.py): shared append helpers
+- [packages/plugins/cross-model/scripts/stats_common.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/stats_common.py): shared filtering, parsing, and aggregation utilities for `compute_stats.py`
 
 ### Context-injection server
 
@@ -234,7 +235,7 @@ All telemetry flows to `~/.claude/.codex-events.jsonl`.
 | `consultation` | `codex_guard.py` | Codex MCP tool call completed |
 | `consultation_outcome` | `emit_analytics.py` | `/codex` outcome |
 | `dialogue_outcome` | `emit_analytics.py` | `/dialogue` outcome |
-| `delegation_outcome` | `emit_analytics.py` | `/delegate` outcome |
+| `delegation_outcome` | `codex_delegate.py` | `/delegate` outcome |
 
 Analytics emission is best-effort. The user-facing result still returns when emission fails.
 
@@ -319,7 +320,7 @@ The relay format is governed by the consultation contract. The user-facing respo
 
 Use `/dialogue` when a question benefits from evidence gathering, disagreement surfacing, or several Codex turns under a fixed scope.
 
-### Inputs and controls
+### Inputs and defaults
 
 Key controls:
 
@@ -414,18 +415,19 @@ Hard restrictions:
 The adapter in [packages/plugins/cross-model/scripts/codex_delegate.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/codex_delegate.py) runs this operational sequence:
 
 1. resolve repo root
-2. parse input JSON
-3. credential scan
-4. validate fields and conflicts
-5. verify Codex CLI version
-6. enforce clean-tree gate
-7. enforce readable secret-file gate
-8. build `codex exec` command
-9. run subprocess
-10. parse JSONL output
-11. read summarized result
-12. emit analytics
-13. clean adapter-owned temp artifacts
+2. allocate output temp file
+3. parse input JSON (Phase A — captures data for analytics)
+4. credential scan
+5. validate fields and conflicts (Phase B)
+6. verify Codex CLI version
+7. enforce clean-tree gate
+8. enforce readable secret-file gate
+9. build `codex exec` command
+10. run subprocess
+11. parse JSONL output
+12. read summarized result
+13. emit analytics
+14. clean adapter-owned temp artifacts
 
 ### Output interpretation
 
@@ -465,7 +467,7 @@ Use `/delegate` only when the tracked repo contents are acceptable to expose to 
 
 Use `/consultation-stats` to inspect usage, convergence, context quality, security blocks, or delegation outcomes.
 
-### Parameter mapping
+### Inputs and defaults
 
 Defaults:
 
@@ -797,21 +799,35 @@ Edit these when changing plugin-wide enforcement or reporting:
 - PreToolUse hook execution is fail-closed for normal runtime errors, but actual hook-process crashes are fail-open by OS semantics.
 - The vendored context-injection tests are not in this package copy. Source-package tests are the deeper coverage source.
 - Scope re-consent after mid-dialogue scope expansion is still only partially implemented in the broader contract path.
-- `nudge_codex.py` is opt-in only. If `CROSS_MODEL_NUDGE` is unset, repeated Bash failures do nothing.
+- `nudge_codex.py` is opt-in only. If `CROSS_MODEL_NUDGE` is unset, repeated Bash failures do nothing. When enabled, the nudge fires after 3 consecutive Bash failures per session and resets after each nudge (so the suggestion recurs after another 3 failures).
 - `/delegate` secret-file detection is conservative but incomplete: filename-based, not content-based.
 - Analytics are best-effort and should not be used as the sole source of truth for success or failure.
 
 ## Verification
 
-Plugin-local test suite:
+### Plugin-local test suite
 
 ```bash
 cd packages/plugins/cross-model
 uv run pytest tests
 ```
 
-Last verified on March 7, 2026:
-
-- plugin-local suite passed with `160 passed`
+All tests should pass with no failures.
 
 For deeper context-injection verification, run tests in the source package referenced by [packages/plugins/cross-model/context-injection/README.vendored.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection/README.vendored.md).
+
+### `/delegate` pre-dispatch smoke test
+
+Use this sequence to confirm the delegation gate chain is operational without running a full Codex dispatch:
+
+1. Confirm `codex --version` outputs a version `>= 0.111.0`.
+2. Confirm `git status --porcelain` is empty (clean tree gate will pass).
+3. Confirm no readable secret files exist (`git ls-files --others --ignored --exclude-standard` returns no `.env`, `*.pem`, `*.key`, `.npmrc`, `.netrc`, `auth.json`, or `*.p12` files).
+4. Run a minimal delegation with `read-only` sandbox and a short prompt:
+
+```bash
+echo '{"prompt": "print hello world", "sandbox": "read-only"}' > /tmp/test_delegate.json
+python3 packages/plugins/cross-model/scripts/codex_delegate.py /tmp/test_delegate.json
+```
+
+Expected output: JSON with `"status": "ok"` and `"dispatched": true`, or `"status": "blocked"` with a specific gate reason if a gate fires. A `"status": "error"` with `"dispatched": false` before subprocess start indicates a gate or version problem to investigate.
