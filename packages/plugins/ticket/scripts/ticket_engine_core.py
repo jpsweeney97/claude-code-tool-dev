@@ -993,6 +993,7 @@ def engine_execute(
     target_fingerprint: str | None = None,
     autonomy_config: AutonomyConfig | None = None,
     hook_injected: bool = False,
+    hook_request_origin: str | None = None,
 ) -> EngineResponse:
     """Execute the mutation: create, update, close, or reopen.
 
@@ -1016,15 +1017,26 @@ def engine_execute(
     else:
         config = snapshot_config or AutonomyConfig()
 
-    # --- Transport-layer validation ---
-    # Agent mutations without hook_injected are rejected (defense-in-depth).
-    if request_origin == "agent" and not hook_injected:
+    # --- Transport-layer trust triple (defense-in-depth for all origins) ---
+    trust_errors: list[str] = []
+    if not hook_injected:
+        trust_errors.append("hook_injected=False")
+    if hook_request_origin is None:
+        trust_errors.append("hook_request_origin missing")
+    elif hook_request_origin != request_origin:
+        return EngineResponse(
+            state="escalate",
+            message=f"origin_mismatch: request_origin={request_origin!r}, hook_request_origin={hook_request_origin!r}",
+            error_code="origin_mismatch",
+        )
+    if not session_id:
+        trust_errors.append("session_id empty")
+    if trust_errors:
         return EngineResponse(
             state="policy_blocked",
-            message="Agent mutations require hook_injected=True (missing trust field)",
+            message=f"Execute requires verified hook provenance: {', '.join(trust_errors)}",
             error_code="policy_blocked",
         )
-    # User without hook_injected: proceed (warn only — unverified in audit).
 
     # --- Autonomy defense-in-depth (self-contained allowlist) ---
     if request_origin == "agent":

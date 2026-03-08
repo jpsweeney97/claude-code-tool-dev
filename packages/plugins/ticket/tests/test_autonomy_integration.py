@@ -61,6 +61,7 @@ class TestAutonomyIntegration:
             session_id="int-session", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tickets_dir, autonomy_config=config, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert ex_resp.state == "ok_create"
 
@@ -80,6 +81,7 @@ class TestAutonomyIntegration:
                 session_id="cap-session", request_origin="agent",
                 dedup_override=False, dependency_override=False,
                 tickets_dir=tickets_dir, autonomy_config=config, hook_injected=True,
+                hook_request_origin="agent",
             )
 
         resp = engine_preflight(
@@ -110,6 +112,8 @@ class TestAutonomyIntegration:
             session_id="user-session", request_origin="user",
             dedup_override=False, dependency_override=False,
             tickets_dir=tickets_dir,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert ex_resp.state == "ok_create"
 
@@ -137,6 +141,7 @@ class TestAutonomyIntegration:
             session_id="toctou-session", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tickets_dir, autonomy_config=snapshot, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert ex_resp.state == "policy_blocked"
         assert "changed since preflight" in ex_resp.message.lower()

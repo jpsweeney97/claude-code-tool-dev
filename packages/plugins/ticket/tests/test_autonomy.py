@@ -330,6 +330,7 @@ class TestAutonomyExecute:
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "policy_blocked"
 
@@ -344,6 +345,7 @@ class TestAutonomyExecute:
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "policy_blocked"
 
@@ -354,6 +356,7 @@ class TestAutonomyExecute:
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "policy_blocked"
 
@@ -367,6 +370,7 @@ class TestAutonomyExecute:
             tickets_dir=tmp_tickets,
             autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
             hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "policy_blocked"
         assert "changed since preflight" in resp.message.lower()
@@ -381,6 +385,7 @@ class TestAutonomyExecute:
             tickets_dir=tmp_tickets,
             autonomy_config=AutonomyConfig(mode="auto_audit", max_creates=5),
             hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "policy_blocked"
         assert "changed since preflight" in resp.message.lower()
@@ -398,6 +403,7 @@ class TestAutonomyExecute:
             tickets_dir=tmp_tickets,
             autonomy_config=AutonomyConfig(mode="suggest"),
             hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "policy_blocked"
         assert "changed since preflight" in resp.message.lower()
@@ -410,6 +416,7 @@ class TestAutonomyExecute:
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "policy_blocked"
 
@@ -425,6 +432,7 @@ class TestAutonomyExecute:
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "policy_blocked"
 
@@ -439,6 +447,7 @@ class TestAutonomyExecute:
             session_id="sess", request_origin="agent",
             dedup_override=True, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "policy_blocked"
 
@@ -453,6 +462,7 @@ class TestAutonomyExecute:
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "ok_create"
 
@@ -477,6 +487,7 @@ class TestAutonomyExecute:
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "policy_blocked"
 
@@ -501,6 +512,7 @@ class TestAutonomyExecute:
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "ok_create"
 
@@ -518,6 +530,7 @@ class TestAutonomyExecute:
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "ok_update"
 
@@ -535,6 +548,7 @@ class TestAutonomyExecute:
             session_id="sess", request_origin="agent",
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "ok_close"
 
@@ -558,6 +572,7 @@ class TestAutonomyExecute:
                 session_id="sess", request_origin="agent",
                 dedup_override=False, dependency_override=False,
                 tickets_dir=tmp_tickets, hook_injected=True,
+                hook_request_origin="agent",
             )
             assert resp.state == "policy_blocked"
             assert "audit" in resp.message.lower()

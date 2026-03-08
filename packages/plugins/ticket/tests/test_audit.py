@@ -53,6 +53,8 @@ class TestAuditAppend:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         entries = _read_audit_lines(tmp_tickets, session_id)
         assert len(entries) >= 1, "Audit file should exist with at least one entry"
@@ -69,6 +71,8 @@ class TestAuditAppend:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         entries = _read_audit_lines(tmp_tickets, session_id)
         assert len(entries) == 2
@@ -87,6 +91,8 @@ class TestAuditAppend:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         entries = _read_audit_lines(tmp_tickets, session_id)
         assert len(entries) == 2
@@ -106,6 +112,8 @@ class TestAuditAppend:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         # The update should fail (ticket doesn't exist) but not raise
         entries = _read_audit_lines(tmp_tickets, session_id)
@@ -134,6 +142,8 @@ class TestAuditAppend:
                     dedup_override=False,
                     dependency_override=False,
                     tickets_dir=tmp_tickets,
+                    hook_injected=True,
+                    hook_request_origin="user",
                 )
         entries = _read_audit_lines(tmp_tickets, session_id)
         assert len(entries) == 2
@@ -157,6 +167,8 @@ class TestAuditAppend:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
 
         assert audit_dir.exists(), "Audit dir should be created by engine_execute"
@@ -176,6 +188,8 @@ class TestAuditAppend:
                 dedup_override=False,
                 dependency_override=False,
                 tickets_dir=tmp_tickets,
+                hook_injected=True,
+                hook_request_origin="user",
             )
         entries = _read_audit_lines(tmp_tickets, session_id)
         assert len(entries) == 6, f"Expected 6 entries (3 creates x 2), got {len(entries)}"
@@ -196,6 +210,8 @@ class TestAuditAppend:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         entries = _read_audit_lines(tmp_tickets, session_id)
         for entry in entries:
@@ -221,6 +237,8 @@ class TestSessionCounting:
                 dedup_override=False,
                 dependency_override=False,
                 tickets_dir=tmp_tickets,
+                hook_injected=True,
+                hook_request_origin="user",
             )
         assert engine_count_session_creates(session_id, tmp_tickets) == 3
 
@@ -236,6 +254,8 @@ class TestSessionCounting:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         tid = resp.ticket_id
         engine_execute(
@@ -247,6 +267,8 @@ class TestSessionCounting:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert engine_count_session_creates(session_id, tmp_tickets) == 1
 

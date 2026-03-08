@@ -729,6 +729,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "invalid_transition"
         assert "reopen" in resp.message.lower()
@@ -747,6 +749,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "invalid_transition"
 
@@ -763,6 +767,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "invalid_transition"
         assert "blocked_by" in resp.message.lower()
@@ -786,6 +792,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "invalid_transition"
         assert "missing blocker" in resp.message.lower()
@@ -803,6 +811,8 @@ class TestEngineExecute:
             dedup_override=True,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="agent",
         )
         assert resp.state == "policy_blocked"
         assert "agent" in resp.message.lower() or "override" in resp.message.lower()
@@ -819,6 +829,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "need_fields"
         assert resp.error_code == "need_fields"
@@ -833,6 +845,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "not_found"
         assert resp.error_code == "not_found"
@@ -858,6 +872,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_create"
         assert resp.ticket_id is not None
@@ -887,6 +903,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_create"
         ticket_path = Path(resp.data["ticket_path"])
@@ -926,6 +944,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert first.state == "ok_create"
 
@@ -938,6 +958,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert second.state == "duplicate_candidate"
         assert second.error_code == "duplicate_candidate"
@@ -957,6 +979,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert first.state == "ok_create"
 
@@ -969,6 +993,8 @@ class TestEngineExecute:
             dedup_override=True,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert second.state == "ok_create"
 
@@ -1000,6 +1026,8 @@ class TestEngineExecute:
             dedup_override=True,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
 
         assert resp.state == "ok_create"
@@ -1033,6 +1061,8 @@ class TestEngineExecute:
             dedup_override=True,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
 
         assert resp.state == "escalate"
@@ -1065,6 +1095,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "need_fields"
         assert resp.error_code == "need_fields"
@@ -1082,6 +1114,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -1102,6 +1136,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "escalate"
         assert "section fields not supported" in resp.message.lower()
@@ -1121,6 +1157,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "escalate"
         assert "section fields not supported" in resp.message.lower()
@@ -1142,6 +1180,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "escalate"
         assert "unknown fields: custom" in resp.message.lower()
@@ -1160,6 +1200,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         content = ticket_path.read_text(encoding="utf-8")
@@ -1180,6 +1222,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "escalate"
         assert "fields.ticket_id must match" in resp.message.lower()
@@ -1199,6 +1243,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -1221,6 +1267,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -1245,6 +1293,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -1264,6 +1314,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -1285,6 +1337,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
@@ -1306,6 +1360,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
@@ -1327,6 +1383,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
@@ -1348,6 +1406,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
@@ -1367,6 +1427,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_close"
 
@@ -1383,6 +1445,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_close_archived"
         assert not (tmp_tickets / "2026-03-02-test.md").exists()
@@ -1403,6 +1467,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp_a.state == "ok_close_archived"
         assert (tmp_tickets / "closed-tickets" / "2026-03-02-test.md").exists()
@@ -1418,6 +1484,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp_b.state == "ok_close_archived"
         # Both files exist — B got the -2 suffix.
@@ -1444,6 +1512,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "dependency_blocked"
         assert resp.error_code == "dependency_blocked"
@@ -1467,6 +1537,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "dependency_blocked"
         assert resp.data["missing_blockers"] == ["T-MISSING-01"]
@@ -1492,6 +1564,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=True,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_close"
 
@@ -1515,6 +1589,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "dependency_blocked"
         assert resp.data["unresolved_blockers"] == ["T-20260302-01"]
@@ -1539,6 +1615,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=True,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_close"
 
@@ -1562,6 +1640,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_close"
 
@@ -1597,6 +1677,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_close"
 
@@ -1624,6 +1706,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "escalate"
         assert "archive rename failed" in resp.message
@@ -1659,6 +1743,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "escalate"
         assert "collision resolution failed" in resp.message
@@ -1677,6 +1763,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_close"
 
@@ -1693,6 +1781,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "invalid_transition"
 
@@ -1710,6 +1800,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "invalid_transition"
         assert resp.error_code == "invalid_transition"
@@ -1728,6 +1820,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "invalid_transition"
 
@@ -1768,6 +1862,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "invalid_transition"
         assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
@@ -1808,6 +1904,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "invalid_transition"
         assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
@@ -1848,6 +1946,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=True,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "invalid_transition"
         assert "acceptance" in resp.message.lower() or "criteria" in resp.message.lower()
@@ -1866,6 +1966,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_close", f"Expected ok_close but got {resp.state}: {resp.message}"
 
@@ -1883,6 +1985,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "escalate"
         assert resp.error_code is None
@@ -1901,6 +2005,8 @@ class TestEngineExecute:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_reopen"
         content = (tmp_tickets / "2026-03-02-test.md").read_text(encoding="utf-8")
@@ -1925,6 +2031,8 @@ class TestEngineExecute:
             dependency_override=False,
             tickets_dir=tmp_tickets,
             target_fingerprint=stale_fp,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "preflight_failed"
         assert resp.error_code == "stale_plan"
@@ -1952,6 +2060,8 @@ class TestEngineExecuteIntegration:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_create"
         ticket_id = resp.ticket_id
@@ -1968,6 +2078,8 @@ class TestEngineExecuteIntegration:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
 
@@ -1981,6 +2093,8 @@ class TestEngineExecuteIntegration:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_close"
 
@@ -1994,6 +2108,8 @@ class TestEngineExecuteIntegration:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_reopen"
 
@@ -2021,6 +2137,8 @@ class TestEngineExecuteIntegration:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_create"
         ticket_id = resp.ticket_id
@@ -2058,6 +2176,8 @@ class TestEngineExecuteIntegration:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         expected = expected.replace("status: open\n", "status: in_progress\n")
@@ -2072,6 +2192,8 @@ class TestEngineExecuteIntegration:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_close"
         expected = expected.replace("status: in_progress\n", "status: wontfix\n")
@@ -2086,6 +2208,8 @@ class TestEngineExecuteIntegration:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_reopen"
         expected = expected.replace("status: wontfix\n", "status: open\n")
@@ -2104,6 +2228,8 @@ class TestEngineExecuteIntegration:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "escalate"
         assert resp.error_code == "intent_mismatch"
@@ -2123,8 +2249,8 @@ class TestTransportValidation:
         )
         assert resp.state == "policy_blocked"
 
-    def test_user_without_hook_injected_proceeds(self, tmp_tickets):
-        """User mutations without hook_injected proceed normally."""
+    def test_user_without_hook_injected_rejected(self, tmp_tickets):
+        """User mutations without hook_injected → policy_blocked."""
         resp = engine_execute(
             action="create", ticket_id=None,
             fields={"title": "Test", "problem": "Problem"},
@@ -2132,10 +2258,10 @@ class TestTransportValidation:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets,
         )
-        assert resp.state == "ok_create"
+        assert resp.state == "policy_blocked"
 
-    def test_user_with_hook_injected_proceeds(self, tmp_tickets):
-        """User mutations with hook_injected=True proceed normally."""
+    def test_user_with_hook_injected_but_no_origin_rejected(self, tmp_tickets):
+        """User with hook_injected but no hook_request_origin → policy_blocked."""
         resp = engine_execute(
             action="create", ticket_id=None,
             fields={"title": "Test", "problem": "Problem"},
@@ -2143,7 +2269,96 @@ class TestTransportValidation:
             dedup_override=False, dependency_override=False,
             tickets_dir=tmp_tickets, hook_injected=True,
         )
+        assert resp.state == "policy_blocked"
+
+    def test_user_with_full_triple_succeeds(self, tmp_tickets):
+        """User mutations with full trust triple proceed normally."""
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets, hook_injected=True,
+            hook_request_origin="user",
+        )
         assert resp.state == "ok_create"
+
+
+class TestExecuteTrustTripleEngine:
+    """engine_execute() requires full trust triple for all origins."""
+
+    def test_user_execute_without_hook_injected_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="test-session", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=False,
+            hook_request_origin="user",
+        )
+        assert resp.state == "policy_blocked"
+
+    def test_user_execute_without_hook_request_origin_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="test-session", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            # hook_request_origin not passed (defaults to None)
+        )
+        assert resp.state == "policy_blocked"
+
+    def test_user_execute_with_mismatched_hook_origin_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="test-session", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="agent",
+        )
+        assert resp.error_code == "origin_mismatch"
+
+    def test_user_execute_with_full_triple_succeeds(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="test-session", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+        )
+        assert resp.state == "ok_create"
+
+    def test_agent_execute_with_mismatched_hook_origin_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="test-session", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+        )
+        assert resp.error_code == "origin_mismatch"
+
+    def test_execute_with_empty_session_id_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+        )
+        assert resp.state == "policy_blocked"
+        assert "session_id empty" in resp.message
 
 
 class TestYamlScalarEdgeCases:
@@ -2162,6 +2377,8 @@ class TestYamlScalarEdgeCases:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)
@@ -2181,6 +2398,8 @@ class TestYamlScalarEdgeCases:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert resp.state == "ok_update"
         tickets = list_tickets(tmp_tickets)

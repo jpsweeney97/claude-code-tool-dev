@@ -65,6 +65,8 @@ class TestFullCreatePipeline:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert execute_resp.state == "ok_create"
         assert Path(execute_resp.data["ticket_path"]).exists()
@@ -125,6 +127,8 @@ class TestFullCreatePipeline:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert execute_resp.state == "ok_create"
         assert Path(execute_resp.data["ticket_path"]).exists()
@@ -168,6 +172,8 @@ class TestFullCreatePipeline:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert update_resp.state == "ok_update"
 
@@ -181,6 +187,8 @@ class TestFullCreatePipeline:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert close_resp.state == "ok_close"
 
@@ -225,6 +233,8 @@ class TestFullCreatePipeline:
             dedup_override=True,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert execute_resp.state == "ok_create"
 
@@ -257,6 +267,8 @@ class TestFullCreatePipeline:
             dedup_override=False,
             dependency_override=False,
             tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
         )
         assert execute_resp.state == "ok_create"
 
