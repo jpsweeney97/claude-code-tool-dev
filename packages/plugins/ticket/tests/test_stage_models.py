@@ -5,8 +5,10 @@ import pytest
 
 from scripts.ticket_stage_models import (
     ClassifyInput,
+    ExecuteInput,
     PayloadError,
     PlanInput,
+    PreflightInput,
 )
 
 
@@ -119,3 +121,139 @@ class TestPlanInput:
         inp = PlanInput.from_payload({"session_id": "s"})
         with pytest.raises(AttributeError):
             inp.intent = "update"
+
+
+class TestPreflightInput:
+    def test_valid_payload(self):
+        inp = PreflightInput.from_payload({
+            "action": "create",
+            "ticket_id": "T-20260302-01",
+            "session_id": "sess-1",
+            "classify_confidence": 0.95,
+            "classify_intent": "create",
+            "dedup_fingerprint": "abc123",
+            "target_fingerprint": "def456",
+            "fields": {"title": "Test"},
+            "duplicate_of": "T-20260301-01",
+            "dedup_override": True,
+            "dependency_override": True,
+            "hook_injected": True,
+        })
+        assert inp.action == "create"
+        assert inp.ticket_id == "T-20260302-01"
+        assert inp.classify_confidence == 0.95
+        assert inp.classify_intent == "create"
+        assert inp.dedup_fingerprint == "abc123"
+        assert inp.target_fingerprint == "def456"
+        assert inp.fields == {"title": "Test"}
+        assert inp.duplicate_of == "T-20260301-01"
+        assert inp.dedup_override is True
+        assert inp.dependency_override is True
+        assert inp.hook_injected is True
+
+    def test_defaults(self):
+        inp = PreflightInput.from_payload({})
+        assert inp.action == ""
+        assert inp.ticket_id is None
+        assert inp.session_id == ""
+        assert inp.classify_confidence == 0.0
+        assert inp.classify_intent == ""
+        assert inp.dedup_fingerprint is None
+        assert inp.target_fingerprint is None
+        assert inp.fields is None
+        assert inp.duplicate_of is None
+        assert inp.dedup_override is False
+        assert inp.dependency_override is False
+        assert inp.hook_injected is False
+
+    def test_classify_confidence_accepts_int(self):
+        inp = PreflightInput.from_payload({"classify_confidence": 1})
+        assert inp.classify_confidence == 1.0
+        assert isinstance(inp.classify_confidence, float)
+
+    def test_classify_confidence_wrong_type_raises(self):
+        with pytest.raises(PayloadError) as exc_info:
+            PreflightInput.from_payload({"classify_confidence": "high"})
+        assert exc_info.value.code == "parse_error"
+
+    def test_fields_wrong_type_raises(self):
+        with pytest.raises(PayloadError) as exc_info:
+            PreflightInput.from_payload({"fields": "not a dict"})
+        assert exc_info.value.code == "parse_error"
+
+    def test_frozen(self):
+        inp = PreflightInput.from_payload({})
+        with pytest.raises(AttributeError):
+            inp.action = "update"
+
+
+class TestExecuteInput:
+    def test_valid_payload(self):
+        inp = ExecuteInput.from_payload({
+            "action": "update",
+            "ticket_id": "T-20260302-01",
+            "fields": {"priority": "high"},
+            "session_id": "sess-1",
+            "dedup_override": True,
+            "dependency_override": True,
+            "target_fingerprint": "abc123",
+            "autonomy_config": {"mode": "auto_audit", "max_creates": 5},
+            "hook_injected": True,
+            "hook_request_origin": "user",
+            "classify_intent": "update",
+            "classify_confidence": 0.95,
+            "dedup_fingerprint": "def456",
+        })
+        assert inp.action == "update"
+        assert inp.ticket_id == "T-20260302-01"
+        assert inp.fields == {"priority": "high"}
+        assert inp.session_id == "sess-1"
+        assert inp.dedup_override is True
+        assert inp.dependency_override is True
+        assert inp.target_fingerprint == "abc123"
+        assert inp.autonomy_config_data == {"mode": "auto_audit", "max_creates": 5}
+        assert inp.hook_injected is True
+        assert inp.hook_request_origin == "user"
+        assert inp.classify_intent == "update"
+        assert inp.classify_confidence == 0.95
+        assert inp.dedup_fingerprint == "def456"
+
+    def test_defaults(self):
+        inp = ExecuteInput.from_payload({})
+        assert inp.action == ""
+        assert inp.ticket_id is None
+        assert inp.fields == {}
+        assert inp.session_id == ""
+        assert inp.dedup_override is False
+        assert inp.dependency_override is False
+        assert inp.target_fingerprint is None
+        assert inp.autonomy_config_data is None
+        assert inp.hook_injected is False
+        assert inp.hook_request_origin is None
+        assert inp.classify_intent is None
+        assert inp.classify_confidence is None
+        assert inp.dedup_fingerprint is None
+
+    def test_classify_confidence_none_when_absent(self):
+        """Execute uses None (not 0.0) for missing classify_confidence."""
+        inp = ExecuteInput.from_payload({})
+        assert inp.classify_confidence is None
+
+    def test_classify_confidence_accepts_float(self):
+        inp = ExecuteInput.from_payload({"classify_confidence": 0.95})
+        assert inp.classify_confidence == 0.95
+
+    def test_autonomy_config_wrong_type_raises(self):
+        with pytest.raises(PayloadError) as exc_info:
+            ExecuteInput.from_payload({"autonomy_config": "not a dict"})
+        assert exc_info.value.code == "parse_error"
+
+    def test_fields_wrong_type_raises(self):
+        with pytest.raises(PayloadError) as exc_info:
+            ExecuteInput.from_payload({"fields": 42})
+        assert exc_info.value.code == "parse_error"
+
+    def test_frozen(self):
+        inp = ExecuteInput.from_payload({})
+        with pytest.raises(AttributeError):
+            inp.action = "close"

@@ -159,3 +159,75 @@ class PlanInput:
             fields=_get_dict(payload, "fields", default={}),
             session_id=_get_str(payload, "session_id", default=""),
         )
+
+
+@dataclass(frozen=True)
+class PreflightInput:
+    """Input model for the preflight stage."""
+
+    action: str
+    ticket_id: str | None
+    session_id: str
+    classify_confidence: float
+    classify_intent: str
+    dedup_fingerprint: str | None
+    target_fingerprint: str | None
+    fields: dict[str, Any] | None
+    duplicate_of: str | None
+    dedup_override: bool
+    dependency_override: bool
+    hook_injected: bool
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> PreflightInput:
+        return cls(
+            action=_get_str(payload, "action", default=""),
+            ticket_id=_get_optional_str(payload, "ticket_id"),
+            session_id=_get_str(payload, "session_id", default=""),
+            classify_confidence=_get_float(payload, "classify_confidence", default=0.0),
+            classify_intent=_get_str(payload, "classify_intent", default=""),
+            dedup_fingerprint=_get_optional_str(payload, "dedup_fingerprint"),
+            target_fingerprint=_get_optional_str(payload, "target_fingerprint"),
+            fields=_get_optional_dict(payload, "fields"),
+            duplicate_of=_get_optional_str(payload, "duplicate_of"),
+            dedup_override=_get_bool(payload, "dedup_override", default=False),
+            dependency_override=_get_bool(payload, "dependency_override", default=False),
+            hook_injected=_get_bool(payload, "hook_injected", default=False),
+        )
+
+
+@dataclass(frozen=True)
+class ExecuteInput:
+    """Input model for the execute stage."""
+
+    action: str
+    ticket_id: str | None
+    fields: dict[str, Any]
+    session_id: str
+    dedup_override: bool
+    dependency_override: bool
+    target_fingerprint: str | None
+    autonomy_config_data: dict[str, Any] | None
+    hook_injected: bool
+    hook_request_origin: str | None
+    classify_intent: str | None
+    classify_confidence: float | None
+    dedup_fingerprint: str | None
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> ExecuteInput:
+        return cls(
+            action=_get_str(payload, "action", default=""),
+            ticket_id=_get_optional_str(payload, "ticket_id"),
+            fields=_get_dict(payload, "fields", default={}),
+            session_id=_get_str(payload, "session_id", default=""),
+            dedup_override=_get_bool(payload, "dedup_override", default=False),
+            dependency_override=_get_bool(payload, "dependency_override", default=False),
+            target_fingerprint=_get_optional_str(payload, "target_fingerprint"),
+            autonomy_config_data=_get_optional_dict(payload, "autonomy_config"),
+            hook_injected=_get_bool(payload, "hook_injected", default=False),
+            hook_request_origin=_get_optional_str(payload, "hook_request_origin"),
+            classify_intent=_get_optional_str(payload, "classify_intent"),
+            classify_confidence=_get_optional_float(payload, "classify_confidence"),
+            dedup_fingerprint=_get_optional_str(payload, "dedup_fingerprint"),
+        )
