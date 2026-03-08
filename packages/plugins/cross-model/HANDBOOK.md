@@ -16,7 +16,7 @@ The cross-model plugin gives Claude a structured way to consult or delegate to C
 - agent-level dialogue management
 - credential and scope enforcement
 - autonomous execution gates for delegation
-- a vendored stateful MCP server for mid-conversation evidence gathering
+- a stateful MCP server for mid-conversation evidence gathering
 - deterministic analytics emission and reporting
 
 This document is plugin-wide. It is not limited to `/dialogue`.
