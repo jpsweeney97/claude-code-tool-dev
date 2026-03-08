@@ -219,7 +219,7 @@ Two MCP servers are auto-configured by the plugin (no manual setup):
 | `codex` | stdio (`codex mcp-server`) | Provides `codex` and `codex-reply` tools for Codex communication |
 | `context-injection` | stdio (`uv run --directory ${CLAUDE_PLUGIN_ROOT}/context-injection python -m context_injection`) | Mid-conversation evidence gathering: scouting loop, claim verification, codebase reads |
 
-The context injection server is vendored from `packages/context-injection/` (969 tests in source package). Edits go in the source package; sync via `scripts/build-cross-model-plugin`.
+The context injection server lives in `packages/plugins/cross-model/context-injection/`. It is the canonical helper package used by `/dialogue`, with 991 tests in its own `tests/` directory.
 
 Runtime wiring:
 
@@ -270,7 +270,7 @@ Plugin-local suite: **160 tests across 8 files**.
 | `test_read_events.py` | event classification and required-field validation |
 | `test_secret_taxonomy.py` | pattern compilation and taxonomy consistency |
 
-The context injection server has 969 tests in its source package at `packages/context-injection/`.
+The context injection server has 991 tests in `packages/plugins/cross-model/context-injection/tests/`.
 
 ```bash
 cd packages/plugins/cross-model && uv run pytest
@@ -296,6 +296,6 @@ uv run pytest --co -q tests
 1. **Hook process crash is fail-open** — If `codex_guard.py` crashes at the OS level (not a Python exception), Claude Code treats the non-zero exit as "no output" and allows the call. This is an OS-level constraint, not a design choice.
 2. **Broad-tier matches are logged only** — Generic credential assignments (e.g., `password = "..."`) are tracked via shadow telemetry but never blocked. This is by design to avoid false positives on example code.
 3. **Plugin disabled = no enforcement** — If the plugin is uninstalled or disabled, credential detection stops entirely. There is no fallback enforcement mechanism.
-4. **Vendored helper tests are out-of-package** — The bundled `context-injection` copy excludes its own test suite. Deep helper validation still runs from the source package (`packages/context-injection`), not from this vendored plugin directory.
+4. **Helper tests are separate from plugin-root tests** — Deep helper validation runs from `packages/plugins/cross-model/context-injection`, not from `packages/plugins/cross-model/tests`.
 5. **Codex CLI dependency** — Requires `@openai/codex` npm package installed globally. Version compatibility is not pinned.
 6. **`episode_id` field is reserved** — The `dialogue_outcome` event includes a nullable `episode_id` field for a planned cross-model learning system. Not yet populated.

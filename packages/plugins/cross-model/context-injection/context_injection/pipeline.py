@@ -19,7 +19,7 @@ Composes the full v0.2.0 processing pipeline (17 steps per contract):
 16. Serialize checkpoint
 17. Generate ledger summary, store record, commit state, return TurnPacketSuccess
 
-Contract reference: docs/references/context-injection-contract.md
+Contract reference: packages/plugins/cross-model/references/context-injection-contract.md
 """
 
 from __future__ import annotations

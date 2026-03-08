@@ -5,7 +5,7 @@ All models inherit from ProtocolModel:
 - strict=True — no type coercion (MCP SDK handles JSON parsing)
 - frozen=True — immutable after construction (security-critical for HMAC)
 
-Contract reference: docs/references/context-injection-contract.md
+Contract reference: packages/plugins/cross-model/references/context-injection-contract.md
 """
 
 from typing import Annotated, Any, Literal, Union

@@ -1,1 +1,0 @@
-../../packages/plugins/cross-model/references/context-injection-contract.md
