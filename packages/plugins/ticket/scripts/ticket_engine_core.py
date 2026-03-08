@@ -251,11 +251,31 @@ def _plan_create(
     existing = list_tickets(tickets_dir)
     for ticket in existing:
         # Check if ticket is within dedup window.
-        try:
-            ticket_date = datetime.strptime(ticket.date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        except (ValueError, TypeError):
-            continue
-        if ticket_date < cutoff:
+        # Primary: created_at (ISO 8601 UTC, second-level precision).
+        # Fallback: date field (day-level) treated as end-of-day (23:59:59 UTC)
+        # for maximum inclusivity — never misses a near-midnight duplicate.
+        # No filesystem dependency (mtime) — immune to git checkout/clone.
+        if ticket.created_at:
+            try:
+                ticket_time = datetime.strptime(
+                    ticket.created_at, "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                ticket_time = None
+        else:
+            ticket_time = None
+
+        if ticket_time is None:
+            try:
+                day = datetime.strptime(ticket.date, "%Y-%m-%d").replace(
+                    tzinfo=timezone.utc
+                )
+                # End-of-day: assume latest possible creation time on that date.
+                ticket_time = day.replace(hour=23, minute=59, second=59)
+            except (ValueError, TypeError):
+                continue
+
+        if ticket_time < cutoff:
             continue
 
         # Compute fingerprint for this ticket's problem text.
@@ -738,12 +758,16 @@ _MAX_ARCHIVE_COLLISION_SUFFIX = 1000
 _CREATE_WRITE_RETRY_LIMIT = 3
 
 # Transitions that require preconditions.
+# Pair-keyed: specific (current, target) combinations.
 _TRANSITION_PRECONDITIONS: dict[tuple[str, str], str] = {
     ("open", "blocked"): "blocked_by_required",
     ("in_progress", "blocked"): "blocked_by_required",
-    ("in_progress", "done"): "acceptance_criteria_required",
     ("blocked", "open"): "blockers_resolved_required",
     ("blocked", "in_progress"): "blockers_resolved_required",
+}
+# Target-keyed: preconditions that apply regardless of current status.
+_TARGET_PRECONDITIONS: dict[str, str] = {
+    "done": "acceptance_criteria_required",
 }
 
 
@@ -836,26 +860,31 @@ def _check_transition_preconditions(
 ) -> str | None:
     """Check transition preconditions. Returns error message or None if OK.
 
+    Checks target-keyed preconditions first (apply regardless of current status),
+    then pair-keyed preconditions (specific current→target combinations).
+
     Uses merged state: fields (pending update) take precedence over ticket
     (pre-update) for fields that are being changed in this operation.
     """
+    _fields = fields or {}
+
+    # Target-keyed preconditions (e.g., any status → done requires AC).
+    target_precondition = _TARGET_PRECONDITIONS.get(target)
+    if target_precondition == "acceptance_criteria_required":
+        ac = ticket.sections.get("Acceptance Criteria", "")
+        if not ac.strip():
+            return "Transition to 'done' requires acceptance criteria section"
+
+    # Pair-keyed preconditions (specific current→target).
     key = (current, target)
     precondition = _TRANSITION_PRECONDITIONS.get(key)
     if precondition is None:
         return None
 
-    _fields = fields or {}
-
     if precondition == "blocked_by_required":
         blocked_by = _fields.get("blocked_by", ticket.blocked_by)
         if not blocked_by:
             return "Transition to 'blocked' requires non-empty blocked_by"
-        return None
-
-    if precondition == "acceptance_criteria_required":
-        ac = ticket.sections.get("Acceptance Criteria", "")
-        if not ac.strip():
-            return "Transition to 'done' requires acceptance criteria section"
         return None
 
     if precondition == "blockers_resolved_required":
@@ -1202,7 +1231,8 @@ def _execute_create(
 
     tickets_dir.mkdir(parents=True, exist_ok=True)
 
-    today = datetime.now(timezone.utc).date()
+    now = datetime.now(timezone.utc)
+    today = now.date()
     title = fields.get("title", "Untitled")
 
     source = dict(fields.get("source", {"type": "ad-hoc", "ref": "", "session": session_id}))
@@ -1217,6 +1247,7 @@ def _execute_create(
             id=ticket_id,
             title=title,
             date=today.isoformat(),
+            created_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             status="open",
             priority=fields.get("priority", "medium"),
             effort=fields.get("effort", ""),
