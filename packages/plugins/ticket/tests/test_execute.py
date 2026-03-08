@@ -8,13 +8,11 @@ import pytest
 import scripts.ticket_engine_core as ticket_engine_core
 from scripts.ticket_engine_core import (
     AutonomyConfig,
-    EngineResponse,
     engine_execute,
     engine_preflight,
 )
 from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp, target_fingerprint as compute_target_fp
 from scripts.ticket_parse import extract_fenced_yaml
-from scripts.ticket_read import list_tickets
 from tests.support.builders import expected_canonical_yaml, make_ticket, write_autonomy_config
 
 class TestEngineExecute:
