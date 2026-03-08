@@ -83,9 +83,9 @@ Exit codes: 0 (success), 1 (engine error), 2 (validation failure)
 
 ok, ok_create, ok_update, ok_close, ok_close_archived, ok_reopen, need_fields, duplicate_candidate, preflight_failed, policy_blocked, invalid_transition, dependency_blocked, not_found, escalate, merge_into_existing (reserved)
 
-### Error Codes (11)
+### Error Codes (12)
 
-need_fields, invalid_transition, policy_blocked, preflight_failed, stale_plan, duplicate_candidate, parse_error, not_found, dependency_blocked, intent_mismatch, origin_mismatch
+need_fields, invalid_transition, policy_blocked, preflight_failed, stale_plan, duplicate_candidate, parse_error, io_error, not_found, dependency_blocked, intent_mismatch, origin_mismatch
 
 ## 5. Autonomy Model
 
