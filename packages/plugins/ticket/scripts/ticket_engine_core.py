@@ -49,6 +49,29 @@ class EngineResponse:
     ticket_id: str | None = None
     data: dict[str, Any] = field(default_factory=dict)
 
+    _OK_STATES: frozenset[str] = field(
+        default=frozenset({
+            "ok", "ok_create", "ok_update", "ok_close", "ok_close_archived", "ok_reopen",
+        }),
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        if self.state in self._OK_STATES:
+            if self.error_code is not None:
+                raise ValueError(
+                    f"error_code must be None for success state {self.state!r}, "
+                    f"got {self.error_code!r}"
+                )
+        else:
+            if self.error_code is None:
+                raise ValueError(
+                    f"error_code is required for non-success state {self.state!r}. "
+                    f"Message: {self.message!r:.100}"
+                )
+
     def to_dict(self) -> dict[str, Any]:
         d = {
             "state": self.state,
@@ -585,6 +608,7 @@ def engine_preflight(
     if classify_confidence < threshold:
         return EngineResponse(
             state="preflight_failed",
+            error_code="preflight_failed",
             message=f"Low confidence classification: {classify_confidence:.2f} "
             f"(threshold: {threshold:.2f}). Rephrase or specify the operation.",
             data={
