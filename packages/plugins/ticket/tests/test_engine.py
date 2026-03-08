@@ -113,6 +113,7 @@ class TestEngineClassify:
             request_origin="unknown",
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "origin_mismatch"
         assert "caller identity" in resp.message.lower()
 
     def test_resolved_ticket_id(self):
@@ -176,6 +177,23 @@ class TestEnginePlan:
         )
         assert resp.state == "need_fields"
         assert "problem" in resp.data["missing_fields"]
+
+    def test_create_invalid_key_file_paths_rejected(self, tmp_tickets):
+        resp = engine_plan(
+            intent="create",
+            fields={
+                "title": "Fix auth bug",
+                "problem": "Auth times out.",
+                "priority": "high",
+                "key_file_paths": "handler.py",
+            },
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "need_fields"
+        assert resp.error_code == "need_fields"
+        assert "key_file_paths" in resp.message
 
     def test_dedup_detection(self, tmp_tickets):
         from datetime import datetime, timezone
@@ -470,6 +488,21 @@ class TestEnginePreflight:
         )
         assert resp.state == "preflight_failed"
         assert "confidence" in resp.message.lower()
+
+    def test_exact_user_confidence_threshold_passes(self, tmp_tickets):
+        resp = engine_preflight(
+            ticket_id=None,
+            action="create",
+            session_id="test-session",
+            request_origin="user",
+            classify_confidence=0.5,
+            classify_intent="create",
+            dedup_fingerprint="abc123",
+            target_fingerprint=None,
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok"
+        assert "confidence" in resp.data["checks_passed"]
 
     def test_agent_blocked_without_hook_injected(self, tmp_tickets):
         """Agent without hook_injected → policy_blocked (hook trust check)."""
@@ -2185,6 +2218,30 @@ class TestEngineExecute:
         assert "status: open" in content
         assert "Reopen History" in content
 
+    def test_reopen_rejects_invalid_fields_before_write(self, tmp_tickets):
+        from tests.conftest import make_ticket
+
+        ticket_path = make_ticket(tmp_tickets, "2026-03-02-test.md", id="T-20260302-01", status="done")
+        resp = engine_execute(
+            action="reopen",
+            ticket_id="T-20260302-01",
+            fields={"reopen_reason": "Bug reoccurred after merge", "status": "pending"},
+            session_id="test-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="reopen",
+            classify_confidence=0.95,
+            target_fingerprint=compute_target_fp(ticket_path),
+        )
+        assert resp.error_code == "need_fields"
+        assert "status" in resp.message
+        content = ticket_path.read_text(encoding="utf-8")
+        assert "status: done" in content
+
     def test_execute_stale_target_fingerprint_rejected(self, tmp_tickets):
         from scripts.ticket_dedup import target_fingerprint
         from tests.conftest import make_ticket
@@ -2570,6 +2627,22 @@ class TestExecuteTrustTripleEngine:
         assert resp.state == "policy_blocked"
         assert "session_id empty" in resp.message
 
+    def test_execute_with_unknown_request_origin_rejected(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Test", "problem": "Problem"},
+            session_id="test-session", request_origin="",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Problem", []),
+        )
+        assert resp.state == "escalate"
+        assert resp.error_code == "origin_mismatch"
+
 
 class TestYamlScalarEdgeCases:
     @pytest.mark.parametrize("reserved", ["true", "yes", "null"])
@@ -2676,6 +2749,21 @@ class TestExecuteStructuralPrerequisites:
         )
         assert resp.state == "preflight_failed"
 
+    def test_exact_user_confidence_threshold_accepted(self, tmp_tickets):
+        fp = compute_dedup_fp("P", [])
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "P"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.5,
+            dedup_fingerprint=fp,
+        )
+        assert resp.state == "ok_create"
+
     def test_missing_dedup_fingerprint_for_create_rejected(self, tmp_tickets):
         resp = engine_execute(
             action="create", ticket_id=None,
@@ -2773,6 +2861,20 @@ class TestExecuteFieldValidation:
         )
         assert resp.error_code == "need_fields"
         assert "priority" in resp.message
+
+    def test_create_invalid_key_file_paths_rejected_before_fingerprint_recompute(self, tmp_tickets):
+        resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "T", "problem": "Problem", "key_file_paths": "src/main.py"},
+            session_id="sess", request_origin="user",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True, hook_request_origin="user",
+            classify_intent="create", classify_confidence=0.95,
+            dedup_fingerprint="placeholder",
+        )
+        assert resp.error_code == "need_fields"
+        assert "key_file_paths" in resp.message
 
     def test_create_scalar_tags_rejected(self, tmp_tickets):
         fp = compute_dedup_fp("Problem", [])

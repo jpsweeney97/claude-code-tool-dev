@@ -1,8 +1,9 @@
-"""Shared schema validation for writable ticket fields.
+"""Shared schema validation for dedup inputs and writable ticket fields.
 
-Validates field types and enum membership before render_ticket() or
-YAML replacement. Rejects invalid inputs; omitted fields are not errors
-(defaults are applied by the engine, not the validator).
+Validates field types and enum membership before dedup fingerprinting,
+render_ticket(), or YAML replacement. Rejects invalid inputs; omitted
+fields are not errors (defaults are applied by the engine, not the
+validator).
 """
 from __future__ import annotations
 
@@ -13,9 +14,22 @@ VALID_STATUSES = frozenset({"open", "in_progress", "blocked", "done", "wontfix"}
 VALID_RESOLUTIONS = frozenset({"done", "wontfix"})
 
 
+def _validate_string_field(fields: dict[str, Any], key: str, errors: list[str]) -> None:
+    """Append an error when an optional field is present but not a string."""
+    if key not in fields:
+        return
+    value = fields[key]
+    if not isinstance(value, str):
+        errors.append(f"{key} must be a string, got {type(value).__name__}")
+
+
 def validate_fields(fields: dict[str, Any]) -> list[str]:
     """Validate writable ticket fields. Returns list of error messages (empty = valid)."""
     errors: list[str] = []
+
+    # --- String fields ---
+    for key in ("title", "problem", "reopen_reason"):
+        _validate_string_field(fields, key, errors)
 
     # --- Enum fields ---
     if "priority" in fields:
@@ -62,6 +76,13 @@ def validate_fields(fields: dict[str, Any]) -> list[str]:
             errors.append(f"defer must be a dict, got {type(v).__name__}")
 
     # --- Structured list fields ---
+    if "key_file_paths" in fields:
+        v = fields["key_file_paths"]
+        if not isinstance(v, list):
+            errors.append(f"key_file_paths must be a list, got {type(v).__name__}")
+        elif not all(isinstance(item, str) for item in v):
+            errors.append("key_file_paths must contain only strings")
+
     if "key_files" in fields:
         v = fields["key_files"]
         if not isinstance(v, list):

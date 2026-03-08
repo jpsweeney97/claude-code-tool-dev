@@ -1,8 +1,6 @@
 """Tests for ticket field schema validation."""
 from __future__ import annotations
 
-import pytest
-
 from scripts.ticket_validate import validate_fields
 
 
@@ -42,6 +40,15 @@ class TestValidateFields:
     def test_invalid_resolution_rejected(self):
         errors = validate_fields({"resolution": "cancelled"})
         assert any("resolution" in e for e in errors)
+
+    # --- title/problem ---
+    def test_title_wrong_type_rejected(self):
+        errors = validate_fields({"title": 123})
+        assert any("title" in e for e in errors)
+
+    def test_problem_wrong_type_rejected(self):
+        errors = validate_fields({"problem": ["not", "a", "string"]})
+        assert any("problem" in e for e in errors)
 
     # --- tags ---
     def test_valid_tags(self):
@@ -108,6 +115,19 @@ class TestValidateFields:
     def test_key_files_non_dict_elements_rejected(self):
         errors = validate_fields({"key_files": ["src/main.py"]})
         assert any("key_files" in e for e in errors)
+
+    # --- key_file_paths ---
+    def test_valid_key_file_paths(self):
+        errors = validate_fields({"key_file_paths": ["src/main.py", "tests/test_main.py"]})
+        assert not errors
+
+    def test_key_file_paths_non_list_rejected(self):
+        errors = validate_fields({"key_file_paths": "src/main.py"})
+        assert any("key_file_paths" in e for e in errors)
+
+    def test_key_file_paths_non_string_elements_rejected(self):
+        errors = validate_fields({"key_file_paths": ["src/main.py", 42]})
+        assert any("key_file_paths" in e for e in errors)
 
     # --- omitted fields are fine ---
     def test_empty_fields_valid(self):

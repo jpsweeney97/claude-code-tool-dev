@@ -83,9 +83,9 @@ Exit codes: 0 (success), 1 (engine error), 2 (validation failure)
 
 ok, ok_create, ok_update, ok_close, ok_close_archived, ok_reopen, need_fields, duplicate_candidate, preflight_failed, policy_blocked, invalid_transition, dependency_blocked, not_found, escalate, merge_into_existing (reserved)
 
-### Error Codes (10)
+### Error Codes (11)
 
-need_fields, invalid_transition, policy_blocked, stale_plan, duplicate_candidate, parse_error, not_found, dependency_blocked, intent_mismatch, origin_mismatch
+need_fields, invalid_transition, policy_blocked, preflight_failed, stale_plan, duplicate_candidate, parse_error, not_found, dependency_blocked, intent_mismatch, origin_mismatch
 
 ## 5. Autonomy Model
 
@@ -97,7 +97,7 @@ Config: `.claude/ticket.local.md` YAML frontmatter
 
 Hook trust source: `agent_id` in `PreToolUse` input is the authoritative signal for subagent-origin requests. Entrypoint choice is routing convenience, not trust establishment.
 
-Hook assumption: the guard matches commands containing `ticket_engine` in the command string. Renamed or wrapped entrypoints bypass the guard silently. This is proportionate for the accidental-autonomy threat model.
+Hook candidate detection: the guard tokenizes Bash commands with `shlex` and treats Python invocations targeting any `ticket_*.py` basename as ticket candidates. Only canonical plugin-root entrypoints are allowlisted; non-canonical, wrapped, or unknown ticket script invocations are denied. Non-ticket Python commands pass through.
 
 Execute provenance: execute requires verified hook provenance (hook_injected=True, hook_request_origin matching entrypoint origin, non-empty session_id) for all mutations, both user and agent. Non-execute stages (classify, plan, preflight) remain directly runnable without hook metadata.
 
@@ -108,9 +108,11 @@ Execute prerequisites: execute requires prior-stage artifacts:
 - target_fingerprint (non-create, mandatory — validates ticket unchanged since read)
 - autonomy_config (agent only, snapshot from preflight)
 
+Stage-specific missing-confidence behavior: preflight entrypoints coerce absent `classify_confidence` to `0.0` and fail the confidence gate; execute preserves absence as `null` and rejects it as a missing prerequisite.
+
 Agent execute re-reads live `.claude/ticket.local.md` policy and blocks if it diverges from the preflight snapshot.
 
-Field validation: priority, status, and resolution are validated against contract enums before writes. tags, blocked_by, and blocks must be lists of strings. source must be a dict with string values. key_files must be a list of dicts. defer must be a dict. Invalid inputs are rejected (need_fields), not silently coerced.
+Field validation: title, problem, and reopen_reason must be strings when present. priority, status, and resolution are validated against contract enums before writes. key_file_paths, tags, blocked_by, and blocks must be lists of strings. source must be a dict with string values. key_files must be a list of dicts. defer must be a dict. Invalid inputs are rejected (need_fields), not silently coerced.
 
 Known limitation (v1.3): create now uses exclusive file creation with bounded retry to prevent same-path silent overwrite, but concurrent autonomous creates are still not fully serialized. Session create cap enforcement and ID allocation are not lock-based, so parallel subagent execution is not a hard safety boundary.
 

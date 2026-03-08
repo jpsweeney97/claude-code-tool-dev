@@ -375,6 +375,24 @@ class TestPayloadInjection:
         assert isinstance(result, dict)
         assert result["hook_injected"] is True
 
+    def test_empty_session_id_denied_before_injection(self, tmp_path: Path) -> None:
+        payload_file = make_payload_file(tmp_path, {"action": "plan"})
+        plugin_root = str(tmp_path / "plugin")
+        (Path(plugin_root) / "scripts").mkdir(parents=True)
+
+        inp = make_hook_input(
+            f"python3 {plugin_root}/scripts/ticket_engine_user.py plan {payload_file}",
+            plugin_root=plugin_root,
+            session_id="",
+        )
+        output = run_hook(inp, plugin_root=plugin_root)
+        assert _decision(output) == "deny"
+        assert "Malformed session_id" in _reason(output)
+
+        result = json.loads(payload_file.read_text(encoding="utf-8"))
+        assert "hook_injected" not in result
+        assert "hook_request_origin" not in result
+
     def test_deny_on_unreadable_payload(self, tmp_path: Path) -> None:
         plugin_root = str(tmp_path / "plugin")
         (Path(plugin_root) / "scripts").mkdir(parents=True)
@@ -739,6 +757,33 @@ class TestCandidateDetection:
         result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
         assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
 
+    def test_env_unset_then_python_denied(self, tmp_path: Path) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = (
+            f"env -u PYTHONPATH python3 "
+            f"{plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        )
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def test_env_split_string_python_denied(self, tmp_path: Path) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = (
+            f'env -S "python3 {plugin_root}/scripts/ticket_engine_user.py '
+            f'classify {payload}"'
+        )
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def test_lowercase_env_assignment_denied(self, tmp_path: Path) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"myvar=value python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
     # --- Versioned python (detected as candidate → denied as non-canonical) ---
     def test_versioned_python_denied(self, tmp_path: Path) -> None:
         plugin_root = str(Path(__file__).parent.parent)
@@ -773,11 +818,29 @@ class TestCandidateDetection:
         result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
         assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
 
+    def test_malformed_quoting_with_unknown_ticket_script_denied(self, tmp_path: Path) -> None:
+        """Broad ticket_*.py fallback still denies malformed quoted commands."""
+        plugin_root = str(Path(__file__).parent.parent)
+        cmd = f"python3 '{plugin_root}/scripts/ticket_rogue.py classify"
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
     # --- Malformed quoting without ticket basename → pass through ---
     def test_malformed_quoting_without_ticket_basename_passes(self, tmp_path: Path) -> None:
         cmd = "python3 'some_other_script.py"
         result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
         assert result == {} or result.get("hookSpecificOutput", {}).get("permissionDecision") != "deny"
+
+    @pytest.mark.parametrize("python_prefix", ["-u", "-X dev", "-m pdb"])
+    def test_python_flags_before_script_denied(self, tmp_path: Path, python_prefix: str) -> None:
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = (
+            f"python3 {python_prefix} "
+            f"{plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        )
+        result = run_hook(make_hook_input(cmd, cwd=str(tmp_path)))
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
 
     # --- Canonical form still allowed ---
     def test_canonical_user_still_allowed(self, tmp_path: Path) -> None:
@@ -828,6 +891,16 @@ class TestAgentIdOriginHelper:
         cmd = f"python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
         hook_input = make_hook_input(cmd, cwd=str(tmp_path))
         hook_input["agent_id"] = 42
+        result = run_hook(hook_input)
+        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    def test_engine_none_agent_id_denied(self, tmp_path: Path) -> None:
+        """Present-but-null agent_id on engine command -> deny as malformed."""
+        plugin_root = str(Path(__file__).parent.parent)
+        payload = make_payload_file(tmp_path)
+        cmd = f"python3 {plugin_root}/scripts/ticket_engine_user.py classify {payload}"
+        hook_input = make_hook_input(cmd, cwd=str(tmp_path))
+        hook_input["agent_id"] = None
         result = run_hook(hook_input)
         assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
 

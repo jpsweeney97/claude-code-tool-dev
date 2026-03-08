@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""PreToolUse hook: validates ticket engine invocations and injects trust fields.
+"""PreToolUse hook: validates ticket script invocations and injects trust fields.
 
-Allowlist matching:
-- Permits only exact engine invocation shapes matching the pattern:
-    python3 <PLUGIN_ROOT>/scripts/ticket_engine_(user|agent).py <subcommand> <path>
-- Valid subcommands: classify, plan, preflight, execute.
-- Blocks commands with shell metacharacters, extra arguments, or unknown subcommands.
-- Non-ticket Bash commands pass through silently (empty JSON).
+Decision branches:
+- Branch 1: exact engine allowlist -> validate subcommand/payload + inject trust fields.
+- Branch 2: exact read-only allowlist (`ticket_read.py`, `ticket_triage.py`) -> allow.
+- Branch 2b: exact audit allowlist (`ticket_audit.py`) -> allow for users, deny for agents.
+- Branch 3: any other Python invocation targeting `ticket_*.py` -> deny.
+- Branch 4: non-ticket Bash commands -> pass through silently (empty JSON).
 
 Payload injection (atomic):
 - Injects session_id, hook_injected, hook_request_origin into the payload file.
-- Resolves payload path relative to hook cwd and denies paths outside workspace root.
+- Resolves payload path relative to the event cwd and denies paths outside workspace root.
 - Uses temp file + fsync + os.replace for atomic writes.
 - Denies on any injection failure (unreadable file, invalid JSON, write error).
 
@@ -74,15 +74,62 @@ _TICKET_SCRIPT_BASENAMES = frozenset({
 # so they route to branch 3 (deny) rather than bypassing the hook entirely.
 _TICKET_SCRIPT_RE = re.compile(r"^ticket_\w+\.py$")
 
+# Environment variable assignment tokens.
+_ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+
 # Python-like launcher basenames.
 _PYTHON_LAUNCHER_RE = re.compile(r"^python[\d.]*$")
 
+# Python options that consume the following token as an argument.
+_PYTHON_OPTIONS_WITH_VALUE = frozenset({"-c", "-m", "-W", "-X"})
+
+# env options that consume the following token as an argument.
+_ENV_OPTIONS_WITH_VALUE = frozenset({"-u", "--unset"})
+
+# env split-string options that inject additional argv tokens.
+_ENV_SPLIT_STRING_OPTIONS = frozenset({"-S", "--split-string"})
+
+
+def _expand_env_split_string(tokens: list[str]) -> list[str]:
+    """Expand `env -S/--split-string` arguments into normal argv tokens."""
+    if not tokens:
+        return tokens
+    if tokens[0] != "env" and not (tokens[0].endswith("/env") and "/" in tokens[0]):
+        return tokens
+
+    expanded = [tokens[0]]
+    i = 1
+    while i < len(tokens):
+        token = tokens[i]
+        split_value: str | None = None
+        if token in _ENV_SPLIT_STRING_OPTIONS:
+            if i + 1 >= len(tokens):
+                expanded.append(token)
+                break
+            split_value = tokens[i + 1]
+            i += 2
+        elif token.startswith("--split-string="):
+            split_value = token.split("=", 1)[1]
+            i += 1
+        else:
+            expanded.append(token)
+            i += 1
+            continue
+
+        try:
+            expanded.extend(shlex.split(split_value))
+        except ValueError:
+            expanded.append(split_value)
+
+    return expanded
+
 
 def _is_ticket_candidate(command: str) -> bool:
-    """Detect if command is a Python invocation targeting a known ticket script.
+    """Detect if command is a Python invocation targeting a ticket script.
 
-    Uses shlex.split() for token-based parsing. Identifies the script operand
-    to a Python-like launcher and checks if its basename is a known ticket script.
+    Uses shlex.split() for token-based parsing. After locating a Python-like
+    launcher, skips common env prefixes and Python flags to find the script
+    operand, then checks its basename against known and broad ticket patterns.
 
     Supports:
     - Direct: python3 script.py
@@ -91,6 +138,7 @@ def _is_ticket_candidate(command: str) -> bool:
     - env: env python3 script.py
     - env with vars: env KEY=VAL python3 script.py
     - Leading env assignments: KEY=VAL python3 script.py
+    - Python flags before script: python3 -u -O script.py
 
     Returns True if detected as a ticket script candidate (routes to exact
     allowlist validation in branches 1-3). False means pass-through (branch 4).
@@ -113,6 +161,8 @@ def _is_ticket_candidate(command: str) -> bool:
     if not tokens:
         return False
 
+    tokens = _expand_env_split_string(tokens)
+
     # Find the Python launcher token, skipping:
     # - "env" or absolute-path env (e.g., /usr/bin/env)
     # - Environment variable assignments (KEY=VALUE)
@@ -121,9 +171,21 @@ def _is_ticket_candidate(command: str) -> bool:
     # Skip env launcher if present.
     if tokens[i] == "env" or (tokens[i].endswith("/env") and "/" in tokens[i]):
         i += 1
+        while i < len(tokens):
+            token = tokens[i]
+            if token in _ENV_OPTIONS_WITH_VALUE:
+                i += 2
+                continue
+            if token.startswith("--unset="):
+                i += 1
+                continue
+            if token.startswith("-"):
+                i += 1
+                continue
+            break
 
     # Skip environment variable assignments (KEY=VALUE before Python token).
-    while i < len(tokens) and re.match(r"^[A-Z_][A-Z0-9_]*=", tokens[i]):
+    while i < len(tokens) and _ENV_ASSIGNMENT_RE.match(tokens[i]):
         i += 1
 
     if i >= len(tokens):
@@ -135,8 +197,19 @@ def _is_ticket_candidate(command: str) -> bool:
     if not _PYTHON_LAUNCHER_RE.match(launcher_basename):
         return False
 
-    # Next token after launcher is the script argument.
+    # Skip Python flags until the first non-option token, accounting for options
+    # that consume a following argument (for example "-m pdb" or "-X dev").
     script_idx = i + 1
+    while script_idx < len(tokens):
+        token = tokens[script_idx]
+        if token in _PYTHON_OPTIONS_WITH_VALUE:
+            script_idx += 2
+            continue
+        if token.startswith("-"):
+            script_idx += 1
+            continue
+        break
+
     if script_idx >= len(tokens):
         return False
 
@@ -285,9 +358,9 @@ def main() -> None:
     tool_input = event.get("tool_input", {})
     command = tool_input.get("command", "")
 
-    # Normalize: strip trailing 2>&1 (diagnostic suffix, not injection risk).
-    # lstrip only for candidate detection — allowlist matching uses command_clean
-    # (preserving leading whitespace) so non-canonical forms are denied by branch 3.
+    # Strip a trailing `2>&1` diagnostic suffix. Candidate detection trims
+    # leading whitespace, but exact matching keeps it so non-canonical forms
+    # still reach branch 3 (deny).
     command_clean = re.sub(r"\s+2>&1\s*$", "", command)
     command_for_detection = command_clean.lstrip()
 
@@ -338,12 +411,21 @@ def main() -> None:
             return
 
         # Inject trust fields into payload.
-        session_id = event.get("session_id", "")
+        session_id = event.get("session_id")
+        if not isinstance(session_id, str) or not session_id:
+            print(json.dumps(_make_deny(
+                f"Malformed session_id: expected non-empty string, got {type(session_id).__name__}={session_id!r:.50}"
+            )))
+            return
         effective_origin, origin_error = _resolve_origin(event, is_ticket_candidate=True)
         if origin_error is not None:
             print(json.dumps(_make_deny(origin_error)))
             return
-        assert effective_origin is not None  # Guaranteed: origin_error is None ⟹ origin is str
+        if effective_origin is None:
+            print(json.dumps(_make_deny(
+                "Origin resolution failed: internal invariant violation"
+            )))
+            return
         error = _inject_payload(str(resolved_path), session_id, effective_origin)
         if error is not None:
             print(json.dumps(_make_deny(f"Payload injection failed: {error}")))
@@ -393,7 +475,11 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
+    except Exception as exc:
         # Fail open on unhandled exceptions — exit 0 with empty JSON.
+        print(
+            f"ticket_engine_guard failed open: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         print("{}")
         sys.exit(0)

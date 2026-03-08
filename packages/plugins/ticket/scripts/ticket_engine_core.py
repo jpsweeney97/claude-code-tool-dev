@@ -18,10 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
-
 from scripts.ticket_id import allocate_id, build_filename
-from scripts.ticket_paths import resolve_tickets_dir
 from scripts.ticket_parse import (
     extract_fenced_yaml,
     parse_yaml_block,
@@ -149,6 +146,7 @@ def engine_classify(
         return EngineResponse(
             state="escalate",
             message=f"Cannot determine caller identity: request_origin={request_origin!r}",
+            error_code="origin_mismatch",
         )
 
     # Validate action.
@@ -236,6 +234,15 @@ def _plan_create(
             message=f"Missing required fields: {', '.join(missing)}",
             error_code="need_fields",
             data={"missing_fields": missing},
+        )
+
+    validation_errors = validate_fields(fields)
+    if validation_errors:
+        return EngineResponse(
+            state="need_fields",
+            message=f"Field validation failed: {'; '.join(validation_errors)}",
+            error_code="need_fields",
+            data={"missing_fields": [], "validation_errors": validation_errors},
         )
 
     # Compute dedup fingerprint.
@@ -1004,6 +1011,13 @@ def engine_execute(
     Assumes preflight has already passed. Writes ticket files.
     Wraps dispatch with JSONL audit trail.
     """
+    if request_origin not in VALID_ORIGINS:
+        return EngineResponse(
+            state="escalate",
+            message=f"Cannot determine caller identity: request_origin={request_origin!r}",
+            error_code="origin_mismatch",
+        )
+
     snapshot_config = autonomy_config
     if request_origin == "agent":
         config = read_autonomy_config(tickets_dir)
@@ -1080,6 +1094,14 @@ def engine_execute(
                 state="policy_blocked",
                 message="Create execute requires dedup_fingerprint (run plan stage first)",
                 error_code="policy_blocked",
+            )
+        validation_errors = validate_fields(fields)
+        if validation_errors:
+            return EngineResponse(
+                state="need_fields",
+                message=f"Field validation failed: {'; '.join(validation_errors)}",
+                error_code="need_fields",
+                data={"validation_errors": validation_errors},
             )
         from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp
 
@@ -1667,6 +1689,16 @@ def _execute_reopen(
     ticket = find_ticket_by_id(tickets_dir, ticket_id)
     if ticket is None:
         return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
+
+    validation_errors = validate_fields(fields)
+    if validation_errors:
+        return EngineResponse(
+            state="need_fields",
+            message=f"Field validation failed: {'; '.join(validation_errors)}",
+            error_code="need_fields",
+            ticket_id=ticket_id,
+            data={"validation_errors": validation_errors},
+        )
 
     if not _is_valid_transition(ticket.status, "open", "reopen"):
         return EngineResponse(
