@@ -14,6 +14,11 @@ SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 
 def run_entrypoint(script: str, subcommand: str, payload: dict, tmp_path: Path) -> dict:
     """Run an entrypoint script as a subprocess and return parsed JSON output."""
+    # Ensure cwd has a project-root marker so discover_project_root() succeeds.
+    git_marker = tmp_path / ".git"
+    if not git_marker.exists():
+        git_marker.mkdir()
+
     payload_file = tmp_path / "input.json"
     payload_file.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -359,3 +364,70 @@ class TestEntrypointTicketsDirBoundaries:
             tmp_path,
         )
         assert output["state"] == "ok"
+
+
+class TestEntrypointProjectRootDiscovery:
+    """Entrypoints use marker-based project root instead of bare cwd."""
+
+    def _run_without_marker(self, script: str, tmp_path: Path) -> dict:
+        """Run entrypoint from a cwd that has no project-root markers."""
+        # Do NOT create .git or .claude — intentionally bare.
+        nested = tmp_path / "no" / "markers"
+        nested.mkdir(parents=True)
+        payload_file = nested / "input.json"
+        payload_file.write_text(
+            json.dumps({"action": "create", "args": {}, "session_id": "test"}),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS_DIR / script), "classify", str(payload_file)],
+            capture_output=True,
+            text=True,
+            cwd=str(nested),
+        )
+        assert result.returncode in (0, 1, 2), f"Unexpected exit code: {result.returncode}\nstderr: {result.stderr}"
+        return json.loads(result.stdout)
+
+    def test_user_rejects_when_no_project_root(self, tmp_path: Path) -> None:
+        output = self._run_without_marker("ticket_engine_user.py", tmp_path)
+        assert output["state"] == "policy_blocked"
+        assert "project root" in output["message"]
+
+    def test_agent_rejects_when_no_project_root(self, tmp_path: Path) -> None:
+        output = self._run_without_marker("ticket_engine_agent.py", tmp_path)
+        assert output["state"] == "policy_blocked"
+        assert "project root" in output["message"]
+
+    def test_user_resolves_from_nested_cwd(self, tmp_path: Path) -> None:
+        """When cwd is nested inside a project, tickets_dir resolves against root."""
+        from scripts.ticket_dedup import dedup_fingerprint as compute_fp
+
+        (tmp_path / ".git").mkdir()
+        nested = tmp_path / "src" / "deep"
+        nested.mkdir(parents=True)
+
+        problem = "nested cwd test"
+        payload = {
+            "action": "create",
+            "fields": {"title": "Test", "problem": problem, "priority": "medium"},
+            "hook_injected": True,
+            "hook_request_origin": "user",
+            "session_id": "test-session",
+            "classify_intent": "create",
+            "classify_confidence": 0.95,
+            "dedup_fingerprint": compute_fp(problem, []),
+        }
+        payload_file = nested / "input.json"
+        payload_file.write_text(json.dumps(payload), encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS_DIR / "ticket_engine_user.py"), "execute", str(payload_file)],
+            capture_output=True,
+            text=True,
+            cwd=str(nested),
+        )
+        output = json.loads(result.stdout)
+        assert output["state"] == "ok_create"
+        # Ticket should be created under project root, not under nested cwd.
+        tickets_in_root = tmp_path / "docs" / "tickets"
+        assert tickets_in_root.exists(), f"Expected tickets at {tickets_in_root}, not under {nested}"

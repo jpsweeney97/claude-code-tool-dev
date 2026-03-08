@@ -5,6 +5,28 @@ import os
 from pathlib import Path
 from typing import Any
 
+_PROJECT_ROOT_MARKERS = (".claude", ".git")
+
+
+def discover_project_root(start: Path) -> Path | None:
+    """Walk ancestors from start to find nearest project root.
+
+    A project root is the nearest ancestor (including start itself) that
+    contains a .claude/ directory, a .git/ directory, or a .git file
+    (git worktree marker).
+
+    Returns None if no marker is found (caller should reject, not fallback).
+    """
+    current = start.resolve()
+    while True:
+        for marker in _PROJECT_ROOT_MARKERS:
+            if (current / marker).exists():
+                return current
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
 
 def resolve_tickets_dir(
     raw_tickets_dir: Any,

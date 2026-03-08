@@ -64,6 +64,8 @@ class TestFullCreateFlow:
     def test_full_create_flow(self, tmp_path: Path) -> None:
         from scripts.ticket_dedup import dedup_fingerprint as compute_fp
 
+        # Marker needed for discover_project_root() in entrypoint.
+        (tmp_path / ".git").mkdir()
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
 
@@ -152,6 +154,8 @@ class TestHookSessionIdPropagatesToAudit:
     def test_hook_session_id_propagates_to_audit(self, tmp_path: Path) -> None:
         from scripts.ticket_dedup import dedup_fingerprint as compute_fp
 
+        # Marker needed for discover_project_root() in entrypoint.
+        (tmp_path / ".git").mkdir()
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
 
@@ -204,6 +208,8 @@ class TestPatch1Integration:
         engine checks structural prerequisites."""
         from scripts.ticket_dedup import dedup_fingerprint as compute_fp
 
+        # Marker needed for discover_project_root() in entrypoint.
+        (tmp_path / ".git").mkdir()
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
 
@@ -251,6 +257,8 @@ class TestPatch1Integration:
 
 class TestOriginMismatchIntegration:
     def test_agent_hook_origin_rejects_user_entrypoint(self, tmp_path: Path) -> None:
+        # Marker needed for discover_project_root() in entrypoint.
+        (tmp_path / ".git").mkdir()
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
         payload_file = tmp_path / "payload.json"
@@ -278,6 +286,8 @@ class TestOriginMismatchIntegration:
         assert resp["error_code"] == "origin_mismatch"
 
     def test_user_hook_origin_rejects_agent_entrypoint(self, tmp_path: Path) -> None:
+        # Marker needed for discover_project_root() in entrypoint.
+        (tmp_path / ".git").mkdir()
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
         payload_file = tmp_path / "payload.json"

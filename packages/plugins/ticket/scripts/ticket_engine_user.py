@@ -21,7 +21,7 @@ from scripts.ticket_engine_core import (
     engine_plan,
     engine_preflight,
 )
-from scripts.ticket_paths import resolve_tickets_dir
+from scripts.ticket_paths import discover_project_root, resolve_tickets_dir
 
 REQUEST_ORIGIN = "user"
 
@@ -74,8 +74,18 @@ def main() -> None:
             print(resp.to_json())
             sys.exit(1)
 
+    project_root = discover_project_root(Path.cwd())
+    if project_root is None:
+        resp = EngineResponse(
+            state="policy_blocked",
+            message="Cannot determine project root: no .claude/ or .git/ marker found in ancestors of cwd",
+            error_code="policy_blocked",
+        )
+        print(resp.to_json())
+        sys.exit(1)
+
     tickets_dir_raw = payload.get("tickets_dir", "docs/tickets")
-    tickets_dir, path_error = resolve_tickets_dir(tickets_dir_raw, project_root=Path.cwd())
+    tickets_dir, path_error = resolve_tickets_dir(tickets_dir_raw, project_root=project_root)
     if path_error is not None or tickets_dir is None:
         resp = EngineResponse(
             state="policy_blocked",
