@@ -9,6 +9,7 @@ import scripts.ticket_engine_core as ticket_engine_core
 import scripts.ticket_paths as ticket_paths
 from scripts.ticket_engine_core import (
     AutonomyConfig,
+    EngineResponse,
     engine_classify,
     engine_execute,
     engine_plan,
@@ -104,6 +105,7 @@ class TestEngineClassify:
             request_origin="user",
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"
 
     def test_unknown_origin_fails_closed(self):
         resp = engine_classify(
@@ -733,7 +735,7 @@ class TestEnginePreflight:
         assert "dedup" in resp.data["checks_passed"]
 
     def test_confidence_gate_no_policy_blocked_code(self, tmp_tickets):
-        """Confidence gate returns error_code=None, not policy_blocked."""
+        """Confidence gate returns error_code=preflight_failed, not policy_blocked."""
         resp = engine_preflight(
             ticket_id=None,
             action="create",
@@ -746,7 +748,7 @@ class TestEnginePreflight:
             tickets_dir=tmp_tickets,
         )
         assert resp.state == "preflight_failed"
-        assert resp.error_code is None
+        assert resp.error_code == "preflight_failed"
 
 
 class TestEngineExecute:
@@ -1154,8 +1156,40 @@ class TestEngineExecute:
         )
 
         assert resp.state == "escalate"
+        assert resp.error_code == "io_error"
         assert "retry budget" in resp.message.lower()
         assert len(attempts) == 3
+
+    def test_execute_create_write_oserror_returns_escalate_with_io_error(
+        self, tmp_tickets: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def oserror_write(ticket_path: Path, content: str) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(ticket_engine_core, "_write_text_exclusive", oserror_write)
+
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={
+                "title": "Write failure",
+                "problem": "Create should return io_error on OSError.",
+                "priority": "medium",
+            },
+            session_id="oserror-session",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Create should return io_error on OSError.", []),
+        )
+        assert resp.state == "escalate"
+        assert resp.error_code == "io_error"
+        assert "create failed" in resp.message.lower()
 
     def test_write_text_exclusive_unlinks_partial_file_on_fsync_failure(
         self, tmp_tickets: Path, monkeypatch: pytest.MonkeyPatch
@@ -1237,6 +1271,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"
         assert "section fields not supported" in resp.message.lower()
         assert ticket_path.read_text(encoding="utf-8") == before
 
@@ -1261,6 +1296,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"
         assert "section fields not supported" in resp.message.lower()
         after = ticket_path.read_text(encoding="utf-8")
         assert after == before
@@ -1287,6 +1323,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"
         assert "unknown fields: custom" in resp.message.lower()
         assert ticket_path.read_text(encoding="utf-8") == before
 
@@ -1335,6 +1372,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "intent_mismatch"
         assert "fields.ticket_id must match" in resp.message.lower()
         assert ticket_path.read_text(encoding="utf-8") == before
 
@@ -1879,6 +1917,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "io_error"
         assert "archive rename failed" in resp.message
 
     def test_close_archive_collision_suffix_exhausted_returns_escalate(
@@ -1919,6 +1958,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
+        assert resp.error_code == "io_error"
         assert "collision resolution failed" in resp.message
 
     def test_close_from_open_succeeds(self, tmp_tickets):
@@ -2191,7 +2231,7 @@ class TestEngineExecute:
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
         assert resp.state == "escalate"
-        assert resp.error_code is None
+        assert resp.error_code == "intent_mismatch"
         assert "unknown fields: custom" in resp.message.lower()
 
     def test_reopen_ticket(self, tmp_tickets):
@@ -2926,3 +2966,36 @@ class TestExecuteFieldValidation:
         )
         assert resp.error_code == "need_fields"
         assert "resolution" in resp.message
+
+
+class TestEngineResponseInvariant:
+    """EngineResponse enforces error_code on non-success states."""
+
+    _OK_STATES = frozenset({
+        "ok", "ok_create", "ok_update", "ok_close", "ok_close_archived", "ok_reopen",
+    })
+
+    def test_success_state_allows_no_error_code(self):
+        for state in self._OK_STATES:
+            resp = EngineResponse(state=state, message="ok")
+            assert resp.error_code is None
+
+    def test_success_state_rejects_error_code(self):
+        with pytest.raises(ValueError, match="error_code must be None"):
+            EngineResponse(state="ok", message="ok", error_code="intent_mismatch")
+
+    def test_non_success_state_requires_error_code(self):
+        with pytest.raises(ValueError, match="error_code is required"):
+            EngineResponse(state="escalate", message="bad")
+
+    def test_non_success_state_accepts_error_code(self):
+        resp = EngineResponse(state="escalate", message="bad", error_code="intent_mismatch")
+        assert resp.error_code == "intent_mismatch"
+
+    def test_need_fields_state_requires_error_code(self):
+        resp = EngineResponse(state="need_fields", message="missing", error_code="need_fields")
+        assert resp.error_code == "need_fields"
+
+    def test_duplicate_candidate_state_requires_error_code(self):
+        resp = EngineResponse(state="duplicate_candidate", message="dup", error_code="duplicate_candidate")
+        assert resp.error_code == "duplicate_candidate"
