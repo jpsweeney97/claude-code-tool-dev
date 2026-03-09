@@ -8,7 +8,11 @@
 - The vendoring sync script and vendored marker file were removed
 - `docs/references/context-injection-contract.md` symlink was removed in favor of the plugin reference path
 
-## [3.0.0] — 2026-03-06
+### Fixed
+
+- Tighten credential scan placeholder bypass window from 200 to 100 chars — reduces risk of a nearby "example" token suppressing a real credential match; `PLACEHOLDER_BYPASS_WINDOW` now exported from `secret_taxonomy.py` and shared by both `credential_scan.py` and `check_placeholder_bypass`
+
+## [3.0.0] — 2026-03-07
 
 ### Added
 
@@ -16,6 +20,7 @@
 - `delegation_outcome` analytics event type for tracking delegation results
 - `credential_scan.py` shared module — extracted credential detection logic for reuse across hooks and delegation
 - `event_log.py` shared module — extracted event logging logic for reuse across analytics emitters
+- `secret_taxonomy.py` shared module — consolidates all credential pattern families with independent `redact_enabled`/`egress_enabled` controls; adds Basic Auth and Slack token families (#55)
 
 ### Changed
 
@@ -24,6 +29,12 @@
 - `read_events.py` updated to parse and validate `delegation_outcome` events
 - `compute_stats.py` updated with delegation section (usage counts, success rates, sandbox mode distribution)
 - `consultation-stats` skill updated with `--type delegation` filter
+- `approval-policy` default changed from `on-failure` to `on-request` for workspace-write sandboxes; `on-failure` remains valid for legacy compatibility (#57)
+- Analytics parsing migrated from `<!-- pipeline-data -->` comment blocks to JSON epilogue as sole machine contract; `thread_id` now always emitted when available (previously `null` in `manual_legacy` mode) (#56)
+
+### Fixed
+
+- Exempt `certifi/cacert.pem` CA bundle from secret-file gate via `_SAFE_ARTIFACT_TAILS` frozenset (component-based matching) — `*.pem` glob was blocking all delegation in repos with a `.venv/` directory (#54)
 
 ## [2.0.0] — 2026-03-01
 
@@ -55,7 +66,6 @@
 ### Changed
 
 - `/codex` and `/dialogue` analytics rewritten to use shared `emit_analytics.py` script
-- `codex-dialogue` outputs actual thread ID value instead of boolean
 - Falsifier no-assumptions fallback constrained to rationale surfaces only
 
 ### Fixed
