@@ -1051,11 +1051,14 @@ def engine_execute(
             and _autonomy_policy_fingerprint(snapshot_config)
             != _autonomy_policy_fingerprint(config)
         ):
+            policy_changed_data: dict[str, Any] = {"live_mode": config.mode}
+            if config.warnings:
+                policy_changed_data["live_warnings"] = list(config.warnings)
             return EngineResponse(
                 state="policy_blocked",
                 message="Autonomy policy changed since preflight. Rerun from preflight.",
                 error_code="policy_blocked",
-                data={"live_mode": config.mode},
+                data=policy_changed_data,
             )
     else:
         config = snapshot_config or AutonomyConfig()

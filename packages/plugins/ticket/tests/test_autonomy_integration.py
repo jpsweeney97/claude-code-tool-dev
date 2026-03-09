@@ -159,3 +159,38 @@ class TestAutonomyIntegration:
         )
         assert ex_resp.state == "policy_blocked"
         assert "changed since preflight" in ex_resp.message.lower()
+
+    def test_policy_changed_with_malformed_live_config_includes_warnings(self, integration_env):
+        """Policy-changed response includes live_warnings when config is malformed."""
+        tickets_dir, config_path = integration_env
+        config_path.write_text("---\nautonomy_mode: auto_audit\nmax_creates_per_session: 5\n---\n")
+
+        pf_resp = engine_preflight(
+            ticket_id=None, action="create", session_id="warn-session",
+            request_origin="agent", classify_confidence=0.95, classify_intent="create",
+            dedup_fingerprint="fp1", target_fingerprint=None,
+            tickets_dir=tickets_dir, hook_injected=True,
+        )
+        assert pf_resp.state == "ok"
+        snapshot = AutonomyConfig.from_dict(pf_resp.data["autonomy_config"])
+        assert snapshot.mode == "auto_audit"
+
+        # Config becomes malformed between preflight and execute.
+        config_path.write_text("---\nautonomy_mode: BOGUS_MODE\n---\n")
+
+        ex_resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Warning test", "problem": "Config degraded"},
+            session_id="warn-session", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tickets_dir, autonomy_config=snapshot, hook_injected=True,
+            hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Config degraded", []),
+        )
+        assert ex_resp.state == "policy_blocked"
+        assert "changed since preflight" in ex_resp.message.lower()
+        assert ex_resp.data["live_mode"] == "suggest"
+        assert "live_warnings" in ex_resp.data
+        assert any("BOGUS_MODE" in w for w in ex_resp.data["live_warnings"])
