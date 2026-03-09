@@ -8,7 +8,7 @@ Install via the turbo-mode marketplace:
 
 ```bash
 claude plugin marketplace update turbo-mode
-claude plugin install cross-model@turbo-mode
+claude plugin install ticket@turbo-mode
 ```
 
 **Requirements:** Python 3.11+, Claude Code with plugin support.
