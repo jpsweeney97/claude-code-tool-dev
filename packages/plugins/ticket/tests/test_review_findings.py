@@ -254,6 +254,87 @@ class TestF1ReopenUnarchive:
         assert archived_path.read_text(encoding="utf-8") == original_text
         assert not active_dst.exists()
 
+    def test_reopen_write_and_rollback_both_fail_reports_inconsistency(self, tmp_tickets: Path) -> None:
+        """If write fails and rollback rename also fails, message warns about inconsistent state."""
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={"title": "Double fault", "problem": "Both will fail"},
+            session_id="f1-dbl-sess",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Both will fail", []),
+        )
+        assert resp.state == "ok_create"
+        ticket_id = resp.ticket_id
+        ticket_path = Path(resp.data["ticket_path"])
+
+        fp = compute_target_fp(ticket_path)
+        close_resp = engine_execute(
+            action="close",
+            ticket_id=ticket_id,
+            fields={"resolution": "wontfix", "archive": True},
+            session_id="f1-dbl-sess",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            target_fingerprint=fp,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+        )
+        assert close_resp.state == "ok_close_archived"
+        archived_path = Path(close_resp.data["ticket_path"])
+
+        reopen_fp = compute_target_fp(archived_path)
+        active_dst = tmp_tickets / archived_path.name
+        real_write_text = Path.write_text
+        real_rename = Path.rename
+        rename_call_count = 0
+
+        def failing_write(self_path: Path, data: str, encoding: str | None = None, errors: str | None = None, newline: str | None = None) -> None:
+            if self_path == active_dst:
+                raise OSError("simulated write failure")
+            real_write_text(self_path, data, encoding=encoding, errors=errors, newline=newline)
+
+        def failing_rollback_rename(self_path: Path, target: Path) -> Path:
+            nonlocal rename_call_count
+            rename_call_count += 1
+            # First rename (un-archive) succeeds; second (rollback) fails.
+            if rename_call_count >= 2:
+                raise OSError("simulated rollback failure")
+            return real_rename(self_path, target)
+
+        with patch.object(Path, "write_text", failing_write), \
+             patch.object(Path, "rename", failing_rollback_rename):
+            reopen_resp = engine_execute(
+                action="reopen",
+                ticket_id=ticket_id,
+                fields={"reopen_reason": "Should double-fault"},
+                session_id="f1-dbl-sess",
+                request_origin="user",
+                dedup_override=False,
+                dependency_override=False,
+                tickets_dir=tmp_tickets,
+                target_fingerprint=reopen_fp,
+                hook_injected=True,
+                hook_request_origin="user",
+                classify_intent="reopen",
+                classify_confidence=0.95,
+            )
+
+        assert reopen_resp.state == "escalate"
+        assert reopen_resp.error_code == "io_error"
+        assert "ROLLBACK ALSO FAILED" in reopen_resp.message
+
 
 # ---------------------------------------------------------------------------
 # F2: Pipeline plan -> execute for non-create must provide target_fingerprint

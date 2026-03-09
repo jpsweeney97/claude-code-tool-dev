@@ -1891,14 +1891,18 @@ def _execute_reopen(
         ticket_path.write_text(new_text, encoding="utf-8")
     except OSError as exc:
         # Roll back the rename so ticket stays in closed-tickets/ with old status.
+        rollback_failed = False
         if archived_from is not None:
             try:
                 ticket_path.rename(archived_from)
             except OSError:
-                pass  # Best-effort rollback; original error is more informative.
+                rollback_failed = True
+        msg = f"reopen write failed: {exc}. Got: {str(ticket_path)!r:.100}"
+        if rollback_failed:
+            msg += f" ROLLBACK ALSO FAILED: ticket is at {str(ticket_path)!r:.100} with old status, needs manual fix"
         return EngineResponse(
             state="escalate",
-            message=f"reopen write failed: {exc}. Got: {str(ticket_path)!r:.100}",
+            message=msg,
             ticket_id=ticket_id,
             error_code="io_error",
         )
