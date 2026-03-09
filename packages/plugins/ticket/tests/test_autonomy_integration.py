@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp, target_fingerprint as compute_target_fp
+from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp
 from scripts.ticket_engine_core import (
     AutonomyConfig,
     engine_count_session_creates,
