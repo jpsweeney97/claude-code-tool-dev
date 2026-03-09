@@ -1051,11 +1051,14 @@ def engine_execute(
             and _autonomy_policy_fingerprint(snapshot_config)
             != _autonomy_policy_fingerprint(config)
         ):
+            policy_changed_data: dict[str, Any] = {"live_mode": config.mode}
+            if config.warnings:
+                policy_changed_data["live_warnings"] = list(config.warnings)
             return EngineResponse(
                 state="policy_blocked",
                 message="Autonomy policy changed since preflight. Rerun from preflight.",
                 error_code="policy_blocked",
-                data={"live_mode": config.mode},
+                data=policy_changed_data,
             )
     else:
         config = snapshot_config or AutonomyConfig()
@@ -1176,10 +1179,14 @@ def engine_execute(
                 error_code="policy_blocked",
             )
         if config.mode != "auto_audit":
+            dind_data: dict[str, Any] = {"live_mode": config.mode}
+            if config.warnings:
+                dind_data["live_warnings"] = list(config.warnings)
             return EngineResponse(
                 state="policy_blocked",
                 message=f"Defense-in-depth: autonomy mode {config.mode!r} blocks agent mutations",
                 error_code="policy_blocked",
+                data=dind_data,
             )
         if action == "create":
             count = engine_count_session_creates(session_id, tickets_dir)
