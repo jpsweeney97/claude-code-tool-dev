@@ -452,7 +452,7 @@ class TestEntrypointProjectRootDiscovery:
         """When cwd is nested inside a project, tickets_dir resolves against root."""
         from scripts.ticket_dedup import dedup_fingerprint as compute_fp
 
-        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git").mkdir(exist_ok=True)
         nested = tmp_path / "src" / "deep"
         nested.mkdir(parents=True)
 

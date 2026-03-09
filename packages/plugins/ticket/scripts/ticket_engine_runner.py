@@ -169,6 +169,7 @@ def _dispatch(
                 session_id=inp.session_id,
                 request_origin=request_origin,
                 tickets_dir=tickets_dir,
+                ticket_id=inp.ticket_id,
             )
         elif subcommand == "preflight":
             inp = PreflightInput.from_payload(payload)

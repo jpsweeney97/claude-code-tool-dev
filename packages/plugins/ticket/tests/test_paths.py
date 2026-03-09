@@ -13,7 +13,7 @@ class TestDiscoverProjectRoot:
     """Marker-based project root discovery."""
 
     def test_finds_git_directory(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git").mkdir(exist_ok=True)
         nested = tmp_path / "src" / "pkg"
         nested.mkdir(parents=True)
         root = discover_project_root(nested)
@@ -36,7 +36,7 @@ class TestDiscoverProjectRoot:
 
     def test_prefers_nearest_ancestor(self, tmp_path: Path) -> None:
         """If multiple ancestors have markers, choose nearest."""
-        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git").mkdir(exist_ok=True)
         inner = tmp_path / "subproject"
         inner.mkdir()
         (inner / ".claude").mkdir()
@@ -52,13 +52,13 @@ class TestDiscoverProjectRoot:
         assert root is None
 
     def test_cwd_itself_is_root(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git").mkdir(exist_ok=True)
         root = discover_project_root(tmp_path)
         assert root == tmp_path
 
     def test_resolves_symlink_before_marker_lookup(self, tmp_path: Path) -> None:
         """Symlinked start paths resolve to the canonical project root."""
-        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git").mkdir(exist_ok=True)
         real_nested = tmp_path / "real" / "src"
         real_nested.mkdir(parents=True)
         symlink_root = tmp_path.parent / f"{tmp_path.name}-link"

@@ -273,7 +273,7 @@ class TestSessionCounting:
                 classify_confidence=0.95,
                 dedup_fingerprint=compute_dedup_fp(problem, []),
             )
-        assert engine_count_session_creates(session_id, tmp_tickets) == 3
+        assert engine_count_session_creates(session_id, tmp_tickets, request_origin="user") == 3
 
     def test_count_ignores_non_create_actions(self, tmp_tickets: Path) -> None:
         """Create + update in same session counts only the create."""
@@ -309,38 +309,38 @@ class TestSessionCounting:
             classify_confidence=0.95,
             target_fingerprint=compute_target_fp(next(tmp_tickets.glob("*.md"))),
         )
-        assert engine_count_session_creates(session_id, tmp_tickets) == 1
+        assert engine_count_session_creates(session_id, tmp_tickets, request_origin="user") == 1
 
     def test_count_missing_file_returns_zero(self, tmp_tickets: Path) -> None:
         """Non-existent session returns 0."""
         assert engine_count_session_creates("nonexistent-session", tmp_tickets) == 0
 
     def test_count_corrupt_line_skipped(self, tmp_tickets: Path) -> None:
-        """Corrupt JSONL lines are skipped; valid create entries are still counted."""
+        """Corrupt JSONL lines are skipped; valid attempt_started entries are still counted."""
         session_id = "sess-count-corrupt"
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         audit_dir = tmp_tickets / ".audit" / today
         audit_dir.mkdir(parents=True, exist_ok=True)
         audit_file = audit_dir / f"{session_id}.jsonl"
         lines = [
-            json.dumps({"action": "create", "result": "ok_create", "ts": "t1"}),
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent", "ts": "t1"}),
             "NOT VALID JSON {{{",
-            json.dumps({"action": "create", "result": "ok_create", "ts": "t2"}),
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent", "ts": "t2"}),
         ]
         audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
         assert engine_count_session_creates(session_id, tmp_tickets) == 2
 
-    def test_count_ignores_error_results(self, tmp_tickets: Path) -> None:
-        """Create entries with error results are not counted."""
-        session_id = "sess-count-errors"
+    def test_count_ignores_non_create_intents(self, tmp_tickets: Path) -> None:
+        """Only attempt_started with intent==create are counted."""
+        session_id = "sess-count-intents"
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         audit_dir = tmp_tickets / ".audit" / today
         audit_dir.mkdir(parents=True, exist_ok=True)
         audit_file = audit_dir / f"{session_id}.jsonl"
         lines = [
-            json.dumps({"action": "create", "result": "ok_create", "ts": "t1"}),
-            json.dumps({"action": "create", "result": "error:RuntimeError", "ts": "t2"}),
-            json.dumps({"action": "create", "result": "need_fields", "ts": "t3"}),
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent", "ts": "t1"}),
+            json.dumps({"action": "attempt_started", "intent": "update", "request_origin": "agent", "ts": "t2"}),
+            json.dumps({"action": "attempt_started", "intent": "close", "request_origin": "agent", "ts": "t3"}),
         ]
         audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
         assert engine_count_session_creates(session_id, tmp_tickets) == 1
@@ -359,7 +359,7 @@ class TestSessionCounting:
         audit_dir.mkdir(parents=True, exist_ok=True)
         audit_file = audit_dir / f"{session_id}.jsonl"
         audit_file.write_text(
-            json.dumps({"action": "create", "result": "ok_create"}) + "\n",
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent"}) + "\n",
             encoding="utf-8",
         )
         try:
@@ -377,10 +377,44 @@ class TestSessionCounting:
             audit_dir.mkdir(parents=True, exist_ok=True)
             audit_file = audit_dir / f"{session_id}.jsonl"
             audit_file.write_text(
-                json.dumps({"action": "create", "result": "ok_create", "ts": f"{day}T00:00:00Z"}) + "\n",
+                json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent", "ts": f"{day}T00:00:00Z"}) + "\n",
                 encoding="utf-8",
             )
         assert engine_count_session_creates(session_id, tmp_tickets) == 2
+
+    def test_count_cross_midnight_split_pair(self, tmp_tickets: Path) -> None:
+        """attempt_started on day N + ok_create result on day N+1 counts as 1."""
+        session_id = "sess-split-pair"
+        day1 = tmp_tickets / ".audit" / "2026-03-08"
+        day1.mkdir(parents=True, exist_ok=True)
+        (day1 / f"{session_id}.jsonl").write_text(
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent"}) + "\n",
+            encoding="utf-8",
+        )
+        day2 = tmp_tickets / ".audit" / "2026-03-09"
+        day2.mkdir(parents=True, exist_ok=True)
+        (day2 / f"{session_id}.jsonl").write_text(
+            json.dumps({"action": "create", "result": "ok_create", "request_origin": "agent"}) + "\n",
+            encoding="utf-8",
+        )
+        assert engine_count_session_creates(session_id, tmp_tickets) == 1
+
+    def test_count_cross_midnight_failed_create(self, tmp_tickets: Path) -> None:
+        """attempt_started on day N + failed result on day N+1 counts as 0."""
+        session_id = "sess-split-fail"
+        day1 = tmp_tickets / ".audit" / "2026-03-08"
+        day1.mkdir(parents=True, exist_ok=True)
+        (day1 / f"{session_id}.jsonl").write_text(
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent"}) + "\n",
+            encoding="utf-8",
+        )
+        day2 = tmp_tickets / ".audit" / "2026-03-09"
+        day2.mkdir(parents=True, exist_ok=True)
+        (day2 / f"{session_id}.jsonl").write_text(
+            json.dumps({"action": "create", "result": "escalate", "request_origin": "agent"}) + "\n",
+            encoding="utf-8",
+        )
+        assert engine_count_session_creates(session_id, tmp_tickets) == 0
 
     def test_count_no_audit_dir_returns_zero(self, tmp_tickets: Path) -> None:
         """Missing .audit directory returns 0."""
@@ -396,11 +430,117 @@ class TestSessionCounting:
         audit_dir.mkdir(parents=True, exist_ok=True)
         audit_file = audit_dir / f"{safe_id}.jsonl"
         audit_file.write_text(
-            json.dumps({"action": "create", "result": "ok_create"}) + "\n",
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent"}) + "\n",
             encoding="utf-8",
         )
         # Malicious ID should be sanitized and match the safe file.
         assert engine_count_session_creates(malicious_id, tmp_tickets) == 1
+
+
+    def test_count_mixed_format_sums_both(self, tmp_tickets: Path) -> None:
+        """Mixed legacy + new format entries in same session are both counted."""
+        session_id = "sess-count-mixed"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+        lines = [
+            # Pre-upgrade: legacy ok_create (no attempt_started with intent)
+            json.dumps({"action": "create", "result": "ok_create", "request_origin": "agent"}),
+            # Post-upgrade: attempt_started with intent + ok_create result
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent"}),
+            json.dumps({"action": "create", "result": "ok_create", "request_origin": "agent"}),
+        ]
+        audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # 1 legacy + 1 new-format = 2 total
+        assert engine_count_session_creates(session_id, tmp_tickets) == 2
+
+    def test_count_mixed_format_legacy_ok_plus_new_gap(self, tmp_tickets: Path) -> None:
+        """Legacy ok_create + new-format gap (no result) counts as 2."""
+        session_id = "sess-mixed-gap"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+        lines = [
+            # Pre-upgrade: legacy ok_create
+            json.dumps({"action": "create", "result": "ok_create", "request_origin": "agent"}),
+            # Post-upgrade: attempt_started with no result (gap)
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent"}),
+        ]
+        audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # 1 legacy + 1 gap = 2 total
+        assert engine_count_session_creates(session_id, tmp_tickets) == 2
+
+    def test_count_mixed_format_two_legacy_plus_new_gap(self, tmp_tickets: Path) -> None:
+        """Two legacy ok_creates + new-format gap counts as 3."""
+        session_id = "sess-mixed-gap-3"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+        lines = [
+            # Pre-upgrade: two legacy ok_creates
+            json.dumps({"action": "create", "result": "ok_create", "request_origin": "agent"}),
+            json.dumps({"action": "create", "result": "ok_create", "request_origin": "agent"}),
+            # Post-upgrade: attempt_started with no result (gap)
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent"}),
+        ]
+        audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # 2 legacy + 1 gap = 3 total
+        assert engine_count_session_creates(session_id, tmp_tickets) == 3
+
+    def test_count_legacy_ok_create_entries(self, tmp_tickets: Path) -> None:
+        """Pre-upgrade audit files with ok_create result entries are counted."""
+        session_id = "sess-count-legacy"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+        # Old format: no attempt_started with intent, just result entries.
+        lines = [
+            json.dumps({"action": "create", "result": "ok_create", "request_origin": "agent"}),
+            json.dumps({"action": "create", "result": "ok_create", "request_origin": "agent"}),
+        ]
+        audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        assert engine_count_session_creates(session_id, tmp_tickets) == 2
+
+    def test_count_failed_create_not_counted(self, tmp_tickets: Path) -> None:
+        """Failed creates (non-ok result) are subtracted from attempt count."""
+        session_id = "sess-count-failed"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+        lines = [
+            # Two attempt_started for create
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent"}),
+            json.dumps({"action": "create", "result": "ok_create", "request_origin": "agent"}),
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent"}),
+            # Second create failed
+            json.dumps({"action": "create", "result": "escalate", "request_origin": "agent"}),
+        ]
+        audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # 2 attempts - 1 failure = 1
+        assert engine_count_session_creates(session_id, tmp_tickets) == 1
+
+    def test_count_gap_create_counted(self, tmp_tickets: Path) -> None:
+        """Gap creates (attempt_started without result) are conservatively counted."""
+        session_id = "sess-count-gap"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+        lines = [
+            # One successful create
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent"}),
+            json.dumps({"action": "create", "result": "ok_create", "request_origin": "agent"}),
+            # One gap create (attempt_started but no result)
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent"}),
+        ]
+        audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # 2 attempts - 0 failures = 2 (gap is conservatively counted)
+        assert engine_count_session_creates(session_id, tmp_tickets) == 2
 
 
 class TestAuditRepairCli:

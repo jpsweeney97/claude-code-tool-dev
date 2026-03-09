@@ -195,6 +195,7 @@ class TestReadCLI:
         assert result.returncode == 1
 
     def test_list_nonexistent_dir_returns_empty(self, tmp_path):
+        (tmp_path / ".git").mkdir(exist_ok=True)
         result = subprocess.run(
             [sys.executable, str(READ_SCRIPT), "list", str(tmp_path / "nope")],
             capture_output=True, text=True, timeout=10, cwd=str(tmp_path),
@@ -204,6 +205,7 @@ class TestReadCLI:
         assert data["data"]["tickets"] == []
 
     def test_list_rejects_path_outside_project_root(self, tmp_path):
+        (tmp_path / ".git").mkdir(exist_ok=True)
         outside = tmp_path.parent / "outside-tickets"
         result = subprocess.run(
             [sys.executable, str(READ_SCRIPT), "list", str(outside)],
