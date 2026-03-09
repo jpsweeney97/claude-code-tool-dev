@@ -297,16 +297,20 @@ See [The Hook Guard](#the-hook-guard-security-layer) for full architectural deta
 | File | Authority |
 |------|-----------|
 | `references/ticket-contract.md` | Single source of truth for ticket schema, engine interface, autonomy model, dedup policy, status transitions, and migration rules. All engine components reference this. |
+| `skills/ticket/references/pipeline-guide.md` | Skill implementation reference: payload schemas, pipeline state propagation, response states, and loop procedures for the `/ticket` skill. |
 
 ## Tests
 
 Plugin test coverage includes:
 
-Current suite: 388 tests across 15 files (`cd packages/plugins/ticket && uv run pytest --co -q`).
+Current suite: 596 tests across 25 files (`cd packages/plugins/ticket && uv run pytest --co -q`).
 
 | Test File | Coverage Area |
 |-----------|--------------|
-| `test_engine.py` | Core pipeline stages |
+| `test_classify.py` | Classify stage: action intent resolution |
+| `test_plan.py` | Plan stage: field validation, dedup fingerprinting |
+| `test_preflight.py` | Preflight stage: policy enforcement, transition validation |
+| `test_execute.py` | Execute stage: dispatch, create, update, close, reopen, trust |
 | `test_autonomy.py` | Policy enforcement unit tests |
 | `test_autonomy_integration.py` | End-to-end autonomy scenarios |
 | `test_audit.py` | Audit trail writes, fail-closed behavior |
@@ -314,13 +318,20 @@ Current suite: 388 tests across 15 files (`cd packages/plugins/ticket && uv run 
 | `test_hook_integration.py` | End-to-end hook scenarios |
 | `test_triage.py` | Dashboard, stale detection, orphans |
 | `test_entrypoints.py` | User/agent entrypoint routing |
+| `test_runner.py` | Engine runner: CLI arg parsing, JSON I/O boundary |
 | `test_id.py` | ID allocation, sequence gaps |
 | `test_parse.py` | YAML parsing, legacy format support |
 | `test_read.py` | Queries, filtering, fuzzy match |
 | `test_render.py` | Template rendering, section ordering |
 | `test_dedup.py` | Fingerprinting, normalization |
+| `test_trust.py` | Trust validation helpers (hook_injected, request_origin, session_id) |
+| `test_validate.py` | Ticket field schema validation |
+| `test_stage_models.py` | Stage boundary input model dataclasses |
+| `test_response_models.py` | EngineResponse output envelope invariants |
+| `test_paths.py` | Project-root resolution, tickets_dir path containment |
 | `test_integration.py` | Full create/update/close flows |
 | `test_migration.py` | Legacy format conversion |
+| `test_review_findings.py` | Regression tests for 2026-03-08 architectural review findings |
 
 ```bash
 cd packages/plugins/ticket && uv run pytest
