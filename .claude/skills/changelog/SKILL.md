@@ -249,6 +249,10 @@ This is the critical gate. Before presenting the CHANGELOG to the user, verify e
 - [ ] Version numbers and dates are correct
 - [ ] Categories match the nature of the change
 
+**Edit placement check — when applying edits to an existing CHANGELOG:**
+- [ ] After any Edit to a version section, run `grep -n "^## \|^### "` on the file to confirm the change landed in the intended version block
+  - Edit tool matches the *first* occurrence of a string globally — duplicate section headers (`### Fixed`, `### Changed`, `### Added`) across version blocks silently redirect edits to the wrong version
+
 **Omission check — what NOT to include:**
 - Version bumps, dependency updates (unless user-facing)
 - Merge commits, CI-only changes
