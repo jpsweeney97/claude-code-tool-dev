@@ -77,7 +77,7 @@ Tell the lead to create these teammates with these prompts:
 > Map the complete structure of this project. Your deliverable is a comprehensive inventory.
 >
 > Tasks:
-> 1. **Directory tree** — full layout with annotations on what each top-level and second-level directory contains
+> 1. **Directory tree** — full layout with annotations on what each top-level and second-level directory contains. For projects with over 500 files, limit the directory tree to 3 levels deep and sample 3-5 representative files per directory rather than enumerating all
 > 2. **File inventory** — count and categorize: source files, config files, test files, documentation, scripts, assets
 > 3. **Project type classification** — determine if this is a library, CLI tool, plugin/extension, monorepo, or hybrid. Evidence your classification with specific files (package.json bin field, setup.py entry_points, plugin manifest, workspace config)
 > 4. **Nested package detection** — identify all sub-packages, their own READMEs (or lack thereof), and their relationship to the root
@@ -99,7 +99,20 @@ Tell the lead to create these teammates with these prompts:
 >
 > Focus on what's public and documented. Flag things that appear public but lack documentation.
 >
-> Write your findings to `<workspace>/exploration/interface.md`.
+> Write your findings to `<workspace>/exploration/interface.md` in this structure:
+> ```
+> ## Public API
+> [exports grouped by module — signatures and descriptions]
+>
+> ## CLI Commands
+> [commands with flags, arguments, defaults]
+>
+> ## Configuration
+> [all config options: name, type, default, purpose]
+>
+> ## Extension Points
+> [hooks, plugin APIs, middleware — what lets users extend behavior]
+> ```
 
 ### Teammate 3: DevEx Analyst
 
@@ -143,6 +156,8 @@ Tell the lead to create these teammates with these prompts:
 > 4. **Entry points** — where execution starts. Main files, handler registrations, initialization sequences
 > 5. **Cross-cutting concerns** — error handling strategy, logging approach, configuration loading, authentication/authorization patterns
 >
+> When you discover something relevant to another teammate's mandate, message them directly. For example, if you find configuration loaded via a singleton pattern, message the Interface Analyst. If you find complex initialization sequences, message the DevEx Analyst.
+>
 > Write your findings to `<workspace>/exploration/architect.md`.
 
 ### Workspace Setup
@@ -154,6 +169,8 @@ Before spawning the team, create the workspace directory:
 ```
 
 Tell each teammate to write their findings to this directory. After the README is complete, offer to clean up the workspace.
+
+**Small projects:** If the Cartographer reports fewer than 20 source files and no tests, the lead should consolidate remaining work rather than waiting for all teammates to produce near-empty reports. Dismiss teammates whose domain has no content and proceed to synthesis with whatever reports exist.
 
 ### Task Structure
 
@@ -231,7 +248,7 @@ Produce an audit report, not a rewritten README. Structure:
 
 ### Update Mode
 
-Rewrite only the sections that the audit identified as outdated, incorrect, or missing. Preserve the existing README's structure and voice where it's accurate. Show a diff summary of what changed and why.
+Rewrite only the sections that the audit identified as outdated, incorrect, or missing. Preserve the existing README's structure and voice where it's accurate. If the audit reveals the README uses a fundamentally wrong structural pattern (e.g., Library pattern for what's actually a CLI tool), flag this to the user: "The existing README is structured as a [X] but the project is actually a [Y]. Want me to restructure it, or just update the content within the current structure?" Show a diff summary of what changed and why.
 
 ## Quality Checks
 
@@ -242,6 +259,8 @@ Before presenting the final README, verify:
 3. **Every config option is current** — cross-reference with Interface Analyst's config schema
 4. **Quick start is copy-paste-runnable** — the sequence of commands in Quick Start should work on a fresh clone
 5. **No fabricated content** — every claim traces back to an exploration finding. When uncertain, say so rather than guess
+
+If any check fails, fix the content before presenting. Note corrections at the end: what was wrong and what you changed. Do not present a README with known inaccuracies — correct first, then deliver.
 
 ## Nested READMEs
 
