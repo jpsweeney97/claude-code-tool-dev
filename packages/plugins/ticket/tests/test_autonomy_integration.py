@@ -194,3 +194,30 @@ class TestAutonomyIntegration:
         assert ex_resp.data["live_mode"] == "suggest"
         assert "live_warnings" in ex_resp.data
         assert any("BOGUS_MODE" in w for w in ex_resp.data["live_warnings"])
+
+    def test_defense_in_depth_mode_block_with_malformed_config_includes_warnings(self, integration_env):
+        """Defense-in-depth mode block includes live_mode and live_warnings when config is malformed."""
+        tickets_dir, config_path = integration_env
+        # Malformed config: self-heals to mode="suggest", max_creates=5.
+        config_path.write_text("---\nautonomy_mode: BOGUS_MODE\n---\n")
+
+        # Snapshot matches effective policy (suggest, 5) — fingerprints match,
+        # policy-changed check passes, mode block fires.
+        snapshot = AutonomyConfig(mode="suggest")
+
+        ex_resp = engine_execute(
+            action="create", ticket_id=None,
+            fields={"title": "Mode block test", "problem": "Degraded config mode block"},
+            session_id="dind-session", request_origin="agent",
+            dedup_override=False, dependency_override=False,
+            tickets_dir=tickets_dir, autonomy_config=snapshot, hook_injected=True,
+            hook_request_origin="agent",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Degraded config mode block", []),
+        )
+        assert ex_resp.state == "policy_blocked"
+        assert "defense-in-depth" in ex_resp.message.lower()
+        assert ex_resp.data["live_mode"] == "suggest"
+        assert "live_warnings" in ex_resp.data
+        assert any("BOGUS_MODE" in w for w in ex_resp.data["live_warnings"])

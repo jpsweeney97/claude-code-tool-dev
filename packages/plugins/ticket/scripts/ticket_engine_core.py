@@ -1179,10 +1179,14 @@ def engine_execute(
                 error_code="policy_blocked",
             )
         if config.mode != "auto_audit":
+            dind_data: dict[str, Any] = {"live_mode": config.mode}
+            if config.warnings:
+                dind_data["live_warnings"] = list(config.warnings)
             return EngineResponse(
                 state="policy_blocked",
                 message=f"Defense-in-depth: autonomy mode {config.mode!r} blocks agent mutations",
                 error_code="policy_blocked",
+                data=dind_data,
             )
         if action == "create":
             count = engine_count_session_creates(session_id, tickets_dir)
