@@ -1856,6 +1856,7 @@ def _execute_reopen(
 
     # Un-archive first: move before writing status change to prevent
     # "open but invisible" state if the rename fails.
+    archived_from: Path | None = None
     closed_dir = tickets_dir / "closed-tickets"
     if ticket_path.parent == closed_dir:
         dst = tickets_dir / ticket_path.name
@@ -1883,9 +1884,24 @@ def _execute_reopen(
                 ticket_id=ticket_id,
                 error_code="io_error",
             )
+        archived_from = ticket_path
         ticket_path = dst
 
-    ticket_path.write_text(new_text, encoding="utf-8")
+    try:
+        ticket_path.write_text(new_text, encoding="utf-8")
+    except OSError as exc:
+        # Roll back the rename so ticket stays in closed-tickets/ with old status.
+        if archived_from is not None:
+            try:
+                ticket_path.rename(archived_from)
+            except OSError:
+                pass  # Best-effort rollback; original error is more informative.
+        return EngineResponse(
+            state="escalate",
+            message=f"reopen write failed: {exc}. Got: {str(ticket_path)!r:.100}",
+            ticket_id=ticket_id,
+            error_code="io_error",
+        )
 
     return EngineResponse(
         state="ok_reopen",
