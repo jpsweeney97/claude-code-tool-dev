@@ -26,6 +26,8 @@ The plugin does not use a separate config file. Installation plus the runtime de
 claude plugin install handoff@turbo-mode
 ```
 
+`turbo-mode` is the marketplace channel that delivers this plugin. Claude Code's plugin marketplace uses `@<channel>` suffixes to select the distribution channel — `turbo-mode` is the standard channel for this plugin collection.
+
 At the end of a session:
 
 ```
@@ -41,6 +43,8 @@ At the start of the next session:
 That's it. Claude captures context on save, archives the handoff on load, and links the two sessions via `resumed_from` for chain tracking.
 
 ## How It Works
+
+The plugin has four layers: **skills** (Claude-facing slash commands), **hooks** (automated session lifecycle), **CLI scripts** (the Python logic that skills invoke), and **shared libraries** (parsing and path utilities). Skills call scripts via shell invocations; hooks run scripts at session start and after Write operations. The handoff format is the shared contract that binds them — skills write it, hooks validate it, and scripts read and search it.
 
 ### Storage Layout
 
@@ -181,6 +185,8 @@ No other plugin-specific environment variables are read by the current scripts.
 
 ## Skills
 
+Each skill is a `SKILL.md` instruction document that tells Claude how to behave when invoked. You can trigger a skill directly with `/skill-name`, or Claude can invoke it automatically when it recognises the task as relevant. Skill descriptions are always present in context so Claude knows what's available; the full instruction content only loads at invocation. The context cost figures below ("~N lines loaded") show how much content enters context when the skill runs.
+
 ### `/save [title]`
 
 Creates a full handoff document with synthesis process. Reads `synthesis-guide.md` internally (11 synthesis prompts covering narrative, decisions, codebase learnings, failed attempts, debugging state, etc.). ~750 lines loaded.
@@ -188,6 +194,10 @@ Creates a full handoff document with synthesis process. Reads `synthesis-guide.m
 ### `/load [path]`
 
 Resumes from the most recent handoff (or a specific path). Archives the loaded file, writes chain state. Also handles `/list-handoffs` for browsing available handoffs. Lightweight — ~220 lines loaded.
+
+### `/list-handoffs`
+
+Lists available handoffs for the current project, with titles and dates. Useful for finding a specific handoff path to pass to `/load [path]`. Invoked as a sub-mode of `/load`.
 
 ### `/quicksave [title]`
 
