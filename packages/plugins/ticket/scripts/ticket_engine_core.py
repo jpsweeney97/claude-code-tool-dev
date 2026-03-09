@@ -1854,9 +1854,8 @@ def _execute_reopen(
     else:
         new_text += reopen_entry
 
-    ticket_path.write_text(new_text, encoding="utf-8")
-
-    # Un-archive: if the ticket lives under closed-tickets/, move it back.
+    # Un-archive first: move before writing status change to prevent
+    # "open but invisible" state if the rename fails.
     closed_dir = tickets_dir / "closed-tickets"
     if ticket_path.parent == closed_dir:
         dst = tickets_dir / ticket_path.name
@@ -1885,6 +1884,8 @@ def _execute_reopen(
                 error_code="io_error",
             )
         ticket_path = dst
+
+    ticket_path.write_text(new_text, encoding="utf-8")
 
     return EngineResponse(
         state="ok_reopen",

@@ -107,6 +107,80 @@ class TestF1ReopenUnarchive:
         assert ticket.status == "open"
 
 
+    def test_reopen_rename_failure_preserves_closed_status(self, tmp_tickets: Path) -> None:
+        """If un-archive rename fails, ticket stays closed with original status."""
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={"title": "Rename fail", "problem": "Will fail rename"},
+            session_id="f1-rename-sess",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp("Will fail rename", []),
+        )
+        assert resp.state == "ok_create"
+        ticket_id = resp.ticket_id
+        ticket_path = Path(resp.data["ticket_path"])
+
+        fp = compute_target_fp(ticket_path)
+        close_resp = engine_execute(
+            action="close",
+            ticket_id=ticket_id,
+            fields={"resolution": "wontfix", "archive": True},
+            session_id="f1-rename-sess",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            target_fingerprint=fp,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="close",
+            classify_confidence=0.95,
+        )
+        assert close_resp.state == "ok_close_archived"
+        archived_path = Path(close_resp.data["ticket_path"])
+        original_text = archived_path.read_text(encoding="utf-8")
+
+        # Force rename to fail.
+        reopen_fp = compute_target_fp(archived_path)
+        real_rename = Path.rename
+        def failing_rename(self_path: Path, target: Path) -> Path:
+            if self_path == archived_path:
+                raise OSError("simulated rename failure")
+            return real_rename(self_path, target)
+
+        with patch.object(Path, "rename", failing_rename):
+            reopen_resp = engine_execute(
+                action="reopen",
+                ticket_id=ticket_id,
+                fields={"reopen_reason": "Should fail"},
+                session_id="f1-rename-sess",
+                request_origin="user",
+                dedup_override=False,
+                dependency_override=False,
+                tickets_dir=tmp_tickets,
+                target_fingerprint=reopen_fp,
+                hook_injected=True,
+                hook_request_origin="user",
+                classify_intent="reopen",
+                classify_confidence=0.95,
+            )
+
+        assert reopen_resp.state == "escalate"
+        assert reopen_resp.error_code == "io_error"
+        # Ticket must still be in closed-tickets/ with original content (not status: open).
+        assert archived_path.exists()
+        assert archived_path.read_text(encoding="utf-8") == original_text
+        assert "wontfix" in original_text  # original closed status preserved
+
+
 # ---------------------------------------------------------------------------
 # F2: Pipeline plan -> execute for non-create must provide target_fingerprint
 # ---------------------------------------------------------------------------
