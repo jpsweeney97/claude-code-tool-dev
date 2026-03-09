@@ -57,7 +57,12 @@ Plugins are installed via `claude plugin install` and their components are auto-
 
 ### Hook Guard (`hooks/ticket_engine_guard.py`)
 - Single PreToolUse hook on Bash commands
-- 4-branch allowlist: (1) engine mutations with payload injection, (2) read-only scripts, (3) audit (user-only), (4) pass-through for non-ticket commands
+- 5-branch decision tree:
+  - Branch 1: engine mutations (`ticket_engine_user.py`, `ticket_engine_agent.py`) → validate subcommand/payload + inject trust fields
+  - Branch 2: read-only scripts (`ticket_read.py`, `ticket_triage.py`) → allow, no injection
+  - Branch 2b: audit script (`ticket_audit.py`) → allow for users, deny for agents
+  - Branch 3: unrecognized `ticket_*.py` invocations → deny (catch-all for rogue/wrapped scripts)
+  - Branch 4: non-ticket Bash commands → pass through silently
 - Injects `session_id`, `hook_injected=true`, `hook_request_origin` into payload files atomically (temp + fsync + os.replace)
 - Blocks shell metacharacters: `|;&\`$><\n\r`
 - Validates payload paths resolve inside workspace root
@@ -66,6 +71,7 @@ Plugins are installed via `claude plugin install` and their components are auto-
 
 ### Engine Pipeline (`scripts/ticket_engine_{user,agent}.py`)
 - Two entrypoints: user (hardcoded `request_origin="user"`) and agent (hardcoded `request_origin="agent"`)
+- Both entrypoints import `ticket_trust.py` for trust triple validation (hook_injected, hook_request_origin, session_id)
 - Origin mismatch rejection: hook-injected origin must match entrypoint origin
 - 4 stages: classify (intent + confidence) → plan (dedup, field validation) → preflight (autonomy, TOCTOU, dependencies) → execute (write file)
 - Payload files at `.claude/ticket-tmp/payload-<action>-<timestamp>-<hex>.json`
@@ -88,8 +94,8 @@ Plugins are installed via `claude plugin install` and their components are auto-
 - TOCTOU: SHA-256 of file bytes + mtime, checked before execute
 
 ### Test Coverage
-- 388-398 tests across 15 files
-- Covers: pipeline stages, autonomy, audit, hook allowlist, ID allocation, dedup, parse/render, triage, legacy migration
+- 500 tests across 18 files
+- Covers: pipeline stages, autonomy, audit, hook allowlist, ID allocation, dedup, parse/render, triage, legacy migration, field validation, entrypoints, read operations, trust triple, hook integration, autonomy integration
 - Known gap: no concurrency tests
 
 ## Review Instructions
@@ -295,8 +301,10 @@ For each finding, provide:
 | P1 | `skills/ticket/references/pipeline-guide.md` | State machine, payload schemas |
 | P1 | `scripts/ticket_dedup.py` | Dedup fingerprinting |
 | P1 | `scripts/ticket_id.py` | ID allocation |
+| P1 | `scripts/ticket_trust.py` | Trust triple validation — imported by both entrypoints |
 | P2 | `scripts/ticket_parse.py` | YAML parsing, legacy migration |
 | P2 | `scripts/ticket_render.py` | Ticket file rendering |
+| P2 | `scripts/ticket_validate.py` | Field type and value validation |
 | P2 | `scripts/ticket_audit.py` | Audit trail management |
 | P2 | `scripts/ticket_paths.py` | Path resolution, boundary checks |
 | P3 | `tests/` | All test files — look for gaps |
