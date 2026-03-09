@@ -151,6 +151,7 @@ class PlanInput:
     intent: str
     fields: dict[str, Any]
     session_id: str
+    ticket_id: str | None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> PlanInput:
@@ -165,6 +166,7 @@ class PlanInput:
             intent=intent,
             fields=_get_dict(payload, "fields", default={}),
             session_id=_get_str(payload, "session_id", default=""),
+            ticket_id=_get_optional_str(payload, "ticket_id"),
         )
 
 

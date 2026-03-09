@@ -218,23 +218,38 @@ def engine_plan(
     session_id: str,
     request_origin: str,
     tickets_dir: Path,
+    ticket_id: str | None = None,
 ) -> EngineResponse:
-    """Plan stage: validate fields and check for duplicates (create only).
+    """Plan stage: validate fields, check duplicates, compute fingerprints.
 
     For create: validates required fields, computes dedup fingerprint,
     scans for duplicates within 24h window.
-    For other intents: passes through (plan is create-specific).
+    For other intents: resolves ticket and computes target_fingerprint
+    for TOCTOU protection in execute.
+
+    Args:
+        ticket_id: Top-level ticket_id from payload (for update/close/reopen).
     """
     if intent == "create":
         return _plan_create(fields, session_id, request_origin, tickets_dir)
 
-    # Non-create: plan is a pass-through.
+    # Non-create: resolve ticket and compute target_fingerprint.
+    resolved_id = ticket_id or fields.get("ticket_id")
+    computed_fp: str | None = None
+    if resolved_id:
+        from scripts.ticket_dedup import target_fingerprint as compute_fp
+        from scripts.ticket_read import find_ticket_by_id
+
+        ticket = find_ticket_by_id(tickets_dir, resolved_id)
+        if ticket is not None:
+            computed_fp = compute_fp(Path(ticket.path))
+
     return EngineResponse(
         state="ok",
         message=f"Plan pass-through for {intent}",
         data={
             "dedup_fingerprint": None,
-            "target_fingerprint": None,
+            "target_fingerprint": computed_fp,
             "duplicate_of": None,
             "missing_fields": [],
             "action_plan": {"intent": intent},
@@ -972,16 +987,28 @@ def _audit_append(session_id: str, tickets_dir: Path, entry: dict[str, Any]) -> 
         return False
 
 
-def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | object:
-    """Count successful create actions in a session's audit files.
+def engine_count_session_creates(
+    session_id: str,
+    tickets_dir: Path,
+    request_origin: str = "agent",
+) -> int | object:
+    """Count successful or gap create actions in a session's audit files.
 
-    Scans all date directories under <tickets_dir>/.audit/ for
-    <session_id>.jsonl and counts entries where action == "create"
-    and result starts with "ok_".  This handles sessions that span
-    a UTC midnight boundary.
+    Uses attempt_started entries (written before mutation, fail-closed) minus
+    known-failed results to compute the count. This ensures:
+    - Successful creates are counted.
+    - Gap creates (result audit write failed) are conservatively counted.
+    - Failed creates (execution error) are NOT counted.
+
+    Falls back to counting ok_create result entries for backward compatibility
+    with audit files written before attempt_started carried the intent field.
+
+    Args:
+        request_origin: Only count creates from this origin. Defaults to
+            "agent" so user creates don't consume the agent budget.
 
     Returns:
-        int: count of successful creates (0 if no audit files exist)
+        int: count of creates (0 if no audit files exist)
         AUDIT_UNAVAILABLE: on permission error reading an audit file
     """
     safe_id = _sanitize_session_id(session_id)
@@ -989,8 +1016,16 @@ def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | ob
     if not audit_base.is_dir():
         return 0
 
-    count = 0
-    for date_dir in audit_base.iterdir():
+    # Session-scoped pairing state: pending_create tracks whether the most
+    # recent attempt_started (create) has been matched to a result. Carried
+    # across date-directory boundaries so a create spanning midnight pairs
+    # correctly (attempt_started on day N, result on day N+1).
+    attempts = 0
+    non_ok = 0
+    legacy_ok = 0
+    pending_create = False
+
+    for date_dir in sorted(audit_base.iterdir()):
         if not date_dir.is_dir():
             continue
         audit_file = date_dir / f"{safe_id}.jsonl"
@@ -1000,6 +1035,7 @@ def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | ob
             text = audit_file.read_text(encoding="utf-8")
         except OSError:
             return AUDIT_UNAVAILABLE
+
         for line in text.strip().split("\n"):
             if not line.strip():
                 continue
@@ -1008,9 +1044,27 @@ def engine_count_session_creates(session_id: str, tickets_dir: Path) -> int | ob
             except (json.JSONDecodeError, ValueError):
                 print(f"WARNING: corrupt audit line in {audit_file}: {line[:100]!r}", file=sys.stderr)
                 continue
-            if entry.get("action") == "create" and isinstance(entry.get("result"), str) and entry["result"].startswith("ok_"):
-                count += 1
-    return count
+            if entry.get("request_origin") != request_origin:
+                continue
+            # New format: attempt_started with intent field.
+            if (
+                entry.get("action") == "attempt_started"
+                and entry.get("intent") == "create"
+            ):
+                pending_create = True
+                attempts += 1
+            # Create result entry — pair with preceding attempt_started if any.
+            elif entry.get("action") == "create" and isinstance(entry.get("result"), str):
+                if pending_create:
+                    pending_create = False
+                    if not entry["result"].startswith("ok_"):
+                        non_ok += 1
+                elif entry["result"].startswith("ok_"):
+                    # Unpaired ok_create: legacy format (no preceding attempt_started).
+                    legacy_ok += 1
+
+    # New-format creates: attempts minus known failures (gap-safe).
+    return max(0, attempts - non_ok) + legacy_ok
 
 
 def engine_execute(
@@ -1247,9 +1301,12 @@ def engine_execute(
             )
 
     # Audit: attempt_started (fail-closed for agents — audit is a security gate).
+    # "intent" records the action being attempted so counting can use attempt_started
+    # entries when result writes fail (seals the create cap).
     base_entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "action": "attempt_started",
+        "intent": action,
         "ticket_id": ticket_id,
         "session_id": session_id,
         "request_origin": request_origin,
@@ -1302,7 +1359,10 @@ def engine_execute(
         _audit_append(session_id, tickets_dir, error_entry)
         raise
 
-    # Audit: attempt_result
+    # Audit: attempt_result. The create cap is sealed by attempt_started (which
+    # carries intent), so a failed result write doesn't bypass the cap. But we
+    # still escalate for agents because a missing result entry means the non-ok
+    # subtraction won't work if this create failed — conservatively over-counting.
     result_entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "action": action,
@@ -1313,7 +1373,17 @@ def engine_execute(
         "result": resp.state,
         "changes": resp.data.get("changes") if resp.data else None,
     }
-    _audit_append(session_id, tickets_dir, result_entry)
+    if not _audit_append(session_id, tickets_dir, result_entry) and request_origin == "agent":
+        succeeded = isinstance(resp.state, str) and resp.state.startswith("ok_")
+        outcome = "succeeded" if succeeded else f"returned {resp.state}"
+        return EngineResponse(
+            state="escalate",
+            message=f"Audit result write failed — agent {action} {outcome} but result entry "
+            "is missing. Cap is sealed via attempt_started; manual audit review recommended.",
+            ticket_id=resp.ticket_id if resp.ticket_id else ticket_id,
+            error_code="io_error",
+            data=resp.data,
+        )
 
     return resp
 
@@ -1784,7 +1854,58 @@ def _execute_reopen(
     else:
         new_text += reopen_entry
 
-    ticket_path.write_text(new_text, encoding="utf-8")
+    # Un-archive first: move before writing status change to prevent
+    # "open but invisible" state if the rename fails.
+    archived_from: Path | None = None
+    closed_dir = tickets_dir / "closed-tickets"
+    if ticket_path.parent == closed_dir:
+        dst = tickets_dir / ticket_path.name
+        if dst.exists():
+            stem = ticket_path.stem
+            suffix = ticket_path.suffix
+            for n in range(2, _MAX_ARCHIVE_COLLISION_SUFFIX + 2):
+                candidate = tickets_dir / f"{stem}-{n}{suffix}"
+                if not candidate.exists():
+                    dst = candidate
+                    break
+            else:
+                return EngineResponse(
+                    state="escalate",
+                    message=f"un-archive collision resolution failed: exhausted suffix search. Got: {ticket_path.name!r:.100}",
+                    ticket_id=ticket_id,
+                    error_code="io_error",
+                )
+        try:
+            ticket_path.rename(dst)
+        except OSError as exc:
+            return EngineResponse(
+                state="escalate",
+                message=f"un-archive rename failed: {exc}. Got: {str(dst)!r:.100}",
+                ticket_id=ticket_id,
+                error_code="io_error",
+            )
+        archived_from = ticket_path
+        ticket_path = dst
+
+    try:
+        ticket_path.write_text(new_text, encoding="utf-8")
+    except OSError as exc:
+        # Roll back the rename so ticket stays in closed-tickets/ with old status.
+        rollback_failed = False
+        if archived_from is not None:
+            try:
+                ticket_path.rename(archived_from)
+            except OSError:
+                rollback_failed = True
+        msg = f"reopen write failed: {exc}. Got: {str(ticket_path)!r:.100}"
+        if rollback_failed:
+            msg += f" ROLLBACK ALSO FAILED: ticket is at {str(ticket_path)!r:.100} with old status, needs manual fix"
+        return EngineResponse(
+            state="escalate",
+            message=msg,
+            ticket_id=ticket_id,
+            error_code="io_error",
+        )
 
     return EngineResponse(
         state="ok_reopen",

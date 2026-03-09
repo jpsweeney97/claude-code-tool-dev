@@ -10,7 +10,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.ticket_paths import resolve_tickets_dir
+from scripts.ticket_paths import discover_project_root, resolve_tickets_dir
 
 _TERMINAL_STATUSES = frozenset({"done", "wontfix"})
 
@@ -276,7 +276,15 @@ def main() -> None:
         parser.print_usage(sys.stderr)
         sys.exit(1)
 
-    tickets_dir, path_error = resolve_tickets_dir(args.tickets_dir, project_root=Path.cwd())
+    project_root = discover_project_root(Path.cwd())
+    if project_root is None:
+        print(json.dumps({
+            "state": "policy_blocked",
+            "message": "Cannot find project root (no .git or .claude marker in ancestors)",
+            "error_code": "policy_blocked",
+        }))
+        sys.exit(1)
+    tickets_dir, path_error = resolve_tickets_dir(args.tickets_dir, project_root=project_root)
     if path_error is not None or tickets_dir is None:
         print(json.dumps({
             "state": "policy_blocked",

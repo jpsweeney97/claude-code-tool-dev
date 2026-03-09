@@ -386,6 +386,7 @@ class TestTriageCLI:
         assert result.returncode == 1
 
     def test_dashboard_rejects_path_outside_project_root(self, tmp_path):
+        (tmp_path / ".git").mkdir(exist_ok=True)
         outside = tmp_path.parent / "outside-tickets"
         result = subprocess.run(
             [sys.executable, str(TRIAGE_SCRIPT), "dashboard", str(outside)],

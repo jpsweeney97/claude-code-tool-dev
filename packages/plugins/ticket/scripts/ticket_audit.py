@@ -10,7 +10,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.ticket_paths import resolve_tickets_dir
+from scripts.ticket_paths import discover_project_root, resolve_tickets_dir
 
 
 def _response(state: str, message: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -150,7 +150,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(_response("error", error or "Invalid arguments", data)))
         return 1
 
-    tickets_dir, path_error = resolve_tickets_dir(raw_tickets_dir, project_root=Path.cwd())
+    project_root = discover_project_root(Path.cwd())
+    if project_root is None:
+        print(json.dumps(_response("error", "Cannot find project root (no .git or .claude marker in ancestors)", data)))
+        return 1
+    tickets_dir, path_error = resolve_tickets_dir(raw_tickets_dir, project_root=project_root)
     if path_error is not None or tickets_dir is None:
         print(json.dumps(_response("error", path_error or "tickets_dir validation failed", data)))
         return 1

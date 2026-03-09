@@ -69,6 +69,8 @@ def validate_fields(fields: dict[str, Any]) -> list[str]:
             errors.append(f"source must be a dict, got {type(v).__name__}")
         elif not all(isinstance(val, str) for val in v.values()):
             errors.append("source values must all be strings")
+        elif "type" not in v:
+            errors.append("source must contain 'type' key")
 
     if "defer" in fields:
         v = fields["defer"]

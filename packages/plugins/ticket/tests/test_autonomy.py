@@ -149,7 +149,7 @@ class TestAutonomyConfig:
 
     def test_discovers_project_root_via_git_directory_marker(self, tmp_path: Path):
         """Config lookup reuses marker-based root discovery, not a .claude-only walk."""
-        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git").mkdir(exist_ok=True)
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
         (claude_dir / "ticket.local.md").write_text(
@@ -268,7 +268,7 @@ class TestAutonomyPreflight:
         audit_dir.mkdir(parents=True)
         audit_file = audit_dir / "test-session.jsonl"
         for i in range(3):
-            entry = {"action": "create", "result": "ok_create", "session_id": "test-session"}
+            entry = {"action": "attempt_started", "intent": "create", "request_origin": "agent", "session_id": "test-session"}
             with open(audit_file, "a") as f:
                 f.write(json.dumps(entry) + "\n")
         resp = self._preflight(auto_audit_env, request_origin="agent", hook_injected=True)
