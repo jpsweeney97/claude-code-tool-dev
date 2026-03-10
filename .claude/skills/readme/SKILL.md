@@ -66,6 +66,7 @@ Create an agent team with 5 teammates. Each teammate has a distinct exploration 
 Agent teams are coordinated via natural language — describe the team structure, teammates, and tasks to the lead. The lead handles spawning, task assignment, and coordination internally.
 
 **Critical: known failure modes to guard against:**
+- **Do not substitute the Agent tool for agent teams.** If `TeamCreate` is a deferred tool, fetch it with `ToolSearch` and use it. The Agent tool with `run_in_background` looks similar but lacks teammate-to-teammate messaging, coordinated completion detection, and shared task state — leading to polling races and lost coordination. Agent teams and the Agent tool are not interchangeable.
 - The lead may start doing exploration work itself instead of waiting for teammates. If you catch yourself exploring the codebase before teammates finish, stop. Your job is to coordinate, then synthesize.
 - The lead may declare the team finished before all teammates complete. Wait for all 5 idle notifications before proceeding to synthesis.
 - Task status can lag — a teammate may finish work without marking the task complete. Check the workspace for output files as a secondary completion signal.

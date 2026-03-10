@@ -69,6 +69,7 @@ For audit/update modes, read the existing CHANGELOG before launching the team so
 Create an agent team to gather evidence from all three sources simultaneously. Each teammate specializes in one evidence source and writes structured findings to the workspace.
 
 **Critical: known failure modes to guard against:**
+- **Do not substitute the Agent tool for agent teams.** If `TeamCreate` is a deferred tool, fetch it with `ToolSearch` and use it. The Agent tool with `run_in_background` looks similar but lacks teammate-to-teammate messaging, coordinated completion detection, and shared task state — leading to polling races and lost coordination. Agent teams and the Agent tool are not interchangeable.
 - The lead may start gathering evidence itself instead of waiting for teammates. If you catch yourself running git log or gh commands before teammates finish, stop. Your job is to coordinate, then reconcile.
 - The lead may declare the team finished before all teammates complete. Wait for all idle notifications (3 in create mode, 4 in audit/update mode) before proceeding to reconciliation.
 - Task status can lag — check the workspace for output files as a secondary completion signal.
