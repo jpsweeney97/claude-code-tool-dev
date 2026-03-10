@@ -705,3 +705,28 @@ class TestAuditRepairCli:
         assert payload["data"]["files_scanned"] == 1
         assert payload["data"]["corrupt_files"] == 0
         assert payload["data"]["repaired_files"] == []
+
+    def test_audit_repair_permission_error_reported(self, tmp_tickets: Path) -> None:
+        """Permission error reading audit file returns error state."""
+        import os
+
+        if sys.platform == "win32":
+            pytest.skip("chmod not effective on Windows")
+
+        project_root = tmp_tickets.parents[1]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / "perm.jsonl"
+        audit_file.write_text(
+            json.dumps({"action": "create"}) + "\n", encoding="utf-8"
+        )
+        try:
+            os.chmod(audit_file, 0o000)
+            result = _run_audit_cli("repair", "docs/tickets", "--fix", cwd=project_root)
+            assert result.returncode == 1
+            payload = json.loads(result.stdout)
+            assert payload["state"] == "error"
+            assert "cannot read" in payload["message"]
+        finally:
+            os.chmod(audit_file, 0o644)
