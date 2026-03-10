@@ -591,19 +591,6 @@ def engine_preflight(
                 },
             )
 
-        # Hook validation: agent must have hook_injected.
-        if not hook_injected:
-            return EngineResponse(
-                state="policy_blocked",
-                message="Agent mutations require hook_injected=True (missing trust field)",
-                error_code="policy_blocked",
-                data={
-                    "checks_passed": checks_passed,
-                    "checks_failed": [{"check": "hook_injected", "reason": "missing trust field"}],
-                    "autonomy_config": config.to_dict(),
-                },
-            )
-
         # Autonomy mode enforcement.
         if config.mode == "suggest":
             return EngineResponse(

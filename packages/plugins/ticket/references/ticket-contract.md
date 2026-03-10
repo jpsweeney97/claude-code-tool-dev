@@ -16,6 +16,7 @@ Single source of truth for the ticket plugin. All components (skills, agents, en
 ## 2. ID Allocation
 
 - Format: `T-YYYYMMDD-NN` (date + 2-digit daily sequence, zero-padded)
+- Overflow: sequence widens past 2 digits after 99 (e.g., T-20260310-100). Minimum width is 2.
 - Collision prevention: scan existing tickets for same-day IDs, allocate next NN
 - Legacy IDs preserved permanently: `T-NNN` (Gen 3), `T-[A-F]` (Gen 2), slugs (Gen 1)
 
@@ -64,6 +65,8 @@ Problem → Context → Prior Investigation → Approach → Decisions Made → 
 Common response envelope: `{state: string, ticket_id: string|null, message: string, data: object}`
 
 Exit codes: 0 (success), 1 (engine error), 2 (validation failure)
+- Error responses include `error_code` at the top level (one of the 12 defined error codes below). Success responses omit `error_code`.
+- Exit code 2 maps to `need_fields` and `invalid_transition` error codes. `parse_error` returns exit 1 (engine error) — it covers both malformed CLI payloads and corrupted stored ticket YAML.
 
 ### Subcommands
 
@@ -80,6 +83,8 @@ Exit codes: 0 (success), 1 (engine error), 2 (validation failure)
 - If both are present in input, `key_file_paths` is used for dedup. `key_files` is always used for rendering.
 - If `key_files` is omitted, create still succeeds but no `## Key Files` section is rendered.
 - `fields` in preflight is used for resolution-aware policy checks (for example close `resolution=wontfix` bypasses blocker checks).
+
+The `archive` field in execute close requests controls whether the ticket file is moved to `closed-tickets/`. When `archive: true` and close succeeds, the state is `ok_close_archived` instead of `ok_close`.
 
 ### Machine States (15 total: 14 emittable, 1 reserved)
 
@@ -101,7 +106,7 @@ Hook trust source: `agent_id` in `PreToolUse` input is the authoritative signal 
 
 Hook candidate detection: the guard tokenizes Bash commands with `shlex` and treats Python invocations targeting any `ticket_*.py` basename as ticket candidates. Only canonical plugin-root entrypoints are allowlisted; non-canonical, wrapped, or unknown ticket script invocations are denied. Non-ticket Python commands pass through.
 
-Execute provenance: execute requires verified hook provenance (hook_injected=True, hook_request_origin matching entrypoint origin, non-empty session_id) for all mutations, both user and agent. Non-execute stages (classify, plan, preflight) remain directly runnable without hook metadata.
+Execute provenance: execute requires verified hook provenance (hook_injected=True, hook_request_origin matching entrypoint origin, non-empty session_id) for all mutations, both user and agent. Non-execute stages (classify, plan, preflight) remain directly runnable without hook metadata. Agent preflight requires session_id for accurate create-cap simulation but does not require hook_injected.
 
 Execute prerequisites: execute requires prior-stage artifacts:
 - classify_intent (must match action)

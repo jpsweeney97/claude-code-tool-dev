@@ -255,10 +255,10 @@ class TestAutonomyPreflight:
         assert resp.state == "policy_blocked"
         assert "dependency_override" in resp.message.lower()
 
-    def test_agent_no_hook_injected_blocked(self, auto_audit_env):
+    def test_agent_no_hook_injected_passes_through(self, auto_audit_env):
+        """C-006: hook_injected=False on preflight must not block; preflight is non-execute."""
         resp = self._preflight(auto_audit_env, request_origin="agent", hook_injected=False)
-        assert resp.state == "policy_blocked"
-        assert "hook_injected" in resp.message.lower()
+        assert resp.state == "ok"
 
     def test_agent_auto_audit_session_cap_reached(self, auto_audit_env):
         import json

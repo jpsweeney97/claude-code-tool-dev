@@ -65,8 +65,12 @@ class TestEnginePreflight:
         assert resp.state == "ok"
         assert "confidence" in resp.data["checks_passed"]
 
-    def test_agent_blocked_without_hook_injected(self, tmp_tickets):
-        """Agent without hook_injected → policy_blocked (hook trust check)."""
+    def test_agent_preflight_without_hook_injected_succeeds(self, tmp_tickets):
+        """C-006: preflight must not block agents solely because hook_injected=False.
+
+        In suggest mode agents are always policy_blocked (autonomy, not hook gate),
+        but the block reason must not mention hook_injected.
+        """
         resp = engine_preflight(
             ticket_id=None,
             action="create",
@@ -74,12 +78,14 @@ class TestEnginePreflight:
             request_origin="agent",
             classify_confidence=0.95,
             classify_intent="create",
-            dedup_fingerprint="abc",
+            dedup_fingerprint="abc123",
             target_fingerprint=None,
             tickets_dir=tmp_tickets,
+            hook_injected=False,
         )
+        # Blocked by suggest-mode autonomy policy — NOT by missing hook_injected
         assert resp.state == "policy_blocked"
-        assert "hook_injected" in resp.message.lower()
+        assert "hook_injected" not in resp.message.lower()
 
     def test_agent_reopen_user_only(self, tmp_tickets):
         """Agent reopen → policy_blocked (user-only in v1.0)."""
