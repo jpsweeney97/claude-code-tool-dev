@@ -254,3 +254,49 @@ class TestEnginePlan:
         assert resp.state == "ok"
         # No dedup for non-create.
         assert resp.data.get("dedup_fingerprint") is None
+
+    def test_plan_create_dedup_includes_archived_tickets(self, tmp_tickets):
+        """Dedup scan must include closed-tickets/ to detect archived duplicates.
+
+        Before fix: list_tickets(tickets_dir) misses closed-tickets/ subdir,
+        so an archived ticket with identical problem text is not detected.
+        After fix: _list_tickets_with_closed scans closed-tickets/ too.
+        """
+        from datetime import datetime, timezone
+
+        today = datetime.now(timezone.utc)
+        today_str = today.strftime("%Y-%m-%d")
+        today_compact = today_str.replace("-", "")
+        created_at = today.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Create an archived ticket in closed-tickets/ with known problem text.
+        closed_dir = tmp_tickets / "closed-tickets"
+        closed_dir.mkdir(parents=True, exist_ok=True)
+        make_ticket(
+            closed_dir,
+            f"{today_str}-archived.md",
+            id=f"T-{today_compact}-01",
+            date=today_str,
+            created_at=created_at,
+            status="done",
+            problem="Auth times out.",
+            title="Fix auth bug",
+        )
+
+        # Plan create with same problem text should detect duplicate.
+        resp = engine_plan(
+            intent="create",
+            fields={
+                "title": "Fix auth bug",
+                "problem": "Auth times out.",
+                "priority": "high",
+                "key_file_paths": ["test.py"],
+            },
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "duplicate_candidate", (
+            f"Archived ticket with same problem should be detected as duplicate, "
+            f"got state={resp.state!r}"
+        )

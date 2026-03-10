@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 from scripts.ticket_id import allocate_id, build_filename
 from scripts.ticket_parse import (
+    ParsedTicket,
     extract_fenced_yaml,
     parse_yaml_block,
 )
@@ -27,6 +28,20 @@ from scripts.ticket_paths import discover_project_root
 from scripts.ticket_render import render_ticket, replace_fenced_yaml
 from scripts.ticket_trust import collect_trust_triple_errors
 from scripts.ticket_validate import validate_fields
+
+
+# --- Helpers ---
+
+
+def _list_tickets_with_closed(tickets_dir: Path) -> list[ParsedTicket]:
+    """List all tickets including archived (closed-tickets/).
+
+    Used by blocker resolution and dedup scanning. Single source of truth
+    to prevent C-003 regression (archived tickets invisible to dependency checks).
+    """
+    from scripts.ticket_read import list_tickets
+
+    return list_tickets(tickets_dir, include_closed=True)
 
 
 # --- Response envelope ---
@@ -265,7 +280,6 @@ def _plan_create(
 ) -> EngineResponse:
     """Plan stage for create: field validation + dedup."""
     from scripts.ticket_dedup import dedup_fingerprint
-    from scripts.ticket_read import list_tickets
 
     # Check required fields.
     missing = [f for f in _CREATE_REQUIRED if not fields.get(f)]
@@ -297,7 +311,7 @@ def _plan_create(
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=_DEDUP_WINDOW_HOURS)
 
-    existing = list_tickets(tickets_dir)
+    existing = _list_tickets_with_closed(tickets_dir)
     for ticket in existing:
         # Check if ticket is within dedup window.
         # Primary: created_at (ISO 8601 UTC, second-level precision).
@@ -697,9 +711,7 @@ def engine_preflight(
             if resolution == "wontfix":
                 checks_passed.append("dependencies_not_required_for_wontfix")
             else:
-                from scripts.ticket_read import list_tickets as _list_tickets
-
-                all_tickets = _list_tickets(tickets_dir)
+                all_tickets = _list_tickets_with_closed(tickets_dir)
                 ticket_map = {t.id: t for t in all_tickets}
                 missing, unresolved = _classify_blockers(ticket.blocked_by, ticket_map)
                 if missing or unresolved:
@@ -937,9 +949,7 @@ def _check_transition_preconditions(
 
     if precondition == "blockers_resolved_required":
         if ticket.blocked_by:
-            from scripts.ticket_read import list_tickets as _list_tickets
-
-            all_tickets = _list_tickets(tickets_dir)
+            all_tickets = _list_tickets_with_closed(tickets_dir)
             ticket_map = {t.id: t for t in all_tickets}
             missing, unresolved = _classify_blockers(ticket.blocked_by, ticket_map)
             if missing or unresolved:
@@ -1659,9 +1669,7 @@ def _execute_close(
 
     # Defense-in-depth: enforce blocker policy for direct execute calls.
     if ticket.blocked_by and resolution != "wontfix":
-        from scripts.ticket_read import list_tickets as _list_tickets
-
-        all_tickets = _list_tickets(tickets_dir)
+        all_tickets = _list_tickets_with_closed(tickets_dir)
         ticket_map = {t.id: t for t in all_tickets}
         missing, unresolved = _classify_blockers(ticket.blocked_by, ticket_map)
         if (missing or unresolved) and not dependency_override:
