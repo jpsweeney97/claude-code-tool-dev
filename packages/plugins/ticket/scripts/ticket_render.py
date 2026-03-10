@@ -151,6 +151,7 @@ def render_ticket(
     acceptance_criteria: list[str] | None = None,
     verification: str = "",
     key_files: list[dict[str, str]] | None = None,
+    key_file_paths: list[str] | None = None,
     context: str = "",
     prior_investigation: str = "",
     decisions_made: str = "",
@@ -195,6 +196,10 @@ def render_ticket(
         }
 
     frontmatter["contract_version"] = contract_version
+
+    # Persist key_file_paths for future dedup scans (C-002).
+    if key_file_paths:
+        frontmatter["key_file_paths"] = sorted(key_file_paths)
 
     yaml_str = render_frontmatter(frontmatter).rstrip("\n")
 

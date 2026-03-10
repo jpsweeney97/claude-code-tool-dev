@@ -242,6 +242,7 @@ class TestFullCreatePipeline:
             session_id="test",
             request_origin="user",
             dedup_override=True,
+            duplicate_of=plan_resp.data["duplicate_of"],
             dependency_override=False,
             tickets_dir=tmp_tickets,
             hook_injected=True,

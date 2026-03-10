@@ -370,14 +370,16 @@ def _plan_create(
 
         # Compute fingerprint for this ticket's problem text.
         ticket_problem = ticket.sections.get("Problem", "")
-        ticket_key_file_paths: list[str] = []
-        # Extract file paths from Key Files section if present.
-        key_files_section = ticket.sections.get("Key Files", "")
-        if key_files_section:
-            for match in re.finditer(r"^\| ([^|]+) \|", key_files_section, re.MULTILINE):
-                cell = match.group(1).strip()
-                if cell and cell != "File" and not cell.startswith("-"):
-                    ticket_key_file_paths.append(cell)
+        # Prefer persisted key_file_paths (v1.0+) over regex extraction.
+        ticket_key_file_paths: list[str] = ticket.frontmatter.get("key_file_paths", [])
+        if not ticket_key_file_paths:
+            # Fallback: extract from rendered Key Files section.
+            key_files_section = ticket.sections.get("Key Files", "")
+            if key_files_section:
+                for match in re.finditer(r"^\| ([^|]+) \|", key_files_section, re.MULTILINE):
+                    cell = match.group(1).strip()
+                    if cell and cell != "File" and not cell.startswith("-"):
+                        ticket_key_file_paths.append(cell)
 
         existing_fp = dedup_fingerprint(ticket_problem, ticket_key_file_paths)
         if existing_fp == fp:
@@ -688,6 +690,18 @@ def engine_preflight(
     checks_passed.append("intent_match")
 
     # --- Dedup enforcement (create action) ---
+    if action == "create" and dedup_override and not duplicate_of:
+        # C-008: dedup_override must be bound to a specific duplicate candidate.
+        return EngineResponse(
+            state="need_fields",
+            message="dedup_override requires duplicate_of identifying the specific duplicate candidate",
+            error_code="need_fields",
+            data={
+                "checks_passed": checks_passed,
+                "checks_failed": [{"check": "dedup_binding", "reason": "dedup_override without duplicate_of"}],
+                "missing_fields": ["duplicate_of"],
+            },
+        )
     if action == "create" and duplicate_of and not dedup_override:
         return EngineResponse(
             state="duplicate_candidate",
@@ -1120,6 +1134,7 @@ def engine_execute(
     classify_intent: str | None = None,
     classify_confidence: float | None = None,
     dedup_fingerprint: str | None = None,
+    duplicate_of: str | None = None,
 ) -> EngineResponse:
     """Execute the mutation: create, update, close, or reopen.
 
@@ -1286,6 +1301,15 @@ def engine_execute(
                     message=f"Defense-in-depth: session create cap ({config.max_creates})",
                     error_code="policy_blocked",
                 )
+
+    # C-008: dedup_override must be bound to a specific duplicate candidate.
+    if action == "create" and dedup_override and not duplicate_of:
+        return EngineResponse(
+            state="need_fields",
+            message="dedup_override requires duplicate_of identifying the specific duplicate candidate",
+            error_code="need_fields",
+            data={"missing_fields": ["duplicate_of"]},
+        )
 
     # Defense-in-depth dedup check for direct execute(create) calls.
     if action == "create":
@@ -1509,6 +1533,7 @@ def _execute_create(
             acceptance_criteria=fields.get("acceptance_criteria"),
             verification=fields.get("verification", ""),
             key_files=fields.get("key_files"),
+            key_file_paths=fields.get("key_file_paths"),
             context=fields.get("context", ""),
             prior_investigation=fields.get("prior_investigation", ""),
             decisions_made=fields.get("decisions_made", ""),

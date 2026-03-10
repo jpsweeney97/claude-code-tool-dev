@@ -41,6 +41,8 @@ Single source of truth for the ticket plugin. All components (skills, agents, en
 | `blocked_by` | list[string] | [] | IDs of blocking tickets |
 | `blocks` | list[string] | [] | IDs of tickets this blocks |
 | `defer` | object | null | `{active: bool, reason: string, deferred_at: string}` |
+| `key_file_paths` | list[string] | [] | File paths for dedup fingerprinting (persisted on create) |
+| `created_at` | string | "" | ISO 8601 UTC creation timestamp (engine-written, never caller-set) |
 
 ### Section Guidance
 
@@ -122,7 +124,7 @@ Fingerprint: `sha256(normalize(problem_text) + "|" + sorted(key_file_paths))`
 
 `normalize()` steps: (1) strip, (2) collapse whitespace, (3) lowercase, (4) remove punctuation except hyphens/underscores, (5) NFC Unicode normalization
 
-Window: 24 hours. Override: `dedup_override: true` with matching `ticket_id`.
+Window: 24 hours. Override: `dedup_override: true` with `duplicate_of` identifying the specific duplicate candidate ID.
 
 Defense-in-depth: execute stage repeats duplicate checks for create requests to prevent bypass via direct execute calls.
 

@@ -212,6 +212,7 @@ def _dispatch(
                 classify_intent=inp.classify_intent,
                 classify_confidence=inp.classify_confidence,
                 dedup_fingerprint=inp.dedup_fingerprint,
+                duplicate_of=inp.duplicate_of,
             )
         else:
             return EngineResponse(

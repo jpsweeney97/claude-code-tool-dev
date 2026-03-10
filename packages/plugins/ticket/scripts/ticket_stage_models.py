@@ -222,6 +222,7 @@ class ExecuteInput:
     classify_intent: str | None
     classify_confidence: float | None
     dedup_fingerprint: str | None
+    duplicate_of: str | None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> ExecuteInput:
@@ -246,4 +247,5 @@ class ExecuteInput:
             classify_intent=_get_optional_str(payload, "classify_intent"),
             classify_confidence=_get_optional_float(payload, "classify_confidence"),
             dedup_fingerprint=_get_optional_str(payload, "dedup_fingerprint"),
+            duplicate_of=_get_optional_str(payload, "duplicate_of"),
         )
