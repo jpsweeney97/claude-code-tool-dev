@@ -688,3 +688,20 @@ class TestAuditRepairCli:
         assert payload["data"]["repaired_files"] == [str(audit_file)]
         assert len(payload["data"]["backup_paths"]) == 1
         assert audit_file.read_text(encoding="utf-8") == json.dumps(valid_entry) + "\n"
+
+    def test_audit_repair_empty_file_is_valid(self, tmp_tickets: Path) -> None:
+        """Empty audit file is valid — 0 lines, no corruption."""
+        project_root = tmp_tickets.parents[1]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / "empty.jsonl"
+        audit_file.write_text("", encoding="utf-8")
+
+        result = _run_audit_cli("repair", "docs/tickets", "--fix", cwd=project_root)
+
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["data"]["files_scanned"] == 1
+        assert payload["data"]["corrupt_files"] == 0
+        assert payload["data"]["repaired_files"] == []
