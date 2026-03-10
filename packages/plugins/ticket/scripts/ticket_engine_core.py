@@ -44,6 +44,32 @@ def _list_tickets_with_closed(tickets_dir: Path) -> list[ParsedTicket]:
     return list_tickets(tickets_dir, include_closed=True)
 
 
+_V10_GENERATION = 10  # v1.0 tickets have generation=10; legacy is 1-4.
+
+
+def _check_legacy_gate(ticket: ParsedTicket) -> EngineResponse | None:
+    """Reject writes to legacy-format tickets (generation < 10).
+
+    Contract §8: Read-only for legacy formats. Conversion on update
+    (with user confirmation). Until confirm-and-convert is implemented,
+    all non-create writes to legacy tickets are rejected.
+
+    Returns EngineResponse if blocked, None if allowed.
+    """
+    if ticket.generation < _V10_GENERATION:
+        return EngineResponse(
+            state="policy_blocked",
+            message=(
+                f"Legacy ticket (generation {ticket.generation}) is read-only. "
+                f"Contract §8 requires conversion with user confirmation before mutation. "
+                f"Use 'ticket migrate {ticket.id}' when available (v1.1)."
+            ),
+            ticket_id=ticket.id,
+            error_code="policy_blocked",
+        )
+    return None
+
+
 # --- Response envelope ---
 
 
@@ -787,7 +813,6 @@ _UPDATE_FRONTMATTER_KEYS = frozenset({
     "tags",
     "blocked_by",
     "blocks",
-    "contract_version",
     "defer",
 })
 _UPDATE_SECTION_FIELDS = frozenset({
@@ -1532,6 +1557,10 @@ def _execute_update(
     if ticket is None:
         return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
 
+    legacy_block = _check_legacy_gate(ticket)
+    if legacy_block is not None:
+        return legacy_block
+
     validation_errors = validate_fields(fields)
     if validation_errors:
         return EngineResponse(
@@ -1610,6 +1639,8 @@ def _execute_update(
             changes["frontmatter"][key] = [data[key], value]
         data[key] = value
 
+    data["contract_version"] = "1.0"  # C-004: engine-owned, always latest.
+
     try:
         new_text = replace_fenced_yaml(text, data)
     except ValueError as exc:
@@ -1654,6 +1685,10 @@ def _execute_close(
     ticket = find_ticket_by_id(tickets_dir, ticket_id)
     if ticket is None:
         return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
+
+    legacy_block = _check_legacy_gate(ticket)
+    if legacy_block is not None:
+        return legacy_block
 
     close_fields = dict(fields)
     close_fields["resolution"] = resolution  # Validate the resolved resolution too.
@@ -1723,6 +1758,7 @@ def _execute_close(
 
     old_status = data.get("status", "")
     data["status"] = resolution
+    data["contract_version"] = "1.0"  # C-004: engine-owned, always latest.
     try:
         new_text = replace_fenced_yaml(text, data)
     except ValueError as exc:
@@ -1804,6 +1840,10 @@ def _execute_reopen(
     if ticket is None:
         return EngineResponse(state="not_found", message=f"No ticket matching {ticket_id}", ticket_id=ticket_id, error_code="not_found")
 
+    legacy_block = _check_legacy_gate(ticket)
+    if legacy_block is not None:
+        return legacy_block
+
     validation_errors = validate_fields(fields)
     if validation_errors:
         return EngineResponse(
@@ -1835,6 +1875,7 @@ def _execute_reopen(
 
     old_status = data.get("status", "")
     data["status"] = "open"
+    data["contract_version"] = "1.0"  # C-004: engine-owned, always latest.
     try:
         new_text = replace_fenced_yaml(text, data)
     except ValueError as exc:

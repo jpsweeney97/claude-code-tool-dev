@@ -9,7 +9,7 @@ import textwrap
 
 
 from scripts.ticket_parse import parse_ticket
-from tests.support.builders import make_gen1_ticket, make_gen2_ticket, make_gen3_ticket, make_gen4_ticket
+from tests.support.builders import make_gen1_ticket, make_gen2_ticket, make_gen3_ticket, make_gen4_ticket, make_ticket
 
 
 class TestGen1Migration:
@@ -135,3 +135,65 @@ class TestGen4Migration:
         assert ticket.generation == 4
         # Default source_type is "defer" per design doc.
         assert ticket.source["type"] == "defer"
+
+
+class TestLegacyWriteGate:
+    """C-001: legacy tickets (generation < 10) are read-only."""
+
+    def test_update_rejects_legacy_gen1_ticket(self, tmp_tickets):
+        """Update on a Gen 1 ticket should be policy_blocked."""
+        from scripts.ticket_engine_core import _execute_update
+
+        make_gen1_ticket(tmp_tickets)
+        resp = _execute_update(
+            ticket_id="handoff-chain-viz",
+            fields={"priority": "high"},
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "policy_blocked"
+        assert "legacy" in resp.message.lower() or "generation" in resp.message.lower()
+
+    def test_close_rejects_legacy_gen3_ticket(self, tmp_tickets):
+        """Close on a Gen 3 ticket should be policy_blocked."""
+        from scripts.ticket_engine_core import _execute_close
+
+        make_gen3_ticket(tmp_tickets)
+        resp = _execute_close(
+            ticket_id="T-003",
+            fields={"resolution": "done"},
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "policy_blocked"
+
+    def test_reopen_rejects_legacy_gen4_ticket(self, tmp_tickets):
+        """C-001 edge case: reopen on a Gen 4 ticket should be policy_blocked."""
+        from scripts.ticket_engine_core import _execute_reopen
+
+        make_gen4_ticket(tmp_tickets)
+        resp = _execute_reopen(
+            ticket_id="T-20260301-01",
+            fields={"reopen_reason": "needs more work"},
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "policy_blocked"
+
+    def test_update_allows_v10_ticket(self, tmp_tickets):
+        """Regression: v1.0 tickets (generation=10) should be updatable."""
+        from scripts.ticket_engine_core import _execute_update
+
+        make_ticket(tmp_tickets, "2026-03-10-normal.md",
+                    id="T-20260310-01", title="Normal ticket")
+        resp = _execute_update(
+            ticket_id="T-20260310-01",
+            fields={"priority": "high"},
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state != "policy_blocked"
