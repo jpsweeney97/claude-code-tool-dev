@@ -203,3 +203,52 @@ Format uses fenced YAML (```yaml), not YAML frontmatter (---).
 
 `contract_version` in fenced YAML block. Current: "1.0".
 Engine reads all versions; writes latest only.
+
+## 11. DeferredWorkEnvelope Schema (v1.0)
+
+Bridge format for deferred work items from the handoff plugin. Envelopes are JSON files consumed by the ticket engine to create deferred tickets.
+
+### Storage
+
+- Incoming: `docs/tickets/.envelopes/<timestamp>-<slug>.json`
+- Processed: `docs/tickets/.envelopes/.processed/<filename>`
+- Retention: processed envelopes follow the same retention policy as archived tickets
+
+### Required Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `envelope_version` | string | Must be "1.0" |
+| `title` | string | Ticket title |
+| `problem` | string | Problem description |
+| `source` | object | `{type: string, ref: string, session: string}` |
+| `emitted_at` | string | ISO 8601 UTC timestamp when envelope was created |
+
+### Optional Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `context` | string | "" | Context section content |
+| `prior_investigation` | string | "" | Prior investigation section content |
+| `approach` | string | "" | Approach section content |
+| `acceptance_criteria` | list[string] | [] | Acceptance criteria items |
+| `verification` | string | "" | Verification command |
+| `key_files` | list[object] | [] | `{file, role, look_for}` table rows |
+| `key_file_paths` | list[string] | [] | File paths for dedup fingerprinting |
+| `suggested_priority` | string | "medium" | One of: critical, high, medium, low |
+| `suggested_tags` | list[string] | [] | Categorization tags |
+
+### Consumer Behavior
+
+The ticket engine's envelope consumer:
+1. Reads and validates the JSON against this schema
+2. Maps fields to engine create vocabulary (no `status` — consumer synthesizes `open` with `defer.active: true`)
+3. Sets `defer.reason` to `"deferred via envelope"` and `defer.deferred_at` to `emitted_at`
+4. Creates ticket through the normal engine pipeline
+5. Moves consumed envelope to `.processed/`
+
+### Invariants
+
+- Envelopes carry no `status` field — the consumer is the sole authority for initial ticket state
+- `emitted_at` is required for provenance — it becomes `defer.deferred_at`
+- Unknown fields are rejected (closed schema)
