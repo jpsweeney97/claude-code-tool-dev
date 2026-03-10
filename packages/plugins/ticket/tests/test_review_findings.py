@@ -697,8 +697,8 @@ class TestF5SourceValidation:
         errors = validate_fields({"source": {"ref": "x"}})
         assert any("type" in e for e in errors)
 
-    def test_source_with_type_passes(self) -> None:
-        errors = validate_fields({"source": {"type": "ad-hoc", "ref": "x"}})
+    def test_source_with_all_required_keys_passes(self) -> None:
+        errors = validate_fields({"source": {"type": "ad-hoc", "ref": "x", "session": ""}})
         assert not errors
 
     def test_create_with_bad_source_returns_need_fields(self, tmp_tickets: Path) -> None:

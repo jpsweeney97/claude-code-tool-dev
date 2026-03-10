@@ -62,20 +62,27 @@ def validate_fields(fields: dict[str, Any]) -> list[str]:
             elif not all(isinstance(item, str) for item in v):
                 errors.append(f"{key} must contain only strings")
 
-    # --- Dict fields ---
+    # --- source: require {type, ref, session} per contract §3 ---
     if "source" in fields:
         v = fields["source"]
         if not isinstance(v, dict):
             errors.append(f"source must be a dict, got {type(v).__name__}")
-        elif not all(isinstance(val, str) for val in v.values()):
-            errors.append("source values must all be strings")
-        elif "type" not in v:
-            errors.append("source must contain 'type' key")
+        else:
+            if not all(isinstance(val, str) for val in v.values()):
+                errors.append("source values must all be strings")
+            for required_key in ("type", "ref", "session"):
+                if required_key not in v:
+                    errors.append(f"source must contain '{required_key}' key")
 
+    # --- defer: require {active, reason, deferred_at} per contract §3 ---
     if "defer" in fields:
         v = fields["defer"]
         if not isinstance(v, dict):
             errors.append(f"defer must be a dict, got {type(v).__name__}")
+        else:
+            for required_key in ("active", "reason", "deferred_at"):
+                if required_key not in v:
+                    errors.append(f"defer must contain '{required_key}' key")
 
     # --- Structured list fields ---
     if "key_file_paths" in fields:
@@ -85,11 +92,17 @@ def validate_fields(fields: dict[str, Any]) -> list[str]:
         elif not all(isinstance(item, str) for item in v):
             errors.append("key_file_paths must contain only strings")
 
+    # --- key_files: require {file, role, look_for} per contract §3 ---
     if "key_files" in fields:
         v = fields["key_files"]
         if not isinstance(v, list):
             errors.append(f"key_files must be a list, got {type(v).__name__}")
         elif not all(isinstance(item, dict) for item in v):
             errors.append("key_files must contain only dicts")
+        else:
+            for i, item in enumerate(v):
+                for required_key in ("file", "role", "look_for"):
+                    if required_key not in item:
+                        errors.append(f"key_files[{i}] must contain '{required_key}' key")
 
     return errors
