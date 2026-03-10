@@ -3,13 +3,15 @@
 ```yaml
 id: T-20260302-05
 date: "2026-03-02"
-status: open
+status: absorbed
 priority: low
 effort: XS (< 1 session)
 blocked_by: []
 blocks: []
 related: [T-20260302-04]
 tags: [ticket-plugin, agent, safety]
+absorbed_into: T-04c
+notes: "Foreground-only enforcement will be addressed as part of T-04c (agent infrastructure)."
 ```
 
 ## Problem

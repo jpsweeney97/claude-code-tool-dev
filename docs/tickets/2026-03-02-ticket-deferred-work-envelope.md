@@ -3,13 +3,27 @@
 ```yaml
 id: T-20260302-04
 date: "2026-03-02"
-status: open
+status: in_progress
 priority: high
-effort: S (1-2 sessions)
+effort: M (3-5 sessions)
 blocked_by: []
 blocks: []
 related: [T-20260302-05]
 tags: [ticket-plugin, handoff-plugin, migration, integration]
+notes: "Split into T-04a/b/c. T-04a (consumer) done in PR #69. T-04b (producer) and T-04c (agent infra) remain."
+sub_tickets:
+  - id: T-04a
+    title: "Envelope consumer (validate, map, read, lifecycle)"
+    status: done
+    closed_at: "2026-03-10"
+    closed_by: "PR #69"
+  - id: T-04b
+    title: "Handoff-side envelope producer (defer.py → envelope JSON)"
+    status: open
+  - id: T-04c
+    title: "Agent infrastructure (ticket-autocreate envelope ingestion)"
+    status: open
+    absorbs: T-20260302-05
 ```
 
 ## Problem

@@ -3,7 +3,7 @@
 ```yaml
 id: T-20260302-03
 date: "2026-03-02"
-status: in_progress
+status: done
 priority: medium
 effort: "S (1-2 sessions)"
 tags: [ticket-plugin, audit, reliability]
@@ -11,7 +11,9 @@ blocked_by: []
 blocks: []
 related: [T-20260302-01]
 ticket_id: T-20260302-03
-notes: "Started investigating the audit repair work."
+closed_at: "2026-03-10"
+closed_by: "PR #69"
+notes: "Dry-run default + --fix flag + 5 new tests. All acceptance criteria met."
 ```
 
 ## Problem
@@ -49,11 +51,11 @@ Implement `ticket audit repair` as a subcommand of the engine (called via ticket
 - Backup before modification — audit trail is evidence, not disposable
 
 ## Acceptance Criteria
-- [ ] `ticket audit repair` scans all audit files and reports corruption
-- [ ] `--dry-run` mode shows what would be fixed without modifying files
-- [ ] `--fix` mode removes corrupted lines and creates `.bak` backup
-- [ ] After repair, session-cap counting works correctly for affected sessions
-- [ ] Tests cover: trailing partial line (tolerated), non-JSON line (removed), empty file (valid), permission error (reported)
+- [x] `ticket audit repair` scans all audit files and reports corruption
+- [x] `--dry-run` mode shows what would be fixed without modifying files
+- [x] `--fix` mode removes corrupted lines and creates `.bak` backup
+- [x] After repair, session-cap counting works correctly for affected sessions
+- [x] Tests cover: trailing partial line (tolerated), non-JSON line (removed), empty file (valid), permission error (reported)
 
 ## Key Files
 | File | Role | Look For |

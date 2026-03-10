@@ -3,13 +3,14 @@
 ```yaml
 id: T-20260302-01
 date: "2026-03-02"
-status: open
+status: deferred
 priority: medium
 effort: S (1-2 sessions)
 blocked_by: []
 blocks: []
-related: [T-20260302-02, T-20260302-03]
-tags: [ticket-plugin, ux, autonomy]
+related: [T-20260302-02, T-20260302-03, T-04c]
+tags: [ticket-plugin, ux, autonomy, auto-audit-rollout]
+notes: "Deferred — target reference.md doesn't exist yet. Part of auto_audit rollout alongside T-04c (agent infrastructure)."
 ```
 
 ## Problem
