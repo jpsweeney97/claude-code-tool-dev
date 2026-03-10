@@ -111,6 +111,56 @@ class TestEnvelopeValidation:
         assert any("unknown" in e.lower() for e in errors)
 
 
+class TestEnvelopeToFields:
+    """Tests for map_envelope_to_fields()."""
+
+    def test_minimal_envelope_mapping(self) -> None:
+        from scripts.ticket_envelope import map_envelope_to_fields
+        fields = map_envelope_to_fields(_valid_envelope())
+
+        assert fields["title"] == "Fix auth timeout on large payloads"
+        assert fields["problem"] == "Auth handler times out for payloads >10MB."
+        assert fields["source"] == {"type": "handoff", "ref": "session-abc", "session": "abc-123"}
+        assert fields["priority"] == "medium"  # default
+        assert fields["tags"] == []  # default
+        assert fields["defer"] == {
+            "active": True,
+            "reason": "deferred via envelope",
+            "deferred_at": "2026-03-10T06:00:00Z",
+        }
+
+    def test_full_envelope_mapping(self) -> None:
+        from scripts.ticket_envelope import map_envelope_to_fields
+        env = _valid_envelope()
+        env.update({
+            "context": "Found during refactor.",
+            "prior_investigation": "Checked handler.py.",
+            "approach": "Increase timeout.",
+            "acceptance_criteria": ["Large payloads succeed"],
+            "verification": "pytest tests/ -v",
+            "key_files": [{"file": "handler.py", "role": "Timeout", "look_for": "constant"}],
+            "key_file_paths": ["handler.py"],
+            "suggested_priority": "high",
+            "suggested_tags": ["auth"],
+        })
+        fields = map_envelope_to_fields(env)
+
+        assert fields["priority"] == "high"
+        assert fields["tags"] == ["auth"]
+        assert fields["context"] == "Found during refactor."
+        assert fields["prior_investigation"] == "Checked handler.py."
+        assert fields["approach"] == "Increase timeout."
+        assert fields["acceptance_criteria"] == ["Large payloads succeed"]
+        assert fields["verification"] == "pytest tests/ -v"
+        assert fields["key_files"] == [{"file": "handler.py", "role": "Timeout", "look_for": "constant"}]
+        assert fields["key_file_paths"] == ["handler.py"]
+
+    def test_envelope_never_carries_status(self) -> None:
+        from scripts.ticket_envelope import map_envelope_to_fields
+        fields = map_envelope_to_fields(_valid_envelope())
+        assert "status" not in fields, "Consumer synthesizes status; envelope must not carry it"
+
+
 class TestDeferPassThrough:
     """Verify _execute_create passes defer field to render_ticket."""
 

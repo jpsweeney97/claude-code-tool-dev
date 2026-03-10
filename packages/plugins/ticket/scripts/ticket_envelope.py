@@ -141,3 +141,37 @@ def validate_envelope(envelope: dict[str, Any]) -> list[str]:
                 errors.append(f"{field} must be a string, got {type(v).__name__}")
 
     return errors
+
+
+def map_envelope_to_fields(envelope: dict[str, Any]) -> dict[str, Any]:
+    """Map a validated envelope to the fields dict for engine_execute.
+
+    The consumer synthesizes ticket state — the envelope carries no status.
+    Result: status=open, defer.active=true, defer.reason="deferred via envelope".
+    """
+    fields: dict[str, Any] = {
+        "title": envelope["title"],
+        "problem": envelope["problem"],
+        "source": envelope["source"],
+        "priority": envelope.get("suggested_priority", "medium"),
+        "tags": envelope.get("suggested_tags", []),
+        "defer": {
+            "active": True,
+            "reason": "deferred via envelope",
+            "deferred_at": envelope["emitted_at"],
+        },
+    }
+
+    # Optional content fields — only include if present
+    for field in ("context", "prior_investigation", "approach", "verification"):
+        if field in envelope:
+            fields[field] = envelope[field]
+
+    if "acceptance_criteria" in envelope:
+        fields["acceptance_criteria"] = envelope["acceptance_criteria"]
+    if "key_files" in envelope:
+        fields["key_files"] = envelope["key_files"]
+    if "key_file_paths" in envelope:
+        fields["key_file_paths"] = envelope["key_file_paths"]
+
+    return fields
