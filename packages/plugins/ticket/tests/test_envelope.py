@@ -230,6 +230,21 @@ class TestEnvelopeLifecycle:
         assert dest.exists()
         assert not path.exists()
 
+    def test_move_rejects_overwrite(self, tmp_path: Path) -> None:
+        """Cannot silently overwrite a previously processed envelope."""
+        from scripts.ticket_envelope import move_to_processed
+        envelopes_dir = tmp_path / ".envelopes"
+        processed_dir = envelopes_dir / ".processed"
+        processed_dir.mkdir(parents=True)
+        existing = processed_dir / "duplicate.json"
+        existing.write_text("{}", encoding="utf-8")
+        path = envelopes_dir / "duplicate.json"
+        path.write_text("{}", encoding="utf-8")
+
+        with pytest.raises(FileExistsError, match="already exists"):
+            move_to_processed(path)
+        assert path.exists(), "Source should not be removed on failure"
+
 
 class TestDeferPassThrough:
     """Verify _execute_create passes defer field to render_ticket."""

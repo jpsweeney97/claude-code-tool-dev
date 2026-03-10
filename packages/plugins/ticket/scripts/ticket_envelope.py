@@ -210,9 +210,16 @@ def move_to_processed(envelope_path: Path) -> Path:
     """Move a consumed envelope to the .processed/ subdirectory.
 
     Creates .processed/ if it doesn't exist. Returns the destination path.
+    Raises FileExistsError if the destination already exists (prevents
+    silent overwrite of previously processed envelopes).
     """
     processed_dir = envelope_path.parent / ".processed"
     processed_dir.mkdir(parents=True, exist_ok=True)
     dest = processed_dir / envelope_path.name
+    if dest.exists():
+        raise FileExistsError(
+            f"move_to_processed failed: {dest} already exists. "
+            f"Got: {str(envelope_path)!r:.100}"
+        )
     envelope_path.rename(dest)
     return dest
