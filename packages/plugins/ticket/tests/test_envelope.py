@@ -276,3 +276,70 @@ class TestDeferPassThrough:
         assert frontmatter["defer"]["active"] is True
         assert frontmatter["defer"]["reason"] == "deferred via envelope"
         assert frontmatter["defer"]["deferred_at"] == "2026-03-10T06:00:00Z"
+
+
+class TestEnvelopeIngestion:
+    """End-to-end: envelope file → ticket creation → envelope archived."""
+
+    def test_envelope_to_ticket_full_pipeline(self, tmp_tickets: Path) -> None:
+        """Read envelope, map fields, create ticket, move to processed."""
+        import re
+        import yaml
+        from scripts.ticket_envelope import read_envelope, map_envelope_to_fields, move_to_processed
+
+        # Set up envelope
+        envelopes_dir = tmp_tickets / ".envelopes"
+        envelopes_dir.mkdir()
+        envelope_data = _valid_envelope()
+        envelope_data["suggested_priority"] = "high"
+        envelope_data["suggested_tags"] = ["auth"]
+        envelope_data["context"] = "Found during API refactor."
+        envelope_path = envelopes_dir / "2026-03-10T060000Z-fix-auth.json"
+        envelope_path.write_text(json.dumps(envelope_data), encoding="utf-8")
+
+        # Read and validate
+        envelope, errors = read_envelope(envelope_path)
+        assert errors == []
+        assert envelope is not None
+
+        # Map to engine fields
+        fields = map_envelope_to_fields(envelope)
+
+        # Create ticket via engine
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields=fields,
+            session_id="sess-envelope-1",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp(fields["problem"], fields.get("key_file_paths", [])),
+        )
+        assert resp.state == "ok_create"
+
+        # Verify ticket content
+        ticket_path = Path(resp.data["ticket_path"])
+        content = ticket_path.read_text(encoding="utf-8")
+        yaml_match = re.search(r"```ya?ml\s*\n(.*?)```", content, re.DOTALL)
+        assert yaml_match
+        frontmatter = yaml.safe_load(yaml_match.group(1))
+
+        assert frontmatter["priority"] == "high"
+        assert frontmatter["tags"] == ["auth"]
+        assert frontmatter["defer"]["active"] is True
+        assert frontmatter["defer"]["reason"] == "deferred via envelope"
+        assert frontmatter["source"]["type"] == "handoff"
+        assert "## Context" in content
+        assert "Found during API refactor." in content
+
+        # Move envelope to processed
+        dest = move_to_processed(envelope_path)
+        assert dest.exists()
+        assert not envelope_path.exists()
+        assert dest.parent.name == ".processed"
