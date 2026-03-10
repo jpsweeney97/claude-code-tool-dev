@@ -179,7 +179,7 @@ Before spawning the team, create the workspace directory:
 {system-root}/.handbook-workspace/exploration/
 ```
 
-Tell each teammate to write their findings to this directory. After the handbook is complete, offer to clean up the workspace.
+Tell each teammate to write their findings to this directory. Cleanup is handled automatically after completion (see Cleanup section).
 
 ### Task Structure
 
@@ -297,8 +297,11 @@ When documenting a single service or package within a larger system:
 
 ## Cleanup
 
-After the handbook is complete and the user is satisfied:
+After the handbook is complete and delivered, clean up automatically — do not ask:
 
-1. Ask: "Want me to clean up the exploration workspace (`.handbook-workspace/`)?"
-2. If yes, remove the workspace directory
-3. The agent team cleans up automatically when the lead shuts it down
+1. Shut down all teammates via `SendMessage` with `type: "shutdown_request"`
+2. Remove the workspace directory (`.handbook-workspace/`)
+3. Remove team files (`~/.claude/teams/<team-name>/`)
+4. Remove task files (`~/.claude/tasks/<team-name>/`)
+
+These are transient working artifacts, not deliverables.

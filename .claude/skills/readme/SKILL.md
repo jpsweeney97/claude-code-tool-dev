@@ -169,7 +169,7 @@ Before spawning the team, create the workspace directory:
 <project-root>/.readme-workspace/exploration/
 ```
 
-Tell each teammate to write their findings to this directory. After the README is complete, offer to clean up the workspace.
+Tell each teammate to write their findings to this directory. Cleanup is handled automatically after completion (see Cleanup section).
 
 **Small projects:** If the Cartographer reports fewer than 20 source files and no tests, the lead should consolidate remaining work rather than waiting for all teammates to produce near-empty reports. Dismiss teammates whose domain has no content and proceed to synthesis with whatever reports exist.
 
@@ -274,8 +274,11 @@ When working on a nested README (a package within a monorepo, a plugin within a 
 
 ## Cleanup
 
-After the README is complete and the user is satisfied:
+After the README is complete and delivered, clean up automatically — do not ask:
 
-1. Ask: "Want me to clean up the exploration workspace (`.readme-workspace/`)?"
-2. If yes, remove the workspace directory
-3. The agent team cleans up automatically when the lead shuts it down
+1. Shut down all teammates via `SendMessage` with `type: "shutdown_request"`
+2. Remove the workspace directory (`.readme-workspace/`)
+3. Remove team files (`~/.claude/teams/<team-name>/`)
+4. Remove task files (`~/.claude/tasks/<team-name>/`)
+
+These are transient working artifacts, not deliverables.
