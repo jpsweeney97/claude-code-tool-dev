@@ -64,7 +64,7 @@ Intercepts all Bash commands, detects ticket script invocations, and:
 
 Security: blocks shell metacharacters (`|;&`$><\n\r`), enforces path containment, uses atomic writes (temp + fsync + os.replace).
 
-### Scripts (16 modules in `scripts/`)
+### Scripts (15 modules in `scripts/`)
 
 Source code lives in `scripts/`, not a standard Python package directory. Scripts are invoked by skills via `python3 $CLAUDE_PLUGIN_ROOT/scripts/<script>.py`.
 
@@ -101,6 +101,8 @@ Exit codes: `0` (success), `1` (engine error), `2` (validation failure / need_fi
 |----------|------|---------|
 | Ticket Contract | `references/ticket-contract.md` | Single source of truth: schema, states, error codes, transitions, autonomy, dedup |
 | Pipeline Guide | `skills/ticket/references/pipeline-guide.md` | Payload schemas, state propagation, response-to-UX mapping |
+| Operator Handbook | `HANDBOOK.md` | Bring-up, operational runbooks, failure recovery, internals |
+| Changelog | `CHANGELOG.md` | Version history and release notes |
 
 ## Configuration
 
@@ -111,8 +113,14 @@ Controls agent-origin behavior. Configured per-project in `.claude/ticket.local.
 ```yaml
 ---
 autonomy_mode: suggest
+max_creates_per_session: 5
 ---
 ```
+
+| Field | Type | Default | Values |
+|-------|------|---------|--------|
+| `autonomy_mode` | string | `suggest` | `suggest`, `auto_audit`, `auto_silent` (v1.1 only) |
+| `max_creates_per_session` | int | `5` | Per-session cap on agent-created tickets; `0` disables agent creates |
 
 | Mode | Behavior |
 |------|----------|
@@ -238,8 +246,11 @@ Security checks are duplicated across pipeline stages:
 |-------|--------|
 | Deduplication | plan, execute |
 | Autonomy policy | preflight, execute (with live re-read) |
+| Confidence threshold | preflight, execute |
 | Agent restrictions | preflight, execute |
 | Origin verification | runner, preflight, execute |
+| Intent match | preflight, execute |
+| Session create cap | preflight, execute |
 | TOCTOU fingerprint | preflight, execute |
 
 ### Machine States (15)
@@ -260,7 +271,8 @@ External agents can use `ticket_engine_agent.py` to create and manage tickets au
 2. **Trust triple** injected by the guard hook (hook_injected=true, hook_request_origin="agent")
 3. **Higher confidence threshold** (0.65 for agents vs 0.5 for users)
 4. **Live policy re-read** at execute time blocks if policy changed since preflight
-5. **Session create cap** enforcement via audit trail
+5. **Session create cap** enforcement via audit trail (configurable via `max_creates_per_session`)
+6. **Reopen is user-only** in v1.0 — agents cannot reopen tickets
 
 The `agents/` directory is a placeholder (`.gitkeep` only) — consuming projects define their own agent definitions that invoke the agent entrypoint.
 
@@ -287,21 +299,25 @@ uv run --package ticket-plugin pytest
 uv run pytest tests/test_hook.py
 ```
 
-596 tests across 21 test files. Collection time ~0.1s (pure Python, no heavy imports).
+596 tests across 25 test files. Collection time ~0.1s (pure Python, no heavy imports).
 
 ### Test Organization
 
-Tests map 1:1 to source modules plus pipeline-stage and integration tests. Fixtures use a builder pattern (`tests/support/builders.py`) for creating test tickets with configurable fields.
+Tests map 1:1 to source modules plus pipeline-stage and integration tests. Fixtures use factory functions (`tests/support/builders.py`) with keyword arguments for creating test tickets with configurable fields.
 
 ### Project Structure
 
 ```
-scripts/          # All source modules (16 files)
+scripts/          # 15 source modules
 hooks/            # Guard hook + registration
 skills/           # /ticket and /ticket-triage skill definitions
-tests/            # 596 tests (21 files + support/)
+tests/            # 596 tests (25 files + support/)
 references/       # Ticket contract (canonical schema)
+agents/           # Placeholder — consuming projects define their own
 .claude-plugin/   # Plugin manifest
+pyproject.toml    # Package metadata and dependencies
+CHANGELOG.md      # Version history
+HANDBOOK.md       # Operator handbook
 ```
 
 Source lives in `scripts/` rather than a standard Python package directory. Modules use `sys.path.insert` for imports, invoked directly via `python3 <path>`.
@@ -323,4 +339,4 @@ Source lives in `scripts/` rather than a standard Python package directory. Modu
 
 ## License
 
-MIT. See LICENSE.
+MIT.

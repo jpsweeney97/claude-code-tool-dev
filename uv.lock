@@ -873,7 +873,7 @@ wheels = [
 
 [[package]]
 name = "ticket-plugin"
-version = "1.2.0"
+version = "1.4.0"
 source = { virtual = "packages/plugins/ticket" }
 dependencies = [
     { name = "pyyaml" },
