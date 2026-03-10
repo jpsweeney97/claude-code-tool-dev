@@ -7,7 +7,7 @@
 Promote extensions from sandbox to production (~/.claude/).
 
 Usage:
-    uv run scripts/promote <type> <name> [--dry-run] [--force]
+    uv run scripts/promote <type> <name> [--dry-run]
     uv run scripts/promote skill my-skill
     uv run scripts/promote hook block-credentials
     uv run scripts/promote command deploy
@@ -194,13 +194,6 @@ def copy_extension(source: Path, dest: Path) -> bool:
         return False
 
 
-def prompt_sync_settings() -> bool:
-    """Ask if user wants to sync settings after hook promotion."""
-    console.print("\n[yellow]Hook promoted. Sync settings.json?[/yellow]")
-    response = input("Run sync-settings? [y/N] ").strip().lower()
-    return response == "y"
-
-
 def run_sync_settings() -> None:
     """Run the sync-settings script."""
     script = Path("scripts/sync-settings")
@@ -231,12 +224,6 @@ Examples:
         "--dry-run",
         action="store_true",
         help="Show diff without copying",
-    )
-    parser.add_argument(
-        "--force",
-        "-f",
-        action="store_true",
-        help="Skip confirmation prompt",
     )
     args = parser.parse_args()
 
@@ -279,21 +266,13 @@ Examples:
         console.print("\n[yellow]Dry run - no changes made[/yellow]")
         return
 
-    # Confirm
-    if not args.force:
-        response = input("\nProceed with promotion? [y/N] ").strip().lower()
-        if response != "y":
-            console.print("[yellow]Cancelled[/yellow]")
-            return
-
     # Copy
     if copy_extension(source, dest):
         console.print(f"\n[green]Promoted {args.type} '{args.name}' to {dest}[/green]")
 
-        # For hooks, offer to sync settings
-        if args.type == "hook" and not args.force:
-            if prompt_sync_settings():
-                run_sync_settings()
+        # For hooks, automatically sync settings
+        if args.type == "hook":
+            run_sync_settings()
     else:
         sys.exit(1)
 
