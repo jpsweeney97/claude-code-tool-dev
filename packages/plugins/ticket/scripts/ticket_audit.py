@@ -28,13 +28,16 @@ def _empty_data() -> dict[str, Any]:
 
 
 def _parse_args(argv: list[str]) -> tuple[str | None, str | None, bool, str | None]:
-    dry_run = False
+    dry_run = True  # Default: safe mode (report only)
     args = list(argv)
+    if "--fix" in args:
+        dry_run = False
+        args.remove("--fix")
     if "--dry-run" in args:
         dry_run = True
         args.remove("--dry-run")
     if len(args) != 2 or args[0] != "repair":
-        return None, None, False, "Usage: ticket_audit.py repair <tickets_dir> [--dry-run]"
+        return None, None, True, "Usage: ticket_audit.py repair <tickets_dir> [--fix | --dry-run]"
     return args[0], args[1], dry_run, None
 
 

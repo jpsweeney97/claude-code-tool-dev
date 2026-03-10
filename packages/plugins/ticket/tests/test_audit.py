@@ -582,7 +582,7 @@ class TestAuditRepairCli:
             encoding="utf-8",
         )
 
-        result = _run_audit_cli("repair", "docs/tickets", cwd=project_root)
+        result = _run_audit_cli("repair", "docs/tickets", "--fix", cwd=project_root)
 
         assert result.returncode == 0
         payload = json.loads(result.stdout)
@@ -615,7 +615,7 @@ class TestAuditRepairCli:
         ignored_backup = audit_dir / "clean.jsonl.bak-20260306T000000Z"
         ignored_backup.write_text("NOT JSON\n", encoding="utf-8")
 
-        result = _run_audit_cli("repair", "docs/tickets", cwd=project_root)
+        result = _run_audit_cli("repair", "docs/tickets", "--fix", cwd=project_root)
 
         assert result.returncode == 0
         payload = json.loads(result.stdout)
@@ -639,10 +639,133 @@ class TestAuditRepairCli:
             encoding="utf-8",
         )
 
-        result = _run_audit_cli("repair", "docs/tickets", cwd=project_root)
+        result = _run_audit_cli("repair", "docs/tickets", "--fix", cwd=project_root)
 
         assert result.returncode == 0
         payload = json.loads(result.stdout)
         assert payload["state"] == "ok"
         assert payload["data"]["corrupt_files"] == 1
         assert audit_file.read_text(encoding="utf-8") == json.dumps(valid_entry) + "\n"
+
+    def test_audit_repair_default_is_dry_run(self, tmp_tickets: Path) -> None:
+        """Calling repair without --fix defaults to dry-run (no file modification)."""
+        project_root = tmp_tickets.parents[1]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / "default-mode.jsonl"
+        original = (
+            json.dumps({"action": "create", "result": "ok_create"}) + "\n"
+            + "CORRUPT LINE\n"
+        )
+        audit_file.write_text(original, encoding="utf-8")
+
+        result = _run_audit_cli("repair", "docs/tickets", cwd=project_root)
+
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["data"]["corrupt_files"] == 1
+        assert payload["data"]["repaired_files"] == [], "Default should be dry-run"
+        assert audit_file.read_text(encoding="utf-8") == original, "File should be unchanged"
+        assert list(audit_dir.glob("*.bak-*")) == [], "No backup created in dry-run"
+
+    def test_audit_repair_fix_flag_enables_repair(self, tmp_tickets: Path) -> None:
+        """--fix flag enables actual file modification."""
+        project_root = tmp_tickets.parents[1]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / "fix-mode.jsonl"
+        valid_entry = {"action": "create", "result": "ok_create"}
+        audit_file.write_text(
+            json.dumps(valid_entry) + "\n" + "CORRUPT\n", encoding="utf-8"
+        )
+
+        result = _run_audit_cli("repair", "docs/tickets", "--fix", cwd=project_root)
+
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["data"]["repaired_files"] == [str(audit_file)]
+        assert len(payload["data"]["backup_paths"]) == 1
+        assert audit_file.read_text(encoding="utf-8") == json.dumps(valid_entry) + "\n"
+
+    def test_audit_repair_empty_file_is_valid(self, tmp_tickets: Path) -> None:
+        """Empty audit file is valid — 0 lines, no corruption."""
+        project_root = tmp_tickets.parents[1]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / "empty.jsonl"
+        audit_file.write_text("", encoding="utf-8")
+
+        result = _run_audit_cli("repair", "docs/tickets", "--fix", cwd=project_root)
+
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["data"]["files_scanned"] == 1
+        assert payload["data"]["corrupt_files"] == 0
+        assert payload["data"]["repaired_files"] == []
+
+    def test_audit_repair_permission_error_reported(self, tmp_tickets: Path) -> None:
+        """Permission error reading audit file returns error state."""
+        import os
+
+        if sys.platform == "win32":
+            pytest.skip("chmod not effective on Windows")
+
+        project_root = tmp_tickets.parents[1]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / "perm.jsonl"
+        audit_file.write_text(
+            json.dumps({"action": "create"}) + "\n", encoding="utf-8"
+        )
+        try:
+            os.chmod(audit_file, 0o000)
+            result = _run_audit_cli("repair", "docs/tickets", "--fix", cwd=project_root)
+            assert result.returncode == 1
+            payload = json.loads(result.stdout)
+            assert payload["state"] == "error"
+            assert "cannot read" in payload["message"]
+        finally:
+            os.chmod(audit_file, 0o644)
+
+
+class TestAuditRepairIntegration:
+    """End-to-end: corrupt → repair → count."""
+
+    def test_repair_then_count_returns_correct_count(self, tmp_tickets: Path) -> None:
+        """After repairing a corrupt audit file, session counting works correctly."""
+        session_id = "sess-repair-count"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        audit_dir = tmp_tickets / ".audit" / today
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_file = audit_dir / f"{session_id}.jsonl"
+
+        # Write 3 valid create attempts + 2 corrupt lines
+        lines = [
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent", "ts": "t1"}),
+            json.dumps({"action": "create", "result": "ok_create", "request_origin": "agent"}),
+            "NOT JSON AT ALL",
+            json.dumps({"action": "attempt_started", "intent": "create", "request_origin": "agent", "ts": "t2"}),
+            "ANOTHER BAD LINE {{{",
+        ]
+        audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        # Before repair: count still works (skips corrupt lines)
+        assert engine_count_session_creates(session_id, tmp_tickets) == 2
+
+        # Repair
+        from scripts.ticket_audit import repair_audit_logs
+        response, exit_code = repair_audit_logs(tickets_dir=tmp_tickets, dry_run=False)
+        assert exit_code == 0
+        assert response["data"]["corrupt_files"] == 1
+        assert response["data"]["repaired_files"] == [str(audit_file)]
+
+        # After repair: count is the same, file is clean
+        assert engine_count_session_creates(session_id, tmp_tickets) == 2
+        repaired_lines = audit_file.read_text(encoding="utf-8").strip().split("\n")
+        assert len(repaired_lines) == 3, "Only 3 valid JSON lines should remain"
+        for line in repaired_lines:
+            json.loads(line)  # All lines should be valid JSON
