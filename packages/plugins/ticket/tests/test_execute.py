@@ -1962,23 +1962,42 @@ class TestExecuteFieldValidation:
 class TestContractVersionEnforcement:
     """C-004: contract_version is engine-owned; callers cannot set it."""
 
-    def test_update_ignores_caller_contract_version(self, tmp_tickets):
-        """Update with contract_version='0.9' should still write '1.0'."""
+    def test_update_rejects_caller_contract_version(self, tmp_tickets):
+        """Update with contract_version in fields should be rejected as unknown field."""
         from scripts.ticket_engine_core import _execute_update
-        from scripts.ticket_parse import parse_ticket
 
         make_ticket(tmp_tickets, "2026-03-10-cv.md",
                     id="T-20260310-01", title="Test ticket")
 
-        _execute_update(
+        resp = _execute_update(
             ticket_id="T-20260310-01",
             fields={"priority": "high", "contract_version": "0.9"},
             session_id="test-session",
             request_origin="user",
             tickets_dir=tmp_tickets,
         )
+        assert resp.state == "escalate"
+        assert "contract_version" in resp.message
 
-        ticket = parse_ticket(tmp_tickets / "2026-03-10-cv.md")
+    def test_update_stamps_contract_version(self, tmp_tickets):
+        """Valid update should stamp contract_version='1.0' on the file."""
+        from scripts.ticket_engine_core import _execute_update
+        from scripts.ticket_parse import parse_ticket
+
+        make_ticket(tmp_tickets, "2026-03-10-cv-stamp.md",
+                    id="T-20260310-01", title="Test ticket",
+                    contract_version="0.8")
+
+        resp = _execute_update(
+            ticket_id="T-20260310-01",
+            fields={"priority": "low"},
+            session_id="test-session",
+            request_origin="user",
+            tickets_dir=tmp_tickets,
+        )
+        assert resp.state == "ok_update"
+
+        ticket = parse_ticket(tmp_tickets / "2026-03-10-cv-stamp.md")
         assert ticket is not None
         assert ticket.frontmatter.get("contract_version") == "1.0", (
             f"contract_version should be forced to 1.0, got {ticket.frontmatter.get('contract_version')!r}"
@@ -1993,7 +2012,7 @@ class TestContractVersionEnforcement:
                     id="T-20260310-02", title="Test ticket",
                     status="in_progress", contract_version="0.8")
 
-        _execute_close(
+        resp = _execute_close(
             ticket_id="T-20260310-02",
             fields={"resolution": "done"},
             session_id="test-session",
@@ -2001,12 +2020,8 @@ class TestContractVersionEnforcement:
             tickets_dir=tmp_tickets,
         )
 
-        # After close, ticket may be in closed-tickets/ if archived
-        # Try both locations
-        ticket = parse_ticket(tmp_tickets / "2026-03-10-cv2.md")
-        if ticket is None:
-            closed = tmp_tickets / "closed-tickets" / "2026-03-10-cv2.md"
-            ticket = parse_ticket(closed)
+        assert resp.state in ("ok_close", "ok_close_archived")
+        ticket = parse_ticket(Path(resp.data["ticket_path"]))
         assert ticket is not None
         assert ticket.frontmatter.get("contract_version") == "1.0"
 

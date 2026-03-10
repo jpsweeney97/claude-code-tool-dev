@@ -45,6 +45,7 @@ def _list_tickets_with_closed(tickets_dir: Path) -> list[ParsedTicket]:
 
 
 _V10_GENERATION = 10  # v1.0 tickets have generation=10; legacy is 1-4.
+_CONTRACT_VERSION = "1.0"  # Current contract version; stamped on every write.
 
 
 def _check_legacy_gate(ticket: ParsedTicket) -> EngineResponse | None:
@@ -1512,6 +1513,7 @@ def _execute_create(
             prior_investigation=fields.get("prior_investigation", ""),
             decisions_made=fields.get("decisions_made", ""),
             related=fields.get("related", ""),
+            contract_version=_CONTRACT_VERSION,
         )
         try:
             _write_text_exclusive(ticket_path, content)
@@ -1639,7 +1641,7 @@ def _execute_update(
             changes["frontmatter"][key] = [data[key], value]
         data[key] = value
 
-    data["contract_version"] = "1.0"  # C-004: engine-owned, always latest.
+    data["contract_version"] = _CONTRACT_VERSION  # C-004: engine-owned, always latest.
 
     try:
         new_text = replace_fenced_yaml(text, data)
@@ -1758,7 +1760,7 @@ def _execute_close(
 
     old_status = data.get("status", "")
     data["status"] = resolution
-    data["contract_version"] = "1.0"  # C-004: engine-owned, always latest.
+    data["contract_version"] = _CONTRACT_VERSION  # C-004: engine-owned, always latest.
     try:
         new_text = replace_fenced_yaml(text, data)
     except ValueError as exc:
@@ -1875,7 +1877,7 @@ def _execute_reopen(
 
     old_status = data.get("status", "")
     data["status"] = "open"
-    data["contract_version"] = "1.0"  # C-004: engine-owned, always latest.
+    data["contract_version"] = _CONTRACT_VERSION  # C-004: engine-owned, always latest.
     try:
         new_text = replace_fenced_yaml(text, data)
     except ValueError as exc:
