@@ -1,13 +1,6 @@
 ---
 name: changelog
-description: >-
-  Create, audit, update, and refine CHANGELOGs with verified accuracy. Orchestrates an agent team
-  to gather evidence from git history, GitHub PRs, and handoff archives in parallel, then
-  cross-references all three sources to produce grounded entries. Trigger on: adding PRs/commits
-  to a changelog, creating a changelog from scratch, checking changelog accuracy against git history,
-  finding what changed between versions or since a date, preparing release documentation, or figuring
-  out which version a feature shipped in. Applies to any request that touches CHANGELOG.md files,
-  version history, or release notes — whether creating, editing, or verifying them.
+description: Create, audit, update, and refine CHANGELOGs with verified accuracy. Orchestrates an agent team to gather evidence from git history, GitHub PRs, and handoff archives in parallel, then cross-references all three sources to produce grounded entries. Trigger on: adding PRs/commits to a changelog, creating a changelog from scratch, checking changelog accuracy against git history, finding what changed between versions or since a date, preparing release documentation, or figuring out which version a feature shipped in. Applies to any request that touches CHANGELOG.md files, version history, or release notes — whether creating, editing, or verifying them.
 ---
 
 # Changelog Skill

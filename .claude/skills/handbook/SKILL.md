@@ -1,17 +1,6 @@
 ---
 name: handbook
-description: >-
-  Create, audit, and update operational handbooks — technical reference documents covering bring-up,
-  runbooks, failure recovery, internals, and verification for any software system. Orchestrates an
-  agent team to explore the system from five operational perspectives in parallel, then synthesizes
-  findings into grounded documentation. Distinct from READMEs (what it is) and CHANGELOGs (what
-  changed). Use this skill whenever the user wants to document how to **operate** a system. Trigger
-  on: "write a handbook", "create an operational runbook", "document how this system works", "audit
-  this handbook", "update the handbook", "write a technical reference", "write runbooks for X",
-  "document the bring-up procedure", or when the user says "document it" about a system with multiple
-  entrypoints, safety controls, or operational complexity and a README isn't clearly what they need.
-  Default to this skill over README generation when the subject is an existing running system rather
-  than a new project being introduced to users.
+description: Create, audit, and update operational handbooks — technical reference documents covering bring-up, runbooks, failure recovery, internals, and verification for any software system. Orchestrates an agent team to explore the system from five operational perspectives in parallel, then synthesizes findings into grounded documentation. Distinct from READMEs (what it is) and CHANGELOGs (what changed). Use this skill whenever the user wants to document how to **operate** a system. Trigger on: "write a handbook", "create an operational runbook", "document how this system works", "audit this handbook", "update the handbook", "write a technical reference", "write runbooks for X", "document the bring-up procedure", or when the user says "document it" about a system with multiple entrypoints, safety controls, or operational complexity and a README isn't clearly what they need. Default to this skill over README generation when the subject is an existing running system rather than a new project being introduced to users.
 ---
 
 # Handbook Skill
