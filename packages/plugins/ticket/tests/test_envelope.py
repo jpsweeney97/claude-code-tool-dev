@@ -161,6 +161,76 @@ class TestEnvelopeToFields:
         assert "status" not in fields, "Consumer synthesizes status; envelope must not carry it"
 
 
+class TestEnvelopeRead:
+    """Tests for read_envelope()."""
+
+    def test_read_valid_envelope(self, tmp_path: Path) -> None:
+        from scripts.ticket_envelope import read_envelope
+        path = tmp_path / "envelope.json"
+        path.write_text(json.dumps(_valid_envelope()), encoding="utf-8")
+
+        envelope, errors = read_envelope(path)
+        assert errors == []
+        assert envelope is not None
+        assert envelope["title"] == "Fix auth timeout on large payloads"
+
+    def test_read_invalid_json(self, tmp_path: Path) -> None:
+        from scripts.ticket_envelope import read_envelope
+        path = tmp_path / "bad.json"
+        path.write_text("NOT JSON {{{", encoding="utf-8")
+
+        envelope, errors = read_envelope(path)
+        assert envelope is None
+        assert any("parse" in e.lower() or "json" in e.lower() for e in errors)
+
+    def test_read_missing_file(self, tmp_path: Path) -> None:
+        from scripts.ticket_envelope import read_envelope
+        path = tmp_path / "missing.json"
+
+        envelope, errors = read_envelope(path)
+        assert envelope is None
+        assert any("not found" in e.lower() or "does not exist" in e.lower() for e in errors)
+
+    def test_read_invalid_schema(self, tmp_path: Path) -> None:
+        from scripts.ticket_envelope import read_envelope
+        path = tmp_path / "bad-schema.json"
+        path.write_text(json.dumps({"title": "only title"}), encoding="utf-8")
+
+        envelope, errors = read_envelope(path)
+        assert envelope is None
+        assert len(errors) > 0
+
+
+class TestEnvelopeLifecycle:
+    """Tests for move_to_processed()."""
+
+    def test_move_creates_processed_dir(self, tmp_path: Path) -> None:
+        from scripts.ticket_envelope import move_to_processed
+        envelopes_dir = tmp_path / ".envelopes"
+        envelopes_dir.mkdir()
+        path = envelopes_dir / "2026-03-10T060000Z-fix-auth.json"
+        path.write_text("{}", encoding="utf-8")
+
+        dest = move_to_processed(path)
+
+        assert dest.parent == envelopes_dir / ".processed"
+        assert dest.name == path.name
+        assert dest.exists()
+        assert not path.exists()
+
+    def test_move_existing_processed_dir(self, tmp_path: Path) -> None:
+        from scripts.ticket_envelope import move_to_processed
+        envelopes_dir = tmp_path / ".envelopes"
+        processed_dir = envelopes_dir / ".processed"
+        processed_dir.mkdir(parents=True)
+        path = envelopes_dir / "envelope.json"
+        path.write_text("{}", encoding="utf-8")
+
+        dest = move_to_processed(path)
+        assert dest.exists()
+        assert not path.exists()
+
+
 class TestDeferPassThrough:
     """Verify _execute_create passes defer field to render_ticket."""
 

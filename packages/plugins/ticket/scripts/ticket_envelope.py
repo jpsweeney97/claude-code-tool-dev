@@ -175,3 +175,44 @@ def map_envelope_to_fields(envelope: dict[str, Any]) -> dict[str, Any]:
         fields["key_file_paths"] = envelope["key_file_paths"]
 
     return fields
+
+
+def read_envelope(path: Path) -> tuple[dict[str, Any] | None, list[str]]:
+    """Read and validate an envelope JSON file.
+
+    Returns (envelope_dict, errors). On success, errors is empty.
+    On failure, envelope is None and errors contains the reasons.
+    """
+    if not path.exists():
+        return None, [f"Envelope not found: {path} does not exist"]
+
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return None, [f"Cannot read envelope: {exc}"]
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return None, [f"Envelope JSON parse failed: {exc}"]
+
+    if not isinstance(data, dict):
+        return None, [f"Envelope must be a JSON object, got {type(data).__name__}"]
+
+    errors = validate_envelope(data)
+    if errors:
+        return None, errors
+
+    return data, []
+
+
+def move_to_processed(envelope_path: Path) -> Path:
+    """Move a consumed envelope to the .processed/ subdirectory.
+
+    Creates .processed/ if it doesn't exist. Returns the destination path.
+    """
+    processed_dir = envelope_path.parent / ".processed"
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    dest = processed_dir / envelope_path.name
+    envelope_path.rename(dest)
+    return dest
