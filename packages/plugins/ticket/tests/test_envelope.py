@@ -1,0 +1,108 @@
+"""Tests for DeferredWorkEnvelope schema, validation, and ingestion."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+
+def _valid_envelope() -> dict:
+    """Return a minimal valid envelope."""
+    return {
+        "envelope_version": "1.0",
+        "title": "Fix auth timeout on large payloads",
+        "problem": "Auth handler times out for payloads >10MB.",
+        "source": {"type": "handoff", "ref": "session-abc", "session": "abc-123"},
+        "emitted_at": "2026-03-10T06:00:00Z",
+    }
+
+
+class TestEnvelopeValidation:
+    """Tests for validate_envelope()."""
+
+    def test_valid_minimal_envelope(self) -> None:
+        from scripts.ticket_envelope import validate_envelope
+        errors = validate_envelope(_valid_envelope())
+        assert errors == []
+
+    def test_valid_full_envelope(self) -> None:
+        from scripts.ticket_envelope import validate_envelope
+        envelope = _valid_envelope()
+        envelope.update({
+            "context": "Found during API refactor.",
+            "prior_investigation": "Checked handler.py:45.",
+            "approach": "Increase timeout to 30s.",
+            "acceptance_criteria": ["Payloads >10MB succeed"],
+            "verification": "pytest tests/test_auth.py -v",
+            "key_files": [{"file": "handler.py:45", "role": "Timeout logic", "look_for": "timeout constant"}],
+            "key_file_paths": ["handler.py"],
+            "suggested_priority": "high",
+            "suggested_tags": ["auth", "api"],
+        })
+        errors = validate_envelope(envelope)
+        assert errors == []
+
+    def test_missing_required_field_title(self) -> None:
+        from scripts.ticket_envelope import validate_envelope
+        env = _valid_envelope()
+        del env["title"]
+        errors = validate_envelope(env)
+        assert any("title" in e for e in errors)
+
+    def test_missing_required_field_problem(self) -> None:
+        from scripts.ticket_envelope import validate_envelope
+        env = _valid_envelope()
+        del env["problem"]
+        errors = validate_envelope(env)
+        assert any("problem" in e for e in errors)
+
+    def test_missing_required_field_source(self) -> None:
+        from scripts.ticket_envelope import validate_envelope
+        env = _valid_envelope()
+        del env["source"]
+        errors = validate_envelope(env)
+        assert any("source" in e for e in errors)
+
+    def test_missing_required_field_emitted_at(self) -> None:
+        from scripts.ticket_envelope import validate_envelope
+        env = _valid_envelope()
+        del env["emitted_at"]
+        errors = validate_envelope(env)
+        assert any("emitted_at" in e for e in errors)
+
+    def test_invalid_envelope_version(self) -> None:
+        from scripts.ticket_envelope import validate_envelope
+        env = _valid_envelope()
+        env["envelope_version"] = "2.0"
+        errors = validate_envelope(env)
+        assert any("envelope_version" in e for e in errors)
+
+    def test_source_missing_required_keys(self) -> None:
+        from scripts.ticket_envelope import validate_envelope
+        env = _valid_envelope()
+        env["source"] = {"type": "handoff"}  # missing ref, session
+        errors = validate_envelope(env)
+        assert any("ref" in e for e in errors)
+        assert any("session" in e for e in errors)
+
+    def test_invalid_suggested_priority(self) -> None:
+        from scripts.ticket_envelope import validate_envelope
+        env = _valid_envelope()
+        env["suggested_priority"] = "urgent"
+        errors = validate_envelope(env)
+        assert any("suggested_priority" in e for e in errors)
+
+    def test_key_files_missing_required_keys(self) -> None:
+        from scripts.ticket_envelope import validate_envelope
+        env = _valid_envelope()
+        env["key_files"] = [{"file": "foo.py"}]  # missing role, look_for
+        errors = validate_envelope(env)
+        assert any("role" in e for e in errors)
+
+    def test_unknown_fields_rejected(self) -> None:
+        from scripts.ticket_envelope import validate_envelope
+        env = _valid_envelope()
+        env["unknown_field"] = "surprise"
+        errors = validate_envelope(env)
+        assert any("unknown" in e.lower() for e in errors)
