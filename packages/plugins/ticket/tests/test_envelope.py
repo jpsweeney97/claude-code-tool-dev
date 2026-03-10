@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from scripts.ticket_dedup import dedup_fingerprint as compute_dedup_fp
+from scripts.ticket_engine_core import engine_execute
+
 
 def _valid_envelope() -> dict:
     """Return a minimal valid envelope."""
@@ -106,3 +109,50 @@ class TestEnvelopeValidation:
         env["unknown_field"] = "surprise"
         errors = validate_envelope(env)
         assert any("unknown" in e.lower() for e in errors)
+
+
+class TestDeferPassThrough:
+    """Verify _execute_create passes defer field to render_ticket."""
+
+    def test_create_with_defer_field_persists_in_yaml(self, tmp_tickets: Path) -> None:
+        """When fields include defer, the created ticket has defer in frontmatter."""
+        import yaml
+
+        problem = "Auth handler times out."
+        resp = engine_execute(
+            action="create",
+            ticket_id=None,
+            fields={
+                "title": "Fix auth timeout",
+                "problem": problem,
+                "defer": {
+                    "active": True,
+                    "reason": "deferred via envelope",
+                    "deferred_at": "2026-03-10T06:00:00Z",
+                },
+            },
+            session_id="sess-defer-1",
+            request_origin="user",
+            dedup_override=False,
+            dependency_override=False,
+            tickets_dir=tmp_tickets,
+            hook_injected=True,
+            hook_request_origin="user",
+            classify_intent="create",
+            classify_confidence=0.95,
+            dedup_fingerprint=compute_dedup_fp(problem, []),
+        )
+        assert resp.state == "ok_create"
+
+        ticket_path = Path(resp.data["ticket_path"])
+        content = ticket_path.read_text(encoding="utf-8")
+
+        # Extract YAML block
+        import re
+        yaml_match = re.search(r"```ya?ml\s*\n(.*?)```", content, re.DOTALL)
+        assert yaml_match, "YAML block not found"
+        frontmatter = yaml.safe_load(yaml_match.group(1))
+
+        assert frontmatter["defer"]["active"] is True
+        assert frontmatter["defer"]["reason"] == "deferred via envelope"
+        assert frontmatter["defer"]["deferred_at"] == "2026-03-10T06:00:00Z"

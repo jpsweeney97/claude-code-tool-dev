@@ -1526,6 +1526,7 @@ def _execute_create(
             decisions_made=fields.get("decisions_made", ""),
             related=fields.get("related", ""),
             contract_version=_CONTRACT_VERSION,
+            defer=fields.get("defer"),
         )
         try:
             _write_text_exclusive(ticket_path, content)
