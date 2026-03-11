@@ -47,47 +47,32 @@ docs/
 .claude-plugin/   # Plugin marketplace config (turbo-mode bundle)
 ```
 
+## Packages
+
+| Package | Path | Language | Purpose |
+|---------|------|----------|---------|
+| cross-model | `packages/plugins/cross-model/` | Python | Codex MCP server + enforcement hooks + dialogue agent |
+| context-injection | `packages/plugins/cross-model/context-injection/` | Python | Mid-conversation evidence gathering with redaction (991 tests) |
+| handoff | `packages/plugins/handoff/` | Python | Session state persistence (save/load/search) |
+| ticket | `packages/plugins/ticket/` | Python | Repo-local ticket lifecycle management |
+| context-metrics | `packages/plugins/context-metrics/` | Python | Context window usage analysis |
+| claude-code-docs | `packages/mcp-servers/claude-code-docs/` | TypeScript | BM25-indexed Claude Code doc search (397 tests) |
+
+Plugins deploy via `turbo-mode` marketplace. MCP servers and extensions deploy via `uv run scripts/promote`.
+
 ## Systems
 
-Three systems form the cross-model collaboration stack, each building on the previous.
+Three systems form the cross-model collaboration stack:
 
-### Codex Integration
+| System | Status | Key Resources |
+|--------|--------|---------------|
+| **Codex Integration** — Cross-model dialogue with OpenAI Codex | Deployed | MCP tools: `mcp__plugin_cross-model_codex__codex`, `codex-reply`. Agent: `agents/codex-dialogue.md` |
+| **Context Injection** — Mid-conversation evidence gathering for Codex dialogues | Complete | MCP tools: `mcp__plugin_cross-model_context-injection__process_turn`, `execute_scout`. Server: `packages/plugins/cross-model/context-injection/`. Contract: `packages/plugins/cross-model/references/context-injection-contract.md` |
+| **Cross-Model Learning** — Persistent knowledge capture from Codex conversations | Phase 0 in progress | Spec: `docs/plans/2026-02-10-cross-model-learning-system.md`. Skill: `.claude/skills/learn/` |
 
-MCP server providing cross-model dialogue with OpenAI Codex. Enables Claude Code to consult an independent model for second opinions on architecture, plans, and decisions. Value: an independent model catches blind spots and challenges assumptions that a single model working alone would miss. The codex-dialogue agent was built on this integration to manage structured multi-turn conversations with a running ledger, convergence detection, and confidence-annotated synthesis.
+**Context Injection security:** Over-redaction is always preferable to under-redaction. Footgun tests (`test_footgun_*`) verify which pipeline layer catches secrets.
 
-| Resource  | Location                                        |
-| --------- | ----------------------------------------------- |
-| MCP tools | `mcp__plugin_cross-model_codex__codex`, `mcp__plugin_cross-model_codex__codex-reply`  |
-| Agent     | cross-model plugin: `agents/codex-dialogue.md`  |
-
-**Status:** Deployed.
-
-**Hook delivery:** `PostToolUseFailure` `additionalContext` is confirmed working — appears as a `PostToolUseFailure:Bash hook additional context:` system-reminder in Claude's context (verified 2026-02-17).
-
-### Context Injection
-
-Mid-conversation evidence gathering for Codex dialogues. When Codex makes a factual claim about the codebase, the agent reads the relevant file and uses the evidence to shape follow-ups — verifying claims in real-time rather than relying entirely on the initial briefing.
-
-| Resource          | Location                                                        |
-| ----------------- | --------------------------------------------------------------- |
-| MCP server | `packages/plugins/cross-model/context-injection/` (canonical code + tests) |
-| Protocol contract | `packages/plugins/cross-model/references/context-injection-contract.md` |
-| Design spec       | `docs/plans/2026-02-11-conversation-aware-context-injection.md` |
-| MCP tools         | `mcp__plugin_cross-model_context-injection__process_turn`, `mcp__plugin_cross-model_context-injection__execute_scout` |
-
-**Security stance:** Over-redaction is always preferable to under-redaction. When adding format-specific redaction logic, verify that edge cases fail toward over-redaction (safe) not under-redaction (leak). Footgun tests (`test_footgun_*`) verify which pipeline layer catches secrets — check that they still test their stated contract after behavior changes.
-
-**Status:** MCP server and agent integration complete (991 tests). The codex-dialogue agent uses the 7-step scouting loop with context injection for mid-conversation evidence gathering.
-
-### Cross-Model Learning
-
-Persistent knowledge capture across Codex conversations. Insights from Claude-Codex disagreements and resolutions are captured as learning cards — template-constrained, linted artifacts — and re-injected into future consultations as weak priors. Over time, consultations improve because the shared knowledge base grows from real resolutions.
-
-| Resource    | Location                                                       |
-| ----------- | -------------------------------------------------------------- |
-| Design spec | `docs/plans/2026-02-10-cross-model-learning-system.md`         |
-
-**Status:** Design complete. Implementation not started.
+**Codex hook delivery:** `PostToolUseFailure` `additionalContext` confirmed working (verified 2026-02-17).
 
 ## Workflow
 
