@@ -18,8 +18,7 @@ Extract the first token from `$ARGUMENTS` (case-insensitive, split on whitespace
 
 | First token | Route | Remaining tokens |
 |-------------|-------|------------------|
-| `log` | Episode Logging (below) | Passed as hint context |
-| `promote` | Reject: "Not yet available. `/learn promote` is Phase 1b." | — |
+| `log` | Episode Logging (below) — **legacy, see note** | Passed as hint context |
 | *(anything else)* | Unstructured Capture (below) | Full `$ARGUMENTS` used as hint |
 | *(empty)* | Unstructured Capture (below) | No hint |
 
@@ -27,7 +26,9 @@ Extract the first token from `$ARGUMENTS` (case-insensitive, split on whitespace
 
 ---
 
-## Episode Logging (`/learn log`)
+## Episode Logging (`/learn log`) — Legacy
+
+> **Status: Legacy/dormant.** No structured episodes were created during Phase 0. The learning system redesign (`docs/plans/2026-03-11-learning-system-redesign.md`) uses unstructured capture + promotion to CLAUDE.md instead. This section is retained for reference but has no active downstream consumer.
 
 Create a structured, machine-validated episode file in `docs/learnings/episodes/`.
 
@@ -149,14 +150,6 @@ One-line summary: the EP ID, title, and file path.
 ```
 Logged EP-0003: "Atomic cutover replaces dual-version transition windows" → docs/learnings/episodes/EP-0003.md
 ```
-
-### Phase 0 hint
-
-When running in Unstructured Capture mode (below), if the conversation shows signs of a Codex dialogue — cross-model disagreement, contested claims, position convergence — add a one-line suggestion after the capture:
-
-> Tip: This insight came from a Codex dialogue. Consider `/learn log` for a structured episode.
-
-This is a suggestion only. Do not block or redirect the Phase 0 flow.
 
 ---
 
