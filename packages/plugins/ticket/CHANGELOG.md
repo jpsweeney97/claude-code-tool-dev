@@ -4,6 +4,34 @@ All notable changes to the ticket plugin are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- `DeferredWorkEnvelope` schema validator with JSON Schema-based validation (T-04a, #69)
+- `ticket_envelope.py` module: envelope read, field mapping, and lifecycle management for consuming deferred work envelopes (T-04a, #69)
+- `DeferredWorkEnvelope` schema documented in ticket contract §11 (T-04a, #69)
+- `effort` field in `DeferredWorkEnvelope` schema for sizing deferred work items (T-04b, #70)
+- `IngestInput` stage model at dispatch boundary for envelope ingestion pipeline (T-04b, #70)
+- `ingest` subcommand in engine runner: read-validate-map-plan-preflight-execute-move pipeline for consuming deferred work envelopes (T-04b, #70)
+- `ingest` added to guard hook `VALID_SUBCOMMANDS` allowlist (T-04b, #70)
+- `defer` field passed through `_execute_create` to `render_ticket` for envelope-originated tickets (T-04a, #69)
+
+### Changed
+
+- Audit repair default flipped to dry-run; `--fix` flag required for actual file mutations, closing safety bug where `repair_audit_logs` modified files without explicit opt-in (T-03, #69)
+
+### Fixed
+
+- Archived tickets included in blocker resolution and dedup scan — `_list_tickets_with_closed()` helper prevents false "missing" blocker reports and dedup false negatives on done/wontfix tickets (C-003, #68)
+- Legacy write gate rejects mutations on pre-v1.0 tickets until migrated via engine; `contract_version` now engine-owned and stamped on all write paths (C-001/C-004)
+- `key_file_paths` persisted in YAML frontmatter for round-trip dedup reliability; `dedup_override` bound to `duplicate_of` field (C-002/C-008)
+- Full contract shapes enforced for `source`, `defer`, and `key_files` fields before any file mutation (C-005)
+- Contract documentation aligned with implementation; agent-preflight hook gate removed (C-006/C-007/C-009/C-010)
+- Envelope `move_to_processed` rejects overwrite of existing processed file, preventing silent data loss (code review I-1, #69)
+- Envelope move exception catch widened from `FileExistsError` to `OSError` for filesystem robustness (T-04b, #70)
+- `envelope_path` containment check and input type validation added to ingest pipeline, preventing path traversal (T-04b, #70)
+
 ## [1.4.0] — 2026-03-09
 
 ### Added
