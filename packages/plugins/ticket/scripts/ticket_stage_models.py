@@ -249,3 +249,33 @@ class ExecuteInput:
             dedup_fingerprint=_get_optional_str(payload, "dedup_fingerprint"),
             duplicate_of=_get_optional_str(payload, "duplicate_of"),
         )
+
+
+@dataclass(frozen=True)
+class IngestInput:
+    """Input model for the ingest stage.
+
+    Receives an envelope path. The ingest handler reads, validates, maps,
+    and runs the full engine pipeline internally.
+    """
+
+    envelope_path: str
+    session_id: str
+    hook_injected: bool
+    hook_request_origin: str | None
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> IngestInput:
+        envelope_path = _get_str(payload, "envelope_path", default="")
+        if not envelope_path:
+            raise PayloadError(
+                "envelope_path is required",
+                code="need_fields",
+                state="need_fields",
+            )
+        return cls(
+            envelope_path=envelope_path,
+            session_id=_get_str(payload, "session_id", default=""),
+            hook_injected=_get_bool(payload, "hook_injected", default=False),
+            hook_request_origin=_get_optional_str(payload, "hook_request_origin"),
+        )
