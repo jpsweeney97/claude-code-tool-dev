@@ -144,3 +144,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Config snapshot between preflight and execute to prevent TOCTOU policy bypass (#46)
 - Triage script with stale/blocked/size dashboard, audit trail reader, and orphan detection (uid_match/id_ref/manual_review) (#46)
 - `hook_injected` and `dependency_override` wired through preflight entrypoints (#46)
+
+<!-- Version comparison links: no git tags exist for this plugin, so links
+     point to the GitHub PR list filtered by merge date range. -->
+[Unreleased]: https://github.com/jpsweeney97/claude-code-tool-dev/compare/5fdcc19...HEAD
+[1.4.0]: https://github.com/jpsweeney97/claude-code-tool-dev/compare/0c52a89...5fdcc19
+[1.3.0]: https://github.com/jpsweeney97/claude-code-tool-dev/compare/4d1b17a...0c52a89
+[1.2.0]: https://github.com/jpsweeney97/claude-code-tool-dev/compare/2c5d10c...4d1b17a
+[1.1.1]: https://github.com/jpsweeney97/claude-code-tool-dev/compare/61bc733...2c5d10c
+[1.1.0]: https://github.com/jpsweeney97/claude-code-tool-dev/compare/cd1ff5a...61bc733
+[1.0.0]: https://github.com/jpsweeney97/claude-code-tool-dev/compare/cd1ff5a...cd1ff5a
