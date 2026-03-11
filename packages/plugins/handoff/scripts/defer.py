@@ -1,6 +1,6 @@
-"""Ticket creation logic for /defer skill.
+"""Envelope emission logic for /defer skill.
 
-Deterministic: allocates IDs, renders markdown, writes files.
+Deterministic: builds DeferredWorkEnvelope JSON, writes to .envelopes/.
 LLM extraction happens in the SKILL.md — this script receives candidates.
 """
 from __future__ import annotations
@@ -8,219 +8,125 @@ from __future__ import annotations
 import json
 import re
 import sys
-import warnings
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-try:
-    from scripts.ticket_parsing import parse_ticket
-    from scripts.provenance import render_defer_meta
-except ModuleNotFoundError:
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from scripts.ticket_parsing import parse_ticket  # type: ignore[no-redef]
-    from scripts.provenance import render_defer_meta  # type: ignore[no-redef]
 
-_DATE_ID_RE = re.compile(r"^T-(\d{8})-(\d{2,})$")
+def _slug(title: str) -> str:
+    """Generate a filename slug from a title.
 
-
-def allocate_id(date_str: str, tickets_dir: Path) -> str:
-    """Allocate the next ticket ID for a given date.
-
-    Scans all .md files in tickets_dir, parses their YAML to extract id fields,
-    finds the highest sequence number for the date, and returns the next one.
-
-    Not concurrency-safe: assumes single-writer access to tickets_dir.
-    Concurrent calls for the same date may produce duplicate IDs.
+    Lowercase, alphanumeric + hyphens, max 50 chars.
     """
-    date_compact = date_str.replace("-", "")
-    max_seq = 0
-
-    if tickets_dir.exists():
-        for path in sorted(tickets_dir.glob("*.md")):  # P2-10: deterministic order
-            ticket = parse_ticket(path)
-            if ticket is None:
-                continue  # parse_ticket emits diagnostic warnings
-            tid = ticket.frontmatter.get("id", "")
-            m = _DATE_ID_RE.match(str(tid))
-            if m and m.group(1) == date_compact:
-                max_seq = max(max_seq, int(m.group(2)))
-
-    return f"T-{date_compact}-{max_seq + 1:02d}"
-
-
-def filename_slug(ticket_id: str, summary: str) -> str:
-    """Generate a filename from ticket ID and summary.
-
-    Format: YYYY-MM-DD-T-YYYYMMDD-NN-slug.md
-    Slug: lowercase, alphanumeric + hyphens, max 50 chars.
-    """
-    m = _DATE_ID_RE.match(ticket_id)
-    date_part = f"{m.group(1)[:4]}-{m.group(1)[4:6]}-{m.group(1)[6:8]}" if m else "unknown"
-
-    slug = re.sub(r"[^a-z0-9\s-]", "", summary.lower())
+    slug = re.sub(r"[^a-z0-9\s-]", "", title.lower())
     slug = re.sub(r"[\s_]+", "-", slug).strip("-")
     slug = re.sub(r"-+", "-", slug)[:50].rstrip("-")
-
-    return f"{date_part}-{ticket_id}-{slug}.md"
-
-
-_VALID_PRIORITIES = {"low", "medium", "high", "critical"}  # P1-9
-_VALID_EFFORTS = {"XS", "S", "M", "L", "XL"}  # P1-9
+    return slug
 
 
-def render_ticket(candidate: dict[str, Any]) -> str:
-    """Render a ticket markdown file from a candidate dict."""
-    tid = candidate["id"]
-    date = candidate["date"]
-    summary = candidate["summary"]
-    problem = candidate["problem"]
-    source_text = candidate["source_text"]
-    proposed = candidate["proposed_approach"]
-    criteria = candidate["acceptance_criteria"]
-    priority = candidate.get("priority", "medium")
-    source_type = candidate.get("source_type", "ad-hoc")
-    source_ref = candidate.get("source_ref", "")
-    branch = candidate.get("branch", "")
-    session_id = candidate.get("session_id", "")
-    effort = candidate.get("effort", "S")
-    files = candidate.get("files", [])
+def _write_envelope_json(envelopes_dir: Path, stem: str, envelope: dict[str, Any]) -> Path:
+    """Write envelope JSON without overwriting existing files.
 
-    # P1-9 fix: validate enum values, warn and fall back to defaults on invalid
-    if priority not in _VALID_PRIORITIES:
-        warnings.warn(
-            f"Invalid priority {priority!r}, defaulting to 'medium'",
-            stacklevel=2,
-        )
-        priority = "medium"
-    if effort not in _VALID_EFFORTS:
-        warnings.warn(
-            f"Invalid effort {effort!r}, defaulting to 'S'",
-            stacklevel=2,
-        )
-        effort = "S"
+    Uses exclusive create mode for the base filename, then retries with
+    `-01` through `-99` suffixes if a collision occurs.
+    """
+    payload = json.dumps(envelope, indent=2)
 
-    _YAML_IMPLICIT_SCALARS = frozenset({
-        "yes", "no", "on", "off", "true", "false", "null", "~",
-        "Yes", "No", "On", "Off", "True", "False", "Null",
-        "YES", "NO", "ON", "OFF", "TRUE", "FALSE", "NULL",
-    })
-    _YAML_NUMERIC_RE = re.compile(r'^[-+]?(?:\d|\.(?:inf|nan))', re.IGNORECASE)
+    for attempt in range(100):
+        suffix = "" if attempt == 0 else f"-{attempt:02d}"
+        path = envelopes_dir / f"{stem}{suffix}.json"
+        try:
+            with path.open("x", encoding="utf-8") as handle:
+                handle.write(payload)
+        except FileExistsError:
+            continue
+        return path
 
-    def _quote(val: str) -> str:
-        """Quote a YAML string value if it contains YAML-significant characters.
-
-        Handles colons, quotes, braces, backslashes, newlines, YAML
-        implicit scalars (yes/no/true/false/null/~ which safe_load coerces),
-        and numeric implicit scalars (octals, .inf, .nan which coerce to int/float).
-        Values without special characters pass through unquoted.
-        """
-        if not val:
-            return '""'
-        if val in _YAML_IMPLICIT_SCALARS or _YAML_NUMERIC_RE.match(val) or any(c in val for c in (':', '#', '{', '}', '[', ']', ',', '&', '*', '?', '|', '-', '<', '>', '=', '!', '%', '@', '`', '"', "'", '\\', '\n', '\r', '\t', '\x85', '\u2028', '\u2029')):
-            escaped = val.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t').replace('\x85', '\\N').replace('\u2028', '\\L').replace('\u2029', '\\P')
-            return f'"{escaped}"'
-        return val
-
-    # Build YAML frontmatter
-    yaml_lines = [
-        f"id: {tid}",
-        f'date: "{date}"',
-        "status: deferred",
-        f"priority: {_quote(priority)}",  # P1-9 fix: quote to prevent invalid YAML
-        f"source_type: {_quote(source_type)}",
-        f"source_ref: {_quote(source_ref)}",
-        f"branch: {_quote(branch)}",
-        "blocked_by: []",
-        "blocks: []",
-        f"effort: {_quote(effort)}",  # P1-9 fix: quote to prevent invalid YAML
-    ]
-
-    if files:
-        yaml_lines.append("files:")
-        for f in files:
-            yaml_lines.append(f"  - {_quote(f)}")
-
-    yaml_lines.append("provenance:")
-    # P1-7 fix: write null instead of empty string for session_id
-    if session_id:
-        yaml_lines.append(f'  source_session: "{session_id}"')
-    else:
-        yaml_lines.append("  source_session: ~")
-    yaml_lines.append(f"  source_type: {_quote(source_type)}")
-    yaml_lines.append("  created_by: defer-skill")
-
-    yaml_block = "\n".join(yaml_lines)
-
-    # Build body sections
-    criteria_lines = "\n".join(f"- [ ] {c}" for c in criteria)
-    meta_comment = render_defer_meta(session_id, source_type, source_ref)
-
-    # P2-9 fix: omit empty Branch:/Session: lines instead of rendering empty backticks
-    source_suffix_parts: list[str] = []
-    if branch:
-        source_suffix_parts.append(f"Branch: `{branch}`.")
-    if session_id:
-        source_suffix_parts.append(f"Session: `{session_id}`.")
-    source_suffix = " ".join(source_suffix_parts)
-
-    return f"""\
-# {tid}: {summary}
-
-```yaml
-{yaml_block}
-```
-
-## Problem
-
-{problem}
-
-## Source
-
-{source_text}
-{source_suffix}
-
-## Proposed Approach
-
-{proposed}
-
-## Acceptance Criteria
-
-{criteria_lines}
-
-{meta_comment}
-"""
+    raise FileExistsError(f"Envelope filename collision after 100 attempts for stem: {stem}")
 
 
-def write_ticket(candidate: dict[str, Any], tickets_dir: Path) -> Path:
-    """Write a rendered ticket to disk. Returns the path of the created file."""
-    content = render_ticket(candidate)
-    slug = filename_slug(candidate["id"], candidate["summary"])
-    path = tickets_dir / slug
-    tickets_dir.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+def emit_envelope(candidate: dict[str, Any], envelopes_dir: Path) -> Path:
+    """Write a DeferredWorkEnvelope JSON file. Returns the path.
+
+    Maps /defer candidate fields to envelope schema v1.0. The envelope
+    carries no status — the ticket engine consumer synthesizes it.
+    """
+    # Validate required fields are non-empty strings.
+    for field in ("summary", "problem"):
+        value = candidate[field]  # KeyError if missing (caught by main)
+        if not isinstance(value, str):
+            raise TypeError(f"{field} must be a string, got {type(value).__name__}")
+        if not value.strip():
+            raise ValueError(f"{field} must be non-empty")
+
+    now = datetime.now(timezone.utc)
+
+    envelope: dict[str, Any] = {
+        "envelope_version": "1.0",
+        "title": candidate["summary"],
+        "problem": candidate["problem"],
+        "source": {
+            "type": candidate.get("source_type", "ad-hoc"),
+            "ref": candidate.get("source_ref", ""),
+            "session": candidate.get("session_id", ""),
+        },
+        "emitted_at": now.isoformat(),
+    }
+
+    # Optional fields — only include if present and non-empty.
+    if candidate.get("proposed_approach"):
+        envelope["approach"] = candidate["proposed_approach"]
+    if candidate.get("acceptance_criteria"):
+        envelope["acceptance_criteria"] = candidate["acceptance_criteria"]
+    if candidate.get("priority"):
+        envelope["suggested_priority"] = candidate["priority"]
+    if candidate.get("effort"):
+        envelope["effort"] = candidate["effort"]
+    if candidate.get("files"):
+        envelope["key_file_paths"] = candidate["files"]
+
+    # Context composition: branch + source_text folded into context.
+    context_parts: list[str] = []
+    if candidate.get("branch"):
+        context_parts.append(f"Captured on branch `{candidate['branch']}`.")
+    if candidate.get("source_text"):
+        context_parts.append(f"Evidence anchor:\n> \"{candidate['source_text']}\"")
+    if context_parts:
+        envelope["context"] = "\n\n".join(context_parts)
+
+    # Write to envelopes directory.
+    envelopes_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = now.strftime("%Y-%m-%dT%H%M%SZ")
+    stem = f"{timestamp}-{_slug(candidate['summary'])}"
+    path = _write_envelope_json(envelopes_dir, stem, envelope)
+
     return path
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entry point. Reads candidate JSON from stdin, writes ticket files."""
+    """CLI entry point. Reads candidate JSON from stdin, writes envelope files."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Create deferred work tickets")
+    parser = argparse.ArgumentParser(description="Emit deferred work envelopes")
     parser.add_argument("--tickets-dir", type=Path, default=Path("docs/tickets"))
-    parser.add_argument("--date", required=True, help="Date in YYYY-MM-DD format")
     args = parser.parse_args(argv)
 
     try:
         candidates = json.load(sys.stdin)
     except json.JSONDecodeError as exc:
-        json.dump({"status": "error", "created": [], "errors": [{"summary": "stdin", "error": f"Invalid JSON input: {exc}"}]}, sys.stdout)
+        json.dump(
+            {"status": "error", "envelopes": [], "errors": [{"summary": "stdin", "error": f"Invalid JSON input: {exc}"}]},
+            sys.stdout,
+        )
         return 1
 
     if not isinstance(candidates, list):
         candidates = [candidates]
 
+    envelopes_dir = args.tickets_dir / ".envelopes"
     created: list[dict[str, str]] = []
     errors: list[dict[str, str]] = []
+
     for cand in candidates:
         if not isinstance(cand, dict):
             errors.append({
@@ -229,23 +135,20 @@ def main(argv: list[str] | None = None) -> int:
             })
             continue
         try:
-            tid = allocate_id(args.date, args.tickets_dir)
-            cand["id"] = tid
-            cand["date"] = args.date
-            path = write_ticket(cand, args.tickets_dir)
-            created.append({"id": tid, "path": str(path)})
-        except (KeyError, OSError, TypeError, ValueError, AttributeError) as exc:
+            path = emit_envelope(cand, envelopes_dir)
+            created.append({"path": str(path)})
+        except (KeyError, OSError, TypeError, ValueError) as exc:
             errors.append({
                 "summary": cand.get("summary", "unknown"),
                 "error": f"{type(exc).__name__}: {exc}",
             })
 
     if errors and created:
-        json.dump({"status": "partial_success", "created": created, "errors": errors}, sys.stdout)
+        json.dump({"status": "partial_success", "envelopes": created, "errors": errors}, sys.stdout)
     elif errors:
-        json.dump({"status": "error", "created": [], "errors": errors}, sys.stdout)
+        json.dump({"status": "error", "envelopes": [], "errors": errors}, sys.stdout)
     else:
-        json.dump({"status": "ok", "created": created}, sys.stdout)
+        json.dump({"status": "ok", "envelopes": created}, sys.stdout)
     return 1 if errors else 0
 
 

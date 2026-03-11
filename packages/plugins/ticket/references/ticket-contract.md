@@ -237,6 +237,7 @@ Bridge format for deferred work items from the handoff plugin. Envelopes are JSO
 | `key_file_paths` | list[string] | [] | File paths for dedup fingerprinting |
 | `suggested_priority` | string | "medium" | One of: critical, high, medium, low |
 | `suggested_tags` | list[string] | [] | Categorization tags |
+| `effort` | string | "S" | Effort estimate (freeform) |
 
 ### Consumer Behavior
 

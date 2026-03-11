@@ -110,6 +110,24 @@ class TestEnvelopeValidation:
         errors = validate_envelope(env)
         assert any("unknown" in e.lower() for e in errors)
 
+    def test_effort_accepted_as_optional(self) -> None:
+        """effort is a valid optional string field."""
+        from scripts.ticket_envelope import validate_envelope
+
+        envelope = _valid_envelope()
+        envelope["effort"] = "M"
+        errors = validate_envelope(envelope)
+        assert errors == []
+
+    def test_effort_non_string_rejected(self) -> None:
+        """Non-string effort is rejected."""
+        from scripts.ticket_envelope import validate_envelope
+
+        envelope = _valid_envelope()
+        envelope["effort"] = 42
+        errors = validate_envelope(envelope)
+        assert any("effort" in e for e in errors)
+
 
 class TestEnvelopeToFields:
     """Tests for map_envelope_to_fields()."""
@@ -159,6 +177,23 @@ class TestEnvelopeToFields:
         from scripts.ticket_envelope import map_envelope_to_fields
         fields = map_envelope_to_fields(_valid_envelope())
         assert "status" not in fields, "Consumer synthesizes status; envelope must not carry it"
+
+    def test_effort_passed_through(self) -> None:
+        """effort is mapped to fields when present."""
+        from scripts.ticket_envelope import map_envelope_to_fields
+
+        envelope = _valid_envelope()
+        envelope["effort"] = "XL"
+        fields = map_envelope_to_fields(envelope)
+        assert fields["effort"] == "XL"
+
+    def test_effort_absent_not_in_fields(self) -> None:
+        """effort is not in fields when absent from envelope."""
+        from scripts.ticket_envelope import map_envelope_to_fields
+
+        envelope = _valid_envelope()
+        fields = map_envelope_to_fields(envelope)
+        assert "effort" not in fields
 
 
 class TestEnvelopeRead:

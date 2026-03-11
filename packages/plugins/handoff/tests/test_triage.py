@@ -568,28 +568,42 @@ class TestDeferTriageRoundTrip:
     """P2-4: End-to-end round-trip — defer creates ticket, triage finds it."""
 
     def test_deferred_ticket_appears_in_triage(self, tmp_path: Path) -> None:
-        from scripts.defer import write_ticket
         from scripts.triage import generate_report
 
-        # Step 1: Create a ticket via defer.py
+        # Step 1: Create a ticket file directly (defer.py now emits envelopes,
+        # not ticket markdown — the ticket engine creates the markdown file)
         tickets_dir = tmp_path / "tickets"
-        candidate = {
-            "id": "T-20260228-01",
-            "date": "2026-02-28",
-            "summary": "Auth module needs refactoring",
-            "problem": "Technical debt in auth module.",
-            "source_text": "PR #29 review.",
-            "proposed_approach": "Extract base class.",
-            "acceptance_criteria": ["Base class created"],
-            "priority": "high",
-            "source_type": "pr-review",
-            "source_ref": "PR #29",
-            "branch": "feature/auth",
-            "session_id": "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            "effort": "M",
-            "files": [],
-        }
-        created_path = write_ticket(candidate, tickets_dir)
+        tickets_dir.mkdir(parents=True)
+        ticket_text = """\
+# Auth module needs refactoring
+
+```yaml
+id: T-20260228-01
+date: "2026-02-28"
+status: open
+priority: high
+effort: M
+provenance:
+  source_type: pr-review
+  source_ref: "PR #29"
+  source_session: "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+  captured_branch: feature/auth
+```
+
+## Problem
+
+Technical debt in auth module.
+
+## Approach
+
+Extract base class.
+
+## Acceptance Criteria
+
+- Base class created
+"""
+        created_path = tickets_dir / "2026-02-28-T-20260228-01-auth-module-needs-refactoring.md"
+        created_path.write_text(ticket_text)
 
         # Step 2: Create a handoff with matching session_id
         handoffs_dir = tmp_path / "handoffs"

@@ -27,6 +27,7 @@ from scripts.ticket_paths import discover_project_root, resolve_tickets_dir
 from scripts.ticket_stage_models import (
     ClassifyInput,
     ExecuteInput,
+    IngestInput,
     PayloadError,
     PlanInput,
     PreflightInput,
@@ -86,7 +87,7 @@ def run(
         return 1
 
     # Execute requires the full trust triple.
-    if subcommand == "execute":
+    if subcommand in ("execute", "ingest"):
         trust_errors = collect_trust_triple_errors(
             payload.get("hook_injected", False),
             hook_origin,
@@ -144,6 +145,125 @@ def _exit_code(resp: EngineResponse) -> int:
     if resp.error_code == "need_fields":
         return 2
     return 1
+
+
+def _dispatch_ingest(
+    inp: IngestInput,
+    payload: dict[str, Any],
+    tickets_dir: Path,
+    request_origin: str,
+) -> EngineResponse:
+    """Orchestrate envelope ingestion: read -> validate -> map -> plan -> preflight -> execute -> move."""
+    from scripts.ticket_envelope import map_envelope_to_fields, move_to_processed, read_envelope
+
+    envelope_path = Path(inp.envelope_path)
+
+    # Containment: envelope_path must resolve inside tickets_dir/.envelopes/
+    # and must not be a .processed descendant (prevents replay of archived envelopes).
+    envelopes_boundary = (tickets_dir / ".envelopes").resolve()
+    try:
+        resolved_envelope = envelope_path.resolve()
+        resolved_envelope.relative_to(envelopes_boundary)
+    except (ValueError, OSError):
+        return EngineResponse(
+            state="policy_blocked",
+            message=f"envelope_path escapes containment boundary {str(envelopes_boundary)!r}. Got: {str(inp.envelope_path)!r:.100}",
+            error_code="policy_blocked",
+        )
+    try:
+        resolved_envelope.relative_to(envelopes_boundary / ".processed")
+        return EngineResponse(
+            state="policy_blocked",
+            message=f"envelope_path points to processed envelope (replay rejected). Got: {str(inp.envelope_path)!r:.100}",
+            error_code="policy_blocked",
+        )
+    except (ValueError, OSError):
+        pass  # Not inside .processed — expected case.
+
+    # Step 1: Read and validate envelope.
+    envelope, errors = read_envelope(envelope_path)
+    if envelope is None:
+        return EngineResponse(
+            state="need_fields",
+            message=f"Envelope validation failed: {'; '.join(errors)}",
+            error_code="need_fields",
+            data={"validation_errors": errors},
+        )
+
+    # Step 2: Map envelope fields to engine vocabulary.
+    fields = map_envelope_to_fields(envelope)
+
+    # Step 3: Plan — computes dedup fingerprint, scans for duplicates.
+    plan_resp = engine_plan(
+        intent="create",
+        fields=fields,
+        session_id=inp.session_id,
+        request_origin=request_origin,
+        tickets_dir=tickets_dir,
+        ticket_id=None,
+    )
+    if plan_resp.state != "ok":
+        return plan_resp
+
+    # Extract plan outputs for preflight.
+    plan_data = plan_resp.data or {}
+    dedup_fp = plan_data.get("dedup_fingerprint")
+    duplicate_of = plan_data.get("duplicate_of")
+
+    # Step 4: Preflight — all policy checks.
+    preflight_resp = engine_preflight(
+        ticket_id=None,
+        action="create",
+        session_id=inp.session_id,
+        request_origin=request_origin,
+        classify_confidence=1.0,
+        classify_intent="create",
+        dedup_fingerprint=dedup_fp,
+        target_fingerprint=None,
+        fields=fields,
+        duplicate_of=duplicate_of,
+        dedup_override=False,
+        dependency_override=False,
+        hook_injected=inp.hook_injected,
+        tickets_dir=tickets_dir,
+    )
+    if preflight_resp.state != "ok":
+        return preflight_resp
+
+    # Step 5: Execute — create the ticket.
+    exec_resp = engine_execute(
+        action="create",
+        ticket_id=None,
+        fields=fields,
+        session_id=inp.session_id,
+        request_origin=request_origin,
+        dedup_override=False,
+        dependency_override=False,
+        tickets_dir=tickets_dir,
+        target_fingerprint=None,
+        hook_injected=inp.hook_injected,
+        hook_request_origin=inp.hook_request_origin,
+        classify_intent="create",
+        classify_confidence=1.0,
+        dedup_fingerprint=dedup_fp,
+        duplicate_of=duplicate_of,
+    )
+    if not exec_resp.state.startswith("ok"):
+        return exec_resp
+
+    # Step 6: Move envelope to processed.
+    try:
+        move_to_processed(envelope_path)
+    except OSError as exc:
+        # Ticket was created but envelope move failed. Not fatal — report in data.
+        exec_resp = EngineResponse(
+            state=exec_resp.state,
+            message=f"{exec_resp.message}; envelope move failed: {exc}",
+            ticket_id=exec_resp.ticket_id,
+            data={**(exec_resp.data or {}), "envelope_move_error": str(exc)},
+        )
+
+    return exec_resp
 
 
 def _dispatch(
@@ -214,6 +334,9 @@ def _dispatch(
                 dedup_fingerprint=inp.dedup_fingerprint,
                 duplicate_of=inp.duplicate_of,
             )
+        elif subcommand == "ingest":
+            inp = IngestInput.from_payload(payload)
+            return _dispatch_ingest(inp, payload, tickets_dir, request_origin)
         else:
             return EngineResponse(
                 state="escalate",

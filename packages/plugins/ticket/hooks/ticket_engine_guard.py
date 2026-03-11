@@ -26,7 +26,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-VALID_SUBCOMMANDS = frozenset({"classify", "plan", "preflight", "execute"})
+VALID_SUBCOMMANDS = frozenset({"classify", "plan", "preflight", "execute", "ingest"})
 
 # Shell metacharacters that indicate command chaining or redirection.
 SHELL_METACHAR_RE = re.compile(r"[|;&`$><\n\r]")
