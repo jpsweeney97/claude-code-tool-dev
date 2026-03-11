@@ -66,7 +66,7 @@ Three systems form the cross-model collaboration stack:
 
 | System | Status | Key Resources |
 |--------|--------|---------------|
-| **Codex Integration** — Cross-model dialogue with OpenAI Codex | Deployed | MCP tools: `mcp__plugin_cross-model_codex__codex`, `codex-reply`. Agent: `agents/codex-dialogue.md` |
+| **Codex Integration** — Cross-model dialogue with OpenAI Codex | Deployed | MCP tools: `mcp__plugin_cross-model_codex__codex`, `codex-reply`. Agent: `packages/plugins/cross-model/agents/codex-dialogue.md` |
 | **Context Injection** — Mid-conversation evidence gathering for Codex dialogues | Complete | MCP tools: `mcp__plugin_cross-model_context-injection__process_turn`, `execute_scout`. Server: `packages/plugins/cross-model/context-injection/`. Contract: `packages/plugins/cross-model/references/context-injection-contract.md` |
 | **Cross-Model Learning** — Persistent knowledge capture from Codex conversations | Phase 0 in progress | Spec: `docs/plans/2026-02-10-cross-model-learning-system.md`. Skill: `.claude/skills/learn/` |
 
