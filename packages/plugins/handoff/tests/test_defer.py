@@ -227,6 +227,29 @@ class TestEmitEnvelope:
         ts = datetime.fromisoformat(data["emitted_at"])
         assert ts.tzinfo is not None  # Must be timezone-aware
 
+    def test_producer_defaults_applied(self, tmp_path: Path) -> None:
+        """Absent priority/effort get SKILL.md-documented defaults."""
+        from scripts.defer import emit_envelope
+
+        candidate = {"summary": "Test defaults", "problem": "No priority or effort."}
+        path = emit_envelope(candidate, tmp_path / ".envelopes")
+        data = json.loads(path.read_text())
+        assert data["suggested_priority"] == "medium"
+        assert data["effort"] == "S"
+
+    def test_explicit_values_override_defaults(self, tmp_path: Path) -> None:
+        """Explicit priority/effort override defaults."""
+        from scripts.defer import emit_envelope
+
+        candidate = {
+            "summary": "Test override", "problem": "Has values.",
+            "priority": "high", "effort": "XL",
+        }
+        path = emit_envelope(candidate, tmp_path / ".envelopes")
+        data = json.loads(path.read_text())
+        assert data["suggested_priority"] == "high"
+        assert data["effort"] == "XL"
+
 
 class TestMainEmitsEnvelopes:
     def test_main_output_format(self, tmp_path: Path) -> None:
