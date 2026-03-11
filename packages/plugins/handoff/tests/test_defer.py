@@ -386,6 +386,19 @@ class TestMainEmitsEnvelopes:
         assert len(output["envelopes"]) == 1
         assert code == 1
 
+    def test_tickets_dir_is_file_returns_json_error(self, tmp_path: Path) -> None:
+        """When --tickets-dir points to a file, mkdir fails with JSON error contract."""
+        bad_dir = tmp_path / "actually-a-file"
+        bad_dir.write_text("not a directory")
+        candidate = {"summary": "Should not reach", "problem": "Problem."}
+        code, output = _run_main(json.dumps([candidate]), bad_dir)
+        assert code == 1
+        assert output["status"] == "error"
+        assert output["envelopes"] == []
+        assert len(output["errors"]) == 1
+        assert output["errors"][0]["summary"] == "setup"
+        assert "NotADirectoryError" in output["errors"][0]["error"]
+
     def test_write_oserror_aborts_batch(self, tmp_path: Path) -> None:
         """Non-FileExistsError OSError aborts remaining candidates."""
         envelopes_dir = tmp_path / ".envelopes"

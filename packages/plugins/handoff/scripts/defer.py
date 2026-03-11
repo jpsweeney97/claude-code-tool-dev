@@ -129,7 +129,14 @@ def main(argv: list[str] | None = None) -> int:
         candidates = [candidates]
 
     envelopes_dir = args.tickets_dir / ".envelopes"
-    envelopes_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        envelopes_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        json.dump(
+            {"status": "error", "envelopes": [], "errors": [{"summary": "setup", "error": f"{type(exc).__name__}: {exc}"}]},
+            sys.stdout,
+        )
+        return 1
     created: list[dict[str, str]] = []
     errors: list[dict[str, str]] = []
 
