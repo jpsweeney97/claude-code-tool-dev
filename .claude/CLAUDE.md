@@ -15,23 +15,36 @@ Monorepo for developing Claude Code extensions: skills, commands, agents, hooks,
 ```
 .claude/
 ├── skills/       # Skills (SKILL.md required)
-├── hooks/        # Hooks
+├── hooks/        # Hooks (Python scripts, synced to settings.json)
 ├── commands/     # Slash commands
 ├── agents/       # Subagents
-└── rules/        # Extension and methodology guidance
+├── rules/        # Auto-loaded session rules (keep minimal)
+├── handoffs/     # Session handoff documents (gitignored)
+├── sessions/     # Session notes (gitignored)
+└── worktrees/    # Git worktree state (gitignored)
 
 packages/
-├── plugins/      # Plugin packages
-├── mcp-servers/  # MCP servers
-└── context-injection/  # Context injection MCP server
+├── plugins/
+│   ├── cross-model/          # Codex MCP + context injection + dialogue agent
+│   │   └── context-injection/  # Mid-conversation evidence gathering MCP server
+│   ├── handoff/              # Session state persistence
+│   ├── ticket/               # Repo-local ticket management
+│   └── context-metrics/      # Context window usage tracking
+└── mcp-servers/
+    └── claude-code-docs/     # BM25-indexed doc search (TypeScript)
 
 scripts/          # Utility scripts (run with uv run scripts/<name>)
+
 docs/
 ├── frameworks/   # Methodology frameworks (thoroughness, decision-making, verification)
-├── references/   # Skill patterns, guides, task-list guidance
+├── references/   # Skill patterns, guides, style references
 ├── plans/        # Implementation plans and design documents
-├── tickets/      # Work tickets with fix lists and design decisions
+├── decisions/    # Architecture Decision Records
+├── learnings/    # Cross-model consultation insights
+├── tickets/      # Work tickets
 └── audits/       # Quality audits
+
+.claude-plugin/   # Plugin marketplace config (turbo-mode bundle)
 ```
 
 ## Systems
