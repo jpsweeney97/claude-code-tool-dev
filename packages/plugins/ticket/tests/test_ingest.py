@@ -110,8 +110,12 @@ class TestIngestSubcommand:
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
 
+        # Path must be inside .envelopes/ to pass containment check.
+        envelopes_dir = tickets_dir / ".envelopes"
+        envelopes_dir.mkdir(parents=True)
+
         payload = {
-            "envelope_path": str(tmp_path / "nonexistent.json"),
+            "envelope_path": str(envelopes_dir / "nonexistent.json"),
             "tickets_dir": str(tickets_dir),
             "session_id": "test-session",
             "hook_injected": True,
@@ -166,6 +170,70 @@ class TestIngestSubcommand:
         payload_file2.write_text(json.dumps(payload2))
         exit_code2 = run("user", argv=["ingest", str(payload_file2)], prog="test")
         assert exit_code2 == 1  # Duplicate detected, not created
+
+    def test_path_traversal_blocked(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ingest with envelope_path outside tickets_dir/.envelopes is blocked."""
+        _ensure_project_root(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+
+        # Write envelope outside .envelopes boundary.
+        outside_path = tmp_path / "evil.json"
+        outside_path.write_text(json.dumps(_valid_envelope()), encoding="utf-8")
+
+        payload = {
+            "envelope_path": str(outside_path),
+            "tickets_dir": str(tickets_dir),
+            "session_id": "test-session",
+            "hook_injected": True,
+            "hook_request_origin": "user",
+        }
+
+        payload_file = tmp_path / "payload.json"
+        payload_file.write_text(json.dumps(payload))
+
+        exit_code = run(
+            "user",
+            argv=["ingest", str(payload_file)],
+            prog="test",
+        )
+
+        assert exit_code == 1  # policy_blocked
+        assert not list(tickets_dir.glob("*.md"))
+
+    def test_processed_replay_blocked(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ingest with envelope_path in .processed is blocked (replay prevention)."""
+        _ensure_project_root(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        processed_dir = tickets_dir / ".envelopes" / ".processed"
+        processed_dir.mkdir(parents=True)
+
+        processed_path = processed_dir / "old.json"
+        processed_path.write_text(json.dumps(_valid_envelope()), encoding="utf-8")
+
+        payload = {
+            "envelope_path": str(processed_path),
+            "tickets_dir": str(tickets_dir),
+            "session_id": "test-session",
+            "hook_injected": True,
+            "hook_request_origin": "user",
+        }
+
+        payload_file = tmp_path / "payload.json"
+        payload_file.write_text(json.dumps(payload))
+
+        exit_code = run(
+            "user",
+            argv=["ingest", str(payload_file)],
+            prog="test",
+        )
+
+        assert exit_code == 1  # policy_blocked
 
     def test_ingest_with_effort(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Envelope with effort field creates ticket with effort in frontmatter."""

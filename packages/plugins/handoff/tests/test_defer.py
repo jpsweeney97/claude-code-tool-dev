@@ -60,6 +60,28 @@ class TestEmitEnvelope:
         assert data_one["problem"] == "First problem."
         assert data_two["problem"] == "Second problem."
 
+    def test_non_string_summary_raises_type_error(self, tmp_path: Path) -> None:
+        """Non-string summary raises TypeError (caught by main's catch list)."""
+        from scripts.defer import emit_envelope
+
+        candidate = {
+            "summary": 42,
+            "problem": "Some problem.",
+        }
+        with pytest.raises(TypeError, match="summary must be a string"):
+            emit_envelope(candidate, tmp_path / ".envelopes")
+
+    def test_empty_summary_raises_value_error(self, tmp_path: Path) -> None:
+        """Whitespace-only summary raises ValueError (caught by main's catch list)."""
+        from scripts.defer import emit_envelope
+
+        candidate = {
+            "summary": "   ",
+            "problem": "Some problem.",
+        }
+        with pytest.raises(ValueError, match="summary must be non-empty"):
+            emit_envelope(candidate, tmp_path / ".envelopes")
+
     def test_minimal_candidate(self, tmp_path: Path) -> None:
         """Minimal candidate produces valid envelope JSON."""
         from scripts.defer import emit_envelope

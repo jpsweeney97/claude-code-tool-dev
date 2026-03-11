@@ -51,6 +51,14 @@ def emit_envelope(candidate: dict[str, Any], envelopes_dir: Path) -> Path:
     Maps /defer candidate fields to envelope schema v1.0. The envelope
     carries no status — the ticket engine consumer synthesizes it.
     """
+    # Validate required fields are non-empty strings.
+    for field in ("summary", "problem"):
+        value = candidate[field]  # KeyError if missing (caught by main)
+        if not isinstance(value, str):
+            raise TypeError(f"{field} must be a string, got {type(value).__name__}")
+        if not value.strip():
+            raise ValueError(f"{field} must be non-empty")
+
     now = datetime.now(timezone.utc)
 
     envelope: dict[str, Any] = {

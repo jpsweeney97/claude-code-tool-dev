@@ -158,6 +158,28 @@ def _dispatch_ingest(
 
     envelope_path = Path(inp.envelope_path)
 
+    # Containment: envelope_path must resolve inside tickets_dir/.envelopes/
+    # and must not be a .processed descendant (prevents replay of archived envelopes).
+    envelopes_boundary = (tickets_dir / ".envelopes").resolve()
+    try:
+        resolved_envelope = envelope_path.resolve()
+        resolved_envelope.relative_to(envelopes_boundary)
+    except (ValueError, OSError):
+        return EngineResponse(
+            state="policy_blocked",
+            message=f"envelope_path escapes containment boundary {str(envelopes_boundary)!r}. Got: {str(inp.envelope_path)!r:.100}",
+            error_code="policy_blocked",
+        )
+    try:
+        resolved_envelope.relative_to(envelopes_boundary / ".processed")
+        return EngineResponse(
+            state="policy_blocked",
+            message=f"envelope_path points to processed envelope (replay rejected). Got: {str(inp.envelope_path)!r:.100}",
+            error_code="policy_blocked",
+        )
+    except (ValueError, OSError):
+        pass  # Not inside .processed — expected case.
+
     # Step 1: Read and validate envelope.
     envelope, errors = read_envelope(envelope_path)
     if envelope is None:
