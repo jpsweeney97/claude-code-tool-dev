@@ -56,10 +56,8 @@ def _prepare_envelope(candidate: dict[str, Any]) -> tuple[str, str]:
         envelope["approach"] = candidate["proposed_approach"]
     if candidate.get("acceptance_criteria"):
         envelope["acceptance_criteria"] = candidate["acceptance_criteria"]
-    if candidate.get("priority"):
-        envelope["suggested_priority"] = candidate["priority"]
-    if candidate.get("effort"):
-        envelope["effort"] = candidate["effort"]
+    envelope["suggested_priority"] = candidate.get("priority") or "medium"
+    envelope["effort"] = candidate.get("effort") or "S"
     if candidate.get("files"):
         envelope["key_file_paths"] = candidate["files"]
 
