@@ -363,7 +363,6 @@ class TestMainEmitsEnvelopes:
         assert len(output["envelopes"]) == 1
         assert code == 1
 
-    @pytest.mark.xfail(reason="Pre-refactor: OSError continues batch, target: aborts")
     def test_write_oserror_aborts_batch(self, tmp_path: Path) -> None:
         """Non-FileExistsError OSError aborts remaining candidates."""
         envelopes_dir = tmp_path / ".envelopes"

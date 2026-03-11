@@ -131,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
         candidates = [candidates]
 
     envelopes_dir = args.tickets_dir / ".envelopes"
+    envelopes_dir.mkdir(parents=True, exist_ok=True)
     created: list[dict[str, str]] = []
     errors: list[dict[str, str]] = []
 
@@ -142,13 +143,28 @@ def main(argv: list[str] | None = None) -> int:
             })
             continue
         try:
-            path = emit_envelope(cand, envelopes_dir)
-            created.append({"path": str(path)})
-        except (KeyError, OSError, TypeError, ValueError) as exc:
+            payload, stem = _prepare_envelope(cand)
+        except (KeyError, TypeError, ValueError) as exc:
             errors.append({
                 "summary": cand.get("summary", "unknown"),
                 "error": f"{type(exc).__name__}: {exc}",
             })
+            continue
+        try:
+            path = _write_envelope_payload(envelopes_dir, stem, payload)
+        except FileExistsError as exc:
+            errors.append({
+                "summary": cand.get("summary", "unknown"),
+                "error": f"FileExistsError: {exc}",
+            })
+            continue
+        except OSError as exc:
+            errors.append({
+                "summary": cand.get("summary", "unknown"),
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            break
+        created.append({"path": str(path)})
 
     if errors and created:
         json.dump({"status": "partial_success", "envelopes": created, "errors": errors}, sys.stdout)
