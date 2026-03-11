@@ -51,7 +51,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Acceptance criteria bypass via `close` action — AC check now fires on `target == "done"` regardless of current ticket status (#59)
 - Guard hook Branch 2b for `ticket_audit.py` — user invocations allowed, agent invocations denied (#59)
-- Dedup window changed from YYYY-MM-DD date-field day granularity to `created_at` field with end-of-day fallback, closing near-midnight duplicate escape (#59)
+- Dedup window changed from YYYY-MM-DD date-field day granularity to file mtime with second-level precision, closing near-midnight duplicate escape (#59)
+- Dedup window refined from file mtime to `created_at` field with end-of-day fallback for cross-filesystem reliability
 - Leading-space interpreter bypass closed — shlex-based candidate detection replaces regex prefilter in guard hook (#60)
 - Guard hook now skips interpreter flags (`-u`, `-O`, `-m pdb`, `-X dev`) and `env` option flags before identifying the script operand, closing flag-injection bypasses (#60)
 - Lowercase env-var assignments denied by prefilter (#60)
