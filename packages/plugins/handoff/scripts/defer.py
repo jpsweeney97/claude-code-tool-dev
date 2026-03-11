@@ -24,36 +24,14 @@ def _slug(title: str) -> str:
     return slug
 
 
-def _write_envelope_json(envelopes_dir: Path, stem: str, envelope: dict[str, Any]) -> Path:
-    """Write envelope JSON without overwriting existing files.
+def _prepare_envelope(candidate: dict[str, Any]) -> tuple[str, str]:
+    """Validate candidate, build envelope, serialize. Returns (payload_json, stem).
 
-    Uses exclusive create mode for the base filename, then retries with
-    `-01` through `-99` suffixes if a collision occurs.
+    Raises KeyError for missing required fields, TypeError/ValueError for
+    invalid field values. These are candidate-local validation failures.
     """
-    payload = json.dumps(envelope, indent=2)
-
-    for attempt in range(100):
-        suffix = "" if attempt == 0 else f"-{attempt:02d}"
-        path = envelopes_dir / f"{stem}{suffix}.json"
-        try:
-            with path.open("x", encoding="utf-8") as handle:
-                handle.write(payload)
-        except FileExistsError:
-            continue
-        return path
-
-    raise FileExistsError(f"Envelope filename collision after 100 attempts for stem: {stem}")
-
-
-def emit_envelope(candidate: dict[str, Any], envelopes_dir: Path) -> Path:
-    """Write a DeferredWorkEnvelope JSON file. Returns the path.
-
-    Maps /defer candidate fields to envelope schema v1.0. The envelope
-    carries no status — the ticket engine consumer synthesizes it.
-    """
-    # Validate required fields are non-empty strings.
     for field in ("summary", "problem"):
-        value = candidate[field]  # KeyError if missing (caught by main)
+        value = candidate[field]  # KeyError if missing
         if not isinstance(value, str):
             raise TypeError(f"{field} must be a string, got {type(value).__name__}")
         if not value.strip():
@@ -94,13 +72,42 @@ def emit_envelope(candidate: dict[str, Any], envelopes_dir: Path) -> Path:
     if context_parts:
         envelope["context"] = "\n\n".join(context_parts)
 
-    # Write to envelopes directory.
-    envelopes_dir.mkdir(parents=True, exist_ok=True)
     timestamp = now.strftime("%Y-%m-%dT%H%M%SZ")
     stem = f"{timestamp}-{_slug(candidate['summary'])}"
-    path = _write_envelope_json(envelopes_dir, stem, envelope)
+    payload = json.dumps(envelope, indent=2)
 
-    return path
+    return payload, stem
+
+
+def _write_envelope_payload(envelopes_dir: Path, stem: str, payload: str) -> Path:
+    """Write pre-serialized envelope payload to disk.
+
+    Uses exclusive create mode. Retries with -01 through -99 suffixes.
+    Raises FileExistsError after 100 collision attempts (candidate-local).
+    Raises OSError on I/O failure (operational — abort batch).
+    """
+    for attempt in range(100):
+        suffix = "" if attempt == 0 else f"-{attempt:02d}"
+        path = envelopes_dir / f"{stem}{suffix}.json"
+        try:
+            with path.open("x", encoding="utf-8") as handle:
+                handle.write(payload)
+        except FileExistsError:
+            continue
+        return path
+
+    raise FileExistsError(f"Envelope filename collision after 100 attempts for stem: {stem}")
+
+
+def emit_envelope(candidate: dict[str, Any], envelopes_dir: Path) -> Path:
+    """Write a DeferredWorkEnvelope JSON file. Returns the path.
+
+    Maps /defer candidate fields to envelope schema v1.0. The envelope
+    carries no status — the ticket engine consumer synthesizes it.
+    """
+    envelopes_dir.mkdir(parents=True, exist_ok=True)
+    payload, stem = _prepare_envelope(candidate)
+    return _write_envelope_payload(envelopes_dir, stem, payload)
 
 
 def main(argv: list[str] | None = None) -> int:
