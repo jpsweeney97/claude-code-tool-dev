@@ -53,20 +53,20 @@ If user provided a `<filter>`, restrict extraction to conversation segments matc
 
 For each candidate, extract:
 
-| Field | Description | Required |
-|-------|-------------|----------|
-| `summary` | One-line title (imperative voice, under 80 chars) | Yes |
-| `problem` | What needs to be done and why | Yes |
-| `source_text` | Quoted conversation excerpt (evidence anchor) | Yes |
-| `proposed_approach` | Suggested implementation path | Yes |
-| `acceptance_criteria` | Observable completion conditions (list of strings) | Yes |
-| `priority` | `critical`, `high`, `medium`, or `low` | Yes (default: `medium`) |
-| `source_type` | One of: `pr-review`, `codex`, `handoff`, `ad-hoc` | Yes (infer from context) |
-| `source_ref` | Human-readable source (e.g., PR number, handoff filename) | If available |
-| `branch` | Current git branch | Auto-detect |
-| `session_id` | Session ID from handoff frontmatter | If available |
-| `effort` | `XS`, `S`, `M`, `L`, `XL` | Yes (default: `S`) |
-| `files` | Affected file paths | If identifiable |
+| Field | Description | Extract | Code contract |
+|-------|-------------|---------|---------------|
+| `summary` | One-line title (imperative voice, under 80 chars) | Always | **Required** — KeyError if missing |
+| `problem` | What needs to be done and why | Always | **Required** — KeyError if missing |
+| `source_text` | Quoted conversation excerpt (evidence anchor) | Always | Optional — omitted if absent |
+| `proposed_approach` | Suggested implementation path | Always | Optional — omitted if absent |
+| `acceptance_criteria` | Observable completion conditions (list of strings) | Always | Optional — omitted if absent |
+| `priority` | `critical`, `high`, `medium`, or `low` | Always | Optional — defaults to `medium` |
+| `source_type` | One of: `pr-review`, `codex`, `handoff`, `ad-hoc` | Infer from context | Optional — defaults to `ad-hoc` |
+| `source_ref` | Human-readable source (e.g., PR number, handoff filename) | If available | Optional — defaults to `""` |
+| `branch` | Current git branch | Auto-detect | Optional — omitted if absent |
+| `session_id` | Session ID from handoff frontmatter | If available | Optional — defaults to `""` |
+| `effort` | `XS`, `S`, `M`, `L`, `XL` | Always | Optional — defaults to `S` |
+| `files` | Affected file paths | If identifiable | Optional — omitted if absent |
 
 ### Step 3: Present candidates for confirmation
 
