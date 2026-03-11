@@ -1,6 +1,6 @@
 """DeferredWorkEnvelope schema validation, field mapping, and lifecycle.
 
-Envelopes are the bridge between the handoff plugin's /save skill and the
+Envelopes are the bridge between the handoff plugin's /defer skill and the
 ticket plugin's creation pipeline. The handoff writes envelopes; the ticket
 plugin consumes them through the normal engine pipeline.
 
@@ -26,6 +26,7 @@ _OPTIONAL_FIELDS = (
     "key_file_paths",
     "suggested_priority",
     "suggested_tags",
+    "effort",
 )
 
 _ALL_FIELDS = frozenset(_REQUIRED_FIELDS + _OPTIONAL_FIELDS)
@@ -140,6 +141,12 @@ def validate_envelope(envelope: dict[str, Any]) -> list[str]:
             if not isinstance(v, str):
                 errors.append(f"{field} must be a string, got {type(v).__name__}")
 
+    # effort: optional string
+    if "effort" in envelope:
+        v = envelope["effort"]
+        if not isinstance(v, str):
+            errors.append(f"effort must be a string, got {type(v).__name__}")
+
     return errors
 
 
@@ -173,6 +180,8 @@ def map_envelope_to_fields(envelope: dict[str, Any]) -> dict[str, Any]:
         fields["key_files"] = envelope["key_files"]
     if "key_file_paths" in envelope:
         fields["key_file_paths"] = envelope["key_file_paths"]
+    if "effort" in envelope:
+        fields["effort"] = envelope["effort"]
 
     return fields
 
