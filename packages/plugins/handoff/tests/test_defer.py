@@ -254,3 +254,130 @@ class TestMainEmitsEnvelopes:
         _run_main(json.dumps([candidate]), tmp_path)
         envelopes = list((tmp_path / ".envelopes").glob("*.json"))
         assert len(envelopes) == 1
+
+    def test_invalid_json_stdin(self, tmp_path: Path) -> None:
+        """Invalid JSON input produces error status."""
+        code, output = _run_main("not json{{{", tmp_path)
+        assert code == 1
+        assert output["status"] == "error"
+        assert output["envelopes"] == []
+        assert "Invalid JSON input" in output["errors"][0]["error"]
+
+    def test_non_dict_candidate_error(self, tmp_path: Path) -> None:
+        """Non-dict items in candidate list produce per-item errors."""
+        code, output = _run_main(json.dumps([42, "string"]), tmp_path)
+        assert code == 1
+        assert output["status"] == "error"
+        assert len(output["errors"]) == 2
+        assert "Candidate must be a dict" in output["errors"][0]["error"]
+
+    def test_missing_summary_key_error(self, tmp_path: Path) -> None:
+        """Candidate missing 'summary' produces KeyError."""
+        code, output = _run_main(json.dumps([{"problem": "P"}]), tmp_path)
+        assert code == 1
+        assert "KeyError" in output["errors"][0]["error"]
+
+    def test_missing_problem_key_error(self, tmp_path: Path) -> None:
+        """Candidate missing 'problem' produces KeyError."""
+        code, output = _run_main(json.dumps([{"summary": "S"}]), tmp_path)
+        assert code == 1
+        assert "KeyError" in output["errors"][0]["error"]
+
+    def test_non_string_summary_cli_error(self, tmp_path: Path) -> None:
+        """Non-string summary produces TypeError at CLI level."""
+        code, output = _run_main(json.dumps([{"summary": 42, "problem": "P"}]), tmp_path)
+        assert code == 1
+        assert "TypeError" in output["errors"][0]["error"]
+
+    def test_empty_summary_cli_error(self, tmp_path: Path) -> None:
+        """Whitespace-only summary produces ValueError at CLI level."""
+        code, output = _run_main(json.dumps([{"summary": "   ", "problem": "P"}]), tmp_path)
+        assert code == 1
+        assert "ValueError" in output["errors"][0]["error"]
+
+    def test_all_errors_batch(self, tmp_path: Path) -> None:
+        """All-error batch produces 'error' status."""
+        candidates = [{"summary": "A"}, {"summary": "B"}]  # Both missing problem
+        code, output = _run_main(json.dumps(candidates), tmp_path)
+        assert code == 1
+        assert output["status"] == "error"
+        assert len(output["errors"]) == 2
+        assert output["envelopes"] == []
+
+    def test_partial_success_mixed_batch(self, tmp_path: Path) -> None:
+        """Mixed batch (one valid, one bad) produces 'partial_success'."""
+        candidates = [
+            {"summary": "Good", "problem": "Valid."},
+            {"summary": "Bad"},  # Missing problem
+        ]
+        code, output = _run_main(json.dumps(candidates), tmp_path)
+        assert code == 1
+        assert output["status"] == "partial_success"
+        assert len(output["envelopes"]) == 1
+        assert len(output["errors"]) == 1
+
+    def test_single_object_normalization(self, tmp_path: Path) -> None:
+        """Bare dict (not list) is normalized to single-item list."""
+        candidate = {"summary": "Solo", "problem": "Valid."}
+        code, output = _run_main(json.dumps(candidate), tmp_path)
+        assert code == 0
+        assert output["status"] == "ok"
+        assert len(output["envelopes"]) == 1
+
+    def test_single_object_with_error(self, tmp_path: Path) -> None:
+        """Bare dict with error produces error status."""
+        code, output = _run_main(json.dumps({"summary": "No problem"}), tmp_path)
+        assert code == 1
+        assert output["status"] == "error"
+
+    def test_collision_exhaustion_continues_batch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """FileExistsError from collision exhaustion is candidate-local."""
+        import scripts.defer as defer_module
+
+        fixed_now = datetime(2026, 3, 10, 15, 0, 0, tzinfo=timezone.utc)
+
+        class FixedDateTime:
+            @classmethod
+            def now(cls, tz: timezone | None = None) -> datetime:
+                return fixed_now
+
+        monkeypatch.setattr(defer_module, "datetime", FixedDateTime)
+
+        envelopes_dir = tmp_path / ".envelopes"
+        envelopes_dir.mkdir(parents=True)
+        stem = "2026-03-10T150000Z-collide-me"
+        (envelopes_dir / f"{stem}.json").write_text("{}")
+        for i in range(1, 100):
+            (envelopes_dir / f"{stem}-{i:02d}.json").write_text("{}")
+
+        candidates = [
+            {"summary": "Collide me", "problem": "Exhausts collisions."},
+            {"summary": "Second item", "problem": "Should succeed."},
+        ]
+        code, output = _run_main(json.dumps(candidates), tmp_path)
+        assert output["status"] == "partial_success"
+        assert len(output["errors"]) == 1
+        assert "FileExistsError" in output["errors"][0]["error"]
+        assert len(output["envelopes"]) == 1
+        assert code == 1
+
+    @pytest.mark.xfail(reason="Pre-refactor: OSError continues batch, target: aborts")
+    def test_write_oserror_aborts_batch(self, tmp_path: Path) -> None:
+        """Non-FileExistsError OSError aborts remaining candidates."""
+        envelopes_dir = tmp_path / ".envelopes"
+        envelopes_dir.mkdir(parents=True)
+        envelopes_dir.chmod(0o444)
+        try:
+            candidates = [
+                {"summary": "First", "problem": "Will fail write."},
+                {"summary": "Second", "problem": "Should not be attempted."},
+            ]
+            code, output = _run_main(json.dumps(candidates), tmp_path)
+            assert code == 1
+            assert output["status"] == "error"
+            assert len(output["errors"]) == 1  # Batch aborted after first
+            assert "PermissionError" in output["errors"][0]["error"]
+        finally:
+            envelopes_dir.chmod(0o755)
