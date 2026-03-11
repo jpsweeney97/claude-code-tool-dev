@@ -10,6 +10,56 @@ import pytest
 
 
 class TestEmitEnvelope:
+    def test_same_second_same_summary_gets_unique_filenames(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Same-second collisions are resolved without overwriting data."""
+        import scripts.defer as defer_module
+
+        fixed_now = datetime(2026, 3, 10, 15, 4, 5, tzinfo=timezone.utc)
+
+        class FixedDateTime:
+            @classmethod
+            def now(cls, tz: timezone | None = None) -> datetime:
+                assert tz == timezone.utc
+                return fixed_now
+
+        monkeypatch.setattr(defer_module, "datetime", FixedDateTime)
+
+        candidate_one = {
+            "summary": "Duplicate summary",
+            "problem": "First problem.",
+            "source_text": "First source.",
+            "proposed_approach": "First approach.",
+            "acceptance_criteria": ["First criteria"],
+            "priority": "medium",
+            "source_type": "ad-hoc",
+            "source_ref": "",
+            "session_id": "sess-dup-1",
+        }
+        candidate_two = {
+            "summary": "Duplicate summary",
+            "problem": "Second problem.",
+            "source_text": "Second source.",
+            "proposed_approach": "Second approach.",
+            "acceptance_criteria": ["Second criteria"],
+            "priority": "high",
+            "source_type": "ad-hoc",
+            "source_ref": "",
+            "session_id": "sess-dup-2",
+        }
+
+        envelopes_dir = tmp_path / ".envelopes"
+        path_one = defer_module.emit_envelope(candidate_one, envelopes_dir)
+        path_two = defer_module.emit_envelope(candidate_two, envelopes_dir)
+
+        assert path_one.name == "2026-03-10T150405Z-duplicate-summary.json"
+        assert path_two.name == "2026-03-10T150405Z-duplicate-summary-01.json"
+        assert path_one != path_two
+
+        data_one = json.loads(path_one.read_text())
+        data_two = json.loads(path_two.read_text())
+        assert data_one["problem"] == "First problem."
+        assert data_two["problem"] == "Second problem."
+
     def test_minimal_candidate(self, tmp_path: Path) -> None:
         """Minimal candidate produces valid envelope JSON."""
         from scripts.defer import emit_envelope

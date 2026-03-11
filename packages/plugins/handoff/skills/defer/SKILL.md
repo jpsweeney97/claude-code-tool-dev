@@ -142,7 +142,7 @@ For each envelope path from the Phase 1 `envelopes` array, create a payload file
 
 ```bash
 echo '{"envelope_path": "<path>"}' > /tmp/ingest_payload.json
-python3 "${CLAUDE_PLUGIN_ROOT}/../ticket/scripts/ticket_engine_user.py" ingest /tmp/ingest_payload.json
+python3 "$(realpath "${CLAUDE_PLUGIN_ROOT}/../ticket/scripts/ticket_engine_user.py")" ingest /tmp/ingest_payload.json
 ```
 
 Parse the JSON response for each ingest call. The response contains `state`, `message`, and `ticket_id` on success.

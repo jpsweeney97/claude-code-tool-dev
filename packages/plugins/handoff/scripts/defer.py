@@ -24,6 +24,27 @@ def _slug(title: str) -> str:
     return slug
 
 
+def _write_envelope_json(envelopes_dir: Path, stem: str, envelope: dict[str, Any]) -> Path:
+    """Write envelope JSON without overwriting existing files.
+
+    Uses exclusive create mode for the base filename, then retries with
+    `-01` through `-99` suffixes if a collision occurs.
+    """
+    payload = json.dumps(envelope, indent=2)
+
+    for attempt in range(100):
+        suffix = "" if attempt == 0 else f"-{attempt:02d}"
+        path = envelopes_dir / f"{stem}{suffix}.json"
+        try:
+            with path.open("x", encoding="utf-8") as handle:
+                handle.write(payload)
+        except FileExistsError:
+            continue
+        return path
+
+    raise FileExistsError(f"Envelope filename collision after 100 attempts for stem: {stem}")
+
+
 def emit_envelope(candidate: dict[str, Any], envelopes_dir: Path) -> Path:
     """Write a DeferredWorkEnvelope JSON file. Returns the path.
 
@@ -68,9 +89,8 @@ def emit_envelope(candidate: dict[str, Any], envelopes_dir: Path) -> Path:
     # Write to envelopes directory.
     envelopes_dir.mkdir(parents=True, exist_ok=True)
     timestamp = now.strftime("%Y-%m-%dT%H%M%SZ")
-    filename = f"{timestamp}-{_slug(candidate['summary'])}.json"
-    path = envelopes_dir / filename
-    path.write_text(json.dumps(envelope, indent=2), encoding="utf-8")
+    stem = f"{timestamp}-{_slug(candidate['summary'])}"
+    path = _write_envelope_json(envelopes_dir, stem, envelope)
 
     return path
 
