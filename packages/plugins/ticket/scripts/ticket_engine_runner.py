@@ -232,7 +232,7 @@ def _dispatch_ingest(
     # Step 6: Move envelope to processed.
     try:
         move_to_processed(envelope_path)
-    except FileExistsError as exc:
+    except OSError as exc:
         # Ticket was created but envelope move failed. Not fatal — report in data.
         exec_resp = EngineResponse(
             state=exec_resp.state,
