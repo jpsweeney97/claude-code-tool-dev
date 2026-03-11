@@ -117,10 +117,25 @@ Show each non-terminal candidate with:
 
 Prompt by status. NEVER auto-append without confirmation.
 
-**UPDATED_SOURCE:** Locate existing entry in `docs/learnings/learnings.md` by scanning for `<!-- distill-meta` comment with matching `source_uid`. Show diff (old paragraph vs new). Options:
-- `replace` (default) -- delete old entry (heading through meta comment inclusive), append new at end
-- `keep both` -- append new without removing old
-- `skip` -- do nothing
+**UPDATED_SOURCE:** Locate existing entry in `docs/learnings/learnings.md` by scanning for `<!-- distill-meta` comment with matching `source_uid`. Show diff (old paragraph vs new).
+
+Check the entry block for `<!-- promote-meta`. If found, extract `target` and `promoted_at`.
+
+**If promoted** (has `promote-meta`):
+
+> ⚠ This entry was promoted to `{target}` on {promoted_at}. Replacing it invalidates that promotion.
+
+Options:
+- `replace` (default) — delete old entry (heading through all meta comments), append new. Previous promotion invalidated; entry re-surfaces in `/promote`.
+- `replace + keep promoted` — delete old entry, append new with original `promote-meta` preserved. User asserts CLAUDE.md instruction still correct despite source change.
+- `skip` — do nothing
+
+**If not promoted:**
+
+Options:
+- `replace` (default) — delete old entry (heading through meta comment inclusive), append new at end
+- `keep both` — append new without removing old
+- `skip` — do nothing
 
 **UNIQUE_NEW** (NEW, no semantic match): Options:
 - `append` (default)
@@ -160,7 +175,8 @@ Write each confirmed entry to `docs/learnings/learnings.md` in this format:
 - `source_anchor` = the candidate's `source_anchor` field.
 - `source_uid` = the candidate's `source_uid` field.
 - Append at end of file, after a blank line.
-- For `replace` operations: delete old entry (from `### ` heading line through the `<!-- distill-meta ... -->` line inclusive), then append new entry at end.
+- For `replace` operations: delete old entry from `### ` heading line through the last metadata comment in the block (`<!-- distill-meta ... -->` or `<!-- promote-meta ... -->`, whichever comes last), then append new entry at end.
+- For `replace + keep promoted` operations: delete old entry as above, then append new entry with the original `promote-meta` comment re-attached after the new `distill-meta`.
 
 ## Failure Modes
 

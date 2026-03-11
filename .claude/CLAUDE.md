@@ -68,7 +68,7 @@ Three systems form the cross-model collaboration stack:
 |--------|--------|---------------|
 | **Codex Integration** — Cross-model dialogue with OpenAI Codex | Deployed | MCP tools: `mcp__plugin_cross-model_codex__codex`, `codex-reply`. Agent: `packages/plugins/cross-model/agents/codex-dialogue.md` |
 | **Context Injection** — Mid-conversation evidence gathering for Codex dialogues | Complete | MCP tools: `mcp__plugin_cross-model_context-injection__process_turn`, `execute_scout`. Server: `packages/plugins/cross-model/context-injection/`. Contract: `packages/plugins/cross-model/references/context-injection-contract.md` |
-| **Learning System** — Capture insights, stage in learnings.md, promote to CLAUDE.md | Redesign complete, implementation pending | Spec: `docs/plans/2026-03-11-learning-system-redesign.md`. Skills: `/learn`, `/distill`, `/promote` (new) |
+| **Learning System** — Capture insights, stage in learnings.md, promote to CLAUDE.md | Complete | Spec: `docs/plans/2026-03-11-learning-system-redesign.md`. Skills: `/learn`, `/distill`, `/promote` |
 
 **Context Injection security:** Over-redaction is always preferable to under-redaction. Footgun tests (`test_footgun_*`) verify which pipeline layer catches secrets.
 

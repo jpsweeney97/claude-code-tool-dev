@@ -1,10 +1,6 @@
 ---
 name: learn
-description: >-
-  Capture project insights. Two modes: `/learn log` creates a structured,
-  machine-validated episode (cross-model learning system). `/learn` (no
-  subcommand) appends an unstructured insight to the learnings file (Phase 0).
-  Use when user says "/learn", "capture this insight", "log this learning".
+description: Capture project insights. Two modes: `/learn log` creates a structured, machine-validated episode (cross-model learning system). `/learn` (no subcommand) appends an unstructured insight to the learnings file (Phase 0). Use when user says "/learn", "capture this insight", "log this learning".
 argument-hint: "[log [hint] | hint]"
 ---
 
@@ -167,20 +163,25 @@ Extract an insight from the current conversation and append it to the project's 
 
 2. **Select tags** from the table below. Pick 1-3 tags that fit. Create a new tag if none fit.
 
-3. **Draft the entry** and present it to the user for confirmation:
+3. **Draft the entry** using the structured format and present for confirmation:
 
    ```
    Draft learning:
 
    ### YYYY-MM-DD [tag1, tag2]
 
-   One paragraph capturing the insight — specific enough to be actionable
-   when re-read in a future session without the original context.
+   **Context:** One sentence — what were you doing when this came up.
+
+   **Insight:** The actual learning — what you discovered, decided, or confirmed.
+
+   **Implication:** What to do differently going forward.
 
    Append to docs/learnings/learnings.md?
    ```
 
-   Write the insight as a single paragraph. It should be self-contained — a future Claude session reading this entry should understand the insight without access to the original conversation.
+   **Why this structure:** Context helps `/promote` judge breadth (task-specific or general?). Insight is the core content that becomes a CLAUDE.md instruction. Implication signals actionability — no implication may mean not promotable.
+
+   **Freeform accepted.** If the insight doesn't fit this structure naturally, a single self-contained paragraph is fine. Existing entries stay as-is; no migration.
 
 4. **On confirmation, append the entry** to `docs/learnings/learnings.md`.
 
@@ -192,14 +193,20 @@ Extract an insight from the current conversation and append it to the project's 
    Project insights captured from consultations. Curate manually: delete stale entries, merge duplicates.
    ```
 
-   Append using this exact format (preserve the blank line before the heading):
+   Append using this format (preserve the blank line before the heading):
 
    ```markdown
 
    ### YYYY-MM-DD [tag1, tag2]
 
-   The insight paragraph.
+   **Context:** What you were doing.
+
+   **Insight:** What you discovered.
+
+   **Implication:** What to do differently.
    ```
+
+   If using freeform format, write a single self-contained paragraph instead of the three fields.
 
 5. **Confirm** with a one-line summary: the date, tags, and first ~10 words of the insight.
 
