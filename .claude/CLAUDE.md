@@ -76,20 +76,28 @@ Three systems form the cross-model collaboration stack:
 
 ## Workflow
 
-### Promoting to Production
+### Promoting Extensions
 
 ```bash
 uv run scripts/promote <type> <name>   # Validate and deploy to ~/.claude/
 ```
 
-### Plugin Development
+Types: `skill`, `command`, `agent`, `hook`. Plugins use the marketplace instead (see Packages table).
 
-Plugins use the `turbo-mode` marketplace instead of the promote script:
+### Scripts
 
-```bash
-claude plugin marketplace update turbo-mode
-claude plugin install cross-model@turbo-mode
-```
+Run with `uv run scripts/<name>`:
+
+| Script | Purpose |
+|--------|---------|
+| `promote` | Validate and deploy extensions to `~/.claude/` |
+| `sync-settings` | Sync hook config to `settings.json` (run after hook changes) |
+| `inventory` | List all extensions and packages |
+| `migrate` | Extension schema migrations |
+| `validate_consultation_contract.py` | Validate Codex contract + governance rules |
+| `validate_episode.py` | Validate learning episode format |
+
+Additional scripts in `scripts/` for benchmarking and analysis. See directory listing for full inventory.
 
 ## Rules
 
@@ -113,10 +121,6 @@ A hook blocks Edit/Write on `main` and `master`. Create a working branch first.
 - Gitignored paths (no commit anyway)
 
 Full details: `.claude/rules/workflow/git.md`
-
-### Scripts
-
-Run with `uv run scripts/<name>`: `inventory`, `migrate`, `promote`, `sync-settings`
 
 ## Gotchas
 
