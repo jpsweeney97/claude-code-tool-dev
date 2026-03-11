@@ -13,7 +13,7 @@ BM25-based search server for Claude Code documentation. Fetches docs from `https
 ## Commands
 
 ```bash
-npm test              # vitest run (386 tests)
+npm test              # vitest run (397 tests)
 npx tsc --noEmit      # type check
 npm run build         # tsc → dist/
 npm start             # run server (fetches from code.claude.com)
