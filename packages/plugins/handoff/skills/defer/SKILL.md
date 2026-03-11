@@ -12,7 +12,7 @@ allowed-tools:
 
 # Defer
 
-Extract deferred work items from conversation context and create tracking tickets in `docs/tickets/`. The `defer.py` script handles deterministic work (ID allocation, file rendering, provenance). This skill handles judgment: extraction, evidence anchoring, candidate presentation, and user confirmation.
+Extract deferred work items from conversation context and create tracking tickets in `docs/tickets/`. The `defer.py` script emits DeferredWorkEnvelope JSON files, and the ticket engine's `ingest` subcommand consumes them through the full pipeline (dedup, preflight, execute). This skill handles judgment: extraction, evidence anchoring, candidate presentation, and user confirmation.
 
 **Model:** Best-effort assistant. LLM extraction is inherently imperfect. Present candidates with evidence anchors so the user can verify. False positives are caught by confirmation; false negatives are mitigated by the "Possible Misses" section and explicit coverage disclaimer.
 
@@ -112,33 +112,47 @@ Ask the user to confirm which candidates to create. Accept:
 
 **NEVER create tickets without user confirmation.**
 
-### Step 4: Create tickets via defer.py
+### Step 4: Create tickets via envelope pipeline
+
+Two-phase flow: emit envelopes, then ingest each through the ticket engine.
+
+**Phase 1 — Emit envelopes:**
 
 For each confirmed candidate, construct a JSON object matching the schema in Step 2. Pipe the array to `defer.py`:
 
 ```bash
-echo '<candidates_json>' | python "${CLAUDE_PLUGIN_ROOT}/scripts/defer.py" --date "$(date +%Y-%m-%d)" --tickets-dir "<project_root>/docs/tickets"
+echo '<candidates_json>' | python "${CLAUDE_PLUGIN_ROOT}/scripts/defer.py" --tickets-dir "<project_root>/docs/tickets"
 ```
 
 Where:
 - `<candidates_json>` is the JSON array of confirmed candidates
 - `<project_root>` is the absolute path from `git rev-parse --show-toplevel`
-- `--date` MUST be today's date in YYYY-MM-DD format
 
 Parse the JSON response from stdout:
 
 | `status` | Meaning | Action |
 |----------|---------|--------|
-| `ok` | All tickets created | Proceed to commit |
-| `partial_success` | Some tickets created, some failed | Report created files and errors. Proceed to commit what succeeded. |
-| `error` | All tickets failed | Report errors and STOP |
+| `ok` | All envelopes emitted | Proceed to Phase 2 |
+| `partial_success` | Some envelopes emitted, some failed | Report errors. Ingest what succeeded. |
+| `error` | All envelopes failed | Report errors and STOP |
+
+**Phase 2 — Ingest envelopes:**
+
+For each envelope path from the Phase 1 `envelopes` array, create a payload file and call the ticket engine's `ingest` subcommand:
+
+```bash
+echo '{"envelope_path": "<path>"}' > /tmp/ingest_payload.json
+python3 "${CLAUDE_PLUGIN_ROOT}/../ticket/scripts/ticket_engine_user.py" ingest /tmp/ingest_payload.json
+```
+
+Parse the JSON response for each ingest call. The response contains `state`, `message`, and `ticket_id` on success.
 
 ### Step 5: Commit created files
 
-Stage only the created ticket files by explicit path (NEVER `git add .`):
+Stage created ticket files and processed envelopes by explicit path (NEVER `git add .`):
 
 ```bash
-git add docs/tickets/<file1>.md docs/tickets/<file2>.md
+git add docs/tickets/<file1>.md docs/tickets/<file2>.md docs/tickets/.envelopes/.processed/<envelope1>.json docs/tickets/.envelopes/.processed/<envelope2>.json
 git commit -m "chore(tickets): defer N items from <source_type>"
 ```
 
@@ -151,13 +165,14 @@ git add <paths> && git commit -m "chore(tickets): defer N items from <source_typ
 
 ### Step 6: Report results
 
-Summarize: number of tickets created, file paths, ticket IDs. Example:
+Summarize: number of tickets created, file paths, ticket IDs, and envelope provenance. Example:
 
 ```
-Created 3 tickets:
+Created 3 tickets via envelope pipeline:
 - T-20260228-01: docs/tickets/2026-02-28-T-20260228-01-add-retry-logic.md
 - T-20260228-02: docs/tickets/2026-02-28-T-20260228-02-refactor-parser.md
 - T-20260228-03: docs/tickets/2026-02-28-T-20260228-03-investigate-timeout.md
+Envelopes processed: docs/tickets/.envelopes/.processed/
 Committed on branch feature/my-feature.
 ```
 
@@ -183,10 +198,12 @@ Items at Low confidence are NOT candidates -- they appear in Possible Misses onl
 | User confirms 0 candidates | Report "Nothing to defer" and STOP |
 | `defer.py` returns `error` | Display error details and STOP |
 | `defer.py` returns `partial_success` | Report created files and errors. Commit what succeeded. |
-| Ticket ID collision | `defer.py` handles this (increments sequence number) |
-| `docs/tickets/` does not exist | `defer.py` creates the directory |
+| Ticket ID collision | Ticket engine handles this (dedup detection) |
+| `docs/tickets/` does not exist | `defer.py` creates the `.envelopes/` directory; ticket engine creates `docs/tickets/` |
+| Ingest returns `duplicate_candidate` | Report as "already tracked" and skip. Not an error. |
 | Git commit fails | Report created file paths and manual recovery command |
 | `${CLAUDE_PLUGIN_ROOT}` not set | Fall back to `$(git rev-parse --show-toplevel)/packages/plugins/handoff` |
+| Ticket plugin not installed | Phase 2 fails (ticket_engine_user.py not found). Report envelopes emitted but not ingested. |
 
 ## Scope
 
