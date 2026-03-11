@@ -9,6 +9,23 @@ from pathlib import Path
 import pytest
 
 
+def _run_main(input_json: str, tickets_dir: Path) -> tuple[int, dict]:
+    """Run main() with given stdin JSON, return (exit_code, parsed_output)."""
+    import io
+
+    from scripts.defer import main
+
+    original_stdin, original_stdout = sys.stdin, sys.stdout
+    sys.stdin = io.StringIO(input_json)
+    buf = io.StringIO()
+    sys.stdout = buf
+    try:
+        code = main(["--tickets-dir", str(tickets_dir)])
+    finally:
+        sys.stdin, sys.stdout = original_stdin, original_stdout
+    return code, json.loads(buf.getvalue())
+
+
 class TestEmitEnvelope:
     def test_same_second_same_summary_gets_unique_filenames(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Same-second collisions are resolved without overwriting data."""
@@ -214,70 +231,26 @@ class TestEmitEnvelope:
 class TestMainEmitsEnvelopes:
     def test_main_output_format(self, tmp_path: Path) -> None:
         """CLI writes envelopes and outputs JSON with 'envelopes' key."""
-        import io
-
-        from scripts.defer import main
-
         candidate = {
-            "summary": "CLI test",
-            "problem": "Test problem.",
-            "source_text": "Quote.",
-            "proposed_approach": "Fix.",
-            "acceptance_criteria": ["Done"],
-            "priority": "medium",
-            "source_type": "ad-hoc",
-            "source_ref": "",
-            "session_id": "sess-cli",
+            "summary": "CLI test", "problem": "Test problem.",
+            "source_text": "Quote.", "proposed_approach": "Fix.",
+            "acceptance_criteria": ["Done"], "priority": "medium",
+            "source_type": "ad-hoc", "source_ref": "", "session_id": "sess-cli",
         }
-        original_stdin = sys.stdin
-        sys.stdin = io.StringIO(json.dumps([candidate]))
-        try:
-            buf = io.StringIO()
-            original_stdout = sys.stdout
-            sys.stdout = buf
-            try:
-                code = main(["--tickets-dir", str(tmp_path)])
-            finally:
-                sys.stdout = original_stdout
-        finally:
-            sys.stdin = original_stdin
-
+        code, output = _run_main(json.dumps([candidate]), tmp_path)
         assert code == 0
-        output = json.loads(buf.getvalue())
         assert output["status"] == "ok"
-        assert "envelopes" in output
         assert len(output["envelopes"]) == 1
         assert output["envelopes"][0]["path"].endswith(".json")
 
     def test_envelopes_written_to_dir(self, tmp_path: Path) -> None:
         """Envelopes are written to .envelopes/ subdirectory."""
-        import io
-
-        from scripts.defer import main
-
         candidate = {
-            "summary": "Dir test",
-            "problem": "Problem.",
-            "source_text": "Quote.",
-            "proposed_approach": "Fix.",
-            "acceptance_criteria": ["Done"],
-            "priority": "low",
-            "source_type": "ad-hoc",
-            "source_ref": "",
-            "session_id": "sess-dir",
+            "summary": "Dir test", "problem": "Problem.",
+            "source_text": "Quote.", "proposed_approach": "Fix.",
+            "acceptance_criteria": ["Done"], "priority": "low",
+            "source_type": "ad-hoc", "source_ref": "", "session_id": "sess-dir",
         }
-        original_stdin = sys.stdin
-        sys.stdin = io.StringIO(json.dumps([candidate]))
-        try:
-            buf = io.StringIO()
-            original_stdout = sys.stdout
-            sys.stdout = buf
-            try:
-                main(["--tickets-dir", str(tmp_path)])
-            finally:
-                sys.stdout = original_stdout
-        finally:
-            sys.stdin = original_stdin
-
+        _run_main(json.dumps([candidate]), tmp_path)
         envelopes = list((tmp_path / ".envelopes").glob("*.json"))
         assert len(envelopes) == 1
