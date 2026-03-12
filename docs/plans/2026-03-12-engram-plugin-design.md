@@ -18,7 +18,7 @@ This creates: fragile cross-plugin boundaries, duplicated code, fragmented searc
 
 ## Design Decisions
 
-Decisions validated through 2 Codex consultations (1 direct, 2 multi-turn dialogues — 13 total turns, all converged).
+Decisions validated through 3 Codex consultations (1 direct, 2 multi-turn dialogues — 13 total turns, all converged).
 
 | # | Decision | Confidence | Source |
 |---|----------|------------|--------|
@@ -54,8 +54,7 @@ packages/plugins/engram/
 │   ├── search.py                # → from engram.handoff.search import main
 │   ├── cleanup.py               # → from engram.handoff.cleanup import main
 │   ├── quality_check.py         # → from engram.handoff.quality_check import main
-│   ├── defer.py                 # → from engram.handoff.defer import main
-│   └── ticket_engine_guard.py   # → from engram.ticket.guard import main
+│   └── defer.py                 # → from engram.handoff.defer import main
 ├── engram/                      # real Python package
 │   ├── __init__.py
 │   ├── core/                    # shared infrastructure
@@ -95,7 +94,7 @@ packages/plugins/engram/
 │   │   ├── defer.py
 │   │   ├── provenance.py
 │   │   └── project_paths.py     # handoff-specific paths (delegates to core)
-│   └── learning/                # NEW — backing for /learn, /promote, /distill
+│   └── learning/                # NEW — backing for /learn, /promote
 │       ├── __init__.py
 │       ├── capture.py           # /learn backing (read/write learnings.md)
 │       ├── promote.py           # /promote backing (maturity scoring, CLAUDE.md edits)
@@ -113,7 +112,10 @@ packages/plugins/engram/
 │   ├── learn/SKILL.md
 │   └── promote/SKILL.md
 ├── hooks/
-│   └── hooks.json               # all hooks in one file (auto-discovered)
+│   ├── hooks.json               # all hooks in one file (auto-discovered)
+│   ├── ticket_engine_guard.py   # PreToolUse hook (→ engram.ticket.guard)
+│   ├── cleanup.py               # SessionStart hook (→ engram.handoff.cleanup)
+│   └── quality_check.py         # PostToolUse hook (→ engram.handoff.quality_check)
 ├── references/
 │   ├── engram-contract.md       # shared metadata + adapter admission rules
 │   ├── ticket-contract.md       # migrated from ticket plugin
@@ -137,6 +139,8 @@ Each `scripts/<name>.py` is a thin runtime entrypoint:
 import sys
 from pathlib import Path
 
+# sys.path shim for direct invocation. If engram-plugin is installed as a
+# proper package (uv install), this is redundant but harmless.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from engram.ticket.engine_user import main
@@ -145,7 +149,7 @@ if __name__ == "__main__":
     main()
 ```
 
-Skills invoke shims via Bash: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py <args>`. Hooks reference shims in hooks.json: `"command": "${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py"`.
+Skills invoke shims via Bash: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py <args>`. Hooks reference scripts in `hooks/`: `"command": "${CLAUDE_PLUGIN_ROOT}/hooks/<name>.py"`. Hook scripts use the same shim pattern (thin entrypoint → `engram.*` import).
 
 ### hooks.json
 
@@ -158,7 +162,7 @@ Skills invoke shims via Bash: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py <
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ticket_engine_guard.py"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/ticket_engine_guard.py"
           }
         ]
       }
@@ -168,18 +172,18 @@ Skills invoke shims via Bash: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py <
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup.py"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cleanup.py"
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/quality_check.py"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/quality_check.py"
           }
         ]
       }
@@ -342,8 +346,9 @@ def discover_project_root() -> Path | None:
 def resolve_tickets_dir(project_root: Path, tickets_dir: str = "docs/tickets") -> Path:
     """Resolve tickets directory with traversal guard. Raises if outside project root."""
 
-def resolve_handoffs_dir(project_name: str) -> Path:
-    """Return ~/.claude/handoffs/<project_name>/."""
+def resolve_handoffs_dir(project_root: Path) -> Path:
+    """Return ~/.claude/handoffs/<project_name>/ using basename of project_root.
+    Future: use project_id for new handoffs; legacy basename lookup as fallback."""
 
 def resolve_learnings_path(project_root: Path) -> Path:
     """Return docs/learnings/learnings.md relative to project root."""
@@ -380,6 +385,7 @@ Six phases, each an independently reviewable and revertible PR.
   - Empty `scripts/`, `skills/`, `hooks/`, `references/`, `tests/` directories
 - Add `packages/plugins/engram` to root `pyproject.toml` workspace members
 - Verify: `uv run --package engram-plugin pytest` runs (0 tests, 0 errors)
+- Test marketplace install of the empty plugin to validate packaging before migrating code
 
 **Tests affected:** 0
 **Risk:** None
@@ -405,9 +411,11 @@ Six phases, each an independently reviewable and revertible PR.
 **Eliminate the /defer cross-plugin runtime hop.**
 
 - Move `ticket_engine_user.py`, `ticket_engine_runner.py`, `ticket_engine_core.py`, and their direct dependencies (`ticket_paths.py`, `ticket_stage_models.py`, `ticket_trust.py`, `ticket_envelope.py`) into `engram/ticket/`
-- Create thin shims in `scripts/` for moved modules
+- Move `ticket_engine_guard.py` into `engram/ticket/guard.py` — the guard imports from `ticket_engine_core` (moved in this phase), so it must move together
+- Create thin shims in `scripts/` for skill entrypoints
+- Create thin shim in `hooks/` for the guard hook
 - Update `/defer` skill to reference `${CLAUDE_PLUGIN_ROOT}/scripts/ticket_engine_user.py` (co-located, no path hack)
-- Automated codemod: `from scripts.ticket_` → `from engram.ticket.` in moved files
+- Apply codemod with ticket rename mapping table for moved files
 - Update tests for moved modules
 
 **Tests affected:** ~200 (engine entrypoint + integration tests)
@@ -434,11 +442,11 @@ Six phases, each an independently reviewable and revertible PR.
 
 **Complete the ticket migration.**
 
-- Move remaining ticket modules into `engram/ticket/` (parse, render, validate, id, triage, audit, dedup, read, guard)
+- Move remaining ticket modules into `engram/ticket/` (parse, render, validate, id, triage, audit, dedup, read)
 - Create remaining thin shims in `scripts/`
-- Automated codemod: `from scripts.` → `from engram.ticket.` across ticket files
+- Apply codemod with ticket rename mapping table for remaining files
 - Migrate ticket skills into `engram/skills/`
-- Migrate ticket hook into `engram/hooks/hooks.json`
+- Merge ticket hook config into `engram/hooks/hooks.json` (guard script already moved in P3)
 - Migrate ticket references into `engram/references/`
 - Update ~459 remaining ticket tests (659 total minus ~200 moved in P3)
 
@@ -449,25 +457,64 @@ Six phases, each an independently reviewable and revertible PR.
 
 **Remove old packages and update project config.**
 
-- Remove `packages/plugins/ticket/` directory
+- Remove `packages/plugins/ticket/` directory (including `.claude-plugin/`)
 - Remove `packages/plugins/handoff/` directory
 - Remove `.claude/skills/learn/` and `.claude/skills/promote/`
+- Verify old plugin registrations are removed from marketplace/cache
 - Update root `pyproject.toml` workspace members (remove ticket, handoff; engram already added in P1)
 - Update `.claude/CLAUDE.md` — package table, directory structure, deployment docs
 - Update `CHANGELOG.md`
-- Verify: `uv run --package engram-plugin pytest` passes all ~1100 tests
+- Verify: `uv run --package engram-plugin pytest` passes all tests
 
 **Tests affected:** 0 (all moved in prior phases)
 **Risk:** Low — deletion only. Old packages are inert after P5.
 
 ### Codemod Details
 
-Verified reference count: **285 `from scripts.` import statements across 51 files** (157 in ticket, 122 in handoff, 6 using `import scripts.`).
+Verified reference count: **285 `from scripts.` import statements across 50 files** (157 in ticket, 122 in handoff, 6 using `import scripts.`).
 
-Per-phase sed commands:
-- P3: Manual — only ~15 files in the engine slice
-- P4: `sed -i 's/from scripts\./from engram.handoff./g'` + manual review for cross-subsystem imports (triage.py)
-- P5: `sed -i 's/from scripts\./from engram.ticket./g'` + manual review
+**Module renames:** Ticket modules drop the `ticket_` prefix inside `engram/ticket/`. A simple `sed` is insufficient — use a mapping table:
+
+| Old import | New import |
+|-----------|-----------|
+| `from scripts.ticket_engine_core` | `from engram.ticket.engine_core` |
+| `from scripts.ticket_engine_runner` | `from engram.ticket.engine_runner` |
+| `from scripts.ticket_engine_user` | `from engram.ticket.engine_user` |
+| `from scripts.ticket_engine_agent` | `from engram.ticket.engine_agent` |
+| `from scripts.ticket_paths` | `from engram.ticket.paths` |
+| `from scripts.ticket_parse` | `from engram.ticket.parse` |
+| `from scripts.ticket_render` | `from engram.ticket.render` |
+| `from scripts.ticket_validate` | `from engram.ticket.validate` |
+| `from scripts.ticket_id` | `from engram.ticket.id` |
+| `from scripts.ticket_stage_models` | `from engram.ticket.stage_models` |
+| `from scripts.ticket_triage` | `from engram.ticket.triage` |
+| `from scripts.ticket_audit` | `from engram.ticket.audit` |
+| `from scripts.ticket_dedup` | `from engram.ticket.dedup` |
+| `from scripts.ticket_trust` | `from engram.ticket.trust` |
+| `from scripts.ticket_envelope` | `from engram.ticket.envelope` |
+| `from scripts.ticket_read` | `from engram.ticket.read` |
+
+Handoff modules keep their names (no prefix to strip):
+
+| Old import | New import |
+|-----------|-----------|
+| `from scripts.distill` | `from engram.handoff.distill` |
+| `from scripts.search` | `from engram.handoff.search` |
+| `from scripts.cleanup` | `from engram.handoff.cleanup` |
+| `from scripts.handoff_parsing` | `from engram.handoff.parsing` |
+| `from scripts.project_paths` | `from engram.handoff.project_paths` |
+| `from scripts.provenance` | `from engram.handoff.provenance` |
+| `from scripts.triage` | `from engram.handoff.triage` |
+| `from scripts.quality_check` | `from engram.handoff.quality_check` |
+| `from scripts.defer` | `from engram.handoff.defer` |
+| `from scripts.ticket_parsing` | **deleted** — use `from engram.ticket.parse` |
+
+Per-phase strategy:
+- P3: Manual — ~15 files in the engine slice, apply ticket rename mapping
+- P4: Script with handoff mapping table + manual review for cross-subsystem imports
+- P5: Script with ticket rename mapping table + manual review
+
+A Python codemod script (using the mapping tables above) is preferred over `sed` to handle the rename correctly.
 
 Files importing from multiple subsystems (need manual attention):
 - `engram/handoff/triage.py` — imports from both `engram.handoff.*` and `engram.ticket.parse`
@@ -512,7 +559,7 @@ Architecture validated against official Claude Code docs (2026-03-12):
 
 ## Success Criteria
 
-- [ ] All ~1100 tests pass in the consolidated package
+- [ ] All ~1000+ tests pass in the consolidated package (659 ticket + 340 handoff - ~25 duplicate parser + new learning/core tests)
 - [ ] `/defer` works without cross-plugin path hack
 - [ ] `/search --all <query>` returns results from tickets, handoffs, learnings, and CLAUDE.md
 - [ ] Handoff's duplicate `ticket_parsing.py` is deleted; single source of truth
