@@ -22,6 +22,7 @@ Decisions validated through 3 Codex consultations (1 direct, 2 multi-turn dialog
 
 | # | Decision | Confidence | Source |
 |---|----------|------------|--------|
+| D0 | Consolidate (not targeted fix) — full plugin unification over fixing individual crossover points | High | Codex consultation #1, design review |
 | D1 | Hybrid architecture — unified plugin, federated subsystems | High | Codex consultation #1 |
 | D2 | Storage: A+D — keep location split, add thin read-only federation | High | Codex dialogue #1 (6 turns, comparative) |
 | D3 | A-with-shims — `scripts/` as runtime entrypoints, `engram/` as real Python package | High | Codex dialogue #2 (6 turns, planning/comparative) |
@@ -32,6 +33,19 @@ Decisions validated through 3 Codex consultations (1 direct, 2 multi-turn dialog
 | D8 | Migration order: core → learning → ticket foundations+read+dedup → ticket engine+guard → handoff → rest of ticket → cleanup (7 phases) | High | Codex dialogue #2, validated in deep review, P3 scope expanded in adversarial review |
 | D9 | Adapter admission rule deferred to v2 — v1 uses provider functions with SearchResult normalization | High | Deep review convergence |
 | D10 | project_id hash cascade: repo:sha256(remote) → path:sha256(realpath) → dir:sha256(cwd) | Medium | Codex dialogue #1 |
+
+### D0: Consolidate vs. Targeted Fix
+
+**Rejected alternative:** Fix only the 5 crossover points without consolidation — move `/defer` into the ticket plugin (1 PR), delete duplicate parser + update handoff triage to import from ticket (1 PR), extract shared paths module (1 PR). Total: ~3 PRs, ~3 days. No 7-phase migration.
+
+**Why consolidation was chosen:**
+
+1. **Learning system needs a package home.** `/learn` and `/promote` require Python backing (maturity scoring, learnings.md read/write, CLAUDE.md placement logic). A targeted fix doesn't create a package for this — it would require a 4th standalone package, increasing deployment friction.
+2. **Unified search requires a federation layer.** Cross-entity search (`/search --all`) needs a provider model that normalizes results from ticket, handoff, learning, and promoted sources. This federation layer has no natural home in the targeted-fix approach.
+3. **Targeted fixes leave structural fragility.** Fixing `/defer` by moving it into the ticket plugin makes handoff depend on ticket at the skill level instead of the script level — the dependency persists, just moves up. A shared paths module creates a 3rd dependency (ticket → shared, handoff → shared).
+4. **Consolidation cost is bounded.** The 7-phase migration is mechanically driven by a codemod (285 AST renames + structural removal + grep) and each phase is independently revertible.
+
+**When targeted fix would be better:** If the learning system didn't need Python backing AND cross-entity search wasn't needed, targeted fixes would deliver the core value at lower cost. The learning system is the tipping point.
 
 ## Architecture
 
@@ -44,7 +58,7 @@ packages/plugins/engram/
 ├── .claude-plugin/
 │   └── plugin.json              # name + version only; rest auto-discovered
 ├── pyproject.toml               # package: "engram-plugin", deps: pyyaml>=6.0
-├── scripts/                     # thin runtime shims (Claude Code convention)
+├── scripts/                     # thin runtime shims for skill-invoked scripts only
 │   ├── ticket_engine_user.py    # → from engram.ticket.engine_user import main
 │   ├── ticket_engine_agent.py   # → from engram.ticket.engine_agent import main
 │   ├── ticket_read.py           # → from engram.ticket.read import main
@@ -52,8 +66,6 @@ packages/plugins/engram/
 │   ├── ticket_audit.py          # → from engram.ticket.audit import main
 │   ├── distill.py               # → from engram.handoff.distill import main
 │   ├── search.py                # → from engram.handoff.search import main
-│   ├── cleanup.py               # → from engram.handoff.cleanup import main
-│   ├── quality_check.py         # → from engram.handoff.quality_check import main
 │   └── defer.py                 # → from engram.handoff.defer import main
 ├── engram/                      # real Python package
 │   ├── __init__.py
@@ -64,7 +76,7 @@ packages/plugins/engram/
 │   │   ├── provenance.py        # relation model (v2, stubbed)
 │   │   ├── metadata.py          # shared metadata conventions
 │   │   └── providers.py         # provider functions + SearchResult normalization
-│   ├── ticket/                  # migrated from ticket plugin (15 modules)
+│   ├── ticket/                  # migrated from ticket plugin (17 modules: 16 scripts + guard hook)
 │   │   ├── __init__.py
 │   │   ├── engine_core.py
 │   │   ├── engine_runner.py
@@ -83,7 +95,7 @@ packages/plugins/engram/
 │   │   ├── envelope.py
 │   │   ├── guard.py             # PreToolUse hook logic
 │   │   └── read.py
-│   ├── handoff/                 # migrated from handoff plugin (10 modules)
+│   ├── handoff/                 # migrated from handoff plugin (9 modules; 10th — duplicate ticket_parsing.py — deleted)
 │   │   ├── __init__.py
 │   │   ├── parsing.py           # handoff frontmatter parser (kept separate from ticket)
 │   │   ├── distill.py
@@ -95,7 +107,7 @@ packages/plugins/engram/
 │   │   ├── provenance.py
 │   │   └── project_paths.py     # handoff-specific paths (delegates to core)
 │   └── learning/                # NEW — backing for /learn, /promote
-│       ├── __init__.py
+│       ├── __init__.py          # behavioral spec: docs/plans/2026-03-11-learning-system-redesign.md
 │       ├── capture.py           # /learn backing (read/write learnings.md)
 │       ├── promote.py           # /promote backing (maturity scoring, CLAUDE.md edits)
 │       └── store.py             # learnings.md read/write/query
@@ -438,7 +450,7 @@ Seven phases, each an independently reviewable and revertible PR.
 - Implement `engram/core/search.py` — fan-out search via provider table, starting with `search_learnings`
 - Implement `engram/learning/store.py` — learnings.md read/write/query
 - Implement `engram/learning/capture.py` — /learn Python backing
-- Implement `engram/learning/promote.py` — /promote Python backing
+- Implement `engram/learning/promote.py` — /promote Python backing (behavioral spec: `docs/plans/2026-03-11-learning-system-redesign.md` — maturity signals, ranking criteria, placement logic)
 - Migrate `/learn` and `/promote` skills from `.claude/skills/` into `engram/skills/`
 - Write tests for all new code
 
@@ -496,14 +508,17 @@ This is the first write-path cutover — the mutation path, guard hook, trust-tr
   - Readonly branch: subprocess test for `ticket_read.py` and `ticket_triage.py` shim paths
   - Audit branch: subprocess test with policy-asymmetric check (user allow + agent deny)
   - At least one test where the shim derives `plugin_root` itself (no `CLAUDE_PLUGIN_ROOT` env var, no monkeypatching) — proves `Path(__file__).parent.parent` resolution is correct from the hooks/ directory
+  - Deny-path test: at least one subprocess test verifying the guard correctly DENIES an unauthorized command (e.g., `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/ticket_engine_user.py badcommand`) through the new shim boundary — proves the deny path works, not just the allow path
 - End-to-end canary: full hook→ticket-creation flow in subprocess (exercises dedup — now available from P3)
 
 **Tests affected:** ~200 (engine core, runner, entrypoints, trust, envelope, guard)
 **Risk:** Medium-High — highest risk moment in the migration. Specific failure mode: hook chain breaks or misclassifies commands during trust injection.
 
-### Phase 5: Handoff
+### Phase 5: Handoff (parallelizable with P6)
 
 **Move all handoff code and eliminate the duplicate parser.**
+
+P5 and P6 have no cross-dependency and can run in parallel. P5 depends on P3 (`engram.handoff.triage` imports `engram.ticket.parse`). P6 depends on P3-P4 (triage/audit import ticket foundation and engine modules). Neither depends on the other.
 
 - Move all handoff scripts into `engram/handoff/`
 - Delete handoff's duplicate `ticket_parsing.py` — update `engram.handoff.triage` to import `engram.ticket.parse` (canonical source moved in P3)
@@ -520,7 +535,7 @@ This is the first write-path cutover — the mutation path, guard hook, trust-tr
 **Tests affected:** ~340 existing (315 migrated, 25 deleted)
 **Risk:** Medium — largest single module move, but handoff modules have no cross-package imports.
 
-### Phase 6: Rest of Ticket
+### Phase 6: Rest of Ticket (parallelizable with P5)
 
 **Complete the ticket migration.**
 
@@ -652,6 +667,8 @@ tests/
 ```
 
 Shim smoke tests verify the import chain works under production conditions. They are distinct from unit tests — they spawn a subprocess per shim and check exit code + basic output.
+
+**Test-to-phase allocation:** Each test file is allocated to the phase that moves its primary module under test. Allocation rule: a test file belongs to the phase that moves the module named in its filename (e.g., `test_parse.py` → P3, `test_engine_core.py` → P4, `test_triage.py` → P6 for ticket or P5 for handoff). Integration tests that exercise modules across phases (e.g., `test_hook_integration.py`, `test_integration.py`, `test_entrypoints.py`) are allocated to the latest phase among their dependencies — they cannot pass until all their dependencies are migrated.
 
 **Centralized path helper:** 8 test files (7 ticket, 1 handoff) use `__file__`-relative path chains like `PLUGIN_ROOT = str(Path(__file__).parent.parent)` that break when test files move to a different directory depth. `tests/conftest.py` must provide a centralized `plugin_root()` fixture that resolves the engram plugin root regardless of test file location. This prevents the same breakage pattern from recurring in future directory restructuring. Specific files requiring update: `test_hook_integration.py` (`PLUGIN_ROOT` and `HOOK_PATH` constants).
 
