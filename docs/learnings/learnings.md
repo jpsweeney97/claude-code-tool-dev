@@ -9,10 +9,12 @@ When designing validation criteria for a prototype phase, separate habit-formati
 ### 2026-02-17 [skill-design, architecture]
 
 When instruction documents layer (skill references agent, agent references contract), each layer must be fully operational standalone. Conditional logic like "if the agent spec is loaded, use its patterns; otherwise fall back" creates ambiguity that an LLM will resolve inconsistently — "available" is operationally undefined when the referenced spec isn't loaded. The fix: inline the minimal self-contained version at each layer, with a note that other sources are additive, not alternative. This emerged from a 3-dialogue parallel review of the `/codex` skill where the evaluative dialogue independently discovered (T8) that a "prefer codex-dialogue profile when available" clause was a loophole, and the exploratory dialogue independently chose "full replacement stubs over summary stubs" (T4) for the same reason — summary stubs that say "see the contract" create hard dependencies that break when the contract is unavailable.
+<!-- promote-meta {"promoted_at": "2026-03-11", "target": "CLAUDE.md#Writing Extensions"} -->
 
 ### 2026-02-18 [security, hooks]
 
 PreToolUse hooks are mechanically fail-open — unhandled exceptions don't produce exit code 2, so the tool call proceeds. This is backward from security intuition. When enforcement is critical (credential detection, access control), explicitly catch all errors and return a block decision. The choice between hooks (fail-open default) and wrapper MCP (fail-closed default) is a threat model question: "reduce accidental leaks" → hooks are proportionate; "zero tolerance" → wrapper required. Always clarify failure polarity before committing to a mechanism.
+<!-- promote-meta {"promoted_at": "2026-03-11", "target": "CLAUDE.md#Gotchas"} -->
 
 ### 2026-02-18 [codex, workflow]
 
@@ -21,6 +23,7 @@ When Codex proposes "A or B," the actual answer is often "neither — here's C."
 ### 2026-02-18 [plugins, architecture]
 
 Plugin-provided MCP tools use `mcp__plugin_<plugin>_<server>__<tool>` naming, not `mcp__<server>__<tool>`. This affects three surfaces that must all use the same convention: hook matchers, skill `allowed-tools` frontmatter, and agent `tools` frontmatter. The agent `tools` field is a hard allowlist (wrong names = tool unavailable to subagent), while skill `allowed-tools` is auto-approval only (wrong names = permission prompts appear). Discovered empirically via diagnostic hook — not documented in Claude Code plugin docs at time of discovery.
+<!-- promote-meta {"promoted_at": "2026-03-11", "target": "CLAUDE.md#Gotchas"} -->
 
 ### 2026-02-18 [plugins, debugging]
 
@@ -45,6 +48,7 @@ Before making file organization or packaging decisions, map the full dependency 
 ### 2026-02-18 [plugins, hooks]
 
 The PostToolUse hook payload uses `tool_response` (not `tool_result`) for the tool's output. The PreToolUse payload uses `tool_input` for the tool's input. The plugin `.mcp.json` `env` field merges with the parent process environment — it doesn't replace it. Setting `PATH` to a hardcoded value replaces only `PATH`; omitting `PATH` lets the child inherit the parent's. `${VAR:-default}` syntax does NOT expand in plugin `.mcp.json`; simple `${VAR}` is untested. Safest approach: don't set variables you can inherit.
+<!-- promote-meta {"promoted_at": "2026-03-11", "target": "CLAUDE.md#Gotchas"} -->
 
 ### 2026-02-18 [security, hooks]
 
@@ -93,6 +97,7 @@ When a script has a build-then-validate pipeline under a single broad `except (V
 ### 2026-02-20 [skill-design, pattern]
 
 When writing instructions that interface with MCP tool schemas, optional parameters with strong training priors (e.g., `model`, `url`, `api_key`) need explicit prohibitions ("Do NOT set X"), not passive omission rules ("omit X for default"). Claude tends to populate optional tool parameters rather than leave them unset, especially when the parameter name maps to training knowledge — the codex-dialogue agent consistently set `model` to invalid OpenAI model names ("o4 mini", "o3") despite the consultation contract saying "omit for Codex default." The fix required explicit "Do NOT set" + "Never guess from training knowledge" language in three places: the contract (authoritative source), the agent (where the tool call originates), and the skill (which delegates). All three are needed because Claude reads different documents depending on the invocation path.
+<!-- promote-meta {"promoted_at": "2026-03-11", "target": "CLAUDE.md#Writing Extensions"} -->
 
 ### 2026-02-22 [testing, pattern]
 

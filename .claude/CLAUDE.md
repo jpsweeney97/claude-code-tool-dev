@@ -128,6 +128,9 @@ Full details: `.claude/rules/workflow/git.md`
 - **Sync after hook changes**: Run `uv run scripts/sync-settings` after modifying hooks — Claude Code reads from `settings.json`, not hook files directly.
 - **Package-local testing**: A uv workspace (`pyproject.toml` at repo root) links all packages. Run tests from anywhere: `uv run --package <name> pytest`, or from the package directory: `cd packages/<path> && uv run pytest`.
 - **Rules file size**: `.claude/rules/` files auto-load into every session. Keep them minimal — move reference material to `docs/` and link to it.
+- **Hook failure polarity**: PreToolUse hooks are fail-open — unhandled exceptions don't produce exit code 2, so the tool call proceeds. For critical enforcement, catch all errors and return a block decision.
+- **MCP tool naming**: Plugin tools use `mcp__plugin_<plugin>_<server>__<tool>`. Must match across hook matchers, skill `allowed-tools`, and agent `tools` frontmatter. `tools` is a hard allowlist (wrong name = unavailable); `allowed-tools` is auto-approval only (wrong name = permission prompts).
+- **Hook payload fields**: PostToolUse uses `tool_response` (not `tool_result`); PreToolUse uses `tool_input`. Plugin `.mcp.json` `env` merges with parent environment. `${VAR:-default}` does NOT expand; safest to inherit rather than set.
 
 ## Writing Extensions
 
@@ -136,6 +139,9 @@ Applies to instruction documents: skills (`.claude/skills/*/SKILL.md`) and subag
 Audience is Claude. Optimize for machine parsing.
 
 Full guidance: `docs/references/writing-principles.md`
+
+- **Prohibit, don't omit**: When Claude should avoid an action, use active prohibitions ("Do NOT set X", "Never use Y") rather than passive language ("omit X for default", "leave X empty"). Passive instructions don't reliably prevent Claude from filling gaps with training knowledge. The stronger the training prior, the more explicit the prohibition must be.
+- **Standalone layers**: When instruction documents layer (skill → agent → contract), each layer must be fully operational standalone. Never use "if available, use X; otherwise fall back" — inline the minimal self-contained version. Other sources are additive, not alternative.
 
 ### Quick Reference
 
