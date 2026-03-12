@@ -162,7 +162,8 @@ Skills invoke shims via Bash: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py <
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/ticket_engine_guard.py"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/ticket_engine_guard.py",
+            "timeout": 10
           }
         ]
       }
@@ -172,7 +173,7 @@ Skills invoke shims via Bash: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py <
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cleanup.py"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/cleanup.py"
           }
         ]
       }
@@ -183,7 +184,7 @@ Skills invoke shims via Bash: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py <
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/quality_check.py"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/quality_check.py"
           }
         ]
       }
@@ -191,6 +192,8 @@ Skills invoke shims via Bash: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py <
   }
 }
 ```
+
+**Command format:** The guard uses shebang-based invocation (no `python3` prefix) matching the existing ticket hook convention. Cleanup and quality_check use `python3` prefix matching the existing handoff hook convention. During migration, preserve each hook's existing invocation format. All hook scripts must have `#!/usr/bin/env python3` shebangs regardless.
 
 ## Storage Federation
 
@@ -303,7 +306,7 @@ class SearchResult:
     title: str         # summary/title
     snippet: str       # matching content excerpt (max 200 chars)
     path: Path         # absolute path to source file
-    date: date         # creation or last modified
+    date: datetime     # creation or last modified (date-only sources promoted to midnight UTC)
     metadata: dict     # adapter-specific (status, tags, retention_class, etc.)
 ```
 
@@ -411,7 +414,7 @@ Six phases, each an independently reviewable and revertible PR.
 **Eliminate the /defer cross-plugin runtime hop.**
 
 - Move `ticket_engine_user.py`, `ticket_engine_runner.py`, `ticket_engine_core.py`, and their direct dependencies (`ticket_paths.py`, `ticket_stage_models.py`, `ticket_trust.py`, `ticket_envelope.py`) into `engram/ticket/`
-- Move `ticket_engine_guard.py` into `engram/ticket/guard.py` — the guard imports from `ticket_engine_core` (moved in this phase), so it must move together
+- Move `ticket_engine_guard.py` into `engram/ticket/guard.py` — the guard validates engine subcommands and injects trust triples, so it logically belongs with the engine modules it protects
 - Create thin shims in `scripts/` for skill entrypoints
 - Create thin shim in `hooks/` for the guard hook
 - Update `/defer` skill to reference `${CLAUDE_PLUGIN_ROOT}/scripts/ticket_engine_user.py` (co-located, no path hack)
@@ -428,7 +431,7 @@ Six phases, each an independently reviewable and revertible PR.
 - Move all handoff scripts into `engram/handoff/`
 - Delete handoff's duplicate `ticket_parsing.py` — update `engram.handoff.triage` to import `engram.ticket.parse`
 - Create thin shims in `scripts/` for all handoff entrypoints
-- Automated codemod: `from scripts.` → `from engram.handoff.` across handoff files
+- Apply codemod with handoff mapping table (most are `from scripts.X` → `from engram.handoff.X`; `triage.py` also needs `from scripts.ticket_parsing` → `from engram.ticket.parse`)
 - Migrate all 7 handoff skills into `engram/skills/`
 - Migrate handoff hooks into `engram/hooks/hooks.json`
 - Migrate handoff references into `engram/references/`
@@ -554,7 +557,7 @@ Architecture validated against official Claude Code docs (2026-03-12):
 ## Open Questions
 
 1. **Derived cache** — Will lazy fan-out search be fast enough at scale, or will a persistent index (`~/.claude/engram/<project>/index`) eventually be needed? Deferred until performance evidence.
-2. **Learnings path configurability** — Currently ~24 hardcoded references to `docs/learnings/learnings.md` across skills and docs. `engram.core.paths.resolve_learnings_path()` centralizes this, but updating all references is a coordinated change.
+2. **Learnings path configurability** — Hardcoded references to `docs/learnings/learnings.md` exist across skills and docs. `engram.core.paths.resolve_learnings_path()` centralizes the path resolution, but updating all skill instructions to use it is deferred to post-migration cleanup (not part of P1-P6).
 3. **Pytest configuration** — The thin-shim pattern needs both shim smoke tests (does the import chain work?) and `engram.*` unit tests (does the logic work?). Exact pytest layout TBD in P1.
 
 ## Success Criteria
