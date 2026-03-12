@@ -18,7 +18,7 @@ This creates: fragile cross-plugin boundaries, duplicated code, fragmented searc
 
 ## Design Decisions
 
-Decisions validated through 3 Codex consultations (1 direct, 2 multi-turn dialogues — 13 total turns, all converged).
+Decisions validated through 3 Codex consultations (1 direct, 2 multi-turn dialogues — 13 total turns, all converged) + 1 deep-review dialogue (5 turns, evaluative posture, all converged).
 
 | # | Decision | Confidence | Source |
 |---|----------|------------|--------|
@@ -29,8 +29,8 @@ Decisions validated through 3 Codex consultations (1 direct, 2 multi-turn dialog
 | D5 | Unified search as v1 capability; provenance graph, dashboard, cross-entity triage as future | High | User decision |
 | D6 | No persistent index in v1 — lazy fan-out from existing metadata | High | Codex dialogue #1 |
 | D7 | Two parsers stay separate (handoff frontmatter vs ticket fenced-YAML) | High | Codex dialogue #2 |
-| D8 | Migration order: core → learning → ticket engine slice → handoff → parser consolidation → rest of ticket | Medium | Codex dialogue #2 |
-| D9 | Adapter admission rule: user-facing, authoritative, stable schema, 2+ consumers | Medium | Codex dialogue #1 (emerged) |
+| D8 | Migration order: core → learning → ticket foundations → ticket engine+guard → handoff → rest of ticket → cleanup (7 phases) | High | Codex dialogue #2, validated in deep review |
+| D9 | Adapter admission rule deferred to v2 — v1 uses provider functions with SearchResult normalization | High | Deep review convergence |
 | D10 | project_id hash cascade: repo:sha256(remote) → path:sha256(realpath) → dir:sha256(cwd) | Medium | Codex dialogue #1 |
 
 ## Architecture
@@ -63,7 +63,7 @@ packages/plugins/engram/
 │   │   ├── search.py            # cross-entity fan-out search
 │   │   ├── provenance.py        # relation model (v2, stubbed)
 │   │   ├── metadata.py          # shared metadata conventions
-│   │   └── adapters.py          # adapter base class + registry
+│   │   └── providers.py         # provider functions + SearchResult normalization
 │   ├── ticket/                  # migrated from ticket plugin (15 modules)
 │   │   ├── __init__.py
 │   │   ├── engine_core.py
@@ -117,16 +117,17 @@ packages/plugins/engram/
 │   ├── cleanup.py               # SessionStart hook (→ engram.handoff.cleanup)
 │   └── quality_check.py         # PostToolUse hook (→ engram.handoff.quality_check)
 ├── references/
-│   ├── engram-contract.md       # shared metadata + adapter admission rules
+│   ├── engram-contract.md       # shared metadata + provider conventions
 │   ├── ticket-contract.md       # migrated from ticket plugin
 │   ├── handoff-contract.md      # migrated from handoff plugin
 │   └── format-reference.md      # migrated from handoff plugin
 └── tests/
     ├── conftest.py              # shared fixtures (tmp dirs, sample data)
     ├── test_core/               # engram.core tests
-    ├── test_ticket/             # ~659 tests, migrated
-    ├── test_handoff/            # ~340 tests, migrated
-    └── test_learning/           # NEW tests
+    ├── test_ticket/             # ~659 tests, migrated across P3-P6
+    ├── test_handoff/            # ~315 tests, migrated in P5
+    ├── test_learning/           # NEW tests (P2)
+    └── test_shims/              # subprocess-based shim smoke tests
 ```
 
 ### Shim Pattern
@@ -217,37 +218,51 @@ Data stays where it semantically belongs. Engram provides cross-location query t
 Four operations, no persistence:
 
 1. **Resolve** — given an entity kind and ID, return the absolute path to its source file
-2. **Fan-out** — distribute a query to all (or filtered) adapters in parallel
-3. **Normalize** — convert adapter-specific results to a common `SearchResult` envelope
+2. **Fan-out** — distribute a query to all (or filtered) providers in parallel
+3. **Normalize** — convert provider-specific results to a common `SearchResult` envelope
 4. **Derive** — compute provenance links from existing metadata (session_id joins, defer-meta, distill-meta, promote-meta)
 
-### Adapter Model
+### Provider Model (v1)
+
+v1 uses hardcoded provider functions instead of a formal adapter hierarchy. Each provider returns normalized `SearchResult` objects. This avoids premature abstraction — the `HandoffAdapter` would immediately violate a single `authority_path` contract (needs active + archive roots), and D9's 2+ consumers guard can't be enforced when only `search.py` consumes providers.
 
 ```python
-class Adapter:
-    """Base interface for engram federation."""
-    kind: str                    # "ticket", "handoff", "learning", "promoted"
-    authority_path: Path         # root directory for this adapter's data
+# engram/core/providers.py
+from engram.core.search import SearchResult
 
-    def search(self, query: str) -> list[dict]:
-        """Search this adapter's data. Returns adapter-native results."""
-        ...
+def search_tickets(query: str, project_root: Path, limit: int = 50) -> list[SearchResult]:
+    """Search project-local tickets. Respects path-traversal guard."""
+    ...
 
-    def resolve(self, entity_id: str) -> Path | None:
-        """Resolve an entity ID to its source file path."""
-        ...
+def search_handoffs(query: str, project_root: Path, limit: int = 50) -> list[SearchResult]:
+    """Search user-global handoffs (active + archive). Fans out internally."""
+    ...
+
+def search_learnings(query: str, project_root: Path, limit: int = 50) -> list[SearchResult]:
+    """Search project-local learnings. Section-aware grep."""
+    ...
+
+def search_promoted(query: str, project_root: Path, limit: int = 50) -> list[SearchResult]:
+    """Search project-local CLAUDE.md. Read-only grep."""
+    ...
+
+# Fixed provider table — no registry, no dynamic dispatch.
+PROVIDERS: dict[str, ProviderFn] = {
+    "ticket": search_tickets,
+    "handoff": search_handoffs,
+    "learning": search_learnings,
+    "promoted": search_promoted,
+}
 ```
 
-Four concrete adapters:
+| Provider | Authority Module | Data Source | Notes |
+|----------|-----------------|-------------|-------|
+| `search_tickets` | `engram.ticket.parse` | `docs/tickets/` | Respects path-traversal guard |
+| `search_handoffs` | `engram.handoff.parsing` | `~/.claude/handoffs/<project>/` | Fans out to active + `.archive/` |
+| `search_learnings` | `engram.learning.store` | `docs/learnings/learnings.md` | Section-aware grep |
+| `search_promoted` | Read-only | `.claude/CLAUDE.md` | Grep only, no mutation |
 
-| Adapter | Authority Module | Data Source | Notes |
-|---------|-----------------|-------------|-------|
-| `TicketAdapter` | `engram.ticket.parse` | `docs/tickets/` | Respects path-traversal guard |
-| `HandoffAdapter` | `engram.handoff.parsing` | `~/.claude/handoffs/<project>/` | Searches active + archive |
-| `LearningAdapter` | `engram.learning.store` | `docs/learnings/learnings.md` | Section-aware grep |
-| `PromotionAdapter` | Read-only | `.claude/CLAUDE.md` | Grep only, no mutation |
-
-**Adapter admission rule:** A new adapter must be (1) user-facing, (2) authoritative over its data, (3) backed by a stable schema, and (4) consumed by 2+ skills. This prevents the federation layer from growing unbounded.
+**Promotion to adapter hierarchy (v2):** When a second consumer of the provider interface arrives (e.g., provenance module), evaluate promoting provider functions to a formal `Adapter` base class with registry. Admission rule: a new provider must be (1) user-facing, (2) authoritative over its data, (3) backed by a stable schema, and (4) consumed by 2+ callers.
 
 ### Provenance Model (v2, stubbed in v1)
 
@@ -284,12 +299,12 @@ def search(
     kinds: list[str] | None = None,
     limit: int = 50,
 ) -> list[SearchResult]:
-    """Fan-out search across all registered adapters.
+    """Fan-out search across all registered providers.
 
     Args:
         query: Literal string match (v1). Future: regex support.
         kinds: Filter to entity types. None = all.
-        limit: Max results per adapter.
+        limit: Max results per provider.
 
     Returns:
         SearchResult list sorted by date (most recent first).
@@ -307,7 +322,7 @@ class SearchResult:
     snippet: str       # matching content excerpt (max 200 chars)
     path: Path         # absolute path to source file
     date: datetime     # creation or last modified (date-only sources promoted to midnight UTC)
-    metadata: dict     # adapter-specific (status, tags, retention_class, etc.)
+    metadata: dict     # provider-specific (status, tags, retention_class, etc.)
 ```
 
 ### Skill Integration
@@ -325,7 +340,7 @@ The `/search` skill gains cross-entity capability:
 
 - Literal string matching only (no ranking, no fuzzy)
 - Recency sort (newest first)
-- No persistent index — live fan-out on every query
+- No persistent index — live fan-out via provider table on every query
 - No provenance links in results (future v2)
 
 ### Future Capabilities (not in v1)
@@ -333,7 +348,7 @@ The `/search` skill gains cross-entity capability:
 | Capability | Description | Depends On |
 |------------|-------------|------------|
 | Provenance graph | "Show lineage of this ticket" — handoff→ticket→learning→CLAUDE.md | `engram.core.provenance` (v2) |
-| Lifecycle dashboard | Project knowledge health metrics | All adapters + provenance |
+| Lifecycle dashboard | Project knowledge health metrics | All providers + provenance |
 | Cross-entity triage | Upgraded `/triage` correlating all entity types | Unified search + provenance |
 
 ## Engram Core Details
@@ -371,11 +386,11 @@ Two parsers remain separate — they parse genuinely different grammars:
 | Handoff frontmatter | `engram.handoff.parsing` | YAML frontmatter (custom, no PyYAML) + section headers | None |
 | Ticket fenced YAML | `engram.ticket.parse` | Fenced YAML block + schema validation | PyYAML |
 
-**Migration cleanup:** Handoff's duplicate `ticket_parsing.py` (30 tests) is deleted. `engram.handoff.triage` imports `engram.ticket.parse` directly — single source of truth.
+**Migration cleanup:** Handoff's duplicate `ticket_parsing.py` (25 tests) is deleted. `engram.handoff.triage` imports `engram.ticket.parse` directly — single source of truth.
 
 ## Migration Plan
 
-Six phases, each an independently reviewable and revertible PR.
+Seven phases, each an independently reviewable and revertible PR.
 
 ### Phase 1: Scaffold
 
@@ -398,8 +413,8 @@ Six phases, each an independently reviewable and revertible PR.
 **Build the shared infrastructure and the first subsystem.**
 
 - Implement `engram/core/paths.py` — unified path resolution
-- Implement `engram/core/adapters.py` — adapter base class
-- Implement `engram/core/search.py` — fan-out search with LearningAdapter
+- Implement `engram/core/providers.py` — provider functions + SearchResult normalization
+- Implement `engram/core/search.py` — fan-out search via provider table, starting with `search_learnings`
 - Implement `engram/learning/store.py` — learnings.md read/write/query
 - Implement `engram/learning/capture.py` — /learn Python backing
 - Implement `engram/learning/promote.py` — /promote Python backing
@@ -407,56 +422,91 @@ Six phases, each an independently reviewable and revertible PR.
 - Write tests for all new code
 
 **Tests affected:** 0 existing, ~100-150 new
-**Risk:** Low — entirely greenfield. Learning adapter is the proving ground for the core API.
+**Risk:** Low — entirely greenfield. Learning provider is the proving ground for the core API.
 
-### Phase 3: Ticket Engine Slice
+### Phase 3: Ticket Foundations
 
-**Eliminate the /defer cross-plugin runtime hop.**
+**Move the data-layer modules that engine_core depends on.**
 
-- Move `ticket_engine_user.py`, `ticket_engine_runner.py`, `ticket_engine_core.py`, and their direct dependencies (`ticket_paths.py`, `ticket_stage_models.py`, `ticket_trust.py`, `ticket_envelope.py`) into `engram/ticket/`
-- Move `ticket_engine_guard.py` into `engram/ticket/guard.py` — the guard validates engine subcommands and injects trust triples, so it logically belongs with the engine modules it protects
-- Create thin shims in `scripts/` for skill entrypoints
-- Create thin shim in `hooks/` for the guard hook
-- Update `/defer` skill to reference `${CLAUDE_PLUGIN_ROOT}/scripts/ticket_engine_user.py` (co-located, no path hack)
+`ticket_engine_core.py` has 6 top-level + 2 runtime imports reaching into non-engine modules. Moving the engine without its foundations creates an unresolvable dependency gap. This phase moves the pure data/parsing/validation modules first.
+
+- Move into `engram/ticket/`:
+  - `ticket_paths.py` → `paths.py` (path resolution + traversal guard)
+  - `ticket_parse.py` → `parse.py` (canonical ticket parser, fenced YAML)
+  - `ticket_stage_models.py` → `stage_models.py` (lifecycle states)
+  - `ticket_validate.py` → `validate.py` (schema validation)
+  - `ticket_render.py` → `render.py` (ticket formatting)
+  - `ticket_id.py` → `id.py` (ID generation)
+- Create thin shims in `scripts/` where skills reference these modules
 - Apply codemod with ticket rename mapping table for moved files
 - Update tests for moved modules
 
-**Tests affected:** ~200 (engine entrypoint + integration tests)
-**Risk:** Medium — first real migration. The engine core is the most interconnected module.
+**Tests affected:** ~200 (parse, validate, render, id, paths, stage_models tests)
+**Risk:** Low-Medium — pure data modules with no mutation logic. Mechanical move + rename.
 
-### Phase 4: Handoff
+### Phase 4: Ticket Engine + Guard
+
+**Move the mutation engine and eliminate the /defer cross-plugin runtime hop.**
+
+This is the first write-path cutover — the mutation path, guard hook, trust-triple injection, and `/defer` all change simultaneously.
+
+- Move into `engram/ticket/`:
+  - `ticket_engine_core.py` → `engine_core.py`
+  - `ticket_engine_runner.py` → `engine_runner.py`
+  - `ticket_engine_user.py` → `engine_user.py`
+  - `ticket_engine_agent.py` → `engine_agent.py`
+  - `ticket_trust.py` → `trust.py`
+  - `ticket_envelope.py` → `envelope.py`
+- Move `ticket_engine_guard.py` → `engram/ticket/guard.py`
+  - Guard must accept explicit `plugin_root` parameter from shim boundary (not `__file__`-based resolution, which resolves incorrectly when imported directly in tests)
+  - Guard shim at `hooks/ticket_engine_guard.py` passes `plugin_root=Path(__file__).resolve().parent.parent`
+  - Existing allowlist patterns (`_build_allowlist_pattern`, `_build_readonly_pattern`, `_build_audit_pattern`) must be updated if they anchor to `${CLAUDE_PLUGIN_ROOT}/scripts/`
+- Create thin shims in `scripts/` for engine entrypoints
+- Update `/defer` skill to reference `${CLAUDE_PLUGIN_ROOT}/scripts/ticket_engine_user.py` (co-located, no path hack)
+- Apply codemod for moved files
+- Update tests for moved modules
+
+**Exit gate (required before P5):**
+- All engine unit tests pass via `uv run --package engram-plugin pytest`
+- Guard hook integration test: subprocess invocation matching production (shebang, `CLAUDE_PLUGIN_ROOT` set)
+- End-to-end canary: full hook→ticket-creation flow in subprocess
+
+**Tests affected:** ~200 (engine core, runner, entrypoints, trust, envelope, guard)
+**Risk:** Medium-High — highest risk moment in the migration. Specific failure mode: hook chain breaks or misclassifies commands during trust injection.
+
+### Phase 5: Handoff
 
 **Move all handoff code and eliminate the duplicate parser.**
 
 - Move all handoff scripts into `engram/handoff/`
-- Delete handoff's duplicate `ticket_parsing.py` — update `engram.handoff.triage` to import `engram.ticket.parse`
+- Delete handoff's duplicate `ticket_parsing.py` — update `engram.handoff.triage` to import `engram.ticket.parse` (canonical source moved in P3)
 - Create thin shims in `scripts/` for all handoff entrypoints
 - Apply codemod with handoff mapping table (most are `from scripts.X` → `from engram.handoff.X`; `triage.py` also needs `from scripts.ticket_parsing` → `from engram.ticket.parse`)
 - Migrate all 7 handoff skills into `engram/skills/`
 - Migrate handoff hooks into `engram/hooks/hooks.json`
 - Migrate handoff references into `engram/references/`
-- Delete 30 redundant `test_ticket_parsing.py` tests from handoff
-- Update remaining ~310 handoff tests
+- Delete 25 redundant `test_ticket_parsing.py` tests from handoff
+- Update remaining ~315 handoff tests
 
-**Tests affected:** ~340 existing (310 migrated, 30 deleted)
+**Tests affected:** ~340 existing (315 migrated, 25 deleted)
 **Risk:** Medium — largest single module move, but handoff modules have no cross-package imports.
 
-### Phase 5: Rest of Ticket
+### Phase 6: Rest of Ticket
 
 **Complete the ticket migration.**
 
-- Move remaining ticket modules into `engram/ticket/` (parse, render, validate, id, triage, audit, dedup, read)
+- Move remaining ticket modules into `engram/ticket/` (triage, audit, dedup, read — foundations and engine already moved in P3-P4)
 - Create remaining thin shims in `scripts/`
 - Apply codemod with ticket rename mapping table for remaining files
 - Migrate ticket skills into `engram/skills/`
-- Merge ticket hook config into `engram/hooks/hooks.json` (guard script already moved in P3)
+- Merge ticket hook config into `engram/hooks/hooks.json` (guard script already moved in P4)
 - Migrate ticket references into `engram/references/`
-- Update ~459 remaining ticket tests (659 total minus ~200 moved in P3)
+- Update ~259 remaining ticket tests (659 total minus ~200 in P3, ~200 in P4)
 
-**Tests affected:** ~459 existing
-**Risk:** Medium — largest test count, but mechanical codemod.
+**Tests affected:** ~259 existing
+**Risk:** Low-Medium — smaller scope than original P5. Modules are leaf-level (triage, audit, dedup, read) with no downstream dependents.
 
-### Phase 6: Cleanup
+### Phase 7: Cleanup
 
 **Remove old packages and update project config.**
 
@@ -470,13 +520,18 @@ Six phases, each an independently reviewable and revertible PR.
 - Verify: `uv run --package engram-plugin pytest` passes all tests
 
 **Tests affected:** 0 (all moved in prior phases)
-**Risk:** Low — deletion only. Old packages are inert after P5.
+**Risk:** Low — deletion only. Old packages are inert after P6.
 
 ### Codemod Details
 
-Verified reference count: **285 `from scripts.` import statements across 50 files** (157 in ticket, 122 in handoff, 6 using `import scripts.`).
+**Scope:** Codemod targets ticket and handoff packages only — **285 `from scripts.` import statements across 50 files** (157 in ticket, 122 in handoff, 6 using `import scripts.`). An additional 101 `from scripts.` references exist in cross-model and context-metrics plugins — these are unrelated local `scripts` namespaces within those packages and are not in scope. They will not break when ticket/handoff packages are removed.
 
-**Module renames:** Ticket modules drop the `ticket_` prefix inside `engram/ticket/`. A simple `sed` is insufficient — use a mapping table:
+**Two-bucket strategy:**
+
+1. **Python AST codemod** — handles `ImportFrom` nodes (`from scripts.X import Y`) and `Import` nodes (`import scripts.X as Y` — 6 alias forms exist, all in tests). A mapping-table-driven AST rewriter is preferred over `sed` to handle renames correctly.
+2. **Manual runtime grep** — covers non-Python references: SKILL.md files (5 files with hardcoded `${CLAUDE_PLUGIN_ROOT}/../ticket/scripts/` paths), hooks.json, and shell command snippets in skill instructions. These cannot be handled by a Python AST codemod.
+
+**Module renames:** Ticket modules drop the `ticket_` prefix inside `engram/ticket/`. Use the mapping tables below:
 
 | Old import | New import |
 |-----------|-----------|
@@ -513,21 +568,44 @@ Handoff modules keep their names (no prefix to strip):
 | `from scripts.ticket_parsing` | **deleted** — use `from engram.ticket.parse` |
 
 Per-phase strategy:
-- P3: Manual — ~15 files in the engine slice, apply ticket rename mapping
-- P4: Script with handoff mapping table + manual review for cross-subsystem imports
-- P5: Script with ticket rename mapping table + manual review
-
-A Python codemod script (using the mapping tables above) is preferred over `sed` to handle the rename correctly.
+- P3: AST codemod — ticket foundations (paths, parse, validate, render, id, stage_models)
+- P4: AST codemod — ticket engine + runtime grep for guard hook allowlist patterns and `/defer` SKILL.md path
+- P5: AST codemod — handoff mapping table + manual review for cross-subsystem imports + runtime grep for SKILL.md paths
+- P6: AST codemod — remaining ticket modules (triage, audit, dedup, read)
 
 Files importing from multiple subsystems (need manual attention):
 - `engram/handoff/triage.py` — imports from both `engram.handoff.*` and `engram.ticket.parse`
 - `engram/handoff/defer.py` — invokes ticket engine
 
-### Migration Principle
+### Migration Principles
 
 > Co-locate by plugin, unify by ownership, abstract only after duplication survives the move.
 
 Do not extract shared utilities prematurely. Move code first, observe actual duplication in the new location, then extract only what has 2+ genuine consumers.
+
+**Temporary compatibility direction:** During migration (P3-P6), old packages may import from `engram.*` (old → new). New `engram.*` modules must NEVER import from old `scripts.*` packages (new → old). This prevents re-creating the cross-package dependency tangle the migration is eliminating.
+
+### Test Strategy
+
+**Package isolation:** During P3-P6, old and new packages coexist. Both use `scripts.*` namespace. `sys.path.insert(0, plugin_root)` in shims creates real ambiguity when both are importable in one interpreter. Rules:
+
+- Run tests via `uv run --package <name> pytest` per plugin — never root-level mixed runs during P3-P6
+- Shim smoke tests must run in **subprocesses** matching production invocation (shebang, `CLAUDE_PLUGIN_ROOT` set, no `python3` prefix for guard)
+- `engram.*` unit tests run normally via pytest — these import the package directly, no shim
+
+**Unified test directory:** All tests live under `tests/` with subdirectories by subsystem:
+
+```
+tests/
+├── conftest.py              # shared fixtures (tmp dirs, sample data)
+├── test_core/               # engram.core tests
+├── test_ticket/             # ~659 tests, migrated across P3-P6
+├── test_handoff/            # ~315 tests, migrated in P5
+├── test_learning/           # NEW tests (P2)
+└── test_shims/              # subprocess-based shim smoke tests
+```
+
+Shim smoke tests verify the import chain works under production conditions. They are distinct from unit tests — they spawn a subprocess per shim and check exit code + basic output.
 
 ## Verified Against Documentation
 
@@ -548,21 +626,24 @@ Architecture validated against official Claude Code docs (2026-03-12):
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Codemod misses edge cases | Medium | Low | Each phase runs full test suite before merge |
-| Test import confusion during migration (old + new coexist) | Medium | Medium | Old package stays functional until its phase; workspace isolation via `uv run --package` |
-| engram-core grows too large | Low | Medium | Adapter admission rule (D9) limits scope |
+| **P4 write-path cutover breaks hook chain** | Medium | High | Exit gate: E2E canary test (hook→ticket-creation in subprocess). Specific failure mode: guard misclassifies commands during trust injection |
+| Codemod misses edge cases (AST bucket) | Medium | Low | Each phase runs full test suite before merge |
+| Codemod misses non-Python references (grep bucket) | Medium | Medium | Runtime grep scope explicitly defined: SKILL.md, hooks.json, shell snippets. Manual review checklist per phase |
+| Test import confusion during migration (old + new coexist) | Medium | Medium | Per-package pytest invocations only; shim smoke tests in subprocesses; never root-level mixed runs |
+| Guard hook `__file__` resolves incorrectly in tests | Medium | Low | Explicit `plugin_root` parameter injection from shim boundary |
+| engram-core provider layer grows unbounded | Low | Medium | Provider functions are hardcoded (no registry); promotion to adapter hierarchy requires 2+ consumers (v2 guardrail) |
 | Unified search performance on large handoff archives | Low | Low | v1 has no persistent index; add if evidence demands |
 | Marketplace deployment breaks | Low | High | Test marketplace install in P1 before migrating code |
 
 ## Open Questions
 
 1. **Derived cache** — Will lazy fan-out search be fast enough at scale, or will a persistent index (`~/.claude/engram/<project>/index`) eventually be needed? Deferred until performance evidence.
-2. **Learnings path configurability** — Hardcoded references to `docs/learnings/learnings.md` exist across skills and docs. `engram.core.paths.resolve_learnings_path()` centralizes the path resolution, but updating all skill instructions to use it is deferred to post-migration cleanup (not part of P1-P6).
-3. **Pytest configuration** — The thin-shim pattern needs both shim smoke tests (does the import chain work?) and `engram.*` unit tests (does the logic work?). Exact pytest layout TBD in P1.
+2. **Learnings path configurability** — Hardcoded references to `docs/learnings/learnings.md` exist across ~14 skills and docs. `engram.core.paths.resolve_learnings_path()` centralizes the path resolution, but updating all skill instructions to use it is deferred to post-migration cleanup (not part of P1-P7).
+3. **Triage federation gap** — The existing `/triage` skill cross-queries both handoffs and tickets via direct module imports. The v1 provider model does not replace this — triage's cross-kind result merging continues to work via direct import of `engram.ticket.parse` from `engram.handoff.triage`. Elevating triage to a federation query is deferred to v2 ("Cross-entity triage" in Future Capabilities).
 
 ## Success Criteria
 
-- [ ] All ~1000+ tests pass in the consolidated package (659 ticket + 340 handoff - ~25 duplicate parser + new learning/core tests)
+- [ ] All ~975+ tests pass in the consolidated package (659 ticket + 340 handoff - 25 duplicate parser + new learning/core/shim tests)
 - [ ] `/defer` works without cross-plugin path hack
 - [ ] `/search --all <query>` returns results from tickets, handoffs, learnings, and CLAUDE.md
 - [ ] Handoff's duplicate `ticket_parsing.py` is deleted; single source of truth
