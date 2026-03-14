@@ -127,7 +127,7 @@ The hook classifies each tool call into one of three categories:
 
 **`session_start` is identity-checked, not exempt.** The original spec exempted `session_start` with a "circular dependency" rationale — but that rationale confuses the server's session-existence check (which `session_start` is indeed exempt from, since it creates sessions) with the hook's identity check (which just compares two available UUIDs). The hook's `session_id` common input field is always present, and skills always pass `session_id` in `tool_input`. Identity-checking `session_start` prevents calls with mismatched UUIDs from creating or enriching session rows under the wrong identity.
 
-> **Contracts update needed:** [tool-surface.md](../contracts/tool-surface.md) Session Bootstrap section currently states "`session_start` is exempt from hook identity validation." This should be updated to reflect that the hook validates identity (UUID match) while the server exempts `session_start` from session-existence requirements. These are separate concerns. *(Codex dialogue #26, finding #1)*
+> **Contracts alignment:** [tool-surface.md](../contracts/tool-surface.md) Session Bootstrap section updated to reflect that the hook validates identity (UUID match) while the server exempts `session_start` from session-existence requirements. *(Codex dialogue #26, finding #1)*
 
 Tool names arrive as full MCP names (e.g., `mcp__plugin_engram_core__task_create`). The hook extracts the suffix after the last `__` for classification. The matcher (`mcp__plugin_engram_core__.*`) is the authoritative tool-name filter — the suffix classification only categorizes tools that already passed the matcher.
 
@@ -522,6 +522,6 @@ The script imports only standard library modules. No subprocess calls, no networ
 | Hook system documentation | Claude Code docs: `hooks`, `hooks-guide` |
 | Codex adversarial review | Dialogue #26, thread `019ced3e-f858-7020-88ec-b697a0ec53c0` |
 
-### Pending Contracts Update
+### Contracts Alignment (Completed)
 
-[tool-surface.md](../contracts/tool-surface.md) Session Bootstrap section states "`session_start` is exempt from hook identity validation." This spec identity-checks `session_start` (the hook validates UUID match; the server exempts `session_start` from session-existence requirements — these are separate concerns). The contracts file should be updated to reflect this separation. See Codex dialogue #26, finding #1.
+[tool-surface.md](../contracts/tool-surface.md) Session Bootstrap section updated to separate hook identity validation (applies to `session_start`) from server session-existence enforcement (exempts `session_start`). See Codex dialogue #26, finding #1.

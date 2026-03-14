@@ -51,10 +51,10 @@ Parameter name determines `provenance_links.relation_type` (`sources` → `'sour
 | Layer | Role | Mechanism |
 |-------|------|-----------|
 | **Skills** | Identity carrier | SKILL.md contains `${CLAUDE_SESSION_ID}` (substituted at load time); skill passes the UUID as `session_id` to MCP tools |
-| **PreToolUse hook** | Stateless identity validation | Cross-checks `tool_input.session_id` against top-level `session_id` (hook common input field); blocks on mismatch (exit 2). `session_start` is exempt |
+| **PreToolUse hook** | Stateless identity validation | Cross-checks `tool_input.session_id` against top-level `session_id` (hook common input field); blocks on mismatch (exit 2). Applies to all mutation tools including `session_start` |
 | **MCP server** | Existence and lifecycle enforcement | Rejects mutations when session does not exist, is closed, or violates constraints. Returns `reason_code` in entity envelope |
 
-`session_start` is exempt from hook identity validation because it is the tool that creates sessions — requiring a session to exist before creating one is circular.
+`session_start` is exempt from the server's session-existence requirement (it is the tool that creates sessions), but the PreToolUse hook still validates its identity — `tool_input.session_id` must match the Claude Code session UUID. These are separate concerns: the hook checks *who* is calling (identity match), not *whether* the session exists (server enforcement). See [hooks.md](../implementation/hooks.md#identity-guard).
 
 `session_start` must be idempotent on `session_id`. Calling it on an existing session applies **field-specific patch semantics**:
 
