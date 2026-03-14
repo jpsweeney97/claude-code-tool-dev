@@ -89,6 +89,15 @@ Parameter name determines `provenance_links.relation_type` (`sources` → `'sour
 - `retract` — set status to `retracted` (lesson found to be wrong). Accepts `reason_code` (enum: `incorrect`, `obsolete`) and `reason` (freeform string). Server stores both alongside the retraction and sets `retracted_at`. Rejects `fields` and all `add_*` provenance params (`policy_blocked`)
 - `reinforce` — increment `reinforcement_count` (explicit reinforcement path when caller knows `lesson_id`, separate from `lesson_capture` dedup which is implicit via `anchor_hash`). Optionally accepts `add_sources`, `add_external_refs`, `add_derived_from_task_ids`. Does not accept context/tags — use `patch` for field updates. Rejects retracted lessons (`invalid_transition`) — if the insight is re-encountered, use `lesson_capture` which creates a new active lesson
 
+### Read Tool Selection Guidance
+
+Tool descriptions for the 4 read tools must include selection directives per the [Read Tool Selection Policy](../foundations.md#read-tool-selection-policy):
+
+- **`task_query`** — "Query tasks. Prefer over `query` when the request targets tasks — supports status, priority, dependency, and blocking filters that `query` cannot express."
+- **`lesson_query`** — "Query lessons. Prefer over `query` when the request targets lessons — supports promotion status, sort-by-reinforcement, and lesson status filters that `query` cannot express."
+- **`session_list`** — "Browse sessions by lifecycle state. Not a text search tool — use for session listing, filtering by open/closed, and activity-ordered browsing."
+- **`query`** — "Cross-cutting text search across all entity types. Use when entity type is unknown, multiple types are needed, or temporal range filtering is required. Returns thin SearchHit results — follow with native tools for full entity detail."
+
 ### Architectural Rules
 
 - `task_update` and `lesson_update` use explicit `action` field to separate non-terminal edits from lifecycle transitions

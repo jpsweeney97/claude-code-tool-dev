@@ -68,3 +68,20 @@ This means skills are the *intended* entry point, but the system is safe even wi
 ### Tool Descriptions
 
 Clear and specific — not vague. Server instructions state the policy: "Mutation tools are normally invoked via Engram skills that perform relevance, dedupe, and workflow checks." Vague descriptions fight tool search and aren't a real control mechanism.
+
+### Read Tool Selection Policy {#read-tool-selection-policy}
+
+The 4 read tools encode different retrieval contracts. Use the narrowest tool that fully expresses the request:
+
+| Signal | Tool | Why |
+|--------|------|-----|
+| Entity type is tasks (explicit or inferable) | `task_query` | Supports `status[]`, `priority[]`, `blocked_by[]`, `is_blocked`, `has_dependents` — filters `query` cannot express |
+| Entity type is lessons (explicit or inferable) | `lesson_query` | Supports `promoted`, `sort_by` (`reinforcement_count_desc`), lesson `status` — filters `query` cannot express |
+| Session browsing or lifecycle filtering | `session_list` | Lifecycle `state` filter (`open`/`closed`/`all`), deterministic `activity_at` ordering — structurally different from text search |
+| Entity type unknown, multiple types wanted, or time-bounded recall | `query` | Cross-cutting FTS with `entity_types[]` filter and `updated_after`/`updated_before` temporal range |
+
+**Enrichment rule:** When `query` returns results that will materially inform a response about tasks or lessons, follow with the matching native tool (`task_query` or `lesson_query`) using `task_ids[]`/`lesson_ids[]` for batch lookup. `SearchHit` fields (`entity_type`, `entity_id`, `title`, `snippet`, `tags`, `relevance_score`) are intentionally thin — native result types carry status, priority, dependencies, reinforcement counts, and promotion state.
+
+**Non-goal:** `query` does not subsume `task_query`, `lesson_query`, or `session_list`. These tools have domain-specific filter parameters, return types, and ordering semantics that a single unified tool would push into parameter accretion. The unified search experience is provided by skills (especially `/triage`), not by tool surface unification. Skills orchestrate multiple read tools internally and present a unified interface to the user.
+
+Tool descriptions must carry selection guidance so that direct callers (outside skill workflows) choose the right tool. Each read tool's description should state its domain and when to prefer it over `query`.
