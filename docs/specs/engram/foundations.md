@@ -24,7 +24,7 @@ The handoff plugin, ticket plugin, and learning pipeline (`/learn`, `/distill`, 
 | Layer | Role | Examples |
 |-------|------|---------|
 | **Skills** | Orchestration + higher-order judgment | `/save`, `/load`, `/triage`, `/promote` |
-| **Hooks** | Identity validation + mutation enforcement | `PreToolUse` → validate session identity; lifecycle hooks TBD (Section 8) |
+| **Hooks** | Identity validation + mutation enforcement | `PreToolUse` → validate session identity; lifecycle hooks TBD ([implementation/](implementation/)) |
 | **MCP tools** | Atomic operations with server-side validation | `session_start`, `task_create`, `lesson_capture`, `query` |
 | **SQLite** | Persistent storage | `.engram/engram.db` with WAL mode |
 

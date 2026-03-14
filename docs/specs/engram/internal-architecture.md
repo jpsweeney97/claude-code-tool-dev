@@ -32,7 +32,7 @@ engram/
 - **Kernel-owned `entities` table** with `entity_pk` FKs provides cross-subsystem referential integrity
 - **Single architecture test** enforces no cross-subsystem imports (formal lint deferred)
 - **Relationship taxonomy:** typed FKs for canonical relationships (session_links, task_dependencies), `entity_derivations` for internal cross-entity lineage (intentionally generic — source kind recoverable from `entities.kind` JOIN), `provenance_links` for external references
-- **Session bootstrap:** `session_start` is the only creation path. Skills carry session identity via `${CLAUDE_SESSION_ID}`; `PreToolUse` hook validates identity (stateless cross-check); server enforces session existence and lifecycle. Mutation skills call `session_start` lazily before their first mutation if no session exists (Section 7.3). No auto-open.
+- **Session bootstrap:** `session_start` is the only creation path. Skills carry session identity via `${CLAUDE_SESSION_ID}`; `PreToolUse` hook validates identity (stateless cross-check); server enforces session existence and lifecycle. Mutation skills call `session_start` lazily before their first mutation if no session exists ([skill-orchestration.md](contracts/skill-orchestration.md#lazy-session-bootstrap)). No auto-open.
 - **Sessions are non-deletable in v1** — no delete tool. `ON DELETE RESTRICT` on tasks/lessons enforces referential integrity. Orphan sessions accumulate (acceptable for local dev tool).
 - **`session_links` directionality:** `from_session_pk` = prior session, `to_session_pk` = new session. Chronological: edges flow forward in time. When session B calls `session_start(continued_from_session_ids=[A])`, server writes `from_session_pk=A, to_session_pk=B`.
 

@@ -48,7 +48,7 @@ status: active
 
 **Deferred for v1:** `durability`, `evidence`, `conditions`, `supersedes`, `contradicts` columns on lessons (no v1 tool writes or reads them). DAG cycle detection in `task_dependencies`. `lesson status = 'superseded'` (requires explicit supersession links). Session deletion. Structured retraction evidence (counter-evidence via distinct `relation_type` in `provenance_links`) — `relation_type` is open TEXT to enable future extension.
 
-**`sessions.updated_at`:** Internal-only column — server sets on every session mutation (field patches via `session_start`, `session_end`). `session_snapshot` also updates `sessions.updated_at` as a cross-table side-effect (UPDATE on sessions row in the same transaction as the snapshots INSERT). Not exposed in S4 public types (SessionSummary, SessionDetail). Public freshness signals are `activity_at`, `last_snapshot_at`, and `closed_at`. Used for internal query filtering, time-range queries, and operational diagnostics.
+**`sessions.updated_at`:** Internal-only column — server sets on every session mutation (field patches via `session_start`, `session_end`). `session_snapshot` also updates `sessions.updated_at` as a cross-table side-effect (UPDATE on sessions row in the same transaction as the snapshots INSERT). Not exposed in [tool-surface.md](../contracts/tool-surface.md) public types (SessionSummary, SessionDetail). Public freshness signals are `activity_at`, `last_snapshot_at`, and `closed_at`. Used for internal query filtering, time-range queries, and operational diagnostics.
 
 **Final snapshot uniqueness:** `idx_snapshots_final` is a partial unique index enforcing at most one `kind='final'` snapshot per session at the schema level. Defense-in-depth — server validates before INSERT.
 
