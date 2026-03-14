@@ -8,6 +8,17 @@ The package lives at [packages/plugins/cross-model](/Users/jp/Projects/active/cl
 - [packages/plugins/cross-model/references/consultation-contract.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/references/consultation-contract.md)
 - [packages/plugins/cross-model/references/context-injection-contract.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/references/context-injection-contract.md)
 
+### Document Authority
+
+| Document | Role |
+|----------|------|
+| `references/*.md` | Normative protocol specs — single source of truth for behavior |
+| `skills/`, `agents/` | Executable instructions conforming to contracts |
+| `README.md` | Overview, setup, architecture |
+| `HANDBOOK.md` (this file) | Operations, troubleshooting, failure recovery |
+
+This handbook describes how to operate and debug the plugin. For protocol definitions (briefing structure, safety tiers, relay format, scope rules), see the contracts linked above.
+
 ## Purpose and Scope
 
 The cross-model plugin gives Claude a structured way to consult or delegate to Codex while keeping Claude primary. The plugin combines:
@@ -179,30 +190,11 @@ For `/codex` and `/dialogue`, the normative preflight lives in [packages/plugins
 - continuity state contract
 - relay assessment contract
 
-Before consultation begins, the contract requires an egress manifest that enumerates:
-
-- source classes
-- estimated bytes per class
-- allowed roots
-- consent scope
-
-Re-consent is required when any of these deterministic triggers fires:
-
-1. a new root would be added
-2. a new source class would be added
-3. outbound bytes exceed the session budget
-4. a path adjacent to a secret file enters scope
-5. sandbox mode would escalate above the original setting
+Egress manifest requirements and re-consent triggers are defined in [consultation-contract.md §3, §6](references/consultation-contract.md).
 
 ### Credential enforcement
 
-`codex_guard.py` is the shared hook for outbound consultations. It scans selected string-bearing fields of tool input and applies a tiered policy:
-
-| Tier | Behavior |
-|------|----------|
-| strict | hard block |
-| contextual | block unless example or placeholder language is nearby |
-| broad | shadow telemetry only |
+`codex_guard.py` is the shared hook for outbound consultations. Tier definitions and pattern families are specified in [consultation-contract.md §7](references/consultation-contract.md).
 
 Operational consequences:
 
@@ -801,14 +793,21 @@ Edit these when changing plugin-wide enforcement or reporting:
 
 ### Plugin-local test suite
 
+Two verification surfaces (do not attempt to unify into a single recursive run):
+
 ```bash
+# Plugin root tests
 cd packages/plugins/cross-model
-uv run pytest tests
+uv run pytest
+uv run ruff check scripts tests
+
+# Context-injection server tests
+cd packages/plugins/cross-model/context-injection
+uv run pytest
+uv run ruff check context_injection tests
 ```
 
 All tests should pass with no failures.
-
-For deeper context-injection verification, run tests in [packages/plugins/cross-model/context-injection](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection).
 
 ### `/delegate` pre-dispatch smoke test
 

@@ -194,18 +194,22 @@ dev = [
 
 [[package]]
 name = "cross-model-plugin"
-version = "1.0.0"
+version = "3.0.0"
 source = { virtual = "packages/plugins/cross-model" }
 
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.0" }]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.8" },
+]
 
 [[package]]
 name = "cryptography"

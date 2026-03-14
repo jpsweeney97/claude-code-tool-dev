@@ -5,13 +5,11 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch, MagicMock
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 class TestResolveRepoRoot:
@@ -147,7 +145,7 @@ class TestCredentialScan:
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_scanner_error_blocks_not_errors(
-        self, mock_sub: MagicMock, mock_log: MagicMock, mock_scan: MagicMock, tmp_path: Path,
+        self, mock_sub: MagicMock, _mock_log: MagicMock, _mock_scan: MagicMock, tmp_path: Path,
     ) -> None:
         """B1+B17: Scanner exceptions produce status=blocked/exit 0 (governance rule 4)."""
         from scripts.codex_delegate import run
@@ -434,7 +432,7 @@ class TestRunOrchestrator:
         proc.wait.return_value = returncode
         proc.returncode = returncode
 
-        def _side_effect(*args: object, **kwargs: object) -> MagicMock:
+        def _side_effect(*_args: Any, **kwargs: Any) -> MagicMock:
             stdout_handle = kwargs["stdout"]
             stdout_handle.write(stdout_text.encode("utf-8"))
             stdout_handle.flush()
@@ -474,7 +472,7 @@ class TestRunOrchestrator:
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_subprocess_timeout(
-        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path,
+        self, mock_sub: MagicMock, _mock_log: MagicMock, tmp_path: Path,
     ) -> None:
         from scripts.codex_delegate import run
         mock_sub.run.side_effect = [
@@ -499,7 +497,7 @@ class TestRunOrchestrator:
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_finally_cleans_output_file(
-        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path,
+        self, mock_sub: MagicMock, _mock_log: MagicMock, tmp_path: Path,
     ) -> None:
         from scripts.codex_delegate import run
         mock_sub.run.return_value = MagicMock(returncode=128, stdout="", stderr="not a git repo")
@@ -545,7 +543,7 @@ class TestRunOrchestrator:
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_success_path_dispatched_in_stdout(
-        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
+        self, mock_sub: MagicMock, _mock_log: MagicMock, tmp_path: Path, capsys,
     ) -> None:
         from scripts.codex_delegate import run
         output_file = tmp_path / "codex_output.txt"
@@ -573,7 +571,7 @@ class TestRunOrchestrator:
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_output_read_failure_keeps_success_status(
-        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
+        self, mock_sub: MagicMock, _mock_log: MagicMock, tmp_path: Path, capsys,
     ) -> None:
         from scripts.codex_delegate import run
         output_file = tmp_path / "codex_output.txt"
@@ -608,7 +606,7 @@ class TestRunOrchestrator:
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_restores_cwd_after_run(
-        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path,
+        self, mock_sub: MagicMock, _mock_log: MagicMock, tmp_path: Path,
     ) -> None:
         from scripts.codex_delegate import run
         before = Path.cwd()
@@ -623,7 +621,7 @@ class TestRunOrchestrator:
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_error_dispatched_false_in_stdout(
-        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
+        self, mock_sub: MagicMock, _mock_log: MagicMock, tmp_path: Path, capsys,
     ) -> None:
         from scripts.codex_delegate import run
         mock_sub.run.return_value = MagicMock(returncode=128, stdout="", stderr="not git")
@@ -679,7 +677,7 @@ class TestStep10ErrorShapes:
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_timeout_error_shape(
-        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
+        self, mock_sub: MagicMock, _mock_log: MagicMock, tmp_path: Path, capsys,
     ) -> None:
         from scripts.codex_delegate import run
         mock_sub.run.side_effect = [
@@ -705,7 +703,7 @@ class TestStep10ErrorShapes:
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_spawn_error_shape(
-        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path, capsys,
+        self, mock_sub: MagicMock, _mock_log: MagicMock, tmp_path: Path, capsys,
     ) -> None:
         from scripts.codex_delegate import run
         mock_sub.run.side_effect = [
@@ -915,7 +913,7 @@ class TestNonStringPromptRejection:
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_list_prompt_rejected_before_scan(
-        self, mock_sub: MagicMock, mock_log: MagicMock, tmp_path: Path,
+        self, mock_sub: MagicMock, _mock_log: MagicMock, tmp_path: Path,
     ) -> None:
         from scripts.codex_delegate import run
         mock_sub.run.return_value = MagicMock(returncode=0, stdout=str(tmp_path) + "\n")

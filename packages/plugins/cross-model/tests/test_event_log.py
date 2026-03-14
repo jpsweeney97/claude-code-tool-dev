@@ -5,11 +5,8 @@ from __future__ import annotations
 import json
 import os
 import stat
-import sys
 from pathlib import Path
 from unittest.mock import patch
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.event_log import LOG_PATH, ts, append_log, session_id
 

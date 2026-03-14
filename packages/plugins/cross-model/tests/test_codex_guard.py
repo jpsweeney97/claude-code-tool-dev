@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-import json
-import sys
-from pathlib import Path
-from unittest.mock import patch
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from unittest.mock import MagicMock, patch
 
 from scripts.codex_guard import handle_pre, handle_post
 
@@ -29,20 +24,20 @@ class TestHandlePre:
     """PreToolUse handler blocks on credentials."""
 
     @patch("scripts.codex_guard._append_log")
-    def test_clean_prompt_allows(self, mock_log: object) -> None:
+    def test_clean_prompt_allows(self, _mock_log: MagicMock) -> None:
         assert handle_pre(_make_pre_data("fix the auth test")) == 0
 
     @patch("scripts.codex_guard._append_log")
-    def test_aws_key_blocks(self, mock_log: object) -> None:
+    def test_aws_key_blocks(self, _mock_log: MagicMock) -> None:
         assert handle_pre(_make_pre_data("key AKIAIOSFODNN7EXAMPLE")) == 2
 
     @patch("scripts.codex_guard._append_log")
-    def test_broad_tier_allows(self, mock_log: object) -> None:
+    def test_broad_tier_allows(self, _mock_log: MagicMock) -> None:
         """Broad tier is shadow-only, does not block."""
         assert handle_pre(_make_pre_data("password = mysecretvalue123")) == 0
 
     @patch("scripts.codex_guard._append_log")
-    def test_scan_base_instructions(self, mock_log: object) -> None:
+    def test_scan_base_instructions(self, _mock_log: MagicMock) -> None:
         data = _make_pre_data(
             tool_input={
                 "prompt": "safe prompt",
@@ -52,7 +47,7 @@ class TestHandlePre:
         assert handle_pre(data) == 2
 
     @patch("scripts.codex_guard._append_log")
-    def test_scan_developer_instructions(self, mock_log: object) -> None:
+    def test_scan_developer_instructions(self, _mock_log: MagicMock) -> None:
         data = _make_pre_data(
             tool_input={
                 "prompt": "safe prompt",
@@ -62,7 +57,7 @@ class TestHandlePre:
         assert handle_pre(data) == 2
 
     @patch("scripts.codex_guard._append_log")
-    def test_scan_nested_config(self, mock_log: object) -> None:
+    def test_scan_nested_config(self, _mock_log: MagicMock) -> None:
         data = _make_pre_data(
             tool_input={
                 "prompt": "safe prompt",
@@ -72,7 +67,7 @@ class TestHandlePre:
         assert handle_pre(data) == 2
 
     @patch("scripts.codex_guard._append_log")
-    def test_unknown_field_logged(self, mock_log: object) -> None:
+    def test_unknown_field_logged(self, mock_log: MagicMock) -> None:
         data = _make_pre_data(
             tool_input={
                 "prompt": "safe prompt",
@@ -86,7 +81,7 @@ class TestHandlePre:
         assert first_call["unexpected_fields"] == ["diagnostics"]
 
     @patch("scripts.codex_guard._append_log")
-    def test_node_cap_exceeded(self, mock_log: object) -> None:
+    def test_node_cap_exceeded(self, mock_log: MagicMock) -> None:
         tool_input = {"prompt": "safe prompt", "payload": ["x"] * 10001}
         assert handle_pre(_make_pre_data(tool_input=tool_input)) == 2
         entry = mock_log.call_args.args[0]
@@ -94,7 +89,7 @@ class TestHandlePre:
         assert "node cap exceeded" in entry["reason"]
 
     @patch("scripts.codex_guard._append_log")
-    def test_char_cap_exceeded(self, mock_log: object) -> None:
+    def test_char_cap_exceeded(self, mock_log: MagicMock) -> None:
         tool_input = {"prompt": "x" * ((256 * 1024) + 1)}
         assert handle_pre(_make_pre_data(tool_input=tool_input)) == 2
         entry = mock_log.call_args.args[0]
@@ -106,7 +101,7 @@ class TestHandlePost:
     """PostToolUse handler always returns 0."""
 
     @patch("scripts.codex_guard._append_log")
-    def test_always_allows(self, mock_log: object) -> None:
+    def test_always_allows(self, _mock_log: MagicMock) -> None:
         data = {
             "hook_event_name": "PostToolUse",
             "tool_name": "mcp__plugin_cross-model_codex__codex",

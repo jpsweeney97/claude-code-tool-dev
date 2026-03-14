@@ -2,7 +2,18 @@
 
 A Claude Code plugin that gives Claude structured ways to consult, delegate to, and collaborate with OpenAI Codex. Claude remains the primary agent; Codex provides independent second opinions, multi-turn dialogues, and autonomous task execution — all behind credential scanning, sandbox containment, and scope enforcement.
 
-**Version:** 3.0.0 | **License:** MIT | **Host:** Claude Code
+**License:** MIT | **Host:** Claude Code
+
+### Document Authority
+
+| Document | Role | Edits go here when... |
+|----------|------|-----------------------|
+| `references/*.md` | Normative protocol specs | ...changing how consultation, safety, or context injection work |
+| `skills/`, `agents/` | Executable instructions conforming to contracts | ...changing entrypoint behavior or orchestration |
+| `README.md` (this file) | Overview, setup, architecture | ...changing what the plugin is or how to install/use it |
+| `HANDBOOK.md` | Operations, troubleshooting, failure recovery | ...changing how to operate or debug the plugin |
+
+Protocol details live in the contracts. This file and the handbook link to them rather than restating them.
 
 ## Installation
 
@@ -282,15 +293,9 @@ Layer 5: MCP Server       Stateful evidence gathering (context-injection)
 
 ### Safety Model
 
-Credential detection runs at three tiers:
+Credential scanning runs on every outbound Codex payload (PreToolUse hook) and on delegation prompts. The context-injection server independently redacts credentials from gathered evidence. Over-redaction is always preferred over under-redaction.
 
-| Tier | Patterns | Action |
-|------|----------|--------|
-| **Strict** | AWS keys, JWT, PEM headers | Always block |
-| **Contextual** | API keys, passwords | Block unless placeholder words within 100 chars |
-| **Broad** | Generic secret patterns | Shadow telemetry only |
-
-Scanning runs on every outbound Codex payload (PreToolUse hook) and on delegation prompts. The context-injection server independently redacts credentials from gathered evidence. Over-redaction is always preferred over under-redaction.
+Tier definitions, pattern families, and blocking behavior are specified in [consultation-contract.md §7](references/consultation-contract.md).
 
 ### Nested Package: Context Injection
 
@@ -339,7 +344,7 @@ All skills emit events to `~/.claude/.codex-events.jsonl` via `emit_analytics.py
 ```bash
 # Plugin scripts (from plugin root)
 cd packages/plugins/cross-model
-uv run pytest tests
+uv run pytest
 
 # Context-injection server (991 tests)
 cd packages/plugins/cross-model/context-injection
