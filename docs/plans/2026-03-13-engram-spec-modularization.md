@@ -2,11 +2,15 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Split the monolithic Engram design spec (979 lines) into a modular file structure organized by decision-making authority, enabling independent amendment of each module and accommodating 4 new sections.
+**Goal:** Split the monolithic Engram design spec into a modular file structure organized by decision-making authority, enabling independent amendment of each module and accommodating 4 new sections.
 
 **Architecture:** Authority-cluster split — modules are grouped by ownership edges (who decides changes), not section numbers. Three `contracts/` files form the behavioral authority set. Schema details, skill designs, and implementation stubs live in separate directories. Cross-references use semantic kebab-case anchors with relative markdown links.
 
 **Tech Stack:** Markdown, YAML frontmatter, bash (validation)
+
+**Extraction method:** Use **heading-based extraction** for all tasks — match section headings (e.g., `## 4. MCP Tool Surface`), delimit by the next same-level heading or `---` separator. Do NOT use line numbers as boundaries. Line numbers in this plan are approximate references only; the spec may have shifted since this plan was written.
+
+*Amended based on Codex deep review #23 (thread `019cea99`). 7 must-fix items applied: heading-based extraction, task boundary corrections, Public IDs reclassification, semantic cross-reference mapping, validation strengthening, file count correction, staged execution model.*
 
 ---
 
@@ -14,22 +18,24 @@
 
 ### Source
 
-Single file: `docs/plans/2026-03-12-engram-design.md` (979 lines, 8 sections)
+Single file: `docs/plans/2026-03-12-engram-design.md` (~997 lines, 8 sections)
 
-| Section | Lines | Size | Migration status |
-|---------|-------|------|-----------------|
-| S1 System Overview | 8-38 | ~31 | move → foundations.md |
-| S2 Skills/MCP/Judgment Split | 40-70 | ~31 | move → foundations.md |
-| S3 Design Decisions | 73-91 | ~19 | move → decisions.md |
-| S4 MCP Tool Surface | 94-215 | ~122 | move → contracts/tool-surface.md |
-| S5 Internal Architecture | 218-256 | ~39 | move → internal-architecture.md |
-| S6.1-S6.5 Database Schema | 259-458 | ~200 | move → schema/ddl.md |
-| S6.6 Design Notes | 460-530 | ~71 | **split** → contracts/behavioral-semantics.md + schema/rationale.md |
-| S7.1-S7.2 Skill Overview | 534-563 | ~30 | move → skills/overview.md |
-| S7.3 Cross-Cutting Patterns | 565-673 | ~109 | move → contracts/skill-orchestration.md |
-| S7.4 Per-Skill Designs | 675-912 | ~238 | move → skills/catalog.md |
-| S7.5-S7.7 Appendix | 913-965 | ~53 | move → skills/appendix.md |
-| S8 Remaining Design Work | 968-979 | ~12 | split → 5 implementation/ stubs |
+**Extraction boundaries:** Use section headings as boundaries, not line numbers. Each section starts at its `##` or `###` heading and ends at the next same-level heading or `---` separator.
+
+| Section | Heading to match | Migration status |
+|---------|-----------------|-----------------|
+| S1 System Overview | `## 1. System Overview` | move → foundations.md |
+| S2 Skills/MCP/Judgment Split | `## 2. Skills, MCP Tools, and the Judgment Split` | move → foundations.md |
+| S3 Design Decisions | `## 3. Design Decisions` (includes MCP vs CLI rationale subsection) | move → decisions.md |
+| S4 MCP Tool Surface | `## 4. MCP Tool Surface (13 tools)` | move → contracts/tool-surface.md |
+| S5 Internal Architecture | `## 5. Internal Architecture` (includes Deferred for v1) | move → internal-architecture.md |
+| S6.1-S6.5 Database Schema | `## 6. Database Schema` through `### 6.5` | move → schema/ddl.md |
+| S6.6 Design Notes | `### 6.6 Design Notes` | **split** → contracts/behavioral-semantics.md + schema/rationale.md |
+| S7.1-S7.2 Skill Overview | `## 7. Skill Surface` through `### 7.2` | move → skills/overview.md |
+| S7.3 Cross-Cutting Patterns | `### 7.3 Cross-Cutting Patterns` (through end of Lazy Session Bootstrap) | move → contracts/skill-orchestration.md |
+| S7.4 Per-Skill Designs | `### 7.4 Per-Skill Designs` | move → skills/catalog.md |
+| S7.5-S7.7 Appendix | `### 7.5` through `### 7.7` | move → skills/appendix.md |
+| S8 Remaining Design Work | `## 8. Remaining Design Work` | split → 5 implementation/ stubs |
 
 ### Target Structure
 
@@ -165,11 +171,11 @@ git commit -m "docs(engram): scaffold modular spec directory structure"
 
 **Files:**
 - Create: `docs/specs/engram/foundations.md`
-- Source: `docs/plans/2026-03-12-engram-design.md` lines 8-70
+- Source: S1 (`## 1. System Overview`) + S2 (`## 2. Skills, MCP Tools, and the Judgment Split`)
 
 - [ ] **Step 1: Write foundations.md**
 
-Add frontmatter, then copy S1 (L8-38) and S2 (L40-70) verbatim. Replace section numbers with semantic headings. Add anchors to key concepts.
+Add frontmatter, then copy S1 and S2 verbatim (from `## 1. System Overview` through the end of S2's `---` separator). Replace section numbers with semantic headings. Add anchors to key concepts.
 
 ```yaml
 ---
@@ -194,11 +200,19 @@ Content is copied verbatim — no prose changes.
 - [ ] **Step 2: Verify content preserved**
 
 ```bash
-# Count non-blank lines in source range vs destination
-sed -n '8,70p' docs/plans/2026-03-12-engram-design.md | grep -c '.' > /tmp/src_count
-grep -c '.' docs/specs/engram/foundations.md > /tmp/dst_count
-# dst_count should be src_count + frontmatter lines (~6)
-diff /tmp/src_count /tmp/dst_count
+# Extract S1+S2 from source (heading-based), normalize whitespace, compare
+sed -n '/^## 1\. System Overview/,/^## 3\. Design Decisions/{ /^## 3\./d; p; }' docs/plans/2026-03-12-engram-design.md | sed '/^---$/d; /^$/d; s/^#\+ [0-9]\+\.\? *//' | sort > /tmp/src_normalized
+sed '1,/^---$/d' docs/specs/engram/foundations.md | sed '/^---$/d; /^$/d; s/^#\+ //' | sort > /tmp/dst_normalized
+# Check for missing lines (should be empty — all source lines present in destination)
+comm -23 /tmp/src_normalized /tmp/dst_normalized
+```
+
+Also verify no boundary contamination (S3 content should NOT appear):
+
+```bash
+# S3's first line after its heading — should NOT be in foundations.md
+grep -c 'Design Decisions' docs/specs/engram/foundations.md
+# Expected: 0
 ```
 
 - [ ] **Step 3: Commit**
@@ -212,7 +226,7 @@ git commit -m "docs(engram): migrate S1+S2 to foundations.md"
 
 **Files:**
 - Create: `docs/specs/engram/decisions.md`
-- Source: lines 73-91
+- Source: S3 (`## 3. Design Decisions` — includes the decision table AND the "MCP vs CLI — Re-evaluated Rationale" subsection)
 
 - [ ] **Step 1: Write decisions.md**
 
@@ -228,7 +242,7 @@ status: active
 
 Heading: `## 3. Design Decisions` → `## Design Decisions`
 
-Copy the 11-row decision table verbatim. No cross-references to update (S3 has zero forward references).
+Copy the full S3 section verbatim — this includes the 11-row decision table AND the "MCP vs CLI — Re-evaluated Rationale" subsection that follows it. S3 extends from its `##` heading to the next `---` separator before S4. Do NOT truncate at the decision table.
 
 - [ ] **Step 2: Commit**
 
@@ -241,7 +255,7 @@ git commit -m "docs(engram): migrate S3 to decisions.md"
 
 **Files:**
 - Create: `docs/specs/engram/internal-architecture.md`
-- Source: lines 218-256
+- Source: S5 (`## 5. Internal Architecture` — includes the Deferred for v1 subsection)
 
 - [ ] **Step 1: Write internal-architecture.md**
 
@@ -257,7 +271,7 @@ status: active
 
 Heading: `## 5. Internal Architecture` → `## Internal Architecture`
 
-Content copied verbatim. S5 contains references to "Section 7.3" (L244) and "Section 4" (implicit) — flag these for Task 10 (cross-reference update pass).
+Content copied verbatim. S5 contains references to "Section 7.3" and "Section 4" — flag these for Task 15 (cross-reference update pass).
 
 - [ ] **Step 2: Commit**
 
@@ -274,7 +288,7 @@ git commit -m "docs(engram): migrate S5 to internal-architecture.md"
 
 **Files:**
 - Create: `docs/specs/engram/contracts/tool-surface.md`
-- Source: lines 94-215
+- Source: S4 (`## 4. MCP Tool Surface (13 tools)` — from the heading through the `---` separator before S5)
 
 This is the largest authority source — the tool table, response envelopes, session bootstrap, action semantics, architectural rules, and public result types.
 
@@ -292,7 +306,7 @@ status: active
 
 Heading: `## 4. MCP Tool Surface (13 tools)` → `## MCP Tool Surface (13 tools)`
 
-Remove the inline amendment history block (L96 — the long italic revision note). This history moves to `amendments.md` (Task 9).
+Remove the inline amendment history block (the long italic revision note immediately after the S4 heading). This history moves to `amendments.md` (Task 13).
 
 Add semantic anchors to subsections:
 - `### Response Envelopes` → `{#response-envelopes}`
@@ -303,17 +317,21 @@ Add semantic anchors to subsections:
 - `### Public Result Types` → `{#public-result-types}`
 
 **Cross-reference updates within this file:**
-- L187 "see S6.6" → `[behavioral-semantics.md](behavioral-semantics.md#anchor-hash-merge)` (link-only, no duplicate prose)
-- L195 "Section 6 is storage schema; Section 4 is the API contract" → Rewrite as: "The public API contract is defined by this document and `contracts/`. [Schema documents](../schema/ddl.md) describe storage implementation and must not change public behavior."
+- "see S6.6" (in the anchor_hash merge description) → `[behavioral-semantics.md](behavioral-semantics.md#anchor-hash-merge)` (link-only, no duplicate prose)
+- "Section 6 is storage schema; Section 4 is the API contract" (in Architectural Rules) → Rewrite as: "The public API contract is defined by this document and `contracts/`. [Schema documents](../schema/ddl.md) describe storage implementation and must not change public behavior."
 
 **State-selected branches (link-only rule):** Where S4 currently says "see S6.6" for anchor_hash merge behavior, the merged file should name the branch and link to behavioral-semantics.md without duplicating the explanation.
 
 - [ ] **Step 2: Verify content preserved**
 
 ```bash
-sed -n '94,215p' docs/plans/2026-03-12-engram-design.md | wc -l
-wc -l docs/specs/engram/contracts/tool-surface.md
-# Destination should be source lines + frontmatter - amendment history + any added anchors
+# Extract S4 from source (heading-based), check no S3 content leaked in
+grep -c 'MCP vs CLI' docs/specs/engram/contracts/tool-surface.md
+# Expected: 0 (MCP vs CLI rationale belongs in decisions.md, not tool-surface.md)
+
+# Check S4-specific sentinel is present
+grep -c 'Response Envelopes' docs/specs/engram/contracts/tool-surface.md
+# Expected: >= 1
 ```
 
 - [ ] **Step 3: Commit**
@@ -328,7 +346,7 @@ git commit -m "docs(engram): migrate S4 to contracts/tool-surface.md"
 **Files:**
 - Create: `docs/specs/engram/contracts/behavioral-semantics.md`
 - Create: `docs/specs/engram/schema/rationale.md`
-- Source: lines 460-530
+- Source: S6.6 (`### 6.6 Design Notes` — from the heading through the next `##` heading)
 
 This is the only **split** migration (S6.6 → two files). Apply the merge-audit protocol:
 1. Read all S6.6 content
@@ -338,33 +356,37 @@ This is the only **split** migration (S6.6 → two files). Apply the merge-audit
 
 **S6.6 content classification:**
 
-| S6.6 Heading/Paragraph | Destination | Rule applied |
-|------------------------|-------------|--------------|
-| Table count (L464) | rationale.md | Storage bookkeeping |
-| ON DELETE policy (L466-468) | rationale.md | Storage choice |
-| Kind-check enforcement (L470) | rationale.md | Internal invariant |
-| FTS5 sync model (L472) | rationale.md | Storage implementation |
-| search_projection.body mapping (L474-477) | rationale.md | Storage mapping |
-| sort_by SQL mapping (L479) | rationale.md | Enforcement mechanics (SQL translation) |
-| query relevance_score (L481) | behavioral-semantics.md | Observable behavior (opaque float contract) |
-| anchor_hash dedup and merge (L483-489) | behavioral-semantics.md | State-dependent branching |
-| lesson_capture dual-path (L491) | behavioral-semantics.md | State-dependent outcome |
-| Promotion model (L493) | rationale.md | Internal provenance mechanism |
-| Public IDs (L495) | rationale.md | Internal vs external ID design |
-| Three-class relationship taxonomy (L497-500) | rationale.md | Storage taxonomy |
-| Provenance uniqueness (L502) | behavioral-semantics.md | Observable dedup behavior |
-| session_links directionality (L504) | rationale.md | Storage convention |
-| session_end atomicity (L506) | behavioral-semantics.md | Observable guarantee |
-| session_get as load API (L508) | behavioral-semantics.md | Observable selection behavior |
-| Cross-subsystem FK coupling (L510) | rationale.md | Storage coupling |
-| Task dependency write paths (L512) | rationale.md | Storage mechanics |
-| task_update(close) terminal status (L514) | behavioral-semantics.md | Lifecycle state validation |
-| Tool parameter → table mapping (L516-520) | rationale.md | Storage mapping |
-| Deferred for v1 (L522) | rationale.md | Scope decisions |
-| sessions.updated_at (L524) | rationale.md | Internal-only column |
-| session_list ordering + activity_at (L526) | behavioral-semantics.md | Observable ordering guarantee |
-| Final snapshot uniqueness (L528) | rationale.md | Defense-in-depth storage |
-| Migration strategy (L530) | rationale.md | Storage evolution |
+Match each paragraph by its bold lead text (e.g., **`Table count:`**). Paragraphs are listed in source order.
+
+| S6.6 Paragraph (match by bold lead) | Destination | Rule applied |
+|--------------------------------------|-------------|--------------|
+| **Table count** | rationale.md | Storage bookkeeping |
+| **ON DELETE policy** | rationale.md | Storage choice |
+| **Kind-check enforcement** | rationale.md | Internal invariant |
+| **FTS5 sync model** | rationale.md | Storage implementation |
+| **`search_projection.body` mapping** | rationale.md | Storage mapping |
+| **`sort_by` SQL mapping** | rationale.md | Enforcement mechanics (SQL translation) |
+| **`query` relevance_score** | behavioral-semantics.md | Observable behavior (opaque float contract) |
+| **`anchor_hash` dedup and merge** | behavioral-semantics.md | State-dependent branching |
+| **`lesson_capture` dual-path** | behavioral-semantics.md | State-dependent outcome |
+| **Promotion model** | rationale.md | Internal provenance mechanism |
+| **Public IDs** | **tool-surface.md** | API contract: defines which IDs are public, who generates them, that `entity_pk` is never exposed |
+| **Three-class relationship taxonomy** | rationale.md | Storage taxonomy |
+| **Provenance uniqueness** | behavioral-semantics.md | Observable dedup behavior |
+| **`session_links` directionality** | rationale.md | Storage convention |
+| **`session_end` atomicity** | behavioral-semantics.md | Observable guarantee |
+| **`session_get` as load API** | behavioral-semantics.md | Observable selection behavior |
+| **Cross-subsystem FK coupling** | rationale.md | Storage coupling |
+| **Task dependency write paths** | rationale.md | Storage mechanics |
+| **`task_update(close)` terminal status** | behavioral-semantics.md | Lifecycle state validation |
+| **Tool parameter → table mapping** | rationale.md | Storage mapping |
+| **Deferred for v1** | rationale.md | Scope decisions |
+| **`sessions.updated_at`** | rationale.md | Internal-only column |
+| **`session_list` ordering + `activity_at`** | behavioral-semantics.md | Observable ordering guarantee (keep full paragraph — the `updated_at` contrast is part of the observable contract) |
+| **Final snapshot uniqueness** | rationale.md | Defense-in-depth storage |
+| **Migration strategy** | rationale.md | Storage evolution |
+
+**Note:** "Public IDs" was reclassified from rationale.md to tool-surface.md (Codex deep review #23). It defines exposed identifiers and generation semantics — this is API contract, not storage rationale. Add it to tool-surface.md as a subsection after Public Result Types.
 
 - [ ] **Step 1: Write contracts/behavioral-semantics.md**
 
@@ -413,16 +435,36 @@ Copy remaining S6.6 paragraphs verbatim. Add semantic anchors.
 - [ ] **Step 3: Verify no content lost (merge-audit validation)**
 
 ```bash
-# Extract all S6.6 content
-sed -n '460,530p' docs/plans/2026-03-12-engram-design.md > /tmp/s66_source.md
+# Extract S6.6 from source using heading match
+sed -n '/^### 6\.6 Design Notes/,/^## [0-9]/{ /^## [0-9]/d; p; }' docs/plans/2026-03-12-engram-design.md > /tmp/s66_source.md
 
-# Combine both destinations (strip frontmatter)
-tail -n +8 docs/specs/engram/contracts/behavioral-semantics.md > /tmp/s66_behavioral.md
-tail -n +8 docs/specs/engram/schema/rationale.md > /tmp/s66_rationale.md
-cat /tmp/s66_behavioral.md /tmp/s66_rationale.md > /tmp/s66_combined.md
+# Strip frontmatter from destinations
+sed '1,/^---$/d' docs/specs/engram/contracts/behavioral-semantics.md > /tmp/s66_behavioral.md
+sed '1,/^---$/d' docs/specs/engram/schema/rationale.md > /tmp/s66_rationale.md
+```
 
-# Compare word counts (combined should be >= source, accounting for new headings)
-wc -w /tmp/s66_source.md /tmp/s66_combined.md
+**Paragraph inventory (completeness + uniqueness):** Verify every bold-lead paragraph from S6.6 appears in exactly one destination file:
+
+```bash
+# Extract bold leads from source
+grep -oP '\*\*`?[^*]+`?\*\*' /tmp/s66_source.md | sort -u > /tmp/s66_paragraphs.txt
+
+# Check each appears in exactly one destination
+while read lead; do
+  b=$(grep -c "$lead" /tmp/s66_behavioral.md 2>/dev/null || echo 0)
+  r=$(grep -c "$lead" /tmp/s66_rationale.md 2>/dev/null || echo 0)
+  t=$(grep -c "$lead" docs/specs/engram/contracts/tool-surface.md 2>/dev/null || echo 0)
+  total=$((b + r + t))
+  [ "$total" -ne 1 ] && echo "ERROR: '$lead' appears in $total files (behavioral=$b, rationale=$r, tool-surface=$t)"
+done < /tmp/s66_paragraphs.txt
+# Expected: no ERROR lines
+```
+
+Also compare word counts as a gross check:
+
+```bash
+wc -w /tmp/s66_source.md /tmp/s66_behavioral.md /tmp/s66_rationale.md
+# Combined destinations should be >= source (new headings add words)
 ```
 
 - [ ] **Step 4: Commit**
@@ -436,7 +478,7 @@ git commit -m "docs(engram): split S6.6 into behavioral-semantics.md + rationale
 
 **Files:**
 - Create: `docs/specs/engram/contracts/skill-orchestration.md`
-- Source: lines 565-673
+- Source: S7.3 (`### 7.3 Cross-Cutting Patterns` — from the heading through the end of the Lazy Session Bootstrap subsection, delimited by the next `###` heading)
 
 - [ ] **Step 1: Write skill-orchestration.md**
 
@@ -452,13 +494,13 @@ status: active
 
 Heading: `## Skill Orchestration`
 
-Copy S7.3 verbatim. This includes:
-- Two-Stage Guard Architecture (L567-578)
-- Confirmation Severity Model (L580-591)
-- Snapshot Content Schema (L593-602)
-- Cross-Skill Contracts (L604-635)
-- Single-Mutation Failure Pattern (L637-653)
-- Lazy Session Bootstrap (L655-673)
+Copy S7.3 verbatim — from `### 7.3 Cross-Cutting Patterns` through the end of Lazy Session Bootstrap (including its mechanism, key properties, and `/load` exception subsections). This includes:
+- Two-Stage Guard Architecture
+- Confirmation Severity Model
+- Snapshot Content Schema
+- Cross-Skill Contracts
+- Single-Mutation Failure Pattern
+- Lazy Session Bootstrap (full content including mechanism, key properties, and the `/load` exception)
 
 Add semantic anchors:
 - `{#two-stage-guard}`
@@ -487,7 +529,7 @@ git commit -m "docs(engram): migrate S7.3 to contracts/skill-orchestration.md"
 
 **Files:**
 - Create: `docs/specs/engram/schema/ddl.md`
-- Source: lines 259-458 (connection pragmas, S6.1-S6.5)
+- Source: S6.1-S6.5 (`## 6. Database Schema` through `### 6.5`, excluding S6.6)
 
 - [ ] **Step 1: Write ddl.md**
 
@@ -503,7 +545,7 @@ status: active
 
 Heading: `## Database Schema`
 
-Copy connection pragmas (L263-270), S6.1 Kernel (L272-328), S6.2 Context (L330-366), S6.3 Work (L368-401), S6.4 Knowledge (L403-429), S6.5 Cross-cutting (L431-458) verbatim.
+Copy connection pragmas (the `PRAGMA` block before S6.1), then S6.1 Kernel, S6.2 Context, S6.3 Work, S6.4 Knowledge, S6.5 Cross-cutting verbatim. Stop before `### 6.6 Design Notes`.
 
 Remove section number prefixes from headings (e.g., `### 6.1 Kernel` → `### Kernel`).
 
@@ -520,7 +562,7 @@ git commit -m "docs(engram): migrate S6.1-S6.5 to schema/ddl.md"
 
 **Files:**
 - Create: `docs/specs/engram/skills/overview.md`
-- Source: lines 534-563 (S7 heading at L534, amendment history at L536, S7.1 at L538-547, S7.2 at L549-563)
+- Source: S7 parent heading (`## 7. Skill Surface`) + S7.1 (`### 7.1`) + S7.2 (`### 7.2`), stopping before `### 7.3`
 
 - [ ] **Step 1: Write overview.md**
 
@@ -534,7 +576,7 @@ status: active
 ---
 ```
 
-The S7 parent heading (`## 7. Skill Surface (6 skills)` at L534) becomes this file's top-level heading: `## Skill Surface`. The inline amendment history at L536 is extracted to `amendments.md` (Task 13). Copy S7.1 Skill Roster (L538-547) and S7.2 Visibility Model (L549-563) verbatim.
+The S7 parent heading (`## 7. Skill Surface (6 skills)`) becomes this file's top-level heading: `## Skill Surface`. The inline amendment history (italic revision note under the S7 heading) is extracted to `amendments.md` (Task 13). Copy S7.1 Skill Roster and S7.2 Visibility Model verbatim.
 
 Remove section number prefixes. Update internal references:
 - "Section 7.3" → `[skill-orchestration.md](../contracts/skill-orchestration.md#two-stage-guard)`
@@ -550,7 +592,7 @@ git commit -m "docs(engram): migrate S7.1+S7.2 to skills/overview.md"
 
 **Files:**
 - Create: `docs/specs/engram/skills/catalog.md`
-- Source: lines 675-912
+- Source: S7.4 (`### 7.4 Per-Skill Designs` — from the heading through the last skill design, stopping before `### 7.5`)
 
 This is the largest single migration (~238 lines, 6 skill designs). All 6 skills stay in one file with stable anchors. Extraction trigger: a skill exceeds ~70-100 lines, is independently amended, or develops unique workflows.
 
@@ -594,7 +636,7 @@ git commit -m "docs(engram): migrate S7.4 to skills/catalog.md"
 
 **Files:**
 - Create: `docs/specs/engram/skills/appendix.md`
-- Source: lines 913-965
+- Source: S7.5-S7.7 (`### 7.5` through `### 7.7`, stopping before `## 8`)
 
 - [ ] **Step 1: Write appendix.md**
 
@@ -608,7 +650,7 @@ status: active
 ---
 ```
 
-Copy S7.5 Skill Directory Layout (L913-944), S7.6 allowed-tools Naming (L946-952), S7.7 Open Questions (L954-965) verbatim.
+Copy S7.5 Skill Directory Layout, S7.6 allowed-tools Naming, S7.7 Open Questions verbatim.
 
 No cross-references to other sections (S7.5 and S7.6 are self-contained reference subsections).
 
@@ -627,7 +669,7 @@ git commit -m "docs(engram): migrate S7.5-S7.7 to skills/appendix.md"
 
 **Files:**
 - Create: 5 stub files in `docs/specs/engram/implementation/`
-- Source: lines 968-979 (S8 checklist)
+- Source: S8 (`## 8. Remaining Design Work`)
 
 - [ ] **Step 1: Write all 5 stubs**
 
@@ -673,7 +715,8 @@ git commit -m "docs(engram): create implementation stubs from S8"
 
 **Files:**
 - Create: `docs/specs/engram/amendments.md`
-- Source: Inline amendment histories from S4 (L96), S6 (L261), S6.6 (L462), S7 (L536)
+- Source: Inline amendment histories from S4 (italic revision note after heading), S6 (italic revision note after heading), S6.6 (italic revision note after heading), S7 (italic revision note after heading)
+- Depends on: Tasks 5, 6, 7, 8, 9, 10
 
 - [ ] **Step 1: Extract amendment histories and write amendments.md**
 
@@ -771,31 +814,32 @@ The source spec contains 12+ inline cross-references by section number. These mu
 - [ ] **Step 1: Find all section-number references**
 
 ```bash
-# Find all "Section N", "(Section N)", "S6.6", etc. in the new files
-grep -rn 'Section [0-9]\|S[0-9]\.' docs/specs/engram/ --include='*.md' | grep -v legacy-map.md | grep -v amendments.md
+# Find ALL section-number patterns including shorthand (S4, S6.6, etc.)
+grep -rn 'Section [0-9]\|S[0-9]\.\|S[0-9][^a-zA-Z]' docs/specs/engram/ --include='*.md' | grep -v legacy-map.md | grep -v amendments.md
 ```
 
-- [ ] **Step 2: Update each reference using the legacy map**
+- [ ] **Step 2: Update each reference using the semantic mapping table**
 
-Apply the following transformations:
+**Process every hit individually.** Each pattern maps to a different anchor depending on surrounding context. Use the disambiguation rules below.
 
-| Pattern | Replacement |
-|---------|------------|
-| `Section 4` / `(Section 4)` | `[tool-surface.md](contracts/tool-surface.md)` (adjust relative path per file location) |
-| `Section 6` / `(Section 6)` | `[schema/ddl.md](schema/ddl.md)` or `[schema/rationale.md](schema/rationale.md)` depending on context |
-| `Section 6.3` | `[ddl.md](schema/ddl.md#work)` |
-| `Section 7.3` / `(Section 7.3)` | `[skill-orchestration.md](contracts/skill-orchestration.md)` |
-| `S6.6` / `see S6.6` | `[behavioral-semantics.md](contracts/behavioral-semantics.md#<anchor>)` |
-| `Section 8` | `[implementation/](implementation/)` |
-| `Section 4 ... atomic rejection invariant` | `[tool-surface.md](contracts/tool-surface.md#architectural-rules)` |
+| Pattern | Default target | Disambiguation |
+|---------|---------------|----------------|
+| `Section 4` / `S4` | `contracts/tool-surface.md` | If near "bootstrap" → `#session-bootstrap`. If near "atomic rejection" / "invariant" → `#architectural-rules`. If near "action semantics" / "idempotency" → `#action-semantics`. If near "result types" → `#public-result-types`. Otherwise → file-level link. |
+| `Section 6` / `S6` | `schema/ddl.md` | If near "storage schema" vs "API contract" → use in context of the contrast. |
+| `Section 6.3` | `schema/ddl.md#work` | |
+| `Section 6.6` / `S6.6` / `see S6.6` | `contracts/behavioral-semantics.md` | If near "anchor_hash" → `#anchor-hash-merge`. If near "atomicity" → `#session-end-atomicity`. If near "ordering" → `#session-list-ordering`. Otherwise → file-level link. |
+| `Section 7.3` / `S7.3` | `contracts/skill-orchestration.md` | If near "lazy bootstrap" → `#lazy-session-bootstrap`. If near "two-stage guard" → `#two-stage-guard`. If near "confirmation" → `#confirmation-severity`. If near "failure" → `#single-mutation-failure`. Otherwise → file-level link. |
+| `Section 8` | `implementation/` | Link to directory. |
 
 Use relative paths appropriate to each file's location (files in `contracts/` use `../schema/`, files at root use `contracts/`, etc.).
+
+**Double-update prevention:** Task 10 also updates `Section 7.3` references inline in catalog.md. If Task 10 has already run, verify those references are already updated before re-processing in this pass. `grep` will not find them if already converted to links.
 
 - [ ] **Step 3: Verify no stale references remain**
 
 ```bash
-# Should return 0 matches (excluding legacy-map.md and amendments.md)
-grep -rn 'Section [0-9]\|S[0-9]\.' docs/specs/engram/ --include='*.md' | grep -v legacy-map.md | grep -v amendments.md | wc -l
+# Must catch ALL patterns including shorthand — broader regex than Step 1
+grep -rn 'Section [0-9]\|S[0-9]\.\|S[0-9][^a-zA-Z]\|see S[0-9]' docs/specs/engram/ --include='*.md' | grep -v legacy-map.md | grep -v amendments.md | wc -l
 ```
 
 Expected: `0`
@@ -815,13 +859,20 @@ git commit -m "docs(engram): update all cross-references to file/anchor links"
 - [ ] **Step 1: Final content integrity check**
 
 ```bash
-# Count total words in source
+# Word count comparison (gross check)
 wc -w docs/plans/2026-03-12-engram-design.md
-
-# Count total words across all destination files (excluding frontmatter)
 find docs/specs/engram/ -name '*.md' -exec cat {} + | wc -w
-
 # Destination should be >= source (frontmatter, anchors, notes add words)
+
+# Source-coverage check: verify key sentinels from each section appear in destination
+for sentinel in "System Overview" "Judgment Split" "Design Decisions" "MCP vs CLI" \
+  "MCP Tool Surface" "Response Envelopes" "Internal Architecture" "Deferred for v1" \
+  "Database Schema" "Design Notes" "Skill Surface" "Cross-Cutting Patterns" \
+  "Lazy Session Bootstrap" "Per-Skill Designs" "/save" "/load" "/triage" \
+  "Remaining Design Work"; do
+  count=$(grep -rl "$sentinel" docs/specs/engram/ --include='*.md' | wc -l)
+  [ "$count" -eq 0 ] && echo "MISSING: '$sentinel' not found in any destination file"
+done
 ```
 
 - [ ] **Step 2: Remove source file**
@@ -845,7 +896,7 @@ git commit -m "docs(engram): remove monolith spec (migrated to docs/specs/engram
 find docs/specs/engram/ -name '*.md' | sort
 ```
 
-Expected: 18 files (README, legacy-map, amendments, foundations, decisions, internal-architecture, 3 contracts, 2 schema, 3 skills, 5 implementation stubs).
+Expected: 19 files (README, legacy-map, amendments, foundations, decisions, internal-architecture = 6 root; 3 contracts; 2 schema; 3 skills; 5 implementation stubs).
 
 - [ ] **Step 2: Verify all frontmatter valid**
 
@@ -872,10 +923,25 @@ done
 - [ ] **Step 4: Verify no stale section references**
 
 ```bash
-grep -rn 'Section [0-9]' docs/specs/engram/ --include='*.md' | grep -v legacy-map.md | grep -v amendments.md
+# Broad regex catching all section-number patterns including shorthand
+grep -rn 'Section [0-9]\|S[0-9]\.\|S[0-9][^a-zA-Z]\|see S[0-9]' docs/specs/engram/ --include='*.md' | grep -v legacy-map.md | grep -v amendments.md
 ```
 
 Expected: 0 results.
+
+- [ ] **Step 4b: Verify fragment anchors resolve**
+
+```bash
+# Extract all markdown links with fragments and verify targets exist
+grep -roh '\[.*\]([^)]*\.md#[^)]*)' docs/specs/engram/ --include='*.md' | grep -oP '(?<=\().*(?=\))' | while read link; do
+  file=$(echo "$link" | cut -d'#' -f1)
+  anchor=$(echo "$link" | cut -d'#' -f2)
+  # Check anchor appears as a heading (auto-generated slug) in the target file
+  if [ -n "$anchor" ] && [ -f "docs/specs/engram/$file" ]; then
+    grep -qi "$(echo "$anchor" | tr '-' ' ')" "docs/specs/engram/$file" || echo "BROKEN ANCHOR: $link"
+  fi
+done
+```
 
 - [ ] **Step 5: Final commit (if any fixes needed)**
 
@@ -895,33 +961,33 @@ Create `docs/engram-spec-modularization` branch from `main`. All work happens on
 ### Task dependencies
 
 ```
-Task 1 (scaffold)
-  ├─> Task 2 (foundations)
-  ├─> Task 3 (decisions)
-  ├─> Task 4 (internal-architecture)
-  ├─> Task 5 (tool-surface)
-  ├─> Task 6 (S6.6 split) ──> depends on Task 5 (cross-refs from behavioral-semantics to tool-surface)
-  ├─> Task 7 (skill-orchestration)
-  ├─> Task 8 (ddl)
-  ├─> Task 9 (skills/overview)
-  ├─> Task 10 (skills/catalog) ──> depends on Tasks 5, 7 (cross-refs)
-  ├─> Task 11 (skills/appendix)
-  └─> Task 12 (implementation stubs)
-Task 13 (amendments) ──> depends on Tasks 5, 6, 7, 9, 10 (extracts histories from those; S7 heading at L534 handled by Task 9)
-Task 14 (legacy-map) ──> depends on all file tasks (needs final locations)
-Task 15 (cross-refs) ──> depends on all file tasks
-Task 16 (remove monolith) ──> depends on Task 15
-Task 17 (validation) ──> depends on Task 16
+Stage 0: Task 1 (scaffold)
+Stage 1: Tasks 2, 3, 4, 5, 7, 8, 9, 11, 12 (all parallel after scaffold)
+Stage 2: Task 6 (S6.6 split, after Task 5) | Task 10 (catalog, after Tasks 5+7)
+Stage 3: Task 13 (amendments, after Tasks 5-12) | Task 14 (legacy-map, after all file tasks)
+Stage 4: Task 15 (cross-refs) → Task 16 (remove monolith) → Task 17 (validation)
 ```
 
-**Parallelizable:** Tasks 2-4 (clean splits, no cross-deps). Tasks 8-9, 11-12 (no cross-deps with each other).
+### Staged execution model
+
+Tasks have cross-agent dependencies that require staged execution. Each stage gate requires all tasks in the prior stage to complete before proceeding.
+
+| Stage | Tasks | Can parallelize? | Gate condition |
+|-------|-------|-----------------|----------------|
+| **0** | 1 (scaffold) | No | Directory structure exists |
+| **1** | 2, 3, 4, 5, 7, 8, 9, 11, 12 | Yes — all independent after scaffold | All files created |
+| **2** | 6 (S6.6 split, depends on 5), 10 (catalog, depends on 5+7) | Yes — parallel with each other | Tasks 5 and 7 complete (cross-ref targets exist) |
+| **3** | 13 (amendments), 14 (legacy-map) | Yes — parallel with each other | All content tasks complete (source histories available) |
+| **4** | 15 (cross-refs) → 16 (remove monolith) → 17 (validation) | No — sequential | Each depends on prior |
 
 ### Subagent assignment (if using subagent-driven-development)
 
-| Agent | Tasks | Rationale |
-|-------|-------|-----------|
-| Agent A | 1, 2, 3, 4 | Scaffold + clean splits (independent, no cross-refs) |
-| Agent B | 5, 6, 8 | Contracts/tool-surface + S6.6 split + schema/ddl (authority cluster) |
-| Agent C | 7, 9, 10, 11 | Skill-orchestration + skills directory (skill cluster) |
-| Agent D | 12, 13, 14 | Stubs + metadata files (independent) |
-| Sequential | 15, 16, 17 | Cross-refs, removal, validation (must run after all others) |
+| Agent | Stage 1 Tasks | Stage 2 Tasks | Rationale |
+|-------|--------------|---------------|-----------|
+| Agent A | 2, 3, 4 | — | Clean splits (independent, no cross-refs) |
+| Agent B | 5, 8 | 6 | Contracts/tool-surface + schema/ddl → then S6.6 split (needs tool-surface.md from Task 5) |
+| Agent C | 7, 9, 11 | 10 | Skill-orchestration + skills directory → then catalog (needs skill-orchestration.md from Task 7) |
+| Agent D | 12 | — | Stubs (independent) |
+| Sequential | — | — | Stage 3: Tasks 13, 14. Stage 4: Tasks 15, 16, 17 (must run after all agents) |
+
+**Key constraint:** Agent B must complete Task 5 before starting Task 6 (behavioral-semantics.md links to tool-surface.md). Agent C must complete Task 7 before starting Task 10 (catalog.md links to skill-orchestration.md). Both are within-agent sequential dependencies, so no cross-agent coordination needed within Stages 1-2.
