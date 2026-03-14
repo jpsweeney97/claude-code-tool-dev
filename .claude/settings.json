@@ -1,31 +1,5 @@
 {
   "env": {
     "GITFLOW_ALLOW_FILES": "**/docs/**,CHANGELOG.md,README.md,HANDBOOK.md,settings.json,plugin.json,**/.claude/handoffs/**,**/.claude/notes/**,**/.claude/skills/**,**/tickets/**,**/CLAUDE.md,**/rules/**"
-  },
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node .claude/hooks/gsd-check-update.js"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node .claude/hooks/gsd-context-monitor.js"
-          }
-        ]
-      }
-    ]
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "node .claude/hooks/gsd-statusline.js"
   }
 }
