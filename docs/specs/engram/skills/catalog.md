@@ -112,7 +112,7 @@ allowed-tools: mcp__plugin_engram_core__task_query, mcp__plugin_engram_core__ses
 
 **Design notes:**
 - `/triage` is read-only — it calls only read tools. Safe for auto-invocation per the skills guide
-- Text search switches to cross-cutting `query` as candidate generator, with native tools (`task_query`, `lesson_query`) for enrichment
+- Read tool selection follows the policy in [foundations.md](../foundations.md#read-tool-selection-policy) — `query` is the cross-cutting fallback when entity type is unknown, not a substitute for domain-specific tools
 - Description scoped to project-oriented phrasing to prevent over-matching on generic "what" questions
 
 #### `/task` — Task Management {#skill-task}

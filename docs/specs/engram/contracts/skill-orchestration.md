@@ -96,6 +96,23 @@ When a confirmed single mutation fails, all mutation skills follow this shared p
 
 Multi-step non-atomic workflows (`/promote` local-file promotion, `/task` "create task that blocks X") have additional per-skill recovery procedures specified in their designs below.
 
+#### Server Unavailable Escalation {#server-unavailable}
+
+*Added based on Codex consultation #25 (thread `019ced19`). Resolves open risk #2 from decisions.md.*
+
+When an Engram MCP tool call fails with transport-level symptoms (connection closed, tool unavailable, timeout) **and** a follow-up Engram read tool also fails, the skill must treat Engram as unavailable for the remainder of that workflow:
+
+1. Surface explicitly: "Engram is unavailable — I can't verify or persist Engram state until the MCP connection is restored."
+2. Stop the current Engram workflow — do not proceed to further MCP calls
+3. Direct the user to check `/mcp` for server status or restart Claude Code
+4. Do not silently degrade to "continue without persistence" — Engram must never pretend to persist state when it can't
+
+This rule applies to all 6 skills (mutation and read-only). It complements the single-mutation failure pattern: that pattern covers individual call failures where verification reads succeed; this rule covers total server unavailability where verification reads also fail.
+
+**Detection heuristic:** A single transport failure is not conclusive — it may be a transient error. The "follow-up read also fails" check is the discriminator. For mutation skills, the lazy bootstrap `session_start` call serves as the initial probe; if it fails with transport symptoms, attempt one read (e.g., `session_list(limit=1)`) before escalating. For read-only skills (e.g., `/triage`), the first query failure plus one retry failure triggers escalation.
+
+**Recovery is platform-dependent.** Engram does not implement auto-restart or health endpoints. If Claude Code restores the MCP server connection mid-session, skills resume normal operation on the next invocation.
+
 #### Lazy Session Bootstrap {#lazy-session-bootstrap}
 
 *Added based on collaborative resolution #17 (thread `019ce851`). Resolves session identity transport and bootstrap ownership.*
