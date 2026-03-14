@@ -125,3 +125,7 @@ Shared fragments:
 - **Timestamps:** ISO 8601 UTC strings (`YYYY-MM-DDTHH:MM:SS.fffZ`)
 - **Tags:** JSON arrays of strings, always deduplicated
 - **Ref objects:** `{type, ref, label}` — see Ref Object section above
+
+### Public IDs
+
+**Public IDs:** `session_id` is externally provided by Claude Code (via `${CLAUDE_SESSION_ID}` skill substitution). `task_id` and `lesson_id` are server-generated UUIDs. `entity_pk` is internal only — never exposed through the tool surface.
