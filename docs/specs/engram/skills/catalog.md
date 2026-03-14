@@ -102,9 +102,11 @@ allowed-tools: mcp__plugin_engram_core__task_query, mcp__plugin_engram_core__ses
 | **Catch-up** | `session_list(state='all', limit=10)` | `task_query(status=['open'])` | `query(text=...)` | "catch me up", "what happened", "project status" |
 | **Knowledge** | `lesson_query(tags=[...])` or `query(text=...)` | `task_query` | `session_list` | "what do we know about X", "any lessons on" |
 
+**Mode arbitration:** Modes control query priority, not exclusive scope — all modes run secondary and supplemental queries from other subsystems. Default to Action when intent is ambiguous. Mixed-intent prompts ("catch me up and tell me what to work on next") do not require mode composition: Action mode already includes `session_list` as secondary, providing catch-up context. Use the relevance gate's "clarify" classification only when the user's intent is genuinely unclear (not when it spans modes).
+
 **Steps:**
 1. Relevance gate: classify intent as execute/clarify/ignore
-2. Determine mode from user phrasing (default: action)
+2. Determine mode from user phrasing (default: action; see mode arbitration above)
 3. Execute primary query
 4. Execute secondary query for cross-subsystem context
 5. Present unified view: tasks grouped by status/priority, recent sessions with goals, relevant lessons
