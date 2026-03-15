@@ -45,7 +45,7 @@ No existing skill reviews a multi-file spec as a structured corpus. The `reviewi
 | C (skill + preflight + synthesis agents) | Rejected | Premature for v1. Two abstraction taxes before usage proves either needed. |
 | **A' (normative SKILL.md + refs)** | **Adopted** | Emerged from comparative Codex dialogue. Key reframe: "Does synthesis need fresh context?" → "Does synthesis operate over explicit intermediate structure?" Answer: structured findings + procedure in reference files, not a separate agent. |
 
-**Design for upgrade:** 5 measurable A-to-B upgrade triggers are defined (Section 7). If synthesis complexity warrants extraction after v1 usage data, the upgrade path is clean.
+**Design for upgrade:** 5 measurable [A-to-B upgrade triggers](#a-to-b-upgrade-triggers) are defined. If synthesis complexity warrants extraction after v1 usage data, the upgrade path is clean.
 
 ### File Structure
 
