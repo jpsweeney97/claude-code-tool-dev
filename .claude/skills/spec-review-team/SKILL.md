@@ -156,3 +156,66 @@ Evaluate all four redirect conditions. Redirect to `reviewing-designs` only if *
 1. Verify `.review-workspace/` is in `.gitignore`. If absent, add it.
 2. Create `.review-workspace/preflight/packet.md` with exactly 6 sections: `authority_map`, `boundary_edges`, `signal_matrix`, `mechanical_checks`, `route_decision`, `spawn_plan`.
 3. Announce spawn plan to user: "Spawning [N] reviewers: [role IDs]. Optional specialists: [reason each was triggered or 'not triggered']."
+
+### Phase 4: REVIEW
+
+**Phase gate:** All expected findings files present, or timeout reached.
+
+**Artifact immutability:**
+
+| Artifact | Created | Consumed | Mutability |
+|----------|---------|----------|------------|
+| Authority map | Phase 1 (DISCOVERY) | Phases 2-5 | Immutable after Phase 1 |
+| Spawn plan | Phase 3B (Staffing) | Phase 4 (REVIEW) | Immutable after 3B |
+| Findings ledger | Phase 4 (REVIEW) | Phase 5 (SYNTHESIS) | Append-only during Phase 4; read-only in Phase 5 |
+
+#### Spawn Contract
+
+1. Write preflight `packet.md` if not completed in Phase 3C.
+2. Create team via `TeamCreate` with a descriptive `team_name` (e.g., `"spec-review"`). If `TeamCreate` is a deferred tool, fetch its schema via `ToolSearch` first.
+3. Create one task per reviewer via `TaskCreate`. Each task must include: role ID, output file path (`.review-workspace/findings/{role-id}.md`), and `packet.md` path.
+4. Spawn each reviewer via `Agent` with: `team_name`, `name` (role ID), `model: "sonnet"`, and `prompt` containing the scaffold, a pointer to `packet.md`, and the role delta from `references/role-rubrics.md`. The `team_name` parameter makes a reviewer a teammate with messaging, tasks, and idle notifications. Without `team_name`, the agent is an isolated subagent with none of those capabilities.
+5. `name` is the addressing key for ALL communication. Use role IDs (e.g., `"authority-architecture"`) — never UUIDs.
+6. Do NOT embed preflight packet content in spawn prompts. Point reviewers to `.review-workspace/preflight/packet.md` — they read it themselves. Embedding causes destructive compression for large specs.
+7. Do NOT start the lead's own analysis before all teammates are spawned.
+
+#### Completion Contract
+
+- **Primary signal:** idle notifications from the team system. When all spawned reviewers have gone idle, proceed to the completion check.
+- **Peer DM visibility:** when a reviewer sends a DM to another reviewer, a brief summary appears in the sender's idle notification. This gives the lead visibility into cross-reviewer collaboration without polling — use these summaries as synthesis input.
+- **Hard deliverable:** each reviewer writes findings to `.review-workspace/findings/{role-id}.md`.
+- **Completion check:** after all idle notifications received, verify each expected file exists via `Glob` or `Read`.
+- **Wall-clock timeout:** 5 minutes with no new idle notifications and no task status changes (confirmed via `TaskGet`). "Activity" means: idle notification received, OR a task moving to `completed` via `TaskGet`. Lateral messages are NOT independently observable — they surface only as DM summaries in the next idle notification.
+- **Partial completion:** always proceed with available findings. Report `reviewers_failed` with a per-reviewer reason for any missing findings files.
+
+#### Lateral Messaging and Task Scope
+
+**Messaging primitives:**
+
+- `message` — targeted `SendMessage` to `"{name}"` (one recipient).
+- `broadcast` — `SendMessage` with `to: "*"` (all teammates). Broadcast costs scale linearly with team size since each message lands in every recipient's context window.
+
+Spawn prompts instruct each reviewer to send a targeted `message` to other reviewers when they find cross-lens findings that could affect another reviewer's analysis. Messages are informal coordination signals; each reviewer's findings file is the sole formal deliverable.
+
+**Task scope:**
+
+- One task per reviewer. Do NOT set `blockedBy` dependencies — all tasks run in parallel.
+- Reviewers: Do NOT self-claim additional tasks after finishing. Go idle when done.
+- Known limitation: task status can lag behind actual reviewer state. Idle notifications are the primary completion signal; task status via `TaskGet` is secondary confirmation.
+
+#### Quality Gate Hooks (optional for v1)
+
+Two hook types fire on reviewer lifecycle events:
+
+- `TeammateIdle` — fires when a teammate goes idle. Exit code 2 returns feedback and allows the reviewer to continue. **Command hooks only** (other hook types are not supported for this event).
+- `TaskCompleted` — fires when a task reaches `completed`. All four hook types supported.
+
+Neither hook type supports matchers — filter by role ID inside the hook logic. These hooks become valuable once quality predicates are reliable enough to warrant automated gating. Do NOT implement for v1.
+
+#### Cleanup Contract
+
+1. Send a shutdown request to each reviewer: `SendMessage` with `{type: "shutdown_request", reason: "Review complete"}`.
+2. If a reviewer rejects the shutdown, retry with additional context. Shutdown may be delayed — the reviewer finishes its current tool call before processing the message.
+3. After all reviewers shut down, call `TeamDelete`. `TeamDelete` fails if any teammate is still active — confirm all are idle before calling.
+4. Teammates must NOT self-cleanup. Only the lead calls `TeamDelete`.
+5. Ask the user: preserve or remove `.review-workspace/`? Default: preserve.
