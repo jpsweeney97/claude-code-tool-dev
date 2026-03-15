@@ -125,3 +125,34 @@ Evaluate all four redirect conditions. Redirect to `reviewing-designs` only if *
 **If redirecting:** Tell the user which conditions triggered and why this spec fits `reviewing-designs`. Then invoke `reviewing-designs`. Do NOT continue to Phase 3.
 
 **If not redirecting:** Continue to Phase 3 (PREFLIGHT).
+
+### Phase 3: PREFLIGHT
+
+#### Phase 3A: Mechanical
+
+**Phase gate:** All files checked; frontmatter parseable on all files, or degraded mode entered.
+
+1. Validate frontmatter on all spec files: required fields present (`module`, `status`, `normative`, `authority`), values well-formed (no nulls, no unrecognized status values).
+2. Check cross-references: every relative markdown link resolves to an existing file and, if it includes an anchor (`#section`), that anchor exists in the target file.
+3. Detect broken links (unresolved paths), orphaned anchors (anchors defined but never referenced), and missing referenced files.
+4. Record all results for the preflight packet's `mechanical_checks` section.
+
+#### Phase 3B: Staffing
+
+**Phase gate:** Spawn plan finalized (which reviewers, and why).
+
+1. Core team (4 reviewers: `authority-architecture`, `contracts-enforcement`, `completeness-coherence`, `verification-regression`) always spawns. Role definitions are in `references/role-rubrics.md`.
+2. Evaluate optional specialist signals using the two-tiered spawn rule from `references/preflight-taxonomy.md`:
+   - Tier 1 (score ≥ 100): a single high-confidence signal is sufficient to spawn.
+   - Tier 2 (score 50–99): requires 2+ medium signals from different dimensions to spawn.
+3. If frontmatter metadata is insufficient to evaluate signals: sample targeted content excerpts per the sampling policy in `references/preflight-taxonomy.md`. Do NOT expand into broad corpus reading.
+4. Budget exhausted and below spawn threshold: do NOT spawn the specialist. Log the unresolved signal in the synthesis report.
+5. Record the finalized spawn plan (role IDs, spawn rationale for each optional specialist triggered or suppressed).
+
+#### Phase 3C: Materialize
+
+**Phase gate:** `packet.md` written, spawn plan announced to user.
+
+1. Verify `.review-workspace/` is in `.gitignore`. If absent, add it.
+2. Create `.review-workspace/preflight/packet.md` with exactly 6 sections: `authority_map`, `boundary_edges`, `signal_matrix`, `mechanical_checks`, `route_decision`, `spawn_plan`.
+3. Announce spawn plan to user: "Spawning [N] reviewers: [role IDs]. Optional specialists: [reason each was triggered or 'not triggered']."
