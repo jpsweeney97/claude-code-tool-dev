@@ -129,8 +129,8 @@ Phase 4 is the core runtime. This section defines the normative execution semant
 **Completion contract:**
 - **Source of truth:** Idle notifications from the team system. Each spawned reviewer produces exactly one idle notification when done.
 - **Expected idle count:** Number of reviewers in the spawn plan (4 for core-only, 5 or 6 with optionals).
-- **Verification:** After receiving all expected idle notifications, verify each reviewer's findings file exists in `.review-workspace/findings/`. If a file is missing after its reviewer went idle, log as `synthesis_errors_p1` ("reviewer {id} went idle without writing findings").
-- **Wall-clock timeout:** 5 minutes after the last idle notification. If expected idle count is not reached, treat remaining reviewers as failed. Proceed to SYNTHESIS with available findings; log missing reviewers as `synthesis_errors_p1`.
+- **Verification:** After receiving all expected idle notifications, verify each reviewer's findings file exists in `.review-workspace/findings/`. If a file is missing after its reviewer went idle, log as `reviewers_failed` ("reviewer {id} went idle without writing findings").
+- **Wall-clock timeout:** 5 minutes after the last idle notification. If expected idle count is not reached, treat remaining reviewers as failed. Proceed to SYNTHESIS with available findings; log missing reviewers as `reviewers_failed`.
 - **No lateral messaging:** Reviewers do not communicate with each other. All coordination flows through the findings ledger and the lead's synthesis. Do not enable cross-reviewer `SendMessage`.
 
 **Cleanup contract:**
@@ -265,7 +265,7 @@ Mandatory for core reviewers with zero findings in a defect class. Prevents "no 
 | 9 | `reviewers_failed` | Reviewers that timed out or went idle without producing findings (in-run observable) |
 | 10 | `unverified_deferrals` | Coverage notes with `deferred_to` targets that did not cover the delegated class |
 
-**Removed:** `synthesis_errors_p0` and `synthesis_errors_p1`. These require an oracle (the lead cannot reliably detect its own synthesis errors in-run). They are replaced by `reviewers_failed` (observable) and `unverified_deferrals` (observable). Cross-run synthesis quality is tracked via the A-to-B upgrade triggers, which are post-v1 calibration metrics, not in-run audit metrics.
+**Removed:** `synthesis_errors_p0` and `reviewers_failed`. These require an oracle (the lead cannot reliably detect its own synthesis errors in-run). They are replaced by `reviewers_failed` (observable) and `unverified_deferrals` (observable). Cross-run synthesis quality is tracked via the A-to-B upgrade triggers, which are post-v1 calibration metrics, not in-run audit metrics.
 
 ### A-to-B Upgrade Triggers (Post-v1 Calibration)
 
