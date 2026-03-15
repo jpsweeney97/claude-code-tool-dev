@@ -147,7 +147,24 @@ Write the 6 constraints as a table (spec lines 67-72). These are hard rules, not
 | 5 | 3-5 teammates recommended | Core 4 + up to 2 optional specialists. Max 6. |
 | 6 | Sonnet for reviewers | Lead uses session's default model. |
 
-- [ ] **Step 6: Commit frontmatter + opening**
+- [ ] **Step 6: Write Team Composition section**
+
+Write the team composition overview (spec lines 168-181). This is normative — it defines which reviewers exist and their remits.
+
+| # | Role | ID | Type | Defect Class |
+|---|------|----|------|--------------|
+| 1 | Authority & Architecture | `authority-architecture` | Core | Invariant drift, authority placement errors, architectural constraint violations |
+| 2 | Contracts & Enforcement | `contracts-enforcement` | Core | Behavioral drift from contracts, unauthorized implementation decisions, enforcement gaps |
+| 3 | Completeness & Coherence | `completeness-coherence` | Core | Count mismatches, term drift, self-contradictions, missing cross-references |
+| 4 | Verification & Regression | `verification-regression` | Core | Untested promises, infeasible test designs, regression gaps |
+| 5 | Schema / Persistence | `schema-persistence` | Optional | Schema-contract mismatches, constraint gaps, DDL-behavioral divergence |
+| 6 | Integration / Enforcement Surface | `integration-enforcement` | Optional | Hook/plugin gaps, confirmation model violations, failure recovery paths |
+
+Include the design principle (spec line 181): **"Thin by remit, not by file reassignment."** All core reviewers access all files — they are scoped by defect class, not by file assignment. This prevents gaps at file boundaries.
+
+~15 lines.
+
+- [ ] **Step 7: Commit frontmatter + opening**
 
 ```bash
 git add .claude/skills/spec-review-team/SKILL.md
@@ -277,7 +294,8 @@ Then write the spawn contract (from spec lines 132-138) — 6 numbered steps:
 3. Create one task per reviewer via `TaskCreate` — include role ID, output file path, `packet.md` path
 4. Spawn each reviewer via `Agent` with `team_name`, `name` (role ID), `model: "sonnet"`, `prompt` (scaffold + preflight pointer + role delta from `role-rubrics.md`). The `team_name` parameter makes it a teammate with messaging/tasks/idle notifications. Without `team_name`, it's an isolated subagent.
 5. Addressing convention: `name` = addressing key for ALL communication. Use role IDs, never UUIDs.
-6. Do NOT start lead's analysis before all teammates spawned.
+6. Do NOT embed preflight packet content in spawn prompts. Point reviewers to the workspace file path — they read `packet.md` themselves. Embedding causes destructive compression for large specs.
+7. Do NOT start lead's analysis before all teammates spawned.
 
 ~25 lines.
 
@@ -339,7 +357,11 @@ git commit -m "feat(spec-review-team): phase 4 (REVIEW — spawn, completion, me
 
 Phase gate: "Report written with all 10 audit metrics."
 
-Open with the instruction philosophy (spec lines 274-277): "Technique-in-Discipline-shell. Prescribe computation for auditable state; prescribe criteria for meaning."
+Open with the instruction philosophy (spec lines 274-277):
+
+**Boundary rule:** "Technique-in-Discipline-shell. Prescribe computation for auditable state; prescribe criteria for meaning. If two competent operators should reach the same result from the same raw facts and nothing valuable is lost by prescribing it, prescribe it (mechanical pass). Otherwise, state the obligation, require a rationale, and audit the structure (judgment obligation)."
+
+This boundary rule is the decision criterion for the entire synthesis section — it tells the reader HOW to distinguish the 5 mechanical passes from the 4 judgment obligations.
 
 Then write the synthesis inputs table (spec lines 279-289) — the lead has 5 named sources:
 
@@ -520,7 +542,13 @@ References table — list all 5 reference files with brief descriptions.
 
 Run: `wc -l .claude/skills/spec-review-team/SKILL.md`
 
-Expected: 400-470 lines. If over 500, identify sections to trim or delegate to reference files. If under 350, check if any normative content was accidentally omitted.
+Expected: 400-470 lines. If under 350, check if any normative content was accidentally omitted. If over 500, trim in this priority order (least normative first):
+1. Quality gate hooks section (optional for v1 — move detail to `failure-patterns.md`)
+2. Upgrade triggers section (post-v1 calibration — move to `failure-patterns.md`, keep one-line reference)
+3. Compress failure modes table entries (keep table, shorten Response column, reference `failure-patterns.md`)
+4. Compress Phase 3 sub-phases (combine 3A/3B/3C, move detail to `preflight-taxonomy.md`)
+
+Do NOT move phase gates, spawn/completion/cleanup contracts, finding schema, or audit metrics — these are normative and SKILL.md must remain self-sufficient for the complete procedure.
 
 - [ ] **Step 6: Validate frontmatter**
 
@@ -634,6 +662,8 @@ git commit -m "feat(spec-review-team): preflight-taxonomy.md — clusters, signa
 - Create: `.claude/skills/spec-review-team/references/role-rubrics.md`
 
 This is the largest reference file. Contains the shared spawn scaffold and 6 reviewer domain briefs.
+
+**Critical framing (spec line 431):** Rubrics are domain briefs that orient judgment, not checklists that constrain it. The reviewer's scope is the defect class domain, not a list of prescribed checks. Write each brief as a judgment-shaping narrative — missions, patterns to watch for, collaboration triggers — not as a sequence of mechanical steps to execute.
 
 - [ ] **Step 1: Write header + shared scaffold template**
 
