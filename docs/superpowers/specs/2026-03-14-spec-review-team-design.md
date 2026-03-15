@@ -30,12 +30,18 @@ No existing skill reviews a multi-file spec as a structured corpus. The `reviewi
 ---
 name: spec-review-team
 description: >
-  Review multi-file specifications using a parallel agent team. Discovers spec
-  structure via frontmatter metadata, runs preflight analysis, spawns 4-6
-  specialized reviewers with distinct defect-class lenses, and synthesizes
-  findings into a prioritized report. Use when reviewing a spec corpus with
-  files across multiple authority tiers. For single design documents, use
-  reviewing-designs instead.
+  Review multi-file specifications using a parallel agent team with lateral
+  messaging — reviewers communicate directly to share findings, challenge
+  analyses, and corroborate across defect-class lenses in real time. Discovers
+  spec structure via frontmatter metadata, runs preflight analysis, spawns 4-6
+  specialized reviewers, and synthesizes findings into a prioritized report.
+  Reviewers use two messaging primitives: `message` (targeted to one reviewer)
+  and `broadcast` (all reviewers simultaneously). Broadcast costs scale linearly
+  with team size since each message lands in every recipient's context window.
+  Messages are informal coordination signals — each reviewer's structured
+  findings file remains the sole formal deliverable. Use when reviewing a spec
+  corpus with files across multiple authority tiers. For single design documents,
+  use reviewing-designs instead.
 allowed-tools:
   - Read
   - Write
@@ -43,7 +49,9 @@ allowed-tools:
   - Grep
   - Bash
   - Agent
+  - ToolSearch
   - TeamCreate
+  - TeamDelete
   - SendMessage
   - TaskCreate
   - TaskUpdate
@@ -84,15 +92,16 @@ allowed-tools:
 .claude/skills/spec-review-team/
 ├── SKILL.md                          # Normative: procedure, gates, spawn logic, constraints, finding schema
 └── references/
+    ├── agent-teams-platform.md       # Reference: platform contracts, tool schemas, hook constraints, costs
     ├── preflight-taxonomy.md         # Operational: cluster definitions, signal dimensions, scoring weights
-    ├── role-rubrics.md               # Operational: per-role defect catalogs, hunt priorities, rubric items
-    ├── synthesis-procedure.md        # Operational: dedup/corroborate/adjudicate algorithms, worked examples
+    ├── role-rubrics.md               # Operational: per-role domain briefs (8 components), collaboration playbooks
+    ├── synthesis-guidance.md         # Operational: worked examples, edge cases, anti-patterns, exemplar ledgers
     └── failure-patterns.md           # Operational: degraded modes, troubleshooting, recovery procedures
 ```
 
 **SKILL.md owns:** Procedure flow, gates, spawn logic, constraints, finding schema definition, workspace conventions, audit metrics, upgrade triggers.
 
-**Reference files own:** Detailed taxonomies, rubrics, scoring weights, worked examples, troubleshooting guides.
+**Reference files own:** Detailed taxonomies, domain briefs with collaboration playbooks, sampling policies, worked synthesis examples with exemplar ledgers, troubleshooting guides.
 
 ### 6-Phase Procedure
 
@@ -122,34 +131,38 @@ Phase 4 is the core runtime. This section defines the normative execution semant
 
 **Spawn contract:**
 1. Write preflight `packet.md` to `.review-workspace/preflight/` before spawning any reviewer.
-2. Create one task per reviewer via `TaskCreate`. Task description includes: reviewer role ID, output file path, and pointer to `packet.md`.
-3. Use `TeamCreate` to create the team with all reviewers. `TeamCreate` is a natural-language tool — describe the team composition and each teammate's role, including their spawn prompts. If `TeamCreate` is a deferred tool, fetch it with `ToolSearch` first.
-4. Do **not** use the `Agent` tool as a substitute for `TeamCreate`. The Agent tool lacks teammate-to-teammate messaging, coordinated idle notifications, and shared task state. Agent teams and the Agent tool are not interchangeable.
-5. Do **not** start the lead's own analysis before all teammates are spawned.
+2. Create the team via `TeamCreate` with a descriptive `team_name` (e.g., `"spec-review"`). This creates the team structure and shared task list only — it does **not** spawn teammates. If `TeamCreate` is a deferred tool, fetch it with `ToolSearch` first.
+3. Create one task per reviewer via `TaskCreate`. Task description includes: reviewer role ID, output file path, and pointer to `packet.md`.
+4. Spawn each reviewer using the `Agent` tool with `team_name`, `name`, and `model: "sonnet"` parameters. The `name` parameter is the reviewer's role ID (e.g., `"authority-architecture"`). The `prompt` parameter contains the full spawn prompt (shared scaffold + preflight pointer + role delta). Spawning via the Agent tool with `team_name` is what makes it a teammate — this gives it access to lateral messaging, the shared task list, and idle notifications. An Agent tool call **without** `team_name` creates an isolated subagent with none of these capabilities.
+5. **Addressing convention:** The `name` assigned at spawn is the addressing key for all subsequent communication. Use reviewer role IDs as names (e.g., `"authority-architecture"`, `"contracts-enforcement"`). All `SendMessage` calls, task ownership, and shutdown requests use this name — never the agent UUID.
+6. Do **not** start the lead's own analysis before all teammates are spawned.
 
 **Completion contract:**
-- **Primary completion signal:** Idle notifications from the team system. When a reviewer finishes and stops, it automatically notifies the lead. The `TeammateIdle` hook can intercept this to enforce quality gates (see below).
+- **Primary completion signal:** Idle notifications from the team system. When a reviewer finishes and stops, it automatically notifies the lead. The `TeammateIdle` hook can intercept this to enforce quality gates (see below). **Peer DM visibility:** When a reviewer sends a direct message to another reviewer, a brief summary appears in the sender's idle notification. This gives the lead visibility into cross-reviewer collaboration without requiring the lead to poll or intercept messages.
 - **Hard deliverable:** Each reviewer's findings file in `.review-workspace/findings/{role-id}.md`. This is the source of truth for whether a reviewer completed its work — not task status (which can lag) or idle count.
-- **Completion check:** When the lead believes all reviewers are done (based on idle notifications and activity), verify each expected findings file exists. If a file is missing, the reviewer failed — log as `reviewers_failed`.
-- **Wall-clock timeout:** 5 minutes from spawn with no new idle notifications or reviewer activity. Treat remaining reviewers as failed. Proceed to SYNTHESIS with available findings; log missing reviewers as `reviewers_failed`.
+- **Completion check:** When the lead believes all reviewers are done (based on idle notifications and activity), verify each expected findings file exists. If a file is missing, the reviewer failed — log the reviewer ID and reason (e.g., "no findings file after idle", "findings file empty") in `reviewers_failed`.
+- **Wall-clock timeout:** 5 minutes from spawn with no new idle notifications or reviewer activity. Treat remaining reviewers as failed with reason "timeout — no activity for 5 minutes". Proceed to SYNTHESIS with available findings.
+- **Partial completion:** Always proceed to SYNTHESIS with whatever findings are available. There is no minimum viable findings threshold. The report surfaces `reviewers_failed` with per-reviewer failure reasons so the user can assess coverage gaps.
 - **Lateral messaging encouraged:** Reviewers should message each other when they discover findings relevant to another reviewer's defect class. This enables real-time cross-lens corroboration and challenge — the documented primary use case for agent team review tasks. Two messaging primitives are available:
-  - `message` — send to one specific reviewer. Use this for targeted cross-lens signals ("I found an authority placement error at X — check if contracts reference X correctly").
-  - `broadcast` — send to all reviewers simultaneously. Use sparingly (costs scale with team size). Appropriate only for discoveries that affect every reviewer (e.g., "the README authority model is missing — all cross-references to it are broken").
+  - `message` — `SendMessage` with `to: "{reviewer-name}"`. Use for targeted cross-lens signals ("I found an authority placement error at X — check if contracts reference X correctly").
+  - `broadcast` — `SendMessage` with `to: "*"`. Sends to all teammates simultaneously. Use sparingly (costs scale linearly — each broadcast sends a separate message to every recipient's context window). Appropriate only for discoveries that affect every reviewer (e.g., "the README authority model is missing — all cross-references to it are broken").
   Spawn prompts should instruct: "If you discover something in another reviewer's defect class, message that reviewer directly." Messages are informal coordination signals; the formal output remains each reviewer's structured findings file. Teammates can discover each other via the team config's `members` array.
 
-**Task scope:** Each reviewer has exactly one review task. Reviewers should not self-claim additional tasks after finishing — their scope is defined by their defect class, not by task availability. If a reviewer finishes early, it should go idle (not pick up another reviewer's work).
+**Task scope:** Each reviewer has exactly one review task with no `blockedBy` dependencies — all reviewers work in parallel from spawn. Reviewers should not self-claim additional tasks after finishing — their scope is defined by their defect class, not by task availability. If a reviewer finishes early, it should go idle (not pick up another reviewer's work).
 
 **Known limitation — task status lag:** Teammates sometimes fail to mark tasks as completed. Idle notifications are the primary completion signal; task status is secondary. If a task appears stuck but the reviewer's findings file exists, the task is effectively complete.
 
 **Quality gate hooks (optional):** The platform provides two hooks for automated quality enforcement:
-- `TeammateIdle` — fires when a reviewer is about to go idle. Exit code 2 sends feedback and keeps the reviewer working. Use to enforce: minimum finding count, required coverage notes, schema compliance.
-- `TaskCompleted` — fires when a task is being marked complete. Exit code 2 prevents completion with feedback. Use to enforce: findings file exists, findings parse as valid schema.
+- `TeammateIdle` — fires when a reviewer is about to go idle. Exit code 2 sends feedback and keeps the reviewer working. Use to enforce: minimum finding count, required coverage notes, schema compliance. **Constraint:** Only supports `type: command` hooks — prompt-based hooks will not fire.
+- `TaskCompleted` — fires when a task is being marked complete. Exit code 2 prevents completion with feedback. Use to enforce: findings file exists, findings parse as valid schema. Supports all four hook types (command, http, prompt, agent).
+
+Neither hook supports matchers — they fire for every teammate/task unconditionally. Filtering by reviewer role must be done inside the hook logic itself.
 
 These hooks are optional for v1. They become valuable once the skill is stable enough to define reliable quality predicates.
 
 **Cleanup contract:**
-1. After PRESENT, shut down all teammates via `SendMessage` with `type: shutdown_request`. Shutdown may be slow — teammates finish their current tool call before exiting.
-2. After all teammates are shut down, the lead runs team cleanup. This removes shared team resources (team config, task files). Cleanup fails if any teammates are still active, so step 1 must complete first. Teammates must not run cleanup themselves — their team context may not resolve correctly.
+1. After PRESENT, shut down each teammate via `SendMessage` with `message: {type: "shutdown_request", reason: "Review complete, findings collected"}`. The teammate can approve (exit gracefully) or reject with an explanation. If a teammate rejects, send another shutdown request with additional context. Shutdown may be slow — teammates finish their current tool call before exiting.
+2. After all teammates have shut down, call `TeamDelete` to remove shared team resources (team config, task files). `TeamDelete` fails if any teammates are still active, so step 1 must complete first. Teammates must not run cleanup themselves — their team context may not resolve correctly.
 3. Ask user whether to preserve or remove `.review-workspace/`. Default: preserve. This is separate from team cleanup — the workspace is a project-local artifact, not a team resource.
 
 ## Team Composition
@@ -212,9 +225,11 @@ Optional specialists are spawned based on signal strength from the preflight ana
 
 **Tier 2 — Medium confidence (score 50-99):** Requires 2+ medium signals from different dimensions. Example: file named `ddl.md` (naming signal, 75) alone is insufficient; `ddl.md` + schema-related cross-references from a contract file (cross-ref signal, 60) → spawn.
 
-**Dimensions:** Frontmatter authority, file naming, content keywords, cross-reference patterns, cluster membership.
+**Dimensions:** Frontmatter authority, file naming, content keywords, cross-reference patterns, cluster membership. Three dimensions are metadata-derived (free from Phase 1); two require content inspection (content keywords, cross-reference patterns).
 
-**Cap:** 2 spot-reads per specialist, 4 total across both optionals. Specialists augment core reviewers — they do not replace them.
+**Sampling constraint:** Content-level signal detection in Phase 3B is budgeted sampling, not review. The lead may inspect only targeted excerpts needed to resolve optional-specialist spawn decisions when metadata-derived signals are insufficient. This sampling must remain materially cheaper than a reviewer pass and must not expand into broad corpus reading. The active sampling policy — including the unit of inspection, numeric caps, scaling rules, and budget-exhaustion behavior — is defined in `references/preflight-taxonomy.md`.
+
+**Budget exhaustion:** If the sampling budget is exhausted and confidence remains below the Tier 2 threshold, do **not** spawn the specialist. Core reviewers cover all defect classes; specialists augment but do not replace them. Log the unresolved signal as a preflight note in the synthesis report so the user can assess whether a re-run with adjusted sampling is warranted.
 
 ## Reviewer Output Contract
 
@@ -233,7 +248,11 @@ Every reviewer emits findings in this structured format. No prose between findin
 - **evidence:** what the doc says vs. what it should say
 - **recommended_fix:** specific action to resolve
 - **confidence:** high / medium / low
+- **provenance:** independent / followup
+- **prompted_by:** {reviewer-name} (required when provenance is followup; omit when independent)
 ```
+
+**Provenance fields:** These enable the lead to distinguish independent convergence from signal-prompted confirmation during synthesis. Reviewers tag each finding with what they can reliably know: whether they discovered the finding independently or as a followup to a lateral message. The `prompted_by` field names the reviewer whose message prompted investigation. The lead interprets these facts during synthesis — the reviewer does not assess corroboration quality, only disclose the causal chain.
 
 **Finding ID format:** `{role-prefix}-{sequence}`. Prefixes: AA (Authority & Architecture), CE (Contracts & Enforcement), CC (Completeness & Coherence), VR (Verification & Regression), SP (Schema / Persistence), IE (Integration / Enforcement Surface).
 
@@ -249,37 +268,104 @@ Mandatory for core reviewers with zero findings in a defect class. Prevents "no 
 | `caveats` | Any limitations (e.g., "could not verify X without Y") |
 | `deferred_to` | If another reviewer is better positioned for this check |
 
-## Synthesis Procedure
+## Synthesis
 
-### Pipeline
+### Instruction Philosophy
 
-1. **Canonicalize** — normalize finding format, fix minor schema violations, increment `normalization_rewrites` metric
-2. **Dedup** — exact-duplicate key: `(violated_invariant, normalized_affected_surface)`. Two findings with the same invariant and same surface are duplicates regardless of `recommended_fix` text. Merged findings list all contributing reviewer IDs; divergent fixes become alternatives within the canonical finding.
-3. **Cluster related findings** — group findings by `affected_surface` and/or boundary edge. Related-but-distinct findings (e.g., authority placement error + contract contradiction at the same file boundary) are linked with a relation type: `same-root-cause`, `same-surface-distinct-defect`, or `cause/effect`. This enables corroboration to detect multi-lens convergence on a surface, not just on an invariant.
-4. **Corroborate** — findings from 2+ different lenses get confidence boost. Corroborated findings are tagged with contributing lenses. Related-finding clusters (step 3) with 2+ lenses also count as corroboration.
-5. **Adjudicate contradictions** — when reviewers disagree:
-   - Normative source > non-normative source (use source authority from authority map, not review cluster)
-   - If same authority level → escalate as ambiguity finding (P1, prefix `SY` for synthesis-generated, field `violated_invariant` = "cross-reviewer contradiction")
-6. **Verify deferrals** — for each coverage note with `deferred_to`, check the target reviewer's findings cover that defect class. Unverified deferrals become meta-findings (P1, prefix `SY`: "coverage gap — deferred check not picked up").
-7. **Prioritize** — sort by: P0 → P1 → P2, then corroboration count (including cluster-level), then confidence
-8. **Compute audit metrics**
+**Boundary rule:** Prescribe computation for auditable state; prescribe criteria for meaning. If two competent operators should reach the same result from the same raw facts and nothing valuable is lost by prescribing it, prescribe it (mechanical pass). Otherwise, state the obligation, require a rationale, and audit the structure (judgment obligation).
+
+This skill follows a **Technique-in-Discipline-shell** model per this codebase's skill taxonomy (`skills-guide.md`): Discipline-level prescription for phase gates, artifact contracts, schema validity, and failure handling; Technique-level guidance for synthesis, corroboration assessment, prioritization, and reviewer judgment. The synthesis section operates at the Technique level — the lead exercises judgment over structured inputs and produces auditable output.
+
+### Inputs
+
+The lead has these sources available during synthesis:
+
+| Source | Content | How to use |
+|--------|---------|------------|
+| Findings files | Structured findings per reviewer in `.review-workspace/findings/{role-id}.md` | Primary input — the formal deliverables |
+| Coverage notes | Scope checked, checks run, caveats, deferrals | Verify completeness; check deferral chains |
+| DM summaries | Brief summaries of peer messages in idle notifications | Assess whether findings are causally linked; understand cross-reviewer signals |
+| Authority map | File → normative/non-normative + source authority + review cluster | Inform adjudication — normative sources carry more weight |
+| Preflight packet | Spec structure, boundary edges, signal matrix | Context for understanding finding distribution across the corpus |
+
+### Mechanical Passes (prescribed)
+
+These produce auditable state. The lead executes them as specified.
+
+1. **Canonicalize** — normalize finding format, fix minor schema violations. Increment `normalization_rewrites` metric per finding repaired.
+2. **Build synthesis ledger** — create a structured intermediate artifact in `.review-workspace/synthesis/ledger.md`. One record per canonical finding or finding cluster. Each record has fields populated by subsequent judgment obligations (see below). The ledger is more structured than the prose report but less rigid than a fixed algorithm — it captures the lead's reasoning in an auditable format.
+3. **Verify deferrals** — for each coverage note with `deferred_to`, check the target reviewer's findings cover that defect class. Unverified deferrals become meta-findings (P1, prefix `SY`: "coverage gap — deferred check not picked up").
+4. **Compute audit metrics** — all 10 metrics computed from the ledger and findings files.
+5. **Ensure required report sections** — the final report must contain: prioritized findings, corroboration evidence, contradiction resolutions, audit metrics, and a coverage summary.
+
+### Judgment Obligations (with rationale)
+
+These produce meaning from the structured inputs. The lead exercises judgment, but every judgment call must be recorded in the synthesis ledger with a short rationale.
+
+**Consolidate and deduplicate.** Identify findings that describe the same defect — whether they share exact field values or describe it differently. Use `violated_invariant` and `affected_surface` as the minimum signal, but also apply semantic judgment: two findings with different vocabulary about the same problem at the same location are duplicates. Merged findings list all contributing reviewer IDs.
+
+- **Ledger field:** `merge_rationale` — why these findings were merged (or why similar findings were kept separate)
+
+**Assess corroboration.** Determine the strength of multi-lens support for each finding, using the `provenance` field to distinguish:
+- `independent_convergence` — multiple reviewers found the same issue independently (`provenance: independent` on both)
+- `cross_lens_followup_confirmation` — one reviewer flagged an issue, another confirmed it in their domain (`provenance: followup` with `prompted_by`)
+- `related_pattern_extension` — distinct findings at the same surface from different lenses that together reveal a larger pattern
+- `singleton` — single-lens finding with no corroboration
+
+Both independent convergence and followup confirmation are genuine corroboration — but they represent different strengths of evidence. The lead assesses which type applies using the provenance chain and DM summaries.
+
+- **Ledger fields:** `support_type` (one of the four types above), `contributors` (list of reviewer IDs)
+
+**Resolve contradictions.** When reviewers disagree, use all available context: authority map (normative sources carry more weight), evidence quality, domain reasoning, and cross-reviewer signals. If a contradiction cannot be resolved with confidence, escalate as an ambiguity finding (P1, prefix `SY`, `violated_invariant` = "cross-reviewer contradiction").
+
+- **Ledger field:** `adjudication_rationale` — why one position was preferred, or why the contradiction was escalated
+
+**Prioritize.** Order findings by impact. P0 before P1 before P2 as a baseline, with corroboration strength and confidence as secondary signals. But the lead should use full context: a lone P1 at a critical authority boundary may warrant higher placement than a well-corroborated P2 in a supporting document. The prioritization must be defensible — the user should be able to understand why each finding is ranked where it is.
+
+- **Ledger field:** `priority_rationale` — why this finding is ranked at this position (brief; required only when the ranking departs from the P-level × corroboration baseline)
+
+### Synthesis Ledger
+
+The synthesis ledger (`.review-workspace/synthesis/ledger.md`) is the structured intermediate artifact between raw findings and the final report. Each canonical finding or cluster gets a record:
+
+```markdown
+### [SY-1] Canonical finding title
+
+- **source_findings:** AA-1, CE-3
+- **support_type:** independent_convergence / cross_lens_followup_confirmation / related_pattern_extension / singleton
+- **contributors:** authority-architecture, contracts-enforcement
+- **merge_rationale:** "Both describe the same invariant drift at foundations.md:45-52, using different vocabulary"
+- **adjudication_rationale:** (if contradiction resolved) "Normative source (foundations.md) takes precedence per authority map"
+- **priority_rationale:** (if non-obvious) "Ranked above CE-5 despite same P-level because this boundary is the spec's primary normative source"
+```
+
+**Ledger invariants (machine-checkable):**
+- Every `source_findings` ID traces to a specific reviewer's findings file
+- Every `contributors` entry matches a spawned reviewer's role ID
+- No contradiction is silently dropped — resolved contradictions have `adjudication_rationale`, unresolved ones become `SY` findings
+- Every `support_type` is consistent with the provenance chain (e.g., `independent_convergence` requires `provenance: independent` on all source findings)
+- Every finding in the final report has a corresponding ledger record
+
+These invariants are the testability surface. They make the lead's reasoning auditable without constraining what reasoning is permitted. Principle: **testable synthesis ledger, not testable synthesis brain.**
+
+### Guidance
+
+`references/synthesis-guidance.md` (renamed from `synthesis-procedure.md`) contains worked examples, edge case handling, anti-patterns, and exemplar ledger entries. It is operational guidance — one valid approach the lead can adapt, not a normative procedure. The obligations and invariants above are normative; the reference file is not.
 
 ### 10 Audit Metrics
 
 | # | Metric | Description |
 |---|--------|-------------|
 | 1 | `raw_finding_count` | Total findings before canonicalization |
-| 2 | `canonical_finding_count` | Findings after dedup |
-| 3 | `duplicate_clusters_merged` | Number of dedup merges |
-| 4 | `related_finding_clusters` | Number of surface-linked finding groups (step 3). Reporting-only — not used as a gate or threshold. |
-| 5 | `corroborated_findings` | Findings confirmed by 2+ lenses (including cluster-level) |
-| 6 | `contradictions_surfaced` | Inter-reviewer disagreements |
-| 7 | `normalization_rewrites` | Findings that needed schema repair |
+| 2 | `canonical_finding_count` | Findings after consolidation/dedup |
+| 3 | `duplicate_clusters_merged` | Number of consolidation merges |
+| 4 | `related_finding_clusters` | Findings with `support_type` of `related_pattern_extension`. Reporting-only — not used as a gate or threshold. |
+| 5 | `corroborated_findings` | Findings with `support_type` of `independent_convergence` or `cross_lens_followup_confirmation` |
+| 6 | `contradictions_surfaced` | Inter-reviewer disagreements (resolved + escalated) |
+| 7 | `normalization_rewrites` | Findings that needed schema repair during canonicalization |
 | 8 | `ambiguous_review_clusters` | Files with uncertain review cluster assignment |
-| 9 | `reviewers_failed` | Reviewers that timed out or went idle without producing findings (in-run observable) |
+| 9 | `reviewers_failed` | Per-reviewer list: reviewer ID + failure reason (timeout, no findings file, empty file). Count and details — not just a number. |
 | 10 | `unverified_deferrals` | Coverage notes with `deferred_to` targets that did not cover the delegated class |
-
-**Removed:** `synthesis_errors_p0` and `synthesis_errors_p1` (from prior revision). These required an oracle — the lead cannot reliably detect its own synthesis errors in-run. Replaced by `reviewers_failed` (observable) and `unverified_deferrals` (observable). Cross-run synthesis quality is tracked via the A-to-B upgrade triggers, which are post-v1 calibration metrics, not in-run audit metrics.
 
 ### A-to-B Upgrade Triggers (Post-v1 Calibration)
 
@@ -322,10 +408,13 @@ Contains 6 sections:
 │   ├── schema-persistence.md        # SP findings (if spawned)
 │   └── integration-enforcement.md   # IE findings (if spawned)
 └── synthesis/
+    ├── ledger.md                    # Synthesis ledger (structured intermediate artifact)
     └── report.md                    # Final synthesized report
 ```
 
 **Cleanup:** After presenting findings, ask user whether to preserve or remove workspace. Default: preserve.
+
+**Gitignore:** The lead should verify `.review-workspace/` is in `.gitignore` before creating the workspace. If absent, add it. The workspace is a transient review artifact — it must not be committed.
 
 ### Spawn Prompt Contract
 
@@ -333,11 +422,28 @@ Each spawn prompt contains three components. Full prompt templates belong in `ro
 
 | Component | Content | Mandatory Fields |
 |-----------|---------|-----------------|
-| Shared scaffold | Finding schema, workspace path, output file path, path to `packet.md`, output rules | Finding schema definition, output file path, `packet.md` path, "no prose between findings" rule, coverage notes requirement |
+| Shared scaffold | Finding schema (including `provenance` and `prompted_by` fields), workspace path, output file path, path to `packet.md`, output rules | Finding schema definition, output file path, `packet.md` path, "no prose between findings" rule, coverage notes requirement, provenance disclosure requirement |
 | Preflight pointer | Path to `.review-workspace/preflight/packet.md` — reviewer reads the file at runtime | File path only (not content) |
-| Role delta | Defect class description, hunt priorities, rubric items | Role ID, defect class scope, primary file focus areas |
+| Role delta | Domain brief with 8 components (see below) | Role ID, defect class scope, mission statement |
 
 **Delivery model:** Spawn prompts point reviewers to the workspace file. Reviewers read `packet.md` themselves — the lead does not condense or embed it. This means the packet can scale with spec complexity without degrading spawn prompt quality.
+
+**Instruction philosophy for role delta:** Rubrics are domain briefs that orient judgment, not checklists that constrain it. The reviewer's scope is the defect class domain, not a list of prescribed checks. This matches the codebase's dominant pattern: `explore-repo`, `handbook`, and `reviewing-designs` all use domain briefs with judgment-shaping language, not mechanical checklists.
+
+**8-component domain brief structure** (specified in `role-rubrics.md`):
+
+| # | Component | Purpose | Example |
+|---|-----------|---------|---------|
+| 1 | Mission | One-sentence defect class scope | "Find defects where the spec's authority hierarchy is violated, misplaced, or internally inconsistent" |
+| 2 | High-yield surfaces | Where to focus attention first | "Boundary edges between normative and non-normative files in the authority map" |
+| 3 | Common defect patterns | What defects look like in this domain — examples, not exhaustive list | "Invariant drift: a normative constraint evolves across files without updating the source" |
+| 4 | Priority calibration | What P0/P1/P2 mean for this defect class | "P0: an implementer would build the wrong thing. P2: authority metadata is imprecise but content is consistent" |
+| 5 | Collaboration playbook | Concrete per-role messaging triggers (3-5 conditions with named reviewer IDs) | "If you find an authority placement error, message `contracts-enforcement` — they should check whether contracts reference the misplaced authority" |
+| 6 | Coverage floor | Minimum areas that must be examined for coverage notes | "Every normative file in the authority map must be checked" |
+| 7 | Disconfirmation check | One quick falsification attempt per material finding | "Before reporting, ask: could this apparent violation be intentional? Check the decisions log for rationale" |
+| 8 | Output examples | 1-2 exemplar findings showing schema compliance and appropriate detail level | (in `role-rubrics.md`) |
+
+**Reviewer stance: defect hunter, not conviction maximizer.** Reviewers should investigate their domain thoroughly but also attempt to disconfirm their own findings before reporting. A finding that survives the reviewer's own skepticism is higher quality than one reported uncritically.
 
 ## Failure Modes
 
@@ -349,6 +455,8 @@ Each spawn prompt contains three components. Full prompt templates belong in `ro
 | Agent teams not enabled | Prerequisite check | Hard stop: "Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1. Do not fall back." |
 | Teammate fails to write findings file | REVIEW phase verification | Wait for idle notification, then check. If file missing after idle, increment `reviewers_failed` metric. |
 | Teammate hangs (no idle notification) | REVIEW phase wall-clock timeout | After 5 minutes with no new idle notifications, treat remaining teammates as failed. Proceed to SYNTHESIS with available findings; increment `reviewers_failed` metric. |
+| `TeamCreate` fails | Phase 4 spawn contract step 2 | Hard stop: "Team creation failed: {error}. Cannot proceed without agent team." Report error to user. |
+| Reviewer spawn fails (`Agent` tool error) | Phase 4 spawn contract step 4 | Log failed reviewer in `reviewers_failed` with reason "spawn failure: {error}". Continue spawning remaining reviewers. If all spawns fail, hard stop. |
 | Partial workspace from failed run | Next invocation's DISCOVERY phase | If `.review-workspace/` exists at start, warn user and offer: (a) archive to `.review-workspace.bak/`, (b) remove, (c) abort. Do not silently overwrite. |
 
 ## Decisions Log
@@ -364,20 +472,29 @@ Confidence levels: **High** = converged across multiple independent sources (Cod
 | 5 | Finding format | Atomic schema with `violated_invariant` field | Finding-level canonicalization requires explicit intermediate state; `violated_invariant` enables cross-reviewer merge | High |
 | 6 | Lifecycle positioning | Create (spec-modulator) → Review (spec-review-team) | User-identified synergy confirmed by shared frontmatter conventions | Medium |
 | 7 | Preflight delivery | Workspace file, not embedded in spawn prompt | Eliminates destructive compression; scales with spec complexity; workspace file already exists | Medium |
-| 8 | Dedup merge key | `(violated_invariant, normalized_affected_surface)` | `fix_scope` is not a schema field; surface + invariant is sufficient for exact-duplicate detection | High |
+| 8 | Dedup merge key | `(violated_invariant, normalized_affected_surface)` | `fix_scope` is not a schema field; surface + invariant is sufficient for exact-duplicate detection. Post-reframing (Decision #10): this is the mechanical starting point — the lead applies semantic judgment beyond it. | High |
 | 9 | Lateral messaging | Encouraged via `message` and `broadcast` primitives | Agent teams' primary value over subagents is inter-teammate communication; docs explicitly describe "share and challenge findings" as the review use case | High |
+| 10 | Instruction philosophy | Technique-in-Discipline-shell: prescribe contracts, not algorithms. Synthesis uses judgment obligations with rationale requirements and a testable ledger. Reviewer rubrics are 8-component domain briefs, not checklists. | The spec was most prescriptive where Claude's judgment adds the most value. All existing codebase skills use domain briefs. Codex dialogue #33 converged on the reframing. Boundary rule: "prescribe computation for auditable state, criteria for meaning." | High |
 
 ## Open Questions
 
-1. **Dedup boundary calibration.** The merge key is now `(violated_invariant, normalized_affected_surface)` — but "normalized" is undefined. What normalization applies to `affected_surface`? (Path canonicalization? Section-level granularity?) Needs calibration after first runs.
+1. **Synthesis ledger format and location.** The ledger is specified as `.review-workspace/synthesis/ledger.md`. Is markdown the right format, or should it be structured YAML/JSON for machine-checkable invariant validation? Calibrate after first runs.
 
-2. **A-to-B upgrade trigger thresholds uncalibrated.** The 5 triggers are post-v1 calibration metrics with no persistence or evaluation owner in v1. First runs should record raw data for eventual evaluation.
+2. **Consistency-check ownership.** Does the lead perform a required self-check of ledger invariants before Phase 5 completes, or is there a future hook/script path for automated validation?
 
-3. **Potential third optional specialist.** API specs with complex schema evolution may warrant it. Deferred for v1.
+3. **Support taxonomy metric mapping.** How do `independent_convergence`, `cross_lens_followup_confirmation`, `related_pattern_extension`, and `singleton` map to the existing `corroborated_findings` audit metric? Currently defined as the first two types — calibrate after first runs.
 
-4. **Cluster taxonomy vocabulary — fixed vs derived.** The 6 canonical review clusters are currently hardcoded. Whether this vocabulary should be configurable or domain-derived is unresolved. For v1, the fixed vocabulary covers known specs; revisit if specs from other domains fail to classify cleanly.
+4. **Provenance threshold definition.** What counts as `followup` for reviewer tagging: any lateral message seen, or only a message that materially redirected inspection? The provenance field's reliability depends on this definition.
 
-5. **Compound defect clustering relation types.** The three relation types (`same-root-cause`, `same-surface-distinct-defect`, `cause/effect`) are a starting set. Whether the lead can reliably assign these without domain knowledge is untested.
+5. **Confidence field semantics.** Should reviewer `confidence` be renamed to `reviewer_confidence`, and does synthesis need a separate `synthesis_confidence` field on ledger records?
+
+6. **Preflight staffing model.** Should numeric signal scores be replaced with coarse evidence classes (`strong`/`suggestive`/`weak`), kept as internal heuristics in `preflight-taxonomy.md`, or some hybrid?
+
+7. **A-to-B upgrade trigger thresholds uncalibrated.** The 5 triggers are post-v1 calibration metrics. First runs should record raw data.
+
+8. **Cluster taxonomy vocabulary — fixed vs derived.** The 6 canonical review clusters are hardcoded. Revisit if specs from other domains fail to classify cleanly.
+
+9. **Potential third optional specialist.** API specs with complex schema evolution may warrant it. Deferred for v1.
 
 ## References
 
@@ -392,3 +509,6 @@ Confidence levels: **High** = converged across multiple independent sources (Cod
 | Codex dialogue #30 | Thread `019cef00-...` | Composition deep dive, domain-agnostic names |
 | Codex dialogue #31 | Thread `019cef18-...` | Architecture comparison — A' emergence |
 | Codex dialogue #32 | Thread `019cef71-...` | Design quality audit — P0 execution contract, 8 P1s |
+| Codex dialogue #33 | Thread `019cf2fe-...` | Instruction philosophy — synthesis ledger, provenance, domain briefs |
+| Codex consultation (sampling) | Thread `019cf2bf-...` | Sampling constraint as invariant, not hard cap |
+| Agent teams platform docs | `code.claude.com/en/agent-teams`, `hooks` | Authoritative source for team tool behavior, hook constraints, cost model |
