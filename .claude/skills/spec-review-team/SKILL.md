@@ -41,7 +41,7 @@ Review multi-file specifications for structural and semantic defects using a par
 - Multi-file specifications with frontmatter metadata (`module`, `status`, `normative`, `authority` fields)
 - Specs created by `spec-modulator` or following the same conventions
 - Reviews requiring cross-file invariant analysis and multi-lens defect detection
-- Trigger phrases: "review this spec", "spec review", "review all spec files", "thorough spec review", "review specification"
+- Trigger phrases: "review this spec", "review the spec", "spec review", "review all spec files", "thorough spec review", "review specification"
 
 ## When NOT to Use
 
