@@ -60,7 +60,8 @@ allowed-tools:
 2. **SKILL.md under ~500 lines.** Operational content offloaded to reference files. (`reviewing-designs` at 577 lines is the upper bound precedent.)
 3. **Teammates don't inherit lead context.** Reviewer context comes from spawn prompts + workspace files (preflight packet). Spawn prompts contain role-specific instructions; reviewers read `packet.md` from the workspace at runtime.
 4. **One team per session.** No nested teams, no session resumption.
-5. **3-5 teammates recommended.** Core team of 4 is within range; 6 total (with optionals) is the maximum.
+5. **3-5 teammates recommended.** Core team of 4 is within range; 6 total (with optionals) is the maximum. No hard platform limit, but coordination overhead and token costs increase linearly.
+6. **Sonnet recommended for reviewers.** Per platform docs, Sonnet balances capability and cost for coordination tasks. The lead (which runs synthesis) uses the session's default model.
 
 ## Architecture: Approach A'
 
@@ -131,12 +132,26 @@ Phase 4 is the core runtime. This section defines the normative execution semant
 - **Expected idle count:** Number of reviewers in the spawn plan (4 for core-only, 5 or 6 with optionals).
 - **Verification:** After receiving all expected idle notifications, verify each reviewer's findings file exists in `.review-workspace/findings/`. If a file is missing after its reviewer went idle, log as `reviewers_failed` ("reviewer {id} went idle without writing findings").
 - **Wall-clock timeout:** 5 minutes after the last idle notification. If expected idle count is not reached, treat remaining reviewers as failed. Proceed to SYNTHESIS with available findings; log missing reviewers as `reviewers_failed`.
-- **No lateral messaging:** Reviewers do not communicate with each other. All coordination flows through the findings ledger and the lead's synthesis. Do not enable cross-reviewer `SendMessage`.
+- **Lateral messaging encouraged:** Reviewers should message each other when they discover findings relevant to another reviewer's defect class. This enables real-time cross-lens corroboration and challenge — the documented primary use case for agent team review tasks. Two messaging primitives are available:
+  - `message` — send to one specific reviewer. Use this for targeted cross-lens signals ("I found an authority placement error at X — check if contracts reference X correctly").
+  - `broadcast` — send to all reviewers simultaneously. Use sparingly (costs scale with team size). Appropriate only for discoveries that affect every reviewer (e.g., "the README authority model is missing — all cross-references to it are broken").
+  Spawn prompts should instruct: "If you discover something in another reviewer's defect class, message that reviewer directly." Messages are informal coordination signals; the formal output remains each reviewer's structured findings file. Teammates can discover each other via the team config's `members` array.
+
+**Task scope:** Each reviewer has exactly one review task. Reviewers should not self-claim additional tasks after finishing — their scope is defined by their defect class, not by task availability. If a reviewer finishes early, it should go idle (not pick up another reviewer's work).
+
+**Known limitation — task status lag:** Teammates sometimes fail to mark tasks as completed. Idle notifications are the primary completion signal; task status is secondary. If a task appears stuck but the reviewer's findings file exists, the task is effectively complete.
+
+**Quality gate hooks (optional):** The platform provides two hooks for automated quality enforcement:
+- `TeammateIdle` — fires when a reviewer is about to go idle. Exit code 2 sends feedback and keeps the reviewer working. Use to enforce: minimum finding count, required coverage notes, schema compliance.
+- `TaskCompleted` — fires when a task is being marked complete. Exit code 2 prevents completion with feedback. Use to enforce: findings file exists, findings parse as valid schema.
+
+These hooks are optional for v1. They become valuable once the skill is stable enough to define reliable quality predicates.
 
 **Cleanup contract:**
-1. After PRESENT, shut down all teammates via `SendMessage` with `type: shutdown_request`.
+1. After PRESENT, shut down all teammates via `SendMessage` with `type: shutdown_request`. Shut down all teammates before running team cleanup.
 2. Ask user whether to preserve or remove `.review-workspace/`. Default: preserve.
-3. Remove team files and task files regardless of workspace decision.
+3. Only the lead runs team cleanup — teammates must not run cleanup (team context may not resolve correctly, leaving resources inconsistent).
+4. Remove team files and task files regardless of workspace decision.
 
 ## Team Composition
 
@@ -351,6 +366,7 @@ Confidence levels: **High** = converged across multiple independent sources (Cod
 | 6 | Lifecycle positioning | Create (spec-modulator) → Review (spec-review-team) | User-identified synergy confirmed by shared frontmatter conventions | Medium |
 | 7 | Preflight delivery | Workspace file, not embedded in spawn prompt | Eliminates destructive compression; scales with spec complexity; workspace file already exists | Medium |
 | 8 | Dedup merge key | `(violated_invariant, normalized_affected_surface)` | `fix_scope` is not a schema field; surface + invariant is sufficient for exact-duplicate detection | High |
+| 9 | Lateral messaging | Encouraged via `message` and `broadcast` primitives | Agent teams' primary value over subagents is inter-teammate communication; docs explicitly describe "share and challenge findings" as the review use case | High |
 
 ## Open Questions
 
