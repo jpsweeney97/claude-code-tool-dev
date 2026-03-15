@@ -1,15 +1,6 @@
 ---
 name: spec-modulator
-description: >-
-  Design and create multi-file specification structures with authority-based
-  modular organization. Use when converting a monolithic spec/plan into a
-  modular multi-file spec, when creating a new multi-file spec from scratch, or
-  when advising on whether a document should be a single file or modular
-  structure. Trigger on "modularize this spec", "split this into files",
-  "create a spec for X", "this plan is too big", "organize this design doc",
-  "spec structure", "multi-file spec", or when a user has a large design
-  document (>300 lines) and wants to organize it. Also use when the user
-  mentions "spec-modulator" or asks about spec organization strategy.
+description: Design and create multi-file specification structures with authority-based modular organization. Use when converting a monolithic spec/plan into a modular multi-file spec, when creating a new multi-file spec from scratch, or when advising on whether a document should be a single file or modular structure. Trigger on "modularize this spec", "split this into files", "create a spec for X", "this plan is too big", "organize this design doc", "spec structure", "multi-file spec", or when a user has a large design document (>300 lines) and wants to organize it. Also use when the user mentions "spec-modulator" or asks about spec organization strategy.
 ---
 
 # Spec Modulator

@@ -1,18 +1,6 @@
 ---
 name: spec-review-team
-description: >
-  Review multi-file specifications using a parallel agent team with lateral
-  messaging — reviewers communicate directly to share findings, challenge
-  analyses, and corroborate across defect-class lenses in real time. Discovers
-  spec structure via frontmatter metadata, runs preflight analysis, spawns 4-6
-  specialized reviewers, and synthesizes findings into a prioritized report.
-  Reviewers use two messaging primitives: `message` (targeted to one reviewer)
-  and `broadcast` (all reviewers simultaneously). Broadcast costs scale linearly
-  with team size since each message lands in every recipient's context window.
-  Messages are informal coordination signals — each reviewer's structured
-  findings file remains the sole formal deliverable. Use when reviewing a spec
-  corpus with files across multiple authority tiers. For single design documents,
-  use reviewing-designs instead.
+description: Review multi-file specifications using a parallel agent team with lateral messaging — reviewers communicate directly to share findings, challenge analyses, and corroborate across defect-class lenses in real time. Discovers spec structure via frontmatter metadata, runs preflight analysis, spawns 4-6 specialized reviewers, and synthesizes findings into a prioritized report. Reviewers use two messaging primitives — message (targeted to one reviewer) and broadcast (all reviewers simultaneously). Broadcast costs scale linearly with team size since each message lands in every recipient's context window. Messages are informal coordination signals — each reviewer's structured findings file remains the sole formal deliverable. Use when reviewing a spec corpus with files across multiple authority tiers. For single design documents, use reviewing-designs instead.
 allowed-tools:
   - Read
   - Write
