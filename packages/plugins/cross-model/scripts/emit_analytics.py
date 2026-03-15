@@ -432,22 +432,29 @@ def build_dialogue_outcome(input_data: dict) -> dict:
     scope_breach = input_data.get("scope_breach", False)
 
     parsed = parse_synthesis(synthesis_text)
-    if parsed.get("parse_failed"):
-        raise ValueError(
-            "synthesis parse failed: epilogue and markdown parsing yielded no usable data"
+    parse_degraded = parsed.get("parse_failed", False)
+    if parse_degraded:
+        print(
+            "synthesis parse failed: epilogue and markdown parsing yielded no usable data; "
+            "emitting degraded event with defaults",
+            file=sys.stderr,
         )
 
     turn_budget = pipeline.get("turn_budget", 1)
     scope_breach = scope_breach or parsed.get("scope_breach_count", 0) > 0
     scope_breach = scope_breach or parsed.get("termination_reason") == "scope_breach"
     scope_breach = scope_breach or parsed.get("convergence_reason_code") == "scope_breach"
-    code, reason = map_convergence(
-        converged=parsed["converged"],
-        unresolved_count=parsed["unresolved_count"],
-        turn_count=parsed["turn_count"],
-        turn_budget=turn_budget,
-        scope_breach=scope_breach,
-    )
+
+    if parse_degraded:
+        code, reason = ("error", "error")
+    else:
+        code, reason = map_convergence(
+            converged=parsed["converged"],
+            unresolved_count=parsed["unresolved_count"],
+            turn_count=parsed["turn_count"],
+            turn_budget=turn_budget,
+            scope_breach=scope_breach,
+        )
 
     # Validate epilogue enum values — invalid values fall through to computed defaults.
     # The agent template may produce values from the wrong enum (e.g. "convergence"
@@ -492,6 +499,7 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "resolved_count": parsed["resolved_count"],
         "unresolved_count": parsed["unresolved_count"],
         "emerged_count": parsed["emerged_count"],
+        "parse_degraded": parse_degraded,
         # Context quality
         "seed_confidence": pipeline.get("seed_confidence", "normal"),
         "low_seed_confidence_reasons": pipeline.get("low_seed_confidence_reasons", []),

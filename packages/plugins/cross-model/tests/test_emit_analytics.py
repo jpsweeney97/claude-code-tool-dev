@@ -213,17 +213,17 @@ def test_parse_synthesis_both_fail(capsys: pytest.CaptureFixture[str]) -> None:
     assert parsed["scout_count"] == 0
     assert parsed["parse_failed"] is True
 
-    with pytest.raises(
-        ValueError,
-        match="synthesis parse failed: epilogue and markdown parsing yielded no usable data",
-    ):
-        build_dialogue_outcome(
-            {
-                "pipeline": {"posture": "evaluative", "turn_budget": 4},
-                "synthesis_text": synthesis,
-                "scope_breach": False,
-            }
-        )
+    # Should degrade gracefully instead of raising
+    result = build_dialogue_outcome(
+        {
+            "pipeline": {"posture": "evaluative", "turn_budget": 4},
+            "synthesis_text": synthesis,
+            "scope_breach": False,
+        }
+    )
+    assert result["convergence_reason_code"] == "error"
+    assert result["termination_reason"] == "error"
+    assert result["parse_degraded"] is True
 
 
 def test_build_dialogue_outcome_invalid_epilogue_convergence_code(
