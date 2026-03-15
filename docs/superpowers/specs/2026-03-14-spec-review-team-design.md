@@ -58,7 +58,7 @@ allowed-tools:
 
 1. **Agent teams experimental.** Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. Hard prerequisite — do not fall back to sequential review.
 2. **SKILL.md under ~500 lines.** Operational content offloaded to reference files. (`reviewing-designs` at 577 lines is the upper bound precedent.)
-3. **Teammates don't inherit lead context.** Reviewer context comes from spawn prompts + workspace files (preflight packet). Spawn prompts contain role-specific instructions; reviewers read `packet.md` from the workspace at runtime.
+3. **Teammates load project context automatically.** Each reviewer loads `CLAUDE.md`, MCP servers, and skills — the same ambient context as any Claude Code session. They also receive the spawn prompt from the lead. The lead's conversation history does not carry over. Reviewer-specific context comes from the spawn prompt (role, defect class) and workspace files (preflight packet). Reviewers should use ambient project context (e.g., `CLAUDE.md` conventions, MCP tools) as supplementary information but treat the preflight packet as the authoritative source for spec structure and authority assignments.
 4. **One team per session.** No nested teams, no session resumption.
 5. **3-5 teammates recommended.** Core team of 4 is within range; 6 total (with optionals) is the maximum. No hard platform limit, but coordination overhead and token costs increase linearly.
 6. **Sonnet recommended for reviewers.** Per platform docs, Sonnet balances capability and cost for coordination tasks. The lead (which runs synthesis) uses the session's default model.
@@ -128,10 +128,10 @@ Phase 4 is the core runtime. This section defines the normative execution semant
 5. Do **not** start the lead's own analysis before all teammates are spawned.
 
 **Completion contract:**
-- **Source of truth:** Idle notifications from the team system. Each spawned reviewer produces exactly one idle notification when done.
-- **Expected idle count:** Number of reviewers in the spawn plan (4 for core-only, 5 or 6 with optionals).
-- **Verification:** After receiving all expected idle notifications, verify each reviewer's findings file exists in `.review-workspace/findings/`. If a file is missing after its reviewer went idle, log as `reviewers_failed` ("reviewer {id} went idle without writing findings").
-- **Wall-clock timeout:** 5 minutes after the last idle notification. If expected idle count is not reached, treat remaining reviewers as failed. Proceed to SYNTHESIS with available findings; log missing reviewers as `reviewers_failed`.
+- **Primary completion signal:** Idle notifications from the team system. When a reviewer finishes and stops, it automatically notifies the lead. The `TeammateIdle` hook can intercept this to enforce quality gates (see below).
+- **Hard deliverable:** Each reviewer's findings file in `.review-workspace/findings/{role-id}.md`. This is the source of truth for whether a reviewer completed its work — not task status (which can lag) or idle count.
+- **Completion check:** When the lead believes all reviewers are done (based on idle notifications and activity), verify each expected findings file exists. If a file is missing, the reviewer failed — log as `reviewers_failed`.
+- **Wall-clock timeout:** 5 minutes from spawn with no new idle notifications or reviewer activity. Treat remaining reviewers as failed. Proceed to SYNTHESIS with available findings; log missing reviewers as `reviewers_failed`.
 - **Lateral messaging encouraged:** Reviewers should message each other when they discover findings relevant to another reviewer's defect class. This enables real-time cross-lens corroboration and challenge — the documented primary use case for agent team review tasks. Two messaging primitives are available:
   - `message` — send to one specific reviewer. Use this for targeted cross-lens signals ("I found an authority placement error at X — check if contracts reference X correctly").
   - `broadcast` — send to all reviewers simultaneously. Use sparingly (costs scale with team size). Appropriate only for discoveries that affect every reviewer (e.g., "the README authority model is missing — all cross-references to it are broken").
@@ -148,10 +148,9 @@ Phase 4 is the core runtime. This section defines the normative execution semant
 These hooks are optional for v1. They become valuable once the skill is stable enough to define reliable quality predicates.
 
 **Cleanup contract:**
-1. After PRESENT, shut down all teammates via `SendMessage` with `type: shutdown_request`. Shut down all teammates before running team cleanup.
-2. Ask user whether to preserve or remove `.review-workspace/`. Default: preserve.
-3. Only the lead runs team cleanup — teammates must not run cleanup (team context may not resolve correctly, leaving resources inconsistent).
-4. Remove team files and task files regardless of workspace decision.
+1. After PRESENT, shut down all teammates via `SendMessage` with `type: shutdown_request`. Shutdown may be slow — teammates finish their current tool call before exiting.
+2. After all teammates are shut down, the lead runs team cleanup. This removes shared team resources (team config, task files). Cleanup fails if any teammates are still active, so step 1 must complete first. Teammates must not run cleanup themselves — their team context may not resolve correctly.
+3. Ask user whether to preserve or remove `.review-workspace/`. Default: preserve. This is separate from team cleanup — the workspace is a project-local artifact, not a team resource.
 
 ## Team Composition
 
