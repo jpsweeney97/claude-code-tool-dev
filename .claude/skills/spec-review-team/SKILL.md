@@ -400,4 +400,4 @@ Post-v1 calibration only. Record raw data during v1; evaluate after 8+ runs.
 | `references/role-rubrics.md` | Per-reviewer defect class definitions, scope boundaries, and spawn prompt templates |
 | `references/synthesis-guidance.md` | Ledger format, consolidation rules, corroboration taxonomy, worked examples |
 | `references/failure-patterns.md` | Detailed troubleshooting for all failure modes, quality gate hook patterns |
-| `references/reviewer-prompt-scaffold.md` | Base prompt scaffold injected into every reviewer spawn call |
+| `references/agent-teams-platform.md` | Agent teams API reference — TeamCreate, SendMessage, TaskCreate parameters and constraints |
