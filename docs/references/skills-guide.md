@@ -146,10 +146,6 @@ Not every discipline skill needs all three layers. Match hardening depth to fail
 | Examples that vary by context        | Yes                   |
 | Core instructions for every run      | No — keep in SKILL.md |
 
-### Precedence
-
-When guidance conflicts: **`.claude/rules/skills.md` takes precedence over this guide** (it is the enforced rules file; this guide is the reference). **This guide takes precedence over canonical Claude Code documentation** for project conventions, including the requirement that `name` and `description` are mandatory fields.
-
 ---
 
 ## Skill Structure
