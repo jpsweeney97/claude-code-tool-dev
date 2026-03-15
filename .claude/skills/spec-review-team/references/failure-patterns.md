@@ -8,7 +8,7 @@ Triggered when DISCOVERY finds zero parseable frontmatter across all spec files.
 
 **What still works:**
 - File discovery and path-based classification
-- Core team spawning (Lead + Architecture + Completeness reviewers)
+- Core team spawning (all 4 core reviewers: authority-architecture, contracts-enforcement, completeness-coherence, verification-regression)
 - All review phases (3A–3C, 4, 5)
 - Synthesis and final report
 
