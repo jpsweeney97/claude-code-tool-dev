@@ -97,9 +97,10 @@ allowed-tools:
 
 | Phase | Name | Purpose | Gate |
 |-------|------|---------|------|
-| 1 | DISCOVERY | Locate spec, read frontmatter, build authority map | Authority map built with ≥1 normative file |
+| 0 | PREREQUISITE | Verify `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is set | Feature flag confirmed (hard stop if absent) |
+| 1 | DISCOVERY | Locate spec, read frontmatter, build authority map | Authority map built with ≥1 normative file (or degraded mode entered) |
 | 2 | ROUTING | Count clusters and edges, evaluate redirect gate | Pass redirect gate (or redirect to `reviewing-designs`) |
-| 3A | PREFLIGHT: Mechanical | Validate frontmatter, check cross-references, detect broken links | All mechanical checks complete (pass or flagged) |
+| 3A | PREFLIGHT: Mechanical | Validate frontmatter, check cross-references, detect broken links | All files checked; frontmatter parseable on all files or degraded mode entered |
 | 3B | PREFLIGHT: Staffing | Evaluate spawn rule, determine core + optional team composition | Spawn plan finalized (which reviewers, why) |
 | 3C | PREFLIGHT: Materialize | Write preflight packet to workspace, announce spawn-plan to user | `packet.md` written, spawn-plan announced |
 | 4 | REVIEW | Create workspace, spawn team, monitor completion, verify findings | All expected findings files present (or timeout) |
@@ -121,8 +122,9 @@ Phase 4 is the core runtime. This section defines the normative execution semant
 **Spawn contract:**
 1. Write preflight `packet.md` to `.review-workspace/preflight/` before spawning any reviewer.
 2. Create one task per reviewer via `TaskCreate`. Task description includes: reviewer role ID, output file path, and pointer to `packet.md`.
-3. Spawn each reviewer via `TeamCreate` with spawn prompt (see [Spawn Prompt Structure](#spawn-prompt-structure)). Spawn prompts reference `packet.md` by path — do not embed packet content inline.
-4. Do **not** use the `Agent` tool as a substitute for `TeamCreate`. Do **not** start the lead's own analysis before all teammates are spawned.
+3. Use `TeamCreate` to create the team with all reviewers. `TeamCreate` is a natural-language tool — describe the team composition and each teammate's role, including their spawn prompts. If `TeamCreate` is a deferred tool, fetch it with `ToolSearch` first.
+4. Do **not** use the `Agent` tool as a substitute for `TeamCreate`. The Agent tool lacks teammate-to-teammate messaging, coordinated idle notifications, and shared task state. Agent teams and the Agent tool are not interchangeable.
+5. Do **not** start the lead's own analysis before all teammates are spawned.
 
 **Completion contract:**
 - **Source of truth:** Idle notifications from the team system. Each spawned reviewer produces exactly one idle notification when done.
@@ -168,7 +170,10 @@ Files are classified into review clusters during DISCOVERY. Cluster count drives
 - **Source authority** — the file's original `authority` frontmatter value (e.g., `authority: schema`). Preserved as-is in the authority map. Used by the adjudication step (normative > non-normative) and by reviewers for context.
 - **Review cluster** — the canonical cluster above, derived from source authority + `module` + path heuristics. Used only for routing (redirect gate), staffing (specialist spawn rule), and rubric selection. This is a lossy mapping — multiple source authorities may collapse into one review cluster.
 
-Files without frontmatter are assigned heuristically by path and content; ambiguous assignments are flagged. The source authority is recorded as `unknown` (not inferred).
+**Missing metadata handling:**
+- Files with no frontmatter at all: source authority = `unknown`, review cluster assigned by path heuristics, flagged as ambiguous.
+- Files with frontmatter but no `authority` field: source authority = `unknown`, review cluster derived from `module` + path. This is the common case — spec-modulator only adds `authority` when the spec defines an explicit authority model.
+- The "no frontmatter on any file" degraded mode (see Failure Modes) triggers only when zero files have parseable frontmatter. Partial coverage (some files with, some without) is normal operation — not degraded mode.
 
 ### Routing: Redirect Gate
 
@@ -252,7 +257,7 @@ Mandatory for core reviewers with zero findings in a defect class. Prevents "no 
 | 1 | `raw_finding_count` | Total findings before canonicalization |
 | 2 | `canonical_finding_count` | Findings after dedup |
 | 3 | `duplicate_clusters_merged` | Number of dedup merges |
-| 4 | `related_finding_clusters` | Number of surface-linked finding groups (step 3) |
+| 4 | `related_finding_clusters` | Number of surface-linked finding groups (step 3). Reporting-only — not used as a gate or threshold. |
 | 5 | `corroborated_findings` | Findings confirmed by 2+ lenses (including cluster-level) |
 | 6 | `contradictions_surfaced` | Inter-reviewer disagreements |
 | 7 | `normalization_rewrites` | Findings that needed schema repair |
