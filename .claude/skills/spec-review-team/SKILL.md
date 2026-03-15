@@ -302,3 +302,102 @@ Write the final report to `.review-workspace/synthesis/report.md`. Required sect
 6. **Coverage summary** — what was checked, what was not checked, and why.
 
 After presenting the report to the user, execute the Phase 4 cleanup contract: send shutdown requests, await confirmation, call `TeamDelete`, then prompt the user about preserving `.review-workspace/`. Cleanup is a return to Phase 4's cleanup section — it is NOT a Phase 6 sub-procedure.
+
+## Finding Schema
+
+Each reviewer writes findings using this schema. Do NOT improvise fields.
+
+```markdown
+## Finding Schema
+
+### [PREFIX-N] Title
+
+- **priority:** P0 / P1 / P2
+- **title:** One-sentence description
+- **violated_invariant:** source_doc#anchor
+- **affected_surface:** file + section/lines
+- **impact:** 1-2 sentences
+- **evidence:** what doc says vs what it should say
+- **recommended_fix:** specific action
+- **confidence:** high / medium / low
+- **provenance:** independent / followup
+- **prompted_by:** {reviewer-name} (required when followup; omit when independent)
+```
+
+**Finding ID prefixes:**
+
+| Prefix | Reviewer |
+|--------|----------|
+| `AA` | authority-architecture |
+| `CE` | contracts-enforcement |
+| `CC` | completeness-coherence |
+| `VR` | verification-regression |
+| `SP` | schema-persistence |
+| `IE` | integration-enforcement |
+
+**Provenance rule:** Reviewers tag what they know: `independent` if they found it without a peer message; `followup` if a peer message prompted the investigation. The lead interprets corroboration quality during SYNTHESIS. Reviewers do NOT assess whether a finding is corroborated.
+
+## Coverage Notes
+
+Mandatory for core reviewers with zero findings. Write in the findings file after the last finding (or as the sole content if no findings).
+
+| Field | Purpose |
+|-------|---------|
+| `scope_checked` | Files/sections examined |
+| `checks_run` | Specific checks performed |
+| `result` | "No defects found" + rationale |
+| `caveats` | Limitations of the review |
+| `deferred_to` | If another reviewer is better positioned for a check |
+
+## Failure Modes
+
+| Failure | Detection | Response |
+|---------|-----------|----------|
+| No frontmatter | DISCOVERY: 0 normative files | Degraded mode. Phase 3A zero results. See `failure-patterns.md` |
+| >50% ambiguous clusters | ROUTING computation | All-core team, flag ambiguity as meta-finding |
+| Prose output | SYNTHESIS normalization | Normalize, increment `normalization_rewrites` |
+| Agent teams not enabled | Prerequisite check | Hard stop |
+| Missing findings file | REVIEW verification | Log in `reviewers_failed` |
+| Teammate timeout | No activity 5 min | Treat as failed, proceed to SYNTHESIS |
+| TeamCreate fails | Phase 4 step 2 | Hard stop |
+| Spawn fails | Phase 4 step 4 | Log, continue. All fail = hard stop |
+| Stale workspace | Next DISCOVERY | Warn, offer: archive / remove / abort |
+
+## Audit Metrics
+
+Compute all 10 metrics in SYNTHESIS. Report all 10 in Phase 6.
+
+| # | Metric | Description |
+|---|--------|-------------|
+| 1 | `raw_finding_count` | Total findings before canonicalization |
+| 2 | `canonical_finding_count` | After consolidation and dedup |
+| 3 | `duplicate_clusters_merged` | Number of consolidation merges |
+| 4 | `related_finding_clusters` | Findings with `support_type: related_pattern_extension` |
+| 5 | `corroborated_findings` | Findings with `independent_convergence` or `cross_lens_followup_confirmation` |
+| 6 | `contradictions_surfaced` | Resolved + escalated contradictions |
+| 7 | `normalization_rewrites` | Schema repairs applied during canonicalization |
+| 8 | `ambiguous_review_clusters` | Uncertain cluster assignments from Phase 2 |
+| 9 | `reviewers_failed` | Per-reviewer ID + reason for any missing findings files |
+| 10 | `unverified_deferrals` | Deferrals in coverage notes not addressed by the target reviewer |
+
+## Upgrade Triggers
+
+Post-v1 calibration only. Record raw data during v1; evaluate after 8+ runs.
+
+| Trigger | Threshold | Action |
+|---------|-----------|--------|
+| Normalization rate | `normalization_rewrites` / `raw_finding_count` ≥ 15% | Strengthen schema enforcement in spawn prompts |
+| Cross-run determinism | Same P0 finding missed in ≥ 2 of 5 runs | Audit reviewer prompts for that defect class |
+| Cross-run inconsistency | Same finding ranked P0 in one run, P2 in another | Tighten priority criteria in synthesis guidance |
+| Synthesis duration | > 3 minutes wall-clock | Split synthesis into sub-phases or add a dedicated synthesis agent |
+| P0 missed | Post-merge defect traced to a P0 not surfaced | Root-cause which reviewer's lens should have caught it |
+
+## References
+
+| File | Purpose |
+|------|---------|
+| `references/preflight-taxonomy.md` | 6 canonical review clusters, classification rules, specialist spawn signals and scoring |
+| `references/role-rubrics.md` | Per-reviewer defect class definitions, scope boundaries, and spawn prompt templates |
+| `references/synthesis-guidance.md` | Ledger format, consolidation rules, corroboration taxonomy, worked examples |
+| `references/failure-patterns.md` | Detailed troubleshooting for all failure modes, quality gate hook patterns |
+| `references/reviewer-prompt-scaffold.md` | Base prompt scaffold injected into every reviewer spawn call |
