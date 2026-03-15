@@ -364,12 +364,12 @@ After presenting synthesis to the user, emit a `dialogue_outcome` event via the 
 
 **7a. Write input file**
 
-Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json` containing the input JSON for the emitter script. The file has four top-level fields:
+Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json` containing the input JSON for the emitter script. Use a short random alphanumeric suffix (e.g., `a7x9b2`). Do NOT use descriptive names. Do NOT use Bash, sed, echo, cat <<EOF, heredocs, or any shell command to create or modify this file — use the Write tool only. The file has four top-level fields:
 
 | Field | Type | Source |
 |-------|------|--------|
 | `event_type` | `"dialogue_outcome"` | Literal |
-| `synthesis_text` | string | Full raw output from the `codex-dialogue` agent's Task tool return value |
+| `synthesis_text` | string | The `codex-dialogue` agent's Task tool return value, copied verbatim. Do NOT use your Step 6 paraphrase, summary, or commentary. Do NOT summarize, truncate, or reformat the agent output. The emitter script parses structured markers (`<!-- pipeline-data -->`, `RESOLVED:`, `**Converged:**`) that only exist in the raw output. |
 | `scope_breach` | bool | Determined during Step 5-6 delegation. `true` if the codex-dialogue agent's `<!-- pipeline-data -->` epilogue contains `termination_reason: scope_breach` or `scope_breach_count > 0`. `false` otherwise. Derived from epilogue fields — not from output shape (the agent always returns a synthesis, even on scope breach). If the epilogue is missing or unparseable, default to `false` and log a warning. |
 | `pipeline` | object | Pipeline state accumulated during Steps 1-6 (see field table below) |
 

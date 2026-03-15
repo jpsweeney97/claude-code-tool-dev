@@ -235,7 +235,7 @@ After capturing diagnostics, emit a `consultation_outcome` event via the analyti
 
 **Write input file**
 
-Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json`:
+Use the Write tool to create `/tmp/claude_analytics_{random_suffix}.json`. Use a short random alphanumeric suffix (e.g., `a7x9b2`). Do NOT use descriptive names. Do NOT use Bash, sed, echo, cat <<EOF, heredocs, or any shell command to create or modify this file — use the Write tool only.
 
 **Note:** `profile_name` is always `null` for `/codex` events — the `/codex` skill has no `--profile` flag. The field exists for schema parity with `dialogue_outcome` events.
 
