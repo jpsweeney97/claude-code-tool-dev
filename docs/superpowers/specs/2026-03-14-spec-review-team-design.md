@@ -265,7 +265,7 @@ Mandatory for core reviewers with zero findings in a defect class. Prevents "no 
 | 9 | `reviewers_failed` | Reviewers that timed out or went idle without producing findings (in-run observable) |
 | 10 | `unverified_deferrals` | Coverage notes with `deferred_to` targets that did not cover the delegated class |
 
-**Removed:** `synthesis_errors_p0` and `reviewers_failed`. These require an oracle (the lead cannot reliably detect its own synthesis errors in-run). They are replaced by `reviewers_failed` (observable) and `unverified_deferrals` (observable). Cross-run synthesis quality is tracked via the A-to-B upgrade triggers, which are post-v1 calibration metrics, not in-run audit metrics.
+**Removed:** `synthesis_errors_p0` and `synthesis_errors_p1` (from prior revision). These required an oracle — the lead cannot reliably detect its own synthesis errors in-run. Replaced by `reviewers_failed` (observable) and `unverified_deferrals` (observable). Cross-run synthesis quality is tracked via the A-to-B upgrade triggers, which are post-v1 calibration metrics, not in-run audit metrics.
 
 ### A-to-B Upgrade Triggers (Post-v1 Calibration)
 
