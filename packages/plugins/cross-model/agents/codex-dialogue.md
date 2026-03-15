@@ -652,7 +652,7 @@ After the markdown synthesis, emit a fenced JSON block with structured fields fo
 | `thread_id` | string or null | Codex thread ID. Emit whenever available, including `manual_legacy`. |
 | `turn_count` | int | Actual Codex turns used |
 | `converged` | bool | Whether dialogue converged |
-| `convergence_reason_code` | string or null | Code from synthesis checkpoint |
+| `convergence_reason_code` | string or null | One of: `"all_resolved"`, `"natural_convergence"`, `"budget_exhausted"`, `"error"`, `"scope_breach"`. Set to `null` if dialogue did not converge. Do NOT use `termination_reason` values here — the two fields have different enums. |
 | `termination_reason` | string | `"convergence"`, `"budget"`, `"scope_breach"`, or `"error"` (dialogue only — `/codex` also uses `"complete"`) |
 | `scout_count` | int | `evidence_count` from state |
 | `resolved_count` | int | From synthesis checkpoint |

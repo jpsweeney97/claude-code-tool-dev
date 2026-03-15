@@ -449,6 +449,27 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         scope_breach=scope_breach,
     )
 
+    # Validate epilogue enum values — invalid values fall through to computed defaults.
+    # The agent template may produce values from the wrong enum (e.g. "convergence"
+    # is valid for termination_reason but not convergence_reason_code).
+    epilogue_code = parsed.get("convergence_reason_code")
+    if epilogue_code is not None and epilogue_code not in _VALID_CONVERGENCE_CODES:
+        print(
+            f"invalid epilogue convergence_reason_code {epilogue_code!r}, "
+            f"using computed value {code!r}",
+            file=sys.stderr,
+        )
+        epilogue_code = None
+
+    epilogue_reason = parsed.get("termination_reason")
+    if epilogue_reason is not None and epilogue_reason not in _VALID_TERMINATION_REASONS:
+        print(
+            f"invalid epilogue termination_reason {epilogue_reason!r}, "
+            f"using computed value {reason!r}",
+            file=sys.stderr,
+        )
+        epilogue_reason = None
+
     event = {
         # Core
         "schema_version": _SCHEMA_VERSION,
@@ -466,8 +487,8 @@ def build_dialogue_outcome(input_data: dict) -> dict:
         "mode_source": pipeline.get("mode_source"),
         # Outcome
         "converged": parsed["converged"],
-        "convergence_reason_code": parsed.get("convergence_reason_code") or code,
-        "termination_reason": parsed.get("termination_reason") or reason,
+        "convergence_reason_code": epilogue_code or code,
+        "termination_reason": epilogue_reason or reason,
         "resolved_count": parsed["resolved_count"],
         "unresolved_count": parsed["unresolved_count"],
         "emerged_count": parsed["emerged_count"],

@@ -224,3 +224,45 @@ def test_parse_synthesis_both_fail(capsys: pytest.CaptureFixture[str]) -> None:
                 "scope_breach": False,
             }
         )
+
+
+def test_build_dialogue_outcome_invalid_epilogue_convergence_code(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Invalid convergence_reason_code in epilogue is replaced by computed value."""
+    # Epilogue has "convergence" (valid for termination_reason, NOT convergence_reason_code)
+    synthesis = (
+        "### Conversation Summary\n"
+        "- **Converged:** Yes\n"
+        "- **Turns:** 3\n"
+        "\n"
+        "```json\n"
+        "<!-- pipeline-data -->\n"
+        "{\n"
+        '  "mode": "server_assisted",\n'
+        '  "thread_id": "thread-1",\n'
+        '  "turn_count": 3,\n'
+        '  "converged": true,\n'
+        '  "convergence_reason_code": "convergence",\n'
+        '  "termination_reason": "convergence",\n'
+        '  "scout_count": 1,\n'
+        '  "resolved_count": 2,\n'
+        '  "unresolved_count": 0,\n'
+        '  "emerged_count": 1,\n'
+        '  "scope_breach_count": 0\n'
+        "}\n"
+        "```\n"
+    )
+    result = build_dialogue_outcome(
+        {
+            "pipeline": {"posture": "evaluative", "turn_budget": 8},
+            "synthesis_text": synthesis,
+            "scope_breach": False,
+        }
+    )
+    captured = capsys.readouterr()
+    # Should have warned and fallen through to map_convergence
+    assert "invalid epilogue convergence_reason_code" in captured.err
+    # converged=True + unresolved=0 → all_resolved
+    assert result["convergence_reason_code"] == "all_resolved"
+    assert result["termination_reason"] == "convergence"
