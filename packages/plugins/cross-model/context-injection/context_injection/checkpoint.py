@@ -70,7 +70,8 @@ def serialize_checkpoint(state: ConversationState) -> SerializedCheckpoint:
     parent_id is derived from state.last_checkpoint_id (not a parameter).
     New checkpoint_id is embedded into state BEFORE serializing the payload,
     so the returned state already has last_checkpoint_id updated (CC-3 fix).
-    Raises ValueError if payload exceeds MAX_CHECKPOINT_PAYLOAD_BYTES.
+    Auto-compacts if payload exceeds MAX_CHECKPOINT_PAYLOAD_BYTES.
+    Raises CheckpointError if compaction cannot bring payload under limit.
     """
     checkpoint_id = uuid.uuid4().hex
     parent_id = state.last_checkpoint_id
@@ -79,10 +80,16 @@ def serialize_checkpoint(state: ConversationState) -> SerializedCheckpoint:
     payload_size = len(payload.encode("utf-8"))
 
     if payload_size > MAX_CHECKPOINT_PAYLOAD_BYTES:
-        raise ValueError(
-            f"Checkpoint payload exceeds {MAX_CHECKPOINT_PAYLOAD_BYTES} bytes: "
-            f"got {payload_size} bytes. Compact the ledger before serializing."
-        )
+        compacted = compact_to_budget(state_for_payload, MAX_CHECKPOINT_PAYLOAD_BYTES)
+        payload = compacted.model_dump_json()
+        payload_size = len(payload.encode("utf-8"))
+        if payload_size > MAX_CHECKPOINT_PAYLOAD_BYTES:
+            raise CheckpointError(
+                "checkpoint_too_large",
+                f"Checkpoint payload exceeds {MAX_CHECKPOINT_PAYLOAD_BYTES} bytes "
+                f"after compaction: got {payload_size} bytes.",
+            )
+        state_for_payload = compacted
 
     checkpoint = StateCheckpoint(
         checkpoint_id=checkpoint_id,
@@ -258,10 +265,13 @@ def validate_checkpoint_intake(
 def compact_ledger(state: ConversationState) -> ConversationState:
     """Reduce state size by keeping only recent entries.
 
-    Unreachable under DD-2 invariant (MAX_CONVERSATION_TURNS <
-    MAX_ENTRIES_BEFORE_COMPACT). The pipeline's pre-append turn cap guard
-    rejects turns before entry count can reach the compaction threshold.
-    Retained as a safety net if the invariant is relaxed in the future.
+    Entry-count trigger is unreachable under DD-2 invariant
+    (MAX_CONVERSATION_TURNS < MAX_ENTRIES_BEFORE_COMPACT). However,
+    DD-2 does NOT guarantee byte-size compliance — conversations with
+    large claims can exceed MAX_CHECKPOINT_PAYLOAD_BYTES with fewer
+    entries than the compaction threshold. Use compact_to_budget() for
+    byte-aware compaction. This function is retained as a safety net
+    if the DD-2 invariant is relaxed in the future.
 
     Triggered before checkpoint serialization when approaching size cap.
     Keeps KEEP_RECENT_ENTRIES most recent entries and rebuilds
@@ -281,3 +291,35 @@ def compact_ledger(state: ConversationState) -> ConversationState:
             "claim_registry": claims,
         }
     )
+
+
+def compact_to_budget(
+    state: ConversationState,
+    max_bytes: int,
+    min_entries: int = 1,
+) -> ConversationState:
+    """Iteratively remove oldest entries until serialized payload fits under max_bytes.
+
+    Keeps at least min_entries entries. Rebuilds claim_registry from
+    remaining entries after each removal. Returns state unchanged if
+    already under budget. Returns state with min_entries if compaction
+    cannot reach the target (caller is responsible for the error).
+    """
+    payload_size = len(state.model_dump_json().encode("utf-8"))
+    if payload_size <= max_bytes:
+        return state
+
+    while len(state.entries) > min_entries:
+        trimmed = state.entries[1:]
+        claims = tuple(c for e in trimmed for c in e.claims)
+        state = state.model_copy(
+            update={
+                "entries": trimmed,
+                "claim_registry": claims,
+            }
+        )
+        payload_size = len(state.model_dump_json().encode("utf-8"))
+        if payload_size <= max_bytes:
+            return state
+
+    return state

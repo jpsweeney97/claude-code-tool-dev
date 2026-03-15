@@ -88,6 +88,46 @@ class TestSerializeCheckpoint:
         parsed = json.loads(result.checkpoint_string)
         assert parsed["format_version"] == CHECKPOINT_FORMAT_VERSION
 
+    def test_auto_compacts_when_over_budget(self) -> None:
+        """serialize_checkpoint compacts instead of raising when payload exceeds limit."""
+        from context_injection.checkpoint import MAX_CHECKPOINT_PAYLOAD_BYTES
+        from context_injection.enums import EffectiveDelta, QualityLabel
+        from context_injection.ledger import LedgerEntry, LedgerEntryCounters
+        from context_injection.types import Claim
+
+        counters = LedgerEntryCounters(
+            new_claims=3, revised=0, conceded=0, unresolved_closed=0,
+        )
+        entries: list[LedgerEntry] = []
+        for i in range(12):
+            claims = [
+                Claim(text=f"Claim {j} of turn {i}: {'analysis ' * 20}", status="new", turn=i + 1)
+                for j in range(3)
+            ]
+            entries.append(
+                LedgerEntry(
+                    position=f"Position for turn {i}: {'context ' * 30}",
+                    claims=claims,
+                    delta="advancing",
+                    tags=[],
+                    unresolved=[],
+                    counters=counters,
+                    quality=QualityLabel.SUBSTANTIVE,
+                    effective_delta=EffectiveDelta.ADVANCING,
+                    turn_number=i + 1,
+                )
+            )
+        state = ConversationState(conversation_id="conv-1")
+        for entry in entries:
+            state = state.with_turn(entry)
+
+        result = serialize_checkpoint(state)
+        assert result.checkpoint_string
+        # The payload field is already a JSON string (double-encoded).
+        # Check its byte size directly — do NOT re-dump, that would add quoting.
+        inner = json.loads(result.checkpoint_string)
+        assert len(inner["payload"].encode("utf-8")) <= MAX_CHECKPOINT_PAYLOAD_BYTES
+
     def test_exceeds_size_cap_raises(self) -> None:
         from context_injection.enums import EffectiveDelta, QualityLabel
         from context_injection.ledger import LedgerEntry, LedgerEntryCounters
@@ -115,8 +155,9 @@ class TestSerializeCheckpoint:
             turn_number=1,
         )
         state = ConversationState(conversation_id="conv-1").with_turn(entry)
-        with pytest.raises(ValueError, match="exceeds"):
+        with pytest.raises(CheckpointError) as exc_info:
             serialize_checkpoint(state)
+        assert exc_info.value.code == "checkpoint_too_large"
 
 
 class TestDeserializeCheckpoint:
@@ -459,6 +500,100 @@ class TestCompactLedger:
         assert result.closing_probe_fired is True
         assert result.last_checkpoint_id == "cp-5"
         assert len(result.evidence_history) == 1
+
+
+# ---------------------------------------------------------------------------
+# compact_to_budget
+# ---------------------------------------------------------------------------
+
+
+class TestCompactToBudget:
+    """compact_to_budget: iteratively trim entries until payload fits."""
+
+    def test_reduces_under_limit(self) -> None:
+        """State exceeding byte budget is trimmed to fit."""
+        from context_injection.checkpoint import (
+            MAX_CHECKPOINT_PAYLOAD_BYTES,
+            compact_to_budget,
+        )
+        from context_injection.enums import EffectiveDelta, QualityLabel
+        from context_injection.ledger import LedgerEntry, LedgerEntryCounters
+        from context_injection.types import Claim
+
+        counters = LedgerEntryCounters(
+            new_claims=3, revised=0, conceded=0, unresolved_closed=0,
+        )
+        entries: list[LedgerEntry] = []
+        for i in range(12):
+            claims = [
+                Claim(text=f"Claim {j} of turn {i}: {'analysis ' * 20}", status="new", turn=i + 1)
+                for j in range(3)
+            ]
+            entries.append(
+                LedgerEntry(
+                    position=f"Position for turn {i}: {'context ' * 30}",
+                    claims=claims,
+                    delta="advancing",
+                    tags=[],
+                    unresolved=[],
+                    counters=counters,
+                    quality=QualityLabel.SUBSTANTIVE,
+                    effective_delta=EffectiveDelta.ADVANCING,
+                    turn_number=i + 1,
+                )
+            )
+        state = ConversationState(conversation_id="conv-1")
+        for entry in entries:
+            state = state.with_turn(entry)
+
+        payload_size = len(state.model_dump_json().encode("utf-8"))
+        assert payload_size > MAX_CHECKPOINT_PAYLOAD_BYTES
+
+        compacted = compact_to_budget(state, MAX_CHECKPOINT_PAYLOAD_BYTES)
+        compacted_size = len(compacted.model_dump_json().encode("utf-8"))
+        assert compacted_size <= MAX_CHECKPOINT_PAYLOAD_BYTES
+        assert len(compacted.entries) >= 1
+        expected_claims = sum(len(e.claims) for e in compacted.entries)
+        assert len(compacted.claim_registry) == expected_claims
+
+    def test_preserves_state_under_limit(self) -> None:
+        """State already under budget is returned unchanged."""
+        from context_injection.checkpoint import (
+            MAX_CHECKPOINT_PAYLOAD_BYTES,
+            compact_to_budget,
+        )
+        state = ConversationState(conversation_id="conv-1")
+        result = compact_to_budget(state, MAX_CHECKPOINT_PAYLOAD_BYTES)
+        assert result is state
+
+    def test_single_oversized_entry_raises(self) -> None:
+        """Single entry exceeding budget cannot be compacted — returns as-is."""
+        from context_injection.checkpoint import compact_to_budget
+        from context_injection.enums import EffectiveDelta, QualityLabel
+        from context_injection.ledger import LedgerEntry, LedgerEntryCounters
+        from context_injection.types import Claim
+
+        counters = LedgerEntryCounters(
+            new_claims=100, revised=0, conceded=0, unresolved_closed=0,
+        )
+        claims = [
+            Claim(text=f"Very long claim {'x' * 200} {i}", status="new", turn=1)
+            for i in range(100)
+        ]
+        entry = LedgerEntry(
+            position="x" * 500,
+            claims=claims,
+            delta="advancing",
+            tags=[],
+            unresolved=[],
+            counters=counters,
+            quality=QualityLabel.SUBSTANTIVE,
+            effective_delta=EffectiveDelta.ADVANCING,
+            turn_number=1,
+        )
+        state = ConversationState(conversation_id="conv-1").with_turn(entry)
+        result = compact_to_budget(state, 1024)
+        assert len(result.entries) == 1
 
 
 # ---------------------------------------------------------------------------
