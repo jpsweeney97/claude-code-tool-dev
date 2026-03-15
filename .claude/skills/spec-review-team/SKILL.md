@@ -219,3 +219,86 @@ Neither hook type supports matchers — filter by role ID inside the hook logic.
 3. After all reviewers shut down, call `TeamDelete`. `TeamDelete` fails if any teammate is still active — confirm all are idle before calling.
 4. Teammates must NOT self-cleanup. Only the lead calls `TeamDelete`.
 5. Ask the user: preserve or remove `.review-workspace/`? Default: preserve.
+
+### Phase 5: SYNTHESIS
+
+**Phase gate:** Report written with all 10 audit metrics.
+
+**Boundary rule:** Technique-in-Discipline-shell. Prescribe computation for auditable state; prescribe criteria for meaning. If two competent operators should reach the same result from the same raw facts and nothing valuable is lost by prescribing it, prescribe it (mechanical pass). Otherwise, state the obligation, require a rationale, and audit the structure (judgment obligation).
+
+#### Inputs
+
+| Source | Content | How to use |
+|--------|---------|------------|
+| Findings files | Structured findings per reviewer | Primary input — formal deliverables |
+| Coverage notes | Scope checked, checks run, caveats, deferrals | Verify completeness; check deferral chains |
+| DM summaries | Brief summaries of peer messages in idle notifications | Assess causal links between findings |
+| Authority map | File → normative/non-normative + source authority | Inform adjudication (normative > non-normative) |
+| Preflight packet | Spec structure, boundary edges, signal matrix | Context for finding distribution |
+
+#### Mechanical Passes (prescribed)
+
+Execute in order:
+
+1. **Canonicalize** — normalize format across all findings files, fix schema violations, increment `normalization_rewrites` metric for each rewrite.
+2. **Build synthesis ledger** at `.review-workspace/synthesis/ledger.md` — one record per canonical finding using the ledger format below.
+3. **Verify deferrals** — for each finding with a `deferred_to` chain in coverage notes, confirm the receiving reviewer addressed it. Unverified deferrals become meta-findings (P1, prefix `SY`).
+4. **Compute all 10 audit metrics** — counts, rates, and derived values as defined in `references/synthesis-guidance.md`.
+5. **Ensure required report sections** — prioritized findings, corroboration evidence, contradiction resolutions, metrics, coverage summary. Missing sections block phase gate.
+
+#### Judgment Obligations
+
+**Consolidate and deduplicate.** Two findings are the same defect when they share `violated_invariant` and `affected_surface` as a minimum signal; apply semantic judgment to catch paraphrasing. Merged findings list all contributor IDs. Record `merge_rationale` in the ledger.
+
+**Assess corroboration.** Classify each canonical finding's `support_type`:
+
+- `independent_convergence` — both contributors have `provenance: independent`
+- `cross_lens_followup_confirmation` — one reviewer flagged it; another confirmed via `followup`
+- `related_pattern_extension` — distinct findings at the same surface reveal a larger pattern
+- `singleton` — single-lens finding with no corroboration
+
+Record `support_type` and `contributors` in the ledger.
+
+**Resolve contradictions.** Apply the authority map (normative > non-normative), then evidence quality, then domain reasoning. Unresolvable contradictions escalate as ambiguity findings (P1, `SY` prefix). Record `adjudication_rationale` in the ledger for every resolved contradiction.
+
+**Prioritize.** P0 > P1 > P2 is the baseline. Corroboration and confidence are secondary tiebreakers. Record `priority_rationale` in the ledger only when ranking departs from the P0 > P1 > P2 baseline.
+
+Reference `references/synthesis-guidance.md` for worked examples and edge cases.
+
+#### Ledger Format
+
+```markdown
+### [SY-N] Canonical finding title
+
+- **source_findings:** AA-1, CE-3
+- **support_type:** independent_convergence
+- **contributors:** authority-architecture, contracts-enforcement
+- **merge_rationale:** "..."
+- **adjudication_rationale:** (if applicable)
+- **priority_rationale:** (if non-obvious)
+```
+
+#### Ledger Invariants
+
+These are machine-checkable. Violations block the phase gate.
+
+1. Every `source_findings` ID traces to a findings file from a spawned reviewer.
+2. Every `contributors` entry matches a spawned reviewer's role ID.
+3. No contradiction silently dropped — resolved contradictions have `adjudication_rationale`; unresolved contradictions become `SY` findings.
+4. Every `support_type` is consistent with the provenance chain of its contributors.
+5. Every finding in the report has a ledger record.
+
+### Phase 6: PRESENT
+
+**Phase gate:** Report delivered to user.
+
+Write the final report to `.review-workspace/synthesis/report.md`. Required sections:
+
+1. **Summary** — finding counts by priority, team composition, coverage assessment.
+2. **Prioritized findings** — ordered by impact, corroboration evidence inline for each finding.
+3. **Corroboration table** — which findings converged independently, were confirmed across lenses, or extended a pattern.
+4. **Contradiction resolutions** — how each disagreement was resolved, or escalated as an ambiguity finding.
+5. **Audit metrics** — all 10 metrics, as computed in Phase 5.
+6. **Coverage summary** — what was checked, what was not checked, and why.
+
+After presenting the report to the user, execute the Phase 4 cleanup contract: send shutdown requests, await confirmation, call `TeamDelete`, then prompt the user about preserving `.review-workspace/`. Cleanup is a return to Phase 4's cleanup section — it is NOT a Phase 6 sub-procedure.
