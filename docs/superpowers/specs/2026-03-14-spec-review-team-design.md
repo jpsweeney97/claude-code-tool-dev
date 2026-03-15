@@ -173,8 +173,9 @@ Mandatory for core reviewers with zero findings in a defect class. Prevents "no 
 4. **Adjudicate contradictions** — when reviewers disagree:
    - Normative source > non-normative source
    - If same authority level → escalate as ambiguity finding (itself a defect)
-5. **Prioritize** — sort by: P0 → P1 → P2, then corroboration count, then confidence
-6. **Compute audit metrics**
+5. **Verify deferrals** — for each coverage note with `deferred_to`, check the target reviewer's findings cover that defect class. Unverified deferrals become meta-findings (P1: "coverage gap — deferred check not picked up").
+6. **Prioritize** — sort by: P0 → P1 → P2, then corroboration count, then confidence
+7. **Compute audit metrics**
 
 ### 9 Audit Metrics
 
@@ -253,7 +254,9 @@ Each teammate receives ~2000 chars:
 | Teammate produces prose instead of structured findings | SYNTHESIS phase normalization | Lead normalizes to schema, increments `normalization_rewrites` metric |
 | Agent teams not enabled | Prerequisite check | Hard stop: "Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1. Do not fall back." |
 | Teammate fails to write findings file | REVIEW phase verification | Wait for idle notification, then check. If file missing after idle, log as synthesis error. |
-| Preflight packet exceeds ~1000 chars | PREFLIGHT phase | Condense: abbreviate file paths, drop mechanical check details, keep authority index and boundary edges |
+| Teammate hangs (no idle notification) | REVIEW phase wall-clock timeout | After 5 minutes with no new idle notifications, treat remaining teammates as failed. Proceed to SYNTHESIS with available findings; log missing reviewers as `synthesis_errors_p1`. |
+| Preflight packet exceeds ~1000 chars | PREFLIGHT phase | Condense in priority order: drop `mechanical_checks`, drop `route_decision`, abbreviate `signal_matrix`, abbreviate file paths in `authority_index`. Keep `authority_index` and `boundary_edges` last. |
+| Partial workspace from failed run | Next invocation's DISCOVERY phase | If `.review-workspace/` exists at start, warn user and offer: (a) archive to `.review-workspace.bak/`, (b) remove, (c) abort. Do not silently overwrite. |
 
 ## Decisions Log
 
