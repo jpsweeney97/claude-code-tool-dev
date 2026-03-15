@@ -85,3 +85,43 @@ Six specialized reviewers cover the full defect space. Core reviewers are mandat
 | 6 | Integration / Enforcement Surface | `integration-enforcement` | Optional | Hook/plugin gaps, confirmation model violations, failure recovery paths |
 
 **Design principle: thin by remit, not by file reassignment.** All core reviewers access all spec files — they are scoped by defect class, not by file assignment. Do NOT divide files among reviewers. File-partitioned review creates gaps at file boundaries where cross-file invariants live. Every reviewer reads every file; each sees it through a different lens.
+
+## Procedure
+
+### Phase 1: DISCOVERY
+
+**Phase gate:** Authority map built with ≥1 normative file, or degraded mode entered.
+
+1. **Locate spec directory.** Use the path the user provides. If no path given, search for markdown files with YAML frontmatter containing `module`, `status`, `normative`, or `authority` fields.
+
+2. **Read all markdown files.** Parse YAML frontmatter from each file. Extract: `module`, `status`, `normative`, `authority`, `legacy_sections`.
+
+3. **Build authority map.** For each file, record:
+   - **Normative:** `true` if frontmatter `normative: true`; `false` otherwise.
+   - **Source authority:** value of frontmatter `authority` field, preserved as-is. If absent: `unknown`.
+   - **Review cluster:** derived from source authority + `module` + path heuristics. See `references/preflight-taxonomy.md` for the 6 canonical clusters and classification rules.
+
+4. **Degraded mode:** If zero files have parseable frontmatter, classify all files by path heuristics, warn the user that frontmatter is missing, and continue. See Failure Modes table.
+
+5. **Partial coverage** (some files with frontmatter, some without) is normal operation — do NOT enter degraded mode.
+
+**Output:** Authority map listing every file with its normative flag, source authority, and review cluster. Count of normative files, clusters represented, and boundary edges (files bridging two clusters).
+
+### Phase 2: ROUTING
+
+**Phase gate:** Pass redirect gate, or redirect to `reviewing-designs`.
+
+Evaluate all four redirect conditions. Redirect to `reviewing-designs` only if **all** conditions are met:
+
+| Condition | Threshold | Required for redirect |
+|-----------|-----------|----------------------|
+| `confident_review_cluster_count` | ≤ 2 | Yes |
+| `boundary_edges` | ≤ 2 | Yes |
+| Specialist triggers | None firing | Yes |
+| Ambiguous cluster assignments | Any present | **Disables redirect** |
+
+**Key insight:** A 3-file spec spanning 3 authority tiers needs full team review; a 10-file spec in one tier does not. File count is not a gate condition.
+
+**If redirecting:** Tell the user which conditions triggered and why this spec fits `reviewing-designs`. Then invoke `reviewing-designs`. Do NOT continue to Phase 3.
+
+**If not redirecting:** Continue to Phase 3 (PREFLIGHT).
