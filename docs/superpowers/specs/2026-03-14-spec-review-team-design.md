@@ -24,11 +24,41 @@ No existing skill reviews a multi-file spec as a structured corpus. The `reviewi
 
 **Shared conventions with spec-modulator:** Frontmatter fields (`module`, `status`, `normative`, `authority`, `legacy_sections`), cross-references (relative markdown links with semantic kebab-case anchors), README (reading-order table, authority model).
 
+## SKILL.md Frontmatter
+
+```yaml
+---
+name: spec-review-team
+description: >
+  Review multi-file specifications using a parallel agent team. Discovers spec
+  structure via frontmatter metadata, runs preflight analysis, spawns 4-6
+  specialized reviewers with distinct defect-class lenses, and synthesizes
+  findings into a prioritized report. Use when reviewing a spec corpus with
+  files across multiple authority tiers. For single design documents, use
+  reviewing-designs instead.
+allowed-tools:
+  - Read
+  - Write
+  - Glob
+  - Grep
+  - Bash
+  - Agent
+  - TeamCreate
+  - SendMessage
+  - TaskCreate
+  - TaskUpdate
+  - TaskList
+  - TaskGet
+---
+```
+
+**Trigger phrases:** "review this spec", "review the spec", "spec review", "review all spec files", "thorough spec review", "review specification"
+
 ## Constraints
 
 1. **Agent teams experimental.** Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. Hard prerequisite — do not fall back to sequential review.
 2. **SKILL.md under ~500 lines.** Operational content offloaded to reference files. (`reviewing-designs` at 577 lines is the upper bound precedent.)
-3. **Teammates don't inherit lead context.** All reviewer context must be embedded in spawn prompts (~2000 chars each).
+3. **Teammates don't inherit lead context.** Reviewer context comes from spawn prompts + workspace files (preflight packet). Spawn prompts contain role-specific instructions; reviewers read `packet.md` from the workspace at runtime.
 4. **One team per session.** No nested teams, no session resumption.
 5. **3-5 teammates recommended.** Core team of 4 is within range; 6 total (with optionals) is the maximum.
 
@@ -67,12 +97,44 @@ No existing skill reviews a multi-file spec as a structured corpus. The `reviewi
 
 | Phase | Name | Purpose | Gate |
 |-------|------|---------|------|
-| 1 | DISCOVERY | Locate spec, read frontmatter, build authority index | Authority index built with ≥1 normative file |
+| 1 | DISCOVERY | Locate spec, read frontmatter, build authority map | Authority map built with ≥1 normative file |
 | 2 | ROUTING | Count clusters and edges, evaluate redirect gate | Pass redirect gate (or redirect to `reviewing-designs`) |
-| 3 | PREFLIGHT | Build preflight packet, evaluate spawn rule, run mechanical checks, announce spawn-plan | Spawn-plan announced to user |
-| 4 | REVIEW | Create workspace, spawn team, wait for all idle, verify findings files | All reviewer findings files present |
-| 5 | SYNTHESIS | Read findings, build canonical ledger, dedup/corroborate/adjudicate, compute audit metrics, write report | Report written with all 9 audit metrics |
+| 3A | PREFLIGHT: Mechanical | Validate frontmatter, check cross-references, detect broken links | All mechanical checks complete (pass or flagged) |
+| 3B | PREFLIGHT: Staffing | Evaluate spawn rule, determine core + optional team composition | Spawn plan finalized (which reviewers, why) |
+| 3C | PREFLIGHT: Materialize | Write preflight packet to workspace, announce spawn-plan to user | `packet.md` written, spawn-plan announced |
+| 4 | REVIEW | Create workspace, spawn team, monitor completion, verify findings | All expected findings files present (or timeout) |
+| 5 | SYNTHESIS | Read findings, build canonical ledger, cluster/dedup/corroborate/adjudicate, compute audit metrics, write report | Report written with all 10 audit metrics |
 | 6 | PRESENT | Prioritized findings, corroboration table, audit metrics, cleanup prompt | User sees report |
+
+### Execution Contract (Phase 4)
+
+Phase 4 is the core runtime. This section defines the normative execution semantics — an implementer must not invent these.
+
+**Three artifacts drive execution:**
+
+| Artifact | Created | Consumed | Mutability |
+|----------|---------|----------|------------|
+| Authority map | Phase 1 (DISCOVERY) | Phases 2-5 | Immutable after Phase 1 |
+| Spawn plan | Phase 3B (Staffing) | Phase 4 (REVIEW) | Immutable after 3B |
+| Findings ledger | Phase 4 (REVIEW) | Phase 5 (SYNTHESIS) | Append-only during Phase 4; read-only in Phase 5 |
+
+**Spawn contract:**
+1. Write preflight `packet.md` to `.review-workspace/preflight/` before spawning any reviewer.
+2. Create one task per reviewer via `TaskCreate`. Task description includes: reviewer role ID, output file path, and pointer to `packet.md`.
+3. Spawn each reviewer via `TeamCreate` with spawn prompt (see [Spawn Prompt Structure](#spawn-prompt-structure)). Spawn prompts reference `packet.md` by path — do not embed packet content inline.
+4. Do **not** use the `Agent` tool as a substitute for `TeamCreate`. Do **not** start the lead's own analysis before all teammates are spawned.
+
+**Completion contract:**
+- **Source of truth:** Idle notifications from the team system. Each spawned reviewer produces exactly one idle notification when done.
+- **Expected idle count:** Number of reviewers in the spawn plan (4 for core-only, 5 or 6 with optionals).
+- **Verification:** After receiving all expected idle notifications, verify each reviewer's findings file exists in `.review-workspace/findings/`. If a file is missing after its reviewer went idle, log as `synthesis_errors_p1` ("reviewer {id} went idle without writing findings").
+- **Wall-clock timeout:** 5 minutes after the last idle notification. If expected idle count is not reached, treat remaining reviewers as failed. Proceed to SYNTHESIS with available findings; log missing reviewers as `synthesis_errors_p1`.
+- **No lateral messaging:** Reviewers do not communicate with each other. All coordination flows through the findings ledger and the lead's synthesis. Do not enable cross-reviewer `SendMessage`.
+
+**Cleanup contract:**
+1. After PRESENT, shut down all teammates via `SendMessage` with `type: shutdown_request`.
+2. Ask user whether to preserve or remove `.review-workspace/`. Default: preserve.
+3. Remove team files and task files regardless of workspace decision.
 
 ## Team Composition
 
@@ -89,12 +151,12 @@ No existing skill reviews a multi-file spec as a structured corpus. The `reviewi
 
 **Design principle: "Thin by remit, not by file reassignment."** All core reviewers access all files. They are scoped by defect class, not by file assignment. This prevents gaps at file boundaries.
 
-### 6 Canonical Clusters
+### 6 Canonical Review Clusters
 
-Files are classified into authority clusters during DISCOVERY. Cluster count drives routing and team composition decisions.
+Files are classified into review clusters during DISCOVERY. Cluster count drives routing and team composition decisions.
 
-| Cluster | Description | Examples |
-|---------|-------------|---------|
+| Review Cluster | Description | Examples |
+|----------------|-------------|---------|
 | `root` | Top-level architectural and foundational documents | foundations.md, decisions.md, internal-architecture.md, README.md |
 | `contracts` | Behavioral contracts and interface definitions | tool-surface.md, behavioral-semantics.md, skill-orchestration.md |
 | `schema` | Data model, DDL, persistence definitions | ddl.md, schema rationale |
@@ -102,21 +164,26 @@ Files are classified into authority clusters during DISCOVERY. Cluster count dri
 | `implementation` | Implementation plans, strategies, migration guides | testing-strategy.md, server-validation.md |
 | `supporting` | Appendix, glossary, legacy maps, amendments | appendix.md, legacy-map.md, amendments.md |
 
-**Cluster assignment uses frontmatter `authority` and `module` fields.** Files without frontmatter are assigned heuristically by path and content; ambiguous assignments are flagged.
+**Two-layer cluster model:**
+- **Source authority** — the file's original `authority` frontmatter value (e.g., `authority: schema`). Preserved as-is in the authority map. Used by the adjudication step (normative > non-normative) and by reviewers for context.
+- **Review cluster** — the canonical cluster above, derived from source authority + `module` + path heuristics. Used only for routing (redirect gate), staffing (specialist spawn rule), and rubric selection. This is a lossy mapping — multiple source authorities may collapse into one review cluster.
+
+Files without frontmatter are assigned heuristically by path and content; ambiguous assignments are flagged. The source authority is recorded as `unknown` (not inferred).
 
 ### Routing: Redirect Gate
 
-Before spawning a team, evaluate whether the spec is too small for a full team review:
+Before spawning a team, evaluate whether the spec's authority structure is simple enough for single-document review:
 
 | Condition | Threshold | Effect |
 |-----------|-----------|--------|
-| `candidate_files` | ≤ 3 | Required for redirect |
-| `confident_authoritative_cluster_count` | ≤ 2 | Required for redirect |
+| `confident_review_cluster_count` | ≤ 2 | Required for redirect |
 | `boundary_edges` | ≤ 2 | Required for redirect |
 | Specialist triggers | None firing | Required for redirect |
 | Ambiguous cluster assignments | Any present | **Disables redirect** |
 
 All conditions must be met for redirect to `reviewing-designs`. Ambiguity in any cluster assignment forces full team review — the ambiguity itself is a signal that authority boundaries need multi-lens examination.
+
+**File count is not a gate condition.** Per Decision #4, authority-boundary clusters are the correct routing proxy, not file count. A 3-file spec spanning 3 authority tiers needs full team review; a 10-file spec in one tier does not. Note: spec-modulator's minimal greenfield output is 4 files (README + foundations + decisions + cluster overview), so a file-count gate of ≤3 would block all legitimate redirects.
 
 ### Two-Tiered Spawn Rule for Optional Specialists
 
@@ -168,48 +235,54 @@ Mandatory for core reviewers with zero findings in a defect class. Prevents "no 
 ### Pipeline
 
 1. **Canonicalize** — normalize finding format, fix minor schema violations, increment `normalization_rewrites` metric
-2. **Dedup** — identity function: same `violated_invariant` + same `affected_surface` + same fix scope = merge. Merged findings list all contributing reviewer IDs.
-3. **Corroborate** — findings from 2+ different lenses get confidence boost. Corroborated findings are tagged with contributing lenses.
-4. **Adjudicate contradictions** — when reviewers disagree:
-   - Normative source > non-normative source
-   - If same authority level → escalate as ambiguity finding (itself a defect)
-5. **Verify deferrals** — for each coverage note with `deferred_to`, check the target reviewer's findings cover that defect class. Unverified deferrals become meta-findings (P1: "coverage gap — deferred check not picked up").
-6. **Prioritize** — sort by: P0 → P1 → P2, then corroboration count, then confidence
-7. **Compute audit metrics**
+2. **Dedup** — exact-duplicate key: `(violated_invariant, normalized_affected_surface)`. Two findings with the same invariant and same surface are duplicates regardless of `recommended_fix` text. Merged findings list all contributing reviewer IDs; divergent fixes become alternatives within the canonical finding.
+3. **Cluster related findings** — group findings by `affected_surface` and/or boundary edge. Related-but-distinct findings (e.g., authority placement error + contract contradiction at the same file boundary) are linked with a relation type: `same-root-cause`, `same-surface-distinct-defect`, or `cause/effect`. This enables corroboration to detect multi-lens convergence on a surface, not just on an invariant.
+4. **Corroborate** — findings from 2+ different lenses get confidence boost. Corroborated findings are tagged with contributing lenses. Related-finding clusters (step 3) with 2+ lenses also count as corroboration.
+5. **Adjudicate contradictions** — when reviewers disagree:
+   - Normative source > non-normative source (use source authority from authority map, not review cluster)
+   - If same authority level → escalate as ambiguity finding (P1, prefix `SY` for synthesis-generated, field `violated_invariant` = "cross-reviewer contradiction")
+6. **Verify deferrals** — for each coverage note with `deferred_to`, check the target reviewer's findings cover that defect class. Unverified deferrals become meta-findings (P1, prefix `SY`: "coverage gap — deferred check not picked up").
+7. **Prioritize** — sort by: P0 → P1 → P2, then corroboration count (including cluster-level), then confidence
+8. **Compute audit metrics**
 
-### 9 Audit Metrics
+### 10 Audit Metrics
 
 | # | Metric | Description |
 |---|--------|-------------|
 | 1 | `raw_finding_count` | Total findings before canonicalization |
 | 2 | `canonical_finding_count` | Findings after dedup |
 | 3 | `duplicate_clusters_merged` | Number of dedup merges |
-| 4 | `corroborated_findings` | Findings confirmed by 2+ lenses |
-| 5 | `contradictions_surfaced` | Inter-reviewer disagreements |
-| 6 | `normalization_rewrites` | Findings that needed schema repair |
-| 7 | `ambiguous_clusters` | Files with uncertain authority assignment |
-| 8 | `synthesis_errors_p0` | P0 issues introduced during synthesis |
-| 9 | `synthesis_errors_p1` | P1 issues introduced during synthesis |
+| 4 | `related_finding_clusters` | Number of surface-linked finding groups (step 3) |
+| 5 | `corroborated_findings` | Findings confirmed by 2+ lenses (including cluster-level) |
+| 6 | `contradictions_surfaced` | Inter-reviewer disagreements |
+| 7 | `normalization_rewrites` | Findings that needed schema repair |
+| 8 | `ambiguous_review_clusters` | Files with uncertain review cluster assignment |
+| 9 | `reviewers_failed` | Reviewers that timed out or went idle without producing findings (in-run observable) |
+| 10 | `unverified_deferrals` | Coverage notes with `deferred_to` targets that did not cover the delegated class |
 
-### A-to-B Upgrade Triggers
+**Removed:** `synthesis_errors_p0` and `synthesis_errors_p1`. These require an oracle (the lead cannot reliably detect its own synthesis errors in-run). They are replaced by `reviewers_failed` (observable) and `unverified_deferrals` (observable). Cross-run synthesis quality is tracked via the A-to-B upgrade triggers, which are post-v1 calibration metrics, not in-run audit metrics.
 
-Monitor these across runs. If any fire consistently across 8+ runs, consider extracting synthesis to a dedicated agent (upgrading from Architecture A' to Architecture B).
+### A-to-B Upgrade Triggers (Post-v1 Calibration)
 
-| # | Trigger | Threshold | Signal |
-|---|---------|-----------|--------|
-| 1 | Normalization rate | ≥ 15% of findings | Reviewers not following schema reliably |
-| 2 | Cross-run determinism | ≥ 2/5 runs produce different synthesis | Synthesis procedure too context-dependent |
-| 3 | Cross-run inconsistency | Same spec, materially different reports | Lead context polluting synthesis |
-| 4 | Synthesis duration | > 3 minutes | Procedure too complex for inline execution |
-| 5 | P0 missed | Any P0 found by re-review that synthesis dropped | Synthesis errors are the highest-risk failure |
+These are post-v1 operations metrics, not in-run audit metrics. They require cross-run persistence and an external evaluation owner — neither exists in v1. Record raw data during v1 runs; evaluate after 8+ runs.
+
+| # | Trigger | Threshold | Signal | Requires |
+|---|---------|-----------|--------|----------|
+| 1 | Normalization rate | ≥ 15% of findings | Reviewers not following schema reliably | `normalization_rewrites` / `raw_finding_count` per run |
+| 2 | Cross-run determinism | ≥ 2/5 runs produce different synthesis | Synthesis procedure too context-dependent | Same spec, multiple runs, diff comparison |
+| 3 | Cross-run inconsistency | Same spec, materially different reports | Lead context polluting synthesis | Same as #2, broader scope |
+| 4 | Synthesis duration | > 3 minutes | Procedure too complex for inline execution | Wall-clock timing during Phase 5 |
+| 5 | P0 missed | Any P0 found by re-review that synthesis dropped | Synthesis errors are the highest-risk failure | Post-run re-review by a separate reviewer |
 
 ## Preflight Packet
 
-The preflight packet is embedded in every spawn prompt. Budget: ~1000 chars condensed. Contains 6 sections:
+The preflight packet is written to `.review-workspace/preflight/packet.md` during Phase 3C. Reviewers receive the file path in their spawn prompt — the packet is **not** embedded inline. This eliminates the ~1000 char embedding budget constraint and prevents destructive compression for large specs.
+
+Contains 6 sections:
 
 | Section | Content | Purpose |
 |---------|---------|---------|
-| `authority_index` | File → normative/non-normative + authority level | Reviewers know which files are authoritative |
+| `authority_map` | File → normative/non-normative + source authority + review cluster | Reviewers know which files are authoritative and how they were classified |
 | `boundary_edges` | Pairs of files with cross-references | Reviewers know where to look for cross-file invariants |
 | `signal_matrix` | Optional specialist signals detected | Reviewers understand team composition rationale |
 | `mechanical_checks` | Frontmatter validation results, broken links | Pre-computed checks reviewers can skip |
@@ -235,49 +308,56 @@ The preflight packet is embedded in every spawn prompt. Budget: ~1000 chars cond
 
 **Cleanup:** After presenting findings, ask user whether to preserve or remove workspace. Default: preserve.
 
-### Spawn Prompt Structure
+### Spawn Prompt Contract
 
-Each teammate receives ~2000 chars:
+Each spawn prompt contains three components. Full prompt templates belong in `role-rubrics.md`; the design doc specifies the delivery contract.
 
-| Component | Budget | Content |
-|-----------|--------|---------|
-| Shared scaffold | ~600 chars | Finding schema, workspace path, output file path, output rules (no prose between findings, coverage notes for zero-finding classes) |
-| Preflight packet | ~1000 chars | Condensed authority index, boundary edges, spawn plan |
-| Role delta | ~400 chars | Defect class description, primary/secondary file focus, rubric items from `role-rubrics.md` |
+| Component | Content | Mandatory Fields |
+|-----------|---------|-----------------|
+| Shared scaffold | Finding schema, workspace path, output file path, path to `packet.md`, output rules | Finding schema definition, output file path, `packet.md` path, "no prose between findings" rule, coverage notes requirement |
+| Preflight pointer | Path to `.review-workspace/preflight/packet.md` — reviewer reads the file at runtime | File path only (not content) |
+| Role delta | Defect class description, hunt priorities, rubric items | Role ID, defect class scope, primary file focus areas |
+
+**Delivery model:** Spawn prompts point reviewers to the workspace file. Reviewers read `packet.md` themselves — the lead does not condense or embed it. This means the packet can scale with spec complexity without degrading spawn prompt quality.
 
 ## Failure Modes
 
 | Failure | Detection | Response |
 |---------|-----------|----------|
-| No frontmatter on any file | DISCOVERY phase finds 0 normative files | Degraded discovery: classify by path heuristics, warn user, proceed with reduced confidence |
+| No frontmatter on any file | DISCOVERY phase finds 0 normative files | Degraded discovery: classify by path heuristics, warn user. Degraded mode disables: (1) redirect gate (always full team), (2) authority-derived specialist spawning (core only), (3) authority-based contradiction adjudication (escalate all contradictions as ambiguity). Source authority recorded as `unknown` for all files. |
 | > 50% ambiguous cluster assignments | ROUTING phase computation | All-core team (no specialists), flag ambiguity as meta-finding |
 | Teammate produces prose instead of structured findings | SYNTHESIS phase normalization | Lead normalizes to schema, increments `normalization_rewrites` metric |
 | Agent teams not enabled | Prerequisite check | Hard stop: "Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1. Do not fall back." |
-| Teammate fails to write findings file | REVIEW phase verification | Wait for idle notification, then check. If file missing after idle, log as synthesis error. |
-| Teammate hangs (no idle notification) | REVIEW phase wall-clock timeout | After 5 minutes with no new idle notifications, treat remaining teammates as failed. Proceed to SYNTHESIS with available findings; log missing reviewers as `synthesis_errors_p1`. |
-| Preflight packet exceeds ~1000 chars | PREFLIGHT phase | Condense in priority order: drop `mechanical_checks`, drop `route_decision`, abbreviate `signal_matrix`, abbreviate file paths in `authority_index`. Keep `authority_index` and `boundary_edges` last. |
+| Teammate fails to write findings file | REVIEW phase verification | Wait for idle notification, then check. If file missing after idle, increment `reviewers_failed` metric. |
+| Teammate hangs (no idle notification) | REVIEW phase wall-clock timeout | After 5 minutes with no new idle notifications, treat remaining teammates as failed. Proceed to SYNTHESIS with available findings; increment `reviewers_failed` metric. |
 | Partial workspace from failed run | Next invocation's DISCOVERY phase | If `.review-workspace/` exists at start, warn user and offer: (a) archive to `.review-workspace.bak/`, (b) remove, (c) abort. Do not silently overwrite. |
 
 ## Decisions Log
 
+Confidence levels: **High** = converged across multiple independent sources (Codex dialogues, codebase evidence, user confirmation). **Medium** = single-source confirmation or user decision without independent stress-testing.
+
 | # | Decision | Choice | Key Rationale | Confidence |
 |---|----------|--------|---------------|------------|
-| 1 | Scope | General multi-file spec review (not Engram-specific) | Authority/normative frontmatter pattern is reusable; spec-modulator produces exactly this structure | High (E2) |
-| 2 | Architecture | A' (normative SKILL.md + operational refs) | Emerged from comparative Codex dialogue; synthesis needs explicit intermediate structure, not fresh context | High (E2) |
-| 3 | Team composition | 4 core + 2 optional, domain-agnostic core names | Converged across 3 independent Codex consultations; fully adaptive has silent staffing failures | High (E2) |
-| 4 | Routing proxy | Authority-boundary clusters, not file count | "A 3-file spec spanning 3 authority tiers is more complex than a 10-file spec in one tier" | High (E2) |
-| 5 | Finding format | Atomic schema with `violated_invariant` field | Finding-level canonicalization requires explicit intermediate state; `violated_invariant` enables cross-reviewer merge | High (E2) |
-| 6 | Lifecycle positioning | Create (spec-modulator) → Review (spec-review-team) | User-identified synergy confirmed by shared frontmatter conventions | Medium (E1) |
+| 1 | Scope | General multi-file spec review (not Engram-specific) | Authority/normative frontmatter pattern is reusable; spec-modulator produces exactly this structure | High |
+| 2 | Architecture | A' (normative SKILL.md + operational refs) | Emerged from comparative Codex dialogue; synthesis needs explicit intermediate structure, not fresh context | High |
+| 3 | Team composition | 4 core + 2 optional, domain-agnostic core names | Converged across 3 independent Codex consultations; fully adaptive has silent staffing failures | High |
+| 4 | Routing proxy | Authority-boundary clusters, not file count | "A 3-file spec spanning 3 authority tiers is more complex than a 10-file spec in one tier" | High |
+| 5 | Finding format | Atomic schema with `violated_invariant` field | Finding-level canonicalization requires explicit intermediate state; `violated_invariant` enables cross-reviewer merge | High |
+| 6 | Lifecycle positioning | Create (spec-modulator) → Review (spec-review-team) | User-identified synergy confirmed by shared frontmatter conventions | Medium |
+| 7 | Preflight delivery | Workspace file, not embedded in spawn prompt | Eliminates destructive compression; scales with spec complexity; workspace file already exists | Medium |
+| 8 | Dedup merge key | `(violated_invariant, normalized_affected_surface)` | `fix_scope` is not a schema field; surface + invariant is sufficient for exact-duplicate detection | High |
 
 ## Open Questions
 
-1. **Dedup identity function untested against real findings.** Same invariant + same surface + same fix scope = merge. The exact boundary conditions (how similar is "same"?) will need calibration after first runs.
+1. **Dedup boundary calibration.** The merge key is now `(violated_invariant, normalized_affected_surface)` — but "normalized" is undefined. What normalization applies to `affected_surface`? (Path canonicalization? Section-level granularity?) Needs calibration after first runs.
 
-2. **A-to-B upgrade trigger thresholds uncalibrated.** The 5 triggers are reasonable starting points but need 8+ runs to validate. First runs should record all metrics for calibration.
+2. **A-to-B upgrade trigger thresholds uncalibrated.** The 5 triggers are post-v1 calibration metrics with no persistence or evaluation owner in v1. First runs should record raw data for eventual evaluation.
 
 3. **Potential third optional specialist.** API specs with complex schema evolution may warrant it. Deferred for v1.
 
-4. **Interaction model with reviewing-designs.** When both could apply to the same spec (e.g., a 4-file spec), the redirect gate handles most cases. The boundary isn't sharp for specs at the gate threshold — may need a user-choice prompt.
+4. **Cluster taxonomy vocabulary — fixed vs derived.** The 6 canonical review clusters are currently hardcoded. Whether this vocabulary should be configurable or domain-derived is unresolved. For v1, the fixed vocabulary covers known specs; revisit if specs from other domains fail to classify cleanly.
+
+5. **Compound defect clustering relation types.** The three relation types (`same-root-cause`, `same-surface-distinct-defect`, `cause/effect`) are a starting set. Whether the lead can reliably assign these without domain knowledge is untested.
 
 ## References
 
@@ -291,3 +371,4 @@ Each teammate receives ~2000 chars:
 | Codex dialogue #29 | Thread `019cee6c-...` | Team composition convergence |
 | Codex dialogue #30 | Thread `019cef00-...` | Composition deep dive, domain-agnostic names |
 | Codex dialogue #31 | Thread `019cef18-...` | Architecture comparison — A' emergence |
+| Codex dialogue #32 | Thread `019cef71-...` | Design quality audit — P0 execution contract, 8 P1s |
