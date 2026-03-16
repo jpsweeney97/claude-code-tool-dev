@@ -5,21 +5,28 @@ Verified: 2026-03-15
 
 This document captures the agent teams platform contract as it applies to skill development. It is the authoritative source for tool behavior, hook schemas, and constraints within this skill. When in doubt, verify against the source docs — platform behavior evolves.
 
+**Agent teams vs subagents — the key architectural distinction:**
+
+- **Subagents** run _within_ a single session, report results back to the caller, and disappear. Hub-and-spoke.
+- **Agent teams** are _independent Claude Code sessions_ with their own context windows, a shared task list, and inter-agent messaging (mailbox). Mesh topology.
+
 ## Architecture
 
-| Component | Role |
-|-----------|------|
+| Component     | Role                                                                                |
+| ------------- | ----------------------------------------------------------------------------------- |
 | **Team lead** | The main Claude Code session. Creates the team, spawns teammates, coordinates work. |
-| **Teammates** | Separate Claude Code instances. Each works on assigned tasks. |
-| **Task list** | Shared list of work items. Teammates claim and complete tasks. |
-| **Mailbox** | Messaging system for inter-agent communication. |
+| **Teammates** | Separate Claude Code instances. Each works on assigned tasks.                       |
+| **Task list** | Shared list of work items. Teammates claim and complete tasks.                      |
+| **Mailbox**   | Messaging system for inter-agent communication.                                     |
 
 **Storage:**
+
 - Team config: `~/.claude/teams/{team-name}/config.json`
 - Task list: `~/.claude/tasks/{team-name}/`
 - The config contains a `members` array with each teammate's name, agent ID, and agent type. Teammates can read this file to discover other team members.
 
 **Hard constraints:**
+
 - One team per session. Clean up the current team before starting a new one.
 - No nested teams. Teammates cannot spawn their own teams or teammates. Only the lead can manage the team.
 - Lead is fixed. The session that creates the team is the lead for its lifetime. Cannot promote a teammate to lead or transfer leadership.
@@ -31,6 +38,7 @@ This document captures the agent teams platform contract as it applies to skill 
 Creates the team structure. Does NOT spawn teammates.
 
 **Parameters:**
+
 - `team_name` — descriptive team identifier (e.g., `"spec-review"`)
 - `description` — what the team does
 
@@ -47,6 +55,7 @@ Creates tasks in the shared task list.
 **Dependencies:** tasks can depend on other tasks. A pending task with unresolved dependencies cannot be claimed until those dependencies are completed. The system manages unblocking automatically — when a teammate completes a dependency, blocked tasks unblock without manual intervention. Task claiming uses file locking to prevent race conditions.
 
 **Other task tools:**
+
 - `TaskGet` — retrieves full details for a specific task
 - `TaskList` — lists all tasks with current status
 - `TaskUpdate` — updates task status, dependencies, details, or deletes tasks
@@ -58,6 +67,7 @@ None of these require special permissions.
 Teammates are spawned using the `Agent` tool with the `team_name` parameter. This is what makes a spawned agent a teammate — without `team_name`, it's an isolated subagent with no messaging, shared tasks, or idle notifications.
 
 **Key parameters:**
+
 - `team_name` — must match the TeamCreate team name
 - `name` — teammate identifier, used for all addressing (SendMessage, task ownership, shutdown). Use role IDs (e.g., `"authority-architecture"`), never UUIDs.
 - `model` — model for the teammate (e.g., `"sonnet"`)
@@ -71,14 +81,15 @@ Teammates are spawned using the `Agent` tool with the `team_name` parameter. Thi
 
 Two messaging primitives:
 
-| Primitive | Syntax | Cost | When to use |
-|-----------|--------|------|-------------|
-| **message** | `to: "{name}"` | 1 recipient | Targeted cross-lens signals |
-| **broadcast** | `to: "*"` | N recipients (scales linearly) | Discoveries affecting all reviewers |
+| Primitive     | Syntax         | Cost                           | When to use                         |
+| ------------- | -------------- | ------------------------------ | ----------------------------------- |
+| **message**   | `to: "{name}"` | 1 recipient                    | Targeted cross-lens signals         |
+| **broadcast** | `to: "*"`      | N recipients (scales linearly) | Discoveries affecting all reviewers |
 
 **Delivery:** messages arrive at recipients automatically. No polling needed.
 
 **Structured messages:** SendMessage supports both plain text and structured protocol messages:
+
 - `{type: "shutdown_request", reason: "..."}`
 - `{type: "shutdown_response", ...}`
 - `{type: "plan_approval_response", ...}`
@@ -110,19 +121,20 @@ Fires when an agent team teammate is about to go idle after finishing its turn.
 
 **Input fields** (in addition to common fields `session_id`, `transcript_path`, `cwd`, `permission_mode`, `hook_event_name`):
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field           | Type   | Description                           |
+| --------------- | ------ | ------------------------------------- |
 | `teammate_name` | string | Name of the teammate about to go idle |
-| `team_name` | string | Name of the team |
+| `team_name`     | string | Name of the team                      |
 
 **Decision control — two mechanisms:**
 
-| Mechanism | Effect |
-|-----------|--------|
-| Exit code 2 | Teammate receives stderr message as feedback and continues working instead of going idle |
-| JSON `{"continue": false, "stopReason": "..."}` | Stops the teammate entirely. `stopReason` shown to user |
+| Mechanism                                       | Effect                                                                                   |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Exit code 2                                     | Teammate receives stderr message as feedback and continues working instead of going idle |
+| JSON `{"continue": false, "stopReason": "..."}` | Stops the teammate entirely. `stopReason` shown to user                                  |
 
 **Constraints:**
+
 - **Hook types: `command` ONLY.** Prompt-based, HTTP, and agent hooks will NOT fire for TeammateIdle. This is a platform constraint, not a configuration issue.
 - **No matcher support.** Fires for every teammate unconditionally. Filtering by reviewer role must be done inside the hook logic.
 
@@ -132,22 +144,23 @@ Fires in two situations: (1) when any agent explicitly marks a task as completed
 
 **Input fields** (in addition to common fields):
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `task_id` | string | Identifier of the task being completed |
-| `task_subject` | string | Title of the task |
-| `task_description` | string? | Detailed description (may be absent) |
-| `teammate_name` | string? | Name of the completing teammate (may be absent) |
-| `team_name` | string? | Name of the team (may be absent) |
+| Field              | Type    | Description                                     |
+| ------------------ | ------- | ----------------------------------------------- |
+| `task_id`          | string  | Identifier of the task being completed          |
+| `task_subject`     | string  | Title of the task                               |
+| `task_description` | string? | Detailed description (may be absent)            |
+| `teammate_name`    | string? | Name of the completing teammate (may be absent) |
+| `team_name`        | string? | Name of the team (may be absent)                |
 
 **Decision control — same two mechanisms as TeammateIdle:**
 
-| Mechanism | Effect |
-|-----------|--------|
-| Exit code 2 | Task not marked completed; stderr fed back as feedback |
-| JSON `{"continue": false, "stopReason": "..."}` | Stops the teammate entirely |
+| Mechanism                                       | Effect                                                 |
+| ----------------------------------------------- | ------------------------------------------------------ |
+| Exit code 2                                     | Task not marked completed; stderr fed back as feedback |
+| JSON `{"continue": false, "stopReason": "..."}` | Stops the teammate entirely                            |
 
 **Constraints:**
+
 - **Hook types: ALL FOUR supported** (command, http, prompt, agent).
 - **No matcher support.** Fires for every task unconditionally. Filtering by task or reviewer must be done inside the hook logic.
 
@@ -169,6 +182,7 @@ SubagentStop fires for subagents, not teammates. Teammates are full independent 
 ## Best Practices
 
 **From the official docs:**
+
 - Start with 3-5 teammates. No hard limit, but token costs scale linearly and coordination overhead increases.
 - 5-6 tasks per teammate keeps everyone productive without excessive context switching.
 - Task sizing: too small = coordination overhead exceeds benefit; too large = teammates work too long without check-ins. Self-contained units that produce a clear deliverable.
@@ -182,20 +196,21 @@ SubagentStop fires for subagents, not teammates. Teammates are full independent 
 
 ## Constraints & Known Limitations
 
-| Constraint | Detail |
-|------------|--------|
-| Experimental | Disabled by default. Enable: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in settings.json `env` or shell environment |
-| Version | Requires Claude Code v2.1.32 or later |
-| One team per session | Clean up current team before starting a new one |
-| No nested teams | Teammates cannot spawn teams or teammates |
-| No session resumption | `/resume` and `/rewind` do not restore in-process teammates. Lead may attempt to message non-existent teammates after resume |
-| Task status lag | Teammates sometimes fail to mark tasks as completed, which blocks dependent tasks. Idle notifications are the primary completion signal |
-| Shutdown delay | Teammates finish current request/tool call before shutting down |
-| Lead is fixed | Cannot promote a teammate to lead or transfer leadership |
-| Permissions at spawn | All teammates start with lead's permission mode. Can change individually after spawning but not at spawn time |
-| Display modes | `in-process` (default), `tmux`, split panes. Setting: `teammateMode` in settings.json. Split panes NOT supported in VS Code terminal, Windows Terminal, or Ghostty |
+| Constraint            | Detail                                                                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Experimental          | Disabled by default. Enable: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in settings.json `env` or shell environment                                                  |
+| Version               | Requires Claude Code v2.1.32 or later                                                                                                                              |
+| One team per session  | Clean up current team before starting a new one                                                                                                                    |
+| No nested teams       | Teammates cannot spawn teams or teammates                                                                                                                          |
+| No session resumption | `/resume` and `/rewind` do not restore in-process teammates. Lead may attempt to message non-existent teammates after resume                                       |
+| Task status lag       | Teammates sometimes fail to mark tasks as completed, which blocks dependent tasks. Idle notifications are the primary completion signal                            |
+| Shutdown delay        | Teammates finish current request/tool call before shutting down                                                                                                    |
+| Lead is fixed         | Cannot promote a teammate to lead or transfer leadership                                                                                                           |
+| Permissions at spawn  | All teammates start with lead's permission mode. Can change individually after spawning but not at spawn time                                                      |
+| Display modes         | `in-process` (default), `tmux`, split panes. Setting: `teammateMode` in settings.json. Split panes NOT supported in VS Code terminal, Windows Terminal, or Ghostty |
 
 **Changelog notes (known bugs fixed):**
+
 - Memory retention fix: in-process teammates previously pinned parent's full conversation history for teammate's lifetime (fixed v2.1.69).
 - Nested team prevention: fixed teammates accidentally spawning nested teammates via the Agent tool's `name` parameter.
 
