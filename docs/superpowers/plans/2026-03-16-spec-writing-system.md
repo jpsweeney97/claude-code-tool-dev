@@ -19,6 +19,8 @@
 - Concrete values, not vague language ("500 lines", not "large files")
 - Match patterns observed in existing skills (`spec-review-team`, `spec-modulator`, `reviewing-designs`)
 
+**Parallelization:** Chunks 2, 3, and 4 have no mutual dependencies and can execute in parallel after Chunk 1 completes.
+
 **Relationship to spec-modulator:** The spec-writer supersedes spec-modulator's `from-monolith` mode for specs that use `spec.yaml`. spec-modulator remains useful for simpler modularization without the full shared contract. No changes to spec-modulator in this plan.
 
 ---
@@ -229,6 +231,8 @@ Failure behavior differs for the producer (spec-writer) and consumer (spec-revie
 | Unknown claim value in `default_claims` or file `claims` | Hard failure |
 | `claim_precedence` key outside the fixed claim enum | Hard failure |
 | Authority in `claim_precedence`, `fallback_authority_order`, or `boundary_rules` not defined in `authorities` | Hard failure |
+| `spec.yaml` missing required top-level key (`authorities`, `precedence`, `fallback_authority_order`) | Hard failure |
+| `spec.yaml` top-level key has wrong type (e.g., `boundary_rules: {}` instead of list, `authorities: []` instead of mapping) | Hard failure |
 
 ### Consumer Failures (degrade gracefully)
 
@@ -236,6 +240,7 @@ Failure behavior differs for the producer (spec-writer) and consumer (spec-revie
 |-----------|----------|
 | `spec.yaml` missing | Degraded mode — fall back to frontmatter + path heuristics. Warn: "No spec.yaml. Consider running the spec-writer skill." |
 | `spec.yaml` malformed (unparseable YAML) | Hard stop with parse error |
+| `spec.yaml` parseable but structurally invalid (missing required top-level keys: `authorities`, `precedence`; or wrong types: `boundary_rules: {}` instead of list) | Hard stop with structural validation error |
 | File references unknown authority | Validation finding (P1). Process file as `authority: unknown`. |
 | Unknown claim value in frontmatter | Validation finding (P1). Unknown claims ignored for role derivation. |
 | `claim_precedence` references undefined authority | Validation finding (P1). Skip that entry during adjudication. |
@@ -606,7 +611,7 @@ readme: README.md
 
 authorities:
   <authority-label>:
-    description: <what this authority covers>
+    description: <what this authority covers in this spec's domain>
     default_claims: [<claim>, ...]
 
 precedence:
@@ -635,6 +640,8 @@ Producer failures are hard failures — fix before continuing:
 | Unknown claim value in `default_claims` or file `claims` | Hard failure |
 | `claim_precedence` key outside the fixed claim enum | Hard failure |
 | Authority in `claim_precedence`, `fallback_authority_order`, or `boundary_rules` not defined in `authorities` | Hard failure |
+| `spec.yaml` missing required top-level key (`authorities`, `precedence`, `fallback_authority_order`) | Hard failure |
+| `spec.yaml` top-level key has wrong type (e.g., `boundary_rules: {}` instead of list, `authorities: []` instead of mapping) | Hard failure |
 
 ## References
 
@@ -665,10 +672,47 @@ grep -c '| `[a-z_]*` |' .claude/skills/spec-writer/SKILL.md | head -1
 ```
 Expected: 8 claim entries + 6 derivation entries = check both tables present
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Create validator script**
+
+Create `scripts/validate_spec_writing_contract.py` following the repo precedent of `scripts/validate_consultation_contract.py`. The validator performs block-extraction diff between the spec-writer SKILL.md inline content and `docs/references/shared-contract.md` to detect drift.
+
+**What it validates:**
+- Claims enum table matches between SKILL.md and shared-contract.md (extract by header + table rows)
+- Derivation table matches between SKILL.md and shared-contract.md
+- spec.yaml schema matches between SKILL.md and shared-contract.md
+- Producer failure model matches between SKILL.md and shared-contract.md
+
+**Edge semantics (NEW-3):**
+- `claims: []` (empty claims array) is valid only for non-normative authorities
+- Duplicate claims within a file's effective claims are flagged
+- Claim ordering within `default_claims` and `claims` is insignificant (validator treats as sets)
+
+**Sync comment markers:** Add markers in the spec-writer SKILL.md at each inlined block:
+```markdown
+<!-- SYNC: docs/references/shared-contract.md#claims-enum -->
+<!-- SYNC: docs/references/shared-contract.md#derivation-table -->
+<!-- SYNC: docs/references/shared-contract.md#spec-yaml-schema -->
+<!-- SYNC: docs/references/shared-contract.md#failure-model -->
+```
+
+The validator reads these markers to locate blocks for comparison.
+
+**Invocation:**
+```bash
+uv run scripts/validate_spec_writing_contract.py
+```
+Expected: All checks pass with no drift detected.
+
+Also create `tests/test_spec_writing_contract_sync.py` with tests covering:
+- Happy path (content matches)
+- Drift detection (modified claim in one location)
+- Edge semantics (empty claims, duplicates, ordering)
+- Missing sync markers
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add .claude/skills/spec-writer/SKILL.md
+git add .claude/skills/spec-writer/SKILL.md scripts/validate_spec_writing_contract.py tests/test_spec_writing_contract_sync.py
 git commit -m "feat: add spec-writer skill for compiling design docs into modular specs"
 ```
 
@@ -695,6 +739,20 @@ Old:
 New:
 ```markdown
 - Specs created by `spec-writer`, `spec-modulator`, or following the same conventions
+```
+
+- [ ] **Step 1b: Fix "When NOT to Use" contradiction**
+
+In the "When NOT to Use" section, replace the frontmatter metadata prohibition that contradicts degraded mode:
+
+Old:
+```markdown
+- Do NOT use for specs without frontmatter metadata
+```
+
+New:
+```markdown
+- Best for spec corpora with frontmatter metadata. Specs without frontmatter are supported in degraded mode; authority-based features (deterministic specialist spawning, mechanical precedence resolution, boundary coverage analysis) are unavailable.
 ```
 
 - [ ] **Step 2: Update Phase 1 DISCOVERY**
@@ -757,7 +815,7 @@ Evaluate all four redirect conditions. Redirect to `reviewing-designs` only if *
 | Specialist triggers (heuristic scoring) | None firing | Yes |
 | Ambiguous cluster assignments | Any present | **Disables redirect** |
 
-**`boundary_edges` count rule (full contract mode):** Count unique directional `(on_change_to authority, review_authority)` pairs across all boundary rules. One rule with 3 `review_authorities` = 3 edges.
+**`boundary_edges` count rule (full contract mode):** Count unique directional `(on_change_to authority, review_authority)` pairs across all boundary rules. One rule with 3 `review_authorities` = 3 edges. Example: 2 boundary rules in the CLI spec produce 5 edges (3 + 2).
 
 **Key insight:** A 3-file spec spanning 3 authority tiers needs full team review; a 10-file spec in one tier does not. File count is not a gate condition.
 
@@ -829,14 +887,14 @@ New:
 ```markdown
 - **priority:** P0 / P1 / P2
 - **title:** One-sentence description
-- **claim_family:** <claim from the 8 fixed values, or "ambiguous">
+- **claim_family:** <claim from the 8 fixed values, or "ambiguous"> (full contract mode only — omit in degraded mode)
 - **violated_invariant:** source_doc#anchor
 ```
 
 Also add after the Finding ID prefixes table:
 
 ```markdown
-**`claim_family` rule:** Each finding must identify which claim from the fixed enum it addresses. This enables mechanical application of `claim_precedence` during synthesis. If a reviewer cannot identify one claim family, set `claim_family: ambiguous` — the finding escalates to human resolution during synthesis.
+**`claim_family` rule:** In full contract mode, each finding must identify which claim from the fixed enum it addresses. This enables mechanical application of `claim_precedence` during synthesis. See `references/role-rubrics.md` for the 8-step classification procedure and tie-breakers. If a reviewer cannot identify one claim family after following the procedure, set `claim_family: ambiguous` — the finding escalates to human resolution during synthesis. In degraded mode (no `spec.yaml`), omit `claim_family` entirely — the claims vocabulary does not apply. Do NOT use `ambiguous` as a proxy for "no spec.yaml"; it conflates genuinely uncertain classification with structurally inapplicable context. Follows the same conditional pattern as `prompted_by` (required when `provenance: followup`, omitted when `provenance: independent`).
 ```
 
 - [ ] **Step 8: Update Phase 5 SYNTHESIS — Contradiction Resolution**
@@ -1004,7 +1062,7 @@ New:
 In the Shared Scaffold section, add `claim_family` to the finding format template. After `- **title:** One-sentence description`, add:
 
 ```markdown
-> - **claim_family:** <claim from the 8 fixed values, or "ambiguous">
+> - **claim_family:** <claim from the 8 fixed values, or "ambiguous"> (full contract mode only — omit in degraded mode)
 ```
 
 The full updated finding format in the scaffold becomes:
@@ -1014,7 +1072,7 @@ The full updated finding format in the scaffold becomes:
 >
 > - **priority:** P0 / P1 / P2
 > - **title:** One-sentence description
-> - **claim_family:** <claim from the 8 fixed values, or "ambiguous">
+> - **claim_family:** <claim from the 8 fixed values, or "ambiguous"> (full contract mode only — omit in degraded mode)
 > - **violated_invariant:** source_doc#anchor
 > - **affected_surface:** file + section/lines
 > - **impact:** 1-2 sentences
@@ -1025,9 +1083,44 @@ The full updated finding format in the scaffold becomes:
 > - **prompted_by:** {reviewer-name} (required when followup; omit when independent)
 ```
 
+Also add the following `claim_family` classification guidance after the finding format template in the shared scaffold. This goes in role-rubrics.md, NOT in domain briefs (domain briefs are defect-class-based per spec design intent at `review-team-updates.md:98`):
+
+```markdown
+### claim_family Classification Procedure (Full Contract Mode)
+
+**Fast-path guard:** If the file under review has exactly one effective claim, use that claim. Do NOT use the fast-path for multi-claim files — proceed to the priority classifier.
+
+**8-step priority classifier** — evaluate in order, use the first match:
+
+| Priority | Claim | Match when the finding addresses... |
+|----------|-------|-------------------------------------|
+| 1 | `persistence_schema` | Data model, storage format, state representation, migration constraints |
+| 2 | `enforcement_mechanism` | Validation rules, hook behavior, access control, policy enforcement logic |
+| 3 | `interface_contract` | API surface, input/output shapes, compatibility guarantees, protocol format |
+| 4 | `behavior_contract` | User-facing semantics, promised behavior, observable effects, error messages |
+| 5 | `verification_strategy` | Test design, coverage requirements, regression strategy, acceptance criteria |
+| 6 | `implementation_plan` | Build sequence, migration steps, rollout strategy, phasing |
+| 7 | `architecture_rule` | Cross-cutting constraints, invariants, structural decisions, naming/layering |
+| 8 | `decision_record` | Locked decisions, accepted tradeoffs, rationale for past choices |
+
+**Tie-breakers for confusable pairs:**
+
+1. **`behavior_contract` vs `interface_contract`:** If the finding is about *what* the system promises to do → `behavior_contract`. If about *how* callers interact with it (shapes, protocols, compatibility) → `interface_contract`.
+2. **`architecture_rule` vs `decision_record`:** If the finding addresses a *live constraint* that affects current design → `architecture_rule`. If it addresses *why* a past choice was made → `decision_record`.
+3. **`enforcement_mechanism` vs `behavior_contract`:** If the finding is about *how* a rule is enforced (hooks, validators, checks) → `enforcement_mechanism`. If about *what* rule is enforced (the semantic promise) → `behavior_contract`.
+
+If no claim matches after all 8 steps, set `claim_family: ambiguous`.
+```
+
+SKILL.md gets a pointer-level rule only (already added in Task 3 Step 7): "See shared scaffold in `references/role-rubrics.md` for classification procedure."
+
 - [ ] **Step 3: Update synthesis-guidance.md**
 
-Add two new sections after `## Section 4: Anti-Patterns`. The existing Section 5 ("Exemplar Ledger Entry") becomes Section 7, and "Audit Metric Notes" becomes Section 8. Renumber both before inserting:
+Add two new sections after `## Section 4: Anti-Patterns`. Before inserting, apply two renaming operations:
+1. Rename `## Section 5: Exemplar Ledger Entry` to `## Section 7: Exemplar Ledger Entry`
+2. Rename `## Audit Metric Notes` to `## Section 8: Audit Metric Notes` (note: this heading has no existing "Section N:" prefix — you are adding one, not changing one)
+
+Then insert the two new sections:
 
 ```markdown
 ---
@@ -1247,6 +1340,8 @@ git commit -m "feat(spec-review-team): update reference files for spec.yaml cons
 - Modify: `~/.claude/settings.json` (via promote + sync-settings)
 
 **Source:** Hook script from `docs/superpowers/specs/spec-writing-system/hook.md`.
+
+**Scope note:** The `docs/` path filter is intentionally broad — it catches plans, audits, and benchmarks in addition to spec-like documents. This is a usability tradeoff: a narrower filter (e.g., `docs/specs/` only) would miss large design documents that should be modularized, but the broader filter may produce nudges on files that are legitimately large (e.g., comprehensive audit reports). The nudge is advisory (additionalContext, not a block), so false positives are low-cost. If noise becomes an issue, tighten the path filter to `*/docs/specs/*|*/docs/plans/*`.
 
 **How hooks deploy:** `sync-settings` reads from `~/.claude/hooks/` (production) and writes to `~/.claude/settings.json` (production). Hooks in `.claude/hooks/` (project dev) must be promoted via `uv run scripts/promote` before `sync-settings` can discover them.
 

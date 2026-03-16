@@ -14,7 +14,9 @@
 | P1 | 5 | spec.yaml structural validation gap (NEW), duplication sync (F2), classification guidance (F3), degraded-mode claim_family (F7), "When NOT to Use" contradiction (NEW) |
 | P2 | 4 | Renumbering instruction (F1, downgraded), placeholder wording (F4), parallelization (F5), dropped example (F6), edge semantics (NEW), hook scope (NEW) |
 
-**Overall:** Plan is well-constructed and faithfully translates all 6 spec files into actionable implementation steps. Ready to execute with amendments. No P0 issues. Codex dialogue (5 turns, collaborative, converged) confirmed original findings, identified 2 new P1 issues, and produced a concrete claim_family decision tree.
+**Overall:** Plan is well-constructed and faithfully translates all 6 spec files into actionable implementation steps. No P0 issues. Codex dialogue (5 turns, collaborative, converged) confirmed original findings, identified 2 new P1 issues, and produced a concrete claim_family decision tree.
+
+**Amendment status:** All 5 P1 and 6 P2 amendments applied to the plan on 2026-03-16 (branch `chore/spec-writing-plan-amendments`). Plan is ready to execute.
 
 **Codex dialogue thread:** `019cf535-606d-7953-9a55-d919b9b23e87` (5/8 turns, all resolved)
 
