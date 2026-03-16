@@ -3,16 +3,17 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Validate the spec-writing contract: SKILL.md inlined blocks must match shared-contract.md.
+"""Validate the spec-writing contract: both skills must stay in sync with shared-contract.md.
 
 Checks:
-1. Claims Enum table matches between SKILL.md and shared-contract.md.
-2. Claim-to-Role Derivation Table matches between SKILL.md and shared-contract.md.
-3. spec.yaml Schema block matches between SKILL.md and shared-contract.md.
-4. Producer Failure Model table matches between SKILL.md and shared-contract.md.
-5. All 4 SYNC comment markers are present in SKILL.md.
+1. Claims Enum table matches between spec-writer SKILL.md and shared-contract.md.
+2. Claim-to-Role Derivation Table matches between spec-writer SKILL.md and shared-contract.md.
+3. spec.yaml Schema block matches between spec-writer SKILL.md and shared-contract.md.
+4. Producer Failure Model table matches between spec-writer SKILL.md and shared-contract.md.
+5. All 4 SYNC comment markers are present in spec-writer SKILL.md.
 6. Claims Enum has exactly 8 entries.
 7. Derivation Table has exactly 6 roles.
+8. spec-review-team SKILL.md references shared-contract.md (path check, not content sync).
 
 Usage:
     uv run scripts/validate_spec_writing_contract.py
@@ -93,18 +94,19 @@ def extract_fenced_block(text: str) -> str | None:
     return "\n".join(block_lines) if block_lines else None
 
 
-def extract_section_after_marker(text: str, marker: str) -> str:
+def extract_section_after_marker(text: str, marker: str) -> str | None:
     """Extract text from the SYNC marker's own ## heading until the next ## heading or SYNC marker.
 
     The SYNC marker immediately precedes the ## heading for that section.
     We include the heading itself and extract until the next ## heading or SYNC marker.
 
-    Returns empty string if marker not found.
+    Returns None if the marker is not found in the text.
+    Returns empty string if the marker is found but no ## heading follows it.
     """
     marker_line = f"<!-- SYNC: {marker} -->"
     pos = text.find(marker_line)
     if pos == -1:
-        return ""
+        return None
 
     # Text from the marker onward (includes the heading that follows)
     after_marker = text[pos + len(marker_line):]
@@ -133,19 +135,21 @@ def extract_section_after_marker(text: str, marker: str) -> str:
     return section_text[:end]
 
 
-def extract_section_from_contract(text: str, anchor: str) -> str:
+def extract_section_from_contract(text: str, anchor: str) -> str | None:
     """Extract a section from the shared contract by its heading anchor.
 
     Finds the heading matching ANCHOR_TO_HEADING[anchor] and returns
     text from that heading until the next ## heading or EOF.
+
+    Returns None if the anchor is unknown or the heading is not found.
     """
     heading = ANCHOR_TO_HEADING.get(anchor)
     if heading is None:
-        return ""
+        return None
 
     pos = text.find(heading)
     if pos == -1:
-        return ""
+        return None
 
     # Start from the heading
     after_heading = text[pos:]
@@ -187,11 +191,14 @@ def check_claims_enum(skill_text: str, contract_text: str) -> list[str]:
     )
     contract_section = extract_section_from_contract(contract_text, "claims-enum")
 
-    if not skill_section:
-        errors.append("SKILL.md: Claims Enum section not found after SYNC marker")
+    if skill_section is None:
+        errors.append("SKILL.md: SYNC marker not found for claims-enum")
         return errors
-    if not contract_section:
-        errors.append("shared-contract.md: Claims Enum section not found")
+    if not skill_section:
+        errors.append("SKILL.md: no ## heading found after claims-enum SYNC marker")
+        return errors
+    if contract_section is None:
+        errors.append("shared-contract.md: Claims Enum heading not found")
         return errors
 
     skill_rows = normalize_table_rows(extract_table_rows(skill_section))
@@ -241,13 +248,14 @@ def check_derivation_table(skill_text: str, contract_text: str) -> list[str]:
     )
     contract_section = extract_section_from_contract(contract_text, "derivation-table")
 
-    if not skill_section:
-        errors.append(
-            "SKILL.md: Derivation Table section not found after SYNC marker"
-        )
+    if skill_section is None:
+        errors.append("SKILL.md: SYNC marker not found for derivation-table")
         return errors
-    if not contract_section:
-        errors.append("shared-contract.md: Derivation Table section not found")
+    if not skill_section:
+        errors.append("SKILL.md: no ## heading found after derivation-table SYNC marker")
+        return errors
+    if contract_section is None:
+        errors.append("shared-contract.md: Derivation Table heading not found")
         return errors
 
     skill_rows = normalize_table_rows(extract_table_rows(skill_section))
@@ -298,11 +306,14 @@ def check_spec_yaml_schema(skill_text: str, contract_text: str) -> list[str]:
     )
     contract_section = extract_section_from_contract(contract_text, "spec-yaml-schema")
 
-    if not skill_section:
-        errors.append("SKILL.md: spec.yaml Schema section not found after SYNC marker")
+    if skill_section is None:
+        errors.append("SKILL.md: SYNC marker not found for spec-yaml-schema")
         return errors
-    if not contract_section:
-        errors.append("shared-contract.md: spec.yaml Schema section not found")
+    if not skill_section:
+        errors.append("SKILL.md: no ## heading found after spec-yaml-schema SYNC marker")
+        return errors
+    if contract_section is None:
+        errors.append("shared-contract.md: spec.yaml heading not found")
         return errors
 
     skill_block = extract_fenced_block(skill_section)
@@ -357,11 +368,14 @@ def check_failure_model(skill_text: str, contract_text: str) -> list[str]:
     # Contract has a subsection "### Producer Failures" under "## Failure Model"
     contract_full_section = extract_section_from_contract(contract_text, "failure-model")
 
-    if not skill_section:
-        errors.append("SKILL.md: Failure Model section not found after SYNC marker")
+    if skill_section is None:
+        errors.append("SKILL.md: SYNC marker not found for failure-model")
         return errors
-    if not contract_full_section:
-        errors.append("shared-contract.md: Failure Model section not found")
+    if not skill_section:
+        errors.append("SKILL.md: no ## heading found after failure-model SYNC marker")
+        return errors
+    if contract_full_section is None:
+        errors.append("shared-contract.md: Failure Model heading not found")
         return errors
 
     # Extract producer failures subsection from contract
@@ -421,23 +435,51 @@ def check_failure_model(skill_text: str, contract_text: str) -> list[str]:
     return errors
 
 
+CONTRACT_REF = "docs/references/shared-contract.md"
+
+
+def check_review_team_references(review_team_text: str) -> list[str]:
+    """Verify the spec-review-team SKILL.md references the shared contract.
+
+    The review team doesn't inline contract content (no SYNC markers), but it
+    references the contract by path. This check catches file renames or deletions
+    that would leave the review team pointing at a stale path.
+    """
+    errors: list[str] = []
+    if CONTRACT_REF not in review_team_text:
+        errors.append(
+            f"spec-review-team/SKILL.md: missing reference to {CONTRACT_REF!r}. "
+            f"The shared contract requires both skills to stay in sync."
+        )
+    return errors
+
+
 def validate(repo_root: Path | None = None) -> list[str]:
     """Run all checks. Returns list of error strings — empty list means all pass."""
     if repo_root is None:
         repo_root = Path(__file__).resolve().parents[1]
 
     skill_path = repo_root / ".claude/skills/spec-writer/SKILL.md"
+    review_team_path = repo_root / ".claude/skills/spec-review-team/SKILL.md"
     contract_path = repo_root / "docs/references/shared-contract.md"
 
     errors: list[str] = []
 
     skill_text: str | None = None
+    review_team_text: str | None = None
     contract_text: str | None = None
 
     try:
         skill_text = read_file(skill_path)
     except OSError as e:
-        errors.append(f"validate failed: cannot read SKILL.md. Got: {str(e)!r:.100}")
+        errors.append(f"validate failed: cannot read spec-writer SKILL.md. Got: {str(e)!r:.100}")
+
+    try:
+        review_team_text = read_file(review_team_path)
+    except OSError as e:
+        errors.append(
+            f"validate failed: cannot read spec-review-team SKILL.md. Got: {str(e)!r:.100}"
+        )
 
     try:
         contract_text = read_file(contract_path)
@@ -448,6 +490,9 @@ def validate(repo_root: Path | None = None) -> list[str]:
 
     if skill_text is not None:
         errors.extend(check_sync_markers(skill_text))
+
+    if review_team_text is not None:
+        errors.extend(check_review_team_references(review_team_text))
 
     if skill_text is not None and contract_text is not None:
         errors.extend(check_claims_enum(skill_text, contract_text))

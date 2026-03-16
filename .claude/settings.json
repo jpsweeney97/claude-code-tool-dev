@@ -1,5 +1,18 @@
 {
   "env": {
     "GITFLOW_ALLOW_FILES": "**/docs/**,**/.review-workspace/**,CHANGELOG.md,README.md,HANDBOOK.md,settings.json,plugin.json,**/.claude/handoffs/**,**/.claude/notes/**,**/.claude/skills/**,**/tickets/**,**/CLAUDE.md,**/rules/**"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/spec-size-nudge.sh"
+          }
+        ]
+      }
+    ]
   }
 }

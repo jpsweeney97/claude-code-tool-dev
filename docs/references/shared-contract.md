@@ -233,7 +233,7 @@ boundary_rules:
 - Normative files with effective claims produce roles: `foundation` (from architecture_rule, decision_record), `behavior` (from behavior_contract, interface_contract), `execution` (from implementation_plan, verification_strategy) → **3 gating roles**
 - No `persistence_schema` or `enforcement_mechanism` claims on normative files → no optional specialists
 - `supporting` authority has `default_claims: []` and is non-normative → derived role `reference`, excluded from gate
-- Redirect gate: 3 distinct roles + 2 boundary rules → warrants full team review
+- Redirect gate: 3 distinct roles + 5 boundary edges (from 2 rules) → warrants full team review
 
 **A typical file:**
 

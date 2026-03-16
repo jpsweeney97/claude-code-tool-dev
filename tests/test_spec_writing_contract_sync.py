@@ -26,6 +26,7 @@ SPEC.loader.exec_module(MODULE)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_PATH = REPO_ROOT / ".claude/skills/spec-writer/SKILL.md"
+REVIEW_TEAM_PATH = REPO_ROOT / ".claude/skills/spec-review-team/SKILL.md"
 CONTRACT_PATH = REPO_ROOT / "docs/references/shared-contract.md"
 
 # ---------------------------------------------------------------------------
@@ -392,26 +393,107 @@ def test_read_file_preserves_cause_for_permission_error(
 
 
 def test_validate_accumulates_errors_for_missing_files() -> None:
-    """validate() accumulates errors when both input files are missing."""
+    """validate() accumulates errors when all input files are missing."""
     fake_root = Path("/nonexistent/repo/root")
     errors = MODULE.validate(repo_root=fake_root)
-    # Both SKILL.md and shared-contract.md fail to read → 2 errors
-    assert len(errors) >= 2
+    # spec-writer SKILL.md, review-team SKILL.md, and shared-contract.md fail to read → 3 errors
+    assert len(errors) >= 3
     error_text = "\n".join(errors)
-    assert "SKILL.md" in error_text
+    assert "spec-writer" in error_text
+    assert "spec-review-team" in error_text
     assert "shared-contract.md" in error_text
 
 
 def test_validate_missing_skill_only_reports_skill_error(tmp_path: Path) -> None:
-    """validate() reports SKILL.md read error when only SKILL.md is missing."""
-    # Copy real contract into tmp_path
+    """validate() reports spec-writer read error when only spec-writer SKILL.md is missing."""
+    # Copy real contract and review-team SKILL.md into tmp_path
     real_contract = CONTRACT_PATH.read_text()
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "references").mkdir()
+    real_review_team = REVIEW_TEAM_PATH.read_text()
+    (tmp_path / "docs" / "references").mkdir(parents=True)
     (tmp_path / "docs" / "references" / "shared-contract.md").write_text(real_contract)
+    (tmp_path / ".claude" / "skills" / "spec-review-team").mkdir(parents=True)
+    (tmp_path / ".claude" / "skills" / "spec-review-team" / "SKILL.md").write_text(
+        real_review_team
+    )
 
     # No .claude/skills/spec-writer/SKILL.md in tmp_path
     errors = MODULE.validate(repo_root=tmp_path)
-    assert any("SKILL.md" in e for e in errors)
-    # Contract was readable, so no contract error
+    assert any("spec-writer" in e for e in errors)
+    # Contract and review-team were readable, so no errors for those
     assert not any("shared-contract.md" in e for e in errors)
+    assert not any("spec-review-team" in e and "cannot read" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Extraction failure mode distinction (I5)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_section_after_marker_returns_none_for_missing_marker() -> None:
+    """extract_section_after_marker returns None when the SYNC marker is absent."""
+    text = "# Some content\n\n## Heading\n\nSome text."
+    result = MODULE.extract_section_after_marker(text, "nonexistent-marker")
+    assert result is None
+
+
+def test_extract_section_after_marker_returns_empty_for_missing_heading() -> None:
+    """extract_section_after_marker returns '' when marker exists but no ## heading follows."""
+    text = "<!-- SYNC: docs/references/shared-contract.md#test -->\nNo heading here."
+    result = MODULE.extract_section_after_marker(
+        text, "docs/references/shared-contract.md#test"
+    )
+    assert result == ""
+
+
+def test_extract_section_from_contract_returns_none_for_unknown_anchor() -> None:
+    """extract_section_from_contract returns None for anchor not in ANCHOR_TO_HEADING."""
+    result = MODULE.extract_section_from_contract("any text", "unknown-anchor")
+    assert result is None
+
+
+def test_extract_section_from_contract_returns_none_for_missing_heading() -> None:
+    """extract_section_from_contract returns None when heading is not in the document."""
+    result = MODULE.extract_section_from_contract(
+        "# Wrong heading\n\nContent.", "claims-enum"
+    )
+    assert result is None
+
+
+def test_claims_enum_distinguishes_missing_marker_from_missing_heading() -> None:
+    """check_claims_enum produces distinct errors for missing marker vs missing heading."""
+    contract_text = CONTRACT_PATH.read_text()
+
+    # Case 1: marker missing entirely
+    no_marker = "# Spec Writer\n\nNo sync markers here.\n"
+    errors_no_marker = MODULE.check_claims_enum(no_marker, contract_text)
+    assert any("SYNC marker not found" in e for e in errors_no_marker)
+
+    # Case 2: marker present but no heading follows
+    marker_no_heading = (
+        "<!-- SYNC: docs/references/shared-contract.md#claims-enum -->\n"
+        "No heading follows this marker.\n"
+    )
+    errors_no_heading = MODULE.check_claims_enum(marker_no_heading, contract_text)
+    assert any("no ## heading found" in e for e in errors_no_heading)
+
+
+# ---------------------------------------------------------------------------
+# Review team reference check (I4)
+# ---------------------------------------------------------------------------
+
+
+def test_review_team_references_contract() -> None:
+    """spec-review-team SKILL.md references shared-contract.md."""
+    review_team_text = REVIEW_TEAM_PATH.read_text()
+    errors = MODULE.check_review_team_references(review_team_text)
+    assert errors == [], "expected no errors, got:\n" + "\n".join(
+        f"  - {e}" for e in errors
+    )
+
+
+def test_review_team_missing_reference_is_caught() -> None:
+    """Missing shared-contract.md reference in review-team is flagged."""
+    fake_text = "# Spec Review Team\n\nNo contract reference here.\n"
+    errors = MODULE.check_review_team_references(fake_text)
+    assert len(errors) == 1
+    assert "shared-contract.md" in errors[0]
