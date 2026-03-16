@@ -184,7 +184,116 @@ Tag `provenance: independent`. The SKILL.md rule is: independent if found withou
 
 ---
 
-## Section 5: Exemplar Ledger Entry
+## Section 5: Precedence Resolution (Full Contract Mode)
+
+When `spec.yaml` provides precedence rules, contradiction resolution follows a mechanical procedure instead of domain reasoning.
+
+### Worked example: `claim_precedence` application
+
+**Conflicting findings on the same surface:**
+
+```
+AA-2 (authority-architecture):
+- claim_family: behavior_contract
+- priority: P1
+- affected_surface: config/validation.md §"Input Rules"
+- evidence: "Config contract declares input validation rules that conflict
+  with command contract's declared input handling."
+
+CE-5 (contracts-enforcement):
+- claim_family: behavior_contract
+- priority: P1
+- affected_surface: config/validation.md §"Input Rules"
+- evidence: "Command contract's input handling contradicts config contract's
+  validation rules at the same surface."
+```
+
+**Resolution steps:**
+
+1. Both files are `normative: true` → normative_first does not resolve (tie).
+2. Finding's `claim_family: behavior_contract` → check `claim_precedence.behavior_contract`.
+3. `claim_precedence` lists: `[command-contract, config-contract, foundation, delivery, decisions]`.
+4. AA-2 cites the config contract's perspective; CE-5 cites the command contract's perspective. The command contract is listed first → command contract's position wins.
+5. Record `adjudication_rationale`: "Per claim_precedence for behavior_contract, command-contract takes precedence over config-contract."
+
+**Ledger record:**
+
+```markdown
+### [SY-4] Config input validation conflicts with command input handling
+
+- **source_findings:** AA-2, CE-5
+- **support_type:** independent_convergence
+- **contributors:** authority-architecture, contracts-enforcement
+- **merge_rationale:** "Same surface (config/validation.md §Input Rules), same
+  claim_family (behavior_contract), same root cause — conflicting validation rules."
+- **adjudication_rationale:** "Per claim_precedence for behavior_contract,
+  command-contract (position 1) takes precedence over config-contract (position 2).
+  Config's validation rules should align with command's input handling."
+```
+
+### Worked example: fallback_authority_order
+
+When a finding's `claim_family` has no `claim_precedence` entry, or the conflicting authorities are not listed in the applicable entry:
+
+```
+VR-3 (verification-regression):
+- claim_family: verification_strategy
+- affected_surface: delivery/testing.md §"Coverage Goals"
+- evidence: "Delivery testing plan claims 90% coverage, but the foundation's
+  architectural constraints make 90% infeasible for the async subsystem."
+```
+
+1. Check `claim_precedence.verification_strategy` → lists `[delivery, command-contract, config-contract, decisions]`.
+2. Foundation is NOT in the list → fall through to `fallback_authority_order`.
+3. `fallback_authority_order: [foundation, command-contract, ...]` → foundation is position 1, delivery is position 5.
+4. Foundation wins. The architectural constraint overrides the delivery plan's coverage target.
+
+### Worked example: ambiguity finding
+
+When an authority appears in neither `claim_precedence` nor `fallback_authority_order`:
+
+1. Neither resolution path produces a winner.
+2. Emit ambiguity finding: prefix `SY`, priority P1.
+3. `adjudication_rationale`: "Authority X not listed in claim_precedence for [claim] or fallback_authority_order. Escalating as ambiguity — human resolution required."
+
+---
+
+## Section 6: Boundary Coverage Analysis (Full Contract Mode)
+
+When `spec.yaml` defines `boundary_rules`, synthesis verifies that coupled authorities received adequate cross-reviewer attention.
+
+### Procedure
+
+For each boundary rule:
+1. Identify all findings whose `affected_surface` touches a file under any authority in `on_change_to`.
+2. For each such finding, check whether at least one reviewer also examined files under each `review_authorities` authority for defects related to the boundary rule's `reason`.
+3. Evidence sources: findings files (direct examination), coverage notes (explicit scope declarations), DM summaries (collaboration indicators).
+
+### What counts as "examined"
+
+- A finding whose `affected_surface` is under the review authority → examined.
+- A coverage note listing the review authority's files in `scope_checked` → examined.
+- A DM summary showing a reviewer discussed the boundary topic with another reviewer who examined it → examined (indirect).
+
+### Unexamined boundary
+
+When a `review_authorities` authority has no examination evidence:
+
+```markdown
+### [SY-N] Boundary coverage gap: [authority] not examined for [reason]
+
+- **source_findings:** (none — this is a meta-finding)
+- **support_type:** singleton
+- **contributors:** synthesis-lead
+- **priority:** P1
+- **adjudication_rationale:** "Boundary rule requires examining [review_authority]
+  when [on_change_to authority] is affected. No reviewer examined [review_authority]
+  files for defects related to: [boundary rule reason]."
+```
+
+---
+
+## Section 7: Exemplar Ledger Entry
 
 A complete ledger record, all fields populated:
 
@@ -213,7 +322,7 @@ A complete ledger record, all fields populated:
 
 ---
 
-## Audit Metric Notes
+## Section 8: Audit Metric Notes
 
 SKILL.md defines all 10 required metrics. Two require synthesis-time attention:
 

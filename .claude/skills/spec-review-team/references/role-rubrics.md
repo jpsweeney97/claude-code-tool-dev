@@ -18,6 +18,7 @@ Every spawn prompt starts with this scaffold. Replace `{placeholders}` with role
 >
 > - **priority:** P0 / P1 / P2
 > - **title:** One-sentence description
+> - **claim_family:** <claim from the 8 fixed values, or "ambiguous"> (full contract mode only — omit in degraded mode)
 > - **violated_invariant:** source_doc#anchor
 > - **affected_surface:** file + section/lines
 > - **impact:** 1-2 sentences
@@ -36,6 +37,33 @@ Every spawn prompt starts with this scaffold. Replace `{placeholders}` with role
 > - If you discover something in another reviewer's domain, message them directly via `SendMessage`. Find team members via the team config's `members` array.
 >
 > **Your mission:** {mission}
+
+---
+
+### claim_family Classification Procedure (Full Contract Mode)
+
+**Fast-path guard:** If the file under review has exactly one effective claim, use that claim. Do NOT use the fast-path for multi-claim files — proceed to the priority classifier.
+
+**8-step priority classifier** — evaluate in order, use the first match:
+
+| Priority | Claim | Match when the finding addresses... |
+|----------|-------|-------------------------------------|
+| 1 | `persistence_schema` | Data model, storage format, state representation, migration constraints |
+| 2 | `enforcement_mechanism` | Validation rules, hook behavior, access control, policy enforcement logic |
+| 3 | `interface_contract` | API surface, input/output shapes, compatibility guarantees, protocol format |
+| 4 | `behavior_contract` | User-facing semantics, promised behavior, observable effects, error messages |
+| 5 | `verification_strategy` | Test design, coverage requirements, regression strategy, acceptance criteria |
+| 6 | `implementation_plan` | Build sequence, migration steps, rollout strategy, phasing |
+| 7 | `architecture_rule` | Cross-cutting constraints, invariants, structural decisions, naming/layering |
+| 8 | `decision_record` | Locked decisions, accepted tradeoffs, rationale for past choices |
+
+**Tie-breakers for confusable pairs:**
+
+1. **`behavior_contract` vs `interface_contract`:** If the finding is about *what* the system promises to do → `behavior_contract`. If about *how* callers interact with it (shapes, protocols, compatibility) → `interface_contract`.
+2. **`architecture_rule` vs `decision_record`:** If the finding addresses a *live constraint* that affects current design → `architecture_rule`. If it addresses *why* a past choice was made → `decision_record`.
+3. **`enforcement_mechanism` vs `behavior_contract`:** If the finding is about *how* a rule is enforced (hooks, validators, checks) → `enforcement_mechanism`. If about *what* rule is enforced (the semantic promise) → `behavior_contract`.
+
+If no claim matches after all 8 steps, set `claim_family: ambiguous`.
 
 ---
 

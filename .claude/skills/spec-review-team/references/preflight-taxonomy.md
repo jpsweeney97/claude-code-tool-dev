@@ -31,9 +31,23 @@ Derivation of review cluster from source authority. Lossy — multiple authoriti
 | `legacy` | `supporting` | Legacy maps, amendment trails |
 | `unknown` | Derived from path | Fallback — see missing metadata rules |
 
-## Two-Layer Cluster Model
+## Derived Roles (Full Contract Mode)
 
-Every spec file carries two cluster-related concepts that are related but distinct:
+When `spec.yaml` is present, cluster-based routing is replaced by derived role routing. The derivation table is defined in the shared contract (`docs/references/shared-contract.md#claim-to-role-derivation-table`) — this section documents how the review team applies it.
+
+**Redirect gate:** Count distinct derived roles (excluding `reference`) present across normative files. This replaces `confident_review_cluster_count` in full contract mode.
+
+**Specialist spawning:** Deterministic when `spec.yaml` exists — spawn when any normative file has the specialist's trigger claim in its effective claims:
+- `persistence_schema` claim → spawn `schema-persistence` specialist
+- `enforcement_mechanism` claim → spawn `integration-enforcement` specialist
+
+No sampling needed in full contract mode. The two-tiered heuristic scoring below is retained for degraded mode only.
+
+**Claim divergence flagging:** Files whose effective claims produce a different derived role set than their authority's `default_claims` would produce are flagged as high-attention review surfaces in the preflight packet.
+
+## Two-Layer Cluster Model (Degraded Mode)
+
+In degraded mode (no `spec.yaml`), every spec file carries two cluster-related concepts that are related but distinct. In full contract mode, this model is replaced by derived roles from claims — see above.
 
 **Source authority** — the original `authority` frontmatter value. Preserved as-is from the spec. Used for adjudication when reviewers conflict. This is canonical.
 
@@ -60,9 +74,9 @@ When source authority is `unknown`, apply these path pattern rules in order (fir
 5. Path contains `appendix`, `glossary`, `legacy`, `amendment` → cluster `supporting`
 6. No match → cluster `root` with ambiguous flag
 
-## Signal Dimensions
+## Signal Dimensions (Degraded Mode)
 
-Five signal dimensions inform optional specialist spawning decisions. Dimensions differ in cost and inspection depth.
+In full contract mode, specialist spawning is deterministic from claims — this section applies only to degraded mode. Five signal dimensions inform optional specialist spawning decisions in the absence of `spec.yaml`.
 
 | Dimension | Type | Example signal | Cost |
 |-----------|------|---------------|------|
@@ -74,7 +88,7 @@ Five signal dimensions inform optional specialist spawning decisions. Dimensions
 
 Metadata-derived dimensions are free because they operate on frontmatter and paths collected during Phase 1 (manifest) and Phase 2 (routing). Content inspection dimensions require targeted file reads and consume sampling budget.
 
-## Scoring Weights and Spawn Thresholds
+## Scoring Weights and Spawn Thresholds (Degraded Mode)
 
 ### Two-Tiered Spawn Rule
 
@@ -105,7 +119,7 @@ These weights are implementation guidance, not hard constraints. Recalibrate bas
 | Schema keywords in body only | Weak content (35) | 35 | Do not spawn |
 | Two schema keyword hits, no other signals | Weak content (35 × 2 = same dimension) | 35 | Do not spawn — same-dimension stacking disallowed |
 
-## Sampling Policy
+## Sampling Policy (Degraded Mode)
 
 ### Mechanics
 

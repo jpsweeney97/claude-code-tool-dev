@@ -21,7 +21,42 @@ Triggered when DISCOVERY finds zero parseable frontmatter across all spec files.
 
 **Source authority:** All files get `source_authority = unknown`.
 
-**User communication:** "No frontmatter detected on any spec file. Proceeding in degraded mode: all files classified by path heuristics, authority-based features disabled. Consider running spec-modulator to add frontmatter."
+**User communication:** "No frontmatter detected on any spec file. Proceeding in degraded mode: all files classified by path heuristics, authority-based features disabled. Consider running the spec-writer skill to add frontmatter."
+
+**Full contract mode equivalent:** When `spec.yaml` is present but no files have frontmatter, the system enters degraded mode with an additional warning: "spec.yaml provides authority definitions but no files have frontmatter to map. Consider running the spec-writer skill to add frontmatter."
+
+## spec.yaml Failures
+
+These failure patterns apply only in full contract mode (when `spec.yaml` is present). In degraded mode, the existing failure patterns below apply.
+
+### "spec.yaml is malformed"
+
+1. Attempt YAML parse. If parse fails: hard stop. Report the parse error with line number if available.
+2. Do NOT attempt partial parsing or fallback to degraded mode — a malformed manifest is worse than no manifest.
+3. Report: "spec.yaml parse error at [location]. Fix the YAML syntax and re-run."
+
+### "Unknown claim value in file frontmatter or spec.yaml defaults"
+
+1. Log validation finding (P1): "[file/authority] references unknown claim '[value]'. Known claims: architecture_rule, decision_record, behavior_contract, interface_contract, persistence_schema, enforcement_mechanism, implementation_plan, verification_strategy."
+2. Ignore the unknown claim for role derivation. The file's remaining valid claims still determine its derived roles.
+3. Continue — do NOT hard stop.
+
+### "Authority in precedence/boundary rules not defined in spec.yaml"
+
+1. Log validation finding (P1): "spec.yaml [section] references undefined authority '[name]'."
+2. Skip that entry during adjudication. The remaining valid entries in `claim_precedence` or `fallback_authority_order` still apply.
+3. Continue — do NOT hard stop.
+
+### "Unsupported shared_contract_version"
+
+1. Hard stop. Report: "spec.yaml shared_contract_version is [N], expected 1. This version of the spec-review-team skill supports version 1 only."
+2. Do NOT attempt to process — schema differences between versions may produce silent errors.
+
+### "Normative file has zero effective claims"
+
+1. Log validation finding (P1): "[file] is normative but has zero effective claims (authority's default_claims is empty and no file-level claims declared)."
+2. The file drops out of the redirect gate (no derived role) and has no usable precedence chain.
+3. Process the file as `authority: unknown` for routing purposes.
 
 ## Troubleshooting Decision Trees
 
