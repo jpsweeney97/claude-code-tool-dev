@@ -29,7 +29,8 @@ packages/
 │   │   └── context-injection/  # Mid-conversation evidence gathering MCP server
 │   ├── handoff/              # Session state persistence
 │   ├── ticket/               # Repo-local ticket management
-│   └── context-metrics/      # Context window usage tracking
+│   ├── context-metrics/      # Context window usage tracking
+│   └── superspec/            # Spec writing, review, and modularization
 └── mcp-servers/
     └── claude-code-docs/     # BM25-indexed doc search (TypeScript)
 
@@ -56,6 +57,7 @@ docs/
 | handoff | `packages/plugins/handoff/` | Python | Session state persistence (save/load/search) |
 | ticket | `packages/plugins/ticket/` | Python | Repo-local ticket lifecycle management |
 | context-metrics | `packages/plugins/context-metrics/` | Python | Context window usage analysis |
+| superspec | `packages/plugins/superspec/` | Shell/Markdown | Spec writing system — write, review, modularize specs with shared contract |
 | claude-code-docs | `packages/mcp-servers/claude-code-docs/` | TypeScript | BM25-indexed Claude Code doc search (397 tests) |
 
 Plugins deploy via `turbo-mode` marketplace. MCP servers and extensions deploy via `uv run scripts/promote`.
