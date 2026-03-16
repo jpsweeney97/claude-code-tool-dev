@@ -10,4 +10,5 @@ members = [
     "packages/plugins/cross-model",
     "packages/plugins/handoff",
     "packages/plugins/ticket",
+    "packages/plugins/superspec",
 ]

@@ -5,6 +5,7 @@
     { "name": "cross-model", "source": "./packages/plugins/cross-model" },
     { "name": "handoff", "source": "./packages/plugins/handoff" },
     { "name": "context-metrics", "source": "./packages/plugins/context-metrics" },
-    { "name": "ticket", "source": "./packages/plugins/ticket" }
+    { "name": "ticket", "source": "./packages/plugins/ticket" },
+    { "name": "superspec", "source": "./packages/plugins/superspec" }
   ]
 }
