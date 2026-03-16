@@ -632,7 +632,7 @@ LINE_COUNT=$(echo "$CONTENT" | wc -l | tr -d ' ')
 
 if [ "$LINE_COUNT" -gt 500 ]; then
   cat <<EOF
-{"additionalContext": "This file ($FILE_PATH) is $LINE_COUNT lines. Files over 500 lines are difficult to reference in future conversations. Consider invoking the spec-writer skill to create a modular spec structure."}
+{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "This file ($FILE_PATH) is $LINE_COUNT lines. Files over 500 lines are difficult to reference in future conversations. Consider invoking the spec-writer skill to create a modular spec structure."}}
 EOF
 fi
 
