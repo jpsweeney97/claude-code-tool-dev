@@ -364,6 +364,8 @@ Six operations justify Engram's plugin scope. Three exist today as cross-plugin 
 
 **Trust boundary: staged ≠ published.** Distill writes to a private staging area (`knowledge_staging/`), not to `engram/knowledge/`. Staged candidates are reviewed before publication via `/curate`.
 
+**`/curate` mechanics:** `/curate` lists staged candidates sorted by `durability` (likely_durable first), then by `created_at`. It shows snippet, source section, and durability classification. The user reviews and selects candidates to publish. `likely_ephemeral` candidates are surfaced with a warning but not filtered — the user decides. On publish, the knowledge engine deduplicates via `content_sha256` against existing published entries, writes to `engram/knowledge/learnings.md`, and removes the staged file.
+
 **3. Triage: Read Work + Context**
 
 ```
@@ -499,7 +501,7 @@ Policy-based, not tool-specific. Protects subsystem-owned paths from direct muta
 | `knowledge_published` | `engram/knowledge/**` | Engine entrypoints only |
 | `knowledge_staging` | `~/.claude/engram/<repo_id>/knowledge_staging/**` | Engine entrypoints only |
 
-**Enforcement covers all mutating tools:** Write, Edit, and Bash file writes. Paths canonicalized before matching (resolve symlinks, collapse `..`, normalize to absolute).
+**Enforcement covers all mutating tools:** Write, Edit, and Bash file writes. Paths canonicalized before matching (resolve symlinks, collapse `..`, normalize to absolute). Bash interception is best-effort — detecting arbitrary shell commands that write to protected paths (`echo >`, `cp`, `tee`, etc.) is unreliable via PreToolUse input parsing. The guard catches direct `python3 engine_*.py` patterns reliably; other Bash writes are caught on a best-effort basis.
 
 ### SessionStart hook (`engram_session`)
 
@@ -521,7 +523,7 @@ Bounded and idempotent. <500ms startup budget.
 | Context | None | Agents save their own session state |
 | Knowledge staging | Session cap + idempotency | Dedup prevents repeated staging; cap limits volume |
 
-Configuration in `.claude/engram.local.md`:
+Configuration in `.claude/engram.local.md` (YAML frontmatter in markdown, parsed by `engram_core` using the same fenced-YAML extraction as the ticket plugin's `extract_fenced_yaml()`):
 
 ```yaml
 autonomy:
@@ -687,7 +689,7 @@ Feed identical fixtures into old ticket engine and new Engram Work engine. Compa
 | Question | When to resolve |
 |----------|-----------------|
 | What additional fields does IndexEntry need? | Step 0 implementation. Extend based on real query needs. |
-| How many of 596 ticket tests are compatibility-critical? | Step 3. Triage before building harness. |
+| How many of 669 ticket tests are compatibility-critical? | Step 3. Triage before building harness. |
 
 ### Deferred decisions (explicitly not in v1)
 
