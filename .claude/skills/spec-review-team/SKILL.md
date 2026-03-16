@@ -27,7 +27,7 @@ Review multi-file specifications for structural and semantic defects using a par
 ## When to Use
 
 - Multi-file specifications with frontmatter metadata (`module`, `status`, `normative`, `authority` fields)
-- Specs created by `spec-modulator` or following the same conventions
+- Specs created by `spec-writer`, `spec-modulator`, or following the same conventions
 - Reviews requiring cross-file invariant analysis and multi-lens defect detection
 - Trigger phrases: "review this spec", "review the spec", "spec review", "review all spec files", "thorough spec review", "review specification"
 
@@ -35,7 +35,7 @@ Review multi-file specifications for structural and semantic defects using a par
 
 - Single design documents → use `reviewing-designs` instead
 - Do NOT use for code review or implementation review
-- Do NOT use for specs without frontmatter metadata
+- Best for spec corpora with frontmatter metadata. Specs without frontmatter are supported in degraded mode; authority-based features (deterministic specialist spawning, mechanical precedence resolution, boundary coverage analysis) are unavailable.
 - Note: specs with few files but multiple authority tiers still require this skill — the redirect gate handles the file-count check, not this rule
 
 ## Prerequisites
@@ -82,18 +82,24 @@ Six specialized reviewers cover the full defect space. Core reviewers are mandat
 
 1. **Locate spec directory.** Use the path the user provides. If no path given, search for markdown files with YAML frontmatter containing `module`, `status`, `normative`, or `authority` fields.
 
-2. **Read all markdown files.** Parse YAML frontmatter from each file. Extract: `module`, `status`, `normative`, `authority`, `legacy_sections`.
+2. **Read manifest.** Check for `spec.yaml` in the spec directory. If present: parse authority registry, record `shared_contract_version` (version ≠ 1 → hard stop), extract authority labels with their `default_claims`, `precedence`, and `boundary_rules`. If absent: note degraded mode for Phase 2-5 and proceed.
 
-3. **Build authority map.** For each file, record:
+3. **Read all markdown files.** Parse YAML frontmatter from each file. Extract: `module`, `status`, `normative`, `authority`, `claims`, `legacy_sections`.
+
+4. **Build authority map.** For each file, record:
+   - **File path:** absolute path to the file.
    - **Normative:** `true` if frontmatter `normative: true`; `false` otherwise.
-   - **Source authority:** value of frontmatter `authority` field, preserved as-is. If absent: `unknown`.
-   - **Review cluster:** derived from source authority + `module` + path heuristics. See `references/preflight-taxonomy.md` for the 6 canonical clusters and classification rules.
+   - **Authority label:** value of frontmatter `authority` field, preserved as-is. If absent: `unknown`.
+   - **Effective claims** (full contract mode): authority's `default_claims` + file's `claims` (additive). See `docs/references/shared-contract.md` for claims rules.
+   - **Derived roles** (full contract mode): mapped from effective claims via the derivation table in `docs/references/shared-contract.md`. A file with claims spanning multiple roles participates in all of them.
+   - **Boundary-rule participation** (full contract mode): `source` if the file's authority appears in any `on_change_to` list; `target` if in any `review_authorities` list; `both` if in both lists; `neither` otherwise.
+   - **Review cluster** (degraded mode only): derived from source authority + `module` + path heuristics. See `references/preflight-taxonomy.md` for the 6 canonical clusters and classification rules.
 
-4. **Degraded mode:** If zero files have parseable frontmatter, classify all files by path heuristics, warn the user that frontmatter is missing, and continue. See Failure Modes table.
+5. **Degraded mode:** If `spec.yaml` is absent AND zero files have parseable frontmatter, classify all files by path heuristics, warn the user, and continue. If `spec.yaml` is present but no files have frontmatter: degraded mode with warning. See [Backward Compatibility](#backward-compatibility).
 
-5. **Partial coverage** (some files with frontmatter, some without) is normal operation — do NOT enter degraded mode.
+6. **Partial coverage** (some files with frontmatter, some without) is normal operation — do NOT enter degraded mode.
 
-**Output:** Authority map listing every file with its normative flag, source authority, and review cluster. Count of normative files, clusters represented, and boundary edges (files bridging two clusters).
+**Output:** Authority map listing every file with its normative flag, authority label, effective claims (if full contract mode), derived roles (if full contract mode), review cluster (if degraded mode), and boundary-rule participation. Count of normative files, distinct derived roles or clusters, and boundary edges.
 
 ### Phase 2: ROUTING
 
@@ -101,12 +107,25 @@ Six specialized reviewers cover the full defect space. Core reviewers are mandat
 
 Evaluate all four redirect conditions. Redirect to `reviewing-designs` only if **all** conditions are met:
 
+**Full contract mode** (spec.yaml present):
+
+| Condition | Threshold | Required for redirect |
+|-----------|-----------|----------------------|
+| Distinct derived roles (excluding `reference`) from normative files | ≤ 2 | Yes |
+| `boundary_edges` (from `spec.yaml` `boundary_rules`) | ≤ 2 | Yes |
+| Specialist triggers (normative file has trigger claim) | None firing | Yes |
+| Ambiguous authority assignments | Any present | **Disables redirect** |
+
+**Degraded mode** (no spec.yaml):
+
 | Condition | Threshold | Required for redirect |
 |-----------|-----------|----------------------|
 | `confident_review_cluster_count` | ≤ 2 | Yes |
-| `boundary_edges` | ≤ 2 | Yes |
-| Specialist triggers | None firing | Yes |
+| `boundary_edges` (inferred from cluster transitions) | ≤ 2 | Yes |
+| Specialist triggers (heuristic scoring) | None firing | Yes |
 | Ambiguous cluster assignments | Any present | **Disables redirect** |
+
+**`boundary_edges` count rule (full contract mode):** Count unique directional `(on_change_to authority, review_authority)` pairs across all boundary rules. One rule with 3 `review_authorities` = 3 edges. Example: 2 boundary rules in the CLI spec produce 5 edges (3 + 2).
 
 **Key insight:** A 3-file spec spanning 3 authority tiers needs full team review; a 10-file spec in one tier does not. File count is not a gate condition.
 
@@ -120,21 +139,22 @@ Evaluate all four redirect conditions. Redirect to `reviewing-designs` only if *
 
 **Phase gate:** All files checked; frontmatter parseable on all files, or degraded mode entered.
 
-1. Validate frontmatter on all spec files: required fields present (`module`, `status`, `normative`, `authority`), values well-formed (no nulls, no unrecognized status values).
-2. Check cross-references: every relative markdown link resolves to an existing file and, if it includes an anchor (`#section`), that anchor exists in the target file.
-3. Detect broken links (unresolved paths), orphaned anchors (anchors defined but never referenced), and missing referenced files.
-4. Record all results for the preflight packet's `mechanical_checks` section.
+1. Validate frontmatter on all spec files: required fields present (`module`, `status`, `normative`; `authority` required when `spec.yaml` exists), values well-formed (no nulls, no unrecognized status values).
+2. **Semantic manifest validation** (full contract mode only): unknown claims in `default_claims` or file `claims`, undefined authority references in `claim_precedence`, `fallback_authority_order`, or `boundary_rules`, normative files with zero effective claims, effective claims >3 per file. Consumer failure rules from `docs/references/shared-contract.md` apply: unknown claims → validation finding (P1), undefined authority → validation finding (P1), malformed spec.yaml → hard stop.
+3. Check cross-references: every relative markdown link resolves to an existing file and, if it includes an anchor (`#section`), that anchor exists in the target file.
+4. Detect broken links, orphaned anchors, and missing referenced files.
+5. Record all results for the preflight packet's `mechanical_checks` section.
 
 #### Phase 3B: Staffing
 
 **Phase gate:** Spawn plan finalized (which reviewers, and why).
 
 1. Core team (4 reviewers: `authority-architecture`, `contracts-enforcement`, `completeness-coherence`, `verification-regression`) always spawns. Role definitions are in `references/role-rubrics.md`.
-2. Evaluate optional specialist signals using the two-tiered spawn rule from `references/preflight-taxonomy.md`:
-   - Tier 1 (score ≥ 100): a single high-confidence signal is sufficient to spawn.
-   - Tier 2 (score 50–99): requires 2+ medium signals from different dimensions to spawn.
-3. If frontmatter metadata is insufficient to evaluate signals: sample targeted content excerpts per the sampling policy in `references/preflight-taxonomy.md`. Do NOT expand into broad corpus reading.
-4. Budget exhausted and below spawn threshold: do NOT spawn the specialist. Log the unresolved signal in the synthesis report.
+2. Evaluate optional specialist signals:
+   - **Full contract mode:** Deterministic — spawn when any normative file has the specialist's trigger claim in its effective claims. `persistence_schema` triggers `schema-persistence`; `enforcement_mechanism` triggers `integration-enforcement`. No sampling needed.
+   - **Degraded mode:** Heuristic — use the two-tiered spawn rule from `references/preflight-taxonomy.md`: Tier 1 (score ≥ 100) single high-confidence signal; Tier 2 (score 50–99) requires 2+ medium signals from different dimensions.
+3. If in degraded mode and frontmatter metadata is insufficient to evaluate signals: sample targeted content excerpts per the sampling policy in `references/preflight-taxonomy.md`. Do NOT expand into broad corpus reading.
+4. Budget exhausted and below spawn threshold (degraded mode only): do NOT spawn the specialist. Log the unresolved signal in the synthesis report.
 5. Record the finalized spawn plan (role IDs, spawn rationale for each optional specialist triggered or suppressed).
 
 #### Phase 3C: Materialize
@@ -142,7 +162,13 @@ Evaluate all four redirect conditions. Redirect to `reviewing-designs` only if *
 **Phase gate:** `packet.md` written, spawn plan announced to user.
 
 1. Verify `.review-workspace/` is in `.gitignore`. If absent, add it.
-2. Create `.review-workspace/preflight/packet.md` with exactly 6 sections: `authority_map`, `boundary_edges`, `signal_matrix`, `mechanical_checks`, `route_decision`, `spawn_plan`.
+2. Create `.review-workspace/preflight/packet.md` with exactly 6 sections:
+   - `authority_map`: file path, normative flag, authority label, effective claims (full contract) or review cluster (degraded), derived roles (full contract), boundary-rule participation (full contract)
+   - `boundary_edges`: computed from `spec.yaml` `boundary_rules` (full contract) or cluster transitions (degraded)
+   - `signal_matrix`: binary claim presence (full contract) or heuristic signal scores (degraded)
+   - `mechanical_checks`: frontmatter validation + semantic manifest validation results (full contract)
+   - `route_decision`: derived role count (full contract) or cluster count (degraded) + boundary_edges + specialist triggers
+   - `spawn_plan`: deterministic from claims (full contract) or heuristic from signals (degraded)
 3. Announce spawn plan to user: "Spawning [N] reviewers: [role IDs]. Optional specialists: [reason each was triggered or 'not triggered']."
 
 ### Phase 4: REVIEW
@@ -247,7 +273,13 @@ Execute in order:
 
 Record `support_type` and `contributors` in the ledger.
 
-**Resolve contradictions.** Apply the authority map (normative > non-normative), then evidence quality, then domain reasoning. Unresolvable contradictions escalate as ambiguity findings (P1, `SY` prefix). Record `adjudication_rationale` in the ledger for every resolved contradiction.
+**Resolve contradictions.**
+
+- **Full contract mode:** Apply `spec.yaml` precedence rules mechanically: (1) `normative: true` beats `normative: false`, (2) `claim_precedence` for the finding's `claim_family` — first listed authority wins, (3) `fallback_authority_order` when no claim-specific rule matches, (4) emit ambiguity finding when still unclear. See `docs/references/shared-contract.md` for full precedence rules.
+- **Degraded mode:** Apply the authority map (normative > non-normative), then evidence quality, then domain reasoning.
+- Unresolvable contradictions escalate as ambiguity findings (P1, `SY` prefix). Record `adjudication_rationale` in the ledger for every resolved contradiction.
+
+**Boundary coverage analysis** (full contract mode): When a finding's `affected_surface` touches a file under authority X that appears in `on_change_to`, verify at least one reviewer examined files under each `review_authorities` authority for defects related to the boundary rule's `reason`. Unexamined boundary authorities → coverage finding (P1, `SY` prefix).
 
 **Prioritize.** P0 > P1 > P2 is the baseline. Corroboration and confidence are secondary tiebreakers. Record `priority_rationale` in the ledger only when ranking departs from the P0 > P1 > P2 baseline.
 
@@ -302,6 +334,7 @@ Each reviewer writes findings using this schema. Do NOT improvise fields.
 
 - **priority:** P0 / P1 / P2
 - **title:** One-sentence description
+- **claim_family:** <claim from the 8 fixed values, or "ambiguous"> (full contract mode only — omit in degraded mode)
 - **violated_invariant:** source_doc#anchor
 - **affected_surface:** file + section/lines
 - **impact:** 1-2 sentences
@@ -324,6 +357,8 @@ Each reviewer writes findings using this schema. Do NOT improvise fields.
 | `IE` | integration-enforcement |
 
 **Provenance rule:** Reviewers tag what they know: `independent` if they found it without a peer message; `followup` if a peer message prompted the investigation. The lead interprets corroboration quality during SYNTHESIS. Reviewers do NOT assess whether a finding is corroborated.
+
+**`claim_family` rule:** In full contract mode, each finding must identify which claim from the fixed enum it addresses. This enables mechanical application of `claim_precedence` during synthesis. See `references/role-rubrics.md` for the 8-step classification procedure and tie-breakers. If a reviewer cannot identify one claim family after following the procedure, set `claim_family: ambiguous` — the finding escalates to human resolution during synthesis. In degraded mode (no `spec.yaml`), omit `claim_family` entirely — the claims vocabulary does not apply. Do NOT use `ambiguous` as a proxy for "no spec.yaml"; it conflates genuinely uncertain classification with structurally inapplicable context. Follows the same conditional pattern as `prompted_by` (required when `provenance: followup`, omitted when `provenance: independent`).
 
 ## Coverage Notes
 
@@ -380,6 +415,17 @@ Post-v1 calibration only. Record raw data during v1; evaluate after 8+ runs.
 | Synthesis duration | > 3 minutes wall-clock | Split synthesis into sub-phases or add a dedicated synthesis agent |
 | P0 missed | Post-merge defect traced to a P0 not surfaced | Root-cause which reviewer's lens should have caught it |
 
+## Backward Compatibility
+
+Existing specs remain reviewable via degraded mode. Full contract benefits (deterministic specialist spawning, mechanical precedence resolution, boundary coverage analysis) require `spec.yaml`.
+
+| Condition | Behavior |
+|-----------|----------|
+| `spec.yaml` present + frontmatter on files | Full contract mode — all new features active |
+| `spec.yaml` absent + frontmatter on files | Degraded mode — current behavior preserved |
+| `spec.yaml` present + no frontmatter on files | Degraded mode — `spec.yaml` provides authority definitions but files can't be mapped |
+| Neither present | Degraded mode — path heuristics only |
+
 ## References
 
 | File | Purpose |
@@ -389,3 +435,4 @@ Post-v1 calibration only. Record raw data during v1; evaluate after 8+ runs.
 | `references/synthesis-guidance.md` | Ledger format, consolidation rules, corroboration taxonomy, worked examples |
 | `references/failure-patterns.md` | Detailed troubleshooting for all failure modes, quality gate hook patterns |
 | `references/agent-teams-platform.md` | Agent teams API reference — TeamCreate, SendMessage, TaskCreate parameters and constraints |
+| `docs/references/shared-contract.md` | Shared contract — spec.yaml schema, claims enum, derivation table, precedence rules, failure model |
