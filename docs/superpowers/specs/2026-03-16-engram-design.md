@@ -489,6 +489,8 @@ CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engin
 - Unknown `envelope_version` → explicit `VERSION_UNSUPPORTED` error with expected range
 - Idempotent: same `idempotency_key` → same result, no side effects on retry
 
+**Phase-scoped idempotency (migration):** During Step 1 (bridge adapter), only the legacy dedup mechanism (`sha256(problem_text + key_file_paths)`) is active — envelope-level idempotency keys are not checked by the old ticket engine. Full envelope idempotency (where the Work engine checks `idempotency_key` before processing) activates in Step 3 when the new Work engine replaces the bridge. Section 5 core rules describe the Step 3+ steady state. The bridge adapter preserves legacy dedup behavior only.
+
 ### `/save` as session orchestrator
 
 ```
@@ -504,6 +506,28 @@ CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engin
         }
 ```
 
+**Recovery manifest:** On completion (success or partial failure), `/save` writes `save_recovery.json` to `~/.claude/engram/<repo_id>/`:
+
+```json
+{
+    "snapshot_ref": "<RecordRef canonical serialization>",
+    "emitted_at": "<ISO 8601>",
+    "results": {
+        "snapshot": {"status": "ok", "ref": "..."},
+        "defer": {"status": "error", "error": "..."},
+        "distill": {"status": "ok", "staged": 3}
+    }
+}
+```
+
+The manifest is an **operational aid, not authoritative state**. Primary records (snapshots, tickets, learnings) remain authoritative. Manifest failure degrades retry convenience but does not break standalone operations. Overwritten on each `/save` invocation (only the most recent is useful for retry). Not part of the Engram storage contract.
+
+**Retry path:** On partial failure, retry the failed sub-operation standalone with the `snapshot_ref` from the manifest:
+```
+/defer --snapshot-ref <ref_from_manifest>
+/distill --snapshot-ref <ref_from_manifest>
+```
+
 `/save` is a thin orchestrator. No unique business logic. Same code paths as standalone skills. Each sub-operation independently retryable. `/quicksave` remains lightweight (5 sections, no orchestration).
 
 ### Failure handling
@@ -513,7 +537,7 @@ CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engin
 | Envelope version mismatch | `VERSION_UNSUPPORTED` error | User upgrades Engram |
 | Target engine rejects envelope | Specific error (duplicate, validation) | User fixes and retries |
 | Idempotent duplicate detected | Returns existing ref, no side effects | Automatic (transparent) |
-| `/save` partial success | Per-step results show which failed | Retry failed steps standalone |
+| `/save` partial success | Per-step results show which failed. Recovery manifest written to `save_recovery.json`. | Retry failed steps standalone with `--snapshot-ref` from manifest. |
 | Crash after envelope write | Envelope orphaned in staging | `/triage` flags stale staging files; moved to `.failed/` after 24h TTL |
 | Crash before envelope write | No envelope exists; downstream record missing expected upstream link | `/triage` infers unlinked records by scanning native content and cross-checking `source_ref` fields against upstream records |
 | Promote Step 2 failure | CLAUDE.md unchanged, no promote-meta written | Lesson remains eligible for next `/promote` run (no durable state recorded until Step 3) |
@@ -531,12 +555,12 @@ CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engin
 | `/save` | Context (orchestrator) | Orchestrates defer + distill. Per-step results. `--no-defer`, `--no-distill`. |
 | `/load` | Context | Chain protocol uses `repo_id` + `worktree_id`. |
 | `/quicksave` | Context | Lightweight: 5 sections, no defer, no distill. |
-| `/defer` | Context → Work | DeferEnvelope + idempotency. |
+| `/defer` | Context → Work | DeferEnvelope + idempotency. Accepts `--snapshot-ref <ref>` for retry (required when called standalone after `/save` failure). |
 | `/search` | Cross-subsystem | Queries all subsystems. Results grouped by subsystem. |
 | `/ticket` | Work | Unchanged API. Storage at `engram/work/`. |
 | `/triage` | Cross-subsystem | Merged from ticket-triage + handoff triage. Reports staged candidates + orphans. |
 | `/learn` | Knowledge | Appends to `engram/knowledge/learnings.md` with `lesson-meta` contract. Dedup via `content_sha256` against published entries. |
-| `/distill` | Context → Knowledge | Writes to staging inbox. Idempotent per snapshot. |
+| `/distill` | Context → Knowledge | Writes to staging inbox. Idempotent per snapshot. Accepts `--snapshot-ref <ref>` for retry (required when called standalone after `/save` failure). |
 | `/curate` | Knowledge | **New.** Reviews staged candidates, publishes to `engram/knowledge/`. |
 | `/promote` | Knowledge → CLAUDE.md | Three-step: engine validates promotability, skill writes CLAUDE.md, engine writes promote-meta. |
 | `/timeline` | Cross-subsystem | **New.** Session reconstruction with ledger-backed/inferred labels. |
@@ -550,7 +574,7 @@ CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engin
 
 1. **No unique business logic.** Same code paths as standalone skills.
 2. **No hidden behaviors.** Every sub-operation visible in per-step results.
-3. **Independently retryable.** Failed steps retry via standalone skills.
+3. **Independently retryable.** Failed steps retry via standalone skills with explicit `--snapshot-ref` from recovery manifest. "Latest" is permitted for discovery UI only, never as the semantic source of a write.
 
 ### Hooks
 
