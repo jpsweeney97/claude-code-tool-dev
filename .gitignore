@@ -57,3 +57,4 @@ environment-improvement/
 
 # Desktop app config (user-specific)
 claude-devtools-config.json
+.review-workspace/

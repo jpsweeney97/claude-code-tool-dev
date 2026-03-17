@@ -27,199 +27,226 @@ integrations.
 
 | Phase | Name | Purpose | Gate |
 |-------|------|---------|------|
-| 1 | Clarify the Job | Lock what the prompt must cause the model to do | Core behavior stated in one sentence |
-| 2 | Naive Failure Analysis | Diagnose what goes wrong without intervention | 3–5 specific, named failure modes |
-| 3 | Structural Upgrades | Design countermeasures | Each upgrade traces to ≥1 failure mode |
-| 4 | Prompt Construction | Build the artifact | Passes construction checklist |
-| 5 | Design Rationale | Explain choices for maintainability | Every major section has rationale |
+| 1 | Profile the Task | Classify cognitive operation type; state job | Task type named; job in one sentence |
+| 2 | Failure Analysis | Diagnose failure modes with LLM mechanism | 3–5 failures, each with name + mechanism + consequence |
+| 3 | Structural Upgrades | Design countermeasures by upgrade type | Each upgrade traces to ≥1 failure mode; type named |
+| 4 | Prompt Construction | Build artifact; validate against failure modes | Passes construction checklist + semantic validation |
+| 5 | Design Rationale | Validity check on load-bearing choices | Every section justified by failure mode, not convention |
 
-**Execute phases in order. Do not skip or combine phases.**
+**Execute phases in order. Fast path permitted for simple tasks — see Complexity Calibration.**
 
-## Phase 1: Clarify the Job
+---
 
-State in one sentence what the prompt must cause the model to do. This is
-the core behavior — the single thing the prompt exists to produce.
+## Phase 1: Profile the Task
 
-If the user's request is ambiguous about what behavior they want, ask ONE
-clarifying question. For minor ambiguity, state an assumption explicitly
-and proceed.
+Before diagnosing failures, classify the cognitive operation. Task type predicts the
+likely failure profile and directs Phase 2 toward the right hypotheses.
 
-**Context is fixed for this pipeline:**
-- Deployment: Conversational turn (user pastes prompt into chat)
-- Invocation: User-triggered (explicit, intentional)
-- Output consumer: Human reading rendered markdown in a chat UI
+### Task Type Classification
 
-## Phase 2: Naive Failure Analysis
+| Type | Description | Characteristic Failure Profile |
+|------|-------------|--------------------------------|
+| **Analysis** | Evaluate, critique, diagnose | Self-selection bias; softball findings; flat severity |
+| **Generation** | Create original content | Example anchoring; diversity collapse; scope drift |
+| **Transformation** | Convert or restructure existing content | Source anchoring; incomplete transformation; format mismatch |
+| **Planning** | Sequence and prioritize actions | Order/priority conflation; serialized parallelism; missing decision gates |
+| **Extraction** | Identify or enumerate from a given artifact | False completeness; granularity collapse; category omission |
 
-**This is the load-bearing phase. The entire pipeline's value derives from it.**
+Most prompts blend types. Name the dominant type; note secondary types if they affect
+the failure profile.
 
-First, describe the naive/beginner approach — what someone would write in
-30 seconds for this job.
+**Job statement:** State in one sentence what the prompt must cause the model to do.
 
-Then identify **3–5 specific, named failure modes** of the naive approach.
-For each failure mode:
+For minor ambiguity, state an assumption and proceed. For genuine ambiguity about what
+behavior is wanted, ask ONE clarifying question.
 
-- **Name it** in 3–5 words (e.g., "Category omission via self-selection")
-- **Describe the mechanism**: What does the model do wrong, and why?
-- **Show the consequence**: What does the user get that they shouldn't?
+**Phase 1 Gate:** Task type classified + job stated in one sentence.
 
-### Failure Mode Categories to Sweep
+---
 
-Evaluate the naive prompt against each category. Not all will apply — but
-check each before dismissing it:
+## Phase 2: Failure Analysis
 
-- **Self-selection bias**: Model gravitates to easy/familiar aspects, skips hard ones
-- **Structural absence**: No forcing function for completeness, order, or granularity
-- **Scope drift**: Model expands or contracts scope without constraint
-- **Format mismatch**: Output structure doesn't match how the consumer will use it
-- **Anchoring to draft**: Model treats user's rough input as scaffold instead of symptom
-- **Sycophancy/softening**: Model hedges, qualifies, or avoids direct statements
-- **Premature closure**: Model produces an answer before completing analysis
+**This is the load-bearing phase. Every downstream decision derives from it.**
+
+Describe the naive approach — what someone would write in 30 seconds. Then identify
+**3–5 specific, named failure modes**. For each:
+
+- **Name**: 3–5 words
+- **LLM mechanism**: *Why* does the model do this? Ground the explanation in model
+  behavior — RLHF-induced sycophancy, autoregressive premature closure, training
+  distribution bias toward salient/easy cases, attention to early tokens, etc.
+- **In-context behavior**: What specifically goes wrong with this prompt and task?
+- **Consequence**: What does the user receive that they shouldn't?
+
+### Failure Mode Starting Points by Task Type
+
+Begin with the characteristic profile from Phase 1. Then check the universal modes.
+Not all will apply — but reason about each before dismissing it.
+
+**Universal (check for all types):**
+- *Structural absence* — No forcing function for completeness, ordering, or granularity.
+  Model produces what comes naturally from next-token prediction.
+- *Format mismatch* — Output structure doesn't match how the consumer will use it.
+- *Scope ambiguity* — No explicit boundary; model expands or contracts based on salience.
+
+**Analysis:** Self-selection bias (RLHF bias toward confident, easy-to-state findings);
+softball severity (helpfulness training induces hedging); sunk-cost review (reviewer
+and author share the same prior).
+
+**Generation:** Example anchoring (draft treated as scaffold, not symptom); diversity
+collapse (autoregressive sampling concentrates near the distributional mean).
+
+**Transformation:** Source anchoring (surface changes but underlying structure
+preserved); incomplete transformation (partial conversion satisfies the literal request).
+
+**Planning:** Order/priority conflation (single ranked list mixes causal, temporal, and
+value relationships); serialized parallelism (flat list forces serial execution of
+concurrent work); missing decision gates (linear plan through a branching reality).
+
+**Extraction:** False completeness (model signals done when salient items are found,
+not when all items are found); granularity collapse (findings reported at one level
+of abstraction regardless of actual importance).
 
 ### Phase 2 Gate
 
-**MUST have 3–5 failure modes before proceeding. Each MUST have a name,
-mechanism, and consequence.**
+MUST have 3–5 failure modes. Each MUST have: name, LLM mechanism, and consequence.
 
-Do not proceed to Phase 3 with:
-- Vague concerns ("might not be detailed enough")
-- Fewer than 3 failure modes
-- Failure modes without mechanisms
-
-If you cannot identify 3 failure modes, the task may be simple enough that
-a structured prompt is unnecessary. Say so explicitly — not everything
-needs this pipeline.
+Do not proceed with vague concerns ("might not be detailed enough") or mechanisms that
+don't explain model behavior. If you cannot identify 3 failure modes, the task may be
+simple enough that this pipeline is unnecessary — say so.
 
 ### Rationalization Table
 
-| Excuse to skip Phase 2 | Reality |
-|-------------------------|---------|
-| "The user's draft is already good" | The draft is diagnostic input, not a starting point. Diagnose its failures. |
+| Excuse | Reality |
+|--------|---------|
+| "The user's draft is already good" | The draft is diagnostic input. Diagnose its failures. |
 | "This prompt is straightforward" | Straightforward prompts still have failure modes. Find them. |
-| "I already know what the prompt needs" | That's an assumption. Validate it through failure analysis, not confidence. |
+| "I already know what the prompt needs" | That's a hypothesis. Validate it through analysis. |
+
+---
 
 ## Phase 3: Structural Upgrades
 
-From the failure analysis, derive **2–4 key design moves**. For each:
+Derive **2–5 design moves** from the failure analysis. For each:
 
-- **Name** the move in 3–5 words
-- **Trace** it to the specific failure mode(s) it addresses (by name)
-- **Explain the mechanism**: Why does this structural choice fix the failure?
+- **Name** the move (3–5 words)
+- **Upgrade type** (see taxonomy below)
+- **Target failure mode(s)** — trace to Phase 2 names
+- **Mechanism** — why does this structural choice counter the failure at the model
+  behavior level?
 
-Every upgrade MUST trace to at least one failure mode from Phase 2. If an
-upgrade doesn't address a diagnosed failure, it's decoration — cut it.
+### Upgrade Type Taxonomy
+
+Match upgrade type to the failure class it addresses:
+
+| Type | Addresses | Examples |
+|------|-----------|---------|
+| **Structural** | Structural absence, category omission | Required sections, explicit dimensions, phase gates, information-forward ordering |
+| **Behavioral** | Sycophancy, sunk-cost bias, premature closure | Role shifts, pre-mortem framing, adversarial stance, perspective forcing |
+| **Calibration** | Scope ambiguity, format mismatch, granularity collapse | Scope bounds, "skip when" rules, caps, output templates, granularity anchors |
+| **Validation** | False completeness, unverifiable outputs | Self-check sections, confidence scoring, "done when" criteria, enumeration gates |
+
+Every upgrade MUST trace to at least one Phase 2 failure mode. No traceability = decoration — cut it.
+
+---
 
 ## Phase 4: Prompt Construction
 
-Build the prompt. The output is a single markdown code block the user can
-copy and paste into a conversation.
+Build the prompt. Output is a single markdown code block the user can copy and paste.
 
 ### Structural Requirements
 
-**Architecture**
-- Section-based structure where each section has a clear, distinct purpose
-- Sections ordered so earlier sections produce analysis that later sections
-  depend on (information flows forward, not backward)
-- Output format specified — structured markdown (headers, labeled fields,
-  consistent patterns) rather than open-ended prose
-
-**Calibration Language**
-- Scope boundaries: explicit "do not" / "skip when" instructions
-- Granularity constraints: "each item should be..." / "cap at N items"
-- Honesty prompts: "if uncertain, state what would resolve it rather than..."
-
-**Ground Rules**
-- Consolidate behavioral constraints into a dedicated section at the end
-- This is where anti-patterns, scope limits, and quality bars live
-- Use blocking language ("MUST", "NEVER") only for rules that are genuinely
-  non-negotiable — overuse dilutes authority
-
-**Self-Containment**
-- The prompt works when pasted cold into a new conversation with no prior
-  context. No implicit dependencies on other instructions.
-
-**Concision**
-- Every sentence must earn its place
-- If a sentence doesn't directly shape model behavior or prevent a diagnosed
-  failure mode, cut it
+- Section-based; each section has a single distinct purpose
+- Information flows forward — earlier sections produce analysis that later sections
+  depend on, not the reverse
+- Output format specified, not left to model discretion
+- Each Phase 3 upgrade appears as an identifiable structure in the prompt; if you
+  can't point to where an upgrade lives, it wasn't implemented
+- Ground rules consolidated into one section; blocking language only for genuinely
+  non-negotiable constraints — overuse dilutes authority
+- Self-contained: works when pasted cold into a new conversation with no prior context
+- Every sentence earns its place; if it doesn't shape behavior or prevent a diagnosed
+  failure, cut it
 
 ### Construction Checklist
 
-Before presenting the prompt, verify:
+- [ ] Every section traces to at least one Phase 3 upgrade
+- [ ] Every Phase 3 upgrade is identifiable in the prompt
+- [ ] Output format is specified
+- [ ] Scope is bounded (out-of-scope stated, not just in-scope)
+- [ ] No section requires the model to read the user's mind
+- [ ] Blocking language reserved for genuinely non-negotiable rules
+- [ ] Single copyable code block
 
-- [ ] Every section traces to at least one structural upgrade from Phase 3
-- [ ] Output format is specified, not left to model discretion
-- [ ] Scope is bounded — the prompt says what's out of scope, not just in
-- [ ] No section requires the model to read the user's mind — inputs and
-      context requirements are explicit
-- [ ] Ground rules use blocking language only for genuinely non-negotiable
-      constraints
-- [ ] The prompt is a single copyable block (markdown code fence)
+### Semantic Validation
 
-## Delivery
+After the checklist, trace each Phase 2 failure mode through the constructed prompt:
 
-After constructing the prompt, save it to `docs/prompts/` as a markdown file.
+> *"Where in the prompt does [failure mode name] get addressed, and how does that
+> structure counter the model behavior that causes it?"*
 
-**File naming:** `<slug>.md` where `<slug>` is a short, descriptive kebab-case
-name derived from the prompt's job (e.g., `code-review-checklist.md`,
-`api-design-critique.md`).
+If a failure mode has no answer, the prompt is incomplete. Add the missing structure
+or explicitly acknowledge the trade-off.
 
-**File format:**
-
-```markdown
 ---
-job: <one-sentence core behavior from Phase 1>
-created: <YYYY-MM-DD>
----
-
-<the prompt — raw, no code fence wrapper>
-```
-
-**Do NOT** skip this step or defer it. The prompt is not delivered until the
-file exists. If `docs/prompts/` does not exist, create it.
 
 ## Phase 5: Design Rationale
 
-For each major structural choice in the prompt, provide:
+For each major structural choice:
 
 - **What it does** — the mechanism
-- **What fails without it** — the failure mode it prevents (reference Phase 2)
-- **What to tune** — what the user should adjust first if this aspect
-  underperforms in practice
+- **Which failure mode it prevents** — name from Phase 2
+- **What breaks if removed** — observable consequence for the user
+- **What to tune first** — most likely adjustment if this aspect underperforms
 
-This section is part of the deliverable. Prompts without rationale are
-unmaintainable — the next person to edit the prompt won't know which parts
-are load-bearing.
+**This phase is a validity check, not documentation.** If you cannot name a specific
+failure mode a section prevents, the section is unjustified — remove it, or go back
+to Phase 2 until the justification is explicit.
+
+---
+
+## Complexity Calibration
+
+Match pipeline depth to task complexity.
+
+| Complexity | Indicators | Approach |
+|-----------|-----------|---------|
+| **Simple** | ≤2 obvious failure modes, single task type, short output | Compress Phases 1–3 into one analysis paragraph; build directly |
+| **Moderate** | 3–4 failure modes, possibly blended type | Full pipeline; Phase 5 can be brief |
+| **Complex** | 5 failure modes, multiple task types, interaction effects | Full pipeline; Phase 5 is essential |
+
+Phase 2 is never optional regardless of complexity. Compressing it to one paragraph is
+acceptable. Skipping it is not.
+
+---
 
 ## Meta-Rules
 
-- **Rebuild, don't iterate.** The user's rough draft or naive example is
-  diagnostic input, not a starting point. Do not polish it — rebuild from
-  the failure analysis.
-- **Match complexity to task.** A 5-section prompt covering real failure
-  modes beats a 12-section prompt covering hypothetical ones. If the task
-  is simple, the prompt should be simple. Say so.
-- **No generic advice.** Every recommendation must be specific to THIS
-  prompt's job and failure modes. "Be specific in your instructions" is
-  not a design move.
-- **Prompt complexity budget.** The constructed prompt should be the minimum
-  size that addresses all diagnosed failure modes. Longer is not better.
-  Each section must justify its token cost.
+- **Rebuild, don't iterate.** The user's rough draft is diagnostic input. Do not polish
+  it — rebuild from the failure analysis.
+- **Match complexity to task.** A 4-section prompt covering real failure modes beats an
+  8-section prompt covering hypothetical ones.
+- **No generic advice.** Every recommendation must be specific to this prompt's job and
+  failure modes. "Be specific" is not a design move.
+- **Minimum sufficient prompt.** The constructed prompt should be the minimum size that
+  addresses all diagnosed failure modes. Each section must justify its token cost.
+- **Explain yourself.** Every structural choice has a reason tied to a specific failure
+  mode and a model behavior mechanism. If you can't state both, the choice is unjustified.
 
 ## Red Flags — STOP and Reassess
 
-If you notice any of these during execution, pause and correct course:
-
-- Writing the prompt (Phase 4) before completing failure analysis (Phase 2)
+- Writing Phase 4 before completing Phase 2
 - An upgrade in Phase 3 that doesn't trace to a named failure mode
-- A section in the prompt that exists "for completeness" rather than to
-  counter a specific failure
-- The prompt is growing beyond what the failure modes justify
-- You're adding sections because the prompt "feels like it should have more"
-- The design rationale (Phase 5) is generic rather than specific to this
-  prompt's choices
+- An upgrade in Phase 3 with no named upgrade type
+- A section in the prompt that exists "for completeness" rather than to counter a
+  specific failure
+- The prompt grows beyond what the diagnosed failure modes justify
+- Phase 5 rationale is generic ("ensures thoroughness") rather than tied to a specific
+  failure mode and mechanism
+- Semantic validation in Phase 4 leaves a failure mode unanswered
 
 ## Worked Examples
 
-For end-to-end examples of this pipeline applied to real prompts, read
+For end-to-end examples of this pipeline applied to real prompts, including task-type
+classification and LLM mechanism analysis, read
 [references/worked-examples.md](references/worked-examples.md).

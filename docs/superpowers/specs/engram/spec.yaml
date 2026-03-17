@@ -1,0 +1,60 @@
+shared_contract_version: 1
+readme: README.md
+
+authorities:
+  foundation:
+    description: System identity, core invariant (index-not-mutate), shadow authority anti-pattern, and cross-cutting design principles.
+    default_claims: [architecture_rule]
+
+  data-contract:
+    description: Core types (RecordRef, RecordMeta, envelopes, lesson-meta), storage layout, NativeReader protocol, query API, and degradation model.
+    default_claims: [interface_contract, persistence_schema]
+
+  operations:
+    description: Cross-subsystem operation flows (defer, distill, triage, promote, search, timeline), save orchestration, envelope invariants, and failure handling.
+    default_claims: [behavior_contract]
+
+  skill-contract:
+    description: User-facing skill surface (13 skills), chain protocol, trigger differentiation, and save orchestration rules.
+    default_claims: [behavior_contract]
+
+  enforcement:
+    description: Hooks (guard, quality, register, session), trust injection, protected-path enforcement, and autonomy model with staging cap.
+    default_claims: [enforcement_mechanism]
+
+  delivery:
+    description: Build sequence (Steps 0a-5), migration strategy, compatibility harness, test buckets, rollback, and success criteria.
+    default_claims: [implementation_plan, verification_strategy]
+
+  decisions:
+    description: Named risks with severity/mitigation/detection, open questions, and explicitly deferred decisions with rationale.
+    default_claims: [decision_record]
+
+  supporting:
+    description: Overview, reading order, and reference material.
+    default_claims: []
+
+precedence:
+  normative_first: true
+  claim_precedence:
+    behavior_contract: [operations, skill-contract, foundation, decisions]
+    interface_contract: [data-contract, operations, decisions]
+    persistence_schema: [data-contract, decisions]
+    enforcement_mechanism: [enforcement, operations, decisions]
+    architecture_rule: [foundation, decisions]
+    implementation_plan: [delivery, decisions]
+    verification_strategy: [delivery, decisions]
+    decision_record: [decisions]
+  fallback_authority_order: [foundation, data-contract, operations, skill-contract, enforcement, delivery, decisions]
+  unresolved: ambiguity_finding
+
+boundary_rules:
+  - on_change_to: [data-contract]
+    review_authorities: [operations, enforcement]
+    reason: Type changes affect operation envelope contracts and trust injection types.
+  - on_change_to: [operations]
+    review_authorities: [skill-contract, enforcement]
+    reason: Operation flow changes affect skill invocation patterns and hook enforcement paths.
+  - on_change_to: [enforcement]
+    review_authorities: [operations]
+    reason: Hook behavior changes can alter which operation paths are authorized.
