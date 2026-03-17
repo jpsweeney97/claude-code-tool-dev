@@ -78,10 +78,11 @@ def contains_pem_private_key(text: str) -> bool:
 
 # Order: most specific first to prevent double-matching after replacement.
 
-# JWT pattern intentionally lacks \b word boundaries (unlike secret_taxonomy.py).
+# JWT pattern intentionally lacks \b word boundaries and uses a looser
+# third-segment minimum (+ vs {5,}) compared to secret_taxonomy.py.
 # Ingress over-matching is acceptable for redaction — false positives are
 # harmless (text is already being redacted). The egress scanner uses \b
-# for precision because false positives there block Codex calls.
+# and stricter minimums because false positives there block Codex calls.
 _JWT_RE = re.compile(
     r"eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]+"
 )
