@@ -1,15 +1,7 @@
 # Engram: A Federated Persistence Layer for Claude Code
 
 **Date:** 2026-03-16
-**Status:** Deferred to Phase 2
 **Authors:** JP + Claude + Codex (7-turn collaborative dialogue)
-
-> **Phase 2 — Full consolidation deferred.** Adversarial review (6 [serious] findings) and Codex dialogue (6 turns, converged) determined that the shared-contracts value (identity, readers, query) is separable from physical consolidation (merging plugins, migrating storage, transplanting engines). Phase 1 ships the shared contracts without consolidation. This spec's full consolidation scope proceeds only if multi-plugin composition creates measurable friction.
->
-> - **Decision:** `docs/decisions/2026-03-16-engram-oc2-augmented-path.md`
-> - **Phase 1 spec:** `docs/plans/2026-03-16-engram-phase1-spec.md`
-> - **Architecture proof:** `docs/plans/2026-03-16-engram-architecture-proof.md`
-> - **Adversarial review:** `docs/reviews/adversarial-review-engram-design.md`
 
 ---
 
