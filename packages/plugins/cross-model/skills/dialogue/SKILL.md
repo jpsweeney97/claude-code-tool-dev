@@ -184,7 +184,21 @@ Task(
 
 **Timeout handling:** If a gatherer times out (120s), treat as 0 parseable lines. Proceed to the low-output retry in Step 3.
 
-**Learning retrieval (§17):** Before briefing assembly, attempt to read learning cards per consultation contract §17. Fail-soft: missing store does not block consultation.
+### Learning retrieval (§17)
+
+Before briefing assembly, retrieve relevant learnings for injection into the outbound briefing.
+
+1. Run the retrieval script:
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/retrieve_learnings.py" --query "{question}" --max-entries 5
+   ```
+   Where `{question}` is the user's dialogue question.
+
+2. **If stdout is non-empty:** Store the output as a pipeline variable `learning_entries` for injection in Step 3h. The output is pre-formatted markdown — do not modify it.
+
+3. **If stdout is empty or the command fails (non-zero exit):** Set `learning_entries` to empty string. Proceed without learnings. Do not block the consultation. Do not report the absence.
+
+The retrieval script is deterministic (keyword/tag scoring) — consistent with Step 3's non-LLM assembly constraint.
 
 ### Step 3: Assemble briefing
 
@@ -259,7 +273,7 @@ Do **not** implement path inference (guessing SRC from the citation path). This 
 
 Store this value for use by Step 4b (reason evaluation) and Step 7 (analytics emission).
 
-**3h. Group:** Assemble into three sections with deterministic ordering (Gatherer A items first, then Gatherer B within each section):
+**3h. Group:** Assemble into sections with deterministic ordering (Gatherer A items first, then Gatherer B within each section):
 
 ```
 <!-- dialogue-orchestrated-briefing -->
@@ -268,12 +282,20 @@ Store this value for use by Step 4b (reason evaluation) and Step 7 (analytics em
 {COUNTER items}
 {CONFIRM items}
 
+## Prior Learnings
+{learning_entries from retrieval step, if non-empty}
+
 ## Material
 {CLAIM items}
 
 ## Question
 {user's question, verbatim}
 ```
+
+**`## Prior Learnings` rules:**
+- Include this section only if `learning_entries` (from the retrieval step) is non-empty. If empty, omit the section header entirely — do not emit an empty `## Prior Learnings` section.
+- The section appears only in the outbound briefing to Codex. It is NOT expected in the `codex-dialogue` agent's synthesis output.
+- The `<!-- learnings-injected: N -->` comment within the learning entries is an observability marker. Preserve it.
 
 The sentinel `<!-- dialogue-orchestrated-briefing -->` must appear in the briefing. The `codex-dialogue` agent uses it to detect an external briefing.
 
