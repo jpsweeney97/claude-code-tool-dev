@@ -586,6 +586,31 @@ The manifest is an **operational aid, not authoritative state**. Primary records
 2. **No hidden behaviors.** Every sub-operation visible in per-step results.
 3. **Independently retryable.** Failed steps retry via standalone skills with explicit `--snapshot-ref` from recovery manifest. "Latest" is permitted for discovery UI only, never as the semantic source of a write.
 
+### Chain protocol — session lineage tracking
+
+The chain protocol enables `resumed_from` tracking across sessions. Carried forward from the existing handoff contract (`packages/plugins/handoff/references/handoff-contract.md`) with identity changes.
+
+**Resume (/load) — writes chain state:**
+1. Archive the snapshot to `~/.claude/engram/<repo_id>/snapshots/.archive/<filename>`
+2. Write archive path to `~/.claude/engram/<repo_id>/chain/<worktree_id>-<session_id>`
+
+**Save/Quicksave (/save, /quicksave) — reads and cleans chain state:**
+1. **Read:** Check `chain/<worktree_id>-<session_id>` — if exists, include path as `resumed_from` in snapshot frontmatter
+2. **Write:** Write the new snapshot/checkpoint file
+3. **Cleanup:** Use `trash` to remove the state file. If `trash` fails, warn but do not block — 24-hour TTL handles cleanup.
+
+**Identity change from handoff:** Chain state files are scoped by `repo_id` (directory) and `worktree_id` (filename prefix) instead of project name and session_id alone. This provides worktree isolation — two worktrees cannot pollute each other's chain.
+
+**Invariant:** Chain state files are created by `/load`; the next `/save` or `/quicksave` reads them to populate `resumed_from`, then attempts cleanup. A state file that persists beyond 24 hours is stale.
+
+**Known limitations (carried forward):**
+
+1. **Resume-crash gap:** If a session resumes a snapshot but crashes before saving a new one, the chain has a gap. The archived file is intact and can be manually re-loaded. The orphaned state file is pruned by TTL.
+
+2. **Archive-failure chain poisoning:** If archive fails but the state file is written, `resumed_from` points to a non-existent file. Skills treat `resumed_from` as informational — do not fail on missing target. **v1 mitigation:** Archive-before-state-write ordering. The state file is only written after archive succeeds, eliminating this failure mode for new Engram sessions. Legacy chain files (pre-migration) may still exhibit this issue.
+
+3. **State-file TTL race:** If a session spans >24 hours, the state file may be pruned before `/save` reads it. Result: missing `resumed_from`. Not data loss — the chain link is skipped.
+
 ### Hooks
 
 | Hook | Event | Order | Purpose | On failure |
@@ -799,7 +824,15 @@ The `SourceResolver` is adapter-local scaffolding — it dies with the bridge ad
 
 **Data migration:** Copy handoffs to new location. Map project name → repo_id.
 
-**Exit criteria (4a):** Save/load cycle works. Worktree isolation verified. `/save` orchestration with per-step results. `/search` spans all subsystems. `/timeline` reconstructs sessions. All hooks operational. SessionStart <500ms.
+**Chain state migration:** Before copying chain state files, classify each:
+- **Valid fresh** (age < 24h, target snapshot exists): Migrate to new `chain/` directory
+- **Stale** (age > 24h): Skip — TTL would have pruned these
+- **Dangling** (target snapshot missing): Skip — archive-failure poisoning
+- **Corrupt** (unparseable): Skip and log
+
+Only migrate valid fresh state. Do not reimport defects from the old system.
+
+**Exit criteria (4a):** Save/load cycle works. Worktree isolation verified. `/save` orchestration with per-step results. `/search` spans all subsystems. `/timeline` reconstructs sessions. All hooks operational. SessionStart <500ms. Chain state migration classifies and filters old state files.
 
 **Step 4b — Retire:**
 
@@ -861,6 +894,7 @@ Feed identical fixtures into old ticket engine and new Engram Work engine. Compa
 | **Staging accumulation** | Low | /triage reports pending. Session cap. /curate shows queue. | Staging directory file count over time. |
 | **NativeReader latency** | Low | Fresh scan at MVP scale is fast. git log off hot path. | Query latency on repos with 500+ files. |
 | **Concurrent worktree staging** | Medium | **Staging files:** Content-addressed filenames (`content_sha256`-based) with `O_CREAT | O_EXCL` atomic creation. Concurrent identical candidates coalesce. **Published learnings (`learnings.md`):** Same-worktree concurrency guarded by `fcntl.flock` on lockfile (see Section 2). Cross-worktree concurrency delegated to git merge. | Two worktrees distill same snapshot concurrently — duplicate staging files? Same-worktree `/learn` + `/curate` concurrent — lost append? |
+| **Chain protocol limitations** | Low | Three inherited limitations (resume-crash gap, archive-failure poisoning, state-file TTL race). Archive-failure resolved in v1 by archive-before-state-write ordering. Other two carried as named limitations. See Section 6 chain protocol. | Session spans >24h, save has no `resumed_from`? |
 
 ### Open questions
 
