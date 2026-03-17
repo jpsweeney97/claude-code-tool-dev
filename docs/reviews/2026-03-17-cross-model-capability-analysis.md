@@ -94,7 +94,7 @@
 
 **A2. Provenance recovery is invisible.** The `codex-dialogue` agent's 3-tier unknown-provenance recovery (`codex-dialogue.md` Step 4: exact → component-boundary suffix → basename) is sophisticated infrastructure. `provenance_unknown_count` bumps schema to 0.2.0 and is stored in events, but `compute_stats.py` computes no metrics on it. Can't measure whether gatherers are failing to tag sources or whether the recovery is converting `[SRC:unknown]` claims into grounded evidence.
 
-**A3. Single-turn consultations have no quality metrics.** `_compute_dialogue` operates only on `dialogue_outcomes`. Single-turn `/codex` consultations produce `consultation_outcome` events which have no convergence rate, seed confidence, or quality analysis. The `_SECTION_MATRIX` for `--type consultation` only returns usage, not a dedicated analysis section. This means the most frequently used capability (`/codex`) is the least measured.
+**A3. Single-turn consultations have no quality metrics.** `_compute_dialogue` operates only on `dialogue_outcomes`. Single-turn `/codex` consultations produce `consultation_outcome` events which have no convergence rate, seed confidence, or quality analysis. The `_SECTION_MATRIX` for `--type consultation` only returns usage, not a dedicated analysis section. This means the most frequently used capability (`/codex`) is the least measured. *Note:* `consultation_outcome` events lack prompt/result length fields — these exist only in `codex_guard.py` PostToolUse telemetry events, with no correlation mechanism between the two event types.
 
 **A4. Learning retrieval is architecturally ready but dead.** Consultation contract §17 defines the injection points but is marked deferred (card model dependency removed). `docs/learnings/learnings.md` exists and is populated by `/learn` and `/promote`. The briefing assembly can accommodate a `## Prior Learnings` section (§17.2 specifies placement between `## Context` and `## Material`). Every piece of the pipeline exists except the actual retrieval call — §17 is deferred, waiting for implementation.
 
@@ -108,7 +108,7 @@
 
 ### Lens C: Safety and Reliability
 
-**C1. Credential scan reason field logs regex fragments, not family names.** At `credential_scan.py:71`, the reason encodes `f"strict:{family.pattern.pattern[:60]}"`. The `SecretFamily.name` attribute exists and would be more informative for audit trail analysis. The log entry `strict:\bAKIA[A-Z0-9]{16}\b` is less actionable than `strict:aws_access_key_id`.
+**C1. Credential scan reason field logs regex fragments, not family names.** At `credential_scan.py:71`, the reason encodes `f"strict:{family.pattern.pattern[:60]}"`. The `SecretFamily.name` attribute exists (`secret_taxonomy.py:31` dataclass, `:69` FAMILIES tuple) and would be more informative for audit trail analysis. The log entry `strict:\bAKIA[A-Z0-9]{16}\b` is less actionable than `strict:aws_access_key_id`. *Note:* `stats_common.py:parse_security_tier` extracts only the tier prefix (splits on `:`), so changing from regex to family name does not affect tier_counts computation — only raw event readability.
 
 **C2. Multi-field scan priority may produce misleading audit entries.** Multiple fields are scanned in sequence (`codex_guard.py:208` loop). `scan_text` returns on first match per field. A prompt with a broad-tier match in field A and a strict-tier match in field B could log field A's pattern as the reason (if A is processed first). The result is still correctly a block, but the logged `reason` may point to the less-relevant pattern. This affects audit trail analysis, not enforcement correctness.
 
@@ -132,13 +132,23 @@
 
 **What it does:** Surfaces past consultation threads by topic and enables resumption without the user needing to track `threadId` values manually.
 
-**Why it's high-leverage:** `threadId` is already persisted in every `consultation_outcome` and `dialogue_outcome` event (`codex_guard.py:240-248` extracts it from three possible locations). The `/codex` skill's continuation path (`codex-reply` with canonicalized `threadId` per §10) is fully implemented. But users can only continue a thread if they know the `threadId` — which means they must have seen the diagnostics output from the immediately preceding session. Cross-session continuity requires manual tracking.
+**Why it's high-leverage:** The `/codex` skill's continuation path (`codex-reply` with canonicalized `threadId` per §10) is fully implemented. But users can only continue a thread if they know the `threadId` — which means they must have seen the diagnostics output from the immediately preceding session. Cross-session continuity requires manual tracking.
 
-**What it builds on:** `read_events.py:read_all()` already returns all events. Each outcome event contains `thread_id` (when present) and `prompt_length` / `result_length` plus timestamps. The `/codex` skill already handles `codex-reply` dispatch for continuations.
+**Feasibility constraint — thread_id availability by event type:**
 
-**What's needed:** A thread-listing function (filter events by `thread_id` presence, group by `thread_id`, extract first prompt summary and timestamp). Presentation in `/consultation-stats` or a new `--threads` flag on `/codex`. Thread selection UI (multiple choice) before dispatching `codex-reply`.
+| Event type | `thread_id` field | Source |
+|-----------|-------------------|--------|
+| `dialogue_outcome` | Actual string (required) | `emit_analytics.py:416` — parsed from agent synthesis |
+| `delegation_outcome` | Actual string (required) | `event_schema.py:88` — required field |
+| `consultation_outcome` | **Bool only** (`thread_id_present`) | `codex_guard.py:240-248` — computes presence, not value |
 
-**What it doesn't need:** No changes to the MCP server, event schema (thread_id is already stored), credential scanning, or context injection. No new hooks.
+Thread discovery works for `/dialogue` and `/delegate` but is **infeasible for `/codex`** (the most-used capability) without a schema change to store the actual `thread_id` value in `consultation_outcome` events. The `/codex` SKILL.md (line 249) instructs the skill to pass `thread_id` via `pipeline.get("thread_id")`, and `build_consultation_outcome` can receive it, but `codex_guard.py` PostToolUse only extracts a boolean.
+
+**What it builds on:** `read_events.py:read_all()` already returns all events. The `/codex` skill already handles `codex-reply` dispatch for continuations.
+
+**What's needed:** (1) Schema change: extract actual `thread_id` string in `codex_guard.py` PostToolUse and store in `consultation_outcome` events. (2) Thread-listing function (filter events by `thread_id` presence, group by `thread_id`, extract first prompt summary and timestamp). (3) Presentation in `/consultation-stats` or a new `--threads` flag. (4) Thread selection UI before dispatching `codex-reply`.
+
+**What it doesn't need:** No changes to the MCP server, credential scanning, or context injection. No new hooks.
 
 ### N3. Reviewer Analytics Integration
 
@@ -146,9 +156,11 @@
 
 **Why it's high-leverage:** `codex-reviewer` performs full Codex consultations (briefing assembly, 1-2 turn exchange, synthesis) but is completely invisible to the analytics ecosystem. Users who rely on both `/dialogue` for deep consultations and the reviewer for PR checks get a partial view of their Codex usage. The infrastructure for emission already exists — `emit_analytics.py:build_consultation_outcome` handles single/few-turn consultations.
 
-**What it builds on:** `emit_analytics.py` structured event construction. `event_schema.py` `consultation_outcome` type. `compute_stats.py` `_compute_usage` already counts consultation outcomes. The reviewer agent has access to the Write tool (needed for temp file creation) and Bash (needed for running `emit_analytics.py`).
+**What it builds on:** `emit_analytics.py` structured event construction. `event_schema.py` `consultation_outcome` type. `compute_stats.py` `_compute_usage` already counts consultation outcomes.
 
-**What's needed:** Analytics emission instructions added to `codex-reviewer.md` Phase 4 (post-synthesis). A `review_outcome` event type in `event_schema.py` (or reuse `consultation_outcome` with a distinguishing field). A stats section for review-specific metrics (files reviewed, finding counts by severity, source attribution distribution). Updates to `_SECTION_MATRIX` in `compute_stats.py`.
+**Tooling constraint:** `codex-reviewer.md` does **not** have Write tool access (tools: Bash, Read, Glob, Grep, plus MCP tools). Analytics emission via `emit_analytics.py` requires temp file creation (Write tool). Implementation must either add Write to the agent's tools list or use Bash for file creation.
+
+**What's needed:** Analytics emission instructions added to `codex-reviewer.md` Phase 4 (post-synthesis). A `review_outcome` event type in `event_schema.py` (or reuse `consultation_outcome` with a distinguishing field — note that a discriminator field requires schema changes and consumer updates). A stats section for review-specific metrics. Updates to `_SECTION_MATRIX` in `compute_stats.py`.
 
 **What it doesn't need:** No changes to the MCP servers, hook infrastructure, credential scanning, or context injection. No new scripts — reuses existing `emit_analytics.py`.
 
@@ -156,60 +168,92 @@
 
 ## Step 4: Prioritized Findings
 
+*Revised after Codex dialogue (exploratory, 6 turns, converged). Thread ID: `019cfcb9-e363-7fd2-b56f-c10333246da9`. Changes: 3 new findings, 1 merge (#5+#10 → #5), 3 corrections (N2 thread_id gap, #4 field availability, N3 tooling constraint). Expanded from 10 to 12 findings.*
+
 | # | Finding | Type | Leverage | Effort | Evidence | Components |
 |---|---------|------|----------|--------|----------|------------|
 | 1 | **Learning injection into consultations** — §17 is deferred, learning system produces content that never reaches Codex | New | **High** — every consultation re-discovers context that was previously captured; learning pipeline ROI is currently zero for cross-model work | S (2-3 files) | §17 deferred in contract; fail-soft references in both skill files; `docs/learnings/learnings.md` populated by `/learn`+`/promote`; §17.2 specifies `## Prior Learnings` placement | `skills/codex/SKILL.md`, `skills/dialogue/SKILL.md`, `references/consultation-contract.md` §17 |
 | 2 | **Planning effectiveness metrics** — plan-mode fields stored but never analyzed | Enhance | **High** — `--plan` users can't measure impact; data already exists, only computation missing | S (1 file + tests) | `event_schema.py:37-46` version resolution keys on `question_shaped`; `compute_stats.py` has no plan section; `dialogue/SKILL.md` Step 7 emits `shape_confidence`, `assumptions_generated_count`, `ambiguity_count` | `scripts/compute_stats.py`, `scripts/stats_common.py` |
-| 3 | **Provenance recovery metrics** — unknown-provenance tracking stored but unmeasured | Enhance | **High** — 3-tier recovery in `codex-dialogue` is sophisticated infrastructure with no feedback loop; can't tell if gatherers are degrading | S (1 file + tests) | `provenance_unknown_count` bumps schema to 0.2.0 (`event_schema.py:41`); `codex-dialogue.md` Step 4 three-tier matching; `compute_stats.py` has no provenance section | `scripts/compute_stats.py`, `scripts/stats_common.py` |
-| 4 | **Single-turn consultation quality metrics** — `/codex` is most-used but least-measured capability | Enhance | **Medium** — `consultation_outcome` events have prompt/result length and thread presence but no dedicated quality analysis | S (1 file + tests) | `_compute_dialogue` only operates on `dialogue_outcomes` (`compute_stats.py:175`); `_SECTION_MATRIX` consultation type returns usage only | `scripts/compute_stats.py` |
-| 5 | **Credential scan reason clarity** — logs regex fragments instead of family names | Enhance | **Medium** — affects audit trail analysis for every block/shadow event; fix is trivial | S (1 file + tests) | `credential_scan.py:71` uses `family.pattern.pattern[:60]`; `SecretFamily.name` attribute exists at `secret_taxonomy.py:48` | `scripts/credential_scan.py` |
+| 3 | **Provenance recovery metrics** — unknown-provenance tracking stored but unmeasured | Enhance | **High** — 3-tier recovery in `codex-dialogue` is sophisticated infrastructure with no feedback loop; can't tell if gatherers are degrading | S (1 file + tests) | `provenance_unknown_count` bumps schema to 0.2.0 (`event_schema.py:44`); `codex-dialogue.md` Step 4 three-tier matching; `compute_stats.py` has no provenance section | `scripts/compute_stats.py`, `scripts/stats_common.py` |
+| 4 | **Telemetry integrity — thread_id schema gap** — `consultation_outcome` stores `thread_id_present` (bool) not the actual value | New | **High** — thread discovery (#8) is infeasible for `/codex` without this; `/dialogue` and `/delegate` already store the string; gates capability completeness work | S (3 files) | `codex_guard.py:240-248` computes bool only; `emit_analytics.py:481-510` CAN store thread_id from pipeline; `event_schema.py:71-81` doesn't require it; SKILL.md:249 instructs skill to pass it but guard doesn't extract | `scripts/codex_guard.py`, `scripts/emit_analytics.py`, `scripts/event_schema.py` |
+| 5 | **Credential scan audit trail** — reason logs regex fragments instead of family names; multi-field scan may log less-relevant tier | Enhance | **Medium** — affects audit trail analysis for every block/shadow event; `SecretFamily.name` exists (`secret_taxonomy.py:31` dataclass, `:69` FAMILIES) but unused in reason; `codex_guard.py:208` returns on first block, may miss higher-tier match in later field | S (2 files + tests) | `credential_scan.py:71` uses `family.pattern.pattern[:60]`; `stats_common.py:parse_security_tier` unaffected (splits on `:`, takes prefix) | `scripts/credential_scan.py`, `scripts/codex_guard.py` |
 | 6 | **Parse degradation visibility** — epilogue fallback is invisible in stats | Enhance | **Medium** — users can't tell if their analytics data is degraded; fields already stored | S (1 file + tests) | `parse_truncated`/`parse_degraded` in `dialogue_outcome` events; `emit_analytics.py` dual-path parser; `compute_stats.py` has no section | `scripts/compute_stats.py` |
-| 7 | **Consultation continuity via thread discovery** — threadId persisted but not surfaceable | New | **Medium** — cross-session continuity requires manual `threadId` tracking; every event already stores it | M (3-4 files) | `codex_guard.py:240-248` extracts threadId from 3 locations; `read_events.py:read_all()` returns all events; `/codex` already handles `codex-reply` dispatch | `scripts/compute_stats.py` or new `scripts/thread_discovery.py`, `skills/codex/SKILL.md` |
-| 8 | **Reviewer analytics integration** — `codex-reviewer` is invisible to analytics | New | **Medium** — full Codex consultations emitting no events; partial usage visibility | M (3-4 files) | `codex-reviewer.md` has no analytics emission; `emit_analytics.py:build_consultation_outcome` handles few-turn consultations; `event_schema.py` has consultation_outcome type | `agents/codex-reviewer.md`, `scripts/event_schema.py`, `scripts/compute_stats.py` |
-| 9 | **Automatic plan-mode suggestion** — `--plan` requires deliberate opt-in for its highest-value use | Enhance | **Low** — the debug gate already detects patterns; extending pattern detection is modest effort but the UX integration is tricky (must not be annoying) | M (2-3 files) | `dialogue/SKILL.md` Step 0 debug gate checks for `traceback`, `exception`, intent+failure-lexeme pairs; same infrastructure could detect plan-worthy patterns | `skills/dialogue/SKILL.md`, `skills/codex/SKILL.md` |
-| 10 | **Multi-field scan priority audit accuracy** — logged reason may reference less-relevant pattern | Enhance | **Low** — affects audit analysis only, not enforcement; fix requires collecting all results before selecting | S (1 file + tests) | `codex_guard.py:208` loop returns on first block; `scan_text` returns first match per tier priority; cross-field priority is field-iteration-order dependent | `scripts/codex_guard.py` |
+| 7 | **Single-turn consultation quality metrics** — `/codex` is most-used but least-measured capability | Enhance | **Medium** — `consultation_outcome` events lack prompt/result length fields (these exist only in `codex_guard.py` guard telemetry, with no correlation mechanism); thread continuation rate requires #4 first | S (1 file + tests) | `_compute_dialogue` only operates on `dialogue_outcomes` (`compute_stats.py:175`); `_SECTION_MATRIX` consultation type returns usage only | `scripts/compute_stats.py` |
+| 8 | **Consultation continuity via thread discovery** — threadId persisted but not surfaceable for `/codex` | New | **Medium** — cross-session continuity requires manual `threadId` tracking; feasible for `/dialogue` and `/delegate` (actual string stored) but infeasible for `/codex` without #4 | M (3-4 files) | `codex_guard.py:240-248` extracts bool only for consultation events; `dialogue_outcome` and `delegation_outcome` store actual string; `/codex` SKILL.md already handles `codex-reply` dispatch | `scripts/compute_stats.py` or new `scripts/thread_discovery.py`, `skills/codex/SKILL.md` |
+| 9 | **Reviewer analytics integration** — `codex-reviewer` is invisible to analytics | New | **Medium** — full Codex consultations emitting no events; agent lacks Write tool (needed for temp file creation); schema discriminator effort underestimated | M (3-4 files) | `codex-reviewer.md` has no analytics emission; tools list is Bash/Read/Glob/Grep + MCP only; `emit_analytics.py:build_consultation_outcome` handles few-turn consultations; discriminator field requires schema + consumer updates | `agents/codex-reviewer.md`, `scripts/event_schema.py`, `scripts/compute_stats.py` |
+| 10 | **Control-plane enforcement** — mechanically enforceable invariants are Claude-cognitive only | New | **Medium** — `danger-full-access + approval-policy=never` rejection (§8) has no code enforcement; `/codex` vs `/delegate` enforcement asymmetry suggests this is partly unintentional | M (1-2 files) | §8 policy rejection is Claude-cognitive; `codex_guard.py` PreToolUse could enforce this; `/delegate` has `_check_clean_tree` and `_check_secret_files` code gates that `/codex` lacks | `scripts/codex_guard.py`, `references/consultation-contract.md` |
+| 11 | **Automatic plan-mode suggestion** — `--plan` requires deliberate opt-in for its highest-value use | Enhance | **Low** — the debug gate already detects patterns; extending pattern detection is modest effort but the UX integration is tricky (must not be annoying); wait for #2 data before evaluating | M (2-3 files) | `dialogue/SKILL.md` Step 0 debug gate checks for `traceback`, `exception`, intent+failure-lexeme pairs; same infrastructure could detect plan-worthy patterns | `skills/dialogue/SKILL.md`, `skills/codex/SKILL.md` |
+| 12 | **Dialogue trajectory and profile analytics** — `profile_name` and `effective_delta_sequence` stored but unconsumed | Enhance | **Low** — `profile_name` emitted in events but `compute_stats.py` has no section; `effective_delta_sequence` in `CumulativeState` (`ledger.py:60`) stores rich progress data with no analytics | S (1 file + tests) | `profile_name` in consultation/dialogue events; `posture` is "posture-agnostic by design" (`enums.py:54`) but bookkeeping-aware (`pipeline.py:286-307` resets phase windows) | `scripts/compute_stats.py` |
 
 ---
 
 ## Step 5: Recommended Roadmap
 
-### Phase 1: Analytics Foundation + Learning Injection
+*Restructured from 3 sequential phases to parallel tracks with dependency edges, per Codex dialogue findings. The original sequential model serialized genuinely independent work — Track A (learning injection) has no dependency on Track B (analytics), and the original Phase 2 items depend only on Track D (telemetry), not all of Phase 1.*
 
-**Findings: #1, #2, #3, #5, #6**
+### Track Structure
 
-Build the measurement and feedback infrastructure that makes every subsequent enhancement evaluable, plus activate the learning system's cross-model path.
+```
+Track A: Learning Injection (#1)          ─── independent ───────────────────────┐
+Track B: Analytics Coverage (#2,#3,#6)    ─── independent ───────────────────────┤── all land independently
+Track C: Credential Fix (#5)              ─── independent ───────────────────────┤
+Track D: Telemetry Integrity (#4)         ─── independent ───────────────────────┘
+Track E: Capability Completeness (#7,#8,#9) ── gated on Track D ──────────────────
+```
 
-- **#1 (Learning injection):** Unblock §17 — retrieval function, skill updates, contract amendment. This is the highest-leverage single change because it converts the entire learning system from a local-only tool into a cross-model asset.
-- **#2 (Planning metrics):** Add `_compute_planning` section to `compute_stats.py`. Correlation between `question_shaped=true` and convergence rate. Shape confidence distribution. Assumption count vs. outcome quality.
-- **#3 (Provenance metrics):** Add `_compute_provenance` section. Distribution of `provenance_unknown_count`. Recovery rate (unknown claims that got scouted → resolved). Gatherer source-tag failure rate.
-- **#5 (Reason clarity):** Change `credential_scan.py` reason format from regex fragment to `f"{tier}:{family.name}"`. One-line fix with high audit trail impact.
-- **#6 (Parse degradation):** Add `_compute_diagnostics` section for `parse_truncated`/`parse_degraded` counts.
+### Track A: Learning Injection
 
-**When done:** Users can measure whether `--plan` helps, whether gatherers are tagging sources correctly, and whether their analytics data is clean. Consultations benefit from accumulated project knowledge. Audit trails are human-readable.
+**Finding: #1** | **Independent — can start immediately**
 
-**Unblocks:** Phase 2 — planning metrics inform whether automatic plan-mode suggestion (#9) is worth pursuing. Provenance metrics inform whether gatherer improvements are needed.
+Unblock §17 — retrieval function, skill updates, contract amendment. Highest-leverage single change: converts the entire learning system from a local-only tool into a cross-model asset. Every `/learn` and `/promote` invocation currently produces zero value for cross-model work.
 
-### Phase 2: Capability Completeness
+**When done:** Consultations include relevant prior learnings in briefings. `docs/learnings/learnings.md` content reaches Codex.
 
-**Findings: #4, #7, #8**
+### Track B: Analytics Coverage
 
-Fill the measurement gaps for the two unmeasured capabilities (single-turn `/codex` and `codex-reviewer`) and add thread continuity.
+**Findings: #2, #3, #6** | **Independent — can start immediately**
 
-- **#4 (Single-turn quality):** Add `_compute_consultation` section. Prompt/result length distributions, thread continuation rate, repeat-topic detection.
-- **#7 (Thread discovery):** Thread listing from event log, presentation via new `--threads` flag or `/consultation-stats --type threads`, selection UI for resumption.
-- **#8 (Reviewer analytics):** Event emission in `codex-reviewer.md`, optional new event type or `consultation_outcome` with `source: review` field, stats section.
+Add three new `_compute_*` sections to `compute_stats.py`: planning effectiveness (#2), provenance health (#3), parse diagnostics (#6). All three consume fields already stored in events — only computation and presentation are missing.
 
-**When done:** All four capabilities and the reviewer agent are measured. Users can resume past consultations without manual threadId tracking. The analytics ecosystem provides complete Codex usage visibility.
+**When done:** Users can measure whether `--plan` helps, whether gatherers tag sources correctly, and whether analytics data is degraded.
 
-**Unblocks:** Phase 3 — complete analytics baseline enables informed decisions about whether automatic plan-mode suggestion is worth the UX complexity.
+**Decision gate:** After #2 lands, does planning correlate with higher convergence? If not, #11 (auto-plan suggestion) should be deprioritized or dropped.
 
-### Phase 3: Precision Improvements
+### Track C: Credential Scan Fix
 
-**Findings: #9, #10**
+**Finding: #5** | **Independent — can start immediately**
 
-Lower-leverage refinements that improve precision without changing capabilities.
+Two changes in the same subsystem: (1) use `family.name` instead of regex fragment in reason field (3-location fix in `credential_scan.py`), (2) collect all field scan results before selecting highest-tier block for logging (`codex_guard.py`).
 
-- **#9 (Automatic plan suggestion):** Extend pattern detection to identify plan-worthy questions. UX design needed to avoid being intrusive — likely a one-line suggestion, not automatic activation.
-- **#10 (Multi-field scan priority):** Collect all field scan results before selecting the highest-tier reason for logging. Enforcement correctness is already correct; this only affects audit trail informativeness.
+**When done:** Audit trail shows `strict:aws_access_key_id` not regex fragments. Multi-field scan logs the highest-tier match across all fields.
 
-**When done:** The system proactively guides users toward more effective consultation patterns and produces maximally informative audit trails.
+### Track D: Telemetry Integrity
+
+**Finding: #4** | **Independent — can start immediately** | **Gates Track E**
+
+Extract actual `thread_id` string (not just bool) in `codex_guard.py` PostToolUse. Store in `consultation_outcome` events via `emit_analytics.py`. Update `event_schema.py`.
+
+**When done:** `consultation_outcome` events contain `"thread_id": "<actual-uuid>"` alongside `"thread_id_present": true/false`. Thread discovery and single-turn quality metrics become feasible.
+
+**Critical path:** This is the enabling work that gates Track E. Prioritize if unblocking the most work is the goal.
+
+### Track E: Capability Completeness (gated on Track D)
+
+**Findings: #7, #8, #9** | **Requires Track D complete**
+
+- **#7 (Single-turn quality):** Add `_compute_consultation` section to `compute_stats.py`. Thread continuation rate, prompt/result length distributions (design decision: add these fields to `consultation_outcome` or correlate with guard events).
+- **#8 (Thread discovery):** Thread listing from event log, presentation via `--threads` flag, selection UI for resumption via `codex-reply`.
+- **#9 (Reviewer analytics):** Event emission in `codex-reviewer.md` (requires adding Write tool or using Bash for temp file creation), schema discriminator, stats section.
+
+**When done:** All four capabilities and the reviewer agent are measured. Users can resume past consultations. Complete Codex usage visibility.
+
+### Parked
+
+| Item | Rationale |
+|------|-----------|
+| **#10 (Control-plane enforcement)** | Needs design document for Claude-cognitive enforcement taxonomy — which invariants are intentionally cognitive vs mechanically enforceable |
+| **#11 (Auto-plan suggestion)** | Wait for Track B planning metrics before evaluating |
+| **#12 (Trajectory/profile analytics)** | Low-effort but no user demand yet; implement opportunistically during Track B |
+| **Posture-aware template selection** | Measure `effective_delta_sequence` patterns first (Track B output) before changing dialogue behavior |
+
+**When all tracks complete:** The system benefits from accumulated project knowledge in every consultation, measures all four capabilities and the reviewer agent, produces human-readable audit trails, and supports cross-session thread continuity. The analytics ecosystem provides complete visibility into Codex usage patterns and consultation quality.
