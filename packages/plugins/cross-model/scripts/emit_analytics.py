@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from typing import TypeGuard
 import traceback
 import uuid
 from pathlib import Path
@@ -41,6 +42,7 @@ try:
     from event_schema import (
         SCHEMA_VERSION as _SCHEMA_VERSION,
         resolve_schema_version as _resolve_schema_version,
+        _is_non_negative_int,
         VALID_POSTURES as _VALID_POSTURES,
         VALID_SEED_CONFIDENCE as _VALID_SEED_CONFIDENCE,
         VALID_SHAPE_CONFIDENCE as _VALID_SHAPE_CONFIDENCE,
@@ -58,6 +60,7 @@ except ModuleNotFoundError:
     from scripts.event_schema import (
         SCHEMA_VERSION as _SCHEMA_VERSION,
         resolve_schema_version as _resolve_schema_version,
+        _is_non_negative_int,
         VALID_POSTURES as _VALID_POSTURES,
         VALID_SEED_CONFIDENCE as _VALID_SEED_CONFIDENCE,
         VALID_SHAPE_CONFIDENCE as _VALID_SHAPE_CONFIDENCE,
@@ -71,15 +74,6 @@ except ModuleNotFoundError:
     )
     _DIALOGUE_REQUIRED = REQUIRED_FIELDS_BY_EVENT["dialogue_outcome"]
     _CONSULTATION_REQUIRED = REQUIRED_FIELDS_BY_EVENT["consultation_outcome"]
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-
-def _is_non_negative_int(value: object) -> bool:
-    """Check value is a non-negative int, excluding bool."""
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +167,7 @@ def _parse_epilogue(synthesis_text: str) -> tuple[dict | None, list[str]]:
     return (None, ["pipeline-data epilogue missing"])
 
 
-def _has_usable_epilogue_data(payload: dict | None) -> bool:
+def _has_usable_epilogue_data(payload: dict | None) -> TypeGuard[dict]:
     """Report whether parsed epilogue contains any usable machine fields."""
     if payload is None:
         return False

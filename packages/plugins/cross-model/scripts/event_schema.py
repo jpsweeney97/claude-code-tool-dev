@@ -1,8 +1,8 @@
 """Single source of truth for cross-model event field definitions.
 
-All event-producing scripts (emit_analytics.py, codex_delegate.py) and
-event-consuming scripts (read_events.py, compute_stats.py) import field
-definitions from this module.
+All event-producing scripts (emit_analytics.py) and event-consuming
+scripts (read_events.py, compute_stats.py) import field definitions
+from this module.
 
 This module owns:
 - Required field sets per event type

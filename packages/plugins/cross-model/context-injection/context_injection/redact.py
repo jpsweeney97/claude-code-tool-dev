@@ -88,8 +88,8 @@ _JWT_RE = re.compile(
 
 # Split into two patterns to avoid false positives on "basic <word>" phrases:
 # - Bearer: requires 20+ char token (real tokens are long; avoids short words)
-# - Basic: requires authorization: prefix OR 8+ base64 chars (alphabet +/= only)
-#   "basic setup" fails because "setup" contains non-base64 chars and is short.
+# - Basic: optional authorization: prefix, then "basic" + 8+ base64 chars.
+#   "basic setup" doesn't match because "setup" is only 5 chars (minimum is 8).
 _BEARER_AUTH_RE = re.compile(
     r"(?i)(bearer\s+)[A-Za-z0-9\-._~+/]{20,}=*"
 )
