@@ -630,7 +630,7 @@ Policy-based, not tool-specific. Protects subsystem-owned paths from direct muta
 | `knowledge_published` | `engram/knowledge/**` | Engine entrypoints only |
 | `knowledge_staging` | `~/.claude/engram/<repo_id>/knowledge_staging/**` | Engine entrypoints only |
 
-**Enforcement scope:** Write and Edit mutations are reliably blocked. Bash interception is best-effort — detecting arbitrary shell commands that write to protected paths (`echo >`, `cp`, `tee`, etc.) is unreliable via PreToolUse input parsing. The guard catches direct `python3 engine_*.py` patterns reliably; other Bash writes are caught on a best-effort basis. See Section 8 for the named risk.
+**Enforcement scope (bounded guarantee):** Write and Edit mutations to protected paths are reliably blocked. Authorized engine Bash invocations (`python3 engine_*.py` patterns) are detected and supported with trust injection. Arbitrary Bash writes (`echo >`, `cp`, `tee`, etc.) are caught on a best-effort basis only — PreToolUse input parsing cannot reliably detect all shell write patterns. This is an honest boundary, not a gap to close: the design provides reliable enforcement for the tools Claude uses natively (Write, Edit) and for the authorized engine invocation pattern, but does not claim to prevent all possible filesystem mutations. See Section 8 for severity assessment and detection strategy.
 
 **Quality validation:** `engram_quality` (PostToolUse) validates snapshot content quality for Write and Edit tool calls on snapshot-owned paths. For Write: reads `tool_input.content` from the payload. For Edit: reads the file from disk after the edit completes (post-state validation). This is advisory quality lint, not trust enforcement — the small race between write completion and validation readback is acceptable for warnings. It does **not** detect Bash-mediated writes to protected paths. Bash bypass of `engram_guard` remains an admitted gap with best-effort pre-blocking only (see Section 8).
 
@@ -927,7 +927,7 @@ Feed identical fixtures into old ticket engine and new Engram Work engine. Compa
 | **Shadow authority** | High | Engram indexes but never owns. No decisions from IndexEntry. | Does any feature give a different answer via Engram vs. subsystem? |
 | **God Skill on /save** | Medium | Thin orchestrator, no unique logic, same code paths. | Does /save contain logic /defer or /distill don't share? |
 | **Fingerprint drift** | Medium | repo_id is stored UUIDv4. Dedup uses content hashes, not paths. | Rename repo, clone elsewhere — dedup still works? |
-| **Bash enforcement gap** | Medium | `engram_guard` reliably blocks Write/Edit but Bash interception is best-effort. No post-hoc detection — `engram_quality` validates Write payloads only, not disk state. | Bash write to `engram/work/` bypasses guard? |
+| **Bash enforcement gap** | High | **Bounded guarantee:** Write/Edit direct mutations to protected paths are reliably blocked. Authorized engine Bash invocations are supported via trust injection. Arbitrary Bash writes to protected paths may bypass the guard and are not guaranteed detectable. Records created via Bash bypass have no trust triple, no audit trail, and no provenance guarantee. Post-hoc drift scan deferred (see Deferred decisions). | Bash write to `engram/work/` bypasses guard? Created ticket has no `.audit/` entry? |
 | **Fork-on-same-machine collision** | Low | Two forks sharing `.engram-id` use the same private root. Worktree_id differentiates Context queries. Knowledge staging and ledger shards commingle but are operationally harmless at single-developer scale. Deliberate v1 trade-off — engineering fix (worktree_id in private root path) deferred because it changes private root semantics from repo-scoped to worktree-scoped. | Clone a fork locally, run `/curate` — see candidates from both? |
 | **Staging accumulation** | Low | /triage reports pending. Cumulative staging inbox cap (default 10). /curate shows queue. Knowledge engine rejects whole batch when cap exceeded. | Staging directory file count over time. |
 | **NativeReader latency** | Low | Fresh scan at MVP scale is fast. git log off hot path. | Query latency on repos with 500+ files. |
@@ -954,6 +954,16 @@ Feed identical fixtures into old ticket engine and new Engram Work engine. Compa
 | Ledger compaction | Append-only grows indefinitely. Add when file size matters. |
 | Cross-user timeline | Session-local only. Multi-user via git log is out of scope. |
 | Bounded protected-path drift scan | PostToolUse Bash trigger that compares protected-root manifest (mtime, size) before/after Bash execution. Would close the Bash enforcement gap for git-tracked paths. Not achievable without pre/post state comparison mechanism. |
+
+### Design principles
+
+Three cross-cutting principles emerged from the design review process. These are not invariants (they have no enforcement mechanism) but guide implementation decisions across subsystems.
+
+**1. Auxiliary state authority:** Recovery manifests (`save_recovery.json`, `migration_report.json`) and reconciliation metadata (`promote-meta`) are operational aids only. Primary records — snapshots, tickets, learnings, chain state files — remain authoritative. Manifest failure degrades convenience (retry requires manual snapshot_ref lookup) but does not break standalone operations. Use distinct naming for each manifest to prevent shadow-authority confusion.
+
+**2. Pre/post-write validation layering:** Pre-write or pre-dispatch validation for hard invariants (trust triples, idempotency keys, promotion state machine). Post-write validation for advisory quality checks only (`engram_quality`). PostToolUse hooks must not become enforcement boundaries — the race between write completion and validation readback is acceptable for warnings, not for trust authorization.
+
+**3. Chain integrity at migration boundaries:** When migrating state from an old system (chain files, staging candidates), classify each artifact's health before copying. Only migrate valid, fresh state. Do not reimport known defects (stale chain files, poisoned references) from the predecessor system.
 
 ### Success criteria
 
