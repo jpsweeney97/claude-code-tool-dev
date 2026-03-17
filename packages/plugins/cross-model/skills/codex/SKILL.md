@@ -81,7 +81,21 @@ Validation behavior:
 Error format:
 `argument parsing failed: {reason}. Got: {input!r:.100}`
 
-**Learning retrieval (§17):** Before building the briefing, attempt to read learning cards per consultation contract §17. Fail-soft: missing store does not block consultation.
+### Learning retrieval (§17)
+
+Before building the briefing, retrieve relevant learnings for context injection.
+
+1. Run the retrieval script:
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/retrieve_learnings.py" --query "{question}" --max-entries 5
+   ```
+   Where `{question}` is the user's consultation question (the prompt text after flag processing).
+
+2. **If stdout is non-empty:** Prepend the output to the `## Context` section of the briefing, before your contextual framing. The output is pre-formatted markdown — include it verbatim. Do not strip or reformat the `### YYYY-MM-DD [tags]` headers.
+
+3. **If stdout is empty or the command fails (non-zero exit):** Proceed without learnings. Do not block the consultation. Do not report the absence of learnings to the user.
+
+The `<!-- learnings-injected: N -->` comment in the output is an observability marker. Preserve it in the briefing — `emit_analytics.py` uses it for injection tracking.
 
 ## Step 1: Build Context Briefing
 
