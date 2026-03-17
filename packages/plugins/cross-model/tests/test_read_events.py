@@ -63,3 +63,47 @@ class TestDelegationOutcomeValidation:
     def test_classify_returns_delegation_outcome(self) -> None:
         event = self._make_delegation_event()
         assert classify(event) == "delegation_outcome"
+
+
+class TestConsultationOutcomeSchema:
+    """consultation_outcome thread_id in REQUIRED_FIELDS_BY_EVENT."""
+
+    def test_thread_id_required(self) -> None:
+        """thread_id is a required field for consultation_outcome events."""
+        assert "thread_id" in REQUIRED_FIELDS_BY_EVENT["consultation_outcome"]
+
+
+class TestConsultationOutcomeValidation:
+    """validate_event with consultation_outcome events."""
+
+    def _make_consultation_event(self, **overrides: object) -> dict:
+        event = {
+            "schema_version": "0.1.0",
+            "event": "consultation_outcome",
+            "ts": "2026-03-17T12:00:00Z",
+            "consultation_id": "test-uuid",
+            "thread_id": "thread-abc-123",
+            "posture": "collaborative",
+            "turn_count": 1,
+            "turn_budget": 1,
+            "termination_reason": "complete",
+            "mode": "server_assisted",
+        }
+        event.update(overrides)
+        return event
+
+    def test_valid_event_passes(self) -> None:
+        errors = validate_event(self._make_consultation_event())
+        assert errors == []
+
+    def test_null_thread_id_passes(self) -> None:
+        """thread_id: None is valid (field present but nullable)."""
+        errors = validate_event(self._make_consultation_event(thread_id=None))
+        assert errors == []
+
+    def test_missing_thread_id_fails(self) -> None:
+        """Missing thread_id key fails validation."""
+        event = self._make_consultation_event()
+        del event["thread_id"]
+        errors = validate_event(event)
+        assert any("thread_id" in e for e in errors)

@@ -237,15 +237,17 @@ def handle_post(data: dict) -> int:
     elif isinstance(tool_response, str):
         result_text = tool_response
 
-    thread_id_present = bool(
-        (isinstance(tool_input, dict) and tool_input.get("threadId"))
-        or (isinstance(tool_response, dict) and tool_response.get("threadId"))
-        or (
-            isinstance(tool_response, dict)
-            and isinstance(tool_response.get("structuredContent"), dict)
-            and tool_response["structuredContent"].get("threadId")
-        )
-    )
+    thread_id: str | None = None
+    if isinstance(tool_input, dict) and tool_input.get("threadId"):
+        thread_id = tool_input["threadId"]
+    elif isinstance(tool_response, dict) and tool_response.get("threadId"):
+        thread_id = tool_response["threadId"]
+    elif (
+        isinstance(tool_response, dict)
+        and isinstance(tool_response.get("structuredContent"), dict)
+        and tool_response["structuredContent"].get("threadId")
+    ):
+        thread_id = tool_response["structuredContent"]["threadId"]
 
     _append_log(
         {
@@ -255,7 +257,7 @@ def handle_post(data: dict) -> int:
             "session_id": session_id,
             "prompt_length": len(prompt) if isinstance(prompt, str) else 0,
             "result_length": len(result_text),
-            "thread_id_present": thread_id_present,
+            "thread_id": thread_id,
         }
     )
     return 0

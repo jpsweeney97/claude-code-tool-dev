@@ -116,6 +116,7 @@ class TestComputeDelegation:
             "event": "consultation_outcome",
             "ts": "2026-03-06T12:00:00Z",
             "consultation_id": "c-uuid",
+            "thread_id": None,
             "session_id": None,
             "posture": "collaborative",
             "mode": "server_assisted",

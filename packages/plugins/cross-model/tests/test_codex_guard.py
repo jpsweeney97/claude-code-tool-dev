@@ -98,7 +98,7 @@ class TestHandlePre:
 
 
 class TestHandlePost:
-    """PostToolUse handler always returns 0."""
+    """PostToolUse handler always returns 0 and logs consultation events."""
 
     @patch("scripts.codex_guard._append_log")
     def test_always_allows(self, _mock_log: MagicMock) -> None:
@@ -110,3 +110,90 @@ class TestHandlePost:
             "tool_response": {"content": "response"},
         }
         assert handle_post(data) == 0
+
+    @patch("scripts.codex_guard._append_log")
+    def test_thread_id_from_tool_input(self, mock_log: MagicMock) -> None:
+        """Extracts threadId string from tool_input."""
+        data = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "mcp__plugin_cross-model_codex__codex",
+            "session_id": "test-session",
+            "tool_input": {"prompt": "test", "threadId": "thread-from-input"},
+            "tool_response": {"content": "response"},
+        }
+        handle_post(data)
+        entry = mock_log.call_args.args[0]
+        assert entry["thread_id"] == "thread-from-input"
+
+    @patch("scripts.codex_guard._append_log")
+    def test_thread_id_from_tool_response(self, mock_log: MagicMock) -> None:
+        """Extracts threadId string from top-level tool_response."""
+        data = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "mcp__plugin_cross-model_codex__codex",
+            "session_id": "test-session",
+            "tool_input": {"prompt": "test"},
+            "tool_response": {"content": "response", "threadId": "thread-from-response"},
+        }
+        handle_post(data)
+        entry = mock_log.call_args.args[0]
+        assert entry["thread_id"] == "thread-from-response"
+
+    @patch("scripts.codex_guard._append_log")
+    def test_thread_id_from_structured_content(self, mock_log: MagicMock) -> None:
+        """Extracts threadId string from tool_response.structuredContent."""
+        data = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "mcp__plugin_cross-model_codex__codex",
+            "session_id": "test-session",
+            "tool_input": {"prompt": "test"},
+            "tool_response": {
+                "content": "response",
+                "structuredContent": {"threadId": "thread-from-structured"},
+            },
+        }
+        handle_post(data)
+        entry = mock_log.call_args.args[0]
+        assert entry["thread_id"] == "thread-from-structured"
+
+    @patch("scripts.codex_guard._append_log")
+    def test_thread_id_input_takes_priority(self, mock_log: MagicMock) -> None:
+        """When multiple sources have threadId, tool_input wins."""
+        data = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "mcp__plugin_cross-model_codex__codex",
+            "session_id": "test-session",
+            "tool_input": {"prompt": "test", "threadId": "input-thread"},
+            "tool_response": {"content": "response", "threadId": "response-thread"},
+        }
+        handle_post(data)
+        entry = mock_log.call_args.args[0]
+        assert entry["thread_id"] == "input-thread"
+
+    @patch("scripts.codex_guard._append_log")
+    def test_thread_id_none_when_absent(self, mock_log: MagicMock) -> None:
+        """thread_id is None when no source has threadId."""
+        data = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "mcp__plugin_cross-model_codex__codex",
+            "session_id": "test-session",
+            "tool_input": {"prompt": "test"},
+            "tool_response": {"content": "response"},
+        }
+        handle_post(data)
+        entry = mock_log.call_args.args[0]
+        assert entry["thread_id"] is None
+
+    @patch("scripts.codex_guard._append_log")
+    def test_no_thread_id_present_field(self, mock_log: MagicMock) -> None:
+        """Old thread_id_present bool field is replaced by thread_id string."""
+        data = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "mcp__plugin_cross-model_codex__codex",
+            "session_id": "test-session",
+            "tool_input": {"prompt": "test", "threadId": "thread-123"},
+            "tool_response": {"content": "response"},
+        }
+        handle_post(data)
+        entry = mock_log.call_args.args[0]
+        assert "thread_id_present" not in entry

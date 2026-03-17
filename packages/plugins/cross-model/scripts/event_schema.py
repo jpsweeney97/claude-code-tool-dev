@@ -71,6 +71,7 @@ REQUIRED_FIELDS_BY_EVENT: types.MappingProxyType[str, frozenset[str]] = types.Ma
     "consultation_outcome": frozenset({
         "schema_version",
         "consultation_id",
+        "thread_id",
         "event",
         "ts",
         "posture",
