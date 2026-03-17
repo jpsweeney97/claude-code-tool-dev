@@ -42,7 +42,7 @@ try:
     from event_schema import (
         SCHEMA_VERSION as _SCHEMA_VERSION,
         resolve_schema_version as _resolve_schema_version,
-        _is_non_negative_int,
+        is_non_negative_int,
         VALID_POSTURES as _VALID_POSTURES,
         VALID_SEED_CONFIDENCE as _VALID_SEED_CONFIDENCE,
         VALID_SHAPE_CONFIDENCE as _VALID_SHAPE_CONFIDENCE,
@@ -60,7 +60,7 @@ except ModuleNotFoundError:
     from scripts.event_schema import (
         SCHEMA_VERSION as _SCHEMA_VERSION,
         resolve_schema_version as _resolve_schema_version,
-        _is_non_negative_int,
+        is_non_negative_int,
         VALID_POSTURES as _VALID_POSTURES,
         VALID_SEED_CONFIDENCE as _VALID_SEED_CONFIDENCE,
         VALID_SHAPE_CONFIDENCE as _VALID_SHAPE_CONFIDENCE,
@@ -621,7 +621,7 @@ def validate(event: dict, event_type: str) -> None:
     # Count fields >= 0
     for field in _COUNT_FIELDS:
         value = event.get(field)
-        if value is not None and not _is_non_negative_int(value):
+        if value is not None and not is_non_negative_int(value):
             raise ValueError(f"{field} must be non-negative int, got {value!r}")
 
     # Cross-field: schema_version must match feature-flag state

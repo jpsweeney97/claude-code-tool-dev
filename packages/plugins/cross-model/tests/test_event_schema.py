@@ -99,3 +99,47 @@ class TestEnumSets:
         from scripts.event_schema import COUNT_FIELDS
         assert "turn_count" in COUNT_FIELDS
         assert "scout_count" in COUNT_FIELDS
+
+
+class TestIsNonNegativeInt:
+    """is_non_negative_int() edge cases."""
+
+    def test_true_is_excluded(self) -> None:
+        from scripts.event_schema import is_non_negative_int
+        assert is_non_negative_int(True) is False
+
+    def test_false_is_excluded(self) -> None:
+        from scripts.event_schema import is_non_negative_int
+        assert is_non_negative_int(False) is False
+
+    def test_negative_one(self) -> None:
+        from scripts.event_schema import is_non_negative_int
+        assert is_non_negative_int(-1) is False
+
+    def test_zero(self) -> None:
+        from scripts.event_schema import is_non_negative_int
+        assert is_non_negative_int(0) is True
+
+    def test_one(self) -> None:
+        from scripts.event_schema import is_non_negative_int
+        assert is_non_negative_int(1) is True
+
+    def test_string_is_excluded(self) -> None:
+        from scripts.event_schema import is_non_negative_int
+        assert is_non_negative_int("5") is False
+
+    def test_none_is_excluded(self) -> None:
+        from scripts.event_schema import is_non_negative_int
+        assert is_non_negative_int(None) is False
+
+    def test_float_is_excluded(self) -> None:
+        from scripts.event_schema import is_non_negative_int
+        assert is_non_negative_int(1.0) is False
+
+
+class TestKnownUnstructuredTypes:
+    """KNOWN_UNSTRUCTURED_TYPES membership."""
+
+    def test_expected_members(self) -> None:
+        from scripts.event_schema import KNOWN_UNSTRUCTURED_TYPES
+        assert KNOWN_UNSTRUCTURED_TYPES == frozenset({"block", "shadow", "consultation"})

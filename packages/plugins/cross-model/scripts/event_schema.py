@@ -19,6 +19,8 @@ This module does NOT own:
 
 from __future__ import annotations
 
+import types
+
 # ---------------------------------------------------------------------------
 # Schema version
 # ---------------------------------------------------------------------------
@@ -27,7 +29,7 @@ SCHEMA_VERSION: str = "0.1.0"
 """Base schema version. Feature-flag fields bump this automatically."""
 
 
-def _is_non_negative_int(value: object) -> bool:
+def is_non_negative_int(value: object) -> bool:
     """Check value is a non-negative int, excluding bool."""
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
@@ -39,7 +41,7 @@ def resolve_schema_version(event: dict) -> str:
     """
     if event.get("question_shaped") is not None:
         return "0.3.0"
-    if _is_non_negative_int(event.get("provenance_unknown_count")):
+    if is_non_negative_int(event.get("provenance_unknown_count")):
         return "0.2.0"
     return SCHEMA_VERSION
 
@@ -48,7 +50,7 @@ def resolve_schema_version(event: dict) -> str:
 # Required fields per event type
 # ---------------------------------------------------------------------------
 
-REQUIRED_FIELDS_BY_EVENT: dict[str, frozenset[str]] = {
+REQUIRED_FIELDS_BY_EVENT: types.MappingProxyType[str, frozenset[str]] = types.MappingProxyType({
     "dialogue_outcome": frozenset({
         "schema_version",
         "consultation_id",
@@ -96,7 +98,7 @@ REQUIRED_FIELDS_BY_EVENT: dict[str, frozenset[str]] = {
         "model",
         "reasoning_effort",
     }),
-}
+})
 
 STRUCTURED_EVENT_TYPES: frozenset[str] = frozenset(REQUIRED_FIELDS_BY_EVENT)
 """Event types that have required-field schemas. Derived from REQUIRED_FIELDS_BY_EVENT."""
@@ -105,6 +107,9 @@ KNOWN_UNSTRUCTURED_TYPES: frozenset[str] = frozenset({
     "block", "shadow", "consultation",
 })
 """Event types that are valid but have no required-field schema."""
+
+assert STRUCTURED_EVENT_TYPES.isdisjoint(KNOWN_UNSTRUCTURED_TYPES), \
+    "structured and unstructured event types must not overlap"
 
 
 def required_fields(event_type: str) -> frozenset[str]:
