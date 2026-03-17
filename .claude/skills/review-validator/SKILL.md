@@ -1,9 +1,11 @@
 ---
 name: review-validator
-description: Validates quality of adversarial reviews, self-critiques, and structured evaluations produced by Claude. Detects superficial compliance, evasion patterns, severity miscalibration, and missing coverage. Use when user says "validate this review", "check the critique", "is this review thorough", "response-validator", or after any adversarial review workflow. Do NOT use for general editing, proofreading, or content review unrelated to structured self-critique.
+description: Validates quality of adversarial reviews, self-critiques, and structured evaluations produced by Claude. Detects superficial compliance, evasion patterns, severity miscalibration, and missing coverage. Use when user says "validate this review", "check the critique", "is this review thorough", "review-validator", or after any adversarial review workflow. Do NOT use for general editing, proofreading, or content review unrelated to structured self-critique.
 disable-model-invocation: true
 context: fork
 agent: review-auditor
+argument-hint: "[optional file path — defaults to the latest review at /Users/jp/Projects/active/claude-code-tool-dev/docs/reviews/]"
+allowed-tools: Read
 ---
 
 # Response Validator
@@ -12,9 +14,12 @@ Validate the quality and integrity of a structured adversarial review. The goal 
 
 ## Instructions
 
-### Step 1: Identify the Review
+### Step 1: Load the Review
 
-Locate the adversarial review in the conversation context. If multiple reviews exist, validate the most recent one unless the user specifies otherwise. If no structured review is found, say so and stop.
+Read the latest review from `/Users/jp/Projects/active/claude-code-tool-dev/docs/reviews/`. This file is written by the `adversarial-review` skill and is the data bridge between the parent conversation and this isolated subagent.
+
+- If the user provided a file path as an argument: read from that path instead.
+- If the file exists but does not contain a recognizable review structure (look for `### 1. Steel-Man` through `### 7. Severity Ranking`): tell the user the file doesn't appear to contain a structured adversarial review and stop.
 
 ### Step 2: Coverage Audit
 

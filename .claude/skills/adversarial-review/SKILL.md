@@ -1,6 +1,6 @@
 ---
 name: adversarial-review
-description: Performs a structured adversarial review of a proposal, design, or approach. Systematically stress-tests across seven orthogonal dimensions (steel-man, assumptions, failure modes, underspecification, opportunity cost, second-order effects, severity ranking). Use when user says "adversarial review", "critique this", "stress test this proposal", "what's wrong with this approach", "red team this", "poke holes in this". Do NOT use for general code review (use code review workflows), proofreading, or editing. Pairs with response-validator skill for review quality assurance.
+description: Performs a structured adversarial review of a proposal, design, or approach. Systematically stress-tests across seven orthogonal dimensions (steel-man, assumptions, failure modes, underspecification, opportunity cost, second-order effects, severity ranking). Use when user says "adversarial review", "critique this", "stress test this proposal", "what's wrong with this approach", "red team this", "poke holes in this". Do NOT use for general code review (use code review workflows), proofreading, or editing. Pairs with review-validator skill for review quality assurance.
 argument-hint: "[target — e.g., 'the caching proposal' or 'the migration plan'. Omit to review the most recent proposal.]"
 ---
 
@@ -145,6 +145,14 @@ Use this exact structure. The response-validator skill depends on these headings
 ### 7. Severity Ranking
 [content — table or list with [severity] tag per issue]
 ```
+
+### Save the Review
+
+After producing the review, write the complete review to `/Users/jp/Projects/active/claude-code-tool-dev/docs/reviews/`. This file is the data bridge to the `review-validator` skill, which runs as an isolated subagent and cannot see conversation history.
+
+- **Always overwrite** the file — "latest" means latest.
+- **Write the complete review** — do not summarize or truncate.
+- **Do not skip this step.** The review-validator cannot function without it.
 
 ## Rationalization Table
 
