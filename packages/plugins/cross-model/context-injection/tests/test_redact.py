@@ -131,6 +131,16 @@ class TestRedactKnownSecrets:
         assert count == 1
         assert "abc123def456ghi789jkl0" not in result
 
+    def test_bearer_boundary_20_chars_matches(self) -> None:
+        token_20 = "A" * 20
+        _, count = redact_known_secrets(f"Bearer {token_20}")
+        assert count == 1, "20-char token should match (exact boundary)"
+
+    def test_bearer_boundary_19_chars_no_match(self) -> None:
+        token_19 = "A" * 19
+        _, count = redact_known_secrets(f"Bearer {token_19}")
+        assert count == 0, "19-char token should NOT match (below minimum)"
+
     def test_basic_auth(self) -> None:
         result, count = redact_known_secrets("Authorization: Basic dXNlcjpwYXNzd29yZA==")
         assert count == 1
