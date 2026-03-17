@@ -37,111 +37,49 @@ except ModuleNotFoundError:
         session_id as _session_id,
     )
 
+try:
+    from event_schema import (
+        SCHEMA_VERSION as _SCHEMA_VERSION,
+        resolve_schema_version as _resolve_schema_version,
+        VALID_POSTURES as _VALID_POSTURES,
+        VALID_SEED_CONFIDENCE as _VALID_SEED_CONFIDENCE,
+        VALID_SHAPE_CONFIDENCE as _VALID_SHAPE_CONFIDENCE,
+        VALID_CONVERGENCE_CODES as _VALID_CONVERGENCE_CODES,
+        VALID_MODES as _VALID_MODES,
+        VALID_MODE_SOURCES as _VALID_MODE_SOURCES,
+        VALID_LOW_SEED_CONFIDENCE_REASONS as _VALID_LOW_SEED_CONFIDENCE_REASONS,
+        VALID_TERMINATION_REASONS as _VALID_TERMINATION_REASONS,
+        COUNT_FIELDS as _COUNT_FIELDS,
+        REQUIRED_FIELDS_BY_EVENT,
+    )
+    _DIALOGUE_REQUIRED = REQUIRED_FIELDS_BY_EVENT["dialogue_outcome"]
+    _CONSULTATION_REQUIRED = REQUIRED_FIELDS_BY_EVENT["consultation_outcome"]
+except ModuleNotFoundError:
+    from scripts.event_schema import (
+        SCHEMA_VERSION as _SCHEMA_VERSION,
+        resolve_schema_version as _resolve_schema_version,
+        VALID_POSTURES as _VALID_POSTURES,
+        VALID_SEED_CONFIDENCE as _VALID_SEED_CONFIDENCE,
+        VALID_SHAPE_CONFIDENCE as _VALID_SHAPE_CONFIDENCE,
+        VALID_CONVERGENCE_CODES as _VALID_CONVERGENCE_CODES,
+        VALID_MODES as _VALID_MODES,
+        VALID_MODE_SOURCES as _VALID_MODE_SOURCES,
+        VALID_LOW_SEED_CONFIDENCE_REASONS as _VALID_LOW_SEED_CONFIDENCE_REASONS,
+        VALID_TERMINATION_REASONS as _VALID_TERMINATION_REASONS,
+        COUNT_FIELDS as _COUNT_FIELDS,
+        REQUIRED_FIELDS_BY_EVENT,
+    )
+    _DIALOGUE_REQUIRED = REQUIRED_FIELDS_BY_EVENT["dialogue_outcome"]
+    _CONSULTATION_REQUIRED = REQUIRED_FIELDS_BY_EVENT["consultation_outcome"]
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-_SCHEMA_VERSION = "0.1.0"
-
-_VALID_POSTURES = {"adversarial", "collaborative", "exploratory", "evaluative", "comparative"}
-_VALID_SEED_CONFIDENCE = {"normal", "low"}
-_VALID_SHAPE_CONFIDENCE = {"high", "medium", "low"}
-_VALID_CONVERGENCE_CODES = {
-    "all_resolved",
-    "natural_convergence",
-    "budget_exhausted",
-    "error",
-    "scope_breach",
-}
-_VALID_MODES = {"server_assisted", "manual_legacy"}
-_VALID_MODE_SOURCES = {"epilogue", "fallback"}
-_VALID_LOW_SEED_CONFIDENCE_REASONS = {
-    "thin_citations",
-    "few_files",
-    "zero_output",
-    "provenance_violations",
-}
-_VALID_TERMINATION_REASONS = {
-    "convergence",
-    "budget",
-    "error",
-    "scope_breach",
-    "complete",
-}
 
 
 def _is_non_negative_int(value: object) -> bool:
     """Check value is a non-negative int, excluding bool."""
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
-
-
-def _resolve_schema_version(event: dict) -> str:
-    """Determine schema version from feature-flag fields.
-
-    Precedence: planning (0.3.0) > provenance (0.2.0) > base (0.1.0).
-    Used in both build (auto-set) and validate (exact equality check).
-    """
-    if event.get("question_shaped") is not None:
-        return "0.3.0"
-    if _is_non_negative_int(event.get("provenance_unknown_count")):
-        return "0.2.0"
-    return _SCHEMA_VERSION
-
-
-_COUNT_FIELDS = {
-    "turn_count",
-    "turn_budget",
-    "resolved_count",
-    "unresolved_count",
-    "emerged_count",
-    "assumption_count",
-    "gatherer_a_lines",
-    "gatherer_b_lines",
-    "citations_total",
-    "unique_files_total",
-    "gatherer_a_unique_paths",
-    "gatherer_b_unique_paths",
-    "shared_citation_paths",
-    "counter_count",
-    "confirm_count",
-    "open_count",
-    "claim_count",
-    "scout_count",
-    "scope_root_count",
-    "provenance_unknown_count",
-    "assumptions_generated_count",
-    "ambiguity_count",
-}
-
-_DIALOGUE_REQUIRED = {
-    "schema_version",
-    "consultation_id",
-    "event",
-    "ts",
-    "posture",
-    "turn_count",
-    "turn_budget",
-    "converged",
-    "convergence_reason_code",
-    "termination_reason",
-    "resolved_count",
-    "unresolved_count",
-    "emerged_count",
-    "seed_confidence",
-    "mode",
-}
-
-_CONSULTATION_REQUIRED = {
-    "schema_version",
-    "consultation_id",
-    "event",
-    "ts",
-    "posture",
-    "turn_count",
-    "turn_budget",
-    "termination_reason",
-    "mode",
-}
 
 
 # ---------------------------------------------------------------------------

@@ -22,62 +22,27 @@ import json
 import sys
 from pathlib import Path
 
+try:
+    from event_schema import (
+        REQUIRED_FIELDS_BY_EVENT,
+        STRUCTURED_EVENT_TYPES,
+        KNOWN_UNSTRUCTURED_TYPES,
+    )
+    # Convert frozensets to sets for backwards compatibility with validate_event()
+    _REQUIRED_FIELDS: dict[str, set[str]] = {
+        k: set(v) for k, v in REQUIRED_FIELDS_BY_EVENT.items()
+    }
+except ModuleNotFoundError:
+    from scripts.event_schema import (
+        REQUIRED_FIELDS_BY_EVENT,
+        STRUCTURED_EVENT_TYPES,
+        KNOWN_UNSTRUCTURED_TYPES,
+    )
+    _REQUIRED_FIELDS: dict[str, set[str]] = {
+        k: set(v) for k, v in REQUIRED_FIELDS_BY_EVENT.items()
+    }
+
 _DEFAULT_PATH = Path.home() / ".claude" / ".codex-events.jsonl"
-
-# Required fields per event type. Events not in this map are classified
-# as their event field value but have no required-field validation.
-_REQUIRED_FIELDS: dict[str, set[str]] = {
-    "dialogue_outcome": {
-        "schema_version",
-        "consultation_id",
-        "event",
-        "ts",
-        "posture",
-        "turn_count",
-        "turn_budget",
-        "converged",
-        "convergence_reason_code",
-        "termination_reason",
-        "resolved_count",
-        "unresolved_count",
-        "emerged_count",
-        "seed_confidence",
-        "mode",
-    },
-    "consultation_outcome": {
-        "schema_version",
-        "consultation_id",
-        "event",
-        "ts",
-        "posture",
-        "turn_count",
-        "turn_budget",
-        "termination_reason",
-        "mode",
-    },
-    "delegation_outcome": {
-        "schema_version",
-        "event",
-        "ts",
-        "consultation_id",
-        "session_id",
-        "thread_id",
-        "dispatched",
-        "sandbox",
-        "full_auto",
-        "credential_blocked",
-        "dirty_tree_blocked",
-        "readable_secret_file_blocked",
-        "commands_run_count",
-        "exit_code",
-        "termination_reason",
-        "model",              # F10: nullable but present in event
-        "reasoning_effort",   # F10: nullable but present in event
-    },
-}
-
-# Known event types that are valid but have no required-field schema
-_KNOWN_UNSTRUCTURED = {"block", "shadow", "consultation"}
 
 
 def classify(event: dict) -> str:
@@ -97,7 +62,7 @@ def validate_event(event: dict) -> list[str]:
 
     required = _REQUIRED_FIELDS.get(event_type)
     if required is None:
-        if event_type in _KNOWN_UNSTRUCTURED:
+        if event_type in KNOWN_UNSTRUCTURED_TYPES:
             return []
         return [f"unknown event type: '{event_type}'"]
 
