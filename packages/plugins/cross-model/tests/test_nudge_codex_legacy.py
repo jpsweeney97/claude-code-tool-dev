@@ -1,30 +1,18 @@
-"""Tests for packages/plugins/cross-model/scripts/nudge_codex.py.
+"""Legacy tests for nudge_codex.py — PostToolUseFailure nudge hook.
 
-Tests the PostToolUseFailure nudge hook that suggests /codex after repeated
-Bash failures. Imports the module directly via importlib (same pattern as
-test_codex_guard.py).
+Migrated from repo root tests/test_nudge_codex.py. Uses MODULE alias to
+preserve original test bodies unchanged.
 """
 
 from __future__ import annotations
 
-import importlib.util
-import json
-from io import StringIO
-from pathlib import Path
+import json  # noqa: F401
+from io import StringIO  # noqa: F401
+from pathlib import Path  # noqa: F401
 
 import pytest
 
-MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "packages"
-    / "plugins"
-    / "cross-model"
-    / "scripts"
-    / "nudge_codex.py"
-)
-SPEC = importlib.util.spec_from_file_location("nudge_codex", MODULE_PATH)
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
+import scripts.nudge_codex as MODULE
 
 
 # ---------------------------------------------------------------------------

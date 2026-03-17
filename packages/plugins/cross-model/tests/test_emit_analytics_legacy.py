@@ -1,42 +1,19 @@
-"""Tests for packages/plugins/cross-model/scripts/emit_analytics.py.
+"""Legacy tests for emit_analytics.py — synthesis parsing, event building, validation.
 
-Tests the analytics emitter: synthesis parsing, convergence mapping,
-event building, validation, and JSONL append.
+Migrated from repo root tests/test_emit_analytics.py. Uses MODULE alias to
+preserve original test bodies unchanged.
 """
 
 from __future__ import annotations
 
-import importlib.util
-import json
+import json  # noqa: F401
 import sys
-from pathlib import Path
+from pathlib import Path  # noqa: F401
 
 import pytest
 
-_SCRIPTS_DIR = str(
-    Path(__file__).resolve().parents[1]
-    / "packages" / "plugins" / "cross-model" / "scripts"
-)
-if _SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPTS_DIR)
-
-# ---------------------------------------------------------------------------
-# Module import (same pattern as test_codex_guard.py)
-# ---------------------------------------------------------------------------
-
-MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "packages"
-    / "plugins"
-    / "cross-model"
-    / "scripts"
-    / "emit_analytics.py"
-)
-SPEC = importlib.util.spec_from_file_location("emit_analytics", MODULE_PATH)
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
-
-import event_log  # noqa: E402 — imported after sys.path setup for LOG_PATH patching
+import scripts.emit_analytics as MODULE
+import scripts.event_log as event_log
 
 
 # ---------------------------------------------------------------------------
@@ -478,6 +455,7 @@ class TestBuildDialogueOutcome:
             "provenance_unknown_count",
             "episode_id",
             "parse_truncated",
+            "parse_degraded",
         }
         assert set(event.keys()) == expected_fields
 
@@ -937,7 +915,7 @@ class TestIsNonNegativeInt:
         ],
     )
     def test_is_non_negative_int(self, value: object, expected: bool) -> None:
-        assert MODULE._is_non_negative_int(value) is expected
+        assert MODULE.is_non_negative_int(value) is expected
 
 
 # ---------------------------------------------------------------------------

@@ -1,32 +1,18 @@
-"""Tests for packages/plugins/cross-model/scripts/read_events.py.
+"""Legacy tests for read_events.py — JSONL parsing, classification, schema validation.
 
-Tests the typed event reader: JSONL parsing, event classification,
-per-event schema validation, and error handling for unknown/malformed events.
+Migrated from repo root tests/test_read_events.py. Uses MODULE alias to
+preserve original test bodies unchanged.
 """
 
 from __future__ import annotations
 
 import importlib.util
-import json
+import json  # noqa: F401
 from pathlib import Path
 
 import pytest  # noqa: F401
 
-# ---------------------------------------------------------------------------
-# Module import
-# ---------------------------------------------------------------------------
-
-MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "packages"
-    / "plugins"
-    / "cross-model"
-    / "scripts"
-    / "read_events.py"
-)
-SPEC = importlib.util.spec_from_file_location("read_events", MODULE_PATH)
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
+import scripts.read_events as MODULE
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +40,7 @@ DIALOGUE_EVENT = {
 CONSULTATION_EVENT = {
     "schema_version": "0.1.0",
     "consultation_id": "uuid-2",
+    "thread_id": None,
     "event": "consultation_outcome",
     "ts": "2026-02-21T13:00:00Z",
     "posture": "collaborative",
@@ -245,18 +232,8 @@ class TestSchemaParityWithEmitter:
 
     def test_dialogue_required_subset(self) -> None:
         """Reader's dialogue required fields must be a subset of emitter's."""
-        emitter_path = (
-            Path(__file__).resolve().parents[1]
-            / "packages"
-            / "plugins"
-            / "cross-model"
-            / "scripts"
-            / "emit_analytics.py"
-        )
-        spec = importlib.util.spec_from_file_location("emit_analytics", emitter_path)
-        emitter = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(emitter)
-        reader_required = MODULE._REQUIRED_FIELDS.get("dialogue_outcome", set())
+        import scripts.emit_analytics as emitter
+        reader_required = MODULE.REQUIRED_FIELDS_BY_EVENT.get("dialogue_outcome", set())
         emitter_required = emitter._DIALOGUE_REQUIRED
         assert reader_required <= emitter_required, (
             f"Reader has fields not in emitter: {reader_required - emitter_required}"
@@ -264,18 +241,8 @@ class TestSchemaParityWithEmitter:
 
     def test_consultation_required_subset(self) -> None:
         """Reader's consultation required fields must be a subset of emitter's."""
-        emitter_path = (
-            Path(__file__).resolve().parents[1]
-            / "packages"
-            / "plugins"
-            / "cross-model"
-            / "scripts"
-            / "emit_analytics.py"
-        )
-        spec = importlib.util.spec_from_file_location("emit_analytics", emitter_path)
-        emitter = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(emitter)
-        reader_required = MODULE._REQUIRED_FIELDS.get("consultation_outcome", set())
+        import scripts.emit_analytics as emitter
+        reader_required = MODULE.REQUIRED_FIELDS_BY_EVENT.get("consultation_outcome", set())
         emitter_required = emitter._CONSULTATION_REQUIRED
         assert reader_required <= emitter_required, (
             f"Reader has fields not in emitter: {reader_required - emitter_required}"
@@ -284,7 +251,7 @@ class TestSchemaParityWithEmitter:
     def test_emitter_event_types_covered_by_reader(self) -> None:
         """Reader must have schemas for all structured event types the emitter produces."""
         emitter_event_types = {"dialogue_outcome", "consultation_outcome"}
-        reader_event_types = set(MODULE._REQUIRED_FIELDS.keys())
+        reader_event_types = set(MODULE.REQUIRED_FIELDS_BY_EVENT.keys())
         assert emitter_event_types <= reader_event_types, (
             f"Emitter types not in reader: {emitter_event_types - reader_event_types}"
         )

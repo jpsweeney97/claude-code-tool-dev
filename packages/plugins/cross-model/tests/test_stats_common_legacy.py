@@ -1,35 +1,16 @@
-"""Tests for packages/plugins/cross-model/scripts/stats_common.py.
+"""Legacy tests for stats_common.py — shared analytics primitives.
 
-Tests shared primitives: period parsing, timestamp parsing, time-window
-filtering, security tier extraction, safe integer access, observed
-averages, boolean slot counting, and low-seed reason aggregation.
+Migrated from repo root tests/test_stats_common.py. Uses MODULE alias to
+preserve original test bodies unchanged.
 """
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import datetime, timedelta, timezone  # noqa: F401
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# Module import
-# ---------------------------------------------------------------------------
-
-MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "packages"
-    / "plugins"
-    / "cross-model"
-    / "scripts"
-    / "stats_common.py"
-)
-SPEC = importlib.util.spec_from_file_location("stats_common", MODULE_PATH)
-MODULE = importlib.util.module_from_spec(SPEC)
-sys.modules["stats_common"] = MODULE  # register so downstream imports resolve to this instance
-SPEC.loader.exec_module(MODULE)
+import scripts.stats_common as MODULE
 
 
 # ---------------------------------------------------------------------------

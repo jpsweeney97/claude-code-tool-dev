@@ -1,42 +1,19 @@
-"""Tests for packages/plugins/cross-model/scripts/compute_stats.py.
+"""Legacy tests for compute_stats.py — analytics computation orchestrator.
 
-Tests the analytics computation orchestrator: section computation
-functions, section inclusion matrix, validation gate, key-presence
-contracts, and CLI entry point.
+Migrated from repo root tests/test_compute_stats.py. Uses MODULE alias to
+preserve original test bodies unchanged.
 """
 
 from __future__ import annotations
 
-import importlib.util
-import json
+import json  # noqa: F401
 import sys
-from pathlib import Path
+from pathlib import Path  # noqa: F401
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# Module imports via importlib (no package install required)
-# ---------------------------------------------------------------------------
-
-SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "packages" / "plugins" / "cross-model" / "scripts"
-
-# Import read_events first (compute_stats depends on it)
-_re_spec = importlib.util.spec_from_file_location("read_events", SCRIPTS_DIR / "read_events.py")
-_re_mod = importlib.util.module_from_spec(_re_spec)
-sys.modules["read_events"] = _re_mod
-_re_spec.loader.exec_module(_re_mod)
-
-# Import stats_common (compute_stats depends on it)
-_sc_spec = importlib.util.spec_from_file_location("stats_common", SCRIPTS_DIR / "stats_common.py")
-_sc_mod = importlib.util.module_from_spec(_sc_spec)
-sys.modules["stats_common"] = _sc_mod
-_sc_spec.loader.exec_module(_sc_mod)
-
-# Import compute_stats (the module under test)
-_cs_spec = importlib.util.spec_from_file_location("compute_stats", SCRIPTS_DIR / "compute_stats.py")
-MODULE = importlib.util.module_from_spec(_cs_spec)
-sys.modules["compute_stats"] = MODULE
-_cs_spec.loader.exec_module(MODULE)
+import scripts.compute_stats as MODULE
+import scripts.read_events as _re_mod
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +49,7 @@ def _make_consultation(**overrides: object) -> dict:
     base: dict = {
         "schema_version": "0.1.0",
         "consultation_id": "uuid-c",
+        "thread_id": None,
         "event": "consultation_outcome",
         "ts": "2026-02-15T13:00:00Z",
         "posture": "collaborative",
