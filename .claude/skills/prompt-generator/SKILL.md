@@ -156,6 +156,28 @@ Before presenting the prompt, verify:
       constraints
 - [ ] The prompt is a single copyable block (markdown code fence)
 
+## Delivery
+
+After constructing the prompt, save it to `docs/prompts/` as a markdown file.
+
+**File naming:** `<slug>.md` where `<slug>` is a short, descriptive kebab-case
+name derived from the prompt's job (e.g., `code-review-checklist.md`,
+`api-design-critique.md`).
+
+**File format:**
+
+```markdown
+---
+job: <one-sentence core behavior from Phase 1>
+created: <YYYY-MM-DD>
+---
+
+<the prompt — raw, no code fence wrapper>
+```
+
+**Do NOT** skip this step or defer it. The prompt is not delivered until the
+file exists. If `docs/prompts/` does not exist, create it.
+
 ## Phase 5: Design Rationale
 
 For each major structural choice in the prompt, provide:
