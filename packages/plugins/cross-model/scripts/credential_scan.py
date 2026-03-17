@@ -15,14 +15,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-try:
-    from secret_taxonomy import (
+if __package__:
+    from scripts.secret_taxonomy import (
         FAMILIES,
         PLACEHOLDER_BYPASS_WINDOW,
         check_placeholder_bypass,
     )
-except ModuleNotFoundError:
-    from scripts.secret_taxonomy import (
+else:
+    from secret_taxonomy import (  # type: ignore[import-not-found,no-redef]
         FAMILIES,
         PLACEHOLDER_BYPASS_WINDOW,
         check_placeholder_bypass,

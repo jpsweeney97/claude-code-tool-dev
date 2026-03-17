@@ -32,15 +32,12 @@ import json
 import sys
 from dataclasses import dataclass
 
-try:
-    from credential_scan import scan_text
-except ModuleNotFoundError:
+if __package__:
     from scripts.credential_scan import scan_text
-
-try:
-    from event_log import ts as _ts, append_log as _raw_append_log
-except ModuleNotFoundError:
     from scripts.event_log import ts as _ts, append_log as _raw_append_log
+else:
+    from credential_scan import scan_text  # type: ignore[import-not-found,no-redef]
+    from event_log import ts as _ts, append_log as _raw_append_log  # type: ignore[import-not-found,no-redef]
 
 
 def _append_log(entry: dict) -> None:

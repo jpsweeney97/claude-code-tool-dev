@@ -22,13 +22,13 @@ import json
 import sys
 from pathlib import Path
 
-try:
-    from event_schema import (
+if __package__:
+    from scripts.event_schema import (
         REQUIRED_FIELDS_BY_EVENT,
         KNOWN_UNSTRUCTURED_TYPES,
     )
-except ModuleNotFoundError:
-    from scripts.event_schema import (
+else:
+    from event_schema import (  # type: ignore[import-not-found,no-redef]
         REQUIRED_FIELDS_BY_EVENT,
         KNOWN_UNSTRUCTURED_TYPES,
     )

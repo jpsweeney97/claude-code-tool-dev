@@ -29,34 +29,12 @@ import traceback
 import uuid
 from pathlib import Path
 
-try:
-    from event_log import ts as _ts, append_log as _append_log, session_id as _session_id
-except ModuleNotFoundError:
+if __package__:
     from scripts.event_log import (
         ts as _ts,
         append_log as _append_log,
         session_id as _session_id,
     )
-
-try:
-    from event_schema import (
-        SCHEMA_VERSION as _SCHEMA_VERSION,
-        resolve_schema_version as _resolve_schema_version,
-        is_non_negative_int,
-        VALID_POSTURES as _VALID_POSTURES,
-        VALID_SEED_CONFIDENCE as _VALID_SEED_CONFIDENCE,
-        VALID_SHAPE_CONFIDENCE as _VALID_SHAPE_CONFIDENCE,
-        VALID_CONVERGENCE_CODES as _VALID_CONVERGENCE_CODES,
-        VALID_MODES as _VALID_MODES,
-        VALID_MODE_SOURCES as _VALID_MODE_SOURCES,
-        VALID_LOW_SEED_CONFIDENCE_REASONS as _VALID_LOW_SEED_CONFIDENCE_REASONS,
-        VALID_TERMINATION_REASONS as _VALID_TERMINATION_REASONS,
-        COUNT_FIELDS as _COUNT_FIELDS,
-        REQUIRED_FIELDS_BY_EVENT,
-    )
-    _DIALOGUE_REQUIRED = REQUIRED_FIELDS_BY_EVENT["dialogue_outcome"]
-    _CONSULTATION_REQUIRED = REQUIRED_FIELDS_BY_EVENT["consultation_outcome"]
-except ModuleNotFoundError:
     from scripts.event_schema import (
         SCHEMA_VERSION as _SCHEMA_VERSION,
         resolve_schema_version as _resolve_schema_version,
@@ -72,8 +50,26 @@ except ModuleNotFoundError:
         COUNT_FIELDS as _COUNT_FIELDS,
         REQUIRED_FIELDS_BY_EVENT,
     )
-    _DIALOGUE_REQUIRED = REQUIRED_FIELDS_BY_EVENT["dialogue_outcome"]
-    _CONSULTATION_REQUIRED = REQUIRED_FIELDS_BY_EVENT["consultation_outcome"]
+else:
+    from event_log import ts as _ts, append_log as _append_log, session_id as _session_id  # type: ignore[import-not-found,no-redef]
+    from event_schema import (  # type: ignore[import-not-found,no-redef]
+        SCHEMA_VERSION as _SCHEMA_VERSION,
+        resolve_schema_version as _resolve_schema_version,
+        is_non_negative_int,
+        VALID_POSTURES as _VALID_POSTURES,
+        VALID_SEED_CONFIDENCE as _VALID_SEED_CONFIDENCE,
+        VALID_SHAPE_CONFIDENCE as _VALID_SHAPE_CONFIDENCE,
+        VALID_CONVERGENCE_CODES as _VALID_CONVERGENCE_CODES,
+        VALID_MODES as _VALID_MODES,
+        VALID_MODE_SOURCES as _VALID_MODE_SOURCES,
+        VALID_LOW_SEED_CONFIDENCE_REASONS as _VALID_LOW_SEED_CONFIDENCE_REASONS,
+        VALID_TERMINATION_REASONS as _VALID_TERMINATION_REASONS,
+        COUNT_FIELDS as _COUNT_FIELDS,
+        REQUIRED_FIELDS_BY_EVENT,
+    )
+
+_DIALOGUE_REQUIRED = REQUIRED_FIELDS_BY_EVENT["dialogue_outcome"]
+_CONSULTATION_REQUIRED = REQUIRED_FIELDS_BY_EVENT["consultation_outcome"]
 
 
 # ---------------------------------------------------------------------------

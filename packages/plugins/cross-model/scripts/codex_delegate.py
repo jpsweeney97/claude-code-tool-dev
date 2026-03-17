@@ -28,16 +28,14 @@ from pathlib import Path
 from tempfile import TemporaryFile
 
 # Sibling imports (same scripts/ directory)
-# R6-B9: Both import attempts wrapped — second attempt may also fail
-# (e.g., scripts/ not on sys.path AND parent insertion doesn't help)
-try:
-    from credential_scan import scan_text
-    from event_log import ts, append_log, session_id
-except ModuleNotFoundError:
+if __package__:
+    from scripts.credential_scan import scan_text
+    from scripts.event_log import ts, append_log, session_id
+else:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
-        from credential_scan import scan_text
-        from event_log import ts, append_log, session_id
+        from credential_scan import scan_text  # type: ignore[import-not-found,no-redef]
+        from event_log import ts, append_log, session_id  # type: ignore[import-not-found,no-redef]
     except ModuleNotFoundError as exc:
         print(f"codex-delegate: fatal: cannot import sibling modules: {exc}", file=sys.stderr)
         sys.exit(1)
