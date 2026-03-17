@@ -791,7 +791,7 @@ This test runs in CI across Steps 1–3. If type changes to `DeferEnvelope` or `
 | Staging inbox | `~/.claude/engram/<repo_id>/knowledge_staging/` |
 | `/learn`, `/distill`, `/curate`, `/promote` | All knowledge skills |
 
-**Exit criteria (2a):** Full learn → distill → curate → promote lifecycle. Staging dedup. Session cap.
+**Exit criteria (2a):** Full learn → distill → curate → promote lifecycle. Staging dedup. Staging inbox cap.
 
 **Step 2b — Retire:**
 
