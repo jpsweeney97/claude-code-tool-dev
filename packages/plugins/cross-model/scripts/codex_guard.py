@@ -28,26 +28,34 @@ Exit codes:
 
 from __future__ import annotations
 
-import datetime
 import json
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 try:
     from credential_scan import scan_text
 except ModuleNotFoundError:
     from scripts.credential_scan import scan_text
 
+try:
+    from event_log import ts as _ts, append_log as _raw_append_log
+except ModuleNotFoundError:
+    from scripts.event_log import ts as _ts, append_log as _raw_append_log
+
+
+def _append_log(entry: dict) -> None:
+    """Delegate to event_log.append_log, discarding the bool return.
+
+    codex_guard callers expect None return (fire-and-forget).
+    event_log.append_log returns bool. This wrapper preserves the
+    original call-site semantics while gaining POSIX atomicity and
+    0o600 permission enforcement.
+    """
+    _raw_append_log(entry)
+
 
 _NODE_CAP = 10_000
 _CHAR_CAP = 256 * 1024
-
-# ---------------------------------------------------------------------------
-# Log path
-# ---------------------------------------------------------------------------
-
-_LOG_PATH = Path.home() / ".claude" / ".codex-events.jsonl"
 
 
 @dataclass(frozen=True)
@@ -79,19 +87,6 @@ CODEX_REPLY_POLICY = ToolScanPolicy(
 
 class ToolInputLimitExceeded(RuntimeError):
     """Raised when tool_input traversal exceeds configured safety caps."""
-
-
-def _ts() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _append_log(entry: dict) -> None:
-    try:
-        _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with _LOG_PATH.open("a") as f:
-            f.write(json.dumps(entry) + "\n")
-    except OSError as e:
-        print(f"codex-guard: log write failed: {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
