@@ -228,7 +228,7 @@ engram/                              # Shared root (repo-local, git-tracked)
 
 | Artifact | TTL | Location |
 |----------|-----|----------|
-| Snapshots/checkpoints | 30-day active, 90-day archive | Private root |
+| Snapshots/checkpoints | 90-day TTL from creation (filename timestamp). SessionStart deletes files older than 90 days. No intermediate "archive" tier — files stay in place until deletion. | Private root |
 | Chain state files | 24h | Private root |
 | Knowledge staging candidates | No TTL (accumulate until curated) | Private root |
 | Failed envelopes | 7 days → flagged by `/triage` | Private root `.failed/` |
@@ -584,7 +584,7 @@ Bounded and idempotent. <500ms startup budget.
 | Operation | Budget | On failure |
 |-----------|--------|------------|
 | Resolve `worktree_id` | 1 call | Fail-closed: session needs identity |
-| Clean expired snapshots (>30d/90d) | Max 50 files | Fail-open: retry next session |
+| Clean expired snapshots (>90d by filename timestamp) | Max 50 files | Fail-open: retry next session |
 | Clean expired chain state (>24h) | Max 20 files | Fail-open |
 | Clean `.failed/` envelopes (>7d) | Max 20 files | Fail-open |
 | Verify `.engram-id` exists | 1 read | Warn if missing (diagnostic only — does not create) |
