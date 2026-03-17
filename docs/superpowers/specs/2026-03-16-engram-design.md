@@ -63,7 +63,7 @@ class RecordRef:
     repo_id: str          # UUIDv4, stored in .engram-id at repo root
     subsystem: str        # "context" | "work" | "knowledge"
     record_kind: str      # Subsystem-specific: "snapshot", "checkpoint", "ticket", "lesson", etc.
-    record_id: str        # Subsystem-native ID (handoff filename, T-YYYYMMDD-NN, lesson date+tag)
+    record_id: str        # Subsystem-native ID (handoff filename, T-YYYYMMDD-NN, lesson_id)
 ```
 
 ### RecordMeta — provenance and observability (eager on write, optional for read)
@@ -135,7 +135,7 @@ class PromoteEnvelope:             # Knowledge → CLAUDE.md (intent record)
 | Envelope | `idempotency_material` |
 |----------|----------------------|
 | `DeferEnvelope` | `{source_ref.record_id, title, problem}` |
-| `DistillEnvelope` | `{source_ref.record_id, len(candidates)}` |
+| `DistillEnvelope` | `{source_ref.record_id, sorted([{content_sha256, source_section, durability}, ...])}` |
 | `PromoteEnvelope` | `{source_ref.record_id, target_section}` |
 
 `canonical_json()` sorts keys and normalizes whitespace. Same material → same key → target engine returns existing result without side effects.
@@ -144,9 +144,27 @@ class PromoteEnvelope:             # Knowledge → CLAUDE.md (intent record)
 - `DistillCandidate.content_sha256` — deduplicates staged/published knowledge entries by content
 - Work engine's existing duplicate detection — matches by title similarity and source overlap
 
-These are independent: an idempotent retry of a distill operation (same `idempotency_key`) is caught at the envelope level before dedup is ever checked. A genuinely new operation with coincidentally identical content is caught by dedup, not idempotency.
+These are independent in purpose and enforcement stage, though not necessarily disjoint in fields: an idempotent retry of a distill operation (same `idempotency_key`) is caught at the envelope level before dedup is ever checked. A genuinely new operation with coincidentally identical content is caught by dedup, not idempotency. The `DistillEnvelope` idempotency material includes per-candidate fingerprints to ensure that re-running extraction with improved logic on the same snapshot produces a distinct key when candidate content changes.
 
-**Format preservation:** Each subsystem keeps its native format. Tickets keep fenced YAML. Handoffs keep `---` frontmatter. Learnings keep their current markdown format. NativeReaders parse each format without requiring unification.
+**Format preservation:** Each subsystem keeps its native format. Tickets keep fenced YAML. Handoffs keep `---` frontmatter. Learnings use heading-delimited blocks with `lesson-meta` comments (see below). NativeReaders parse each format without requiring unification.
+
+### Knowledge entry format — `lesson-meta` contract
+
+All published knowledge entries in `engram/knowledge/learnings.md` use a uniform format regardless of producer (`/learn` or `/curate`):
+
+```markdown
+### YYYY-MM-DD Entry title
+<!-- lesson-meta {"lesson_id": "<UUIDv4>", "content_sha256": "<hex>", "created_at": "<ISO8601>", "producer": "learn|curate"} -->
+
+Entry content...
+```
+
+- **`lesson_id`**: UUIDv4 generated at creation. Serves as `RecordRef.record_id` for knowledge entries. Stable across edits (content changes update `content_sha256`, not `lesson_id`).
+- **`content_sha256`**: Hash of normalized entry content (excluding the `lesson-meta` comment itself). Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
+- **`created_at`**: ISO 8601 timestamp of initial creation.
+- **`producer`**: Which skill created the entry. Informational — does not affect lifecycle.
+
+The Knowledge reader parses `### ` headings as entry delimiters and extracts `lesson-meta` JSON from the immediately following HTML comment. Entries lacking `lesson-meta` (legacy or hand-edited) are assigned `record_kind: "legacy"` and are discoverable via query but not addressable by `lesson_id`.
 
 ---
 
@@ -183,7 +201,7 @@ engram/                              # Shared root (repo-local, git-tracked)
 
 ### Key design decisions
 
-1. **Learnings remain a single file** (`engram/knowledge/learnings.md`) for MVP. Individual files are a deferred optimization when entry count warrants addressability over single-file browsability.
+1. **Learnings remain a single file** (`engram/knowledge/learnings.md`) for MVP. Entries are delimited by `### ` headings and individually addressable via `lesson_id` in `lesson-meta` comments (see Section 2). Individual files are a deferred optimization when entry count warrants file-level addressability over single-file browsability.
 
 2. **Tickets move from `docs/tickets/` to `engram/work/`**. Git history preserved via `git mv`.
 
@@ -260,9 +278,12 @@ When the ticket format changes, `work_reader.py` changes with it — in the same
 class NativeReader(Protocol):
     subsystem: str
 
-    def scan(self, root: Path) -> list[Path]:
+    def scan(self, root: Path, root_type: Literal["shared", "private"]) -> list[Path]:
         """List all files this reader claims. Reader decides what files
-        exist and where — Engram never hardcodes subsystem path conventions."""
+        exist and where — Engram never hardcodes subsystem path conventions.
+        root_type tells the reader which storage root is being scanned,
+        so it can return [] for root types it doesn't handle without
+        inspecting path structure."""
         ...
 
     def read(self, path: Path) -> IndexEntry:
@@ -272,7 +293,7 @@ class NativeReader(Protocol):
     # No write(). By design.
 ```
 
-Engram calls `reader.scan(root)` to discover files — it never globs subsystem directories directly. The query engine calls `scan()` twice per reader: once with the shared root, once with the private root. Readers return `[]` for roots they don't own (e.g., the Work reader returns `[]` for the private root). The Knowledge reader returns published entries from the shared root and staged entries from the private root, using `record_kind` to distinguish them.
+Engram calls `reader.scan(root, root_type)` to discover files — it never globs subsystem directories directly. The query engine calls `scan()` twice per reader: once with `root_type="shared"`, once with `root_type="private"`. Readers return `[]` for root types they don't handle (e.g., the Work reader returns `[]` for `root_type="private"`) — the `root_type` parameter makes this explicit without requiring readers to inspect path structure. The Knowledge reader returns published entries from the shared root and staged entries from the private root, using `record_kind` to distinguish them.
 
 ### Query returns entries + diagnostics
 
@@ -402,7 +423,7 @@ Uses the index for *discovery*, opens native files for *reasoning*.
 ```
 /promote
     → query(subsystems=["knowledge"], status="knowledge:published")
-    → Rank by maturity signals (age, breadth, reuse evidence)
+    → Rank by maturity signals (age, breadth, reuse evidence) — advisory ordering only
     → User selects
     → Step 1 (engine): Knowledge engine validates promotability, returns promotion plan
     → Step 2 (skill): Skill writes transformed text to CLAUDE.md
@@ -410,6 +431,8 @@ Uses the index for *discovery*, opens native files for *reasoning*.
 ```
 
 CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns the promotion *state*. The CLAUDE.md edit is a skill-level operation. Deliberate, documented exception to the "target engine validates and writes" rule.
+
+**Ranking is advisory, not contractual.** Maturity signals (age, breadth, reuse evidence) determine display ordering only — they are not part of the storage contract. Engine promotability validation must not depend on undocumented maturity scores. The existing `/promote` skill's 5-signal maturity model serves as the initial implementation baseline; implementation details are deferred to Step 2.
 
 **Promote recovery (reconciliation-based):** Step 1 validates but does not record durable state — it returns a promotion plan. Step 3 writes `promote-meta` only after the CLAUDE.md write succeeds. If Step 2 fails, no `promote-meta` exists, so the lesson remains eligible for future `/promote` runs. If Step 3 fails (promote-meta write), `/triage` detects the mismatch: CLAUDE.md contains the text but the knowledge record lacks `promote-meta`. `/triage` surfaces this for the user to resolve (attach metadata, re-draft, or skip).
 
@@ -476,7 +499,7 @@ CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engin
 
 ## Section 6: Skill Surface and Hooks
 
-### Skills (12 total)
+### Skills (13 total)
 
 | Skill | Subsystem | Change from today |
 |-------|-----------|-------------------|
@@ -487,11 +510,12 @@ CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engin
 | `/search` | Cross-subsystem | Queries all subsystems. Results grouped by subsystem. |
 | `/ticket` | Work | Unchanged API. Storage at `engram/work/`. |
 | `/triage` | Cross-subsystem | Merged from ticket-triage + handoff triage. Reports staged candidates + orphans. |
-| `/learn` | Knowledge | Appends to `engram/knowledge/learnings.md`. |
+| `/learn` | Knowledge | Appends to `engram/knowledge/learnings.md` with `lesson-meta` contract. Dedup via `content_sha256` against published entries. |
 | `/distill` | Context → Knowledge | Writes to staging inbox. Idempotent per snapshot. |
 | `/curate` | Knowledge | **New.** Reviews staged candidates, publishes to `engram/knowledge/`. |
 | `/promote` | Knowledge → CLAUDE.md | Three-step: engine validates promotability, skill writes CLAUDE.md, engine writes promote-meta. |
 | `/timeline` | Cross-subsystem | **New.** Session reconstruction with ledger-backed/inferred labels. |
+| `engram init` | System | **New.** Bootstrap: generates `.engram-id` (UUIDv4), writes to repo root, stages for commit. Prints exact `git commit` command for user to run. Idempotent — no-ops if `.engram-id` already exists. |
 
 **Consolidated:** `/ticket-triage` + handoff `/triage` → merged `/triage`.
 
@@ -508,7 +532,7 @@ CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engin
 | Hook | Event | Order | Purpose | On failure |
 |------|-------|-------|---------|------------|
 | `engram_guard` | PreToolUse | 1st | Protected-path enforcement + trust injection | **Block** |
-| `engram_quality` | PostToolUse (Write) | 2nd | Snapshot quality checks + protected-path integrity validation | **Warn** |
+| `engram_quality` | PostToolUse (Write) | 2nd | Snapshot quality checks (payload-based, Write tool only) | **Warn** |
 | `engram_register` | PostToolUse (Write) | 3rd | Ledger append | **Silent** (best-effort) |
 | `engram_session` | SessionStart | — | TTL cleanup, worktree_id init | See below |
 
@@ -524,9 +548,19 @@ Policy-based, not tool-specific. Protects subsystem-owned paths from direct muta
 
 **Enforcement scope:** Write and Edit mutations are reliably blocked. Bash interception is best-effort — detecting arbitrary shell commands that write to protected paths (`echo >`, `cp`, `tee`, etc.) is unreliable via PreToolUse input parsing. The guard catches direct `python3 engine_*.py` patterns reliably; other Bash writes are caught on a best-effort basis. See Section 8 for the named risk.
 
-**Defense-in-depth:** `engram_quality` (PostToolUse) validates protected-path integrity after writes complete — if a Bash command bypasses `engram_guard` and mutates a protected path, `engram_quality` detects the unauthorized change and warns. This does not prevent the write but ensures it is never silent.
+**Quality validation:** `engram_quality` (PostToolUse) validates snapshot content quality for Write tool calls only — it reads `tool_input.content` from the write payload, not from disk. It does **not** detect Bash-mediated writes to protected paths. Bash bypass of `engram_guard` remains an admitted gap with best-effort pre-blocking only (see Section 8).
 
 Paths canonicalized before matching (resolve symlinks, collapse `..`, normalize to absolute).
+
+### Trust injection mechanism
+
+`engram_guard` injects a trust triple into the engine payload for every authorized Bash invocation of a subsystem engine:
+
+1. **Injection (PreToolUse):** When `engram_guard` detects an authorized engine invocation pattern (`python3 engine_*.py`), it writes `hook_injected=True`, `hook_request_origin`, and `session_id` to the engine's payload file atomically (temp file → `fsync` → `os.replace`). This carries forward the ticket plugin's proven trust injection pattern.
+
+2. **Validation (engine entrypoint):** Every **mutating** entrypoint in each subsystem engine must invoke a shared trust validator (`collect_trust_triple_errors()`) before making state changes. The validator checks that all three fields are present and non-empty. Missing or incomplete triples reject the operation. Read-only entrypoints are exempt.
+
+3. **Per-subsystem enforcement:** Each subsystem engine owns its trust boundary. The shared validator lives in `engram_core/` but enforcement is at the engine level — Engram's indexing layer never sees or checks trust triples.
 
 ### SessionStart hook (`engram_session`)
 
@@ -540,7 +574,7 @@ Bounded and idempotent. <500ms startup budget.
 | Clean `.failed/` envelopes (>7d) | Max 20 files | Fail-open |
 | Verify `.engram-id` exists | 1 read | Warn if missing (diagnostic only — does not create) |
 
-**Bootstrap:** SessionStart does not create `.engram-id` — it requires a git commit, which is inappropriate during session initialization. Bootstrap occurs via Step 0 (migration for this repo) or a dedicated `engram init` command (for new repos post-v1). Until `.engram-id` exists, all mutating Engram operations (save, defer, distill, ticket create) fail closed with error: `"Engram not initialized: run 'engram init' to bootstrap."` Read-only operations (search, triage) degrade gracefully via the existing degradation model.
+**Bootstrap:** SessionStart does not create `.engram-id` — it requires a git commit, which is inappropriate during session initialization. Bootstrap occurs via `engram init` (see Skills table). Until `.engram-id` exists, all mutating Engram operations (save, defer, distill, ticket create) fail closed with error: `"Engram not initialized: run 'engram init' to bootstrap."` Read-only operations (search, triage) degrade gracefully via the existing degradation model.
 
 ### Autonomy model
 
@@ -568,7 +602,7 @@ ledger:
 | `/save` vs `/quicksave` | Full session wrap-up vs. quick checkpoint |
 | `/triage` vs `/ticket list` | Cross-subsystem health dashboard vs. list my tickets |
 | `/search` vs `/ticket query` | Find across everything vs. find ticket by ID prefix |
-| `/distill` vs `/learn` | Bulk extraction from snapshot vs. capture one insight manually |
+| `/distill` vs `/learn` | Bulk extraction from snapshot (staged) vs. capture one insight manually (direct publish). Both write `lesson-meta`; both dedup via `content_sha256`. |
 | `/curate` vs `/promote` | Review staged candidates vs. graduate published knowledge to CLAUDE.md |
 
 ---
@@ -582,7 +616,9 @@ ledger:
 ### Build sequence
 
 ```
-Step 0: Engram shell (plugin + core library)
+Step 0a: Foundation contracts (plugin + core library + type contracts)
+    ↓
+Step 0b: Bootstrap and identity (engram init + .engram-id)
     ↓
 Step 1: Bridge cutover (defer/ingest)
     ↓
@@ -595,20 +631,30 @@ Step 4: Context cutover
 Step 5: Cleanup
 ```
 
-### Step 0: Engram shell
+### Step 0a: Foundation contracts
 
-Create plugin and core library. Validate the foundation.
+Create plugin, core library, and type contracts. Validate the foundation before bootstrap.
 
 | Deliverable | Detail |
 |-------------|--------|
 | Plugin manifest | `packages/plugins/engram/.claude-plugin/plugin.json` |
-| `engram_core/identity.py` | repo_id generation/resolution, worktree_id derivation |
-| `engram_core/types.py` | RecordRef, RecordMeta, IndexEntry, QueryResult, envelope types |
-| `engram_core/reader_protocol.py` | NativeReader protocol |
+| `engram_core/types.py` | RecordRef, RecordMeta, IndexEntry, QueryResult, envelope types (including `lesson-meta` contract for knowledge entries and per-candidate fingerprints in `DistillEnvelope` idempotency material) |
+| `engram_core/reader_protocol.py` | NativeReader protocol with `root_type: Literal["shared", "private"]` parameter on `scan()` |
 | `engram_core/query.py` | Fresh-scan query engine |
-| `.engram-id` | Generated and committed |
 
-**Exit criteria:** Identity works across worktrees. Query scans empty directories with correct diagnostics. All types pass construction and equality tests.
+**Exit criteria:** All types pass construction and equality tests. Query scans empty directories with correct diagnostics. NativeReader protocol compiles with `root_type` parameter.
+
+### Step 0b: Bootstrap and identity
+
+Create identity resolution and bootstrap command. Depends on 0a types being stable.
+
+| Deliverable | Detail |
+|-------------|--------|
+| `engram_core/identity.py` | repo_id generation/resolution, worktree_id derivation |
+| `engram init` command | Generates `.engram-id` (UUIDv4), writes to repo root, stages for commit |
+| `.engram-id` | Generated and committed (for this repo) |
+
+**Exit criteria:** Identity works across worktrees. `engram init` is idempotent. SessionStart warns when `.engram-id` missing and points to `engram init`.
 
 ### Step 1: Bridge cutover (defer/ingest)
 
@@ -617,12 +663,24 @@ The only existing cross-subsystem path with trusted writes on both ends. Proves 
 | Deliverable | Detail |
 |-------------|--------|
 | `DeferEnvelope` with `EnvelopeHeader` | New envelope type |
-| Bridge adapter | Converts `DeferEnvelope` → old `DeferredWorkEnvelope` JSON → temp file → old ticket engine ingest |
+| Bridge adapter + SourceResolver | Converts `DeferEnvelope` → old `DeferredWorkEnvelope` JSON → temp file → old ticket engine ingest. SourceResolver reads source snapshot frontmatter to recover `session_id` for bridge mapping (see below). |
 | Context reader | Parses handoff `---` frontmatter |
 | Work reader | Parses ticket fenced YAML |
 | `/defer` skill | Emits `DeferEnvelope`, adapter calls old ticket engine |
 
 Readers point at current data locations. Data doesn't move yet. The bridge adapter is temporary scaffolding — it allows Step 1 to prove envelope contracts without requiring the new Work engine (a Step 3 deliverable). The adapter preserves the old engine's existing dedup behavior.
+
+**Bridge field mapping via SourceResolver:** The old `DeferredWorkEnvelope` requires `source.type`, `source.ref`, and `source.session` as string fields. The new `EnvelopeHeader.source_ref` is a `RecordRef` with no `session` field. The bridge adapter uses an adapter-local `SourceResolver` to bridge this structural mismatch:
+
+| Old field | Mapped from |
+|-----------|-------------|
+| `source.type` | `f"engram:{source_ref.subsystem}:{source_ref.record_kind}"` |
+| `source.ref` | Canonical `RecordRef` serialization |
+| `source.session` | `SourceResolver` reads `session_id` from the source snapshot's frontmatter |
+
+The `SourceResolver` is adapter-local scaffolding — it dies with the bridge adapter in Step 5 cleanup. Do not add `session_id` to `EnvelopeHeader` or `RecordRef` to serve this temporary need.
+
+**Cross-step dependency:** Do not modify the `DeferEnvelope` or `EnvelopeHeader` types between Steps 1 and 3 without updating the bridge adapter. The adapter depends on both the new envelope format and the old ticket engine's ingest JSON schema.
 
 **Exit criteria:** `/defer` produces envelope with RecordRef linkage. Bridge adapter successfully routes to old ticket engine. Cross-subsystem query returns results from both readers.
 
@@ -696,7 +754,7 @@ Readers point at current data locations. Data doesn't move yet. The bridge adapt
 
 ### Step 5: Cleanup
 
-- Remove bridge adapter from Step 1 (temporary scaffolding must not survive as permanent code)
+- Remove bridge adapter and SourceResolver from Step 1 (temporary scaffolding must not survive as permanent code)
 - Remove old marketplace entries for retired plugins
 - Clean old data locations (`docs/tickets/`, `docs/learnings/`)
 - Update CLAUDE.md, references, and documentation
@@ -723,7 +781,10 @@ Feed identical fixtures into old ticket engine and new Engram Work engine. Compa
 
 **All migration scripts are idempotent.** Running twice produces the same result.
 
-**Rollback:** Each step is a branch. Revert the branch if a step fails. The activate/retire split ensures old code is still in the repo during validation (substep a) and only removed after validation passes (substep b). Reverting substep b restores old code; reverting substep a restores the pre-step state entirely.
+**Rollback:** Each step is a branch. Revert the branch if a step fails.
+
+- **Shared root (git-tracked):** Branch revert fully restores the pre-step state. The activate/retire split ensures old code is still in the repo during validation (substep a) and only removed after validation passes (substep b). Reverting substep b restores old code; reverting substep a restores the pre-step state entirely.
+- **Private root (`~/.claude/engram/`):** Migration steps that write to the private root (Steps 2a, 4a) are **forward-only and additive** — they copy data but never delete originals. Branch revert does not undo private-root writes. Orphaned private-root data after a branch revert is expected and safe — SessionStart cleanup handles TTL expiration, and re-running the migration step is idempotent (copy skips files that already exist at the destination). Deletion of original private-root data (e.g., `~/.claude/handoffs/`) occurs only in Step 5 (cleanup), after all validation passes.
 
 ---
 
@@ -736,16 +797,17 @@ Feed identical fixtures into old ticket engine and new Engram Work engine. Compa
 | **Shadow authority** | High | Engram indexes but never owns. No decisions from IndexEntry. | Does any feature give a different answer via Engram vs. subsystem? |
 | **God Skill on /save** | Medium | Thin orchestrator, no unique logic, same code paths. | Does /save contain logic /defer or /distill don't share? |
 | **Fingerprint drift** | Medium | repo_id is stored UUIDv4. Dedup uses content hashes, not paths. | Rename repo, clone elsewhere — dedup still works? |
-| **Bash enforcement gap** | Medium | `engram_guard` reliably blocks Write/Edit but Bash interception is best-effort. `engram_quality` PostToolUse provides defense-in-depth by detecting unauthorized changes after the fact. | Bash write to `engram/work/` bypasses guard? `engram_quality` warns? |
+| **Bash enforcement gap** | Medium | `engram_guard` reliably blocks Write/Edit but Bash interception is best-effort. No post-hoc detection — `engram_quality` validates Write payloads only, not disk state. | Bash write to `engram/work/` bypasses guard? |
 | **Fork-on-same-machine collision** | Low | Two forks sharing `.engram-id` use the same private root. Worktree_id differentiates Context queries. Knowledge staging and ledger shards commingle but are operationally harmless at single-developer scale. Deliberate v1 trade-off — engineering fix (worktree_id in private root path) deferred because it changes private root semantics from repo-scoped to worktree-scoped. | Clone a fork locally, run `/curate` — see candidates from both? |
 | **Staging accumulation** | Low | /triage reports pending. Session cap. /curate shows queue. | Staging directory file count over time. |
 | **NativeReader latency** | Low | Fresh scan at MVP scale is fast. git log off hot path. | Query latency on repos with 500+ files. |
+| **Concurrent worktree staging** | Low | Two worktrees running `/distill` concurrently write to the same `knowledge_staging/` directory. Staging is content-addressed: identical candidates from different worktrees coalesce into a single artifact (engine uses atomic create-or-read-existing semantics via `content_sha256`-based filenames). `/curate` reviews content, not source multiplicity. `learnings.md` appends use atomic write-then-rename. Deliberate v1 trade-off — worktree sharding of staging deferred because coalescing is the correct semantic at single-developer scale. | Two worktrees distill same snapshot concurrently — duplicate staging files? |
 
 ### Open questions
 
 | Question | When to resolve |
 |----------|-----------------|
-| What additional fields does IndexEntry need? | Step 0 implementation. Extend based on real query needs. |
+| What additional fields does IndexEntry need? | Step 0a implementation. Extend based on real query needs. |
 | How many of 669 ticket tests are compatibility-critical? | Step 3. Triage before building harness. |
 
 ### Deferred decisions (explicitly not in v1)
@@ -760,17 +822,18 @@ Feed identical fixtures into old ticket engine and new Engram Work engine. Compa
 | Reactive pipelines (auto-defer, auto-distill) | User-initiated for v1. Consider after usage patterns emerge. |
 | Ledger compaction | Append-only grows indefinitely. Add when file size matters. |
 | Cross-user timeline | Session-local only. Multi-user via git log is out of scope. |
+| Bounded protected-path drift scan | PostToolUse Bash trigger that compares protected-root manifest (mtime, size) before/after Bash execution. Would close the Bash enforcement gap for git-tracked paths. Not achievable without pre/post state comparison mechanism. |
 
 ### Success criteria
 
 | Criterion | Measurement |
 |-----------|-------------|
-| All 12 skills functional | Manual walkthrough of each primary flow |
+| All 13 skills functional | Manual walkthrough of each primary flow (including `engram init`) |
 | Cross-subsystem query works | `/search` returns from all three subsystems |
 | Session timeline reconstructs | `/timeline` with ledger-backed/inferred labels |
 | Defer → ticket linkage | Ticket's source_ref traces to originating snapshot |
 | Distill → staging → curate pipeline | Full lifecycle works |
-| Protected-path enforcement | Direct Write/Edit to `engram/work/` blocked; Bash best-effort; `engram_quality` warns on unauthorized changes |
+| Protected-path enforcement | Direct Write/Edit to `engram/work/` blocked; Bash best-effort |
 | Worktree isolation | Two worktrees don't cross-contaminate Context |
 | Compatibility harness passes | Work subsystem behavioral equivalence |
 | Old plugins removed | No code in `packages/plugins/handoff/` or `packages/plugins/ticket/` |
