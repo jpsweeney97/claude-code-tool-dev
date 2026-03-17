@@ -19,7 +19,7 @@
 
 **Leverage points:** `event_schema.py` (load-bearing — schema changes cascade to all consumers), `codex_guard.py` PreToolUse (sole code-level enforcement gate), `consultation-contract.md §5/§7/§11` (normative — skill must defer).
 
-**Underutilized:** Learning retrieval (§17) is a dead path — the card model was removed but the stub remains. Both `/codex` and `/dialogue` have fail-soft learning retrieval calls that always return empty. `docs/learnings/learnings.md` is populated by `/learn` and `/promote` but never read during consultations.
+**Underutilized:** Learning retrieval (§17) is a dead path — the card model was removed and §17 is now deferred. Both `/codex` and `/dialogue` have fail-soft learning retrieval references that never activate. `docs/learnings/learnings.md` is populated by `/learn` and `/promote` but never read during consultations.
 
 ---
 
@@ -35,7 +35,7 @@
 - *Stops short:* Scope envelope constructed from "§3 preflight" but preflight is Claude-cognitive — no Python enforces it. The `tag-grammar.md` crosswalk is a spec for Claude to follow, not enforced code. If `codex-dialogue`'s `<!-- pipeline-data -->` epilogue is missing, markdown regex fallback has lower precision for `converged` detection.
 - *Unhandled:* `provenance_unknown_count` null vs 0 semantic (schema version signal) is correctly threaded but requires all consumers to respect the distinction. If one gatherer produces 0 lines and the other produces output, the retry targets only the low-output gatherer.
 
-**Leverage points:** `pipeline.py` 17-step pipeline (load-bearing for all server-assisted dialogues), `control.py:compute_action` (drives conversation lifecycle), `emit_analytics.py:build_dialogue_outcome` (40+ field event — any change to agent output format requires coordinated update), `templates.py` HMAC token flow (security boundary between agent and server).
+**Leverage points:** `pipeline.py` 17-step pipeline (load-bearing for all server-assisted dialogues), `control.py:compute_action` (drives conversation lifecycle), `emit_analytics.py:build_dialogue_outcome` (47-field event — any change to agent output format requires coordinated update), `templates.py` HMAC token flow (security boundary between agent and server).
 
 **Underutilized:** Planning pipeline fields (`question_shaped`, `shape_confidence`, `assumptions_generated_count`, `ambiguity_count`) are stored in events (schema 0.3.0) but `compute_stats.py` has no section computing plan-mode effectiveness. The `effective_delta` sequence in `CumulativeState` could support richer analytics than the current trajectory summary. Posture is stored but explicitly "posture-agnostic by design" — could drive different template selection or convergence thresholds. The `tags` field in `TurnRequest`/`LedgerEntry` has no server-side semantics.
 
@@ -80,7 +80,7 @@
 | `credential_scan.py` + `secret_taxonomy.py` | **Yes** | 14-family, 3-tier taxonomy. Strict blocks, contextual blocks with placeholder bypass, broad shadows | `reason` field logs regex fragment not family name. Scan priority across multi-field payloads may log less-informative tier |
 | `codex_guard.py` | **Yes** | PreToolUse credential enforcement + PostToolUse telemetry. Policy-based field selection, size caps (`_NODE_CAP=10000`, `_CHAR_CAP=256KB`), fail-closed | Only code-level enforcement gate — everything else is Claude-cognitive |
 | `emit_analytics.py` | **Yes** | Constructs structured events for all 3 outcome types. Dual-path synthesis parser | `build_dialogue_outcome` tightly coupled to agent output format |
-| Context injection pipeline | **Yes** | 17-step Call 1, HMAC-validated Call 2, 5 format redactors, immutable state projections | Well-implemented. Known limitations: single-flight assumption, `compact_to_budget` is O(n²) but unreachable under DD-2 invariant |
+| Context injection pipeline | **Yes** | 17-step Call 1, HMAC-validated Call 2, 5 format redactors, immutable state projections | Well-implemented. Known limitations: single-flight assumption, `compact_to_budget` is O(n) and reachable when byte-size exceeds budget despite DD-2 entry-count compliance |
 | `nudge_codex.py` | No (leaf) | Opt-in Bash failure counter with fcntl locking | Cross-session interference if `CLAUDE_SESSION_ID` unset (shares counter file as "unknown") |
 | `codex-reviewer.md` | No (leaf) | Standalone PR review agent, 2-turn max, 3-tier diff handling | No event emission, no analytics visibility |
 
@@ -96,7 +96,7 @@
 
 **A3. Single-turn consultations have no quality metrics.** `_compute_dialogue` operates only on `dialogue_outcomes`. Single-turn `/codex` consultations produce `consultation_outcome` events which have no convergence rate, seed confidence, or quality analysis. The `_SECTION_MATRIX` for `--type consultation` only returns usage, not a dedicated analysis section. This means the most frequently used capability (`/codex`) is the least measured.
 
-**A4. Learning retrieval is architecturally ready but dead.** Consultation contract §17 defines the injection points. `docs/learnings/learnings.md` exists and is populated by `/learn` and `/promote`. The briefing assembly format (§5) can accommodate a "Prior Insights" section. Every piece of the pipeline exists except the actual retrieval call — the stub is literally a placeholder waiting for implementation.
+**A4. Learning retrieval is architecturally ready but dead.** Consultation contract §17 defines the injection points but is marked deferred (card model dependency removed). `docs/learnings/learnings.md` exists and is populated by `/learn` and `/promote`. The briefing assembly can accommodate a `## Prior Learnings` section (§17.2 specifies placement between `## Context` and `## Material`). Every piece of the pipeline exists except the actual retrieval call — §17 is deferred, waiting for implementation.
 
 ### Lens B: User Experience Quality
 
@@ -118,9 +118,9 @@
 
 ### N1. Learning Injection into Consultations
 
-**What it does:** Reads `docs/learnings/learnings.md` before briefing assembly and injects relevant prior insights into the briefing's `## Context` section, so Codex benefits from accumulated project knowledge.
+**What it does:** Reads `docs/learnings/learnings.md` before briefing assembly and injects relevant prior learnings into a `## Prior Learnings` section (between `## Context` and `## Material` per §17.2), so Codex benefits from accumulated project knowledge.
 
-**Why it's high-leverage:** The entire learning system pipeline (capture → stage → promote) exists and produces structured content, but the output never reaches the cross-model boundary. Consultations repeatedly re-discover context that was previously captured. Every `/learn` and `/promote` invocation is currently wasted effort for cross-model work. The injection points are defined in consultation contract §17 — the stub is literally a placeholder waiting for implementation.
+**Why it's high-leverage:** The entire learning system pipeline (capture → stage → promote) exists and produces structured content, but the output never reaches the cross-model boundary. Consultations repeatedly re-discover context that was previously captured. Every `/learn` and `/promote` invocation is currently wasted effort for cross-model work. The injection points are defined in consultation contract §17 — currently deferred, waiting for implementation.
 
 **What it builds on:** `/learn` skill populates `docs/learnings/learnings.md`. Consultation contract §17 defines the injection protocol. Briefing assembly (§5) has a natural insertion point. The `/dialogue` skill's Step 3 assembly can accommodate an additional section. `credential_scan.scan_text` already runs on all briefing content — learning content would be scanned automatically.
 
@@ -158,7 +158,7 @@
 
 | # | Finding | Type | Leverage | Effort | Evidence | Components |
 |---|---------|------|----------|--------|----------|------------|
-| 1 | **Learning injection into consultations** — §17 is stubbed, learning system produces content that never reaches Codex | New | **High** — every consultation re-discovers context that was previously captured; learning pipeline ROI is currently zero for cross-model work | S (2-3 files) | §17 stub in both skill files; `docs/learnings/learnings.md` populated by `/learn`+`/promote`; §5 briefing has natural insertion point | `skills/codex/SKILL.md`, `skills/dialogue/SKILL.md`, `references/consultation-contract.md` §17 |
+| 1 | **Learning injection into consultations** — §17 is deferred, learning system produces content that never reaches Codex | New | **High** — every consultation re-discovers context that was previously captured; learning pipeline ROI is currently zero for cross-model work | S (2-3 files) | §17 deferred in contract; fail-soft references in both skill files; `docs/learnings/learnings.md` populated by `/learn`+`/promote`; §17.2 specifies `## Prior Learnings` placement | `skills/codex/SKILL.md`, `skills/dialogue/SKILL.md`, `references/consultation-contract.md` §17 |
 | 2 | **Planning effectiveness metrics** — plan-mode fields stored but never analyzed | Enhance | **High** — `--plan` users can't measure impact; data already exists, only computation missing | S (1 file + tests) | `event_schema.py:37-46` version resolution keys on `question_shaped`; `compute_stats.py` has no plan section; `dialogue/SKILL.md` Step 7 emits `shape_confidence`, `assumptions_generated_count`, `ambiguity_count` | `scripts/compute_stats.py`, `scripts/stats_common.py` |
 | 3 | **Provenance recovery metrics** — unknown-provenance tracking stored but unmeasured | Enhance | **High** — 3-tier recovery in `codex-dialogue` is sophisticated infrastructure with no feedback loop; can't tell if gatherers are degrading | S (1 file + tests) | `provenance_unknown_count` bumps schema to 0.2.0 (`event_schema.py:41`); `codex-dialogue.md` Step 4 three-tier matching; `compute_stats.py` has no provenance section | `scripts/compute_stats.py`, `scripts/stats_common.py` |
 | 4 | **Single-turn consultation quality metrics** — `/codex` is most-used but least-measured capability | Enhance | **Medium** — `consultation_outcome` events have prompt/result length and thread presence but no dedicated quality analysis | S (1 file + tests) | `_compute_dialogue` only operates on `dialogue_outcomes` (`compute_stats.py:175`); `_SECTION_MATRIX` consultation type returns usage only | `scripts/compute_stats.py` |
