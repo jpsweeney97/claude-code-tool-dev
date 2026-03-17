@@ -616,7 +616,7 @@ The chain protocol enables `resumed_from` tracking across sessions. Carried forw
 | Hook | Event | Order | Purpose | On failure |
 |------|-------|-------|---------|------------|
 | `engram_guard` | PreToolUse | 1st | Protected-path enforcement + trust injection | **Block** |
-| `engram_quality` | PostToolUse (Write) | 2nd | Snapshot quality checks (payload-based, Write tool only) | **Warn** |
+| `engram_quality` | PostToolUse (Write, Edit) | 2nd | Snapshot quality checks — Write: reads `tool_input.content` from payload. Edit: reads file from disk after edit. Both: only for snapshot-owned paths. | **Warn** |
 | `engram_register` | PostToolUse (Write) | 3rd | Ledger append | **Silent** (best-effort) |
 | `engram_session` | SessionStart | — | TTL cleanup, worktree_id init | See below |
 
@@ -632,7 +632,7 @@ Policy-based, not tool-specific. Protects subsystem-owned paths from direct muta
 
 **Enforcement scope:** Write and Edit mutations are reliably blocked. Bash interception is best-effort — detecting arbitrary shell commands that write to protected paths (`echo >`, `cp`, `tee`, etc.) is unreliable via PreToolUse input parsing. The guard catches direct `python3 engine_*.py` patterns reliably; other Bash writes are caught on a best-effort basis. See Section 8 for the named risk.
 
-**Quality validation:** `engram_quality` (PostToolUse) validates snapshot content quality for Write tool calls only — it reads `tool_input.content` from the write payload, not from disk. It does **not** detect Bash-mediated writes to protected paths. Bash bypass of `engram_guard` remains an admitted gap with best-effort pre-blocking only (see Section 8).
+**Quality validation:** `engram_quality` (PostToolUse) validates snapshot content quality for Write and Edit tool calls on snapshot-owned paths. For Write: reads `tool_input.content` from the payload. For Edit: reads the file from disk after the edit completes (post-state validation). This is advisory quality lint, not trust enforcement — the small race between write completion and validation readback is acceptable for warnings. It does **not** detect Bash-mediated writes to protected paths. Bash bypass of `engram_guard` remains an admitted gap with best-effort pre-blocking only (see Section 8).
 
 Paths canonicalized before matching (resolve symlinks, collapse `..`, normalize to absolute).
 
@@ -666,7 +666,7 @@ Bounded and idempotent. <500ms startup budget.
 |-----------|-------|-----------|
 | Work | `suggest` / `auto_audit` | Trust boundary: agents propose, users approve |
 | Context | None | Agents save their own session state |
-| Knowledge staging | Session cap + idempotency | Dedup prevents repeated staging; cap limits volume |
+| Knowledge staging | Staging inbox cap + idempotency | Dedup prevents repeated staging; cumulative cap limits volume |
 
 Configuration in `.claude/engram.local.md` (YAML frontmatter in markdown, parsed by `engram_core` using the same fenced-YAML extraction as the ticket plugin's `extract_fenced_yaml()`):
 
@@ -674,10 +674,14 @@ Configuration in `.claude/engram.local.md` (YAML frontmatter in markdown, parsed
 autonomy:
   work_mode: suggest          # suggest | auto_audit
   work_max_creates: 5
-  knowledge_max_stages: 10
+  knowledge_max_stages: 10    # Cumulative files in staging inbox, not per-session
 ledger:
   enabled: true               # Default on. Opt-out here.
 ```
+
+**Staging inbox cap enforcement:** The Knowledge engine checks the cumulative count of files in `knowledge_staging/` **before** writing new staged candidates. If `count + batch_size > knowledge_max_stages`, the entire batch is rejected (whole-batch reject for determinism — no partial staging). The rejection response includes current count, cap, and a suggestion to run `/curate` to clear the inbox.
+
+Scope is cumulative (total files in directory), not per-session. This matches the stated risk (staging accumulation over time), not per-session agent autonomy. The engine reads `knowledge_max_stages` from `.claude/engram.local.md` at invocation time — no caching.
 
 ### Trigger differentiation
 
@@ -891,7 +895,7 @@ Feed identical fixtures into old ticket engine and new Engram Work engine. Compa
 | **Fingerprint drift** | Medium | repo_id is stored UUIDv4. Dedup uses content hashes, not paths. | Rename repo, clone elsewhere — dedup still works? |
 | **Bash enforcement gap** | Medium | `engram_guard` reliably blocks Write/Edit but Bash interception is best-effort. No post-hoc detection — `engram_quality` validates Write payloads only, not disk state. | Bash write to `engram/work/` bypasses guard? |
 | **Fork-on-same-machine collision** | Low | Two forks sharing `.engram-id` use the same private root. Worktree_id differentiates Context queries. Knowledge staging and ledger shards commingle but are operationally harmless at single-developer scale. Deliberate v1 trade-off — engineering fix (worktree_id in private root path) deferred because it changes private root semantics from repo-scoped to worktree-scoped. | Clone a fork locally, run `/curate` — see candidates from both? |
-| **Staging accumulation** | Low | /triage reports pending. Session cap. /curate shows queue. | Staging directory file count over time. |
+| **Staging accumulation** | Low | /triage reports pending. Cumulative staging inbox cap (default 10). /curate shows queue. Knowledge engine rejects whole batch when cap exceeded. | Staging directory file count over time. |
 | **NativeReader latency** | Low | Fresh scan at MVP scale is fast. git log off hot path. | Query latency on repos with 500+ files. |
 | **Concurrent worktree staging** | Medium | **Staging files:** Content-addressed filenames (`content_sha256`-based) with `O_CREAT | O_EXCL` atomic creation. Concurrent identical candidates coalesce. **Published learnings (`learnings.md`):** Same-worktree concurrency guarded by `fcntl.flock` on lockfile (see Section 2). Cross-worktree concurrency delegated to git merge. | Two worktrees distill same snapshot concurrently — duplicate staging files? Same-worktree `/learn` + `/curate` concurrent — lost append? |
 | **Chain protocol limitations** | Low | Three inherited limitations (resume-crash gap, archive-failure poisoning, state-file TTL race). Archive-failure resolved in v1 by archive-before-state-write ordering. Other two carried as named limitations. See Section 6 chain protocol. | Session spans >24h, save has no `resumed_from`? |
