@@ -181,6 +181,16 @@ Entry content...
 
 The Knowledge reader parses `### ` headings as entry delimiters and extracts `lesson-meta` JSON from the immediately following HTML comment. Entries lacking `lesson-meta` (legacy or hand-edited) are assigned `record_kind: "legacy"` and are discoverable via query but not addressable by `lesson_id`.
 
+### learnings.md write concurrency
+
+Two failure modes, two mitigations:
+
+**Same-worktree (local process race):** Two concurrent operations (e.g., `/learn` and `/curate` publish) in the same worktree perform read-modify-write on `learnings.md`. The Knowledge engine's publish path acquires an advisory file lock (`fcntl.flock(LOCK_EX)`) on a lockfile (`learnings.md.lock`, same directory) before reading. Lock held through read → append → write-to-temp → `fsync` → `os.replace`. Lock released after replace completes. Timeout: 5 seconds. On timeout: fail the operation with `"learnings.md is locked by another operation"` — do not queue or retry.
+
+**Cross-worktree (git merge territory):** Each worktree has its own filesystem view. Concurrent appends from different worktrees produce divergent file states resolved by git merge on the shared branch. The Knowledge engine does not attempt cross-worktree coordination — git's line-based merge handles append-only files well. Conflicting appends (rare — requires overlapping content at the same file position) surface as git merge conflicts for the user to resolve.
+
+**Staging files are not affected** — staging uses content-addressed filenames (`content_sha256`-based) with atomic file creation (`O_CREAT | O_EXCL` via `os.open` or equivalent). Identical candidates from concurrent operations coalesce; non-identical candidates get distinct files.
+
 ---
 
 ## Section 3: Storage Model
@@ -816,7 +826,7 @@ Feed identical fixtures into old ticket engine and new Engram Work engine. Compa
 | **Fork-on-same-machine collision** | Low | Two forks sharing `.engram-id` use the same private root. Worktree_id differentiates Context queries. Knowledge staging and ledger shards commingle but are operationally harmless at single-developer scale. Deliberate v1 trade-off — engineering fix (worktree_id in private root path) deferred because it changes private root semantics from repo-scoped to worktree-scoped. | Clone a fork locally, run `/curate` — see candidates from both? |
 | **Staging accumulation** | Low | /triage reports pending. Session cap. /curate shows queue. | Staging directory file count over time. |
 | **NativeReader latency** | Low | Fresh scan at MVP scale is fast. git log off hot path. | Query latency on repos with 500+ files. |
-| **Concurrent worktree staging** | Low | Two worktrees running `/distill` concurrently write to the same `knowledge_staging/` directory. Staging is content-addressed: identical candidates from different worktrees coalesce into a single artifact (engine uses atomic create-or-read-existing semantics via `content_sha256`-based filenames). `/curate` reviews content, not source multiplicity. `learnings.md` appends use atomic write-then-rename. Deliberate v1 trade-off — worktree sharding of staging deferred because coalescing is the correct semantic at single-developer scale. | Two worktrees distill same snapshot concurrently — duplicate staging files? |
+| **Concurrent worktree staging** | Medium | **Staging files:** Content-addressed filenames (`content_sha256`-based) with `O_CREAT | O_EXCL` atomic creation. Concurrent identical candidates coalesce. **Published learnings (`learnings.md`):** Same-worktree concurrency guarded by `fcntl.flock` on lockfile (see Section 2). Cross-worktree concurrency delegated to git merge. | Two worktrees distill same snapshot concurrently — duplicate staging files? Same-worktree `/learn` + `/curate` concurrent — lost append? |
 
 ### Open questions
 
