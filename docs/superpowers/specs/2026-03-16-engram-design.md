@@ -40,7 +40,7 @@ packages/plugins/engram/
 │   ├── types.py              # RecordRef, RecordMeta, contracts
 │   ├── reader_protocol.py    # NativeReader protocol definition only
 │   └── query.py              # Discovery + query engine
-├── skills/                   # User-facing skills (12 total)
+├── skills/                   # User-facing skills (13 total, including engram init)
 ├── hooks/                    # PreToolUse/PostToolUse/SessionStart hooks
 ├── scripts/                  # Subsystem engines
 │   ├── context/              # Context engine + context_reader.py
@@ -142,7 +142,7 @@ class PromoteEnvelope:             # Knowledge → CLAUDE.md (intent record)
 
 **Dedup** answers: "is this content semantically identical to existing content?" Uses content fingerprints at the record level:
 - `DistillCandidate.content_sha256` — deduplicates staged/published knowledge entries by content
-- Work engine's existing duplicate detection — matches by title similarity and source overlap
+- Work engine's existing duplicate detection — `sha256(normalize(problem_text) + sorted(key_file_paths))` fingerprint within a 24-hour window. The fingerprint uses problem content and file paths, not titles. See `packages/plugins/ticket/scripts/ticket_dedup.py` for the canonical implementation.
 
 These are independent in purpose and enforcement stage, though not necessarily disjoint in fields: an idempotent retry of a distill operation (same `idempotency_key`) is caught at the envelope level before dedup is ever checked. A genuinely new operation with coincidentally identical content is caught by dedup, not idempotency. The `DistillEnvelope` idempotency material includes per-candidate fingerprints to ensure that re-running extraction with improved logic on the same snapshot produces a distinct key when candidate content changes.
 
