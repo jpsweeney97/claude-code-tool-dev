@@ -443,23 +443,33 @@ Uses the index for *discovery*, opens native files for *reasoning*.
 
 ### New operations (Engram-only)
 
-**4. Promote: Knowledge → CLAUDE.md (two-step)**
+**4. Promote: Knowledge → CLAUDE.md (three-step with state machine)**
 
 ```
 /promote
     → query(subsystems=["knowledge"], status="knowledge:published")
     → Rank by maturity signals (age, breadth, reuse evidence) — advisory ordering only
     → User selects
-    → Step 1 (engine): Knowledge engine validates promotability, returns promotion plan
+    → Step 1 (engine): Knowledge engine validates promotability via 3-branch state machine:
+        Branch A (no promote-meta): Eligible. Returns promotion plan.
+        Branch B (promote-meta exists, promoted_content_sha256 == current content_sha256):
+            Reject — already promoted. Return existing promotion details.
+        Branch C (promote-meta exists, promoted_content_sha256 ≠ current content_sha256):
+            Stale promotion. Return reconciliation plan: old target_section,
+            old transformed_text_sha256 (for locating text in CLAUDE.md), new content.
     → Step 2 (skill): Skill writes transformed text to CLAUDE.md
-    → Step 3 (engine): Knowledge engine writes promote-meta to mark completion
+        For Branch C: attempts to locate and replace old text using transformed_text_sha256
+        If old text not found: surfaces manual reconcile flow to user
+    → Step 3 (engine): Knowledge engine writes/updates promote-meta with current hashes
 ```
 
 CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns the promotion *state*. The CLAUDE.md edit is a skill-level operation. Deliberate, documented exception to the "target engine validates and writes" rule.
 
-**Ranking is advisory, not contractual.** Maturity signals (age, breadth, reuse evidence) determine display ordering only — they are not part of the storage contract. Engine promotability validation must not depend on undocumented maturity scores. The existing `/promote` skill's 5-signal maturity model serves as the initial implementation baseline; implementation details are deferred to Step 2.
+**Ranking is advisory, not contractual.** Maturity signals (age, breadth, reuse evidence) determine display ordering only — they are not part of the storage contract. Engine promotability validation must not depend on undocumented maturity scores.
 
-**Promote recovery (reconciliation-based):** Step 1 validates but does not record durable state — it returns a promotion plan. Step 3 writes `promote-meta` only after the CLAUDE.md write succeeds. If Step 2 fails, no `promote-meta` exists, so the lesson remains eligible for future `/promote` runs. If Step 3 fails (promote-meta write), `/triage` detects the mismatch: CLAUDE.md contains the text but the knowledge record lacks `promote-meta`. `/triage` surfaces this for the user to resolve (attach metadata, re-draft, or skip).
+**Promote recovery (reconciliation-based):** Step 1 validates but does not record durable state — it returns a promotion plan. Step 3 writes `promote-meta` only after the CLAUDE.md write succeeds. If Step 2 fails, no `promote-meta` exists (Branch A) or stale `promote-meta` persists (Branch C), so the lesson remains eligible for future `/promote` runs. If Step 3 fails (promote-meta write), `/triage` detects the mismatch: CLAUDE.md contains the text but the knowledge record lacks current `promote-meta`. `/triage` surfaces two mismatch classes:
+- **Missing promote-meta:** CLAUDE.md has text, no promote-meta at all (Step 3 never ran)
+- **Stale promote-meta:** CLAUDE.md has updated text, promote-meta has old hashes (Step 3 failed on re-promotion)
 
 **5. Unified Search**
 
