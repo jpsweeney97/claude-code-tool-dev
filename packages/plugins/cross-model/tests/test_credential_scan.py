@@ -139,3 +139,34 @@ class TestScanTextPriority:
         text = "AKIAIOSFODNN7EXAMPLE and ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
         result = scan_text(text)
         assert result.tier == "strict"
+
+
+class TestTierCaching:
+    """Tier-filtered tuples are precomputed at module level."""
+
+    def test_strict_families_is_tuple(self) -> None:
+        from scripts.credential_scan import _STRICT_FAMILIES
+        assert isinstance(_STRICT_FAMILIES, tuple)
+        assert len(_STRICT_FAMILIES) > 0
+
+    def test_contextual_families_is_tuple(self) -> None:
+        from scripts.credential_scan import _CONTEXTUAL_FAMILIES
+        assert isinstance(_CONTEXTUAL_FAMILIES, tuple)
+        assert len(_CONTEXTUAL_FAMILIES) > 0
+
+    def test_broad_families_is_tuple(self) -> None:
+        from scripts.credential_scan import _BROAD_FAMILIES
+        assert isinstance(_BROAD_FAMILIES, tuple)
+        assert len(_BROAD_FAMILIES) > 0
+
+    def test_all_tiers_covered(self) -> None:
+        from scripts.credential_scan import (
+            _STRICT_FAMILIES,
+            _CONTEXTUAL_FAMILIES,
+            _BROAD_FAMILIES,
+        )
+        from scripts.secret_taxonomy import FAMILIES
+
+        egress_families = [f for f in FAMILIES if f.egress_enabled]
+        cached_count = len(_STRICT_FAMILIES) + len(_CONTEXTUAL_FAMILIES) + len(_BROAD_FAMILIES)
+        assert cached_count == len(egress_families)

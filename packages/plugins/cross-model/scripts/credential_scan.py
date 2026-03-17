@@ -51,13 +51,19 @@ def _families_for_tier(tier: str) -> tuple:
     )
 
 
+# Precomputed tier buckets — FAMILIES is immutable (frozen dataclasses in a tuple).
+_STRICT_FAMILIES: tuple = _families_for_tier("strict")
+_CONTEXTUAL_FAMILIES: tuple = _families_for_tier("contextual")
+_BROAD_FAMILIES: tuple = _families_for_tier("broad")
+
+
 def scan_text(text: str) -> ScanResult:
     """Scan text for credentials. Returns on first match.
 
     Priority: strict > contextual > broad > allow.
     """
     # Strict tier
-    for family in _families_for_tier("strict"):
+    for family in _STRICT_FAMILIES:
         if family.pattern.search(text):
             return ScanResult(
                 action="block",
@@ -66,7 +72,7 @@ def scan_text(text: str) -> ScanResult:
             )
 
     # Contextual tier
-    for family in _families_for_tier("contextual"):
+    for family in _CONTEXTUAL_FAMILIES:
         for match in family.pattern.finditer(text):
             start = max(0, match.start() - PLACEHOLDER_BYPASS_WINDOW)
             end = min(len(text), match.end() + PLACEHOLDER_BYPASS_WINDOW)
@@ -78,7 +84,7 @@ def scan_text(text: str) -> ScanResult:
                 )
 
     # Broad tier
-    for family in _families_for_tier("broad"):
+    for family in _BROAD_FAMILIES:
         if family.pattern.search(text):
             return ScanResult(
                 action="shadow",
