@@ -770,7 +770,15 @@ The `SourceResolver` is adapter-local scaffolding — it dies with the bridge ad
 
 **Cross-step dependency:** Do not modify the `DeferEnvelope` or `EnvelopeHeader` types between Steps 1 and 3 without updating the bridge adapter. The adapter depends on both the new envelope format and the old ticket engine's ingest JSON schema.
 
-**Exit criteria:** `/defer` produces envelope with RecordRef linkage. Bridge adapter successfully routes to old ticket engine. Cross-subsystem query returns results from both readers.
+**Bridge compatibility test:** A behavioral contract test must accompany the bridge adapter. The test:
+1. Constructs a representative `DeferEnvelope` with full `EnvelopeHeader`
+2. Runs it through the bridge adapter's conversion logic
+3. Asserts the output is valid legacy `DeferredWorkEnvelope` JSON
+4. Verifies `SourceResolver` field mapping (`source.type`, `source.ref`, `source.session`)
+
+This test runs in CI across Steps 1–3. If type changes to `DeferEnvelope` or `EnvelopeHeader` break the bridge, this test fails fast — replacing the process-level "do not modify" warning with a structural guard. The test is deleted in Step 5 cleanup alongside the bridge adapter.
+
+**Exit criteria:** `/defer` produces envelope with RecordRef linkage. Bridge adapter successfully routes to old ticket engine. Cross-subsystem query returns results from both readers. Bridge compatibility test passes.
 
 ### Step 2: Knowledge cutover
 
@@ -836,7 +844,33 @@ The `SourceResolver` is adapter-local scaffolding — it dies with the bridge ad
 
 Only migrate valid fresh state. Do not reimport defects from the old system.
 
-**Exit criteria (4a):** Save/load cycle works. Worktree isolation verified. `/save` orchestration with per-step results. `/search` spans all subsystems. `/timeline` reconstructs sessions. All hooks operational. SessionStart <500ms. Chain state migration classifies and filters old state files.
+**Migration manifest:** The migration script writes `migration_report.json` to `~/.claude/engram/<repo_id>/`:
+
+```json
+{
+    "migrated_at": "<ISO 8601>",
+    "source_root": "~/.claude/handoffs/<project>/",
+    "target_root": "~/.claude/engram/<repo_id>/snapshots/",
+    "results": {
+        "copied": ["file1.md", "file2.md"],
+        "skipped_exists": ["file3.md"],
+        "skipped_corrupt": ["file4.md"],
+        "skipped_unreadable": ["file5.md"],
+        "needs_manual_mapping": ["ambiguous-project/"],
+        "conflicts": [{"file": "file6.md", "reason": "content mismatch at destination"}]
+    }
+}
+```
+
+**Fail-closed, non-interactive:**
+- Ambiguous project name → repo_id mappings: skip, record as `needs_manual_mapping`
+- Unreadable source files: skip, record as `skipped_unreadable`
+- Existing destination with non-matching content: skip, record as `conflicts`
+- Successful copy: verify destination parses through Context reader before recording as `copied`
+
+The manifest is an **operational aid** (see design principle in Section 8). Re-running the migration is idempotent: `skipped_exists` entries are files that already exist with matching content. Non-interactive design enables deterministic reruns without human attention.
+
+**Exit criteria (4a):** Save/load cycle works. Worktree isolation verified. `/save` orchestration with per-step results. `/search` spans all subsystems. `/timeline` reconstructs sessions. All hooks operational. SessionStart <500ms. Chain state migration classifies and filters old state files. All copied handoffs parse successfully through the Context reader. Migration manifest written with no `skipped_corrupt` entries for newly copied files.
 
 **Step 4b — Retire:**
 
