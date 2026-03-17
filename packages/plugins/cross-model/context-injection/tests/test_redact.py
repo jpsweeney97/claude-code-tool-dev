@@ -116,20 +116,20 @@ class TestContainsPemPrivateKey:
 class TestRedactKnownSecrets:
     # Bearer/Basic auth
     def test_bearer_token(self) -> None:
-        result, count = redact_known_secrets("Authorization: Bearer abc123def456ghi789")
+        result, count = redact_known_secrets("Authorization: Bearer abc123def456ghi789jkl0")
         assert count == 1
-        assert "abc123def456ghi789" not in result
+        assert "abc123def456ghi789jkl0" not in result
         assert "Bearer [REDACTED:value]" in result
 
     def test_bearer_case_insensitive(self) -> None:
-        result, count = redact_known_secrets("authorization: bearer abc123def456ghi789")
+        result, count = redact_known_secrets("authorization: bearer abc123def456ghi789jkl0")
         assert count == 1
-        assert "abc123def456ghi789" not in result
+        assert "abc123def456ghi789jkl0" not in result
 
     def test_bearer_extra_whitespace(self) -> None:
-        result, count = redact_known_secrets("Header:  Bearer   abc123def456ghi")
+        result, count = redact_known_secrets("Header:  Bearer   abc123def456ghi789jkl0")
         assert count == 1
-        assert "abc123def456ghi" not in result
+        assert "abc123def456ghi789jkl0" not in result
 
     def test_basic_auth(self) -> None:
         result, count = redact_known_secrets("Authorization: Basic dXNlcjpwYXNzd29yZA==")
@@ -268,13 +268,13 @@ class TestRedactKnownSecrets:
     def test_mixed_multiple_patterns(self) -> None:
         text = (
             "password=mysecretpassword123\n"
-            "Authorization: Bearer abcdefghijklmnop\n"
+            "Authorization: Bearer abcdefghijklmnopqrstu\n"
             "key=ghp_abcdefghij1234567890\n"
         )
         result, count = redact_known_secrets(text)
         assert count >= 3
         assert "mysecretpassword123" not in result
-        assert "abcdefghijklmnop" not in result
+        assert "abcdefghijklmnopqrstu" not in result
         assert "ghp_abcdefghij1234567890" not in result
 
 

@@ -78,12 +78,23 @@ def contains_pem_private_key(text: str) -> bool:
 
 # Order: most specific first to prevent double-matching after replacement.
 
+# JWT pattern intentionally lacks \b word boundaries (unlike secret_taxonomy.py).
+# Ingress over-matching is acceptable for redaction — false positives are
+# harmless (text is already being redacted). The egress scanner uses \b
+# for precision because false positives there block Codex calls.
 _JWT_RE = re.compile(
     r"eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]+"
 )
 
-_AUTH_HEADER_RE = re.compile(
-    r"(?i)((?:bearer|basic)\s+)[A-Za-z0-9\-._~+/]+=*"
+# Split into two patterns to avoid false positives on "basic <word>" phrases:
+# - Bearer: requires 20+ char token (real tokens are long; avoids short words)
+# - Basic: requires authorization: prefix OR 8+ base64 chars (alphabet +/= only)
+#   "basic setup" fails because "setup" contains non-base64 chars and is short.
+_BEARER_AUTH_RE = re.compile(
+    r"(?i)(bearer\s+)[A-Za-z0-9\-._~+/]{20,}=*"
+)
+_BASIC_AUTH_RE = re.compile(
+    r"(?i)((?:authorization\s*:\s*)?basic\s+)[A-Za-z0-9+/]{8,}=*"
 )
 
 _API_KEY_PREFIX_RE = re.compile(
@@ -139,7 +150,8 @@ def redact_known_secrets(text: str) -> tuple[str, int]:
 
     # Apply in order: most specific first
     text = _JWT_RE.sub(_replace_simple, text)
-    text = _AUTH_HEADER_RE.sub(_replace_auth, text)
+    text = _BEARER_AUTH_RE.sub(_replace_auth, text)
+    text = _BASIC_AUTH_RE.sub(_replace_auth, text)
     text = _API_KEY_PREFIX_RE.sub(_replace_simple, text)
     text = _URL_USERINFO_RE.sub(_replace_url, text)
     text = _CREDENTIAL_RE.sub(_replace_credential, text)
