@@ -8,7 +8,7 @@ PreToolUse: Tiered credential detection on outbound Codex prompts.
 PostToolUse: Logs consultation event to ~/.claude/.codex-events.jsonl.
 
 Fail-closed (PreToolUse only): any unhandled exception during hook execution
-blocks the Codex call. PostToolUse errors are always silent.
+blocks the Codex call. PostToolUse errors log to stderr but never block.
 
 Tiered detection:
   Strict:      Hard-block. High-confidence, tightly constrained patterns.
@@ -50,8 +50,13 @@ def _append_log(entry: dict) -> None:
     event_log.append_log returns bool. This wrapper preserves the
     original call-site semantics while gaining POSIX atomicity and
     0o600 permission enforcement.
+
+    Logs to stderr when a write fails, since block/shadow events on
+    a security-enforcement path should surface audit trail failures.
     """
-    _raw_append_log(entry)
+    if not _raw_append_log(entry):
+        event_type = entry.get("event", "unknown")
+        print(f"codex-guard: audit log write failed for {event_type}", file=sys.stderr)
 
 
 _NODE_CAP = 10_000
@@ -264,7 +269,7 @@ def handle_post(data: dict) -> int:
 def main() -> int:
     try:
         data = json.load(sys.stdin)
-    except Exception as e:
+    except (ValueError, OSError, UnicodeDecodeError) as e:
         # Cannot parse input — cannot determine event type.
         # Fail-closed: blocking is safer than silently allowing
         # a potentially dangerous PreToolUse through. PostToolUse
@@ -281,7 +286,8 @@ def main() -> int:
         return handle_pre(data)
     except Exception as e:
         if event == "PostToolUse":
-            return 0  # PostToolUse errors are always silent
+            print(f"codex-guard: PostToolUse error (non-blocking): {e}", file=sys.stderr)
+            return 0
         print(f"codex-guard: internal error (fail-closed): {e}", file=sys.stderr)
         return 2
 
