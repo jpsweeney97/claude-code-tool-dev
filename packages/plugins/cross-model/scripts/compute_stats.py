@@ -26,15 +26,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 from pathlib import Path
 
-try:
-    import read_events
-    import stats_common
-    from event_schema import STRUCTURED_EVENT_TYPES
-except ModuleNotFoundError:
+if __package__:
+    import scripts.read_events as read_events
+    import scripts.stats_common as stats_common
+    from scripts.event_schema import STRUCTURED_EVENT_TYPES
+else:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import read_events
-    import stats_common
-    from event_schema import STRUCTURED_EVENT_TYPES
+    import read_events  # type: ignore[import-not-found,no-redef]
+    import stats_common  # type: ignore[import-not-found,no-redef]
+    from event_schema import STRUCTURED_EVENT_TYPES  # type: ignore[import-not-found,no-redef]
 
 
 # ---------------------------------------------------------------------------
