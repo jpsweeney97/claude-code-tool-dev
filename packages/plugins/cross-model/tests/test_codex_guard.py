@@ -81,6 +81,25 @@ class TestHandlePre:
         assert first_call["unexpected_fields"] == ["diagnostics"]
 
     @patch("scripts.codex_guard._append_log")
+    def test_multi_field_selects_highest_tier(self, mock_log: MagicMock) -> None:
+        """When multiple fields have matches, the highest-tier block is logged."""
+        data = _make_pre_data(
+            tool_input={
+                # prompt has contextual match (github PAT)
+                "prompt": "token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn",
+                # base-instructions has strict match (AWS key)
+                "base-instructions": "key AKIAIOSFODNN7EXAMPLE",
+            }
+        )
+        assert handle_pre(data) == 2
+        block_calls = [
+            c.args[0] for c in mock_log.call_args_list
+            if c.args[0].get("event") == "block"
+        ]
+        assert len(block_calls) == 1
+        assert "strict" in block_calls[0]["reason"]
+
+    @patch("scripts.codex_guard._append_log")
     def test_node_cap_exceeded(self, mock_log: MagicMock) -> None:
         tool_input = {"prompt": "safe prompt", "payload": ["x"] * 10001}
         assert handle_pre(_make_pre_data(tool_input=tool_input)) == 2

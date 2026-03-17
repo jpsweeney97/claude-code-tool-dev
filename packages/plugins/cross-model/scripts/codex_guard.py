@@ -205,11 +205,15 @@ def handle_pre(data: dict) -> int:
             "unexpected_fields": unexpected_fields,
         })
 
-    for text in texts_to_scan:
-        result = scan_text(text)
-        if result.action == "block":
-            return _log_block(tool, session_id, str(result.reason), scanned_chars)
+    _TIER_RANK = {"strict": 0, "contextual": 1}
+    results = [scan_text(text) for text in texts_to_scan]
 
+    blocks = [r for r in results if r.action == "block"]
+    if blocks:
+        best = min(blocks, key=lambda r: _TIER_RANK.get(r.tier or "", 99))
+        return _log_block(tool, session_id, str(best.reason), scanned_chars)
+
+    for result in results:
         if result.action == "shadow":
             _append_log({
                 "ts": _ts(),

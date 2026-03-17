@@ -132,6 +132,22 @@ class TestScanTextClean:
         assert result.action == "allow"
 
 
+class TestScanTextReasonFormat:
+    """Reason field uses family.name, not regex fragment."""
+
+    def test_strict_reason_uses_family_name(self) -> None:
+        result = scan_text("key is AKIAIOSFODNN7EXAMPLE")
+        assert result.reason == "strict:aws_access_key_id"
+
+    def test_contextual_reason_uses_family_name(self) -> None:
+        result = scan_text("token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn")
+        assert result.reason == "contextual:github_pat"
+
+    def test_broad_reason_uses_family_name(self) -> None:
+        result = scan_text("password = mysecretvalue123")
+        assert result.reason == "broad:credential_assignment"
+
+
 class TestScanTextPriority:
     """Strict takes precedence over contextual."""
 

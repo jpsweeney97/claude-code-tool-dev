@@ -68,7 +68,7 @@ def scan_text(text: str) -> ScanResult:
             return ScanResult(
                 action="block",
                 tier="strict",
-                reason=f"strict:{family.pattern.pattern[:60]}",
+                reason=f"strict:{family.name}",
             )
 
     # Contextual tier
@@ -80,7 +80,7 @@ def scan_text(text: str) -> ScanResult:
                 return ScanResult(
                     action="block",
                     tier="contextual",
-                    reason=f"contextual:{family.pattern.pattern[:60]}",
+                    reason=f"contextual:{family.name}",
                 )
 
     # Broad tier
@@ -89,7 +89,7 @@ def scan_text(text: str) -> ScanResult:
             return ScanResult(
                 action="shadow",
                 tier="broad",
-                reason=f"broad:{family.pattern.pattern[:60]}",
+                reason=f"broad:{family.name}",
             )
 
     return ScanResult(action="allow", tier=None, reason=None)
