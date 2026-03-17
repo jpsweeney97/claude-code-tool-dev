@@ -29,10 +29,12 @@ from pathlib import Path
 try:
     import read_events
     import stats_common
+    from event_schema import STRUCTURED_EVENT_TYPES
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import read_events
     import stats_common
+    from event_schema import STRUCTURED_EVENT_TYPES
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +387,7 @@ def _validate_events(events: list[dict]) -> tuple[list[dict], int]:
 
     for event in events:
         et = event.get("event")
-        if isinstance(et, str) and et in read_events._REQUIRED_FIELDS:
+        if isinstance(et, str) and et in STRUCTURED_EVENT_TYPES:
             # validate_event() returns an error list: empty = valid
             if not read_events.validate_event(event):
                 valid_events.append(event)

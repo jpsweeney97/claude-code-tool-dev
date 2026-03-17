@@ -2,25 +2,26 @@
 
 from __future__ import annotations
 
-from scripts.read_events import validate_event, classify, _REQUIRED_FIELDS
+from scripts.event_schema import REQUIRED_FIELDS_BY_EVENT
+from scripts.read_events import validate_event, classify
 
 
 class TestDelegationOutcomeSchema:
-    """delegation_outcome in _REQUIRED_FIELDS."""
+    """delegation_outcome in REQUIRED_FIELDS_BY_EVENT."""
 
     def test_delegation_outcome_in_required_fields(self) -> None:
-        assert "delegation_outcome" in _REQUIRED_FIELDS
+        assert "delegation_outcome" in REQUIRED_FIELDS_BY_EVENT
 
     def test_required_fields_complete(self) -> None:
-        expected = {
+        expected = frozenset({
             "schema_version", "event", "ts", "consultation_id",
             "session_id", "thread_id", "dispatched", "sandbox",
             "full_auto", "credential_blocked", "dirty_tree_blocked",
             "readable_secret_file_blocked", "commands_run_count",
             "exit_code", "termination_reason",
             "model", "reasoning_effort",  # F10: nullable but present
-        }
-        assert _REQUIRED_FIELDS["delegation_outcome"] == expected
+        })
+        assert REQUIRED_FIELDS_BY_EVENT["delegation_outcome"] == expected
 
 
 class TestDelegationOutcomeValidation:

@@ -1,7 +1,7 @@
 """Shared event log helpers for cross-model plugin analytics.
 
-Used by analytics-emitting cross-model scripts. codex_guard.py is NOT
-migrated (D26 — keeps its own _ts and _append_log with different semantics).
+Used by all analytics-emitting cross-model scripts, including codex_guard.py
+(migrated from local implementations — see commit history for D26 context).
 
 Exports:
     LOG_PATH: Path to ~/.claude/.codex-events.jsonl

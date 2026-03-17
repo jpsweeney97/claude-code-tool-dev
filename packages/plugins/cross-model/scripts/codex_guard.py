@@ -8,7 +8,7 @@ PreToolUse: Tiered credential detection on outbound Codex prompts.
 PostToolUse: Logs consultation event to ~/.claude/.codex-events.jsonl.
 
 Fail-closed (PreToolUse only): any unhandled exception during hook execution
-blocks the Codex call. PostToolUse errors are always silent.
+blocks the Codex call. PostToolUse errors log to stderr but never block.
 
 Tiered detection:
   Strict:      Hard-block. High-confidence, tightly constrained patterns.
@@ -28,26 +28,39 @@ Exit codes:
 
 from __future__ import annotations
 
-import datetime
 import json
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 try:
     from credential_scan import scan_text
 except ModuleNotFoundError:
     from scripts.credential_scan import scan_text
 
+try:
+    from event_log import ts as _ts, append_log as _raw_append_log
+except ModuleNotFoundError:
+    from scripts.event_log import ts as _ts, append_log as _raw_append_log
+
+
+def _append_log(entry: dict) -> None:
+    """Delegate to event_log.append_log, discarding the bool return.
+
+    codex_guard callers expect None return (fire-and-forget).
+    event_log.append_log returns bool. This wrapper preserves the
+    original call-site semantics while gaining POSIX atomicity and
+    0o600 permission enforcement.
+
+    Logs to stderr when a write fails, since block/shadow events on
+    a security-enforcement path should surface audit trail failures.
+    """
+    if not _raw_append_log(entry):
+        event_type = entry.get("event", "unknown")
+        print(f"codex-guard: audit log write failed for {event_type}", file=sys.stderr)
+
 
 _NODE_CAP = 10_000
 _CHAR_CAP = 256 * 1024
-
-# ---------------------------------------------------------------------------
-# Log path
-# ---------------------------------------------------------------------------
-
-_LOG_PATH = Path.home() / ".claude" / ".codex-events.jsonl"
 
 
 @dataclass(frozen=True)
@@ -79,19 +92,6 @@ CODEX_REPLY_POLICY = ToolScanPolicy(
 
 class ToolInputLimitExceeded(RuntimeError):
     """Raised when tool_input traversal exceeds configured safety caps."""
-
-
-def _ts() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _append_log(entry: dict) -> None:
-    try:
-        _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with _LOG_PATH.open("a") as f:
-            f.write(json.dumps(entry) + "\n")
-    except OSError as e:
-        print(f"codex-guard: log write failed: {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +269,7 @@ def handle_post(data: dict) -> int:
 def main() -> int:
     try:
         data = json.load(sys.stdin)
-    except Exception as e:
+    except (ValueError, OSError, UnicodeDecodeError) as e:
         # Cannot parse input — cannot determine event type.
         # Fail-closed: blocking is safer than silently allowing
         # a potentially dangerous PreToolUse through. PostToolUse
@@ -286,7 +286,8 @@ def main() -> int:
         return handle_pre(data)
     except Exception as e:
         if event == "PostToolUse":
-            return 0  # PostToolUse errors are always silent
+            print(f"codex-guard: PostToolUse error (non-blocking): {e}", file=sys.stderr)
+            return 0
         print(f"codex-guard: internal error (fail-closed): {e}", file=sys.stderr)
         return 2
 
