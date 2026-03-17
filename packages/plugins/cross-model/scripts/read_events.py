@@ -27,18 +27,11 @@ try:
         REQUIRED_FIELDS_BY_EVENT,
         KNOWN_UNSTRUCTURED_TYPES,
     )
-    # Convert frozensets to sets for backwards compatibility with validate_event()
-    _REQUIRED_FIELDS: dict[str, set[str]] = {
-        k: set(v) for k, v in REQUIRED_FIELDS_BY_EVENT.items()
-    }
 except ModuleNotFoundError:
     from scripts.event_schema import (
         REQUIRED_FIELDS_BY_EVENT,
         KNOWN_UNSTRUCTURED_TYPES,
     )
-    _REQUIRED_FIELDS: dict[str, set[str]] = {
-        k: set(v) for k, v in REQUIRED_FIELDS_BY_EVENT.items()
-    }
 
 _DEFAULT_PATH = Path.home() / ".claude" / ".codex-events.jsonl"
 
@@ -58,7 +51,7 @@ def validate_event(event: dict) -> list[str]:
     if event_type == "unknown":
         return ["unknown event type: missing 'event' field"]
 
-    required = _REQUIRED_FIELDS.get(event_type)
+    required = REQUIRED_FIELDS_BY_EVENT.get(event_type)
     if required is None:
         if event_type in KNOWN_UNSTRUCTURED_TYPES:
             return []

@@ -803,7 +803,7 @@ class TestSchemaParity:
 
     def test_emitter_fields_match_reader_required_fields(self) -> None:
         from scripts.codex_delegate import _emit_analytics
-        from scripts.read_events import _REQUIRED_FIELDS
+        from scripts.event_schema import REQUIRED_FIELDS_BY_EVENT
         with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
             _emit_analytics(
                 phase_a={"prompt": "t", "sandbox": "workspace-write",
@@ -813,7 +813,7 @@ class TestSchemaParity:
             )
             event = mock_log.call_args[0][0]
             emitted_fields = set(event.keys())
-            required_fields = set(_REQUIRED_FIELDS["delegation_outcome"])
+            required_fields = set(REQUIRED_FIELDS_BY_EVENT["delegation_outcome"])
             assert emitted_fields == required_fields, (
                 f"Mismatch: emitted-only={emitted_fields - required_fields}, "
                 f"required-only={required_fields - emitted_fields}"
