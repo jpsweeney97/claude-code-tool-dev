@@ -128,6 +128,21 @@ class PromoteEnvelope:             # Knowledge → CLAUDE.md (intent record)
     transformed_text: str          # Prescriptive prose, ready to insert
 ```
 
+### promote-meta — promotion state record
+
+Written by the Knowledge engine in Promote Step 3. Stored as a `<!-- promote-meta {...} -->` HTML comment in the knowledge entry, immediately after the `lesson-meta` comment.
+
+```python
+@dataclass(frozen=True)
+class PromoteMeta:
+    target_section: str           # Where in CLAUDE.md
+    promoted_at: str              # ISO 8601
+    promoted_content_sha256: str  # Hash of lesson content at promotion time
+    transformed_text_sha256: str  # Hash of the text written to CLAUDE.md
+```
+
+**Re-promotion:** If a lesson's `content_sha256` changes after promotion, the `PromoteEnvelope` idempotency key changes (because `content_sha256` is now part of the material). The engine detects this as a stale promotion: existing `promote-meta.promoted_content_sha256` ≠ current `content_sha256`. `/promote` surfaces stale promotions for user review. `/triage` reports them as a second mismatch class alongside the Step-3-failure case.
+
 ### Idempotency vs dedup — two distinct mechanisms
 
 **Idempotency** answers: "is this the same operation being retried?" The `idempotency_key` in `EnvelopeHeader` is computed from `canonical_json(idempotency_material)` where the material is envelope-type-specific:
@@ -136,7 +151,7 @@ class PromoteEnvelope:             # Knowledge → CLAUDE.md (intent record)
 |----------|----------------------|
 | `DeferEnvelope` | `{source_ref.record_id, title, problem}` |
 | `DistillEnvelope` | `{source_ref.record_id, sorted([{content_sha256, source_section, durability}, ...])}` |
-| `PromoteEnvelope` | `{source_ref.record_id, target_section}` |
+| `PromoteEnvelope` | `{source_ref.record_id, target_section, content_sha256}` |
 
 `canonical_json()` sorts keys and normalizes whitespace. Same material → same key → target engine returns existing result without side effects.
 
