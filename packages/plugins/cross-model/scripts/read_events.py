@@ -25,7 +25,6 @@ from pathlib import Path
 try:
     from event_schema import (
         REQUIRED_FIELDS_BY_EVENT,
-        STRUCTURED_EVENT_TYPES,
         KNOWN_UNSTRUCTURED_TYPES,
     )
     # Convert frozensets to sets for backwards compatibility with validate_event()
@@ -35,7 +34,6 @@ try:
 except ModuleNotFoundError:
     from scripts.event_schema import (
         REQUIRED_FIELDS_BY_EVENT,
-        STRUCTURED_EVENT_TYPES,
         KNOWN_UNSTRUCTURED_TYPES,
     )
     _REQUIRED_FIELDS: dict[str, set[str]] = {
