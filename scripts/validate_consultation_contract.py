@@ -12,7 +12,7 @@ Checks:
 3. SKILL.md governance rule count matches §15 in the contract (both must be 7).
 4. §13 Event Contract references actual event types (dialogue_outcome,
    consultation_outcome).
-5. §16 Conformance Checklist annotates §17 items as deferred.
+5. §16 Conformance Checklist structure is valid.
 
 Usage:
     uv run scripts/validate_consultation_contract.py
@@ -161,15 +161,15 @@ def check_event_types_in_contract(contract_text: str) -> list[str]:
 
 
 def check_deferred_annotations(contract_text: str) -> list[str]:
-    """Verify that unimplemented sections are annotated as deferred in §16."""
+    """Verify that unimplemented sections are annotated as deferred in §16.
+
+    §17 (Learning Retrieval) is now active — no deferred check needed.
+    Retained as scaffolding for future deferred sections.
+    """
     section = extract_section_text(contract_text, "## 16.")
     if section is None:
         return ["contract: §16 Conformance Checklist not found"]
-    errors: list[str] = []
-    # Heuristic: checks "deferred" appears near §17 refs. May need refinement if §16 grows.
-    if "§17" in section and "deferred" not in section.lower():
-        errors.append("contract §16: §17 items present but not annotated as deferred")
-    return errors
+    return []
 
 
 def validate(repo_root: Path | None = None) -> list[str]:

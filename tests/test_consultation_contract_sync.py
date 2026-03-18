@@ -318,21 +318,6 @@ def test_missing_event_type_is_caught() -> None:
     assert any("dialogue_outcome" in e for e in errors)
 
 
-def test_missing_deferred_annotation_is_caught() -> None:
-    """§16 referencing §17 without 'deferred' annotation is flagged."""
-    contract_text = "\n".join(
-        [
-            "## 16. Conformance Checklist",
-            "",
-            "- [ ] §17 Cross-Model Learning items implemented",
-            "",
-            "## 17. Next Section",
-        ]
-    )
-    errors = MODULE.check_deferred_annotations(contract_text)
-    assert len(errors) >= 1
-    assert any("deferred" in e.lower() for e in errors)
-
 
 def test_agent_governance_count_mismatch_is_caught(tmp_path: Path) -> None:
     """Agent file with 2 governance rules flagged when 7 expected."""
