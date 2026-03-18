@@ -1,6 +1,7 @@
 ---
 name: save
 description: Used when user says "wrap this up", "new session", "almost out of context", "save", "next session", or "handoff"; when stopping work with context to preserve.
+allowed-tools: Write, Read, Edit, Glob, Grep
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
