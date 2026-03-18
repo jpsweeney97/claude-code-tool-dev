@@ -23,6 +23,12 @@ authority: foundation
 
 Each subsystem (Context, Work, Knowledge) remains authoritative for its own records. Engram provides shared identity, indexing, and cross-subsystem coordination — but it never owns domain data.
 
+### Permitted Exceptions
+
+CLAUDE.md is an external sink, not an Engram-managed record. The [/promote](operations.md#promote-knowledge-to-claudemd) Step 2 CLAUDE.md write is the sole exception to the "all writes flow through subsystem engines" rule. The Knowledge engine owns promotion *state* (via [promote-meta](types.md#promote-meta-promotion-state-record)); the CLAUDE.md edit is a skill-level operation that bypasses the engine write path.
+
+No other skill-level write to a protected or externally-owned path is permitted without an explicit clause in this section.
+
 ### Shadow Authority Anti-Pattern
 
 Any feature that makes Engram a second source of truth for data that a subsystem already owns is a design violation.
@@ -57,7 +63,7 @@ Three cross-cutting principles guide implementation decisions across subsystems.
 
 ### Auxiliary State Authority
 
-Recovery manifests (`save_recovery.json`, `migration_report.json`) and reconciliation metadata (`promote-meta`) are operational aids only. Primary records — snapshots, tickets, learnings, chain state files — remain authoritative.
+Recovery manifests (`save_recovery.json`, `migration_report.json`) are operational aids only. Primary records — snapshots, tickets, learnings, chain state files — remain authoritative. Reconciliation metadata ([`promote-meta`](types.md#promote-meta-promotion-state-record)) is authoritative promotion-lifecycle state: its presence/absence gates the [promote state machine](operations.md#promote-knowledge-to-claudemd) (Branch A/B/C).
 
 Manifest failure degrades convenience (retry requires manual `snapshot_ref` lookup) but does not break standalone operations. Use distinct naming for each manifest to prevent shadow-authority confusion.
 
@@ -65,7 +71,7 @@ Manifest failure degrades convenience (retry requires manual `snapshot_ref` look
 
 Pre-write or pre-dispatch validation for hard invariants (trust triples, idempotency keys, promotion state machine). Post-write validation for advisory quality checks only ([`engram_quality`](enforcement.md#quality-validation)).
 
-PostToolUse hooks must not become enforcement boundaries — the race between write completion and validation readback is acceptable for warnings, not for trust authorization.
+Design rationale for the write/warn layering: see [enforcement boundary constraint](enforcement.md#enforcement-boundary-constraint).
 
 ### Chain Integrity at Migration Boundaries
 

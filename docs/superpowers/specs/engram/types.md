@@ -17,7 +17,7 @@ class RecordRef:
     repo_id: str          # UUIDv4, stored in .engram-id at repo root
     subsystem: str        # "context" | "work" | "knowledge"
     record_kind: str      # Subsystem-specific: "snapshot", "checkpoint", "ticket", "lesson", etc.
-    record_id: str        # Subsystem-native ID (handoff filename, T-YYYYMMDD-NN, lesson_id)
+    record_id: str        # Subsystem-native ID (snapshot filename, T-YYYYMMDD-NN, lesson_id)
 ```
 
 ## RecordMeta — Provenance
@@ -160,7 +160,7 @@ The [Knowledge reader](storage-and-indexing.md#readers) parses `### ` headings a
 
 ### Format Preservation
 
-Each subsystem keeps its native format. Tickets keep fenced YAML. Handoffs keep `---` frontmatter. Learnings use heading-delimited blocks with `lesson-meta` comments. [NativeReaders](storage-and-indexing.md#nativereader-protocol) parse each format without requiring unification.
+Each subsystem keeps its native format. Tickets keep fenced YAML. Snapshots keep `---` frontmatter. Learnings use heading-delimited blocks with `lesson-meta` comments. [NativeReaders](storage-and-indexing.md#nativereader-protocol) parse each format without requiring unification.
 
 ## Write Concurrency
 

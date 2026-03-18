@@ -67,7 +67,7 @@ Uses the [index](storage-and-indexing.md#indexentry) for *discovery*, opens nati
 
 ### Promote: Knowledge to CLAUDE.md
 
-Three-step state machine with reconciliation-based recovery. CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns the promotion *state*. The CLAUDE.md edit is a skill-level operation. Deliberate, documented exception to the "target engine validates and writes" rule.
+Three-step state machine with reconciliation-based recovery. CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns the promotion *state*. The CLAUDE.md edit is a skill-level operation — a [documented exception](foundations.md#permitted-exceptions) to the core invariant.
 
 ```
 /promote
@@ -121,7 +121,7 @@ Three-step state machine with reconciliation-based recovery. CLAUDE.md is an ext
 - Unknown `envelope_version` produces explicit `VERSION_UNSUPPORTED` error with expected range
 - Idempotent: same `idempotency_key` produces same result, no side effects on retry
 
-**Phase-scoped idempotency (migration):** During [Step 1](delivery.md#step-1-bridge-cutover) (bridge adapter), only the legacy dedup mechanism is active — envelope-level idempotency keys are not checked by the old ticket engine. Full envelope idempotency activates in [Step 3](delivery.md#step-3-work-cutover) when the new Work engine replaces the bridge.
+**Phase-scoped idempotency (migration):** During the bridge period ([Step 1](delivery.md#step-1-bridge-cutover) through [Step 3](delivery.md#step-3-work-cutover)), the old ticket engine's legacy dedup is the active mechanism — envelope-level idempotency keys are not checked. Full envelope idempotency activates when the new Work engine replaces the bridge. This limitation is delivery-owned; see [bridge cutover](delivery.md#step-1-bridge-cutover) for migration-period semantics.
 
 ## /save as Session Orchestrator
 

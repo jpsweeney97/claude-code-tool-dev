@@ -75,5 +75,5 @@ Three inherited limitations, carried forward with documentation:
 | `/save` vs `/quicksave` | Full session wrap-up vs. quick checkpoint |
 | `/triage` vs `/ticket list` | Cross-subsystem health dashboard vs. list my tickets |
 | `/search` vs `/ticket query` | Find across everything vs. find ticket by ID prefix |
-| `/distill` vs `/learn` | Bulk extraction from snapshot (staged) vs. capture one insight manually (direct publish). Both write [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract); both dedup via `content_sha256`. |
+| `/distill` vs `/learn` | Bulk extraction from snapshot (staged as `DistillCandidate` files) vs. capture one insight manually (direct publish to `learnings.md` with [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract)). Both dedup via `content_sha256`. Lesson-meta is applied by `/curate` when staged candidates are published. |
 | `/curate` vs `/promote` | Review staged candidates vs. graduate published knowledge to CLAUDE.md |

@@ -43,6 +43,12 @@ This is an honest boundary, not a gap to close: the design provides reliable enf
 
 This is advisory quality lint, not trust enforcement — the small race between write completion and validation readback is acceptable for warnings. Follows the [pre/post-write validation layering](foundations.md#prepost-write-validation-layering) principle. It does **not** detect Bash-mediated writes to protected paths.
 
+### Enforcement Boundary Constraint
+
+PostToolUse hooks **must not** become enforcement boundaries. The race between write completion and validation readback is acceptable for warnings, not for trust authorization. This is why `engram_quality` uses **Warn** (not Block) as its failure mode.
+
+This constraint applies to all current and future PostToolUse hooks in the Engram system.
+
 ## Trust Injection
 
 `engram_guard` injects a trust triple into the engine payload for every authorized Bash invocation of a subsystem engine. Three-step mechanism:
