@@ -211,3 +211,24 @@ Two failure modes for `learnings.md`, two mitigations:
 **Cross-worktree (git merge territory):** Each worktree has its own filesystem view. Concurrent appends from different worktrees produce divergent file states resolved by git merge on the shared branch. The Knowledge engine does not attempt cross-worktree coordination — git's line-based merge handles append-only files well. Conflicting appends (rare — requires overlapping content at the same file position) surface as git merge conflicts for the user to resolve.
 
 **Staging files are not affected** — staging uses content-addressed filenames (`content_sha256`-based) with atomic file creation (`O_CREAT | O_EXCL` via `os.open` or equivalent). Identical candidates from concurrent operations coalesce; non-identical candidates get distinct files.
+
+## Snapshot Orchestration Intent
+
+When `/save` creates a snapshot, it embeds orchestration intent as flat scalar fields in the snapshot frontmatter:
+
+```yaml
+orchestrated_by: save
+save_expected_defer: true
+save_expected_distill: true
+```
+
+**Fields:**
+- **`orchestrated_by`**: `"save"` when created by `/save` orchestrator. Absent when created by `/quicksave` or standalone `/load`. Presence indicates the snapshot was part of an orchestrated flow with expected sub-operations.
+- **`save_expected_defer`**: `true` if `/save` was invoked without `--no-defer`. `false` if `--no-defer` was passed. Absent when `orchestrated_by` is absent.
+- **`save_expected_distill`**: `true` if `/save` was invoked without `--no-distill`. `false` if `--no-distill` was passed. Absent when `orchestrated_by` is absent.
+
+**Immutability:** Snapshots are immutable after creation. These fields record the intent at creation time. If a user later retries a failed sub-operation standalone (e.g., `/defer --snapshot-ref`), the snapshot's intent fields are not updated — the downstream record's existence is the proof of completion.
+
+**Parse normalization:** Frontmatter parsers must normalize string `"true"`/`"false"` to boolean. YAML native booleans (`true`/`false` without quotes) are preferred but string representations must be accepted.
+
+**Relationship to /triage:** These fields enable `/triage` to distinguish "intentionally skipped" from "crashed before running." See [/triage inference matrix](operations.md#triage-read-work-and-context).
