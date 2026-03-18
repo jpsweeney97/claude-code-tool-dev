@@ -37,6 +37,8 @@ Three rules constrain `/save` to prevent [God Skill](decisions.md#named-risks) d
 2. **No hidden behaviors.** Every sub-operation visible in per-step results.
 3. **Independently retryable.** Failed steps retry via standalone skills with explicit `--snapshot-ref` from [recovery manifest](operations.md#recovery-manifest). "Latest" is permitted for discovery UI only, never as the semantic source of a write.
 
+**Structural verification:** `/save` sub-operations should call the same implementation functions as their standalone counterparts. Recommended pattern: thin wrapper that delegates to shared implementation. Verified by code review; structural guard in [delivery.md exit criteria](delivery.md#step-4-context-cutover).
+
 ## Chain Protocol — Session Lineage Tracking
 
 Enables `resumed_from` tracking across sessions. Carried forward from the existing handoff contract with identity changes.

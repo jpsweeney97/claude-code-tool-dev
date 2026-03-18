@@ -44,6 +44,11 @@ Create plugin, core library, and type contracts. Validate the foundation before 
 
 **Exit criteria:** All types pass construction and equality tests. Query scans empty directories with correct diagnostics. NativeReader protocol compiles with `root_type` parameter.
 
+#### Required Verification
+- Construction and equality tests for all types
+- Query scans empty directories with correct diagnostics
+- `VERSION_UNSUPPORTED` error for unknown `envelope_version` (VR-7): submit envelope with `envelope_version="99.0"`, assert error code and expected version range
+
 ## Step 0b: Bootstrap and Identity
 
 Create identity resolution and bootstrap command. Depends on 0a types being stable.
@@ -98,6 +103,10 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 
 **Exit criteria:** `/defer` produces envelope with RecordRef linkage. Bridge adapter successfully routes to old ticket engine. Cross-subsystem query returns results from both readers. Bridge compatibility test passes.
 
+#### Required Verification
+- Bridge compatibility test passes (Steps 1-4 as specified)
+- Bridge test additionally verifies old engine accepts converted JSON (VR-9): call old ticket engine ingest with bridge output, assert non-error response
+
 ## Step 2: Knowledge Cutover
 
 ### Step 2a — Activate
@@ -133,6 +142,11 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 | Bridge adapter update | `/defer` switches from bridge adapter (Step 1) to new Work engine |
 
 **Exit criteria (3a):** All ticket operations work. Protected-path enforcement: Write/Edit to protected paths blocked reliably (verified by direct tool call attempts). Bash enforcement: representative shell write patterns tested, documented as [bounded guarantee](enforcement.md#enforcement-scope-bounded-guarantee). Trust triple works. Compatibility harness passes. `/defer` routes through new Work engine.
+
+#### Required Verification
+- Envelope idempotency (SY-5): DeferEnvelope submitted twice returns same ref
+- Phase-scoped idempotency regression gate (VR-11): verify idempotency_key is checked by new Work engine after bridge replacement
+- Staging inbox cap (VR-8): cap=5, count=3, batch=3 → full rejection; cap=5, count=3, batch=2 → success
 
 ### Step 3b — Retire
 
@@ -188,15 +202,23 @@ Only migrate valid fresh state. Do not reimport defects from the old system. See
 
 The manifest is an [operational aid](foundations.md#auxiliary-state-authority). Re-running the migration is idempotent.
 
+**Migration idempotency:** Run the migration script twice against the same source and destination. Assert: the manifest from run 2 equals run 1 (same `copied`, `skipped_exists` lists — no new entries). This verifies the "re-running the migration is idempotent" invariant.
+
 **Cross-step dependency:** Steps 2a and 3a depend on the old handoff format remaining readable (Context reader parses `---` frontmatter from existing handoff files). Do not modify the handoff format until Step 4a is complete.
 
 **Exit criteria (4a):** Save/load cycle works. Worktree isolation verified. `/save` orchestration with per-step results. `/search` spans all subsystems. `/timeline` reconstructs sessions. All hooks operational. SessionStart <500ms. Chain state migration classifies and filters old state files. All copied handoffs parse successfully through the Context reader. Migration manifest written with no `skipped_corrupt` entries for newly copied files.
+
+#### Required Verification
+- Chain state migration classification (VR-5): parametric fixtures for each class (valid_fresh, stale, dangling, corrupt); assert migrated count = 1
+- Migration idempotency (SY-6): run twice, compare manifests
+- SessionStart timing (VR-4): run `engram_session` against fixture with 50 snapshots, 20 chain files; assert wall-clock < 500ms
+- /triage promote-meta detection (VR-6): fixture with CLAUDE.md text but no promote-meta → assert mismatch reported; fixture with stale promote-meta → assert stale reported
 
 ### Step 4b — Retire
 
 - Remove `packages/plugins/handoff/` package
 - Remove deployed handoff plugin from `~/.claude/plugins/` (use `trash`)
-- Remove deployed handoff skills from `~/.claude/skills/{save,load,quicksave,search,defer,distill,triage}/` (use `trash`)
+- Remove deployed handoff skills from `~/.claude/skills/{save,load,quicksave,search,defer,triage}/` (use `trash`)
 
 **Exit criteria (4b):** No old handoff code present in repo or deployed locations.
 
@@ -219,6 +241,10 @@ Feed identical fixtures into old ticket engine and new Engram Work engine. Compa
 - Hook allow/deny behavior
 - Dedup/TOCTOU/trust outcomes
 
+**Audit side-effect assertions:** The harness must verify `.audit/` JSONL entries for each fixture that creates or updates a ticket. Each entry must contain: `timestamp` (ISO 8601), `operation` (create|update|close), `ticket_ref` (RecordRef serialization), `source_ref` (if applicable), `trust_triple_present` (bool). Assert: entry exists for each write operation, fields are non-empty, `trust_triple_present` matches expectation.
+
+**Idempotency assertion:** Submit a `DeferEnvelope` with idempotency_key K. Assert ticket_ref R created. Submit identical envelope again. Assert: same R returned, no new ticket file created, no new `.audit/` entry. Repeat for `DistillEnvelope` against the staging inbox: submit twice, assert same staged file (not duplicated).
+
 ### Test Buckets
 
 Triage old tests into three buckets:
@@ -228,6 +254,14 @@ Triage old tests into three buckets:
 | Compatibility-critical (~100-150) | Must pass harness. Behavioral equivalence gates migration. |
 | Fixture/golden (~200-250) | Port fixtures, write fresh assertions. |
 | Implementation-local (~200-300) | Don't port. Write what's needed for new engine. |
+
+### Cross-Cutting Verification
+
+| Invariant | Test | Step |
+|---|---|---|
+| /search grouping ("never interleaved") | Multi-subsystem query, assert contiguous grouping | 4a |
+| All 13 skills functional | Automated smoke test per skill: one happy-path invocation, assert expected observable output | 5 |
+| /save no-unique-logic | Code review: verify `/save` sub-operations delegate to shared implementation | 4a |
 
 ### Invariants
 
