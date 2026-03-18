@@ -58,9 +58,17 @@ Six operations justify Engram's plugin scope. Three exist today as cross-plugin 
 /triage
     -> query(subsystems=["work"]) -> IndexEntries for tickets
     -> query(subsystems=["context"]) -> IndexEntries for snapshots
-    -> Open native ticket files for subsystem-specific reasoning
-    -> Cross-reference: orphaned items, stale tickets, blocked chains, failed envelopes
+    -> Open native snapshot files for orchestration intent metadata
+    -> Apply inference matrix for each orchestrated snapshot:
+        (1) expected_X: true + downstream record exists         -> satisfied
+        (2) expected_X: false + no downstream                   -> intentionally skipped
+        (3) expected_X: true + no downstream + X_completed      -> zero-output success (satisfied)
+            ledger event exists (emitted_count=0)
+        (4) expected_X: true + no downstream + no completion    -> "completion not proven"
+            event
+    -> Cross-reference: orphaned items, stale tickets, blocked chains
     -> Report pending staged knowledge candidates
+    -> Report promote-meta mismatches (missing or stale)
     -> Return structured triage report with per-subsystem sections
 ```
 
@@ -139,7 +147,11 @@ Three-step state machine with marker-based location and reconciliation recovery.
 
 ```
 /save [title] [--no-defer] [--no-distill]
-    -> Context engine writes snapshot -> snapshot_ref
+    -> Context engine writes snapshot with orchestration intent fields:
+        orchestrated_by: save
+        save_expected_defer: true/false (based on --no-defer flag)
+        save_expected_distill: true/false (based on --no-distill flag)
+    -> snapshot_ref returned
     -> If not --no-defer: defer sub-operation
     -> If not --no-distill: distill sub-operation
     -> Return per-step results:
@@ -183,8 +195,8 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority), 
 | Target engine rejects envelope | Specific error (duplicate, validation) | User fixes and retries |
 | Idempotent duplicate detected | Returns existing ref, no side effects | Automatic (transparent) |
 | `/save` partial success | Per-step results show which failed. Recovery manifest written. | Retry failed steps standalone with `--snapshot-ref` from manifest. |
-| Crash after envelope write | Envelope is transient — no persistent queue. `/triage` infers missing downstream records by scanning `source_ref` fields. | User retries the operation; idempotency key prevents duplicates. |
-| Crash before envelope write | No envelope exists; downstream record missing expected upstream link | `/triage` infers unlinked records by scanning native content and cross-checking `source_ref` fields |
+| Crash after envelope write | Envelope emitted but downstream record not created. `defer_completed` ledger event may exist. | `/triage` infers from `source_ref` scan + ledger events. User retries; idempotency key prevents duplicates. |
+| Crash before envelope write | Snapshot has `save_expected_defer: true` but no downstream record and no `defer_completed` ledger event | `/triage` reports "completion not proven" for expected sub-operations. User retries via standalone `/defer --snapshot-ref`. |
 | Promote Step 2 failure (Branch A/C with markers) | CLAUDE.md unchanged, no promote-meta written | Lesson remains eligible for next `/promote` run |
 | Promote Step 2 manual reconcile (Branch C without markers) | User shown old target_section, content diff | User places text manually; Step 3 records result |
 | Promote Step 3 failure | CLAUDE.md written but promote-meta absent | `/triage` detects mismatch; surfaces for user resolution |
