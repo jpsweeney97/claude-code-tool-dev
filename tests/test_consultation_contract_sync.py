@@ -412,17 +412,17 @@ def test_read_file_preserves_oserror_on_permission_denied(
 
 
 def test_termination_reasons_match_contract() -> None:
-    """§13's Valid termination reasons must match emit_analytics._VALID_TERMINATION_REASONS."""
+    """§13's Valid termination reasons must match event_schema.VALID_TERMINATION_REASONS."""
     import re as re_mod
     import importlib.util as ilu
 
-    # Import _VALID_TERMINATION_REASONS from emit_analytics
-    emit_path = REPO_ROOT / "packages/plugins/cross-model/scripts/emit_analytics.py"
-    spec = ilu.spec_from_file_location("emit_analytics", emit_path)
+    # Import from event_schema (leaf module, no sibling imports — importlib-safe)
+    schema_path = REPO_ROOT / "packages/plugins/cross-model/scripts/event_schema.py"
+    spec = ilu.spec_from_file_location("event_schema", schema_path)
     assert spec is not None and spec.loader is not None
-    emit_mod = ilu.module_from_spec(spec)
-    spec.loader.exec_module(emit_mod)
-    code_reasons = emit_mod._VALID_TERMINATION_REASONS
+    schema_mod = ilu.module_from_spec(spec)
+    spec.loader.exec_module(schema_mod)
+    code_reasons = schema_mod.VALID_TERMINATION_REASONS
 
     # Parse §13's "### Valid termination reasons" subsection
     contract_text = CONTRACT_PATH.read_text()
