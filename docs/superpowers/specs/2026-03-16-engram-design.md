@@ -1,5 +1,7 @@
 # Engram: A Federated Persistence Layer for Claude Code
 
+> **DEPRECATED:** This design document was the input to the modular spec at `docs/superpowers/specs/engram/`. The spec is authoritative. This document is retained for historical context only. Notable divergences: the spec removed `.failed/` envelope storage (transient-envelope model instead), and subsequent amendments added sentinel markers for promote text-location, snapshot intent fields for /save recovery, and a ledger entry schema.
+
 **Date:** 2026-03-16
 **Authors:** JP + Claude + Codex (7-turn collaborative dialogue)
 
