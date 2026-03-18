@@ -56,7 +56,7 @@ All cross-subsystem writes use typed envelopes with a common header. See [envelo
 class EnvelopeHeader:
     envelope_version: str          # "1.0" — target rejects unknown versions explicitly
     source_ref: RecordRef          # Pinned at creation. Never "latest."
-    idempotency_key: str           # sha256(canonical_json(idempotency_material)) — see below
+    idempotency_key: Sha256Hex     # sha256(canonical_json_bytes(material)) — see Hash Types and Helpers
     emitted_at: str                # ISO 8601
 ```
 
@@ -85,7 +85,7 @@ class DistillCandidate:
     content: str
     durability: str                # "likely_durable" | "likely_ephemeral" | "unknown"
     source_section: str            # Which snapshot section it came from
-    content_sha256: str            # For dedup
+    content_sha256: Sha256Hex      # content_hash(content) — for dedup
 ```
 
 ### PromoteEnvelope — Knowledge to CLAUDE.md (Intent Record)
@@ -96,7 +96,7 @@ class PromoteEnvelope:
     header: EnvelopeHeader
     target_section: str            # Advisory: insertion hint for CLAUDE.md section
     transformed_text: str          # Prescriptive prose, ready to insert
-    content_sha256: str            # Hash of source lesson content at envelope creation time
+    content_sha256: Sha256Hex      # content_hash(lesson_content) at envelope creation time
 ```
 
 ## promote-meta — Promotion State Record
@@ -108,15 +108,15 @@ Written by the Knowledge engine after a successful CLAUDE.md write. Stored as a 
 class PromoteMeta:
     target_section: str           # Advisory: last requested destination / insertion hint
     promoted_at: str              # ISO 8601
-    promoted_content_sha256: str  # Hash of lesson content at promotion time
-    transformed_text_sha256: str  # Hash of text between markers (excluding markers themselves)
+    promoted_content_sha256: Sha256Hex  # content_hash(lesson_content) at promotion time
+    transformed_text_sha256: Sha256Hex  # drift_hash(text_between_markers) — drift sentinel
     lesson_id: str                # Matches lesson-meta lesson_id — used for marker pair identification
 ```
 
 **Serialization:** All fields are required. Stored as an HTML comment in learnings.md immediately after the entry's `lesson-meta` comment:
 
 ```markdown
-<!-- promote-meta {"target_section": "## Code Style", "promoted_at": "2026-03-17T14:30:00Z", "promoted_content_sha256": "a1b2c3...", "transformed_text_sha256": "d4e5f6..."} -->
+<!-- promote-meta {"lesson_id": "550e8400-e29b-41d4-a716-446655440000", "target_section": "## Code Style", "promoted_at": "2026-03-17T14:30:00Z", "promoted_content_sha256": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", "transformed_text_sha256": "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"} -->
 ```
 
 Field names match the Python dataclass exactly. All string values. `promoted_at` uses ISO 8601 UTC.
@@ -135,7 +135,7 @@ Promoted text here...
 - Markers are **locator hints**, not authoritative state. `promote-meta` in `learnings.md` remains the authority for Branch A/B/C decisions.
 - `lesson_id` in markers matches `lesson-meta.lesson_id` — stable for the life of the lesson.
 - User can delete markers. Consequence: reduced automation (degradation to manual reconcile), not invalid system state.
-- `transformed_text_sha256` hashes the text **between** markers (excluding markers themselves). Used for drift detection, not location.
+- `transformed_text_sha256` is computed by [`drift_hash()`](#hash-producing-functions) on the text **between** markers (excluding markers themselves). Used for [drift detection in Branch C](operations.md#promote-knowledge-to-claudemd), not location.
 
 **Marker validity rules:**
 - One `start` + one `end` with the same `lesson_id`, properly ordered
@@ -149,35 +149,117 @@ Promoted text here...
 
 **`target_section` is advisory.** It records the last requested destination for the promoted text. It is used as an insertion hint for new promotions (Branch A) and as context in the manual reconcile flow. It is **not** the primary locator — marker search is. If the user moves a managed block to a different section, `target_section` becomes stale; `/promote` updates it on the next successful promotion.
 
+## Hash Types and Helpers
+
+### Scalar Types
+
+| Type | Pattern | Usage |
+|---|---|---|
+| `Sha256Hex` | `^[0-9a-f]{64}$` | All `*_sha256` fields — bare lowercase hex, no algorithm prefix |
+| `HashId` | `sha256:` + `Sha256Hex` | Algorithm-tagged identifiers (e.g., `source_uid`). Not used for `*_sha256` fields. |
+
+**Rationale:** The algorithm is encoded in the field name (`content_sha256`, `promoted_content_sha256`), making a `sha256:` prefix redundant. `HashId` is reserved for identifier fields where the algorithm is not implied by the name. **Exception:** `idempotency_key` is typed `Sha256Hex` despite lacking the `_sha256` suffix — its computation formula (`sha256(canonical_json_bytes(...))`) is documented at the point of use in [Idempotency](#idempotency-same-operation-retried).
+
+**`parse_sha256_hex(value: str) -> Sha256Hex`:** Strict parser. Accepts bare lowercase hex (`^[0-9a-f]{64}$`) or exact lowercase `sha256:` prefix (strips prefix, returns bare hex). Rejects uppercase hex, uppercase prefix, and non-`sha256` algorithm prefixes. During the bridge period ([Step 1](delivery.md#step-1-bridge-cutover) through [Step 3](delivery.md#step-3-work-cutover)), readers accept both formats; writers always emit bare hex.
+
+### Normalization Functions
+
+Two normalization families serve different content types. Using the wrong normalizer produces different hashes — the distinction is intentional.
+
+| Function | Purpose | When to Use |
+|---|---|---|
+| `knowledge_normalize(text) -> str` | Light normalization for multi-paragraph markdown content | Knowledge entry content, distill candidates |
+| `work_normalize(text) -> str` | Aggressive normalization for short problem descriptions | Work engine dedup fingerprints |
+
+**`knowledge_normalize` rules (v1):**
+
+1. Unicode NFC normalization
+2. Line endings to `\n` (LF)
+3. Strip trailing whitespace per line
+4. Whitespace-only lines become blank lines (empty `\n`)
+5. Collapse 2+ consecutive blank lines to exactly 1
+6. Strip leading and trailing blank lines from the document
+7. Preserve intra-line spaces (no collapse)
+8. No lowercasing
+9. No punctuation removal
+10. Fence-aware: content inside fenced code blocks (backtick or tilde) is subject only to rules 1–2 (NFC + LF). Rules 3–6 do not apply inside fences.
+
+**Fence detection (CommonMark-aligned):**
+- Opening fence: 3+ identical characters (`` ` `` or `~`), preceded by 0–3 spaces of indentation
+- Closing fence: same character, same or greater length, preceded by 0–3 spaces of indentation
+- No nested fences — the first valid closing fence ends the block
+- Indented code blocks (4+ spaces) are not treated as fences in v1
+
+**`work_normalize` rules:** The existing 5-step pipeline from `ticket_dedup.py`:
+
+1. Strip leading/trailing whitespace
+2. Collapse internal whitespace runs to single space
+3. Lowercase
+4. Remove punctuation (keep alphanumeric, spaces, hyphens, underscores)
+5. Unicode NFC normalization
+
+### Hash-Producing Functions
+
+Named producer functions that compose normalization with hashing. Each `*_sha256` field in this spec cites its producer.
+
+| Function | Signature | Normalization | Purpose |
+|---|---|---|---|
+| `content_hash` | `(markdown_content: str) -> Sha256Hex` | `knowledge_normalize` | Knowledge entry content hashing — dedup, promote drift detection. Used by: `lesson-meta.content_sha256`, `DistillCandidate.content_sha256`, `PromoteEnvelope.content_sha256`, `PromoteMeta.promoted_content_sha256` |
+| `drift_hash` | `(text: str) -> Sha256Hex` | NFC + LF only (no further whitespace or content normalization) | Detect user edits to promoted text in CLAUDE.md. Intentionally stricter than `content_hash` so formatting changes count as drift. Empty string is valid input (produces a deterministic hash; will not match any stored `transformed_text_sha256` from non-empty promoted text). Used by: `PromoteMeta.transformed_text_sha256` |
+| `work_dedup_fingerprint` | `(problem_text: str, key_file_paths: list[str]) -> Sha256Hex` | `work_normalize` on `problem_text` | Work engine 24-hour dedup window. Formula: `sha256(work_normalize(problem_text) + "\|" + ",".join(sorted(key_file_paths)))` |
+
+**Why three normalization levels?**
+
+| Level | Function | Preserves | Discards | Rationale |
+|---|---|---|---|---|
+| Strictest | `drift_hash` | All whitespace, punctuation, case | Nothing beyond NFC+LF | CLAUDE.md is user-owned. Formatting edits to promoted blocks must count as drift. |
+| Medium | `content_hash` | Intra-line spaces, punctuation, case, code fences | Trailing whitespace, excessive blank lines | Lesson content has meaningful punctuation and code examples (`` Use `json.dumps(sort_keys=True)` ``). Whitespace normalization prevents false mismatches from editor settings. |
+| Lightest | `work_dedup_fingerprint` | Hyphens, underscores | Case, punctuation, extra whitespace | Short problem descriptions. Aggressive normalization catches near-duplicate tickets that differ only in formatting or capitalization. |
+
+### Canonical JSON
+
+**`canonical_json_bytes(value: dict | list | str | int | bool) -> bytes`**
+
+Deterministic JSON serialization for idempotency key computation. Defined in `engram_core/canonical.py`.
+
+Rules:
+- `json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")`
+- **Rejects `None`** anywhere in the input tree (raises `ValueError`). Callers must omit absent keys before calling — do not pass `None` values and expect silent exclusion.
+- **Rejects `float`** (raises `TypeError`). All Engram idempotency material uses `str`, `int`, `bool`, `dict`, or `list`.
+- NFC Unicode normalization is enforced upstream (at dataclass construction), not inside this function.
+- No external standard referenced (not RFC 8785). This is internal canonicalization for same-codebase determinism, not cross-language interchange.
+
+**Idempotency key computation:** `sha256(canonical_json_bytes(idempotency_material)).hexdigest()` — the two-step pattern (canonicalize, then hash) matches the existing `compute_source_uid()` pattern in `distill.py`.
+
 ## Idempotency and Dedup
 
 Two distinct mechanisms serving different purposes.
 
 ### Idempotency — Same Operation Retried
 
-The `idempotency_key` in `EnvelopeHeader` is computed from `canonical_json(idempotency_material)` where the material is envelope-type-specific:
+The `idempotency_key` in `EnvelopeHeader` is computed as `sha256(canonical_json_bytes(idempotency_material)).hexdigest()` where the material is envelope-type-specific:
 
 | Envelope | Idempotency Material |
 |---|---|
 | `DeferEnvelope` | `{source_ref.record_id, title, problem}` |
-| `DistillEnvelope` | `{source_ref.record_id, sorted([canonical_json({content_sha256, source_section, durability}), ...], key=lambda c: c["content_sha256"])}` |
+| `DistillEnvelope` | `{source_ref.record_id, candidates: sorted([{content_sha256, source_section, durability}, ...], key=lambda c: c["content_sha256"])}` |
 | `PromoteEnvelope` | `{source_ref.record_id, target_section, content_sha256}` |
 
-`canonical_json()` sorts keys and normalizes whitespace. Same material produces the same key — target engine returns existing result without side effects.
+[`canonical_json_bytes()`](#canonical-json) produces deterministic byte output. Same material produces the same key — target engine returns existing result without side effects.
 
 The `DistillEnvelope` idempotency material includes per-candidate fingerprints to ensure that re-running extraction with improved logic on the same snapshot produces a distinct key when candidate content changes.
 
 ### Dedup — Semantically Identical Content
 
 Uses content fingerprints at the record level:
-- `DistillCandidate.content_sha256` — deduplicates staged/published knowledge entries by content
-- Work engine's existing duplicate detection — `sha256(normalize(problem_text) + sorted(key_file_paths))` fingerprint within a 24-hour window. The fingerprint uses problem content and file paths, not titles.
+- `DistillCandidate.content_sha256` — [`content_hash()`](#hash-producing-functions) deduplicates staged/published knowledge entries by content
+- Work engine's existing duplicate detection — [`work_dedup_fingerprint()`](#hash-producing-functions) within a 24-hour window. The fingerprint uses problem content and file paths, not titles.
 
 These mechanisms are independent in purpose and enforcement stage: an idempotent retry (same `idempotency_key`) is caught at the envelope level before dedup is ever checked. A genuinely new operation with coincidentally identical content is caught by dedup, not idempotency.
 
 ### Engine Hash Verification
 
-The Knowledge engine **must** recompute `sha256(normalize(content))` for every `DistillCandidate` and verify it matches the caller-provided `content_sha256`. Reject any candidate where the computed hash does not match. This prevents hash drift from corrupting the dedup invariant. Caller provides the hash (self-describing envelopes); engine verifies (trust-but-verify).
+The Knowledge engine **must** recompute [`content_hash(content)`](#hash-producing-functions) for every `DistillCandidate` and verify it matches the caller-provided `content_sha256`. Reject any candidate where the computed hash does not match. This prevents hash drift from corrupting the dedup invariant. Caller provides the hash (self-describing envelopes); engine verifies (trust-but-verify).
 
 ## Knowledge Entry Format — lesson-meta Contract
 
@@ -192,7 +274,7 @@ Entry content...
 
 **Fields:**
 - **`lesson_id`**: UUIDv4 generated at creation. Serves as `RecordRef.record_id` for knowledge entries. Stable across edits (content changes update `content_sha256`, not `lesson_id`).
-- **`content_sha256`**: Hash of normalized entry content (excluding the `lesson-meta` comment itself). Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
+- **`content_sha256`**: [`Sha256Hex`](#scalar-types) produced by [`content_hash()`](#hash-producing-functions) on entry content (excluding the `lesson-meta` comment itself). Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
 - **`created_at`**: ISO 8601 timestamp of initial creation.
 - **`producer`**: Which skill created the entry. Informational — does not affect lifecycle.
 

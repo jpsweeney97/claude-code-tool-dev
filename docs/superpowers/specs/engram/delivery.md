@@ -213,7 +213,7 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 - Migration idempotency (SY-6): run twice, compare manifests
 - SessionStart timing (VR-4): run `engram_session` against fixture with 50 snapshots, 20 chain files; assert wall-clock < 500ms
 - /triage promote-meta detection (VR-6): fixture with CLAUDE.md markers + text but no promote-meta → assert mismatch reported; fixture with stale promote-meta → assert stale reported; fixture with CLAUDE.md text but markers deleted → assert manual reconcile surfaced
-- Promote marker lifecycle (VR-10): Branch A inserts markers + text; Branch C locates markers, replaces enclosed text; Branch B2 relocates marker-enclosed block to new section; missing markers → manual reconcile
+- Promote marker lifecycle (VR-10): Branch A inserts markers + text; Branch C1 locates markers, drift_hash matches → normal replacement with user confirmation; Branch C2 locates markers, drift_hash mismatches (user edited managed block) → drift warning + 2-way diff surfaced before user confirmation; Branch C3 missing markers → manual reconcile; Branch B2 relocates marker-enclosed block to new section; Branch B2 markers missing → manual reconcile (same flow as C3)
 - Snapshot intent fields (VR-12): /save without flags → snapshot has orchestrated_by=save, save_expected_defer=true, save_expected_distill=true; /save --no-defer → save_expected_defer=false; /quicksave → no orchestration fields
 - Triage inference matrix (VR-13): fixture with expected_defer=true + ticket exists → satisfied; expected_defer=false + no ticket → skipped; expected_defer=true + no ticket + defer_completed(emitted_count=0) → zero-output success; expected_defer=true + no ticket + no completion event → completion-not-proven
 
