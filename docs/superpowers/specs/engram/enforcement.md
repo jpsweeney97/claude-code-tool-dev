@@ -13,8 +13,15 @@ authority: enforcement
 |---|---|---|---|---|
 | `engram_guard` | PreToolUse (Write, Edit, Bash) | 1st | [Protected-path enforcement](#protected-path-enforcement) + [trust injection](#trust-injection) | **Block** |
 | `engram_quality` | PostToolUse (Write, Edit) | 2nd | [Snapshot quality checks](#quality-validation) | **Warn** |
-| `engram_register` | PostToolUse (Write, Edit) | 3rd | Ledger append | **Silent** (best-effort) |
+| `engram_register` | PostToolUse (Write, Edit) | 3rd | Ledger append ([hook-class events](types.md#producer-classes)) | **Silent** (best-effort) |
 | `engram_session` | SessionStart | — | [TTL cleanup, worktree_id init](#sessionstart-hook) | See below |
+
+### Ledger Multi-Producer Note
+
+`engram_register` fires on Write and Edit tool calls to protected paths. It does **not** observe engine Bash invocations (`python3 engine_*.py`). Engine-authored ledger events ([`defer_completed`](types.md#event-vocabulary-v1), [`distill_completed`](types.md#event-vocabulary-v1)) are appended by engines post-commit, not by hooks. This separation means:
+- Hook events and engine events have distinct observation scopes — no dedup concern between producer classes
+- The "ledger-backed" timeline label applies only to engine/orchestrator events, not hook events
+- All producers use the shared locked append primitive defined in [types.md](types.md#write-semantics)
 
 ## Protected-Path Enforcement
 
