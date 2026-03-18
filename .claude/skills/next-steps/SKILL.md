@@ -1,6 +1,6 @@
 ---
 name: next-steps
-description: Use when the user wants to turn findings, review output, audit results, brainstorming notes, retrospective outcomes, or other analysis into a dependency-aware strategic action plan. Trigger on requests like "what do we do about this", "plan this out", "what's the sequence here", "how should we tackle these findings", "action plan", "create an action plan", or "what's the plan of attack". Use for strategic tasks where done means the approach is agreed and ready for a focused follow-up session. Do not use for session-sized implementation planning, step-by-step coding plans, or direct execution work.
+description: Use when the user wants to turn findings, review output, audit results, brainstorming notes, retrospective outcomes, or other analysis into a dependency-aware strategic action plan. Trigger on requests like "what do we do about this", "plan this out", "what's the sequence here", "how should we tackle these findings", "action plan", "create an action plan", or "what's the plan of attack". Also trigger after a review, audit, retrospective, or brainstorming session completes and the natural next step is deciding what to do about the findings. Use for strategic tasks where done means the approach is agreed and ready for a focused follow-up session. Do not use for session-sized implementation planning, step-by-step coding plans, or direct execution work.
 ---
 
 # Action Plan
@@ -15,6 +15,17 @@ Produce a dependency-aware, gated plan of high-level strategic tasks from existi
 - Surface decision gates explicitly instead of pretending the plan is linear when it is not.
 - Derive the critical path from the dependency map, then name the single highest-risk task.
 - Park non-critical items instead of bloating the immediate plan.
+
+## When this skill applies vs. when it doesn't
+
+| Use action-plan | Use Next Steps protocol instead |
+|---|---|
+| Findings from a review, audit, or brainstorm need to become coordinated work | A design decision is made and you need session-sized implementation tasks |
+| "Done" = approach agreed, ready for follow-up session | "Done" = verifiable condition (tests pass, file exists) |
+| Tasks are strategic: *what* should change and *why* | Tasks are tactical: *how* to change it, step by step |
+| Output feeds into Codex dialogue or focused planning sessions | Output feeds directly into coding work |
+
+If the conversation already has a clear implementation path, use the Next Steps protocol from CLAUDE.md instead.
 
 ## Defaults and failure modes
 
@@ -140,6 +151,10 @@ Use this structure:
 ```
 
 Before finalizing, verify that the critical path is derivable from the dependency map. Every link in the chain must correspond to a declared dependency.
+
+## After producing the plan
+
+Suggest the user take the highest-risk or first-phase tasks into a Codex dialogue for deeper exploration. Use the literal slash command `/cross-model:dialogue` so the user can invoke it directly.
 
 ## Anti-patterns
 
