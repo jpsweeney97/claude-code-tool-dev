@@ -1,17 +1,6 @@
 ---
-name: action-plan
-description: >
-  Produce a dependency-aware, gated action plan of strategic tasks from review findings,
-  audit results, brainstorming output, retrospectives, or any analysis that surfaced multiple
-  issues needing coordinated action. Use this skill whenever the user wants to turn findings
-  into a plan, figure out what to tackle and in what order, prioritize work after a review or
-  audit, or says things like "what do we do about all this?", "plan this out", "what's the
-  sequence here", "how should we tackle these findings", "action plan", "create an action plan",
-  or "what's the plan of attack?". Also trigger after a review, audit, retrospective, or
-  brainstorming session completes and the natural next step is deciding what to do about the
-  findings. Do NOT use for implementation planning (session-sized tasks with code changes) —
-  that's the Next Steps protocol. This skill produces strategic tasks where "done" means
-  the approach is agreed and ready for a focused follow-up session.
+name: next-steps
+description: Produce a dependency-aware, gated action plan of strategic tasks from review findings, audit results, brainstorming output, retrospectives, or any analysis that surfaced multiple issues needing coordinated action. Use this skill whenever the user wants to turn findings into a plan, figure out what to tackle and in what order, prioritize work after a review or audit, or says things like "what do we do about all this?", "plan this out", "what's the sequence here", "how should we tackle these findings", "action plan", "create an action plan", or "what's the plan of attack?". Also trigger after a review, audit, retrospective, or brainstorming session completes and the natural next step is deciding what to do about the findings. Do NOT use for implementation planning (session-sized tasks with code changes) — that's the Next Steps protocol. This skill produces strategic tasks where "done" means the approach is agreed and ready for a focused follow-up session.
 ---
 
 # Action Plan
