@@ -188,6 +188,18 @@ When `subsystems` is set to a single value, bare status is auto-prefixed as a co
 
 Bare values are subsystem-native. The query engine prefixes with `subsystem:` for cross-subsystem filtering.
 
+### Text Search Semantics
+
+The `query()` `text` parameter searches `title`, `snippet`, and `tags` fields of each `IndexEntry`:
+
+- **Case-insensitive:** All comparisons use Unicode case-folded values.
+- **Tokenization:** Split on whitespace and punctuation boundaries. `"auth middleware"` produces tokens `["auth", "middleware"]`.
+- **Multi-token behavior:** AND — all tokens must match somewhere across the searched fields. A token matching in `title` and another in `tags` satisfies the query.
+- **Matching:** Substring within tokens. `"auth"` matches `"authentication"`. Exact-match is not required.
+- **Ordering within subsystem groups:** `created_at` descending (newest first). Deterministic — no relevance ranking in v1.
+
+Ranking (BM25, TF-IDF, recency-weighted scoring) is [deferred](decisions.md#deferred-decisions). The current ordering is simple and predictable.
+
 ## Fresh Scan — No Cached Index
 
 Every query does a fresh filesystem scan via `reader.scan()` + `reader.read()`. No `index.json`, no cache invalidation, no read-after-write races. At MVP scale (~100s of files), this is fast. [Incremental indexing is deferred](decisions.md#deferred-decisions).
@@ -196,16 +208,19 @@ Every query does a fresh filesystem scan via `reader.scan()` + `reader.read()`. 
 
 ## Ledger
 
-Architecturally optional, operationally default-on. Sharded as `ledger/<worktree_id>/<session_id>.jsonl` in private root. Records events for debugging and diagnostics.
+Architecturally optional, operationally default-on. Sharded as `ledger/<worktree_id>/<session_id>.jsonl` in private root. Each line is a [LedgerEntry](types.md#ledgerentry-event-record) JSON object.
 
-Sharding per worktree and session eliminates concurrent-append corruption — each session writes to its own file.
+**Producers:** Engines and orchestrators append completion events post-commit. The `engram_register` hook appends observational events for Write/Edit tool calls. See [producer classes](types.md#producer-classes) for the distinction and its impact on timeline labels.
+
+**Sharding:** Per worktree and session. Multi-producer writes to the same shard are coordinated via a [shared locked append primitive](types.md#write-semantics).
 
 Session timeline reconstructs from:
 1. `created_at` timestamps from `IndexEntry` (parsed during scan)
 2. `session_id` in `RecordMeta` to group records by session
-3. `git log` for shared-root change attribution (called once per timeline request, not per query)
+3. Ledger events matching `session_id` (engine/orchestrator events are "ledger-backed")
+4. `git log` for shared-root change attribution (called once per timeline request, not per query)
 
-No ledger means timeline still works but at lower fidelity (no sub-file-creation event granularity). This is a documented trade-off, not a silent degradation.
+No ledger means timeline still works but at lower fidelity (no completion evidence, no sub-file-creation event granularity). This is a documented trade-off, not a silent degradation.
 
 ## Degradation Model
 
