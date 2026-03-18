@@ -70,31 +70,40 @@ Uses the [index](storage-and-indexing.md#indexentry) for *discovery*, opens nati
 
 ### Promote: Knowledge to CLAUDE.md
 
-Three-step state machine with reconciliation-based recovery. CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns the promotion *state*. The CLAUDE.md edit is a skill-level operation — a [documented exception](foundations.md#permitted-exceptions) to the core invariant.
+Three-step state machine with marker-based location and reconciliation recovery. CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns the promotion *state*. The CLAUDE.md edit is a skill-level operation — a [documented exception](foundations.md#permitted-exceptions) to the core invariant.
 
 ```
 /promote
     -> query(subsystems=["knowledge"], status="knowledge:published")
     -> Rank by maturity signals (age, breadth, reuse evidence) — advisory ordering only
     -> User selects
-    -> Step 1 (engine): Knowledge engine validates promotability via 3-branch state machine:
-        Branch A (no promote-meta): Eligible. Returns promotion plan.
+    -> Step 1 (engine): Knowledge engine validates promotability via state machine:
+        Branch A (no promote-meta): Eligible. Returns promotion plan with target_section.
         Branch B (promote-meta exists, promoted_content_sha256 == current content_sha256):
-            Reject — already promoted. Return existing promotion details.
+            B1 (target_section unchanged): Reject — already promoted. Return existing details.
+            B2 (target_section changed by user request): Relocation. Search CLAUDE.md for
+                markers with lesson_id. If found: move block to new target_section, update
+                promote-meta target_section. If not found: manual reconcile flow.
         Branch C (promote-meta exists, promoted_content_sha256 != current content_sha256):
-            Stale promotion. Return reconciliation plan: old target_section,
-            old transformed_text_sha256 (for locating text in CLAUDE.md), new content.
-    -> Step 2 (skill): Skill writes transformed text to CLAUDE.md
-        For Branch C: attempts to locate and replace old text using transformed_text_sha256
-        If old text not found: surfaces manual reconcile flow to user
+            Stale promotion. Search CLAUDE.md globally for markers with lesson_id.
+            If found: replace enclosed text with new transformed text, update markers in place.
+            If not found: manual reconcile flow (show old target_section, old content hash,
+                new content — user places manually).
+    -> Step 2 (skill): Skill writes transformed text to CLAUDE.md wrapped in markers
+        For Branch A: insert at target_section with paired markers
+        For Branch B2: relocate existing marker-enclosed block
+        For Branch C with markers: replace text between existing markers
+        For Branch C without markers: manual reconcile — user confirms placement
     -> Step 3 (engine): Knowledge engine writes/updates promote-meta with current hashes
 ```
 
 **Ranking is advisory, not contractual.** Maturity signals determine display ordering only — they are not part of the storage contract. Engine promotability validation must not depend on undocumented maturity scores.
 
+**Location strategy:** Branch C and B2 search CLAUDE.md globally for `<!-- engram:lesson:start:<lesson_id> -->` / `<!-- engram:lesson:end:<lesson_id> -->` marker pairs. Global search (not section-scoped) supports user relocation of managed blocks — if the user moves a promoted block to a different section, the marker search still finds it. See [marker specification](types.md#promotion-markers-in-claudemd) for validity rules.
+
 **Recovery:** Step 1 validates but does not record durable state — it returns a promotion plan. Step 3 writes [promote-meta](types.md#promote-meta-promotion-state-record) only after the CLAUDE.md write succeeds. If Step 2 fails, no promote-meta exists (Branch A) or stale promote-meta persists (Branch C), so the lesson remains eligible for future `/promote` runs. If Step 3 fails, `/triage` detects the mismatch:
-- **Missing promote-meta:** CLAUDE.md has text, no promote-meta at all (Step 3 never ran)
-- **Stale promote-meta:** CLAUDE.md has updated text, promote-meta has old hashes (Step 3 failed on re-promotion)
+- **Missing promote-meta:** CLAUDE.md has markers + text, no promote-meta at all (Step 3 never ran)
+- **Stale promote-meta:** CLAUDE.md has updated text between markers, promote-meta has old hashes (Step 3 failed on re-promotion)
 
 ### Unified Search
 
@@ -176,6 +185,7 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority), 
 | `/save` partial success | Per-step results show which failed. Recovery manifest written. | Retry failed steps standalone with `--snapshot-ref` from manifest. |
 | Crash after envelope write | Envelope is transient — no persistent queue. `/triage` infers missing downstream records by scanning `source_ref` fields. | User retries the operation; idempotency key prevents duplicates. |
 | Crash before envelope write | No envelope exists; downstream record missing expected upstream link | `/triage` infers unlinked records by scanning native content and cross-checking `source_ref` fields |
-| Promote Step 2 failure | CLAUDE.md unchanged, no promote-meta written | Lesson remains eligible for next `/promote` run |
+| Promote Step 2 failure (Branch A/C with markers) | CLAUDE.md unchanged, no promote-meta written | Lesson remains eligible for next `/promote` run |
+| Promote Step 2 manual reconcile (Branch C without markers) | User shown old target_section, content diff | User places text manually; Step 3 records result |
 | Promote Step 3 failure | CLAUDE.md written but promote-meta absent | `/triage` detects mismatch; surfaces for user resolution |
 | Legacy artifact lacks session_id | Appears in timeline as "unattributed" | Not silently omitted |
