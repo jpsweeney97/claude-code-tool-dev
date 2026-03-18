@@ -94,7 +94,7 @@ class DistillCandidate:
 @dataclass(frozen=True)
 class PromoteEnvelope:
     header: EnvelopeHeader
-    target_section: str            # Where in CLAUDE.md
+    target_section: str            # Advisory: insertion hint for CLAUDE.md section
     transformed_text: str          # Prescriptive prose, ready to insert
     content_sha256: str            # Hash of source lesson content at envelope creation time
 ```
@@ -106,10 +106,11 @@ Written by the Knowledge engine after a successful CLAUDE.md write. Stored as a 
 ```python
 @dataclass(frozen=True)
 class PromoteMeta:
-    target_section: str           # Where in CLAUDE.md
+    target_section: str           # Advisory: last requested destination / insertion hint
     promoted_at: str              # ISO 8601
     promoted_content_sha256: str  # Hash of lesson content at promotion time
-    transformed_text_sha256: str  # Hash of the text written to CLAUDE.md
+    transformed_text_sha256: str  # Hash of text between markers (excluding markers themselves)
+    lesson_id: str                # Matches lesson-meta lesson_id — used for marker pair identification
 ```
 
 **Serialization:** All fields are required. Stored as an HTML comment in learnings.md immediately after the entry's `lesson-meta` comment:
@@ -120,7 +121,33 @@ class PromoteMeta:
 
 Field names match the Python dataclass exactly. All string values. `promoted_at` uses ISO 8601 UTC.
 
+### Promotion Markers in CLAUDE.md
+
+When `/promote` writes transformed text to CLAUDE.md, it wraps the text in paired HTML comment markers:
+
+~~~markdown
+<!-- engram:lesson:start:<lesson_id> -->
+Promoted text here...
+<!-- engram:lesson:end:<lesson_id> -->
+~~~
+
+**Marker semantics:**
+- Markers are **locator hints**, not authoritative state. `promote-meta` in `learnings.md` remains the authority for Branch A/B/C decisions.
+- `lesson_id` in markers matches `lesson-meta.lesson_id` — stable for the life of the lesson.
+- User can delete markers. Consequence: reduced automation (degradation to manual reconcile), not invalid system state.
+- `transformed_text_sha256` hashes the text **between** markers (excluding markers themselves). Used for drift detection, not location.
+
+**Marker validity rules:**
+- One `start` + one `end` with the same `lesson_id`, properly ordered
+- Non-nested (no marker pair inside another marker pair)
+- Unique per `lesson_id` in the file (at most one pair per lesson)
+- Violation of any rule: treat as "markers not found" and fall through to manual reconcile
+
+**Marker loss is expected.** Users edit CLAUDE.md freely. The promote state machine treats marker absence as degraded automation, not an error state. See [Branch C location strategy](operations.md#promote-knowledge-to-claudemd).
+
 **Re-promotion detection:** If a lesson's `content_sha256` changes after promotion, the `PromoteEnvelope` idempotency key changes (because `content_sha256` is part of the material). The engine detects this as a stale promotion: existing `promote-meta.promoted_content_sha256` != current `content_sha256`. `/promote` surfaces stale promotions for user review. `/triage` reports them as a mismatch class alongside the Step-3-failure case.
+
+**`target_section` is advisory.** It records the last requested destination for the promoted text. It is used as an insertion hint for new promotions (Branch A) and as context in the manual reconcile flow. It is **not** the primary locator — marker search is. If the user moves a managed block to a different section, `target_section` becomes stale; `/promote` updates it on the next successful promotion.
 
 ## Idempotency and Dedup
 
