@@ -43,3 +43,4 @@ Explicitly not in v1. Each entry records what was deferred and why.
 | Ledger compaction | Append-only grows indefinitely. Add when file size matters. |
 | Cross-user timeline | Session-local only. Multi-user via `git log` is out of scope. |
 | Bounded protected-path drift scan | PostToolUse Bash trigger comparing protected-root manifest before/after Bash execution. Would close the Bash enforcement gap for git-tracked paths. Not achievable without pre/post state comparison mechanism. |
+| RecordRef subsystem/record_kind constraints | Validated at construction time in implementation, not schema-level Literal types. See SP-8. |
