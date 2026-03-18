@@ -75,24 +75,24 @@ After writing or editing, run passes appropriate to risk level.
 
 ### Pass Overview
 
-| Pass | Focus               | Items  |
-| ---- | ------------------- | ------ |
-| 1    | Economy             | 1-6    |
-| 2    | Specificity         | 7-10   |
-| 3    | Structure           | 11-15  |
-| 4    | Completeness        | 16-18  |
-| 5    | Loopholes           | 19-21  |
-| 6    | Boundaries          | 22-24  |
-| 7    | Outcomes            | 25-27  |
-| 8    | Preconditions/Defaults | 28-40  |
-| 9    | Verification/Authority | 41-48  |
-| 10   | Coherence           | 49-52  |
+| Pass | Focus                            | Items | Priority |
+| ---- | -------------------------------- | ----- | -------- |
+| 1    | Specificity                      | 1-4   | 1        |
+| 2    | Terms and Examples               | 5-7   | 1        |
+| 3    | Verification and Authority       | 8-15  | 1        |
+| 4    | Boundaries                       | 16-18 | 2        |
+| 5    | Preconditions, Failure, Defaults | 19-31 | 2        |
+| 6    | Loopholes                        | 32-34 | 3        |
+| 7    | Structure and Front-Loading      | 35-40 | 4        |
+| 8    | Outcomes                         | 41-43 | 5        |
+| 9    | Economy                          | 44-49 | 6        |
+| 10   | Coherence                        | 50-53 | —        |
 
-**Low risk:** Passes 1-3 only
-**Medium risk:** Passes 1-7
+**Low risk:** Passes 1-3 only (Priority 1)
+**Medium risk:** Passes 1-6 (Priority 1-3)
 **High risk:** All passes
 
-For the full 52-item checklist: [writing-principles.md](writing-principles.md#self-check-procedure)
+For the full 53-item checklist: [writing-principles.md](writing-principles.md#self-check-procedure)
 
 ### Reporting Violations
 

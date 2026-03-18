@@ -11,7 +11,7 @@ This guide does not apply to user-facing documentation, conversational responses
   - [Boundaries (#5)](#boundaries-5)
   - [Failure Modes (#6)](#failure-modes-6)
   - [Defaults (#7)](#defaults-7)
-    - [Tie-Breaker: “Preserves More Information”](#tie-breaker-preserves-more-information)
+    - [Tie-Breaker: "Preserves More Information"](#tie-breaker-preserves-more-information)
 - [Calibration](#calibration)
   - [Document Risk Assessment](#document-risk-assessment)
   - [Rigor Levels](#rigor-levels)
@@ -65,7 +65,7 @@ Use this procedure when authoring or reviewing instruction documents with these 
 2. **Identify target type:** CLAUDE.md vs SKILL.md vs subagent instructions. If ambiguous, treat as SKILL.md (most constrained) and flag ambiguity.
 3. **Establish scope first:** Ensure the target document states Boundaries (#5) before other edits.
 4. **Run Self-Check passes:** Apply the Self-Check (Pass 1–10). Record violations with principle name + location.
-5. **Fix in priority order:** Resolve violations by principle priority: #1–#4, then #5–#8, then #9, then #10–#12, then #13, then #14.
+5. **Fix in detection order:** Self-Check passes are priority-ordered—detection and fix order are aligned. Fix violations in the order found: Passes 1–3 (#1–#4), then Passes 4–5 (#5–#8), then Pass 6 (#9), then Pass 7 (#10–#12), then Pass 8 (#13), then Pass 9 (#14).
 6. **Re-run until convergence:** Repeat steps 4–5 until violations stabilize or you reach 5 passes. If not converged by pass 5, stop and document unresolved violations.
 7. **Output format:** Provide: (a) patch/diff, (b) brief rationale, (c) trade-offs using the Trade-off documentation format.
 
@@ -102,15 +102,16 @@ This section applies the execution-context principles to this document itself.
 
 **If uncertain whether a principle applies:** Apply it. Over-application is correctable; under-application may miss important issues.
 
-#### Tie-Breaker: “Preserves More Information”
+#### Tie-Breaker: "Preserves More Information"
 
-Interpret “preserves more information” as “keeps more executable constraints and verifiable intent,” not “adds more words.”
+Interpret "preserves more information" as "keeps more executable constraints and verifiable intent," not "adds more words."
 
 When choosing between two edits:
 
 - Prefer the option that retains or adds: explicit file paths, commands, version constraints, scopes, authority, checks, failure behavior, and success criteria.
 - Prefer the option that removes: filler, repetition, rhetorical emphasis, and non-executable context.
 - If still tied, choose the option that is more observable (Claude can verify it happened).
+- If still tied after observability, prefer the shorter option—equal information in fewer words is strictly better.
 
 ### Preconditions (#8)
 
@@ -132,7 +133,7 @@ When choosing between two edits:
 - Context insufficient: Propose chunked approach; do not attempt incomplete review
 - Wrong mode: Clarify that these principles apply only to instruction documents
 
-### Outcomes (#14)
+### Outcomes (#13)
 
 **Success criteria for applying this document:**
 
@@ -160,47 +161,56 @@ This section determines how much of this document to apply.
 
 **Risk level = highest factor.** A 30-line file with irreversible effects is High, not Low.
 
+**Examples:**
+
+| Document                                         | Key Factor                                | Risk Level |
+| ------------------------------------------------ | ----------------------------------------- | ---------- |
+| Personal shell aliases, no downstream consumers  | Low scope, high reversibility             | Low        |
+| Project CLAUDE.md setting test commands          | Medium scope, easy to change              | Medium     |
+| Multi-agent orchestration skill with file writes | Multi-agent scope, low reversibility      | High       |
+| 20-line preferences file that sets `rm` behavior | Irreversible effects despite short length | High       |
+
 ### Rigor Levels
 
 | Risk   | Read through                               | Self-Check                                  | Iteration limit |
 | ------ | ------------------------------------------ | ------------------------------------------- | --------------- |
 | Low    | Quick Reference only                       | Passes 1-3 (items 1-15), single pass        | 1               |
-| Medium | Quick Reference + When Principles Conflict | Passes 1-7 (items 1-27), up to 2 passes     | 2               |
-| High   | Full document                              | All passes (items 1-52), up to 5 iterations | 5               |
+| Medium | Quick Reference + When Principles Conflict | Passes 1-6 (items 1-34), up to 2 passes     | 2               |
+| High   | Full document                              | All passes (items 1-53), up to 5 iterations | 5               |
 
-**Trade-off (Low risk):** Low-risk documents accept loophole risk (Pass 5) as a trade-off for reduced ceremony. A preferences file with a loophole is annoying; a project default with a loophole causes repeated problems.
+**Trade-off (Low risk):** Low-risk documents skip boundary, precondition, loophole, structural, outcome, and economy checks (Passes 4–9) as a trade-off for reduced ceremony. A preferences file missing a loophole closure is annoying; a multi-agent workflow missing one causes repeated failures.
 
 **Default if uncertain:** Medium.
 
 ### Authoring vs. Review
 
-| Mode      | Approach                                                                                     |
-| --------- | -------------------------------------------------------------------------------------------- |
-| Authoring | Draft freely using internalized principles, then apply Self-Check at calibrated rigor        |
-| Review    | Apply Self-Check at calibrated rigor; reference principle sections only for violations found |
+| Mode      | Approach                                                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Authoring | Draft using principles as active reference (Quick Reference table open). After drafting, apply Self-Check at calibrated rigor. |
+| Review    | Apply Self-Check at calibrated rigor; reference principle sections only for violations found                                   |
 
 ---
 
 ## Quick Reference
 
-| #   | Principle             | Core Rule                                                       | Red Flag                                                  |
-| --- | --------------------- | --------------------------------------------------------------- | --------------------------------------------------------- |
-| 1   | Be Specific           | Replace vague language with concrete values                     | Vague pronouns, hedge words, unspecified quantities       |
-| 2   | Define Terms          | Explain jargon and acronyms on first use                        | Unexplained acronyms, assumed project knowledge           |
-| 3   | Show Examples         | Illustrate rules with concrete instances                        | Rules without demonstration, abstract patterns            |
-| 4   | Verify Interpretation | Include confirmation checkpoints for high-risk instructions     | No verification for ambiguous scope, irreversible actions |
-| 5   | State Boundaries      | Explicitly declare scope and mutability                         | Implicit "obvious" scope, unstated read-only              |
-| 6   | Specify Failure Modes | Define behavior when preconditions fail                         | Happy-path-only instructions, vague error handling        |
-| 7   | Specify Defaults      | State behavior when no instruction applies                      | Implicit defaults, unhandled case improvisation           |
-| 8   | Declare Preconditions | State requirements and verification before execution            | Assumed working directory, tools, or state                |
-| 9   | Close Loopholes       | Anticipate and block creative misinterpretations                | Rules without rationale, unaddressed edge cases           |
-| 10  | Front-Load            | Put critical information first                                  | Commands buried after context                             |
-| 11  | Group Related         | Keep conditions near consequences                               | Cross-references, scattered related content               |
-| 12  | Keep Parallel         | Match structure across similar content                          | Mixed voice in lists, inconsistent hierarchy              |
-| 13  | Specify Outcomes      | Define observable success criteria                              | "Ensure it works," process without verification           |
-| 14  | Economy               | Remove words that don't advance meaning; use active voice       | Filler phrases, passive voice, double negatives           |
+| #   | Principle             | Core Rule                                                   | Red Flag                                                  |
+| --- | --------------------- | ----------------------------------------------------------- | --------------------------------------------------------- |
+| 1   | Be Specific           | Replace vague language with concrete values                 | Vague pronouns, hedge words, unspecified quantities       |
+| 2   | Define Terms          | Explain jargon and acronyms on first use                    | Unexplained acronyms, assumed project knowledge           |
+| 3   | Show Examples         | Illustrate rules with concrete instances                    | Rules without demonstration, abstract patterns            |
+| 4   | Verify Interpretation | Include confirmation checkpoints for high-risk instructions | No verification for ambiguous scope, irreversible actions |
+| 5   | State Boundaries      | Explicitly declare scope and mutability                     | Implicit "obvious" scope, unstated read-only              |
+| 6   | Specify Failure Modes | Define behavior when preconditions fail                     | Happy-path-only instructions, vague error handling        |
+| 7   | Specify Defaults      | State behavior when no instruction applies                  | Implicit defaults, unhandled case improvisation           |
+| 8   | Declare Preconditions | State requirements and verification before execution        | Assumed working directory, tools, or state                |
+| 9   | Close Loopholes       | Anticipate and block creative misinterpretations            | Rules without rationale, unaddressed edge cases           |
+| 10  | Front-Load            | Put critical information first                              | Commands buried after context                             |
+| 11  | Group Related         | Keep conditions near consequences                           | Cross-references, scattered related content               |
+| 12  | Keep Parallel         | Match structure across similar content                      | Mixed voice in lists, inconsistent hierarchy              |
+| 13  | Specify Outcomes      | Define observable success criteria                          | "Ensure it works," process without verification           |
+| 14  | Economy               | Remove words that don't advance meaning; use active voice   | Filler phrases, passive voice, double negatives           |
 
-**Numbering:** Principle numbers reflect conflict priority (lower = higher priority). Three orderings serve different purposes: (1) conflict resolution follows principle number, (2) verification follows Self-Check pass order, (3) fixing follows priority (see Iteration). During authoring, apply all principles.
+**Numbering:** Principle numbers reflect conflict priority (lower = higher priority). Two orderings serve different purposes: (1) conflict resolution follows principle number (lower number = higher priority), (2) Self-Check pass order matches fix priority (highest priority detected and fixed first). During authoring, apply all principles.
 
 ---
 
@@ -208,14 +218,14 @@ This section determines how much of this document to apply.
 
 ### Priority Hierarchy
 
-| Priority | Principles                                                                                          | Rationale                                                            |
-| -------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| 1        | Be Specific (#1), Define Terms (#2), Show Examples (#3), Verify Interpretation (#4)                 | Ambiguity and misinterpretation cause wrong behavior                 |
+| Priority | Principles                                                                                           | Rationale                                                            |
+| -------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 1        | Be Specific (#1), Define Terms (#2), Show Examples (#3), Verify Interpretation (#4)                  | Ambiguity and misinterpretation cause wrong behavior                 |
 | 2        | State Boundaries (#5), Specify Failure Modes (#6), Specify Defaults (#7), Declare Preconditions (#8) | Improvisation in ambiguous execution context is worse than verbosity |
-| 3        | Close Loopholes (#9)                                                                               | Misinterpretation harder to detect than fix                          |
-| 4        | Front-Load (#10), Group Related (#11), Keep Parallel (#12)                                         | Parsing errors cascade                                               |
-| 5        | Specify Outcomes (#13)                                                                             | Verification gaps are recoverable                                    |
-| 6        | Economy (#14)                                                                                      | Trim only after all else assured                                     |
+| 3        | Close Loopholes (#9)                                                                                 | Misinterpretation harder to detect than fix                          |
+| 4        | Front-Load (#10), Group Related (#11), Keep Parallel (#12)                                           | Parsing errors cascade                                               |
+| 5        | Specify Outcomes (#13)                                                                               | Verification gaps are recoverable                                    |
+| 6        | Economy (#14)                                                                                        | Trim only after all else assured                                     |
 
 **Within-tier ordering:** Principles within the same priority tier are co-equal. If two same-tier principles appear to conflict, first check whether both can be satisfied (they usually can—Priority 1 principles are complementary). If genuinely irreconcilable, choose the resolution that preserves more information.
 
@@ -293,7 +303,6 @@ Undefined terms force Claude to guess meaning or request clarification.
 
 - Acronyms without expansion on first use
 - Project-specific terms used without definition
-- Assuming knowledge of internal conventions
 - Using different terms for the same concept
 
 ---
@@ -356,7 +365,7 @@ Treat the instruction as high-risk and require a checkpoint if any of the follow
 
 #### Checkpoint Template
 
-Use a fixed template so the checkpoint is not satisfied by vague “confirm understanding” language:
+Use a fixed template so the checkpoint is not satisfied by vague "confirm understanding" language:
 
 - `Checkpoint: restate plan in 1–3 bullets.`
 - `Checkpoint: list affected files/paths (or "none").`
@@ -451,7 +460,7 @@ Without a stated default, Claude improvises. Improvisation is unpredictable and 
 
 #### Default Safety by Risk Level
 
-Defaults must be selected based on risk. Do not use “continue” defaults for high-risk situations.
+Defaults must be selected based on risk. Do not use "continue" defaults for high-risk situations.
 
 | Risk Level | Default Behavior (Required)                                            |
 | ---------- | ---------------------------------------------------------------------- |
@@ -507,10 +516,10 @@ External resources (tools, APIs, paths) may change between authoring and executi
 
 **Executable vs. pseudocode examples:** Examples in this document are illustrative. Do not assume a command is executable across environments unless explicitly labeled as executable. In instruction documents, commands must be executable in the intended environment; if environment-specific, specify OS/shell/tooling.
 
-| Before                           | After                                                                                                     | Requirement Added |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------- |
-| "Run `pytest`"                   | "Requires: pytest ≥7.0. Check: `pytest --version` shows 7.x or higher."                                   | Minimum version   |
-| "Use the OpenAI API"             | "Requires: OpenAI API v1. Check: endpoint returns `api_version: v1` in response headers."                 | API version       |
+| Before                           | After                                                                                                        | Requirement Added |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------- |
+| "Run `pytest`"                   | "Requires: pytest ≥7.0. Check: `pytest --version` shows 7.x or higher."                                      | Minimum version   |
+| "Use the OpenAI API"             | "Requires: OpenAI API v1. Check: endpoint returns `api_version: v1` in response headers."                    | API version       |
 | "Read config from `config.yaml`" | "Requires: `config.yaml` last modified within 24 hours. Check (pseudocode): mtime(config.yaml) > now-86400." | Freshness         |
 
 **Version patterns:**
@@ -588,20 +597,22 @@ Claude finds interpretations you didn't consider. Rules without rationale invite
 
 #### Loophole Patterns and Countermeasures
 
-| Loophole Pattern          | Example Failure                                      | Countermeasure (Write This)                                                                  |
-| ------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Scope creep               | "Update docs" → edits unrelated docs                 | "Edit only: `docs/foo.md`. Do not edit: `docs/legacy/`."                                     |
-| Minimal compliance        | "Add tests" → adds a trivial assertion               | "Add tests covering: [cases]. Success: [command] shows these scenarios pass."               |
-| Tool substitution         | "Format code" → uses a different formatter           | "Format with `ruff format`. Do not use other formatters unless instructed."                  |
-| Silent partial completion | First command fails → stops without reporting state  | "On failure: stop and report what ran, what changed, and the exact error output."           |
-| Hidden side effects       | Writes outside repo or modifies global config        | "Do not write outside repo. If necessary, request explicit confirmation first."             |
-| Ambiguous target          | "Fix the API" → edits v1 instead of v2               | "Only modify `src/api/v2/`. Do not modify `src/api/v1/`."                                    |
+| Loophole Pattern          | Example Failure                                     | Countermeasure (Write This)                                                       |
+| ------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Scope creep               | "Update docs" → edits unrelated docs                | "Edit only: `docs/foo.md`. Do not edit: `docs/legacy/`."                          |
+| Minimal compliance        | "Add tests" → adds a trivial assertion              | "Add tests covering: [cases]. Success: [command] shows these scenarios pass."     |
+| Tool substitution         | "Format code" → uses a different formatter          | "Format with `ruff format`. Do not use other formatters unless instructed."       |
+| Silent partial completion | First command fails → stops without reporting state | "On failure: stop and report what ran, what changed, and the exact error output." |
+| Hidden side effects       | Writes outside repo or modifies global config       | "Do not write outside repo. If necessary, request explicit confirmation first."   |
+| Ambiguous target          | "Fix the API" → edits v1 instead of v2              | "Only modify `src/api/v2/`. Do not modify `src/api/v1/`."                         |
 
 #### Countermeasure Pattern
 
 - Specify scope (inclusion + exclusion).
 - Specify an observable success condition.
 - Specify failure handling (what to do if blocked).
+
+**Limitation:** Named loopholes are heuristic, not exhaustive. New loophole patterns emerge from novel instruction types. Treat this principle as defense-in-depth—it reduces the attack surface but does not eliminate it.
 
 **Common violations:**
 
@@ -745,7 +756,7 @@ Every unnecessary word dilutes signal and consumes context window. Passive const
 **Common violations:**
 
 - Filler phrases: "it is important to note," "please remember to," "make sure to"
-- Redundant modifiers: "completely finished," "very unique," "totally essential"
+- Redundant modifiers: "completely," "fully," "very," "really"
 - Politeness noise: "please," "kindly," "if you wouldn't mind"
 - Passive constructions: "should be," "is expected to," "will be"
 - Double negatives: "do not fail to," "never skip," "don't forget to"
@@ -781,7 +792,9 @@ Illegitimate rationalizations:
 | D     | Significant issues in 5-8 principles    |
 | F     | Pervasive violations (9+ principles)    |
 
-**Counting rule:** A principle counts as “violated” if any instance remains after Pass 3 of the Self-Check. Multiple instances do not change the number of violated principles, but should be cited.
+**Counting rule:** A principle counts as "violated" if any instance remains after Pass 3 of the Self-Check. Multiple instances do not change the number of violated principles, but should be cited.
+
+**Severity matters within grades.** A single violated principle with document-wide impact (e.g., missing failure modes for all instructions) is more severe than violations in three principles affecting isolated sentences. Use violation count for the letter grade; note severity and scope in the accompanying citations.
 
 Cite violations with principle name and location:
 
@@ -800,14 +813,15 @@ Principles apply universally. These notes highlight structural and writing diffe
 
 Reference documents for project context. May include tables, environment setup, workflow docs. Longer documents acceptable when density remains high.
 
-| Practice     | Guidance                                                             |
-| ------------ | -------------------------------------------------------------------- |
-| Structure    | Random access, not linear reading                                    |
-| Format       | Tables for 3+ parallel items                                         |
-| Placement    | Most-queried info (commands, paths) in dedicated sections            |
-| Boundaries   | State which directories/files are relevant to this project           |
-| Verification | Checkpoints for project-specific workflows or destructive operations |
-| Avoid        | Prose paragraphs for reference data                                  |
+| Practice     | Guidance                                                                                     |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| Structure    | Random access, not linear reading                                                            |
+| Format       | Tables for 3+ parallel items                                                                 |
+| Placement    | Most-queried info (commands, paths) in dedicated sections                                    |
+| Boundaries   | State which directories/files are relevant to this project                                   |
+| Verification | Checkpoints for project-specific workflows or destructive operations                         |
+| Length       | No hard limit; split into linked sub-documents if exceeding 300 lines with declining density |
+| Avoid        | Prose paragraphs for reference data                                                          |
 
 ### Skill Files
 
@@ -837,94 +851,111 @@ Shortest format. Four required sections: Purpose, Task Instructions, Constraints
 | Failure modes | Define what to report when task can't be completed                                                 |
 | Verification  | Include confirmation step before irreversible actions; agent cannot recover from misinterpretation |
 | Examples      | Include when format is non-obvious                                                                 |
+| Length        | Under 100 lines preferred; agents have minimal context budget                                      |
 
 ---
 
 ## Self-Check Procedure
 
-Before submitting, verify in order:
+Before submitting, verify in order. Passes are ordered by fix priority—highest-priority principles are checked first.
 
-### Pass 1: Economy
+**Pass-to-principle mapping:**
 
-1. Search for filler phrases: "it is important to," "please note," "make sure to," "remember to"
-2. Search for redundant modifiers: "completely," "fully," "very," "really"
-3. Identify any sentence that can be cut without losing meaning
-4. Check for information stated twice in different words
-5. Convert passive constructions to active ("should be run" → "run")
-6. Convert negative instructions to affirmative where possible
+| Pass | Focus                            | Principles      | Priority |
+| ---- | -------------------------------- | --------------- | -------- |
+| 1    | Specificity                      | #1              | 1        |
+| 2    | Terms and Examples               | #2, #3          | 1        |
+| 3    | Verification and Authority       | #4              | 1        |
+| 4    | Boundaries                       | #5              | 2        |
+| 5    | Preconditions, Failure, Defaults | #6, #7, #8      | 2        |
+| 6    | Loopholes                        | #9              | 3        |
+| 7    | Structure and Front-Loading      | #10, #11, #12   | 4        |
+| 8    | Outcomes                         | #13             | 5        |
+| 9    | Economy                          | #14             | 6        |
+| 10   | Coherence                        | (cross-cutting) | —        |
 
-### Pass 2: Specificity
+### Pass 1: Specificity
 
-7. Flag every "it," "this," "that"—replace with concrete referent
-8. Flag vague nouns: "the file," "the config," "the system"
-9. Flag vague verbs: "handle," "process," "manage," "deal with"
-10. Verify all commands are copy-paste ready with actual paths/values
+1. Flag every "it," "this," "that"—replace with concrete referent
+2. Flag vague nouns: "the file," "the config," "the system"
+3. Flag vague verbs: "handle," "process," "manage," "deal with"
+4. Verify all commands are copy-paste ready with actual paths/values
 
-### Pass 3: Structure
+### Pass 2: Terms and Examples
 
-11. Verify conditions appear before their consequences
-12. Check that related information is grouped, not scattered
-13. Verify parallel structure in lists (all imperative or all declarative)
-14. Check heading hierarchy is consistent across peer sections
-15. Confirm terminology is used consistently throughout
+5. Check that jargon and acronyms are defined on first use
+6. Verify abstract rules have concrete examples
+7. Check that categories are defined with examples of each
 
-### Pass 4: Completeness
+### Pass 3: Verification and Authority
 
-16. Verify abstract rules have concrete examples
-17. Check that jargon and acronyms are defined on first use
-18. Confirm critical information appears early, not buried
+8. Identify instructions with high-risk factors (irreversible, ambiguous scope, domain-specific)
+9. Verify each has an interpretation checkpoint or explicit confirmation step
+10. Check that checkpoints specify observable state, not just "confirm understanding"
+11. Flag instructions that could plausibly appear in multiple document types
+12. For overlapping instructions, verify authority relationship is stated (overrides, defers to, scoped to)
+13. Flag skill files—verify they state relationship to CLAUDE.md for overlapping concerns
+14. Flag CLAUDE.md files—verify they state deference patterns for skills and subagents
+15. Verify scope limitations are explicit, not assumed from document location
 
-### Pass 5: Loopholes
+### Pass 4: Boundaries
 
-19. Identify rules without stated rationale
-20. Check prohibitions for named rationalizations and closures
-21. Flag scope words: "reasonable," "appropriate," "as needed"—make concrete
+16. Check that scope is explicit (what's in, what's out)
+17. Verify mutable vs. read-only distinctions where relevant
+18. Confirm resource access limits are stated
 
-### Pass 6: Boundaries
+### Pass 5: Preconditions, Failure Modes, and Defaults
 
-22. Check that scope is explicit (what's in, what's out)
-23. Verify mutable vs. read-only distinctions where relevant
-24. Confirm resource access limits are stated
+19. Flag instructions with preconditions but no failure handling
+20. Verify "if X fails, then Y" patterns for critical operations
+21. Check that error handling is specific, not "handle appropriately"
+22. Flag instructions that reference files, commands, or state without directory/environment context
+23. Flag instructions that depend on prior steps—verify those steps have success criteria
+24. For each "Requires:" statement, verify a "Check:" is specified
+25. Verify each check is executable (command, confirmation prompt, or reference)
+26. Verify compound preconditions have individual checks for each component
+27. Flag instructions that don't specify default behavior for unhandled cases
+28. Verify defaults are observable (Claude can confirm which default was applied)
+29. Flag instructions referencing tools or APIs without version constraints
+30. For dynamic resources (configs, APIs, generated files), verify freshness requirements are stated
+31. Verify version checks have explicit failure handling
 
-### Pass 7: Outcomes
+### Pass 6: Loopholes
 
-25. Flag instructions without observable success criteria
-26. Verify outcomes are actually verifiable (command output, state change, measurable value)
-27. Check that "ensure," "verify," "confirm" have concrete definitions
+32. Identify rules without stated rationale
+33. Check prohibitions for named rationalizations and closures
+34. Flag scope words: "reasonable," "appropriate," "as needed"—make concrete
 
-### Pass 8: Preconditions, Failure Modes, and Defaults
+### Pass 7: Structure and Front-Loading
 
-28. Flag instructions with preconditions but no failure handling
-29. Verify "if X fails, then Y" patterns for critical operations
-30. Check that error handling is specific, not "handle appropriately"
-31. Flag instructions that reference files, commands, or state without directory/environment context
-32. Flag instructions that depend on prior steps—verify those steps have success criteria
-33. For each "Requires:" statement, verify a "Check:" is specified
-34. Verify each check is executable (command, confirmation prompt, or reference)
-35. Verify compound preconditions have individual checks for each component
-36. Flag instructions that don't specify default behavior for unhandled cases
-37. Verify defaults are observable (Claude can confirm which default was applied)
-38. Flag instructions referencing tools or APIs without version constraints
-39. For dynamic resources (configs, APIs, generated files), verify freshness requirements are stated
-40. Verify version checks have explicit failure handling
+35. Confirm critical information appears early, not buried
+36. Verify conditions appear before their consequences
+37. Check that related information is grouped, not scattered
+38. Verify parallel structure in lists (all imperative or all declarative)
+39. Check heading hierarchy is consistent across peer sections
+40. Confirm terminology is used consistently throughout
 
-### Pass 9: Verification and Authority
+### Pass 8: Outcomes
 
-41. Identify instructions with high-risk factors (irreversible, ambiguous scope, domain-specific)
-42. Verify each has an interpretation checkpoint or explicit confirmation step
-43. Check that checkpoints specify observable state, not just "confirm understanding"
-44. Flag instructions that could plausibly appear in multiple document types
-45. For overlapping instructions, verify authority relationship is stated (overrides, defers to, scoped to)
-46. Flag skill files—verify they state relationship to CLAUDE.md for overlapping concerns
-47. Flag CLAUDE.md files—verify they state deference patterns for skills and subagents
-48. Verify scope limitations are explicit, not assumed from document location
+41. Flag instructions without observable success criteria
+42. Verify outcomes are actually verifiable (command output, state change, measurable value)
+43. Check that "ensure," "verify," "confirm" have concrete definitions
+
+### Pass 9: Economy
+
+44. Search for filler phrases: "it is important to," "please note," "make sure to," "remember to"
+45. Search for redundant modifiers: "completely," "fully," "very," "really"
+46. Identify any sentence that can be cut without losing meaning
+47. Check for information stated twice in different words
+48. Convert passive constructions to active ("should be run" → "run")
+49. Convert negative instructions to affirmative where possible
 
 ### Pass 10: Coherence
 
-49. Read the document end-to-end: do sections contradict each other?
-50. Would a fresh Claude session understand and follow these instructions without clarification?
-51. Are there any loopholes you'd exploit if asked to comply minimally?
-52. After completing all passes, verify convergence: if edits are reversing previous edits or the same violations recur, diagnose per Convergence section before continuing
+50. Read the document end-to-end: do sections contradict each other?
+51. Would a fresh Claude session understand and follow these instructions without clarification?
+52. Are there any loopholes you'd exploit if asked to comply minimally?
+53. After completing all passes, verify convergence: if edits are reversing previous edits or the same violations recur, diagnose per Convergence section before continuing
 
 ### Iteration
 
@@ -994,6 +1025,12 @@ These principles apply to instruction documents. They do not apply to:
 | Conversational responses  | Dynamic dialogue has different constraints      |
 | Code comments             | Brevity matters but different conventions apply |
 | Creative writing          | Economy can undermine voice and style           |
+
+**Known gaps (future work):**
+
+- Full worked examples per document type (CLAUDE.md, SKILL.md, subagent). Current examples are sentence-level; a complete annotated document per type would better demonstrate principle interaction.
+- Modular architecture for context-window-constrained environments. This document is designed as a monolith; a core-plus-extensions split (core always loaded, extensions loaded per calibration level) would reduce token cost per application.
+- Versioning scheme for tracking which revision of these principles was used to author a given document.
 
 ---
 
