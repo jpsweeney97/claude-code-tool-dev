@@ -706,7 +706,7 @@ class TestBuildDialogueOutcome:
 class TestBuildConsultationOutcome:
     def test_field_count(self) -> None:
         event = MODULE.build_consultation_outcome(_consultation_input())
-        assert len(event) == 18
+        assert len(event) == 19
 
     def test_converged_null(self) -> None:
         event = MODULE.build_consultation_outcome(_consultation_input())

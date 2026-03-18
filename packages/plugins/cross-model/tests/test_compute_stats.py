@@ -536,6 +536,26 @@ class TestComputeConsultation:
         assert result["posture_counts"] == {"adversarial": 1, "collaborative": 2}
 
 
+class TestConsultationSource:
+    """Tests for consultation_source discriminator."""
+
+    def test_source_distribution(self) -> None:
+        events = [
+            _make_consultation_event(consultation_source="codex"),
+            _make_consultation_event(
+                consultation_id="c-2", consultation_source="codex",
+            ),
+            _make_consultation_event(
+                consultation_id="c-3", consultation_source="reviewer",
+            ),
+            _make_consultation_event(consultation_id="c-4"),  # no source (legacy)
+        ]
+        result = _compute_consultation(events)
+        assert result["source_counts"] == {
+            "codex": 2, "reviewer": 1, "unknown": 1,
+        }
+
+
 class TestListThreads:
     """Tests for _list_threads function."""
 

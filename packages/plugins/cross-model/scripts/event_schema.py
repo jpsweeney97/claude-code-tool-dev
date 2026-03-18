@@ -146,6 +146,14 @@ VALID_TERMINATION_REASONS: frozenset[str] = frozenset({
     "convergence", "budget", "error", "scope_breach", "complete",
 })
 
+VALID_CONSULTATION_SOURCES: frozenset[str] = frozenset({
+    "codex",
+    "dialogue",
+    "reviewer",
+})
+"""Discriminator for consultation_outcome origin. Optional field — not
+in required set to preserve backward compatibility with historical events."""
+
 # ---------------------------------------------------------------------------
 # Count fields (non-negative int validation)
 # ---------------------------------------------------------------------------

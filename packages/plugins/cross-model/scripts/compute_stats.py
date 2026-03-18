@@ -151,6 +151,7 @@ _CONSULTATION_TEMPLATE: dict = {
     "complete_count": 0,
     "termination_counts": {},
     "posture_counts": {},
+    "source_counts": {},
     "thread_continuation_count": 0,
     "thread_continuation_rate": None,
 }
@@ -548,6 +549,7 @@ def _compute_consultation(consultation_outcomes: list[dict]) -> dict:
     # Termination distribution
     termination_counts: dict[str, int] = {}
     posture_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
 
     for event in consultation_outcomes:
         reason = event.get("termination_reason")
@@ -560,8 +562,13 @@ def _compute_consultation(consultation_outcomes: list[dict]) -> dict:
         if isinstance(posture, str):
             posture_counts[posture] = posture_counts.get(posture, 0) + 1
 
+        source = event.get("consultation_source")
+        source_key = source if isinstance(source, str) else "unknown"
+        source_counts[source_key] = source_counts.get(source_key, 0) + 1
+
     result["termination_counts"] = termination_counts
     result["posture_counts"] = posture_counts
+    result["source_counts"] = source_counts
 
     # Thread continuation
     thread_ids: dict[str, int] = {}
