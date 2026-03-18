@@ -5,13 +5,17 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 from scripts.compute_stats import (
     compute,
     _DELEGATION_TEMPLATE,
     _PLANNING_TEMPLATE,
+    _PROVENANCE_TEMPLATE,
     _SECTION_MATRIX,
     _USAGE_TEMPLATE,
     _compute_planning,
+    _compute_provenance,
 )
 
 
@@ -337,3 +341,45 @@ class TestComputePlanning:
         )
         assert result["plan_convergence_rate"] == 0.5  # 1/2
         assert result["no_plan_convergence_rate"] == 1.0  # 1/1
+
+
+class TestComputeProvenance:
+    """Tests for _compute_provenance section."""
+
+    def test_no_provenance_events(self) -> None:
+        """Events without provenance_unknown_count return defaults."""
+        events = [_make_dialogue_event()]
+        result = _compute_provenance(events)
+        assert result["provenance_observed_events"] == 0
+        assert result["avg_provenance_unknown"] is None
+
+    def test_zero_unknown_count(self) -> None:
+        """provenance_unknown_count=0 means all citations matched."""
+        events = [_make_dialogue_event(provenance_unknown_count=0)]
+        result = _compute_provenance(events)
+        assert result["zero_unknown_count"] == 1
+        assert result["provenance_observed_events"] == 1
+        assert result["avg_provenance_unknown"] == 0.0
+
+    def test_high_unknown_threshold(self) -> None:
+        """provenance_unknown_count > 3 counted as high."""
+        events = [
+            _make_dialogue_event(consultation_id="d-1", provenance_unknown_count=5),
+            _make_dialogue_event(consultation_id="d-2", provenance_unknown_count=2),
+            _make_dialogue_event(consultation_id="d-3", provenance_unknown_count=0),
+        ]
+        result = _compute_provenance(events)
+        assert result["high_unknown_count"] == 1
+        assert result["zero_unknown_count"] == 1
+        assert result["avg_provenance_unknown"] == pytest.approx(7 / 3)
+
+    def test_null_excluded_from_observed(self) -> None:
+        """None provenance_unknown_count (3c path) excluded from observed."""
+        events = [
+            _make_dialogue_event(consultation_id="d-1", provenance_unknown_count=2),
+            _make_dialogue_event(consultation_id="d-2"),  # None — 3c path
+        ]
+        result = _compute_provenance(events)
+        assert result["provenance_observed_events"] == 1
+        assert result["provenance_missing_events"] == 1
+        assert result["avg_provenance_unknown"] == 2.0

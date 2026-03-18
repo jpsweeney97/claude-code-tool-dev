@@ -132,6 +132,14 @@ _PLANNING_TEMPLATE: dict = {
 }
 
 
+_PROVENANCE_TEMPLATE: dict = {
+    "avg_provenance_unknown": None,
+    "zero_unknown_count": 0,
+    "high_unknown_count": 0,
+    "provenance_observed_events": 0,
+    "provenance_missing_events": 0,
+}
+
 # ---------------------------------------------------------------------------
 # Section computation functions
 # ---------------------------------------------------------------------------
@@ -445,6 +453,36 @@ def _compute_planning(
             sum(1 for e in unplanned_with_conv if e["converged"])
             / len(unplanned_with_conv)
         )
+
+    return result
+
+
+def _compute_provenance(dialogue_outcomes: list[dict]) -> dict:
+    """Compute provenance health metrics from dialogue outcomes.
+
+    provenance_unknown_count tracks how many citations in the briefing
+    weren't matched by the 3-tier recovery in codex-dialogue Step 4.
+    None means Step 3c fired (zero-output fallback, provenance never ran).
+    """
+    result = copy.deepcopy(_PROVENANCE_TEMPLATE)
+
+    observed: list[int] = []
+    missing = 0
+
+    for event in dialogue_outcomes:
+        val = stats_common.safe_nonneg_int(event, "provenance_unknown_count")
+        if val is not None:
+            observed.append(val)
+        else:
+            missing += 1
+
+    result["provenance_observed_events"] = len(observed)
+    result["provenance_missing_events"] = missing
+
+    if observed:
+        result["avg_provenance_unknown"] = sum(observed) / len(observed)
+        result["zero_unknown_count"] = sum(1 for v in observed if v == 0)
+        result["high_unknown_count"] = sum(1 for v in observed if v > 3)
 
     return result
 
