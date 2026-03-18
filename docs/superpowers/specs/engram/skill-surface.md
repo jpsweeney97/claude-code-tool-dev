@@ -46,6 +46,8 @@ Enables `resumed_from` tracking across sessions. Carried forward from the existi
 1. Archive the snapshot to `~/.claude/engram/<repo_id>/snapshots/.archive/<filename>`
 2. Write archive path to `~/.claude/engram/<repo_id>/chain/<worktree_id>-<session_id>`
 
+**Precondition:** Chain state file creation requires a non-None `session_id`. If `session_id` cannot be resolved at `/load` time, the chain file is not written and `resumed_from` is omitted from the next snapshot. A diagnostic warning is logged.
+
 ### Save/Quicksave — Reads and Cleans Chain State
 
 1. **Read:** Check `chain/<worktree_id>-<session_id>` — if exists, include path as `resumed_from` in snapshot frontmatter

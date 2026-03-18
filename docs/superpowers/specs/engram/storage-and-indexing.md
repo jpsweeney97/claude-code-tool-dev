@@ -33,7 +33,8 @@ engram/                              # Shared root (repo-local, git-tracked)
 ├── ledger/                          # Event ledger (default-on, optional)
 │   └── <worktree_id>/
 │       └── <session_id>.jsonl       # Per-session, per-worktree sharding
-└── .failed/                         # Orphaned envelopes for inspection
+├── save_recovery.json               # /save recovery manifest (overwritten each invocation)
+└── migration_report.json            # Step 4a migration output (overwritten on re-run)
 ```
 
 `.engram-id` lives at the repo root alongside the `engram/` directory.
@@ -55,7 +56,6 @@ engram/                              # Shared root (repo-local, git-tracked)
 | Snapshots/checkpoints | 90-day TTL from creation (filename timestamp). [SessionStart](enforcement.md#sessionstart-hook) deletes files older than 90 days. No intermediate "archive" tier. | Private root |
 | Chain state files | 24h | Private root |
 | Knowledge staging candidates | No TTL (accumulate until curated) | Private root |
-| Failed envelopes | 7 days, flagged by `/triage` | Private root `.failed/` |
 | Work items | Permanent until closed | Shared root |
 | Published knowledge | Permanent (marked with [promote-meta](types.md#promote-meta-promotion-state-record) when graduated) | Shared root |
 | Ledger shards | Append-only, no TTL ([compaction deferred](decisions.md#deferred-decisions)). Sharded per worktree/session. | Private root `ledger/` |
@@ -84,6 +84,8 @@ class IndexEntry:
     snippet: str                  # Reader-extracted preview, max 200 chars. Display-only.
     source_path: str              # Absolute path to native file
 ```
+
+**Timezone normalization:** All `datetime` fields in `IndexEntry` are UTC-normalized (`datetime.timezone.utc`). NativeReaders **must** parse ISO 8601 timestamps from source formats and convert to UTC-aware datetime before populating `IndexEntry`. This ensures consistent ordering in `/search`, `/timeline`, and `query(since=...)` across subsystems.
 
 **Hard rule: No mutation, policy, or lifecycle decisions from `IndexEntry` alone.** IndexEntry is display-only. Any operation that changes state must open the native file through the subsystem engine.
 
@@ -162,7 +164,7 @@ Callers can distinguish "no matches" from "17 files failed to parse" from "priva
 ```python
 def query(
     subsystems: list[str] | None = None,
-    status: str | None = None,        # "work:open", "knowledge:promoted", etc.
+    status: str | None = None,        # "work:open", "knowledge:published", etc.
     tags: list[str] | None = None,
     text: str | None = None,          # Searches title + snippet + tags
     since: datetime | None = None,
@@ -172,9 +174,19 @@ def query(
 
 ### Namespaced Status Filtering
 
-Status filters use `subsystem:value` format (e.g., `"work:open"`, `"knowledge:promoted"`). `IndexEntry.status` stores subsystem-native bare values (e.g., `"open"`, `"promoted"`). The query engine splits the prefix, routes to the correct reader, and matches against bare status.
+Status filters use `subsystem:value` format (e.g., `"work:open"`, `"knowledge:published"`). `IndexEntry.status` stores subsystem-native bare values (e.g., `"open"`, `"published"`). The query engine splits the prefix, routes to the correct reader, and matches against bare status.
 
 When `subsystems` is set to a single value, bare status is auto-prefixed as a convenience (e.g., `query(subsystems=["work"], status="open")` is equivalent to `status="work:open"`). Bare status with multiple or no subsystems is rejected — no implicit cross-subsystem status normalization.
+
+### Status Vocabulary
+
+| Subsystem | Bare Values |
+|---|---|
+| `work` | `open`, `in_progress`, `closed`, `blocked` |
+| `knowledge` | `staged`, `published` |
+| `context` | `active`, `archived` |
+
+Bare values are subsystem-native. The query engine prefixes with `subsystem:` for cross-subsystem filtering.
 
 ## Fresh Scan — No Cached Index
 

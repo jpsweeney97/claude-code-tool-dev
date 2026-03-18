@@ -74,7 +74,6 @@ Each subsystem engine owns its trust boundary. The shared validator lives in `en
 | Resolve `worktree_id` | 1 call | Fail-closed: session needs identity |
 | Clean expired snapshots (>90d by filename timestamp) | Max 50 files | Fail-open: retry next session |
 | Clean expired chain state (>24h) | Max 20 files | Fail-open |
-| Clean `.failed/` envelopes (>7d) | Max 20 files | Fail-open |
 | Verify `.engram-id` exists | 1 read | Warn if missing (diagnostic only — does not create) |
 
 ### Bootstrap Relationship

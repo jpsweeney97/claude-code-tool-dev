@@ -45,6 +45,8 @@ Six operations justify Engram's plugin scope. Three exist today as cross-plugin 
     -> If new: creates staged candidate
 ```
 
+**Distill dedup sequence:** (1) Envelope-level: check `idempotency_key` against existing staged/published envelopes. If match, return existing result. (2) Per-candidate: check each `DistillCandidate.content_sha256` against existing staged/published files. If match, skip that candidate. Within a single batch, candidates with identical `content_sha256` are deduplicated (only one written).
+
 **Trust boundary: staged != published.** Distill writes to a private staging area (`knowledge_staging/`), not to `engram/knowledge/`. Staged candidates are reviewed before publication via `/curate`.
 
 **`/curate` mechanics:** Lists staged candidates sorted by `durability` (likely_durable first), then by `created_at`. Shows snippet, source section, and durability classification. The user reviews and selects candidates to publish. `likely_ephemeral` candidates are surfaced with a warning but not filtered — the user decides. On publish, the knowledge engine deduplicates via `content_sha256` against existing published entries, writes to `engram/knowledge/learnings.md`, and removes the staged file.
@@ -171,7 +173,7 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority), 
 | Target engine rejects envelope | Specific error (duplicate, validation) | User fixes and retries |
 | Idempotent duplicate detected | Returns existing ref, no side effects | Automatic (transparent) |
 | `/save` partial success | Per-step results show which failed. Recovery manifest written. | Retry failed steps standalone with `--snapshot-ref` from manifest. |
-| Crash after envelope write | Envelope orphaned in staging | `/triage` flags stale staging files; moved to `.failed/` after 24h TTL |
+| Crash after envelope write | Envelope is transient — no persistent queue. `/triage` infers missing downstream records by scanning `source_ref` fields. | User retries the operation; idempotency key prevents duplicates. |
 | Crash before envelope write | No envelope exists; downstream record missing expected upstream link | `/triage` infers unlinked records by scanning native content and cross-checking `source_ref` fields |
 | Promote Step 2 failure | CLAUDE.md unchanged, no promote-meta written | Lesson remains eligible for next `/promote` run |
 | Promote Step 3 failure | CLAUDE.md written but promote-meta absent | `/triage` detects mismatch; surfaces for user resolution |
