@@ -11,9 +11,9 @@ authority: enforcement
 
 | Hook | Event | Order | Purpose | On Failure |
 |---|---|---|---|---|
-| `engram_guard` | PreToolUse | 1st | [Protected-path enforcement](#protected-path-enforcement) + [trust injection](#trust-injection) | **Block** |
+| `engram_guard` | PreToolUse (Write, Edit, Bash) | 1st | [Protected-path enforcement](#protected-path-enforcement) + [trust injection](#trust-injection) | **Block** |
 | `engram_quality` | PostToolUse (Write, Edit) | 2nd | [Snapshot quality checks](#quality-validation) | **Warn** |
-| `engram_register` | PostToolUse (Write) | 3rd | Ledger append | **Silent** (best-effort) |
+| `engram_register` | PostToolUse (Write, Edit) | 3rd | Ledger append | **Silent** (best-effort) |
 | `engram_session` | SessionStart | — | [TTL cleanup, worktree_id init](#sessionstart-hook) | See below |
 
 ## Protected-Path Enforcement
@@ -41,7 +41,16 @@ This is an honest boundary, not a gap to close: the design provides reliable enf
 - **Write:** reads `tool_input.content` from the payload
 - **Edit:** reads the file from disk after the edit completes (post-state validation)
 
-This is advisory quality lint, not trust enforcement — the small race between write completion and validation readback is acceptable for warnings. Follows the [pre/post-write validation layering](foundations.md#prepost-write-validation-layering) principle. It does **not** detect Bash-mediated writes to protected paths.
+This is advisory quality lint, not trust enforcement — the small race between write completion and validation readback is acceptable for warnings. See [enforcement boundary constraint](#enforcement-boundary-constraint) for the governing principle and [pre/post-write validation layering](foundations.md#prepost-write-validation-layering) for design rationale. It does **not** detect Bash-mediated writes to protected paths.
+
+### Quality Validation Scope
+
+| Path Class | Paths | Checks |
+|---|---|---|
+| `snapshot` | `~/.claude/engram/<repo_id>/snapshots/**` | Frontmatter completeness, section count |
+| `checkpoint` | `~/.claude/engram/<repo_id>/checkpoints/**` | Frontmatter completeness |
+
+Quality validation paths are separate from [protected-path enforcement](#protected-path-enforcement). Protected paths gate *authorization* (who may write). Quality paths gate *content checks* (what was written). A path can be in both sets.
 
 ### Enforcement Boundary Constraint
 
@@ -61,9 +70,23 @@ When `engram_guard` detects an authorized engine invocation pattern (`python3 en
 
 Every **mutating** entrypoint in each subsystem engine must invoke a shared trust validator (`collect_trust_triple_errors()`) before making state changes. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. The validator checks that all three fields are present and non-empty. Missing or incomplete triples reject the operation. Read-only entrypoints are exempt.
 
+**Mutating entrypoints** are any engine functions that create, update, or delete files in protected paths. At minimum: ticket creation/update, knowledge publish, staging write, snapshot write. Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring.
+
 ### Step 3: Per-Subsystem Enforcement
 
 Each subsystem engine owns its trust boundary. The shared validator lives in `engram_core/` but enforcement is at the engine level — Engram's indexing layer never sees or checks trust triples.
+
+### Trust Triple Scope
+
+The trust triple is `{hook_injected, hook_request_origin, session_id}` — three fields, by design. `worktree_id` is **not** part of the trust triple. Engines derive `worktree_id` independently via `git rev-parse --git-dir` (see [identity resolution](types.md#identity-resolution)) and populate it in `RecordMeta`. This separation ensures that trust validation (was this request authorized?) and provenance tracking (which worktree originated this?) are independently verifiable.
+
+### Inter-Hook Runtime State
+
+`engram_session` (SessionStart) resolves `worktree_id` and `session_id` at session start. `engram_guard` (PreToolUse) requires these values for trust injection.
+
+**Preferred approach:** `engram_guard` recomputes `worktree_id` independently via the same `git rev-parse --git-dir` derivation. `session_id` is available from the Claude Code session context. No shared state file or environment variable is required.
+
+**If shared state is unavoidable:** The producing hook (`engram_session`) writes; the consuming hook (`engram_guard`) reads. Define: (1) storage mechanism (env var, temp file), (2) data format, (3) lifetime (session-scoped), (4) failure behavior (guard blocks all mutations if state is missing — fail-closed).
 
 ## SessionStart Hook
 
@@ -80,6 +103,14 @@ Each subsystem engine owns its trust boundary. The shared validator lives in `en
 
 SessionStart does not create `.engram-id` — it requires a git commit, which is inappropriate during session initialization. Bootstrap occurs via `engram init` (see [skills table](skill-surface.md#skills-13-total)). Until `.engram-id` exists, all mutating Engram operations (save, defer, distill, ticket create) fail closed with error: `"Engram not initialized: run 'engram init' to bootstrap."` Read-only operations (search, triage) degrade gracefully via the [degradation model](storage-and-indexing.md#degradation-model).
 
+## Enforcement Exceptions
+
+| Exception | Scope | Rationale |
+|---|---|---|
+| `/promote` Step 2 CLAUDE.md write | Single skill, single target | CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns promotion *state* via [promote-meta](types.md#promote-meta-promotion-state-record). See [permitted exceptions](foundations.md#permitted-exceptions). |
+
+No other skill-level write to a protected or externally-owned path is sanctioned. New exceptions require an entry in both this table and foundations.md.
+
 ## Autonomy Model
 
 | Subsystem | Model | Rationale |
@@ -87,6 +118,10 @@ SessionStart does not create `.engram-id` — it requires a git commit, which is
 | Work | `suggest` / `auto_audit` | Trust boundary: agents propose, users approve |
 | Context | None | Agents save their own session state |
 | Knowledge staging | Staging inbox cap + idempotency | Dedup prevents repeated staging; cumulative cap limits volume |
+
+**Mode definitions:**
+- **`suggest`:** Engine prepares the operation but surfaces it to the user for confirmation before writing. The user sees what will be created and approves or rejects.
+- **`auto_audit`:** Engine creates the work item automatically. The item is marked for user review at next `/triage`. `work_max_creates` limits cumulative automatic creations per session. Trust injection still applies — `engram_guard` validates the trust triple regardless of mode.
 
 ### Configuration
 

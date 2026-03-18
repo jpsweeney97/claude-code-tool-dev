@@ -132,7 +132,7 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 | Config | `.claude/engram.local.md` (see [autonomy configuration](enforcement.md#configuration)) |
 | Bridge adapter update | `/defer` switches from bridge adapter (Step 1) to new Work engine |
 
-**Exit criteria (3a):** All ticket operations work. Protected-path enforcement blocks Write/Edit (Bash best-effort). Trust triple works. Compatibility harness passes. `/defer` routes through new Work engine.
+**Exit criteria (3a):** All ticket operations work. Protected-path enforcement: Write/Edit to protected paths blocked reliably (verified by direct tool call attempts). Bash enforcement: representative shell write patterns tested, documented as [bounded guarantee](enforcement.md#enforcement-scope-bounded-guarantee). Trust triple works. Compatibility harness passes. `/defer` routes through new Work engine.
 
 ### Step 3b — Retire
 
