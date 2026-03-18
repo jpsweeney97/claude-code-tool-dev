@@ -2,10 +2,6 @@
 
 Project insights captured from consultations. Curate manually: delete stale entries, merge duplicates.
 
-### 2026-02-17 [codex, workflow]
-
-When designing validation criteria for a prototype phase, separate habit-formation validation ("will the developer actually use this?") from causal efficacy validation ("does this measurably improve outcomes?"). Phase 0 can only credibly measure the former — adoption frequency, curation actions, artifact-backed reuse events. Causal measurement requires infrastructure (A/B tests, blinding, withdrawal probes) that contradicts Phase 0's "no infrastructure" constraint. The spec's original 10/3 gate ("capture 10 insights, report 3 useful") conflates both questions into a single self-rating gate. Pre-register rubrics and thresholds before starting to prevent goalpost-shifting.
-
 ### 2026-02-17 [skill-design, architecture]
 
 When instruction documents layer (skill references agent, agent references contract), each layer must be fully operational standalone. Conditional logic like "if the agent spec is loaded, use its patterns; otherwise fall back" creates ambiguity that an LLM will resolve inconsistently — "available" is operationally undefined when the referenced spec isn't loaded. The fix: inline the minimal self-contained version at each layer, with a note that other sources are additive, not alternative. This emerged from a 3-dialogue parallel review of the `/codex` skill where the evaluative dialogue independently discovered (T8) that a "prefer codex-dialogue profile when available" clause was a loophole, and the exploratory dialogue independently chose "full replacement stubs over summary stubs" (T4) for the same reason — summary stubs that say "see the contract" create hard dependencies that break when the contract is unavailable.
@@ -54,10 +50,6 @@ The PostToolUse hook payload uses `tool_response` (not `tool_result`) for the to
 
 When multiple PreToolUse hooks can write `updatedInput` (payload transformation), the merge behavior is undefined. In a security-critical path, undefined behavior is worse than a simpler guarantee. Decision for credential detection: block-or-allow only for v0.1. No in-flight redaction via `updatedInput`. This preserves a clean security contract: the hook either lets the call through unchanged or blocks it entirely.
 
-### 2026-02-18 [workflow, adoption]
-
-When a rigorous system has low adoption, look for ceremony that can be deferred rather than dropping rigor entirely. Design a two-stage workflow: the minimum viable output is self-contained and low-ceremony (inline), promotion to a formal artifact only happens when stakes cross a threshold. The promotion mechanism itself becomes the tool that scales rigor — not the initial document size. Phase 0 of the cross-model learning system validates this pattern: unstructured capture first, structured cards only if the premise validates.
-
 ### 2026-02-18 [codex, review]
 
 Before shipping a system with safety guarantees, map every normative statement to its enforcement layer (hook, code, test, documentation-only). If a rule has no enforcement, either add enforcement or relabel it as advisory. The §7 Safety Pipeline was purely normative markdown consumed by an LLM while the context injection helper had real code enforcement (HMAC tokens, denylist, 969 tests). This asymmetry was invisible until the audit explicitly compared enforcement mechanisms across systems.
@@ -77,10 +69,6 @@ When deploying multiple parallel agents for the same task (context gathering, co
 ### 2026-02-19 [architecture, review]
 
 When reviewing pipeline specs designed top-down from architecture decisions, focus review effort on component boundaries (skill→agent, gatherer→assembly, assembly→agent) rather than within components. In the dialogue skill orchestrator spec review, all 5 high-priority findings (F1-F5) were at interface boundaries: the delegation envelope missing fields the agent expected, a control specified at a layer that doesn't have the knob, a grammar definition inconsistent with its own tag requirements, no fallback for zero output between stages, and a tool mismatch between an agent's procedure and its tool access. The components themselves were internally sound. This pattern is predictable for top-down design: architecture decisions define what each component does, but the contracts between components are implicit until explicitly specified. Budget review time proportionally — 70% on interfaces, 30% on internals.
-
-### 2026-02-19 [workflow, tools]
-
-The `$(cat <<'EOF' ... EOF)` heredoc pattern for multiline strings in the Bash tool produces `(eval):1: can't create temp file for here document: no such file or directory` warnings in zsh. CLAUDE.md documents this for `git commit -m` but it applies equally to `gh pr create --body` and any other command using heredoc substitution. The command may still succeed (the PR body was created correctly despite the warning), but the pattern is unreliable. For `git commit`, use inline multiline strings. For `gh pr create`, the same applies — pass the body as an inline string rather than a heredoc, or accept the cosmetic warning.
 
 ### 2026-02-19 [review, skill-design]
 
