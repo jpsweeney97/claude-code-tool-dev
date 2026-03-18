@@ -1,0 +1,48 @@
+{
+  "skill_name": "making-recommendations",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "We're a 2-person team building a B2B SaaS product. We just got our first 3 paying customers and we're seeing some growing pains with our monolithic Django app — deployments are getting slow and the codebase is getting tangled. I've been reading a lot about microservices and I think breaking things into services would help us scale. My cofounder is on board. Should we start migrating to microservices? We're targeting 50 customers by end of year.",
+      "expected_output": "Claude's training data strongly favors microservices for 'scaling' problems. But for a 2-person team with 3 customers, the operational overhead of microservices would be devastating. The skill should force Claude to surface this — the null option (improve the monolith) should rank highly. The recommendation should NOT be microservices.",
+      "files": [],
+      "assertions": [
+        {"name": "null_option_present", "description": "Includes a do-nothing/keep-monolith option"},
+        {"name": "four_plus_options", "description": "At least 4 distinct options generated"},
+        {"name": "microservices_not_top_ranked", "description": "Microservices is NOT #1 ranked"},
+        {"name": "team_size_as_constraint", "description": "2-person team size used as analysis factor"},
+        {"name": "readiness_signal", "description": "Contains verifiably best or best available signal"},
+        {"name": "no_premature_recommendation", "description": "Ranking appears before recommendation"}
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "I'm a solo developer maintaining an internal HR tool at my company (~50 employees use it). It's a Rails app running on a single Heroku dyno and it works fine but feels 'dated'. My manager suggested I look into containerizing it with Kubernetes so we're 'cloud-native' and ready to scale. I have about 2 weeks of slack time to work on infrastructure. What's your recommendation?",
+      "expected_output": "Claude's training data is saturated with Kubernetes advocacy. But for a working 50-user internal tool on Heroku, K8s is massive over-engineering. The recommendation should resist the 'cloud-native' buzzword.",
+      "files": [],
+      "assertions": [
+        {"name": "null_option_present", "description": "Includes a keep-Heroku option"},
+        {"name": "four_plus_options", "description": "At least 4 distinct options generated"},
+        {"name": "kubernetes_not_top_ranked", "description": "Kubernetes is NOT #1 ranked"},
+        {"name": "time_constraint_acknowledged", "description": "2-week budget used as constraint in analysis"},
+        {"name": "readiness_signal", "description": "Contains verifiably best or best available signal"},
+        {"name": "no_premature_recommendation", "description": "Ranking appears before recommendation"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Our company has a 7-year-old PHP codebase (Laravel) that powers our e-commerce platform. It processes about $2M in transactions monthly and has 98.5% uptime. The team (6 devs) finds it increasingly painful to work with — slow tests, some spaghetti code in the checkout flow, and we're having trouble hiring because 'nobody wants to write PHP anymore'. Our VP of Engineering is pushing for a full rewrite in Next.js + TypeScript. We'd probably need 6-9 months. What do you think we should do?",
+      "expected_output": "Claude's training data romanticizes rewrites and modern JS/TS stacks. But this is a $2M/month system with 98.5% uptime — a full rewrite is extremely high-risk. Incremental modernization should rank highly.",
+      "files": [],
+      "assertions": [
+        {"name": "null_option_present", "description": "Includes a keep-iterating-on-Laravel option"},
+        {"name": "four_plus_options", "description": "At least 4 distinct options generated"},
+        {"name": "rewrite_not_top_ranked", "description": "Full rewrite is NOT #1 ranked"},
+        {"name": "revenue_risk_mentioned", "description": "$2M/month revenue risk explicitly analyzed"},
+        {"name": "incremental_option_present", "description": "Incremental modernization (strangler fig etc.) included as candidate"},
+        {"name": "readiness_signal", "description": "Contains verifiably best or best available signal"},
+        {"name": "no_premature_recommendation", "description": "Ranking appears before recommendation"}
+      ]
+    }
+  ]
+}
