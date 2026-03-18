@@ -233,12 +233,17 @@ Perform **deterministic, non-LLM assembly** of gatherer outputs. Reference: `ref
 ## Context
 (Context gathering produced insufficient results. Rely on mid-dialogue scouting for evidence.)
 
+## Prior Learnings
+{learning_entries from retrieval step, if non-empty}
+
 ## Material
 (none)
 
 ## Question
 {user's question, verbatim}
 ```
+
+**`## Prior Learnings` in 3c:** Same rules as Step 3h — include only if `learning_entries` is non-empty, omit section header entirely if empty. In the zero-output case, learnings may be the only contextual grounding in the briefing.
 
 Set `seed_confidence` to `low` with `low_seed_confidence_reasons: ["zero_output"]`. Set `provenance_unknown_count` to `null` (3h-bis is skipped, so provenance validation never ran). Skip steps 3d through 3h (including 3h-bis), Step 4, and Step 4b.
 
