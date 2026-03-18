@@ -140,6 +140,13 @@ _PROVENANCE_TEMPLATE: dict = {
     "provenance_missing_events": 0,
 }
 
+_PARSE_DIAGNOSTICS_TEMPLATE: dict = {
+    "truncated_count": 0,
+    "degraded_count": 0,
+    "clean_count": 0,
+    "observed_events": 0,
+}
+
 # ---------------------------------------------------------------------------
 # Section computation functions
 # ---------------------------------------------------------------------------
@@ -483,6 +490,37 @@ def _compute_provenance(dialogue_outcomes: list[dict]) -> dict:
         result["avg_provenance_unknown"] = sum(observed) / len(observed)
         result["zero_unknown_count"] = sum(1 for v in observed if v == 0)
         result["high_unknown_count"] = sum(1 for v in observed if v > 3)
+
+    return result
+
+
+def _compute_parse_diagnostics(dialogue_outcomes: list[dict]) -> dict:
+    """Compute parse diagnostics from dialogue outcomes.
+
+    parse_truncated: True when an unclosed fence block is detected in synthesis.
+    parse_degraded: True when epilogue parse failed and markdown regex fallback
+    was used (lower precision for converged detection).
+    """
+    result = copy.deepcopy(_PARSE_DIAGNOSTICS_TEMPLATE)
+
+    for event in dialogue_outcomes:
+        truncated = event.get("parse_truncated")
+        degraded = event.get("parse_degraded")
+
+        # Only count events where at least one field is present as bool
+        if not isinstance(truncated, bool) and not isinstance(degraded, bool):
+            continue
+
+        result["observed_events"] += 1
+        t = truncated is True
+        d = degraded is True
+
+        if t:
+            result["truncated_count"] += 1
+        if d:
+            result["degraded_count"] += 1
+        if not t and not d:
+            result["clean_count"] += 1
 
     return result
 

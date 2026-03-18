@@ -10,10 +10,12 @@ import pytest
 from scripts.compute_stats import (
     compute,
     _DELEGATION_TEMPLATE,
+    _PARSE_DIAGNOSTICS_TEMPLATE,
     _PLANNING_TEMPLATE,
     _PROVENANCE_TEMPLATE,
     _SECTION_MATRIX,
     _USAGE_TEMPLATE,
+    _compute_parse_diagnostics,
     _compute_planning,
     _compute_provenance,
 )
@@ -383,3 +385,47 @@ class TestComputeProvenance:
         assert result["provenance_observed_events"] == 1
         assert result["provenance_missing_events"] == 1
         assert result["avg_provenance_unknown"] == 2.0
+
+class TestComputeParseDiagnostics:
+    """Tests for _compute_parse_diagnostics section."""
+
+    def test_all_clean(self) -> None:
+        events = [
+            _make_dialogue_event(parse_truncated=False, parse_degraded=False),
+            _make_dialogue_event(
+                consultation_id="d-2",
+                parse_truncated=False, parse_degraded=False,
+            ),
+        ]
+        result = _compute_parse_diagnostics(events)
+        assert result["clean_count"] == 2
+        assert result["truncated_count"] == 0
+        assert result["degraded_count"] == 0
+        assert result["observed_events"] == 2
+
+    def test_truncated_and_degraded(self) -> None:
+        events = [
+            _make_dialogue_event(parse_truncated=True, parse_degraded=False),
+            _make_dialogue_event(
+                consultation_id="d-2",
+                parse_truncated=False, parse_degraded=True,
+            ),
+            _make_dialogue_event(
+                consultation_id="d-3",
+                parse_truncated=True, parse_degraded=True,
+            ),
+        ]
+        result = _compute_parse_diagnostics(events)
+        assert result["truncated_count"] == 2
+        assert result["degraded_count"] == 2
+        assert result["clean_count"] == 0  # none had both False
+
+    def test_missing_fields_excluded(self) -> None:
+        """Events without parse fields don't count as observed."""
+        events = [
+            _make_dialogue_event(parse_truncated=True, parse_degraded=False),
+            _make_dialogue_event(consultation_id="d-2"),  # no parse fields
+        ]
+        result = _compute_parse_diagnostics(events)
+        assert result["observed_events"] == 1
+        assert result["truncated_count"] == 1
