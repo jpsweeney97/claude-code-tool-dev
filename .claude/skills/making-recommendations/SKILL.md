@@ -1,45 +1,59 @@
 ---
 name: making-recommendations
-description: Use when asked to recommend, suggest an approach, compare options, or choose between alternatives. Triggers on "what should I use", "which is better", "recommend", "help me decide", "what's the best way to", "should I go with X or Y", or any variant where the user needs help choosing between 2+ viable options. Also use when a mid-conversation discussion surfaces a decision point with trade-offs. Do not use for trivial decisions where both scope and reversibility are negligible, or for purely factual questions ("what is X?").
+description: Use when the user asks for a recommendation, wants to compare alternatives, choose between approaches, or decide how to proceed under trade-offs. Trigger on requests like "what should I use", "which is better", "recommend", "help me decide", "what's the best way to", or "should I go with X or Y". Also use when an ongoing discussion surfaces a non-trivial decision point with multiple viable options. Do not use for purely factual questions or trivial, low-stakes, easily reversible choices.
 ---
 
 # Structured Recommendations
 
-Your role is **analyst and recommender, not advocate**. Do not anchor on the first viable option. Generate the full option space before evaluating any of it.
+Produce a structured recommendation for a non-trivial choice. Act as an analyst and recommender, not an advocate for the first plausible option.
 
-## Ground Rules
+## Quick start
 
-- The **null option** (do nothing, defer, or accept the current state) must always appear in the option set. If genuinely non-viable, say why explicitly — do not silently omit it.
-- Options are **generated before any are evaluated**. Do not collapse generation and evaluation into a single pass.
-- Ranked options and trade-offs come before the recommendation. The recommendation must follow from the ranking — if it doesn't, reconcile the discrepancy explicitly.
-- "Done" means: the recommendation is verifiably best given available information, or the information gaps preventing that verdict are explicitly named.
+- Extract the decision in one sentence and name the decision type.
+- Calibrate stakes using reversibility and blast radius.
+- Generate the full option set before evaluating any option. Always include the null option.
+- Evaluate each option against criteria derived from this specific decision, not a generic checklist.
+- Rank every option, then recommend one and label the result as `verifiably best` or `best available`.
+- Verify unstable facts before ranking options when the recommendation depends on current pricing, product availability, laws, schedules, or other time-sensitive details.
 
----
+## Defaults and failure modes
 
-## The Process
+- If the decision is ambiguous, stop and ask a targeted clarifying question.
+- If multiple decisions are tangled together, split them or ask which one to resolve first.
+- If the option set collapses to one serious option plus the null option, say so explicitly instead of inventing fake alternatives.
+- If the user asks for a quick answer, compress the analysis but still include ranked options, the recommendation, and the readiness signal.
+- If a material information gap can be resolved before commitment, say how to resolve it. If it cannot be resolved in time, recommend under uncertainty and mark the result `best available`.
 
-### 1. Decision Extraction
+## Non-negotiables
 
-State the decision to be made in one precise sentence, drawn from the preceding conversation. Name the decision type (e.g., technical selection, architectural choice, process design, tooling, prioritization). If the decision is ambiguous or underspecified, stop here and ask — do not proceed with a vague subject.
+- Always include the null option: do nothing, defer, or keep the current state. If it is non-viable, say why explicitly.
+- Separate option generation from option evaluation.
+- Present ranked options and trade-offs before the final recommendation.
+- Make the recommendation follow from the ranking. If it does not, reconcile the discrepancy explicitly.
+- Treat the job as done only when the recommendation is either `verifiably best` or clearly labeled `best available` with the blocking gaps named.
 
-### 2. Stakes Calibration
+## Workflow
 
-Assess the decision on two axes:
+### 1. Extract the decision
 
-- **Reversibility**: easy to undo → hard to undo
-- **Blast radius**: affects one thing → affects many things or many people
+State the decision in one precise sentence drawn from the conversation. Name the decision type, such as technical selection, architectural choice, process design, tooling, or prioritization.
 
-Assign a tier and declare which sections you will run:
+### 2. Calibrate stakes
 
-| Tier       | Criteria                                        | Sections skipped                              |
-| ---------- | ----------------------------------------------- | --------------------------------------------- |
-| **Low**    | Reversible + narrow blast radius                | Information Gaps, Sensitivity Analysis        |
-| **Medium** | Partially reversible OR meaningful blast radius | Sensitivity Analysis abbreviated to 1–2 flips |
-| **High**   | Hard to reverse OR wide blast radius            | None — full treatment                         |
+Assess two axes:
 
-State the tier and your reasoning in 1–2 sentences.
+- `Reversibility`: easy to undo -> hard to undo
+- `Blast radius`: affects one thing -> affects many things or many people
 
-### 3. Option Generation
+Assign a tier and state it in 1-2 sentences.
+
+| Tier | Criteria | Required treatment |
+| ---- | -------- | ------------------ |
+| Low | Reversible and narrow blast radius | Skip Information Gaps and Sensitivity Analysis. Say that you are skipping them and why. |
+| Medium | Partially reversible or meaningful blast radius | Run Information Gaps. Abbreviate Sensitivity Analysis to 1-2 realistic flips. |
+| High | Hard to reverse or wide blast radius | Run the full workflow. Produce a durable record when appropriate. |
+
+### 3. Generate options
 
 List every candidate option, including:
 
@@ -47,95 +61,97 @@ List every candidate option, including:
 - Any materially distinct alternatives not yet raised
 - The null option: do nothing, defer the decision, or accept the current state
 
-Do not evaluate options here. Generation only.
+Do not evaluate options here.
 
-### 4. Information Gaps
+### 4. Identify information gaps
 
-_(Required for Medium and High; skip for Low — state that you are skipping and why)_
+Required for Medium and High. Skip for Low and say why.
 
-What is currently unknown that would materially change the ranking? For each gap:
+For each material gap:
 
 - Name the unknown
 - State which options it most affects
-- State whether it is resolvable before committing (and how), or whether the decision must be made under uncertainty
+- State whether it can be resolved before committing and, if so, how
+- State whether the decision must be made under uncertainty if the gap remains open
 
-### 5. Option Analysis
+### 5. Evaluate options
 
-Evaluate each option against criteria that matter for **this specific decision**. Derive the criteria from the decision context — do not use a generic checklist. For each option, state:
+Derive evaluation criteria from the decision context. Do not default to a generic checklist.
+
+For each option, state:
 
 - Key strengths
-- Key weaknesses / risks
+- Key weaknesses or risks
 - Conditions under which it is the best choice
 
-The third point matters: every option gets its moment as the right answer under some set of conditions. If you can't articulate those conditions, you don't understand the option well enough.
+Every option is the right answer under some set of conditions. If you cannot articulate those conditions, you do not understand the option well enough — keep analyzing before you rank it.
 
-### 6. Sensitivity Analysis
+### 6. Run sensitivity analysis
 
-_(Required for High; abbreviated for Medium — 1–2 flips only; skip for Low)_
+Required for High. Abbreviate for Medium. Skip for Low.
 
-For each non-recommended option: what would have to be true — about constraints, unknowns, or future conditions — for it to be the better choice? If no realistic set of conditions flips the ranking, say so explicitly.
+For each non-recommended option, state what would have to be true about constraints, unknowns, or future conditions for it to become the better choice. If no realistic change flips the ranking, say so explicitly.
 
-### 7. Ranked Options
+### 7. Rank options
 
-Present all options in ranked order with a one-line trade-off summary for each:
+Present all options in ranked order with a one-line trade-off summary for each.
 
-1. **[Option]** — [trade-off summary]
-2. **[Option]** — [trade-off summary]
-3. **[Option]** — [trade-off summary]
+1. **[Option]** - [trade-off summary]
+2. **[Option]** - [trade-off summary]
+3. **[Option]** - [trade-off summary]
 
-### 8. Recommendation
+### 8. Recommend
 
-State the recommended option and core reasoning in 2–3 sentences. It must follow from Section 7. If it doesn't, reconcile the discrepancy before proceeding.
+State the recommended option and the core reasoning in 2-3 sentences. It must follow from the ranking in Step 7. If it does not, reconcile the discrepancy before proceeding.
 
-### 9. Readiness Signal
+### 9. Signal readiness
 
-State whether this recommendation is **verifiably best** or **best available**:
+State whether the recommendation is `verifiably best` or `best available`.
 
-| Signal              | Meaning |
-| ------------------- | ------- |
-| **Verifiably best** | Option space is complete, information gaps are resolved or non-material, and sensitivity analysis confirms the ranking is stable. |
-| **Best available**  | Recommendation is sound given current information, but named gaps or unresolved conditions could flip it. Committing now is acceptable only if those gaps cannot be resolved before the decision deadline. |
+| Signal | Meaning |
+| ------ | ------- |
+| `verifiably best` | The option space is complete, the information gaps are resolved or non-material, and the ranking is stable under sensitivity analysis. |
+| `best available` | The recommendation is sound given current information, but named gaps or unresolved conditions could still flip the ranking. |
 
-If **best available**: list the specific conditions that would upgrade it to verifiably best.
+If the result is `best available`, list the specific conditions that would upgrade it to `verifiably best`.
 
----
-
-## High-Tier Addons
+## High-stakes addons
 
 These extensions apply only to **High**-stakes decisions. Skip for Low and Medium.
 
-### Decision Record
+### Durable record
 
-Persist the full analysis to a file at `docs/decisions/YYYY-MM-DD-<decision-slug>.md`. Include all 9 sections plus any Codex Delta output. Then present an inline summary:
+- If the user asks for a durable record, or the workspace already uses `docs/decisions/`, write `docs/decisions/YYYY-MM-DD-<decision-slug>.md`.
+- If neither condition is true, keep the full analysis in the reply and say that no durable record was written.
+- Include the 9 sections above plus any comparison tables or calculations that materially support the ranking.
+- After writing a record, include this inline summary:
 
-```
+```markdown
 **Recommendation:** [Selected option]
 **Why:** [2-3 sentence summary]
-**Trade-offs accepted:** [What's being sacrificed]
-**Readiness:** Verifiably best / Best available — [one-line justification]
-**Full analysis:** [link to Decision Record file]
+**Trade-offs accepted:** [What is being sacrificed]
+**Readiness:** verifiably best / best available - [one-line justification]
+**Full analysis:** [link to decision record]
 ```
 
-### Codex Delta (Cross-Model Adversarial Check)
+### Codex Delta (cross-model adversarial check)
 
-When the Codex MCP is available, run a cross-model adversarial check on the frontrunner before finalizing the ranking. An independent model finds blind spots you can't see in your own reasoning.
+When the Codex MCP is available, run a cross-model adversarial check on the frontrunner before finalizing the ranking. An independent model finds blind spots you cannot see in your own reasoning.
 
 Full invocation spec: [references/codex-delta.md](references/codex-delta.md)
 
 When Codex MCP is unavailable, continue without it — apply extra scrutiny to Step 6 by steelmanning each non-recommended option more aggressively.
 
----
-
-## Anti-Patterns
+## Anti-patterns
 
 | Pattern | Problem | Fix |
-|---------|---------|-----|
-| Recommending the familiar option | Comfort isn't a criterion for the user's problem | Generate 3+ alternatives including at least one you're less familiar with |
-| Evaluating during generation | Anchors on the first option, shrinks the space | Steps 3 and 5 are separate for a reason |
-| Omitting null option silently | Biases toward action when inaction may be best | Always include it; explain non-viability if needed |
-| Hiding uncertainty behind confidence | "Use X" when you're guessing erodes trust | Use the Readiness Signal honestly |
-| Generic criteria for every decision | "Performance, scalability, cost" may not be what matters here | Derive criteria from the specific decision context |
-| Skipping "conditions for best choice" | Treats options as globally right/wrong instead of contextually right/wrong | Every option is best under some conditions — name them |
+| ------- | ------- | --- |
+| Recommending the familiar option | Familiarity is not a criterion for the user's problem. | Generate 3 or more alternatives when they exist, including at least one option you would not reach by habit. |
+| Evaluating during generation | Early judgment anchors the entire recommendation. | Keep option generation and option evaluation separate. |
+| Omitting the null option silently | It biases toward action when inaction may be the right choice. | Always include it and explain non-viability explicitly if needed. |
+| Hiding uncertainty behind confidence | It erodes trust and makes trade-offs invisible. | Use the readiness signal honestly and name what could still change the outcome. |
+| Reusing generic criteria | It produces shallow advice that misses the actual decision. | Derive criteria from the user's constraints, goals, and failure modes. |
+| Inventing fake options for symmetry | It creates noise and weakens the ranking. | Say when only one serious option exists. Do not pad the list. |
 
 ## Example
 
@@ -145,35 +161,35 @@ When Codex MCP is unavailable, continue without it — apply extra scrutiny to S
 
 > "I'd recommend Algolia or Elasticsearch. Algolia is easier to set up and has great docs. Elasticsearch is more powerful for complex queries. For a docs site, Algolia is probably the way to go."
 >
-> — No stakes assessment, no null option, only considered two options in the same category, no trade-offs, confident despite knowing nothing about constraints.
+> — No stakes assessment, no null option, only two options from the same category, no trade-offs, confident despite knowing nothing about constraints.
 
 ### GOOD: Structured analysis
 
-> **1. Decision:** Which search implementation for a documentation site? (Technical selection)
+> **1. Decision:** Which search implementation should a documentation site use? (Technical selection)
 >
-> **2. Stakes:** **Low** — reversible (search is additive, can swap later) and narrow blast radius (affects search UX only, not core content). Skipping Information Gaps and Sensitivity Analysis.
+> **2. Stakes:** **Low**. Search is additive and reversible, and the blast radius is mostly limited to search UX. Skipping Information Gaps and Sensitivity Analysis.
 >
 > **3. Options:**
-> - Algolia DocSearch — managed service, free for open-source docs
-> - Pagefind — static search, runs entirely client-side
-> - Elasticsearch — self-hosted, full-text search engine
-> - Built-in framework search (if available) — whatever the docs framework ships
-> - **Null: no search** — rely on browser Ctrl+F and good navigation
+> - Algolia DocSearch
+> - Pagefind
+> - A built-in framework search feature, if the docs framework has one
+> - Elasticsearch
+> - **Null:** no search
 >
-> **5. Option Analysis:**
-> - **Algolia DocSearch:** Strong for open-source projects (free tier, maintained crawlers). Weak: vendor dependency, requires application approval, limited customization. Best when: open-source project with standard docs structure.
-> - **Pagefind:** Strong: zero dependencies, fast, no API keys. Weak: limited to static content, no typo tolerance. Best when: static site, privacy-conscious, no backend.
-> - **Elasticsearch:** Strong: most powerful and customizable. Weak: massive overkill for docs — requires infrastructure, ops, costs. Best when: complex query needs (faceted search, analytics).
-> - **Framework built-in:** Strong: zero setup, maintained by framework authors. Weak: limited features, varies by framework. Best when: search is nice-to-have, not critical.
-> - **Null:** Strong: zero effort and maintenance. Weak: users can't find things. Best when: docs are small enough to browse, or audience is technical and uses grep.
+> **5. Evaluate options:**
+> - **Algolia DocSearch:** Strong hosted relevance and typo handling. Weak vendor dependency and approval requirements. Best when the site is public, content is stable, and managed search is worth the dependency.
+> - **Pagefind:** Strong simplicity, zero backend, and static-site fit. Weak typo tolerance and fewer advanced ranking controls. Best when the docs site is static and operational simplicity matters.
+> - **Framework search:** Strongest setup speed when the framework already ships a credible search layer. Weak feature depth. Best when search is useful but not product-critical.
+> - **Elasticsearch:** Strongest flexibility. Weak operational cost and clear overkill for most docs sites. Best when search requirements already look like a product in their own right.
+> - **Null:** Strong zero effort and zero maintenance. Weak discoverability. Best when the documentation is small enough to browse easily.
 >
-> **7. Ranked:**
-> 1. **Pagefind** — best simplicity-to-power ratio; no vendor, no infra, instant setup
-> 2. **Framework built-in** — even simpler if it exists, but less capable
-> 3. **Algolia DocSearch** — powerful but adds dependency; best if open-source eligible
-> 4. **Null** — viable only if docs are small
-> 5. **Elasticsearch** — overkill for this use case
+> **7. Ranked options:**
+> 1. **Pagefind** - best simplicity-to-power ratio for a typical static docs site
+> 2. **Framework search** - even simpler if it already exists, but usually less capable
+> 3. **Algolia DocSearch** - stronger search quality, but at the cost of an external dependency
+> 4. **Null** - viable only when the docs are small
+> 5. **Elasticsearch** - most powerful, but operationally disproportionate here
 >
-> **8. Recommendation:** Pagefind. It runs client-side with no external dependencies, indexes at build time, and handles docs-scale content well. If you're eligible for Algolia DocSearch (open-source project), that's a strong alternative with better typo handling.
+> **8. Recommendation:** Use Pagefind unless the framework already includes a search feature that is good enough for the audience. It gives strong docs-scale search with almost no operational burden.
 >
-> **9. Readiness:** **Best available** — I don't know your docs framework (some have excellent built-in search that would rank higher), your content volume, or whether you need typo tolerance. Confirming those would upgrade to verifiably best.
+> **9. Readiness:** `best available`. Confirming the docs framework, expected content volume, and need for typo tolerance could still change the ranking.
