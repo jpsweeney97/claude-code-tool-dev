@@ -232,3 +232,53 @@ save_expected_distill: true
 **Parse normalization:** Frontmatter parsers must normalize string `"true"`/`"false"` to boolean. YAML native booleans (`true`/`false` without quotes) are preferred but string representations must be accepted.
 
 **Relationship to /triage:** These fields enable `/triage` to distinguish "intentionally skipped" from "crashed before running." See [/triage inference matrix](operations.md#triage-read-work-and-context).
+
+## LedgerEntry — Event Record
+
+Each line in a ledger shard (`ledger/<worktree_id>/<session_id>.jsonl`) is a single JSON object conforming to this schema:
+
+```python
+@dataclass(frozen=True)
+class LedgerEntry:
+    schema_version: str           # "1.0"
+    ts: str                       # ISO 8601 UTC — primary sort key
+    event_type: str               # From event vocabulary below
+    producer: str                 # "engine" | "orchestrator" | "hook"
+    session_id: str               # Claude session UUID
+    worktree_id: str              # Derived from git rev-parse --git-dir
+    record_ref: str | None        # RecordRef canonical serialization, if applicable
+    operation_id: str | None      # Groups related events (e.g., all events from one /save)
+    payload: dict                 # Event-type-specific data
+```
+
+### Event Vocabulary (v1)
+
+| Event Type | Producer | Payload Fields | Purpose |
+|---|---|---|---|
+| `snapshot_written` | orchestrator | `{ref: RecordRef, orchestrated_by: str}` | Timeline fidelity — records snapshot creation |
+| `defer_completed` | engine | `{source_ref: RecordRef, emitted_count: int}` | Completion evidence for /triage inference |
+| `distill_completed` | engine | `{source_ref: RecordRef, emitted_count: int}` | Completion evidence for /triage inference |
+
+**Completion events are success-only.** Their presence proves the operation ran to completion. Their absence means "not proven completed" — not "failed." Failure events are [deferred](decisions.md#deferred-decisions) to a future recovery-phase extension.
+
+### Producer Classes
+
+- **`engine` / `orchestrator`**: Events from subsystem engines and skill orchestrators (e.g., `/save`). These are authoritative completion signals. Only engine/orchestrator events qualify for the "ledger-backed" label in [/timeline](operations.md#session-timeline).
+- **`hook`**: Events from `engram_register` PostToolUse hook. Observational only. `engram_register` does not observe engine Bash writes — it fires on Write/Edit tool calls to protected paths. Hook events provide supplementary timeline data but do not qualify as "ledger-backed."
+
+### Timeline Label Semantics
+
+- **"ledger-backed"**: A defined event from an `engine` or `orchestrator` producer exists for this record/operation.
+- **"inferred"**: Reconstructed from `created_at` timestamps in `IndexEntry`, `source_ref` field scanning, or `git log` history.
+
+### Ordering
+
+- Primary sort: `ts` (ISO 8601 string comparison)
+- Tie-break: file order (append-order within the JSONL shard)
+- Grouping: `operation_id` links related events from the same orchestrated flow
+
+### Write Semantics
+
+All ledger producers use a shared locked append primitive in `engram_core/`. Advisory lock (`fcntl.flock`) on the shard file. Lock scope: read-append-fsync. Multi-producer integrity replaces the previous "single writer by sharding" assumption (which broke when engines became ledger producers).
+
+**Ledger append failure never invalidates a successful write.** If a `defer_completed` event fails to append after a successful ticket creation, the ticket exists — the ledger gap is a diagnostic degradation, not data loss.
