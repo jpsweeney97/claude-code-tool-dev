@@ -534,3 +534,56 @@ class TestComputeConsultation:
         ]
         result = _compute_consultation(events)
         assert result["posture_counts"] == {"adversarial": 1, "collaborative": 2}
+
+
+class TestListThreads:
+    """Tests for _list_threads function."""
+
+    def test_empty(self) -> None:
+        from scripts.compute_stats import _list_threads
+        result = _list_threads([])
+        assert result == []
+
+    def test_groups_by_thread_id(self) -> None:
+        from scripts.compute_stats import _list_threads
+        events = [
+            _make_consultation_event(
+                thread_id="tid-A", ts="2026-03-17T10:00:00Z",
+            ),
+            _make_consultation_event(
+                consultation_id="c-2",
+                thread_id="tid-A", ts="2026-03-17T11:00:00Z",
+            ),
+            _make_dialogue_event(
+                thread_id="tid-B", ts="2026-03-17T09:00:00Z",
+            ),
+        ]
+        result = _list_threads(events)
+        assert len(result) == 2
+        # Sorted by last_ts descending
+        assert result[0]["thread_id"] == "tid-A"
+        assert result[0]["event_count"] == 2
+        assert result[0]["last_ts"] == "2026-03-17T11:00:00Z"
+        assert result[1]["thread_id"] == "tid-B"
+        assert result[1]["event_count"] == 1
+
+    def test_null_thread_id_excluded(self) -> None:
+        from scripts.compute_stats import _list_threads
+        events = [
+            _make_consultation_event(thread_id=None),
+            _make_consultation_event(
+                consultation_id="c-2", thread_id="tid-A",
+            ),
+        ]
+        result = _list_threads(events)
+        assert len(result) == 1
+        assert result[0]["thread_id"] == "tid-A"
+
+    def test_event_types_collected(self) -> None:
+        from scripts.compute_stats import _list_threads
+        events = [
+            _make_consultation_event(thread_id="tid-A"),
+            _make_dialogue_event(thread_id="tid-A"),
+        ]
+        result = _list_threads(events)
+        assert set(result[0]["event_types"]) == {"consultation_outcome", "dialogue_outcome"}

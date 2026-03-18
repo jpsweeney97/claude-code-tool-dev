@@ -583,6 +583,47 @@ def _compute_consultation(consultation_outcomes: list[dict]) -> dict:
     return result
 
 
+def _list_threads(events: list[dict]) -> list[dict]:
+    """List unique thread_ids across all structured events.
+
+    Returns list of dicts sorted by last_ts descending:
+    [{"thread_id": str, "event_count": int, "last_ts": str, "event_types": list[str]}]
+    """
+    threads: dict[str, dict] = {}
+
+    for event in events:
+        tid = event.get("thread_id")
+        if not isinstance(tid, str):
+            continue
+
+        if tid not in threads:
+            threads[tid] = {
+                "thread_id": tid,
+                "event_count": 0,
+                "last_ts": "",
+                "event_types": set(),
+            }
+
+        threads[tid]["event_count"] += 1
+        ts = event.get("ts", "")
+        if isinstance(ts, str) and ts > threads[tid]["last_ts"]:
+            threads[tid]["last_ts"] = ts
+
+        et = event.get("event", "")
+        if isinstance(et, str):
+            threads[tid]["event_types"].add(et)
+
+    # Convert sets to sorted lists for JSON serialization
+    result = []
+    for info in threads.values():
+        info["event_types"] = sorted(info["event_types"])
+        result.append(info)
+
+    # Sort by last_ts descending
+    result.sort(key=lambda t: t["last_ts"], reverse=True)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Section inclusion matrix
 # ---------------------------------------------------------------------------
@@ -834,6 +875,12 @@ def main() -> None:
         default=True,
         help="Output as JSON (default, kept for compatibility)",
     )
+    parser.add_argument(
+        "--threads",
+        action="store_true",
+        default=False,
+        help="List unique thread IDs instead of computing stats",
+    )
     args = parser.parse_args()
 
     try:
@@ -841,6 +888,20 @@ def main() -> None:
     except ValueError as exc:
         print(f"invalid --period: {exc}", file=sys.stderr)
         sys.exit(2)
+
+    if args.threads:
+        try:
+            events, _skipped = read_events.read_all(Path(args.path))
+            period_days_val = stats_common.parse_period_days(args.period)
+            if period_days_val > 0:
+                now = datetime.now(timezone.utc)
+                events = stats_common.filter_by_period(events, period_days_val, now).events
+            result = _list_threads(events)
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"thread listing failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(result, indent=2))
+        return
 
     try:
         events, skipped = read_events.read_all(Path(args.path))
