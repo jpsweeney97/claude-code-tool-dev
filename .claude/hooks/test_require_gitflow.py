@@ -363,6 +363,137 @@ class TestWorktreeSupport:
             resolved = resolve_git_dir(str(git_file))
             assert resolved == str(actual_git)
 
+    def test_worktree_protected_branch_blocked(self, temp_git_repo, tmp_path):
+        """Hook must BLOCK edits to files in a worktree on a protected branch.
+
+        Setup: main repo on feature/other, worktree on main (protected).
+        CWD is the main repo. File path is inside the worktree.
+
+        Before fix: the hook sees the file as "outside the repo" (because
+        repo_root is the main repo dir, not the worktree dir) and ALLOWs
+        unconditionally — a false negative.
+
+        After fix: the hook derives git context from the file's directory,
+        detects the worktree is on 'main', and BLOCKs correctly.
+        """
+        # Switch main repo to a feature branch so we can check out 'main' in the worktree
+        subprocess.run(["git", "checkout", "-b", "feature/other"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        # Create worktree on 'main' (protected branch)
+        worktree_path = tmp_path / "worktree-main"
+        subprocess.run(
+            ["git", "worktree", "add", str(worktree_path), "main"],
+            cwd=temp_git_repo,
+            capture_output=True,
+            check=True,
+        )
+
+        # Run hook from main repo CWD (on feature/other), file is in worktree (on main)
+        file_in_worktree = str(worktree_path / "file.txt")
+        result = run_hook(
+            temp_git_repo,  # CWD is main repo (on 'feature/other')
+            tool_input={"file_path": file_in_worktree},
+        )
+        assert result.returncode == 2, (
+            f"Hook should BLOCK edit to worktree file on protected branch 'main', "
+            f"but got exit {result.returncode}. stderr: {result.stderr}"
+        )
+        assert "protected" in result.stderr.lower() or "working branch" in result.stderr.lower()
+
+    def test_worktree_feature_branch_allowed(self, temp_git_repo, tmp_path):
+        """Hook must ALLOW edits to files in a worktree on a feature branch.
+
+        Setup: main repo on main (protected), worktree on feature/test.
+        CWD is the main repo. File path is inside the worktree.
+        """
+        # Create feature branch
+        subprocess.run(["git", "checkout", "-b", "feature/test"], cwd=temp_git_repo, capture_output=True, check=True)
+        (temp_git_repo / "feat.txt").write_text("feat")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "feat"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        # Switch back to main
+        subprocess.run(["git", "checkout", "main"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        # Create worktree on feature/test
+        worktree_path = tmp_path / "worktree-feat"
+        subprocess.run(
+            ["git", "worktree", "add", str(worktree_path), "feature/test"],
+            cwd=temp_git_repo,
+            capture_output=True,
+            check=True,
+        )
+
+        # Run hook from main repo CWD (on main), file is in worktree (on feature/test)
+        file_in_worktree = str(worktree_path / "feat.txt")
+        result = run_hook(
+            temp_git_repo,  # CWD is main repo (on 'main')
+            tool_input={"file_path": file_in_worktree},
+        )
+        assert result.returncode == 0, (
+            f"Hook should ALLOW edit to worktree file on feature branch, "
+            f"but got exit {result.returncode}: {result.stderr}"
+        )
+
+    def test_get_git_context_with_target_dir(self, temp_git_repo, tmp_path, monkeypatch):
+        """get_git_context(target_dir=...) should return context for that directory, not CWD."""
+        # Create feature branch + worktree
+        subprocess.run(["git", "checkout", "-b", "feature/ctx-test"], cwd=temp_git_repo, capture_output=True, check=True)
+        (temp_git_repo / "ctx.txt").write_text("ctx")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "ctx"], cwd=temp_git_repo, capture_output=True, check=True)
+        subprocess.run(["git", "checkout", "main"], cwd=temp_git_repo, capture_output=True, check=True)
+
+        worktree_path = tmp_path / "wt-ctx"
+        subprocess.run(
+            ["git", "worktree", "add", str(worktree_path), "feature/ctx-test"],
+            cwd=temp_git_repo,
+            capture_output=True,
+            check=True,
+        )
+
+        # CWD is main repo
+        monkeypatch.chdir(temp_git_repo)
+        get_git_context = require_gitflow.get_git_context
+
+        # Without target_dir: should see 'main'
+        ctx_main = get_git_context()
+        assert ctx_main.branch == "main"
+
+        # With target_dir pointing at worktree: should see 'feature/ctx-test'
+        ctx_wt = get_git_context(target_dir=str(worktree_path))
+        assert ctx_wt.branch == "feature/ctx-test"
+
+
+class TestResolveTargetDir:
+    """Tests for resolve_target_dir() — derives git working directory from file path."""
+
+    def test_existing_file_returns_parent(self, tmp_path):
+        resolve_target_dir = require_gitflow.resolve_target_dir
+        f = tmp_path / "some_file.py"
+        f.write_text("content")
+        assert resolve_target_dir(str(f)) == str(tmp_path)
+
+    def test_nonexistent_file_returns_existing_parent(self, tmp_path):
+        resolve_target_dir = require_gitflow.resolve_target_dir
+        # Parent exists, file doesn't
+        result = resolve_target_dir(str(tmp_path / "new_file.py"))
+        assert result == str(tmp_path)
+
+    def test_deep_nonexistent_path_walks_up(self, tmp_path):
+        resolve_target_dir = require_gitflow.resolve_target_dir
+        # Neither parent nor grandparent exist
+        result = resolve_target_dir(str(tmp_path / "a" / "b" / "c" / "file.py"))
+        assert result == str(tmp_path)
+
+    def test_empty_path_returns_none(self):
+        resolve_target_dir = require_gitflow.resolve_target_dir
+        assert resolve_target_dir("") is None
+
+    def test_relative_path_returns_none(self):
+        resolve_target_dir = require_gitflow.resolve_target_dir
+        assert resolve_target_dir("relative/path.py") is None
+
 
 class TestIntegrationFull:
     """Integration tests to lock behavior before refactoring."""
@@ -560,7 +691,7 @@ class TestMainExceptionHandling:
         monkeypatch.setattr(require_gitflow, "check_bypass", lambda: False)
 
         # Mock get_git_context to raise an exception (simulating unexpected error)
-        def mock_get_git_context():
+        def mock_get_git_context(target_dir=None):
             raise RuntimeError("Simulated error")
 
         monkeypatch.setattr(require_gitflow, "get_git_context", mock_get_git_context)

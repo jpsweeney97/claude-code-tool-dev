@@ -332,14 +332,39 @@ def suggest_branch_name(branch: str) -> str:
     return f"feature/{clean}" if clean else "feature/my-feature"
 
 
-def run_git(*args: str) -> tuple[bool, str]:
-    """Run a git command and return (success, output)."""
+def resolve_target_dir(file_path: str) -> Optional[str]:
+    """Derive the git working directory from a file path.
+
+    For files in a worktree, this returns the worktree directory
+    (not the main repo), ensuring git commands return the correct
+    branch and state for that worktree.
+
+    Returns the nearest existing ancestor directory of file_path,
+    or None if file_path is empty or not absolute.
+    """
+    if not file_path or not os.path.isabs(file_path):
+        return None
+    d = Path(file_path).parent
+    while not d.exists() and d != d.parent:
+        d = d.parent
+    return str(d) if d.exists() else None
+
+
+def run_git(*args: str, cwd: Optional[str] = None) -> tuple[bool, str]:
+    """Run a git command and return (success, output).
+
+    Args:
+        *args: Git subcommand and arguments.
+        cwd: Working directory for the git command. When set, git operates
+            on the repository/worktree at this path instead of process CWD.
+    """
     try:
         result = subprocess.run(
             ["git", *args],
             capture_output=True,
             text=True,
             timeout=5,
+            cwd=cwd,
         )
         return result.returncode == 0, result.stdout.strip()
     except subprocess.TimeoutExpired:
@@ -520,24 +545,30 @@ def evaluate_gitflow_rules(
     )
 
 
-def get_git_context() -> GitContext:
+def get_git_context(target_dir: Optional[str] = None) -> GitContext:
     """
     Gather all git context in minimal subprocess calls.
 
     Reduces 5 subprocess calls to 2-3 by combining checks.
+
+    Args:
+        target_dir: Directory to use for git commands. When provided, all git
+            commands run from this directory, ensuring correct results for
+            files in worktrees (which have their own branch and HEAD).
+            Defaults to None (uses process CWD).
     """
     # Call 1: Is this a git repo?
     # Try --absolute-git-dir (Git 2.13+), fallback to manual resolution
-    success, git_dir = run_git("rev-parse", "--absolute-git-dir")
+    success, git_dir = run_git("rev-parse", "--absolute-git-dir", cwd=target_dir)
     if not success:
-        success, git_dir = run_git("rev-parse", "--git-dir")
+        success, git_dir = run_git("rev-parse", "--git-dir", cwd=target_dir)
         if not success:
             return GitContext()  # Not a git repo (defaults: is_repo=False)
 
         if not os.path.isabs(git_dir):
             # Resolve relative path to absolute
             # First try --show-toplevel to get repository root
-            toplevel_ok, toplevel = run_git("rev-parse", "--show-toplevel")
+            toplevel_ok, toplevel = run_git("rev-parse", "--show-toplevel", cwd=target_dir)
             if toplevel_ok and toplevel:
                 git_dir = os.path.join(toplevel.strip(), git_dir.strip())
             else:
@@ -548,23 +579,23 @@ def get_git_context() -> GitContext:
     resolved_git_dir = resolve_git_dir(git_dir.strip())
 
     # Check if bare repo BEFORE other checks
-    success, is_bare_output = run_git("rev-parse", "--is-bare-repository")
+    success, is_bare_output = run_git("rev-parse", "--is-bare-repository", cwd=target_dir)
     is_bare = success and is_bare_output.strip().lower() == "true"
 
     if is_bare:
         return GitContext(is_repo=True, is_bare=True, git_dir=resolved_git_dir)
 
     # Get repo root for out-of-repo file detection
-    _, toplevel = run_git("rev-parse", "--show-toplevel")
+    _, toplevel = run_git("rev-parse", "--show-toplevel", cwd=target_dir)
     repo_root = os.path.normpath(toplevel.strip()) if toplevel else None
 
     # Call 2: Check for commits and get branch name
     # First check if commits exist (needed to distinguish new repo from detached HEAD)
-    commits_exist, _ = run_git("rev-parse", "--verify", "HEAD")
+    commits_exist, _ = run_git("rev-parse", "--verify", "HEAD", cwd=target_dir)
 
     # Then check for branch name via symbolic-ref
     # symbolic-ref fails on detached HEAD, but may succeed on new repos with no commits
-    success, branch_output = run_git("symbolic-ref", "--short", "HEAD")
+    success, branch_output = run_git("symbolic-ref", "--short", "HEAD", cwd=target_dir)
 
     if success and branch_output:
         # On a branch
@@ -646,9 +677,14 @@ def main():
         if check_bypass():
             sys.exit(0)
 
-        # Gather git context
-        ctx = get_git_context()
+        # Extract file path first to determine git context directory.
+        # For files in worktrees, this ensures we check the worktree's
+        # branch, not the main repo's branch.
         file_path = extract_file_path(tool_input)
+        target_dir = resolve_target_dir(file_path)
+
+        # Gather git context from the file's directory (not process CWD)
+        ctx = get_git_context(target_dir)
         operation = get_git_operation_state(ctx.git_dir) if ctx.is_repo else None
 
         log("DEBUG", f"Checking edit to: {file_path}")
