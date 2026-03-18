@@ -15,6 +15,7 @@ from scripts.compute_stats import (
     _PROVENANCE_TEMPLATE,
     _SECTION_MATRIX,
     _USAGE_TEMPLATE,
+    _compute_consultation,
     _compute_parse_diagnostics,
     _compute_planning,
     _compute_provenance,
@@ -469,3 +470,67 @@ class TestTrackBSectionWiring:
         result = compute([], 0, 0, "security")
         assert result["planning"]["plan_mode_total"] == 0  # template default
         assert result["provenance"]["provenance_observed_events"] == 0
+
+
+class TestComputeConsultation:
+    """Tests for _compute_consultation section (Track E #7)."""
+
+    def test_empty(self) -> None:
+        result = _compute_consultation([])
+        assert result["complete_count"] == 0
+        assert result["thread_continuation_rate"] is None
+
+    def test_basic_counts(self) -> None:
+        events = [
+            _make_consultation_event(termination_reason="complete"),
+            _make_consultation_event(
+                consultation_id="c-2",
+                termination_reason="complete",
+            ),
+        ]
+        result = _compute_consultation(events)
+        assert result["complete_count"] == 2
+
+    def test_termination_distribution(self) -> None:
+        events = [
+            _make_consultation_event(termination_reason="complete"),
+            _make_consultation_event(
+                consultation_id="c-2", termination_reason="error",
+            ),
+        ]
+        result = _compute_consultation(events)
+        assert result["termination_counts"] == {"complete": 1, "error": 1}
+
+    def test_thread_continuation(self) -> None:
+        """Thread continuation: same thread_id in 2+ events."""
+        events = [
+            _make_consultation_event(thread_id="thread-A"),
+            _make_consultation_event(
+                consultation_id="c-2", thread_id="thread-A",
+            ),
+            _make_consultation_event(
+                consultation_id="c-3", thread_id="thread-B",
+            ),
+            _make_consultation_event(
+                consultation_id="c-4", thread_id=None,
+            ),
+        ]
+        result = _compute_consultation(events)
+        # 2 events have thread-A (continuation), 1 has thread-B (single), 1 is None
+        # Continuation count: events with a continued thread_id = 2
+        assert result["thread_continuation_count"] == 2
+        # Rate: continued / events with non-null thread_id = 2/3
+        assert result["thread_continuation_rate"] == pytest.approx(2 / 3)
+
+    def test_posture_distribution(self) -> None:
+        events = [
+            _make_consultation_event(posture="adversarial"),
+            _make_consultation_event(
+                consultation_id="c-2", posture="collaborative",
+            ),
+            _make_consultation_event(
+                consultation_id="c-3", posture="collaborative",
+            ),
+        ]
+        result = _compute_consultation(events)
+        assert result["posture_counts"] == {"adversarial": 1, "collaborative": 2}

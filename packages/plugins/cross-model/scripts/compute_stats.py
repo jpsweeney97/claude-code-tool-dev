@@ -147,6 +147,14 @@ _PARSE_DIAGNOSTICS_TEMPLATE: dict = {
     "observed_events": 0,
 }
 
+_CONSULTATION_TEMPLATE: dict = {
+    "complete_count": 0,
+    "termination_counts": {},
+    "posture_counts": {},
+    "thread_continuation_count": 0,
+    "thread_continuation_rate": None,
+}
+
 # ---------------------------------------------------------------------------
 # Section computation functions
 # ---------------------------------------------------------------------------
@@ -525,16 +533,66 @@ def _compute_parse_diagnostics(dialogue_outcomes: list[dict]) -> dict:
     return result
 
 
+def _compute_consultation(consultation_outcomes: list[dict]) -> dict:
+    """Compute single-turn consultation quality metrics.
+
+    Thread continuation: a thread_id appearing in 2+ events indicates
+    the user resumed a prior conversation. Rate is measured over events
+    with non-null thread_id.
+    """
+    result = copy.deepcopy(_CONSULTATION_TEMPLATE)
+
+    if not consultation_outcomes:
+        return result
+
+    # Termination distribution
+    termination_counts: dict[str, int] = {}
+    posture_counts: dict[str, int] = {}
+
+    for event in consultation_outcomes:
+        reason = event.get("termination_reason")
+        if isinstance(reason, str):
+            termination_counts[reason] = termination_counts.get(reason, 0) + 1
+        if reason == "complete":
+            result["complete_count"] += 1
+
+        posture = event.get("posture")
+        if isinstance(posture, str):
+            posture_counts[posture] = posture_counts.get(posture, 0) + 1
+
+    result["termination_counts"] = termination_counts
+    result["posture_counts"] = posture_counts
+
+    # Thread continuation
+    thread_ids: dict[str, int] = {}
+    for event in consultation_outcomes:
+        tid = event.get("thread_id")
+        if isinstance(tid, str):
+            thread_ids[tid] = thread_ids.get(tid, 0) + 1
+
+    continued_threads = {tid for tid, count in thread_ids.items() if count >= 2}
+    events_with_tid = sum(thread_ids.values())
+    continuation_events = sum(
+        count for tid, count in thread_ids.items() if tid in continued_threads
+    )
+
+    result["thread_continuation_count"] = continuation_events
+    if events_with_tid > 0:
+        result["thread_continuation_rate"] = continuation_events / events_with_tid
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Section inclusion matrix
 # ---------------------------------------------------------------------------
 
 _SECTION_MATRIX: dict[str, dict[str, bool]] = {
-    "all":          {"usage": True,  "dialogue": True,  "context": True,  "security": True,  "delegation": True,  "planning": True,  "provenance": True,  "parse_diagnostics": True},
-    "dialogue":     {"usage": True,  "dialogue": True,  "context": True,  "security": False, "delegation": False, "planning": True,  "provenance": True,  "parse_diagnostics": True},
-    "consultation": {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": False, "planning": True,  "provenance": False, "parse_diagnostics": False},
-    "security":     {"usage": False, "dialogue": False, "context": False, "security": True,  "delegation": False, "planning": False, "provenance": False, "parse_diagnostics": False},
-    "delegation":   {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": True,  "planning": False, "provenance": False, "parse_diagnostics": False},
+    "all":          {"usage": True,  "dialogue": True,  "context": True,  "security": True,  "delegation": True,  "planning": True,  "provenance": True,  "parse_diagnostics": True,  "consultation": True},
+    "dialogue":     {"usage": True,  "dialogue": True,  "context": True,  "security": False, "delegation": False, "planning": True,  "provenance": True,  "parse_diagnostics": True,  "consultation": False},
+    "consultation": {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": False, "planning": True,  "provenance": False, "parse_diagnostics": False, "consultation": True},
+    "security":     {"usage": False, "dialogue": False, "context": False, "security": True,  "delegation": False, "planning": False, "provenance": False, "parse_diagnostics": False, "consultation": False},
+    "delegation":   {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": True,  "planning": False, "provenance": False, "parse_diagnostics": False, "consultation": False},
 }
 
 
@@ -709,6 +767,11 @@ def compute(
     else:
         parse_diagnostics_section = copy.deepcopy(_PARSE_DIAGNOSTICS_TEMPLATE)
 
+    if matrix.get("consultation"):
+        consultation_section = _compute_consultation(consultation_outcomes)
+    else:
+        consultation_section = copy.deepcopy(_CONSULTATION_TEMPLATE)
+
     # 8. Build output envelope
     return {
         "report_version": "1.0.0",
@@ -731,6 +794,7 @@ def compute(
         "planning": planning_section,
         "provenance": provenance_section,
         "parse_diagnostics": parse_diagnostics_section,
+        "consultation": consultation_section,
     }
 
 
