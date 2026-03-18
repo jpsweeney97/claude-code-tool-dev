@@ -8,8 +8,10 @@ from pathlib import Path
 from scripts.compute_stats import (
     compute,
     _DELEGATION_TEMPLATE,
+    _PLANNING_TEMPLATE,
     _SECTION_MATRIX,
     _USAGE_TEMPLATE,
+    _compute_planning,
 )
 
 
@@ -35,6 +37,49 @@ def _make_delegation_event(**overrides: object) -> dict:
     }
     event.update(overrides)
     return event
+
+
+
+
+def _make_dialogue_event(**overrides: object) -> dict:
+    """Minimal dialogue_outcome event for planning tests."""
+    base: dict = {
+        "event": "dialogue_outcome",
+        "schema_version": "0.3.0",
+        "consultation_id": "test-plan-001",
+        "ts": "2026-03-17T10:00:00Z",
+        "posture": "collaborative",
+        "turn_count": 4,
+        "turn_budget": 10,
+        "converged": True,
+        "convergence_reason_code": "all_resolved",
+        "termination_reason": "convergence",
+        "resolved_count": 3,
+        "unresolved_count": 0,
+        "emerged_count": 1,
+        "seed_confidence": "normal",
+        "mode": "server_assisted",
+    }
+    base.update(overrides)
+    return base
+
+
+def _make_consultation_event(**overrides: object) -> dict:
+    """Minimal consultation_outcome event for planning tests."""
+    base: dict = {
+        "event": "consultation_outcome",
+        "schema_version": "0.3.0",
+        "consultation_id": "test-consult-001",
+        "thread_id": None,
+        "ts": "2026-03-17T10:00:00Z",
+        "posture": "collaborative",
+        "turn_count": 1,
+        "turn_budget": 1,
+        "termination_reason": "complete",
+        "mode": "server_assisted",
+    }
+    base.update(overrides)
+    return base
 
 
 class TestDelegationTemplate:
@@ -192,3 +237,103 @@ class TestJsonFlag:
             capture_output=True, text=True, timeout=10,
         )
         assert "unrecognized arguments" not in proc.stderr
+
+
+class TestComputePlanning:
+    """Tests for _compute_planning section."""
+
+    def test_no_planned_events(self) -> None:
+        """Events without question_shaped return zero counts."""
+        dialogue = [_make_dialogue_event()]
+        consultation = [_make_consultation_event()]
+        result = _compute_planning(dialogue, consultation)
+        assert result["plan_mode_total"] == 0
+        assert result["no_plan_total"] == 2
+        assert result["plan_mode_rate"] == 0.0  # 0/2 = 0%
+
+    def test_planned_dialogue(self) -> None:
+        """Dialogue with question_shaped=True counted in plan_mode."""
+        planned = _make_dialogue_event(
+            question_shaped=True,
+            shape_confidence="high",
+            assumptions_generated_count=3,
+            ambiguity_count=1,
+        )
+        unplanned = _make_dialogue_event(consultation_id="test-002")
+        result = _compute_planning([planned, unplanned], [])
+        assert result["plan_mode_dialogue_count"] == 1
+        assert result["plan_mode_total"] == 1
+        assert result["no_plan_total"] == 1
+
+    def test_planned_consultation(self) -> None:
+        """Consultation with question_shaped=True counted."""
+        planned = _make_consultation_event(
+            question_shaped=True,
+            shape_confidence="medium",
+            assumptions_generated_count=2,
+            ambiguity_count=0,
+        )
+        result = _compute_planning([], [planned])
+        assert result["plan_mode_consultation_count"] == 1
+        assert result["plan_mode_total"] == 1
+
+    def test_shape_confidence_distribution(self) -> None:
+        """shape_confidence_counts tallied across planned events."""
+        events = [
+            _make_dialogue_event(
+                consultation_id=f"d-{i}",
+                question_shaped=True,
+                shape_confidence=conf,
+                assumptions_generated_count=1,
+                ambiguity_count=0,
+            )
+            for i, conf in enumerate(["high", "high", "medium", "low"])
+        ]
+        result = _compute_planning(events, [])
+        assert result["shape_confidence_counts"] == {"high": 2, "medium": 1, "low": 1}
+
+    def test_avg_assumptions_and_ambiguity(self) -> None:
+        """Averages computed across planned events only."""
+        events = [
+            _make_dialogue_event(
+                consultation_id="d-1",
+                question_shaped=True,
+                shape_confidence="high",
+                assumptions_generated_count=4,
+                ambiguity_count=2,
+            ),
+            _make_dialogue_event(
+                consultation_id="d-2",
+                question_shaped=True,
+                shape_confidence="high",
+                assumptions_generated_count=6,
+                ambiguity_count=0,
+            ),
+            _make_dialogue_event(consultation_id="d-3"),  # no plan
+        ]
+        result = _compute_planning(events, [])
+        assert result["avg_assumptions_generated"] == 5.0
+        assert result["avg_ambiguity_count"] == 1.0
+
+    def test_convergence_comparison(self) -> None:
+        """Plan vs no-plan convergence rates for dialogues."""
+        planned_converged = _make_dialogue_event(
+            consultation_id="d-1",
+            question_shaped=True, shape_confidence="high",
+            assumptions_generated_count=2, ambiguity_count=0,
+            converged=True,
+        )
+        planned_not = _make_dialogue_event(
+            consultation_id="d-2",
+            question_shaped=True, shape_confidence="medium",
+            assumptions_generated_count=1, ambiguity_count=1,
+            converged=False,
+        )
+        unplanned_converged = _make_dialogue_event(
+            consultation_id="d-3", converged=True,
+        )
+        result = _compute_planning(
+            [planned_converged, planned_not, unplanned_converged], []
+        )
+        assert result["plan_convergence_rate"] == 0.5  # 1/2
+        assert result["no_plan_convergence_rate"] == 1.0  # 1/1

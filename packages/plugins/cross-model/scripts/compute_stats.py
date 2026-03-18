@@ -118,6 +118,19 @@ _DELEGATION_TEMPLATE: dict = {
     "avg_commands_run_observed_count": 0,
 }
 
+_PLANNING_TEMPLATE: dict = {
+    "plan_mode_dialogue_count": 0,
+    "plan_mode_consultation_count": 0,
+    "plan_mode_total": 0,
+    "no_plan_total": 0,
+    "plan_mode_rate": None,
+    "shape_confidence_counts": {},
+    "avg_assumptions_generated": None,
+    "avg_ambiguity_count": None,
+    "plan_convergence_rate": None,
+    "no_plan_convergence_rate": None,
+}
+
 
 # ---------------------------------------------------------------------------
 # Section computation functions
@@ -351,6 +364,87 @@ def _compute_delegation(delegation_outcomes: list[dict]) -> dict:
     avg_cmd, obs_cmd = stats_common.observed_avg(numeric_dispatched, "commands_run_count")
     result["avg_commands_run"] = avg_cmd
     result["avg_commands_run_observed_count"] = obs_cmd
+
+    return result
+
+
+def _compute_planning(
+    dialogue_outcomes: list[dict],
+    consultation_outcomes: list[dict],
+) -> dict:
+    """Compute planning effectiveness metrics.
+
+    Consumes events where question_shaped is set (schema 0.3.0+).
+    Compares convergence rates for planned vs unplanned dialogues.
+    """
+    result = copy.deepcopy(_PLANNING_TEMPLATE)
+
+    all_events = dialogue_outcomes + consultation_outcomes
+    planned: list[dict] = []
+    unplanned: list[dict] = []
+
+    for event in all_events:
+        if event.get("question_shaped") is not None:
+            planned.append(event)
+        else:
+            unplanned.append(event)
+
+    plan_dialogues = [e for e in planned if e.get("event") == "dialogue_outcome"]
+    plan_consultations = [e for e in planned if e.get("event") == "consultation_outcome"]
+
+    result["plan_mode_dialogue_count"] = len(plan_dialogues)
+    result["plan_mode_consultation_count"] = len(plan_consultations)
+    result["plan_mode_total"] = len(planned)
+    result["no_plan_total"] = len(unplanned)
+
+    total = len(planned) + len(unplanned)
+    if total > 0:
+        result["plan_mode_rate"] = len(planned) / total
+
+    # shape_confidence distribution across planned events
+    conf_counts: dict[str, int] = {}
+    for event in planned:
+        conf = event.get("shape_confidence")
+        if isinstance(conf, str):
+            conf_counts[conf] = conf_counts.get(conf, 0) + 1
+    result["shape_confidence_counts"] = conf_counts
+
+    # Averages across planned events
+    assumptions_vals = [
+        event["assumptions_generated_count"]
+        for event in planned
+        if isinstance(event.get("assumptions_generated_count"), int)
+    ]
+    if assumptions_vals:
+        result["avg_assumptions_generated"] = sum(assumptions_vals) / len(assumptions_vals)
+
+    ambiguity_vals = [
+        event["ambiguity_count"]
+        for event in planned
+        if isinstance(event.get("ambiguity_count"), int)
+    ]
+    if ambiguity_vals:
+        result["avg_ambiguity_count"] = sum(ambiguity_vals) / len(ambiguity_vals)
+
+    # Convergence comparison (dialogues only — consultations don't have converged field)
+    planned_dialogues_with_conv = [
+        e for e in plan_dialogues if isinstance(e.get("converged"), bool)
+    ]
+    unplanned_dialogues = [e for e in unplanned if e.get("event") == "dialogue_outcome"]
+    unplanned_with_conv = [
+        e for e in unplanned_dialogues if isinstance(e.get("converged"), bool)
+    ]
+
+    if planned_dialogues_with_conv:
+        result["plan_convergence_rate"] = (
+            sum(1 for e in planned_dialogues_with_conv if e["converged"])
+            / len(planned_dialogues_with_conv)
+        )
+    if unplanned_with_conv:
+        result["no_plan_convergence_rate"] = (
+            sum(1 for e in unplanned_with_conv if e["converged"])
+            / len(unplanned_with_conv)
+        )
 
     return result
 
