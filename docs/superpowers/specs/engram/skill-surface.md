@@ -11,7 +11,7 @@ authority: skill-contract
 
 | Skill | Subsystem | Change from Today |
 |---|---|---|
-| `/save` | Context (orchestrator) | Orchestrates [defer + distill](operations.md#save-as-session-orchestrator). Per-step results. `--no-defer`, `--no-distill`. |
+| `/save` | Context (orchestrator) | Orchestrates [defer + distill](operations.md#save-as-session-orchestrator). Embeds [orchestration intent](types.md#snapshot-orchestration-intent) in snapshot frontmatter. Per-step results. `--no-defer`, `--no-distill`. |
 | `/load` | Context | Chain protocol uses `repo_id` + `worktree_id`. |
 | `/quicksave` | Context | Lightweight: 5 sections, no defer, no distill. |
 | `/defer` | Context -> Work | [DeferEnvelope](types.md#deferenvelope-context-to-work) + idempotency. Accepts `--snapshot-ref <ref>` for retry (required when called standalone after `/save` failure). |
