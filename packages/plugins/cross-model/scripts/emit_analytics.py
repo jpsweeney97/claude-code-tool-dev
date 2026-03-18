@@ -491,7 +491,8 @@ def build_consultation_outcome(input_data: dict) -> dict:
         "profile_name": pipeline.get("profile_name"),
         "mode": pipeline.get("mode", "server_assisted"),
         "converged": None,
-        "termination_reason": "complete",
+        "termination_reason": pipeline.get("termination_reason", "complete"),
+        "consultation_source": pipeline.get("consultation_source", "codex"),
         # Nullable feature-flag fields (propagated from pipeline when present)
         "provenance_unknown_count": pipeline.get("provenance_unknown_count"),
         "question_shaped": pipeline.get("question_shaped"),

@@ -118,6 +118,43 @@ _DELEGATION_TEMPLATE: dict = {
     "avg_commands_run_observed_count": 0,
 }
 
+_PLANNING_TEMPLATE: dict = {
+    "plan_mode_dialogue_count": 0,
+    "plan_mode_consultation_count": 0,
+    "plan_mode_total": 0,
+    "no_plan_total": 0,
+    "plan_mode_rate": None,
+    "shape_confidence_counts": {},
+    "avg_assumptions_generated": None,
+    "avg_ambiguity_count": None,
+    "plan_convergence_rate": None,
+    "no_plan_convergence_rate": None,
+}
+
+
+_PROVENANCE_TEMPLATE: dict = {
+    "avg_provenance_unknown": None,
+    "zero_unknown_count": 0,
+    "high_unknown_count": 0,
+    "provenance_observed_events": 0,
+    "provenance_missing_events": 0,
+}
+
+_PARSE_DIAGNOSTICS_TEMPLATE: dict = {
+    "truncated_count": 0,
+    "degraded_count": 0,
+    "clean_count": 0,
+    "observed_events": 0,
+}
+
+_CONSULTATION_TEMPLATE: dict = {
+    "complete_count": 0,
+    "termination_counts": {},
+    "posture_counts": {},
+    "source_counts": {},
+    "thread_continuation_count": 0,
+    "thread_continuation_rate": None,
+}
 
 # ---------------------------------------------------------------------------
 # Section computation functions
@@ -355,16 +392,255 @@ def _compute_delegation(delegation_outcomes: list[dict]) -> dict:
     return result
 
 
+def _compute_planning(
+    dialogue_outcomes: list[dict],
+    consultation_outcomes: list[dict],
+) -> dict:
+    """Compute planning effectiveness metrics.
+
+    Consumes events where question_shaped is set (schema 0.3.0+).
+    Compares convergence rates for planned vs unplanned dialogues.
+    """
+    result = copy.deepcopy(_PLANNING_TEMPLATE)
+
+    all_events = dialogue_outcomes + consultation_outcomes
+    planned: list[dict] = []
+    unplanned: list[dict] = []
+
+    for event in all_events:
+        if event.get("question_shaped") is not None:
+            planned.append(event)
+        else:
+            unplanned.append(event)
+
+    plan_dialogues = [e for e in planned if e.get("event") == "dialogue_outcome"]
+    plan_consultations = [e for e in planned if e.get("event") == "consultation_outcome"]
+
+    result["plan_mode_dialogue_count"] = len(plan_dialogues)
+    result["plan_mode_consultation_count"] = len(plan_consultations)
+    result["plan_mode_total"] = len(planned)
+    result["no_plan_total"] = len(unplanned)
+
+    total = len(planned) + len(unplanned)
+    if total > 0:
+        result["plan_mode_rate"] = len(planned) / total
+
+    # shape_confidence distribution across planned events
+    conf_counts: dict[str, int] = {}
+    for event in planned:
+        conf = event.get("shape_confidence")
+        if isinstance(conf, str):
+            conf_counts[conf] = conf_counts.get(conf, 0) + 1
+    result["shape_confidence_counts"] = conf_counts
+
+    # Averages across planned events
+    assumptions_vals = [
+        event["assumptions_generated_count"]
+        for event in planned
+        if isinstance(event.get("assumptions_generated_count"), int)
+    ]
+    if assumptions_vals:
+        result["avg_assumptions_generated"] = sum(assumptions_vals) / len(assumptions_vals)
+
+    ambiguity_vals = [
+        event["ambiguity_count"]
+        for event in planned
+        if isinstance(event.get("ambiguity_count"), int)
+    ]
+    if ambiguity_vals:
+        result["avg_ambiguity_count"] = sum(ambiguity_vals) / len(ambiguity_vals)
+
+    # Convergence comparison (dialogues only — consultations don't have converged field)
+    planned_dialogues_with_conv = [
+        e for e in plan_dialogues if isinstance(e.get("converged"), bool)
+    ]
+    unplanned_dialogues = [e for e in unplanned if e.get("event") == "dialogue_outcome"]
+    unplanned_with_conv = [
+        e for e in unplanned_dialogues if isinstance(e.get("converged"), bool)
+    ]
+
+    if planned_dialogues_with_conv:
+        result["plan_convergence_rate"] = (
+            sum(1 for e in planned_dialogues_with_conv if e["converged"])
+            / len(planned_dialogues_with_conv)
+        )
+    if unplanned_with_conv:
+        result["no_plan_convergence_rate"] = (
+            sum(1 for e in unplanned_with_conv if e["converged"])
+            / len(unplanned_with_conv)
+        )
+
+    return result
+
+
+def _compute_provenance(dialogue_outcomes: list[dict]) -> dict:
+    """Compute provenance health metrics from dialogue outcomes.
+
+    provenance_unknown_count tracks how many citations in the briefing
+    weren't matched by the 3-tier recovery in codex-dialogue Step 4.
+    None means Step 3c fired (zero-output fallback, provenance never ran).
+    """
+    result = copy.deepcopy(_PROVENANCE_TEMPLATE)
+
+    observed: list[int] = []
+    missing = 0
+
+    for event in dialogue_outcomes:
+        val = stats_common.safe_nonneg_int(event, "provenance_unknown_count")
+        if val is not None:
+            observed.append(val)
+        else:
+            missing += 1
+
+    result["provenance_observed_events"] = len(observed)
+    result["provenance_missing_events"] = missing
+
+    if observed:
+        result["avg_provenance_unknown"] = sum(observed) / len(observed)
+        result["zero_unknown_count"] = sum(1 for v in observed if v == 0)
+        result["high_unknown_count"] = sum(1 for v in observed if v > 3)
+
+    return result
+
+
+def _compute_parse_diagnostics(dialogue_outcomes: list[dict]) -> dict:
+    """Compute parse diagnostics from dialogue outcomes.
+
+    parse_truncated: True when an unclosed fence block is detected in synthesis.
+    parse_degraded: True when epilogue parse failed and markdown regex fallback
+    was used (lower precision for converged detection).
+    """
+    result = copy.deepcopy(_PARSE_DIAGNOSTICS_TEMPLATE)
+
+    for event in dialogue_outcomes:
+        truncated = event.get("parse_truncated")
+        degraded = event.get("parse_degraded")
+
+        # Only count events where at least one field is present as bool
+        if not isinstance(truncated, bool) and not isinstance(degraded, bool):
+            continue
+
+        result["observed_events"] += 1
+        t = truncated is True
+        d = degraded is True
+
+        if t:
+            result["truncated_count"] += 1
+        if d:
+            result["degraded_count"] += 1
+        if not t and not d:
+            result["clean_count"] += 1
+
+    return result
+
+
+def _compute_consultation(consultation_outcomes: list[dict]) -> dict:
+    """Compute single-turn consultation quality metrics.
+
+    Thread continuation: a thread_id appearing in 2+ events indicates
+    the user resumed a prior conversation. Rate is measured over events
+    with non-null thread_id.
+    """
+    result = copy.deepcopy(_CONSULTATION_TEMPLATE)
+
+    if not consultation_outcomes:
+        return result
+
+    # Termination distribution
+    termination_counts: dict[str, int] = {}
+    posture_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+
+    for event in consultation_outcomes:
+        reason = event.get("termination_reason")
+        if isinstance(reason, str):
+            termination_counts[reason] = termination_counts.get(reason, 0) + 1
+        if reason == "complete":
+            result["complete_count"] += 1
+
+        posture = event.get("posture")
+        if isinstance(posture, str):
+            posture_counts[posture] = posture_counts.get(posture, 0) + 1
+
+        source = event.get("consultation_source")
+        source_key = source if isinstance(source, str) else "unknown"
+        source_counts[source_key] = source_counts.get(source_key, 0) + 1
+
+    result["termination_counts"] = termination_counts
+    result["posture_counts"] = posture_counts
+    result["source_counts"] = source_counts
+
+    # Thread continuation
+    thread_ids: dict[str, int] = {}
+    for event in consultation_outcomes:
+        tid = event.get("thread_id")
+        if isinstance(tid, str):
+            thread_ids[tid] = thread_ids.get(tid, 0) + 1
+
+    continued_threads = {tid for tid, count in thread_ids.items() if count >= 2}
+    events_with_tid = sum(thread_ids.values())
+    continuation_events = sum(
+        count for tid, count in thread_ids.items() if tid in continued_threads
+    )
+
+    result["thread_continuation_count"] = continuation_events
+    if events_with_tid > 0:
+        result["thread_continuation_rate"] = continuation_events / events_with_tid
+
+    return result
+
+
+def _list_threads(events: list[dict]) -> list[dict]:
+    """List unique thread_ids across all structured events.
+
+    Returns list of dicts sorted by last_ts descending:
+    [{"thread_id": str, "event_count": int, "last_ts": str, "event_types": list[str]}]
+    """
+    threads: dict[str, dict] = {}
+
+    for event in events:
+        tid = event.get("thread_id")
+        if not isinstance(tid, str):
+            continue
+
+        if tid not in threads:
+            threads[tid] = {
+                "thread_id": tid,
+                "event_count": 0,
+                "last_ts": "",
+                "event_types": set(),
+            }
+
+        threads[tid]["event_count"] += 1
+        ts = event.get("ts", "")
+        if isinstance(ts, str) and ts > threads[tid]["last_ts"]:
+            threads[tid]["last_ts"] = ts
+
+        et = event.get("event", "")
+        if isinstance(et, str):
+            threads[tid]["event_types"].add(et)
+
+    # Convert sets to sorted lists for JSON serialization
+    result = []
+    for info in threads.values():
+        info["event_types"] = sorted(info["event_types"])
+        result.append(info)
+
+    # Sort by last_ts descending
+    result.sort(key=lambda t: t["last_ts"], reverse=True)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Section inclusion matrix
 # ---------------------------------------------------------------------------
 
 _SECTION_MATRIX: dict[str, dict[str, bool]] = {
-    "all":          {"usage": True,  "dialogue": True,  "context": True,  "security": True,  "delegation": True},
-    "dialogue":     {"usage": True,  "dialogue": True,  "context": True,  "security": False, "delegation": False},
-    "consultation": {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": False},
-    "security":     {"usage": False, "dialogue": False, "context": False, "security": True,  "delegation": False},
-    "delegation":   {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": True},
+    "all":          {"usage": True,  "dialogue": True,  "context": True,  "security": True,  "delegation": True,  "planning": True,  "provenance": True,  "parse_diagnostics": True,  "consultation": True},
+    "dialogue":     {"usage": True,  "dialogue": True,  "context": True,  "security": False, "delegation": False, "planning": True,  "provenance": True,  "parse_diagnostics": True,  "consultation": False},
+    "consultation": {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": False, "planning": True,  "provenance": False, "parse_diagnostics": False, "consultation": True},
+    "security":     {"usage": False, "dialogue": False, "context": False, "security": True,  "delegation": False, "planning": False, "provenance": False, "parse_diagnostics": False, "consultation": False},
+    "delegation":   {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": True,  "planning": False, "provenance": False, "parse_diagnostics": False, "consultation": False},
 }
 
 
@@ -524,6 +800,26 @@ def compute(
     else:
         delegation_section = copy.deepcopy(_DELEGATION_TEMPLATE)
 
+    if matrix.get("planning"):
+        planning_section = _compute_planning(dialogue_outcomes, consultation_outcomes)
+    else:
+        planning_section = copy.deepcopy(_PLANNING_TEMPLATE)
+
+    if matrix.get("provenance"):
+        provenance_section = _compute_provenance(dialogue_outcomes)
+    else:
+        provenance_section = copy.deepcopy(_PROVENANCE_TEMPLATE)
+
+    if matrix.get("parse_diagnostics"):
+        parse_diagnostics_section = _compute_parse_diagnostics(dialogue_outcomes)
+    else:
+        parse_diagnostics_section = copy.deepcopy(_PARSE_DIAGNOSTICS_TEMPLATE)
+
+    if matrix.get("consultation"):
+        consultation_section = _compute_consultation(consultation_outcomes)
+    else:
+        consultation_section = copy.deepcopy(_CONSULTATION_TEMPLATE)
+
     # 8. Build output envelope
     return {
         "report_version": "1.0.0",
@@ -543,6 +839,10 @@ def compute(
         "context": context_section,
         "security": security_section,
         "delegation": delegation_section,
+        "planning": planning_section,
+        "provenance": provenance_section,
+        "parse_diagnostics": parse_diagnostics_section,
+        "consultation": consultation_section,
     }
 
 
@@ -582,6 +882,12 @@ def main() -> None:
         default=True,
         help="Output as JSON (default, kept for compatibility)",
     )
+    parser.add_argument(
+        "--threads",
+        action="store_true",
+        default=False,
+        help="List unique thread IDs instead of computing stats",
+    )
     args = parser.parse_args()
 
     try:
@@ -589,6 +895,20 @@ def main() -> None:
     except ValueError as exc:
         print(f"invalid --period: {exc}", file=sys.stderr)
         sys.exit(2)
+
+    if args.threads:
+        try:
+            events, _skipped = read_events.read_all(Path(args.path))
+            period_days_val = stats_common.parse_period_days(args.period)
+            if period_days_val > 0:
+                now = datetime.now(timezone.utc)
+                events = stats_common.filter_by_period(events, period_days_val, now).events
+            result = _list_threads(events)
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"thread listing failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(result, indent=2))
+        return
 
     try:
         events, skipped = read_events.read_all(Path(args.path))

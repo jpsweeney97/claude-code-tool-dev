@@ -180,3 +180,31 @@ Issues you found independently.
 - Style-only suggestions unless they indicate bugs
 - Praise or filler ("the code is well-structured...")
 - The raw Codex response
+
+## Step 5: Emit Analytics
+
+After completing the review, emit a consultation_outcome event for analytics visibility:
+
+```bash
+TMPFILE=$(mktemp /tmp/codex-review-analytics-XXXXXX.json)
+cat > "$TMPFILE" <<'ANALYTICS_EOF'
+{
+  "event_type": "consultation_outcome",
+  "pipeline": {
+    "posture": "{posture used}",
+    "turn_count": {turn_count},
+    "turn_budget": {turn_count},
+    "thread_id": "{thread_id from codex-reply response, or null}",
+    "termination_reason": "complete",
+    "mode": "server_assisted",
+    "consultation_source": "reviewer"
+  }
+}
+ANALYTICS_EOF
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/emit_analytics.py" "$TMPFILE" 2>/dev/null || true
+rm -f "$TMPFILE"
+```
+
+**Fail-soft:** The `|| true` ensures analytics failure doesn't block the review output. The `2>/dev/null` suppresses error output. If `emit_analytics.py` fails, the review still completes — analytics emission is observability, not correctness.
+
+Do NOT emit analytics if the consultation was aborted (MCP tool unavailable, user cancelled).
