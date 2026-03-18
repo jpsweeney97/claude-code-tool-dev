@@ -437,22 +437,23 @@ An implementation is conformant when all items pass:
 - [ ] All 7 governance locks present in implementation
 - [ ] Local rule list matches §15 exactly
 
-**Learning Retrieval (§17)** *(deferred — card model removed by learning system redesign. See `docs/plans/2026-03-11-learning-system-redesign.md`)*
-- [x] Fail-soft stub in place *(returns empty — no cards to inject)*
-- [ ] ~~Cards capped at 5 per consultation~~ *(deferred — no card model in v1)*
-- [ ] ~~Cards injected at correct point (§17.2)~~ *(deferred)*
+**Learning Retrieval (§17)**
+- [x] Retrieval script implemented (`scripts/retrieve_learnings.py`, 22 tests)
+- [x] Entries capped at 5 per consultation (`--max-entries 5`)
+- [x] Entries injected at correct point per §17.2 (`/codex` in `## Context`, `/dialogue` in `## Prior Learnings`)
+- [x] Fail-soft on missing/empty learning store
 
 ---
 
-## 17. Learning Retrieval and Injection (Deferred)
+## 17. Learning Retrieval and Injection
 
-> **Status: Deferred.** The learning system redesign (`docs/plans/2026-03-11-learning-system-redesign.md`) removed the card model this section depends on. The redesign uses a funnel (capture → stage → graduate to CLAUDE.md) instead of card-based injection. This section is retained as reference for a potential v2 feature: deterministic query-scoped retrieval of unpromoted learnings for Codex briefings.
+> **Status: Active.** Implemented via `scripts/retrieve_learnings.py` — keyword/tag-based retrieval from `docs/learnings/learnings.md`. Both `/codex` and `/dialogue` skills call the script before briefing assembly. Future migration: when Engram Step 2a lands, update the default path from `docs/learnings/learnings.md` to `engram/knowledge/learnings.md` (configurable via `--path`).
 
 Pre-consultation retrieval of relevant learning entries from prior sessions. Both `/codex` and `/dialogue` paths SHOULD attempt this step before briefing assembly, but failure or absence does not block the consultation.
 
 ### 17.1 Retrieval Protocol
 
-1. **Read learning store:** Read from `docs/learnings/learnings.md` (or the configured learning store path).
+1. **Read learning store:** `scripts/retrieve_learnings.py` reads from `docs/learnings/learnings.md` by default. Override with `--path` for alternate locations (e.g., Engram migration).
 2. **Filter by relevance:** Select entries whose tags or content overlap with the consultation question. Relevance filtering is best-effort — false positives (including an irrelevant entry) are preferable to false negatives (excluding a relevant one).
 3. **Cap:** Include at most 5 entries per consultation to avoid context dilution.
 4. **Fail-soft:** If the learning store is missing, empty, or unreadable, proceed without learning entries. Do not block the consultation.
@@ -471,7 +472,7 @@ Each injected entry SHOULD include:
 
 Entries MUST NOT include raw Codex responses, credentials, or session-specific identifiers.
 
-### 17.4 Non-Goals (Deferred)
+### 17.4 Non-Goals (v2)
 
 - Mid-dialogue adaptive injection (re-querying the learning store based on conversation turns)
 - Automated relevance scoring (machine-learned models for entry selection)
