@@ -179,7 +179,8 @@ selected_tasks:
     depends_on: [T1]
     done_when: <strategic completion condition>
 decision_gates:
-  - after: T2
+  - gate_id: G1
+    after: T2
     condition: <if X then path A; otherwise path B>
 source_findings:
   - finding_id: F1
@@ -444,7 +445,7 @@ Each skill gets a short self-contained stub referencing the contract:
 - What downstream capsule it emits
 - When to suggest the next hop
 
-**File location:** TBD — alongside the consultation contract at `packages/plugins/cross-model/references/` or in a shared location accessible to all three skills.
+**File location:** `packages/plugins/cross-model/references/composition-contract.md` — alongside the consultation contract, since all three skills interact through the cross-model dialogue system.
 
 ---
 
