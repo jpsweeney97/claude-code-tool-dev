@@ -530,11 +530,11 @@ def _compute_parse_diagnostics(dialogue_outcomes: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 _SECTION_MATRIX: dict[str, dict[str, bool]] = {
-    "all":          {"usage": True,  "dialogue": True,  "context": True,  "security": True,  "delegation": True},
-    "dialogue":     {"usage": True,  "dialogue": True,  "context": True,  "security": False, "delegation": False},
-    "consultation": {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": False},
-    "security":     {"usage": False, "dialogue": False, "context": False, "security": True,  "delegation": False},
-    "delegation":   {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": True},
+    "all":          {"usage": True,  "dialogue": True,  "context": True,  "security": True,  "delegation": True,  "planning": True,  "provenance": True,  "parse_diagnostics": True},
+    "dialogue":     {"usage": True,  "dialogue": True,  "context": True,  "security": False, "delegation": False, "planning": True,  "provenance": True,  "parse_diagnostics": True},
+    "consultation": {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": False, "planning": True,  "provenance": False, "parse_diagnostics": False},
+    "security":     {"usage": False, "dialogue": False, "context": False, "security": True,  "delegation": False, "planning": False, "provenance": False, "parse_diagnostics": False},
+    "delegation":   {"usage": True,  "dialogue": False, "context": False, "security": False, "delegation": True,  "planning": False, "provenance": False, "parse_diagnostics": False},
 }
 
 
@@ -694,6 +694,21 @@ def compute(
     else:
         delegation_section = copy.deepcopy(_DELEGATION_TEMPLATE)
 
+    if matrix.get("planning"):
+        planning_section = _compute_planning(dialogue_outcomes, consultation_outcomes)
+    else:
+        planning_section = copy.deepcopy(_PLANNING_TEMPLATE)
+
+    if matrix.get("provenance"):
+        provenance_section = _compute_provenance(dialogue_outcomes)
+    else:
+        provenance_section = copy.deepcopy(_PROVENANCE_TEMPLATE)
+
+    if matrix.get("parse_diagnostics"):
+        parse_diagnostics_section = _compute_parse_diagnostics(dialogue_outcomes)
+    else:
+        parse_diagnostics_section = copy.deepcopy(_PARSE_DIAGNOSTICS_TEMPLATE)
+
     # 8. Build output envelope
     return {
         "report_version": "1.0.0",
@@ -713,6 +728,9 @@ def compute(
         "context": context_section,
         "security": security_section,
         "delegation": delegation_section,
+        "planning": planning_section,
+        "provenance": provenance_section,
+        "parse_diagnostics": parse_diagnostics_section,
     }
 
 

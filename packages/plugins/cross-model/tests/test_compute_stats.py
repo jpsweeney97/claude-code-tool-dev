@@ -429,3 +429,43 @@ class TestComputeParseDiagnostics:
         result = _compute_parse_diagnostics(events)
         assert result["observed_events"] == 1
         assert result["truncated_count"] == 1
+
+
+class TestTrackBSectionWiring:
+    """Integration tests for Track B section matrix wiring."""
+
+    def test_all_includes_new_sections(self) -> None:
+        """--type all includes planning, provenance, parse_diagnostics."""
+        events = [_make_dialogue_event(
+            question_shaped=True, shape_confidence="high",
+            assumptions_generated_count=3, ambiguity_count=1,
+            provenance_unknown_count=0,
+            parse_truncated=False, parse_degraded=False,
+        )]
+        result = compute(events, 0, 0, "all")
+        assert "planning" in result
+        assert result["planning"]["plan_mode_total"] == 1
+        assert "provenance" in result
+        assert result["provenance"]["provenance_observed_events"] == 1
+        assert "parse_diagnostics" in result
+        assert result["parse_diagnostics"]["observed_events"] == 1
+
+    def test_dialogue_type_includes_new_sections(self) -> None:
+        """--type dialogue includes planning, provenance, parse_diagnostics."""
+        result = compute([], 0, 0, "dialogue")
+        assert "planning" in result
+        assert "provenance" in result
+        assert "parse_diagnostics" in result
+
+    def test_consultation_type_includes_planning(self) -> None:
+        """--type consultation includes planning but not provenance/parse."""
+        result = compute([], 0, 0, "consultation")
+        assert "planning" in result
+        assert result["provenance"]["provenance_observed_events"] == 0  # zeroed
+        assert result["parse_diagnostics"]["observed_events"] == 0  # zeroed
+
+    def test_security_type_excludes_new_sections(self) -> None:
+        """--type security excludes all new sections."""
+        result = compute([], 0, 0, "security")
+        assert result["planning"]["plan_mode_total"] == 0  # template default
+        assert result["provenance"]["provenance_observed_events"] == 0
