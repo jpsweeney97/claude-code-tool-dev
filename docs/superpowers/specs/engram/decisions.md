@@ -20,6 +20,7 @@ authority: decisions
 | **NativeReader latency** | Low | Fresh scan at MVP scale is fast. `git log` off hot path. | Query latency on repos with 500+ files. |
 | **Concurrent worktree staging** | Medium | Staging files use content-addressed filenames with `O_CREAT | O_EXCL` atomic creation. Published learnings guarded by `fcntl.flock` on lockfile. Cross-worktree concurrency delegated to git merge. See [write concurrency](types.md#write-concurrency). | Two worktrees distill same snapshot concurrently — duplicate staging files? Same-worktree `/learn` + `/curate` concurrent — lost append? |
 | **Chain protocol limitations** | Low | Three inherited limitations (resume-crash gap, archive-failure poisoning, state-file TTL race). Archive-failure resolved in v1 by archive-before-state-write ordering. See [known limitations](skill-surface.md#chain-protocol-known-limitations). | Session spans >24h, save has no `resumed_from`? |
+| **Promotion marker loss** | Low | User deletes `<!-- engram:lesson:start/end -->` markers from CLAUDE.md. Consequence: Branch C/B2 degrades to manual reconcile. Promote-meta remains authoritative — no invalid state. [Marker specification](types.md#promotion-markers-in-claudemd). | `/promote` on a previously-promoted lesson produces manual reconcile instead of automatic replacement? |
 
 ## Open Questions
 
@@ -27,6 +28,7 @@ authority: decisions
 |---|---|
 | What additional fields does IndexEntry need? | Step 0a implementation. Extend based on real query needs. |
 | How many of 669 ticket tests are compatibility-critical? | Step 3. Triage before building harness. |
+| Bounded candidate search within CLAUDE.md sections — should Step 0a include section-scoped fuzzy matching as fallback? | Step 0a implementation. Start with markers + manual reconcile only. Add section search if marker loss frequency warrants. |
 
 ## Deferred Decisions
 
@@ -44,3 +46,6 @@ Explicitly not in v1. Each entry records what was deferred and why.
 | Cross-user timeline | Session-local only. Multi-user via `git log` is out of scope. |
 | Bounded protected-path drift scan | PostToolUse Bash trigger comparing protected-root manifest before/after Bash execution. Would close the Bash enforcement gap for git-tracked paths. Not achievable without pre/post state comparison mechanism. |
 | RecordRef subsystem/record_kind constraints | Validated at construction time in implementation, not schema-level Literal types. See SP-8. |
+| Ledger failure taxonomy | Success-only events for v1. Add failure events, phase attribution, and error classification when recovery-phase automation is warranted. |
+| Search relevance ranking | Deterministic `created_at` ordering for v1. Add BM25/TF-IDF when query volume and result set size warrant ranking. |
+| Promotion bounded search | Marker-based location only for v1. Add section-scoped candidate matching if marker loss data shows need. |
