@@ -17,7 +17,7 @@ class RecordRef:
     repo_id: str          # UUIDv4, stored in .engram-id at repo root
     subsystem: str        # "context" | "work" | "knowledge"
     record_kind: str      # Subsystem-specific: "snapshot", "checkpoint", "ticket", "lesson", etc.
-    record_id: str        # Subsystem-native ID (handoff filename, T-YYYYMMDD-NN, lesson_id)
+    record_id: str        # Subsystem-native ID (snapshot filename, T-YYYYMMDD-NN, lesson_id)
 ```
 
 ## RecordMeta — Provenance
@@ -96,6 +96,7 @@ class PromoteEnvelope:
     header: EnvelopeHeader
     target_section: str            # Where in CLAUDE.md
     transformed_text: str          # Prescriptive prose, ready to insert
+    content_sha256: str            # Hash of source lesson content at envelope creation time
 ```
 
 ## promote-meta — Promotion State Record
@@ -111,6 +112,14 @@ class PromoteMeta:
     transformed_text_sha256: str  # Hash of the text written to CLAUDE.md
 ```
 
+**Serialization:** All fields are required. Stored as an HTML comment in learnings.md immediately after the entry's `lesson-meta` comment:
+
+```markdown
+<!-- promote-meta {"target_section": "## Code Style", "promoted_at": "2026-03-17T14:30:00Z", "promoted_content_sha256": "a1b2c3...", "transformed_text_sha256": "d4e5f6..."} -->
+```
+
+Field names match the Python dataclass exactly. All string values. `promoted_at` uses ISO 8601 UTC.
+
 **Re-promotion detection:** If a lesson's `content_sha256` changes after promotion, the `PromoteEnvelope` idempotency key changes (because `content_sha256` is part of the material). The engine detects this as a stale promotion: existing `promote-meta.promoted_content_sha256` != current `content_sha256`. `/promote` surfaces stale promotions for user review. `/triage` reports them as a mismatch class alongside the Step-3-failure case.
 
 ## Idempotency and Dedup
@@ -124,7 +133,7 @@ The `idempotency_key` in `EnvelopeHeader` is computed from `canonical_json(idemp
 | Envelope | Idempotency Material |
 |---|---|
 | `DeferEnvelope` | `{source_ref.record_id, title, problem}` |
-| `DistillEnvelope` | `{source_ref.record_id, sorted([{content_sha256, source_section, durability}, ...])}` |
+| `DistillEnvelope` | `{source_ref.record_id, sorted([canonical_json({content_sha256, source_section, durability}), ...], key=lambda c: c["content_sha256"])}` |
 | `PromoteEnvelope` | `{source_ref.record_id, target_section, content_sha256}` |
 
 `canonical_json()` sorts keys and normalizes whitespace. Same material produces the same key — target engine returns existing result without side effects.
@@ -138,6 +147,10 @@ Uses content fingerprints at the record level:
 - Work engine's existing duplicate detection — `sha256(normalize(problem_text) + sorted(key_file_paths))` fingerprint within a 24-hour window. The fingerprint uses problem content and file paths, not titles.
 
 These mechanisms are independent in purpose and enforcement stage: an idempotent retry (same `idempotency_key`) is caught at the envelope level before dedup is ever checked. A genuinely new operation with coincidentally identical content is caught by dedup, not idempotency.
+
+### Engine Hash Verification
+
+The Knowledge engine **must** recompute `sha256(normalize(content))` for every `DistillCandidate` and verify it matches the caller-provided `content_sha256`. Reject any candidate where the computed hash does not match. This prevents hash drift from corrupting the dedup invariant. Caller provides the hash (self-describing envelopes); engine verifies (trust-but-verify).
 
 ## Knowledge Entry Format — lesson-meta Contract
 
@@ -160,7 +173,7 @@ The [Knowledge reader](storage-and-indexing.md#readers) parses `### ` headings a
 
 ### Format Preservation
 
-Each subsystem keeps its native format. Tickets keep fenced YAML. Handoffs keep `---` frontmatter. Learnings use heading-delimited blocks with `lesson-meta` comments. [NativeReaders](storage-and-indexing.md#nativereader-protocol) parse each format without requiring unification.
+Each subsystem keeps its native format. Tickets keep fenced YAML. Snapshots keep `---` frontmatter. Learnings use heading-delimited blocks with `lesson-meta` comments. [NativeReaders](storage-and-indexing.md#nativereader-protocol) parse each format without requiring unification.
 
 ## Write Concurrency
 

@@ -37,6 +37,8 @@ Three rules constrain `/save` to prevent [God Skill](decisions.md#named-risks) d
 2. **No hidden behaviors.** Every sub-operation visible in per-step results.
 3. **Independently retryable.** Failed steps retry via standalone skills with explicit `--snapshot-ref` from [recovery manifest](operations.md#recovery-manifest). "Latest" is permitted for discovery UI only, never as the semantic source of a write.
 
+**Structural verification:** `/save` sub-operations should call the same implementation functions as their standalone counterparts. Recommended pattern: thin wrapper that delegates to shared implementation. Verified by code review; structural guard in [delivery.md exit criteria](delivery.md#step-4-context-cutover).
+
 ## Chain Protocol — Session Lineage Tracking
 
 Enables `resumed_from` tracking across sessions. Carried forward from the existing handoff contract with identity changes.
@@ -45,6 +47,8 @@ Enables `resumed_from` tracking across sessions. Carried forward from the existi
 
 1. Archive the snapshot to `~/.claude/engram/<repo_id>/snapshots/.archive/<filename>`
 2. Write archive path to `~/.claude/engram/<repo_id>/chain/<worktree_id>-<session_id>`
+
+**Precondition:** Chain state file creation requires a non-None `session_id`. If `session_id` cannot be resolved at `/load` time, the chain file is not written and `resumed_from` is omitted from the next snapshot. A diagnostic warning is logged.
 
 ### Save/Quicksave — Reads and Cleans Chain State
 
@@ -75,5 +79,5 @@ Three inherited limitations, carried forward with documentation:
 | `/save` vs `/quicksave` | Full session wrap-up vs. quick checkpoint |
 | `/triage` vs `/ticket list` | Cross-subsystem health dashboard vs. list my tickets |
 | `/search` vs `/ticket query` | Find across everything vs. find ticket by ID prefix |
-| `/distill` vs `/learn` | Bulk extraction from snapshot (staged) vs. capture one insight manually (direct publish). Both write [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract); both dedup via `content_sha256`. |
+| `/distill` vs `/learn` | Bulk extraction from snapshot (staged as `DistillCandidate` files) vs. capture one insight manually (direct publish to `learnings.md` with [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract)). Both dedup via `content_sha256`. Lesson-meta is applied by `/curate` when staged candidates are published. |
 | `/curate` vs `/promote` | Review staged candidates vs. graduate published knowledge to CLAUDE.md |
