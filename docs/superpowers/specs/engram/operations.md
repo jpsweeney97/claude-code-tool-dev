@@ -121,13 +121,14 @@ Three-step state machine with marker-based location and reconciliation recovery.
                 old content hash, new content — user places manually).
     -> Step 2 (skill): Skill writes transformed text to CLAUDE.md wrapped in markers
         For Branch A: insert at target_section with paired markers
-        For Branch B2: manual reconcile — user confirms new placement
+        For Branch B2: manual reconcile — user confirms new placement, skill wraps in markers
         For Branch C1: replace text between existing markers (user approved)
         For Branch C2: replace text between existing markers (user approved after seeing diff)
-        For Branch C3: manual reconcile — user confirms placement
+        For Branch C3: manual reconcile — user confirms placement, skill wraps in markers
     -> Step 3 (engine): Knowledge engine recomputes transformed_text_sha256 via
         drift_hash() on the exact post-write text between markers (see
         [Promote Hash Verification](types.md#promote-hash-verification)), then writes/updates promote-meta.
+        For Branch B2: also updates promote-meta.target_section to the user-confirmed section.
         If post-write text is unavailable, rejects the write (lesson remains eligible).
 ```
 

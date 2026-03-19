@@ -156,7 +156,7 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 - Envelope idempotency (SY-5): DeferEnvelope submitted twice returns same ref
 - Phase-scoped idempotency regression gate (VR-11): verify idempotency_key is checked by new Work engine after bridge replacement
 - Staging inbox cap (VR-8): cap=5, count=3, batch=3 → full rejection; cap=5, count=3, batch=2 → success
-- Staging cap edge case (VR-17): cap=5, count=0, batch=8 → full rejection with diagnostic message including both batch size and cap values. Assert error message contains "Batch size (8) exceeds staging cap (5)".
+- Staging cap edge case (VR-17): cap=5, count=0, batch=8 → full rejection with diagnostic message including both batch size and cap values. Assert error message contains "Batch size (8) exceeds staging cap (5)" and actionable guidance "Increase knowledge_max_stages to at least 8".
 
 ### Step 3b — Retire
 
