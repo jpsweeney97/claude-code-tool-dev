@@ -531,11 +531,13 @@ Each skill inlines a self-contained composition stub that is fully operational w
 
 ## Open Items
 
-1. ~~**Soft echo filter specification**~~: Resolved — examples added to tier 3 (2026-03-19). The existing dialogue SKILL.md tautology filter (line 93) provides the baseline rule; tier 3 examples extend it for `handoff_enriched` mode.
-2. **Composition contract file location**: Alongside consultation contract or separate shared location.
-3. **upstream_handoff version field**: Whether to include a version field for forward-compatibility with future handoff schemas.
-4. **codex-dialogue synthesis format**: Whether the agent's existing Synthesis Checkpoint output needs any changes to support capsule derivation (likely no — `/dialogue` can project from existing output).
+1. ~~**Soft echo filter specification**~~: Resolved — examples added to tier 3 (2026-03-19).
+2. **Composition contract file location**: Resolved — `packages/plugins/cross-model/references/composition-contract.md`, alongside consultation contract. Authority model: authoritative source, skills inline minimal stubs.
+3. **upstream_handoff version field**: Deferred — sentinel versioning (`v1`) provides forward-compatibility. Version field adds no value until v2 exists.
+4. **codex-dialogue synthesis format**: Resolved — no changes needed. `/dialogue` projects feedback capsule from existing Synthesis Checkpoint output.
 
 ## Cross-Model Validation
 
 Architecture validated via Codex collaborative dialogue (thread `019d0284-a997-7ce2-8dbc-8d344c589de2`, 5 turns + 3 continuation turns). 11 items resolved, 3 emerged concepts integrated into design. All design decisions reached high-confidence convergence.
+
+**Design review amendments (2026-03-19):** System design review surfaced 7 findings (F1-F7) and 2 tensions (T1-T2). Codex collaborative dialogue (thread `019d0682-3f52-70a1-b7ed-e536ad2b8652`, 5 turns) resolved all findings. Key amendments: split-field identity model (F3 emerged concept), direct-edge provenance (F2), classifier dimension separation (F4), inline-stub authority model (F6). F1 closed by counter-evidence (pipeline steps are the public contract). F5/F7 accepted as v1 tradeoffs.
