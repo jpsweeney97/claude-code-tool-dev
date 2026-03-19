@@ -35,6 +35,31 @@ def _make_dialogue_event(**overrides: object) -> dict:
     return event
 
 
+def _make_delegation_event(**overrides: object) -> dict:
+    """Build a minimal valid delegation_outcome event for testing."""
+    event = {
+        "schema_version": "0.1.0",
+        "event": "delegation_outcome",
+        "ts": "2026-01-01T00:00:00Z",
+        "consultation_id": "test-id",
+        "session_id": "test-session",
+        "thread_id": None,
+        "dispatched": True,
+        "sandbox": "workspace-write",
+        "full_auto": False,
+        "credential_blocked": False,
+        "dirty_tree_blocked": False,
+        "readable_secret_file_blocked": False,
+        "commands_run_count": 0,
+        "exit_code": 0,
+        "termination_reason": "complete",
+        "model": None,
+        "reasoning_effort": "high",
+    }
+    event.update(overrides)
+    return event
+
+
 class TestPostureValidation:
     """Posture enum validation in validate()."""
 
@@ -266,3 +291,71 @@ def test_build_dialogue_outcome_invalid_epilogue_convergence_code(
     # converged=True + unresolved=0 → all_resolved
     assert result["convergence_reason_code"] == "all_resolved"
     assert result["termination_reason"] == "convergence"
+
+
+class TestDelegationOutcomeValidation:
+    def test_valid_delegation_event_passes(self) -> None:
+        from scripts.emit_analytics import validate
+        event = _make_delegation_event()
+        validate(event, "delegation_outcome")  # should not raise
+
+    def test_blocked_termination_accepted_for_delegation(self) -> None:
+        from scripts.emit_analytics import validate
+        event = _make_delegation_event(termination_reason="blocked", dispatched=False,
+                                       credential_blocked=True, exit_code=None)
+        validate(event, "delegation_outcome")  # should not raise
+
+    def test_blocked_termination_rejected_for_dialogue(self) -> None:
+        from scripts.emit_analytics import validate
+        event = _make_dialogue_event(termination_reason="blocked")
+        with pytest.raises(ValueError, match="invalid termination_reason"):
+            validate(event, "dialogue_outcome")
+
+    def test_convergence_rejected_for_delegation(self) -> None:
+        from scripts.emit_analytics import validate
+        event = _make_delegation_event(termination_reason="convergence")
+        with pytest.raises(ValueError, match="invalid termination_reason"):
+            validate(event, "delegation_outcome")
+
+    def test_delegation_missing_field_raises(self) -> None:
+        from scripts.emit_analytics import validate
+        event = _make_delegation_event()
+        del event["dispatched"]
+        with pytest.raises(ValueError, match="missing required fields"):
+            validate(event, "delegation_outcome")
+
+    # --- Cross-field invariants (per Codex review) ---
+
+    def test_complete_requires_dispatched_true(self) -> None:
+        from scripts.emit_analytics import validate
+        event = _make_delegation_event(termination_reason="complete", dispatched=False)
+        with pytest.raises(ValueError, match="dispatched"):
+            validate(event, "delegation_outcome")
+
+    def test_blocked_requires_dispatched_false(self) -> None:
+        from scripts.emit_analytics import validate
+        event = _make_delegation_event(termination_reason="blocked", dispatched=True)
+        with pytest.raises(ValueError, match="dispatched"):
+            validate(event, "delegation_outcome")
+
+    def test_blocked_requires_block_flag(self) -> None:
+        from scripts.emit_analytics import validate
+        event = _make_delegation_event(
+            termination_reason="blocked", dispatched=False,
+            credential_blocked=False, dirty_tree_blocked=False,
+            readable_secret_file_blocked=False,
+        )
+        with pytest.raises(ValueError, match="block flag"):
+            validate(event, "delegation_outcome")
+
+    def test_commands_run_requires_dispatched(self) -> None:
+        from scripts.emit_analytics import validate
+        event = _make_delegation_event(commands_run_count=3, dispatched=False)
+        with pytest.raises(ValueError, match="dispatched"):
+            validate(event, "delegation_outcome")
+
+    def test_exit_code_requires_dispatched(self) -> None:
+        from scripts.emit_analytics import validate
+        event = _make_delegation_event(exit_code=0, dispatched=False)
+        with pytest.raises(ValueError, match="dispatched"):
+            validate(event, "delegation_outcome")
