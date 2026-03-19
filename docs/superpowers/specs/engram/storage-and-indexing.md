@@ -114,6 +114,8 @@ class NativeReader(Protocol):
     # No write(). By design.
 ```
 
+**Reader wiring:** `query.py` instantiates a fixed set of NativeReaders (context, work, knowledge). The `NativeReader` Protocol is a typing contract only — it provides structural subtyping for reader implementations but does not provide registration, discovery, or enforcement. Adding a new reader requires a code change in `query.py`, not a plugin mechanism.
+
 ### Readers
 
 Readers live with their subsystems:
@@ -150,6 +152,7 @@ class QueryDiagnostics:
     skipped_count: int            # Files that failed to parse
     warnings: list[str]           # Parse errors, reader failures
     degraded_roots: list[str]     # "private" or "shared" if unavailable
+    degraded_subsystems: list[str]  # Subsystems where reader scan()/read() raised an exception
 
 @dataclass(frozen=True)
 class QueryResult:
@@ -229,5 +232,6 @@ No ledger means timeline still works but at lower fidelity (no completion eviden
 | Private root unavailable | Context queries return empty | `diagnostics.degraded_roots = ["private"]` |
 | Shared root unavailable | Work + Knowledge return empty | `diagnostics.degraded_roots = ["shared"]` |
 | Reader fails to parse a file | Skip file, add to warnings | `diagnostics.skipped_count > 0` |
+| Reader `scan()` or `read()` raises unhandled exception | Catch, skip that reader's entire subsystem, add to `degraded_subsystems` and `warnings` | `diagnostics.degraded_subsystems` includes subsystem name. `diagnostics.warnings` includes subsystem name and error message. `diagnostics.skipped_count` is not incremented (file-level metric). Other subsystems' results are unaffected. |
 | Both roots unavailable | All queries return empty | Skills report "Engram storage unavailable" |
 | No ledger | Timeline uses file timestamps only | Lower fidelity, documented |
