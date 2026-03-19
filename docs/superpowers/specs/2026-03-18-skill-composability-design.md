@@ -209,6 +209,8 @@ The NS handoff threads through the full `/dialogue` pipeline, not just Step 0:
 | Step 3 | Deterministic projection of source_findings and decision_gates into briefing Context section |
 | Step 3c | Zero-output fallback preserves upstream context as sole grounding |
 
+**Boundary clarification:** The pipeline stages referenced above (Pre-Step 0, Step 0, Step 2, Step 3, Step 3c) are part of the dialogue skill's public contract, as codified in its SKILL.md and governed by the consultation contract's normative precedence (SS2). The NS handoff is designed to these published stages — this is correct boundary coupling to a public interface, not internal implementation coupling.
+
 ### Posture precedence
 
 ```
@@ -482,7 +484,9 @@ NS does not write files today. If `docs/plans/` is added later, use the same `ar
 
 ## Shared Composition Contract
 
-A thin reference document (~50-80 lines) loaded by all participating skills. Governs:
+A thin reference document (~50-80 lines). The authoritative source for cross-skill composition semantics. Each participating skill inlines the minimal operational subset it needs as a self-contained stub. The full contract is additive context, not a required dependency — every skill must function correctly with only its inline stub.
+
+Governs:
 
 - Artifact metadata schema (artifact_id, subject_key, supersedes, source_artifacts)
 - Capsule sentinel formats and version handling
@@ -492,7 +496,7 @@ A thin reference document (~50-80 lines) loaded by all participating skills. Gov
 - Staleness detection rules
 - Capsule emission rule: "same schema when externalized, no schema obligation when used as internal reasoning scaffolding"
 
-Each skill gets a short self-contained stub referencing the contract:
+Each skill inlines a self-contained composition stub that is fully operational without reading the contract. The stub specifies:
 - What upstream capsule it can consume
 - What downstream capsule it emits
 - When to suggest the next hop
@@ -505,9 +509,9 @@ Each skill gets a short self-contained stub referencing the contract:
 
 | Skill | Changes required |
 |-------|-----------------|
-| **adversarial-review** | Add AR capsule emission after prose output. Add `/next-steps` suggestion. Add composition contract stub. |
-| **next-steps** | Add AR capsule consumption (advisory/tolerant). Add NS handoff block emission when suggesting dialogue. Add composition contract stub. |
-| **dialogue** | Add NS handoff detection and `upstream_handoff` pipeline state. Add `handoff_enriched` decomposition mode to Step 0. Thread handoff through Steps 2-3. Add dialogue feedback capsule emission after synthesis. Add routing classification. Add composition contract stub. |
+| **adversarial-review** | Add AR capsule emission after prose output. Add `/next-steps` suggestion. Inline self-contained composition stub (upstream/downstream capsules, consumer class, hop suggestion). |
+| **next-steps** | Add AR capsule consumption (advisory/tolerant). Add NS handoff block emission when suggesting dialogue. Inline self-contained composition stub (upstream/downstream capsules, consumer class, hop suggestion). |
+| **dialogue** | Add NS handoff detection and `upstream_handoff` pipeline state. Add `handoff_enriched` decomposition mode to Step 0. Thread handoff through Steps 2-3. Add dialogue feedback capsule emission after synthesis. Add routing classification. Inline self-contained composition stub (upstream/downstream capsules, consumer class, hop suggestion). |
 | **Shared contract** | New file: composition contract governing artifact schemas, consumer classes, routing, staleness. |
 
 ---
