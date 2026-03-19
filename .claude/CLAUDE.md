@@ -76,36 +76,7 @@ Three systems form the cross-model collaboration stack:
 
 **Codex hook delivery:** `PostToolUseFailure` `additionalContext` confirmed working (verified 2026-02-17).
 
-## Workflow
-
-### Promoting Extensions
-
-```bash
-uv run scripts/promote <type> <name>   # Validate and deploy to ~/.claude/
-```
-
-Types: `skill`, `command`, `agent`, `hook`. Plugins use the marketplace instead (see Packages table).
-
-### Scripts
-
-Run with `uv run scripts/<name>`:
-
-| Script | Purpose |
-|--------|---------|
-| `promote` | Validate and deploy extensions to `~/.claude/` |
-| `sync-settings` | Sync hook config to `settings.json` (run after hook changes) |
-| `inventory` | List all extensions and packages |
-| `migrate` | Extension schema migrations |
-| `validate_consultation_contract.py` | Validate Codex contract + governance rules |
-| `validate_episode.py` | Validate learning episode format |
-
-Additional scripts in `scripts/` for benchmarking and analysis. See directory listing for full inventory.
-
 ## Rules
-
-### Methodology
-
-Read `.claude/rules/methodology/frameworks.md` for guidance on when to use which framework. Full frameworks with templates and worked examples live in `docs/frameworks/`.
 
 ### Thoroughness over cost
 
@@ -144,6 +115,31 @@ Full guidance: `docs/references/writing-principles.md`
 
 - **Prohibit, don't omit**: When Claude should avoid an action, use active prohibitions ("Do NOT set X", "Never use Y") rather than passive language ("omit X for default", "leave X empty"). Passive instructions don't reliably prevent Claude from filling gaps with training knowledge. The stronger the training prior, the more explicit the prohibition must be.
 - **Standalone layers**: When instruction documents layer (skill → agent → contract), each layer must be fully operational standalone. Never use "if available, use X; otherwise fall back" — inline the minimal self-contained version. Other sources are additive, not alternative.
+
+## Workflow
+
+### Promoting Extensions
+
+```bash
+uv run scripts/promote <type> <name>   # Validate and deploy to ~/.claude/
+```
+
+Types: `skill`, `command`, `agent`, `hook`. Plugins use the marketplace instead (see Packages table).
+
+### Scripts
+
+Run with `uv run scripts/<name>`:
+
+| Script | Purpose |
+|--------|---------|
+| `promote` | Validate and deploy extensions to `~/.claude/` |
+| `sync-settings` | Sync hook config to `settings.json` (run after hook changes) |
+| `inventory` | List all extensions and packages |
+| `migrate` | Extension schema migrations |
+| `validate_consultation_contract.py` | Validate Codex contract + governance rules |
+| `validate_episode.py` | Validate learning episode format |
+
+Additional scripts in `scripts/` for benchmarking and analysis. See directory listing for full inventory.
 
 ### Quick Reference
 
