@@ -146,6 +146,20 @@ VALID_TERMINATION_REASONS: frozenset[str] = frozenset({
     "convergence", "budget", "error", "scope_breach", "complete",
 })
 
+VALID_DELEGATION_TERMINATION_REASONS: frozenset[str] = frozenset({
+    "blocked", "complete", "error",
+})
+"""Valid termination_reason values for delegation_outcome events.
+Delegation has different terminal states than dialogue/consultation:
+'blocked' (credential/gate block), 'complete' (success), 'error' (adapter failure)."""
+
+
+def valid_termination_reasons(event_type: str) -> frozenset[str]:
+    """Return the valid termination_reason set for an event type."""
+    if event_type == "delegation_outcome":
+        return VALID_DELEGATION_TERMINATION_REASONS
+    return VALID_TERMINATION_REASONS
+
 VALID_CONSULTATION_SOURCES: frozenset[str] = frozenset({
     "codex",
     "dialogue",
