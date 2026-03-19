@@ -99,18 +99,18 @@ class TestScanTextBroad:
 
     def test_encryption_key_assignment(self) -> None:
         result = scan_text("encryption_key = mysecret123")
-        assert result.action == "shadow"
-        assert result.tier == "broad"
+        assert result.action == "block"
+        assert result.tier == "contextual"
 
     def test_signing_key_assignment(self) -> None:
         result = scan_text("signing_key = mysecret123")
-        assert result.action == "shadow"
-        assert result.tier == "broad"
+        assert result.action == "block"
+        assert result.tier == "contextual"
 
     def test_api_secret_assignment(self) -> None:
         result = scan_text("api_secret = mysecret123")
-        assert result.action == "shadow"
-        assert result.tier == "broad"
+        assert result.action == "block"
+        assert result.tier == "contextual"
 
     def test_credential_assignment(self) -> None:
         result = scan_text("credential = mysecret123")
@@ -155,6 +155,70 @@ class TestScanTextPriority:
         text = "AKIAIOSFODNN7EXAMPLE and ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
         result = scan_text(text)
         assert result.tier == "strict"
+
+
+class TestCredentialAssignmentStrong:
+    """Strong machine-secret key names should block at contextual tier."""
+
+    def test_api_key_line_anchored_blocks(self) -> None:
+        """Line-anchored assignment blocks."""
+        result = scan_text("api_key = real_secret_value_123")
+        assert result.action == "block"
+        assert result.tier == "contextual"
+
+    def test_client_secret_blocks(self) -> None:
+        result = scan_text("client_secret = prod_abc123def456")
+        assert result.action == "block"
+        assert result.tier == "contextual"
+
+    def test_private_key_blocks(self) -> None:
+        result = scan_text("private_key = a1b2c3d4e5f6g7h8")
+        assert result.action == "block"
+        assert result.tier == "contextual"
+
+    def test_signing_key_blocks(self) -> None:
+        result = scan_text("signing_key = real_key_material_here")
+        assert result.action == "block"
+        assert result.tier == "contextual"
+
+    def test_export_prefix_blocks(self) -> None:
+        """export keyword before key name should still match."""
+        result = scan_text("export access_token = eyJhbGciOiJIUzI1N")
+        assert result.action == "block"
+        assert result.tier == "contextual"
+
+    def test_indented_assignment_blocks(self) -> None:
+        """Indented assignment (config files) should match."""
+        result = scan_text("  api_key = real_secret_value_123")
+        assert result.action == "block"
+        assert result.tier == "contextual"
+
+    def test_mid_sentence_does_not_block(self) -> None:
+        """Key name mid-sentence is NOT line-anchored — should NOT block."""
+        result = scan_text("the access_token = eyJhbGciOiJIUzI1N is used for auth")
+        # Mid-sentence: not line-anchored, so strong family does not match.
+        # Falls through to broad family which matches but only shadows.
+        assert result.action != "block" or result.tier != "contextual"
+
+    def test_strong_with_placeholder_allows(self) -> None:
+        result = scan_text("example: api_key = your-key-here")
+        assert result.action == "allow"
+
+    def test_strong_with_dummy_allows(self) -> None:
+        result = scan_text("dummy api_key = placeholder_value")
+        assert result.action == "allow"
+
+    def test_password_stays_shadow(self) -> None:
+        """Generic 'password' should remain broad (shadow-only)."""
+        result = scan_text("password = test123456")
+        assert result.action == "shadow"
+        assert result.tier == "broad"
+
+    def test_credential_stays_shadow(self) -> None:
+        """Generic 'credential' should remain broad (shadow-only)."""
+        result = scan_text("credential = myvalue123")
+        assert result.action == "shadow"
+        assert result.tier == "broad"
 
 
 class TestTierCaching:

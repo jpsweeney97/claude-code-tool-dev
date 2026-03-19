@@ -193,11 +193,26 @@ FAMILIES: tuple[SecretFamily, ...] = (
         egress_enabled=True,
     ),
     SecretFamily(
+        name="credential_assignment_strong",
+        pattern=re.compile(
+            # Line-anchored: match at line start (optional whitespace/export).
+            # Assignment-shaped: key followed by = or : then value.
+            r"(?im)^[\t ]*(?:export\s+)?"
+            r"((?:api_key|apikey|api_secret|client_secret|"
+            r"private_key|secret_key|encryption_key|signing_key|"
+            r"access_token|auth_token)\s*[=:]\s*)"
+            r"[\"']?([^\s\"']{6,})[\"']?"
+        ),
+        tier="contextual",
+        placeholder_bypass=list(PLACEHOLDER_BYPASS_WORDS),
+        redact_template=r"\1[REDACTED:value]",
+        redact_enabled=True,
+        egress_enabled=True,
+    ),
+    SecretFamily(
         name="credential_assignment",
         pattern=re.compile(
-            r"(?i)((?:password|passwd|secret|api_key|apikey|access_token|"
-            r"auth_token|private_key|credential|api_secret|client_secret|"
-            r"secret_key|encryption_key|signing_key)\s*[=:]\s*)"
+            r"(?i)((?:password|passwd|secret|credential)\s*[=:]\s*)"
             r"[\"']?([^\s\"']{6,})[\"']?"
         ),
         tier="broad",

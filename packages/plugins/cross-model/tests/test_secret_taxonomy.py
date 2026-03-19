@@ -25,6 +25,22 @@ def test_tier_enabled_consistency() -> None:
     assert pem.redact_enabled is False
 
 
+def test_credential_assignment_strong_is_contextual() -> None:
+    family = next(f for f in FAMILIES if f.name == "credential_assignment_strong")
+    assert family.tier == "contextual"
+    assert family.egress_enabled is True
+    assert family.placeholder_bypass  # non-empty
+
+
+def test_credential_assignment_broad_narrowed() -> None:
+    family = next(f for f in FAMILIES if f.name == "credential_assignment")
+    assert family.tier == "broad"
+    # api_key should NOT match the narrowed broad pattern
+    assert family.pattern.search("api_key = real_value_123") is None
+    # password SHOULD still match
+    assert family.pattern.search("password = test123456") is not None
+
+
 def test_placeholder_bypass_logic() -> None:
     family = next(family for family in FAMILIES if family.name == "github_pat")
     nearby_text = "example: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
