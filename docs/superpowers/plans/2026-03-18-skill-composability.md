@@ -46,9 +46,10 @@ Every capsule includes these fields:
 
 | Field | Type | Purpose |
 |-------|------|---------|
-| `artifact_id` | `<prefix>:<date>:<subject-key>:<sequence>` | Unique identity for this skill-run snapshot |
+| `artifact_id` | `<prefix>:<subject_key>:<created_at_compact>` | Unique identity for this skill-run snapshot |
 | `artifact_kind` | `adversarial_review \| next_steps_plan \| dialogue_feedback` | Artifact type |
 | `subject_key` | kebab-case string | What is being analyzed — shared across reruns |
+| `topic_key` | kebab-case string | Coarse grouping for iteration budget |
 | `created_at` | ISO 8601 | When this artifact was produced |
 | `supersedes` | artifact_id or null | Prior artifact of same kind and subject_key |
 | `source_artifacts` | list of `{artifact_id, artifact_kind, role}` | Cross-skill provenance |
@@ -56,7 +57,7 @@ Every capsule includes these fields:
 
 **Artifact ID prefixes:** `ar:` (adversarial_review), `ns:` (next_steps_plan), `dialogue:` (dialogue_feedback).
 
-**`subject_key`** identifies what is being analyzed. Two reruns of AR on the same target share a `subject_key`; the `sequence` number increments. Finding IDs, task IDs, and gate IDs are snapshot-scoped — they are valid only within their artifact.
+**Two identity keys:** `subject_key` for exact lineage matching (staleness, supersession). `topic_key` for coarse grouping (soft iteration budget). Generic inheritance rule: if a skill directly consumes an upstream capsule, it inherits both keys; if no upstream capsule is consumed, the skill mints both keys from its basis field. This applies in all directions, including the feedback loop (dialogue → AR re-review). Finding IDs, task IDs, and gate IDs are snapshot-scoped — they are valid only within their artifact.
 
 ---
 
@@ -127,7 +128,7 @@ An item is **material** if any of:
 
 1. **No auto-chaining.** Skills suggest the next arc; the user confirms.
 2. **Material-delta gating.** Do not recommend a hop unless something changed.
-3. **Soft iteration budget.** After 2 targeted loops in the same lineage (same `subject_key`), stop suggesting further hops. Report remaining open items.
+3. **Soft iteration budget.** After 2 targeted loops in the same topic (same `topic_key`), stop suggesting further hops. Report remaining open items.
 
 ---
 
@@ -176,9 +177,10 @@ Emit the capsule after the Confidence Check section, separated by a blank line. 
 
 ```yaml
 <!-- ar-capsule:v1 -->
-artifact_id: ar:<YYYY-MM-DD>:<subject-key>:<sequence>
+artifact_id: ar:<subject_key>:<created_at_compact>
 artifact_kind: adversarial_review
 subject_key: <kebab-case target identifier derived from the review target>
+topic_key: <coarse grouping key — same as subject_key unless reviewing a facet of a broader topic>
 created_at: <ISO 8601 timestamp>
 supersedes: <artifact_id of the prior review of this same subject, or null if first review>
 source_artifacts: []
@@ -204,9 +206,9 @@ open_questions:
 - `findings` mirrors the Severity Summary section. Use the same finding order and severity tags.
 - `assumptions` mirrors the Assumptions Audit. `if_wrong` is the "what breaks" clause already present in the audit.
 - `open_questions` captures questions that arose during the review but were not answered.
-- `sequence` starts at `01` for the first review of a subject. Increment if re-reviewing the same `subject_key` in the same conversation.
+- Timestamp in artifact_id provides collision resistance. No sequence counter needed.
 
-**Composition contract:** This capsule follows the artifact metadata schema in the composition contract at `packages/plugins/cross-model/references/composition-contract.md`. NS consumes it as advisory/tolerant — the capsule enhances but is not required.
+**Composition contract:** This capsule follows the artifact metadata schema inlined as minimal operational subset in this skill. NS consumes it as advisory/tolerant — the capsule enhances but is not required.
 ```
 
 - [ ] **Step 2: Add "After the review" section before Anti-patterns**
@@ -280,9 +282,10 @@ This sentinel is distinct from `<!-- dialogue-orchestrated-briefing -->`. The NS
 
 ```yaml
 <!-- next-steps-dialogue-handoff:v1 -->
-artifact_id: ns:<YYYY-MM-DD>:<subject-key>:<sequence>
+artifact_id: ns:<subject_key>:<created_at_compact>
 artifact_kind: next_steps_plan
-subject_key: <kebab-case subject identifier matching the plan topic>
+subject_key: <kebab-case subject identifier matching the plan topic — inherited from AR capsule if consumed, otherwise derived from plan topic>
+topic_key: <inherited from AR capsule if consumed, otherwise derived from plan topic>
 created_at: <ISO 8601 timestamp>
 supersedes: <prior NS artifact_id for this subject, or null>
 source_artifacts:
@@ -314,7 +317,9 @@ out_of_scope:
 
 **Posture precedence:** The `recommended_posture` is a hint — the lowest priority in dialogue's resolution chain. Explicit `--posture` and `--profile` flags override it.
 
-**Composition contract:** This handoff follows the artifact metadata schema in `packages/plugins/cross-model/references/composition-contract.md`. Dialogue consumes it as strict/deterministic.
+**Provenance fallback:** If AR capsule was not structurally consumed (prose fallback), omit the AR entry from source_artifacts entirely.
+
+**Composition contract:** This handoff follows the artifact metadata schema inlined as minimal operational subset in this skill. Dialogue consumes it as strict/deterministic.
 ```
 
 - [ ] **Step 3: Cross-reference check**
@@ -577,9 +582,9 @@ After presenting the synthesis to the user, append a dialogue feedback capsule. 
 | `recommended_posture` | From `**Recommended posture for continuation:**` or null |
 
 **Artifact metadata:**
-- `artifact_id`: `dialogue:<YYYY-MM-DD>:<subject-key>:<sequence>`. Derive `subject_key` from the goal/question topic. Use `01` as sequence for the first dialogue on a subject.
+- `artifact_id`: `dialogue:<subject_key>:<created_at_compact>`. Derive `subject_key` from the goal/question topic.
 - `supersedes`: If this is a fresh dialogue, null. If continuing after a prior dialogue on the same subject, reference the prior `artifact_id`.
-- `source_artifacts`: Include every upstream capsule consumed during this pipeline run — the AR capsule (if consumed via NS handoff's `source_findings`) and the NS handoff (if `handoff_detected`).
+- `source_artifacts`: Include the NS handoff as the only direct-edge upstream source (if `handoff_detected`). Dialogue does not directly consume AR — it only consumes NS.
 
 **Item IDs:** Assign sequential IDs: `R1`, `R2`... for resolved; `U1`, `U2`... for unresolved; `E1`, `E2`... for emerged.
 
@@ -589,9 +594,10 @@ After presenting the synthesis to the user, append a dialogue feedback capsule. 
 
 ```yaml
 <!-- dialogue-feedback-capsule:v1 -->
-artifact_id: dialogue:<date>:<subject-key>:<sequence>
+artifact_id: dialogue:<subject_key>:<created_at_compact>
 artifact_kind: dialogue_feedback
 subject_key: <derived from goal>
+topic_key: <inherited from NS handoff if consumed, otherwise derived from goal topic>
 created_at: <ISO 8601>
 supersedes: <prior dialogue artifact_id or null>
 source_artifacts:
@@ -624,11 +630,11 @@ feedback_candidates:
     affected_refs: [<upstream artifact/finding/task IDs if applicable>]
     material: <true | false>
     materiality_reason: <one-line explanation>
-    classifier_source: <rule | model | ambiguous>
+    classifier_source: <rule | model>
 <!-- /dialogue-feedback-capsule:v1 -->
 ```
 
-**Composition contract:** This capsule follows the artifact metadata schema in `packages/plugins/cross-model/references/composition-contract.md`. AR and NS consume it as advisory/tolerant.
+**Composition contract:** This capsule follows the artifact metadata schema inlined as minimal operational subset in this skill. AR and NS consume it as advisory/tolerant.
 ```
 
 - [ ] **Step 2: Cross-reference check**
@@ -677,10 +683,12 @@ For each UNRESOLVED and EMERGED item, determine the suggested feedback arc:
 4. Provide a one-line `materiality_reason`.
 5. Set `classifier_source = model`.
 
+**Dimension independence:** `classifier_source` and `suggested_arc` are independent dimensions. `classifier_source` describes the classification *method* (deterministic rule vs. LLM judgment). `suggested_arc` describes the routing *outcome* (where the item should go). `ambiguous` is a valid outcome (`suggested_arc = ambiguous`) but not a valid method — every classification is performed by either a rule or the model.
+
 **Material-delta gating:** Apply the material-delta rules from the composition contract (`packages/plugins/cross-model/references/composition-contract.md`). Set `material = true | false` based on whether the item meets any materiality criterion.
 
 **Loop guardrails:** After classifying all items, check the soft iteration budget:
-- Count how many AR or NS capsules in the conversation share the same `subject_key` as this dialogue's subject.
+- Count how many AR or NS capsules in the conversation share the same `topic_key` as this dialogue's topic.
 - If the count is >= 2 (meaning 2 prior targeted loops on this subject): do NOT suggest further hops. Instead, after the capsule, state: "This subject has been through multiple review cycles. Remaining open items: [list]. Further iteration is at your discretion."
 - If the count is < 2: present the feedback candidates with material items highlighted.
 
@@ -762,3 +770,10 @@ After all tasks are complete, run these cross-file consistency checks:
 - [ ] Each skill works standalone without upstream capsules (graceful degradation verified)
 - [ ] Composition contract is referenced from all three skills with correct file path
 - [ ] No skill file exceeds ~600 lines after modifications
+- [ ] All capsule schemas use `<prefix>:<subject_key>:<created_at_compact>` format (no sequence numbers)
+- [ ] All schemas include both `subject_key` and `topic_key`
+- [ ] Inheritance rules documented: generic rule (consume upstream → inherit; no upstream → mint) with feedback loop examples
+- [ ] Loop guardrails use `topic_key`, staleness uses `subject_key`
+- [ ] Contract 3 source_artifacts is direct-edge only (NS, not AR)
+- [ ] `classifier_source = rule | model` — `ambiguous` removed from method, retained in `suggested_arc`
+- [ ] Composition contract stubs are self-contained (not "see the contract")
