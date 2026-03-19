@@ -3,6 +3,12 @@
 Used by all analytics-emitting cross-model scripts, including codex_guard.py
 (migrated from local implementations — see commit history for D26 context).
 
+Audit durability: Best-effort JSONL append is proportionate for a single-developer
+tool where security enforcement (credential blocking) does not depend on log
+availability — enforcement happens fail-closed in codex_guard.py PreToolUse.
+If the user base grows or audit trail is needed for governance compliance,
+upgrade to a separate audit log with fail-closed write semantics.
+
 Exports:
     LOG_PATH: Path to ~/.claude/.codex-events.jsonl
     ts() -> str: ISO 8601 UTC with Z suffix (second precision)

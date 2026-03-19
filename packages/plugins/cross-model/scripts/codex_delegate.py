@@ -6,6 +6,12 @@ Phase B validate → version check → clean-tree gate → secret-file gate →
 build command → run subprocess → parse JSONL → read output → emit analytics →
 cleanup (output file only — F6 creation-ownership).
 
+Error message guidelines: Phase A (structural parse, step 3) and Phase B
+(field validation, step 5) are split so error messages reference field names
+and structural issues but never echo user-supplied content (prompts, secrets).
+This split is intentional — do not merge the phases or include prompt content
+in DelegationError messages.
+
 Usage:
     python3 codex_delegate.py <input_file.json>
 
