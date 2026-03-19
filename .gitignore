@@ -58,3 +58,7 @@ environment-improvement/
 # Desktop app config (user-specific)
 claude-devtools-config.json
 .review-workspace/
+
+# Skill eval artifacts (ephemeral output)
+.claude/skills/**/evals/
+.claude/skills/**/*-workspace/
