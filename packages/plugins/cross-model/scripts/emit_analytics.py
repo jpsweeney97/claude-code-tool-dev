@@ -73,6 +73,11 @@ else:
 _DIALOGUE_REQUIRED = REQUIRED_FIELDS_BY_EVENT["dialogue_outcome"]
 _CONSULTATION_REQUIRED = REQUIRED_FIELDS_BY_EVENT["consultation_outcome"]
 _DELEGATION_REQUIRED = REQUIRED_FIELDS_BY_EVENT["delegation_outcome"]
+_REQUIRED_MAP: dict[str, frozenset[str]] = {
+    "dialogue_outcome": _DIALOGUE_REQUIRED,
+    "consultation_outcome": _CONSULTATION_REQUIRED,
+    "delegation_outcome": _DELEGATION_REQUIRED,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -517,11 +522,6 @@ def build_consultation_outcome(input_data: dict) -> dict:
 
 def validate(event: dict, event_type: str) -> None:
     """Validate event fields. Raises ValueError on failure."""
-    _REQUIRED_MAP = {
-        "dialogue_outcome": _DIALOGUE_REQUIRED,
-        "consultation_outcome": _CONSULTATION_REQUIRED,
-        "delegation_outcome": _DELEGATION_REQUIRED,
-    }
     required = _REQUIRED_MAP.get(event_type)
     if required is None:
         raise ValueError(f"unknown event_type: {event_type!r}")
