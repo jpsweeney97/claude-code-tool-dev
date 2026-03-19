@@ -45,7 +45,7 @@ Each skill remains fully standalone and human-usable. Composition is additive �
 
 | Class | Behavior | Used by |
 |-------|----------|---------|
-| Advisory/tolerant | Validate if capsule present; fall back to prose parsing if absent or invalid | NS consuming AR capsule |
+| Advisory/tolerant | Validate if capsule present; fall back to prose parsing if absent or invalid. Emit a one-line prose diagnostic when falling back (e.g., "AR capsule not detected; lineage tracking unavailable for this run.") | NS consuming AR capsule |
 | Strict/deterministic | Reject invalid capsule but continue normal pipeline (no fallback to different data source) | Dialogue consuming NS handoff |
 
 Unknown sentinel versions: "reject block, not session" — a version mismatch prevents capsule consumption but does not break the skill invocation.
@@ -209,7 +209,7 @@ The NS handoff threads through the full `/dialogue` pipeline, not just Step 0:
 | Step 3 | Deterministic projection of source_findings and decision_gates into briefing Context section |
 | Step 3c | Zero-output fallback preserves upstream context as sole grounding |
 
-**Boundary clarification:** The pipeline stages referenced above (Pre-Step 0, Step 0, Step 2, Step 3, Step 3c) are part of the dialogue skill's public contract, as codified in its SKILL.md and governed by the consultation contract's normative precedence (SS2). The NS handoff is designed to these published stages — this is correct boundary coupling to a public interface, not internal implementation coupling.
+**Boundary clarification:** The NS handoff intentionally couples to pipeline stages documented in the dialogue skill's SKILL.md. This is documented interface coupling, not hidden internal coupling.
 
 ### Posture precedence
 
