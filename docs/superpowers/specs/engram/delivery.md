@@ -48,6 +48,7 @@ Create plugin, core library, and type contracts. Validate the foundation before 
 - Construction and equality tests for all types
 - Query scans empty directories with correct diagnostics
 - `VERSION_UNSUPPORTED` error for unknown `envelope_version` (VR-7): submit envelope with `envelope_version="99.0"`, assert error code and expected version range
+- Normalization boundary test (VR-14): construct a string where `knowledge_normalize` and `drift_hash`-level normalization (NFC+LF only) produce different outputs (e.g., trailing whitespace). Assert `content_hash(input) != drift_hash(input)`. Separately, assert `content_hash(input) != work_dedup_fingerprint(input, [])` for a mixed-case input. This proves the three pipelines diverge — using the wrong one would produce a different hash.
 
 ## Step 0b: Bootstrap and Identity
 
@@ -119,6 +120,9 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 | `/learn`, `/distill`, `/curate`, `/promote` | All knowledge skills |
 
 **Exit criteria (2a):** Full learn -> distill -> curate -> promote lifecycle. Staging dedup. [Staging inbox cap](enforcement.md#staging-inbox-cap).
+
+#### Required Verification
+- Promote-path wiring check (VR-15): `PromoteMeta.transformed_text_sha256` must be produced by `drift_hash()`, not `content_hash()`. Construct promoted text with trailing whitespace. Assert `drift_hash(text)` detects the whitespace (different hash from stripped version) while `content_hash(text)` does not (same hash). This verifies the promote pipeline uses the correct — stricter — normalizer for drift detection.
 
 ### Step 2b — Retire
 
