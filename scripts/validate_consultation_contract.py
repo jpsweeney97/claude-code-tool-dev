@@ -185,6 +185,9 @@ def check_profile_validity(repo_root: Path) -> list[str]:
     try:
         import sys
 
+        # sys.path mutation needed: this CI script lives in scripts/ and must
+        # reach into the cross-model package's scripts/ for validate_profiles.
+        # Guarded against duplicates; scoped to this process lifetime only.
         scripts_dir = (
             repo_root / "packages" / "plugins" / "cross-model" / "scripts"
         )
