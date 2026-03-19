@@ -112,6 +112,15 @@ class TestValidateProfile:
         errors = validate_profile("test", _profile(posture="aggressive", turn_budget=4))
         assert any("posture" in e.lower() for e in errors)
 
+    def test_non_string_phase_posture_rejected(self) -> None:
+        from scripts.validate_profiles import validate_profile
+        profile = _profile(
+            turn_budget=2,
+            phases=[{"posture": 123, "target_turns": 2, "description": "x"}],
+        )
+        errors = validate_profile("test", profile)
+        assert any("posture" in e.lower() for e in errors)
+
     def test_missing_description(self) -> None:
         from scripts.validate_profiles import validate_profile
         profile = {"posture": "collaborative", "turn_budget": 4,

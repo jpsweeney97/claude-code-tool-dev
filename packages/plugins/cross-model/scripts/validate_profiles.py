@@ -71,10 +71,11 @@ def _validate_phases(
             if field not in phase:
                 errors.append(f"{name}: phase {i} missing required field '{field}'")
 
-        # Posture value
+        # Posture value — reject non-strings and invalid strings
         posture = phase.get("posture")
-        if isinstance(posture, str) and posture not in VALID_POSTURES:
-            errors.append(f"{name}: phase {i} invalid posture {posture!r}")
+        if posture is not None:
+            if not isinstance(posture, str) or posture not in VALID_POSTURES:
+                errors.append(f"{name}: phase {i} invalid posture {posture!r}")
 
         # target_turns >= 1
         tt = phase.get("target_turns")
