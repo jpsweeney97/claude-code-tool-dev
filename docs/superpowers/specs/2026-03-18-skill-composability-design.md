@@ -322,6 +322,17 @@ In `handoff_enriched` mode, prevent echo of upstream framing:
 2. **Plan metadata set** — do not parrot task descriptions, done_when conditions, or dependency statements
 3. **Soft echo set** — source_findings can inspire derived assumptions but not be restated verbatim. A derived assumption must operationalize the finding (make it testable against the codebase), not merely reword it.
 
+**Tier 3 examples:**
+
+Given source finding `F1: "NS handoff deeply couples to dialogue's internal pipeline stages"`:
+
+| Derived assumption | Valid? | Reason |
+|--------------------|--------|--------|
+| "The NS handoff references dialogue's internal pipeline stages" | No — restatement | Restates the finding in assumption form without operationalizing it |
+| "Dialogue's pipeline stages could be refactored without breaking the NS handoff contract" | Yes — operationalizable | Makes the finding testable against the codebase: check whether pipeline stages are referenced in the NS schema |
+| "The pipeline stages referenced by the NS handoff are documented as public interface" | Yes — operationalizable | Tests whether the coupling is to a public or internal surface — a factual codebase question |
+| "The NS handoff couples to dialogue's pipeline" | No — restatement | Removes specificity ("internal pipeline stages") without adding testability |
+
 ---
 
 ## Feedback Loop Architecture
@@ -520,7 +531,7 @@ Each skill inlines a self-contained composition stub that is fully operational w
 
 ## Open Items
 
-1. **Soft echo filter specification**: Exact validation rule distinguishing "source-finding parrot" from legitimate source-finding-derived assumption in the tautology filter.
+1. ~~**Soft echo filter specification**~~: Resolved — examples added to tier 3 (2026-03-19). The existing dialogue SKILL.md tautology filter (line 93) provides the baseline rule; tier 3 examples extend it for `handoff_enriched` mode.
 2. **Composition contract file location**: Alongside consultation contract or separate shared location.
 3. **upstream_handoff version field**: Whether to include a version field for forward-compatibility with future handoff schemas.
 4. **codex-dialogue synthesis format**: Whether the agent's existing Synthesis Checkpoint output needs any changes to support capsule derivation (likely no — `/dialogue` can project from existing output).
