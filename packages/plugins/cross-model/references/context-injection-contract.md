@@ -10,6 +10,21 @@
 
 ---
 
+## Security Invariants
+
+The following invariant IDs identify this contract's non-negotiable security guarantees. External contracts (e.g., consultation-contract.md §15) may reference these IDs.
+
+| ID | Guarantee | Section |
+|----|-----------|---------|
+| CI-SEC-1 | Path/scope gating blocks traversal and dangerous paths before scout execution | §Call 2 Path Decisions |
+| CI-SEC-2 | Git ls-files policy gate blocks untracked files | §Call 2 Path Decisions |
+| CI-SEC-3 | One-shot HMAC-bound scout authorization prevents agent path injection | §HMAC Token Spec |
+| CI-SEC-4 | Fail-closed suppression on PEM, unsupported formats, and desync cases | §Call 2 Redaction |
+| CI-SEC-5 | Two-stage redaction (format-specific then generic tokens) before excerpt emission | §Call 2 Redaction |
+| CI-SEC-6 | Over-redaction preferred — never emit raw excerpt when secrecy is uncertain | §Redaction Markers |
+
+---
+
 ## Protocol Overview
 
 Two calls per turn. Call 1 is analysis (v0a). Call 2 is execution (v0b).

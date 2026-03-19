@@ -394,6 +394,7 @@ These rules are non-negotiable. Implementors must not override them:
 4. **Strategy default:** when uncertain, use direct invocation (single-turn).
 5. **Reply continuity:** `threadId` is canonical; `conversationId` is a deprecated compatibility alias — map to `threadId` before dispatch.
 6. **Egress sanitization:** no outbound payload to Codex without a sanitizer pass. `sanitizer_status` must be `pass_clean` or `pass_redacted`. Safety Pipeline (§7) enforces this.
+   - **Defense-in-depth layer:** Context-injection scouts are additionally bound by invariants CI-SEC-1 through CI-SEC-6 (see `context-injection-contract.md` Security Invariants). These are independent guarantees — the egress sanitizer and the context-injection redaction pipeline are separate defense layers.
 7. **Consent required for scope expansion:** any scope change after initial preflight requires explicit re-consent.
 
 **Governance drift CI check:** Implementations MUST verify that local governance rule lists match §15 exactly. If any rule is added, modified, or removed without updating this contract, the check fails. Verification script: `scripts/validate_consultation_contract.py` (Phase 3).
