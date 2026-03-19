@@ -430,7 +430,7 @@ Each artifact carries two identity keys serving different purposes:
 | Key | Purpose | Format | Example | Used by |
 |-----|---------|--------|---------|---------|
 | `subject_key` | Exact lineage matching (staleness, supersession) | kebab-case, deterministic from target | `redaction-pipeline` | Staleness detection, `supersedes` links |
-| `topic_key` | Coarse grouping (soft iteration budget) | kebab-case, broader than subject_key | `redaction-pipeline` | Loop guardrails only |
+| `topic_key` | Coarse grouping (soft iteration budget) | kebab-case, broader than subject_key | `redaction-pipeline` | Loop guardrails; propagated via inheritance by all downstream skills |
 
 For simple targets, `subject_key` and `topic_key` may be identical. They diverge when a subject is a specific facet of a broader topic (e.g., subject_key `redaction-format-layer` under topic_key `redaction-pipeline`).
 
@@ -532,6 +532,7 @@ Each skill inlines a self-contained composition stub that is fully operational w
 - What upstream capsule it can consume
 - What downstream capsule it emits
 - When to suggest the next hop
+- A reference to the authoritative contract path (`packages/plugins/cross-model/references/composition-contract.md`) for skill authors who need the full protocol
 
 **File location:** `packages/plugins/cross-model/references/composition-contract.md` — alongside the consultation contract, since all three skills interact through the cross-model dialogue system.
 
