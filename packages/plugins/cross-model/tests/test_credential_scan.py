@@ -201,12 +201,19 @@ class TestCredentialAssignmentStrong:
         assert result.action != "block" or result.tier != "contextual"
 
     def test_strong_with_placeholder_allows(self) -> None:
-        result = scan_text("example: api_key = your-key-here")
+        """Line-anchored match with bypass word in value allows."""
+        result = scan_text("api_key = your-key-here")
         assert result.action == "allow"
 
     def test_strong_with_dummy_allows(self) -> None:
-        result = scan_text("dummy api_key = placeholder_value")
+        """Line-anchored match with bypass word in value allows."""
+        result = scan_text("api_key = placeholder_value_here")
         assert result.action == "allow"
+
+    def test_yaml_bare_key_does_not_block(self) -> None:
+        """YAML bare key form (value on next line) should not false-positive."""
+        result = scan_text("api_key:\n  value: real_secret_value_123")
+        assert result.action != "block"
 
     def test_password_stays_shadow(self) -> None:
         """Generic 'password' should remain broad (shadow-only)."""

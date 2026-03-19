@@ -200,7 +200,7 @@ FAMILIES: tuple[SecretFamily, ...] = (
             r"(?im)^[\t ]*(?:export\s+)?"
             r"((?:api_key|apikey|api_secret|client_secret|"
             r"private_key|secret_key|encryption_key|signing_key|"
-            r"access_token|auth_token)\s*[=:]\s*)"
+            r"access_token|auth_token)[^\S\n]*[=:][^\S\n]*)"
             r"[\"']?([^\s\"']{6,})[\"']?"
         ),
         tier="contextual",
