@@ -339,6 +339,8 @@ Classification happens in `/dialogue` (the orchestrator), not in the codex-dialo
 
 For items without explicit upstream ID references: constrained LLM classification pass. Must output one of `ar | ns | dialogue_continue | ambiguous`, name the affected surface, provide a one-line reason, and record `classifier_source: model`.
 
+**Dimension independence:** `classifier_source` and `suggested_arc` are independent dimensions. `classifier_source` describes the classification *method* (deterministic rule vs. LLM judgment). `suggested_arc` describes the routing *outcome* (where the item should go). `ambiguous` is a valid outcome (`suggested_arc = ambiguous` means the router could not determine a clear destination) but not a valid method — every classification is performed by either a rule or the model.
+
 ### Material-Delta Gating
 
 An item is **material** if any of:
