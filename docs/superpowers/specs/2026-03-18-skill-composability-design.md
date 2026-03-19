@@ -286,6 +286,7 @@ feedback_candidates:
     material: true | false
     materiality_reason: <one-line explanation>
     classifier_source: rule | model
+    materiality_source: rule | model
 ```
 
 Note: `classifier_source` narrowed to `rule | model` (no `ambiguous`).
@@ -354,17 +355,35 @@ For items without explicit upstream ID references: constrained LLM classificatio
 
 ### Material-Delta Gating
 
-An item is **material** if any of:
-- Introduces a new non-duplicate risk, assumption challenge, or alternative that changes AR's diagnostic surface
-- Introduces a new dependency, blocker, gate change, or critical-path shift that changes NS's planning surface
-- Reopens or contradicts something previously RESOLVED
-- Crosses an action threshold: assumption status → `wishful`, finding severity → `blocking`/`high`, task → on/off critical path, decision gate → changed branch outcome
+Evaluate materiality in tier order. Stop at the first tier that produces a definitive match.
 
-An item is **not material** if only:
+**Tier 1 — Pre-screening exclusions (check first):**
+
+An item is **not material** if any of:
 - A restatement or example of an existing item
 - An implementation detail below the current abstraction level
 - A low-support idea with no affected upstream refs
 - An open question already present in the source snapshot
+
+Some Tier 1 criteria (e.g., "implementation detail") involve lightweight judgment. Set `materiality_source: rule` when the exclusion is clear-cut; set `materiality_source: model` with a one-line reason when it required interpretation. Either way, if Tier 1 matches, the item is not material. Skip Tiers 2-3.
+
+**Tier 2 — Rule-based inclusions (deterministic):**
+
+An item is **material** if any of:
+- Reopens or contradicts something previously RESOLVED
+- Crosses an action threshold: assumption status → `wishful`, finding severity → `blocking`/`high`, task → on/off critical path, decision gate → changed branch outcome
+
+If Tier 2 matches, the item is material. Set `material: true`, `materiality_source: rule`. Skip Tier 3.
+
+**Tier 3 — Semantic evaluation (model fallback):**
+
+If neither Tier 1 nor Tier 2 matched, evaluate using judgment:
+- Does the item introduce a new non-duplicate risk, assumption challenge, or alternative that changes AR's diagnostic surface?
+- Does it introduce a new dependency, blocker, gate change, or critical-path shift that changes NS's planning surface?
+
+Set `materiality_source: model`. Provide a one-line `materiality_reason`.
+
+**Note:** `materiality_source` is a separate dimension from `classifier_source`. `classifier_source` describes the routing classification method (for `suggested_arc`). `materiality_source` describes the materiality evaluation method. Do not conflate them.
 
 ### Guardrails
 
