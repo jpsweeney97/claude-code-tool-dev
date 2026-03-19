@@ -6,6 +6,12 @@ Phase B validate → version check → clean-tree gate → secret-file gate →
 build command → run subprocess → parse JSONL → read output → emit analytics →
 cleanup (output file only — F6 creation-ownership).
 
+Error message guidelines: Phase A (structural parse, step 3) and Phase B
+(field validation, step 5) are split so error messages reference field names
+and structural issues but never echo user-supplied content (prompts, secrets).
+This split is intentional — do not merge the phases or include prompt content
+in DelegationError messages.
+
 Usage:
     python3 codex_delegate.py <input_file.json>
 
@@ -30,12 +36,16 @@ from tempfile import TemporaryFile
 # Sibling imports (same scripts/ directory)
 if __package__:
     from scripts.credential_scan import scan_text
+    from scripts.emit_analytics import validate as _raw_validate
     from scripts.event_log import ts, append_log, session_id
+    from scripts.event_schema import resolve_schema_version as _resolve_schema_version
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
         from credential_scan import scan_text  # type: ignore[import-not-found,no-redef]
+        from emit_analytics import validate as _raw_validate  # type: ignore[import-not-found,no-redef]
         from event_log import ts, append_log, session_id  # type: ignore[import-not-found,no-redef]
+        from event_schema import resolve_schema_version as _resolve_schema_version  # type: ignore[import-not-found,no-redef]
     except ModuleNotFoundError as exc:
         print(f"codex-delegate: fatal: cannot import sibling modules: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -471,6 +481,21 @@ def _parse_jsonl(stdout: str) -> dict:
     }
 
 
+def _validate_and_log(event: dict) -> None:
+    """Validate then log. Fail-closed: invalid events are dropped, not appended.
+
+    This ensures analytics stays clean. Invalid events produce a stderr warning
+    for debugging but do not pollute the structured event log.
+    """
+    try:
+        _raw_validate(event, "delegation_outcome")
+    except ValueError as exc:
+        print(f"codex-delegate: event dropped (validation failed): {exc}", file=sys.stderr)
+        return
+    if not append_log(event):
+        print("codex-delegate: analytics emission failed", file=sys.stderr)
+
+
 def _emit_analytics(
     phase_a: dict,
     parsed: dict | None,
@@ -485,7 +510,6 @@ def _emit_analytics(
     Logs raw values including invalid ones (F13 handles downstream).
     """
     event = {
-        "schema_version": "0.1.0",
         "event": "delegation_outcome",
         "ts": ts(),
         "consultation_id": str(uuid.uuid4()),
@@ -506,15 +530,17 @@ def _emit_analytics(
         "exit_code": exit_code,
         # R5-B5: Derive termination_reason from dispatched/blocked_by hierarchy
         # — prevents impossible state dispatched=false,exit_code=0 → "complete"
+        # git_error gets "gate_error" (infrastructure failure, not security block)
         "termination_reason": (
-            "blocked" if blocked_by
+            "gate_error" if blocked_by == "git_error"
+            else "blocked" if blocked_by
             else "error" if not dispatched
             else "complete" if exit_code == 0
             else "error"
         ),
     }
-    if not append_log(event):
-        print("codex-delegate: analytics emission failed", file=sys.stderr)
+    event["schema_version"] = _resolve_schema_version(event)
+    _validate_and_log(event)
 
 
 # ---------------------------------------------------------------------------

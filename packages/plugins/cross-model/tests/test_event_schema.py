@@ -137,6 +137,48 @@ class TestIsNonNegativeInt:
         assert is_non_negative_int(1.0) is False
 
 
+class TestDelegationTerminationReasons:
+    def test_blocked_in_delegation_reasons(self) -> None:
+        from scripts.event_schema import VALID_DELEGATION_TERMINATION_REASONS
+        assert "blocked" in VALID_DELEGATION_TERMINATION_REASONS
+
+    def test_gate_error_in_delegation_reasons(self) -> None:
+        from scripts.event_schema import VALID_DELEGATION_TERMINATION_REASONS
+        assert "gate_error" in VALID_DELEGATION_TERMINATION_REASONS
+
+    def test_convergence_not_in_delegation_reasons(self) -> None:
+        from scripts.event_schema import VALID_DELEGATION_TERMINATION_REASONS
+        assert "convergence" not in VALID_DELEGATION_TERMINATION_REASONS
+
+    def test_delegation_and_dialogue_reasons_differ(self) -> None:
+        from scripts.event_schema import (
+            VALID_TERMINATION_REASONS,
+            VALID_DELEGATION_TERMINATION_REASONS,
+        )
+        assert VALID_TERMINATION_REASONS != VALID_DELEGATION_TERMINATION_REASONS
+
+    def test_accessor_returns_delegation_set(self) -> None:
+        from scripts.event_schema import (
+            valid_termination_reasons,
+            VALID_DELEGATION_TERMINATION_REASONS,
+        )
+        assert valid_termination_reasons("delegation_outcome") is VALID_DELEGATION_TERMINATION_REASONS
+
+    def test_accessor_returns_base_for_dialogue(self) -> None:
+        from scripts.event_schema import (
+            valid_termination_reasons,
+            VALID_TERMINATION_REASONS,
+        )
+        assert valid_termination_reasons("dialogue_outcome") is VALID_TERMINATION_REASONS
+
+    def test_accessor_returns_base_for_unknown(self) -> None:
+        from scripts.event_schema import (
+            valid_termination_reasons,
+            VALID_TERMINATION_REASONS,
+        )
+        assert valid_termination_reasons("unknown_type") is VALID_TERMINATION_REASONS
+
+
 class TestKnownUnstructuredTypes:
     """KNOWN_UNSTRUCTURED_TYPES membership."""
 

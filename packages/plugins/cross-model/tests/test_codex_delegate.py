@@ -728,8 +728,9 @@ class TestEmitAnalyticsInvariants:
     def test_not_dispatched_no_blocked_by_is_error(self) -> None:
         from scripts.codex_delegate import _emit_analytics
         with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
+            # exit_code=None: not dispatched → no process ran → no exit code
             _emit_analytics(phase_a={"prompt": "test", "sandbox": "workspace-write"},
-                            parsed=None, exit_code=0, blocked_by=None, dispatched=False)
+                            parsed=None, exit_code=None, blocked_by=None, dispatched=False)
             event = mock_log.call_args[0][0]
             assert event["termination_reason"] == "error"
 
@@ -753,8 +754,9 @@ class TestEmitAnalyticsInvariants:
     def test_blocked_by_overrides_dispatched(self) -> None:
         from scripts.codex_delegate import _emit_analytics
         with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
+            # exit_code=None: credential block happens before dispatch → no exit code
             _emit_analytics(phase_a={"prompt": "test"}, parsed=None,
-                            exit_code=0, blocked_by="credential", dispatched=False)
+                            exit_code=None, blocked_by="credential", dispatched=False)
             event = mock_log.call_args[0][0]
             assert event["termination_reason"] == "blocked"
 
@@ -776,13 +778,16 @@ class TestEmitAnalyticsInvariants:
             event = mock_log.call_args[0][0]
             assert event["termination_reason"] == "error"
 
-    def test_git_error_gate_does_not_set_block_flags(self) -> None:
+    def test_git_error_gate_emits_gate_error(self) -> None:
         from scripts.codex_delegate import _emit_analytics
+        # git_error is an infrastructure failure, not a security block.
+        # It gets termination_reason="gate_error" (not "blocked") so the
+        # "blocked requires block flag" invariant doesn't reject it.
         with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
             _emit_analytics(phase_a={"prompt": "test"}, parsed=None,
                             exit_code=None, blocked_by="git_error", dispatched=False)
             event = mock_log.call_args[0][0]
-            assert event["termination_reason"] == "blocked"
+            assert event["termination_reason"] == "gate_error"
             assert event["dirty_tree_blocked"] is False
             assert event["readable_secret_file_blocked"] is False
             assert event["credential_blocked"] is False
@@ -921,3 +926,40 @@ class TestNonStringPromptRejection:
         f.write_text(json.dumps({"prompt": ["AKIAIOSFODNN7EXAMPLE", "fix tests"]}))
         exit_code = run(f)
         assert exit_code == 1
+
+
+class TestEmitAnalyticsValidation:
+    def test_emit_analytics_calls_validate(self) -> None:
+        """Delegation analytics should route through validation."""
+        from scripts.codex_delegate import _emit_analytics
+
+        phase_a = {"sandbox": "workspace-write", "model": None, "reasoning_effort": "high", "full_auto": False}
+        parsed = {"thread_id": "t1", "commands_run": [], "token_usage": None, "runtime_failures": [], "summary": None}
+
+        with patch("scripts.codex_delegate.append_log", return_value=True), \
+             patch("scripts.codex_delegate._validate_and_log") as mock_val_log:
+            _emit_analytics(phase_a, parsed, 0, None, dispatched=True)
+            mock_val_log.assert_called_once()
+
+    def test_validation_failure_drops_structured_event(self) -> None:
+        """Invalid events must NOT be appended as structured events (fail-closed)."""
+        from scripts.codex_delegate import _emit_analytics
+
+        phase_a = {"sandbox": "workspace-write", "model": None, "reasoning_effort": "high", "full_auto": False}
+
+        with patch("scripts.codex_delegate.append_log") as mock_log, \
+             patch("scripts.codex_delegate._raw_validate", side_effect=ValueError("test")):
+            _emit_analytics(phase_a, None, None, None, dispatched=False)
+            mock_log.assert_not_called()
+
+    def test_schema_version_calls_resolver(self) -> None:
+        """Schema version should use resolve_schema_version, not a hardcoded value."""
+        from scripts.codex_delegate import _emit_analytics
+
+        phase_a = {"sandbox": "workspace-write", "model": None, "reasoning_effort": "high", "full_auto": False}
+
+        with patch("scripts.codex_delegate.append_log", return_value=True), \
+             patch("scripts.codex_delegate._raw_validate"), \
+             patch("scripts.codex_delegate._resolve_schema_version", return_value="0.1.0") as mock_resolver:
+            _emit_analytics(phase_a, None, 0, None, dispatched=True)
+            mock_resolver.assert_called_once()

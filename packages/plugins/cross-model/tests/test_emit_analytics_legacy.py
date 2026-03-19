@@ -1416,6 +1416,8 @@ class TestValidate:
         event["shape_confidence"] = [1, 2]
         event["assumptions_generated_count"] = 3
         event["ambiguity_count"] = 0
+        # Update schema_version to match feature flags (question_shaped bumps to 0.3.0)
+        event["schema_version"] = "0.3.0"
         with pytest.raises(ValueError, match="invalid shape_confidence"):
             MODULE.validate(event, "dialogue_outcome")
 

@@ -39,6 +39,7 @@ if __package__:
         SCHEMA_VERSION as _SCHEMA_VERSION,
         resolve_schema_version as _resolve_schema_version,
         is_non_negative_int,
+        valid_termination_reasons as _valid_termination_reasons,
         VALID_POSTURES as _VALID_POSTURES,
         VALID_SEED_CONFIDENCE as _VALID_SEED_CONFIDENCE,
         VALID_SHAPE_CONFIDENCE as _VALID_SHAPE_CONFIDENCE,
@@ -56,6 +57,7 @@ else:
         SCHEMA_VERSION as _SCHEMA_VERSION,
         resolve_schema_version as _resolve_schema_version,
         is_non_negative_int,
+        valid_termination_reasons as _valid_termination_reasons,
         VALID_POSTURES as _VALID_POSTURES,
         VALID_SEED_CONFIDENCE as _VALID_SEED_CONFIDENCE,
         VALID_SHAPE_CONFIDENCE as _VALID_SHAPE_CONFIDENCE,
@@ -70,6 +72,12 @@ else:
 
 _DIALOGUE_REQUIRED = REQUIRED_FIELDS_BY_EVENT["dialogue_outcome"]
 _CONSULTATION_REQUIRED = REQUIRED_FIELDS_BY_EVENT["consultation_outcome"]
+_DELEGATION_REQUIRED = REQUIRED_FIELDS_BY_EVENT["delegation_outcome"]
+_REQUIRED_MAP: dict[str, frozenset[str]] = {
+    "dialogue_outcome": _DIALOGUE_REQUIRED,
+    "consultation_outcome": _CONSULTATION_REQUIRED,
+    "delegation_outcome": _DELEGATION_REQUIRED,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -514,11 +522,9 @@ def build_consultation_outcome(input_data: dict) -> dict:
 
 def validate(event: dict, event_type: str) -> None:
     """Validate event fields. Raises ValueError on failure."""
-    required = (
-        _DIALOGUE_REQUIRED
-        if event_type == "dialogue_outcome"
-        else _CONSULTATION_REQUIRED
-    )
+    required = _REQUIRED_MAP.get(event_type)
+    if required is None:
+        raise ValueError(f"unknown event_type: {event_type!r}")
 
     # Required fields
     missing = required - set(event.keys())
@@ -531,89 +537,13 @@ def validate(event: dict, event_type: str) -> None:
             f"event field mismatch: expected {event_type!r}, got {event.get('event')!r}"
         )
 
-    # Enum checks — each uses isinstance(str) guard before set membership
-    # to prevent TypeError on non-hashable values (dicts, lists from JSON).
-    posture = event.get("posture")
-    if posture is None:
-        raise ValueError("posture is required")
-    if not isinstance(posture, str) or posture not in _VALID_POSTURES:
-        raise ValueError(f"invalid posture: {posture!r}")
-
-    code = event.get("convergence_reason_code")
-    if event_type == "dialogue_outcome" and code is None:
-        raise ValueError("convergence_reason_code required for dialogue_outcome")
-    if code is not None and (
-        not isinstance(code, str) or code not in _VALID_CONVERGENCE_CODES
-    ):
-        raise ValueError(f"invalid convergence_reason_code: {code!r}")
-
+    # Termination reason — per-event-type dispatch
+    valid_reasons = _valid_termination_reasons(event_type)
     reason = event.get("termination_reason")
     if reason is None:
         raise ValueError("termination_reason is required")
-    if not isinstance(reason, str) or reason not in _VALID_TERMINATION_REASONS:
+    if not isinstance(reason, str) or reason not in valid_reasons:
         raise ValueError(f"invalid termination_reason: {reason!r}")
-
-    seed = event.get("seed_confidence")
-    if event_type == "dialogue_outcome" and seed is None:
-        raise ValueError("seed_confidence required for dialogue_outcome")
-    if seed is not None and (
-        not isinstance(seed, str) or seed not in _VALID_SEED_CONFIDENCE
-    ):
-        raise ValueError(f"invalid seed_confidence: {seed!r}")
-
-    mode = event.get("mode")
-    if mode is None:
-        raise ValueError("mode is required")
-    if not isinstance(mode, str) or mode not in _VALID_MODES:
-        raise ValueError(f"invalid mode: {mode!r}")
-
-    # mode_source enum (dialogue_outcome only, nullable; rejected on other event types)
-    ms = event.get("mode_source")
-    if event_type == "dialogue_outcome":
-        if ms is not None:
-            if not isinstance(ms, str) or ms not in _VALID_MODE_SOURCES:
-                raise ValueError(f"invalid mode_source: {ms!r}")
-    elif "mode_source" in event:
-        raise ValueError(f"mode_source must not be present on {event_type}, got {ms!r}")
-
-    # Tri-state planning invariant: question_shaped drives field requirements
-    qs = event.get("question_shaped")
-    if qs is not None:
-        if not isinstance(qs, bool):
-            raise ValueError(
-                f"question_shaped must be bool or None, got {type(qs).__name__}"
-            )
-        # Forward: when question_shaped is set (true or false), remaining planning
-        # fields must be non-None (failure telemetry is preserved even on false)
-        for pf in (
-            "shape_confidence",
-            "assumptions_generated_count",
-            "ambiguity_count",
-        ):
-            if event.get(pf) is None:
-                raise ValueError(
-                    f"{pf} is required when question_shaped is set (got None)"
-                )
-    else:
-        # Reverse: when question_shaped is None (--plan not used or debug gate
-        # skip), all companion fields must also be None
-        for pf in (
-            "shape_confidence",
-            "assumptions_generated_count",
-            "ambiguity_count",
-        ):
-            if event.get(pf) is not None:
-                raise ValueError(
-                    f"{pf} must be None when question_shaped is None "
-                    f"(got {event.get(pf)!r})"
-                )
-
-    # Validate shape_confidence enum values when non-null
-    sc = event.get("shape_confidence")
-    if sc is not None and (
-        not isinstance(sc, str) or sc not in _VALID_SHAPE_CONFIDENCE
-    ):
-        raise ValueError(f"invalid shape_confidence: {sc!r}")
 
     # Count fields >= 0
     for field in _COUNT_FIELDS:
@@ -630,50 +560,153 @@ def validate(event: dict, event_type: str) -> None:
             f"(from feature flags), got {actual_version!r}"
         )
 
-    # Cross-field invariants
-    turn_budget = event.get("turn_budget")
-    if (
-        turn_budget is None
-        or isinstance(turn_budget, bool)
-        or not isinstance(turn_budget, int)
-    ):
-        raise ValueError(f"turn_budget must be a positive int, got {turn_budget!r}")
-    if turn_budget < 1:
-        raise ValueError(f"turn_budget must be >= 1, got {turn_budget}")
+    # --- Dialogue/consultation-specific validation (not applicable to delegation) ---
+    if event_type != "delegation_outcome":
+        # Enum checks — each uses isinstance(str) guard before set membership
+        # to prevent TypeError on non-hashable values (dicts, lists from JSON).
+        posture = event.get("posture")
+        if posture is None:
+            raise ValueError("posture is required")
+        if not isinstance(posture, str) or posture not in _VALID_POSTURES:
+            raise ValueError(f"invalid posture: {posture!r}")
 
-    turn_count = event.get("turn_count", 0)
-    if (
-        event_type == "dialogue_outcome"
-        and event.get("termination_reason") != "error"
-        and turn_count > turn_budget
-    ):
-        raise ValueError(f"turn_count ({turn_count}) > turn_budget ({turn_budget})")
+        code = event.get("convergence_reason_code")
+        if event_type == "dialogue_outcome" and code is None:
+            raise ValueError("convergence_reason_code required for dialogue_outcome")
+        if code is not None and (
+            not isinstance(code, str) or code not in _VALID_CONVERGENCE_CODES
+        ):
+            raise ValueError(f"invalid convergence_reason_code: {code!r}")
 
-    # Type checks
-    converged = event.get("converged")
-    if converged is not None and not isinstance(converged, bool):
-        raise ValueError(
-            f"converged must be bool or None, got {type(converged).__name__}"
+        seed = event.get("seed_confidence")
+        if event_type == "dialogue_outcome" and seed is None:
+            raise ValueError("seed_confidence required for dialogue_outcome")
+        if seed is not None and (
+            not isinstance(seed, str) or seed not in _VALID_SEED_CONFIDENCE
+        ):
+            raise ValueError(f"invalid seed_confidence: {seed!r}")
+
+        mode = event.get("mode")
+        if mode is None:
+            raise ValueError("mode is required")
+        if not isinstance(mode, str) or mode not in _VALID_MODES:
+            raise ValueError(f"invalid mode: {mode!r}")
+
+        # mode_source enum (dialogue_outcome only, nullable; rejected on other event types)
+        ms = event.get("mode_source")
+        if event_type == "dialogue_outcome":
+            if ms is not None:
+                if not isinstance(ms, str) or ms not in _VALID_MODE_SOURCES:
+                    raise ValueError(f"invalid mode_source: {ms!r}")
+        elif "mode_source" in event:
+            raise ValueError(f"mode_source must not be present on {event_type}, got {ms!r}")
+
+        # Tri-state planning invariant: question_shaped drives field requirements
+        qs = event.get("question_shaped")
+        if qs is not None:
+            if not isinstance(qs, bool):
+                raise ValueError(
+                    f"question_shaped must be bool or None, got {type(qs).__name__}"
+                )
+            # Forward: when question_shaped is set (true or false), remaining planning
+            # fields must be non-None (failure telemetry is preserved even on false)
+            for pf in (
+                "shape_confidence",
+                "assumptions_generated_count",
+                "ambiguity_count",
+            ):
+                if event.get(pf) is None:
+                    raise ValueError(
+                        f"{pf} is required when question_shaped is set (got None)"
+                    )
+        else:
+            # Reverse: when question_shaped is None (--plan not used or debug gate
+            # skip), all companion fields must also be None
+            for pf in (
+                "shape_confidence",
+                "assumptions_generated_count",
+                "ambiguity_count",
+            ):
+                if event.get(pf) is not None:
+                    raise ValueError(
+                        f"{pf} must be None when question_shaped is None "
+                        f"(got {event.get(pf)!r})"
+                    )
+
+        # Validate shape_confidence enum values when non-null
+        sc = event.get("shape_confidence")
+        if sc is not None and (
+            not isinstance(sc, str) or sc not in _VALID_SHAPE_CONFIDENCE
+        ):
+            raise ValueError(f"invalid shape_confidence: {sc!r}")
+
+        # Cross-field invariants
+        turn_budget = event.get("turn_budget")
+        if (
+            turn_budget is None
+            or isinstance(turn_budget, bool)
+            or not isinstance(turn_budget, int)
+        ):
+            raise ValueError(f"turn_budget must be a positive int, got {turn_budget!r}")
+        if turn_budget < 1:
+            raise ValueError(f"turn_budget must be >= 1, got {turn_budget}")
+
+        turn_count = event.get("turn_count", 0)
+        if (
+            event_type == "dialogue_outcome"
+            and event.get("termination_reason") != "error"
+            and turn_count > turn_budget
+        ):
+            raise ValueError(f"turn_count ({turn_count}) > turn_budget ({turn_budget})")
+
+        # Type checks
+        converged = event.get("converged")
+        if converged is not None and not isinstance(converged, bool):
+            raise ValueError(
+                f"converged must be bool or None, got {type(converged).__name__}"
+            )
+
+        source_classes = event.get("source_classes")
+        if source_classes is not None:
+            if not isinstance(source_classes, list):
+                raise ValueError("source_classes must be a list")
+            if not all(isinstance(s, str) for s in source_classes):
+                raise ValueError("source_classes must contain only strings")
+
+        low_reasons = event.get("low_seed_confidence_reasons")
+        if low_reasons is not None:
+            if not isinstance(low_reasons, list):
+                raise ValueError("low_seed_confidence_reasons must be a list")
+            if not all(isinstance(s, str) for s in low_reasons):
+                raise ValueError("low_seed_confidence_reasons must contain only strings")
+            invalid = set(low_reasons) - _VALID_LOW_SEED_CONFIDENCE_REASONS
+            if invalid:
+                raise ValueError(
+                    f"invalid low_seed_confidence_reasons values: {sorted(invalid)}"
+                )
+
+    # --- Delegation-specific cross-field invariants ---
+    if event_type == "delegation_outcome":
+        dispatched = event.get("dispatched")
+        tr = event.get("termination_reason")
+        exit_code = event.get("exit_code")
+        cmd_count = event.get("commands_run_count", 0)
+        block_flags = (
+            event.get("credential_blocked"),
+            event.get("dirty_tree_blocked"),
+            event.get("readable_secret_file_blocked"),
         )
 
-    source_classes = event.get("source_classes")
-    if source_classes is not None:
-        if not isinstance(source_classes, list):
-            raise ValueError("source_classes must be a list")
-        if not all(isinstance(s, str) for s in source_classes):
-            raise ValueError("source_classes must contain only strings")
-
-    low_reasons = event.get("low_seed_confidence_reasons")
-    if low_reasons is not None:
-        if not isinstance(low_reasons, list):
-            raise ValueError("low_seed_confidence_reasons must be a list")
-        if not all(isinstance(s, str) for s in low_reasons):
-            raise ValueError("low_seed_confidence_reasons must contain only strings")
-        invalid = set(low_reasons) - _VALID_LOW_SEED_CONFIDENCE_REASONS
-        if invalid:
-            raise ValueError(
-                f"invalid low_seed_confidence_reasons values: {sorted(invalid)}"
-            )
+        if tr == "complete" and dispatched is not True:
+            raise ValueError("complete requires dispatched=True")
+        if tr == "blocked" and dispatched is not False:
+            raise ValueError("blocked requires dispatched=False")
+        if tr == "blocked" and not any(block_flags):
+            raise ValueError("blocked requires at least one block flag set")
+        if isinstance(cmd_count, int) and cmd_count > 0 and dispatched is not True:
+            raise ValueError("commands_run_count > 0 requires dispatched=True")
+        if exit_code is not None and dispatched is not True:
+            raise ValueError("exit_code requires dispatched=True")
 
 
 # ---------------------------------------------------------------------------
