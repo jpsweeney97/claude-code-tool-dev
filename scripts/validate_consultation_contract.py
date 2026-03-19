@@ -172,6 +172,55 @@ def check_deferred_annotations(contract_text: str) -> list[str]:
     return []
 
 
+GOVERNANCE_KEY_PHRASES: dict[int, str] = {
+    1: "debug-gated",
+    2: "fail-closed",
+    3: "auto-escalation",
+    4: "direct invocation",
+    5: "threadId",
+    6: "sanitizer_status",
+    7: "re-consent",
+}
+
+
+def check_governance_rule_content(contract_text: str) -> list[str]:
+    """Verify each governance rule contains its distinguishing key phrase."""
+    section_match = re.search(
+        r"## 15\. Governance.*?(?=\n## \d+\.|\Z)", contract_text, re.DOTALL
+    )
+    if not section_match:
+        return ["§15 Governance Locks section not found"]
+
+    section = section_match.group()
+    errors: list[str] = []
+    for rule_num, phrase in GOVERNANCE_KEY_PHRASES.items():
+        if phrase not in section:
+            errors.append(f"Governance rule {rule_num} missing key phrase {phrase!r}")
+    return errors
+
+
+def check_cross_contract_invariant_refs(
+    contract_text: str, ci_contract_path: Path
+) -> list[str]:
+    """Verify CI-SEC-* references resolve in context-injection contract."""
+    refs = set(re.findall(r"CI-SEC-\d+", contract_text))
+    if not refs:
+        return []  # no cross-references to check
+
+    try:
+        ci_text = ci_contract_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [f"cannot read context-injection contract: {exc}"]
+
+    errors: list[str] = []
+    for ref in sorted(refs):
+        if ref not in ci_text:
+            errors.append(
+                f"{ref} referenced in consultation contract but not in context-injection contract"
+            )
+    return errors
+
+
 def check_profile_validity(repo_root: Path) -> list[str]:
     """Validate consultation-profiles.yaml against §14 invariants."""
     profiles_path = (
@@ -273,6 +322,12 @@ def validate(repo_root: Path | None = None) -> list[str]:
             )
         errors.extend(check_event_types_in_contract(contract_text))
         errors.extend(check_deferred_annotations(contract_text))
+        errors.extend(check_governance_rule_content(contract_text))
+        ci_contract_path = (
+            repo_root
+            / "packages/plugins/cross-model/references/context-injection-contract.md"
+        )
+        errors.extend(check_cross_contract_invariant_refs(contract_text, ci_contract_path))
 
     if skill_text is not None and contract_text is not None:
         errors.extend(check_governance_rule_count(skill_text, contract_text))
