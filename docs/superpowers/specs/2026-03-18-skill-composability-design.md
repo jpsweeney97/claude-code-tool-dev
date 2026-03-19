@@ -93,7 +93,7 @@ artifact_id: ar:<subject_key>:<created_at_compact>
 artifact_kind: adversarial_review
 subject_key: <kebab-case derived from review_target, or inherited from upstream feedback capsule>
 topic_key: <coarse grouping key — same as subject_key unless reviewing a facet of a broader topic>
-created_at: <ISO 8601 full timestamp with fractional seconds, UTC>
+created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior artifact_id of same kind and subject_key, or null>
 source_artifacts: <[] if standalone; include upstream feedback capsule if re-review triggered by dialogue feedback>
 record_path: <path to docs/reviews/ file or null>
@@ -166,7 +166,7 @@ artifact_id: ns:<subject_key>:<created_at_compact>
 artifact_kind: next_steps_plan
 subject_key: <inherited from AR capsule if consumed, otherwise derived from plan topic>
 topic_key: <inherited from AR capsule if consumed, otherwise derived from plan topic>
-created_at: <ISO 8601 full timestamp with fractional seconds, UTC>
+created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior NS artifact_id for this subject_key, or null>
 source_artifacts:
   - artifact_id: <AR artifact_id if AR capsule was consumed, omit entry if not>
@@ -252,7 +252,7 @@ artifact_id: dialogue:<subject_key>:<created_at_compact>
 artifact_kind: dialogue_feedback
 subject_key: <inherited from NS handoff if consumed, otherwise derived from goal topic>
 topic_key: <inherited from NS handoff if consumed, otherwise derived from goal topic>
-created_at: <ISO 8601 full timestamp with fractional seconds, UTC>
+created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior dialogue artifact_id for this subject_key, or null>
 source_artifacts:
   - artifact_id: <NS artifact_id if handoff was consumed>
@@ -452,7 +452,7 @@ For simple targets, `subject_key` and `topic_key` may be identical. They diverge
 <kind-prefix>:<subject_key>:<created_at_compact>
 ```
 
-Where `created_at_compact` is the `created_at` ISO 8601 value with separators removed: `YYYYMMDDTHHMMSS` at minimum, with fractional seconds appended when the `created_at` field includes them (e.g., `YYYYMMDDTHHMMSS.fff`). The timestamp component MUST preserve the full precision of the `created_at` field — do not truncate fractional seconds. All three skills MUST use the same precision.
+Where `created_at_compact` is the `created_at` value with separators removed: `YYYYMMDDTHHMMSS.sss` (always 3 fractional digits). All three skills MUST use millisecond precision. Pad `.000` if only second-level precision is available from the runtime; truncate to milliseconds if higher precision is provided.
 
 Examples:
 - `ar:redaction-pipeline:20260318T143052.123`
