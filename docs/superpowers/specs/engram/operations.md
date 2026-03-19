@@ -66,9 +66,23 @@ Six operations justify Engram's plugin scope. Three exist today as cross-plugin 
             ledger event exists (emitted_count=0)
         (4) expected_X: true + no downstream + no completion    -> "completion not proven"
             event
+    -> When ledger unavailable (ledger.enabled=false):
+        Cases (3) and (4) collapse: expected_X true + no downstream
+            -> "completion not proven (ledger unavailable)"
+        /triage surfaces reason=ledger_disabled qualifier on all
+            collapsed cases. Policy: ledger.enabled=false is supported
+            for storage and basic query, but unsupported for
+            production-grade /triage completion inference.
     -> Cross-reference: orphaned items, stale tickets, blocked chains
     -> Report pending staged knowledge candidates
     -> Report promote-meta mismatches (missing or stale)
+    -> Anomaly detection (provenance_not_established):
+        Work: tickets in engram/work/ with no corresponding .audit/ entry
+        Context/Knowledge: records with malformed or missing native
+            provenance fields (e.g., missing session_id in snapshot frontmatter)
+        Note: trust triples are transient (hook-to-engine input, not persisted
+            in RecordMeta), so generic trust-triple detection is not possible.
+            Detection is subsystem-specific using native artifacts.
     -> Return structured triage report with per-subsystem sections
 ```
 
@@ -89,9 +103,11 @@ Three-step state machine with marker-based location and reconciliation recovery.
         Branch A (no promote-meta): Eligible. Returns promotion plan with target_section.
         Branch B (promote-meta exists, promoted_content_sha256 == current content_sha256):
             B1 (target_section unchanged): Reject — already promoted. Return existing details.
-            B2 (target_section changed by user request): Relocation. Search CLAUDE.md for
-                markers with lesson_id. If found: move block to new target_section, update
-                promote-meta target_section. If not found: manual reconcile flow.
+            B2 (target_section changed by user request): Manual reconcile. Show old
+                target_section, new target_section, and existing promoted text (located
+                via marker search if markers exist). User places block in new section
+                manually. Automated relocation deferred to v1.1 (see
+                [deferred decisions](decisions.md#deferred-decisions)).
         Branch C (promote-meta exists, promoted_content_sha256 != current content_sha256):
             Stale promotion. Search CLAUDE.md globally for markers with lesson_id.
             C1 (markers found, no drift): drift_hash(current_enclosed_text) ==
@@ -105,16 +121,19 @@ Three-step state machine with marker-based location and reconciliation recovery.
                 old content hash, new content — user places manually).
     -> Step 2 (skill): Skill writes transformed text to CLAUDE.md wrapped in markers
         For Branch A: insert at target_section with paired markers
-        For Branch B2: relocate existing marker-enclosed block
+        For Branch B2: manual reconcile — user confirms new placement
         For Branch C1: replace text between existing markers (user approved)
         For Branch C2: replace text between existing markers (user approved after seeing diff)
         For Branch C3: manual reconcile — user confirms placement
-    -> Step 3 (engine): Knowledge engine writes/updates promote-meta with current hashes
+    -> Step 3 (engine): Knowledge engine recomputes transformed_text_sha256 via
+        drift_hash() on the exact post-write text between markers (see
+        [Promote Hash Verification](types.md#promote-hash-verification)), then writes/updates promote-meta.
+        If post-write text is unavailable, rejects the write (lesson remains eligible).
 ```
 
 **Ranking is advisory, not contractual.** Maturity signals determine display ordering only — they are not part of the storage contract. Engine promotability validation must not depend on undocumented maturity scores.
 
-**Location strategy:** Branch C and B2 search CLAUDE.md globally for `<!-- engram:lesson:start:<lesson_id> -->` / `<!-- engram:lesson:end:<lesson_id> -->` marker pairs. Global search (not section-scoped) supports user relocation of managed blocks — if the user moves a promoted block to a different section, the marker search still finds it. See [marker specification](types.md#promotion-markers-in-claudemd) for validity rules.
+**Location strategy:** Branch C searches CLAUDE.md globally for `<!-- engram:lesson:start:<lesson_id> -->` / `<!-- engram:lesson:end:<lesson_id> -->` marker pairs. Global search (not section-scoped) supports user relocation of managed blocks — if the user moves a promoted block to a different section, the marker search still finds it. Branch B2 uses the same search for display (showing the user where the current text lives) but does not automate relocation in v1. See [marker specification](types.md#promotion-markers-in-claudemd) for validity rules.
 
 **Branch C drift detection:** Before replacing text between markers, Step 1 computes [`drift_hash()`](types.md#hash-producing-functions) on the current text enclosed by markers and compares it against `promote-meta.transformed_text_sha256`. `drift_hash` uses NFC + LF normalization only (stricter than `content_hash`) so that user formatting edits to promoted blocks count as drift. This activates the `transformed_text_sha256` field as a drift sentinel — see [types.md rationale table](types.md#hash-producing-functions) for why `drift_hash` is intentionally stricter than `content_hash`.
 
@@ -208,7 +227,7 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority), 
 | Crash before envelope write | Snapshot has `save_expected_defer: true` but no downstream record and no `defer_completed` ledger event | `/triage` reports "completion not proven" for expected sub-operations. User retries via standalone `/defer --snapshot-ref`. |
 | Promote Step 2 failure (Branch A/C1/C2) | CLAUDE.md unchanged, no promote-meta written | Lesson remains eligible for next `/promote` run |
 | Promote Step 2 user declines (C2 drift) | User sees diff of their edits vs new text, chooses "skip" | Lesson remains eligible; user edits preserved in CLAUDE.md |
-| Promote Step 2 B2 relocation (markers not found) | CLAUDE.md unchanged | Manual reconcile — user places block in new section; Step 3 records result |
+| Promote Step 2 B2 manual reconcile | User shown old and new target_section, existing promoted text | User places block in new section; Step 3 records result |
 | Promote Step 2 manual reconcile (C3 — markers missing) | User shown old target_section, content diff | User places text manually; Step 3 records result |
 | Promote Step 3 failure | CLAUDE.md written but promote-meta absent | `/triage` detects mismatch; surfaces for user resolution |
 | Legacy artifact lacks session_id | Appears in timeline as "unattributed" | Not silently omitted |
