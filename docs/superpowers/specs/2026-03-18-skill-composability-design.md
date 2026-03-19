@@ -32,7 +32,7 @@ This creates three gaps:
 
 ## Design Decisions
 
-### D1: Composability model is thin structural overlay
+### D1: Composability model is standalone-first, protocol-rich composition
 
 Each skill remains fully standalone and human-usable. Composition is additive — structured capsules and sentinels are appended to or alongside existing prose output. No skill requires upstream context to function.
 
