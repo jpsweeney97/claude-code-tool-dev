@@ -1,6 +1,7 @@
 ---
 name: system-design-review
-description: "Review system architecture through 8 design-lens categories and surface inherited defaults, underspecified decisions, tradeoffs, and cross-cutting tensions. Use when the user asks to review an architecture or system design, assess design gaps, stress-test an architecture, or evaluate a design doc, codebase, or verbal system description. Do not use for code-level bug review, incident post-mortems, debt prioritization, refactoring sequencing, or implementation-readiness audits."
+description: Review system architecture through design lenses to surface inherited defaults, underspecified decisions, tradeoffs, and cross-cutting tensions. Use when the user asks to "review this architecture", "review this design", "evaluate this system", "check this design for gaps", "what decisions did we inherit", "where are the gaps in this design", "what are the architectural concerns here", or "stress test this architecture", or wants an architectural assessment of a design doc, codebase, or verbal system description. Do not use for code-level bug review, incident post-mortems, debt prioritization, refactoring sequencing, or implementation-readiness audits.
+argument-hint: "[target — e.g., 'the auth service design doc', 'this codebase', or describe the system verbally. Omit to review the most recent design or proposal.]"
 ---
 
 # System Design Review
@@ -24,6 +25,7 @@ Surface inherited defaults, underspecified decisions, explicit tradeoffs, cross-
 
 - If the user primarily wants incident reconstruction, debt prioritization, refactoring sequencing, implementation readiness, or code bug review, hand off immediately instead of forcing an architecture review.
 - If the request mixes scope levels, ask which scope to review first.
+- If multiple plausible review targets are in scope, name them and ask which one to review first. If the user does not choose, review the artifact they referenced most directly; if that is still tied, prefer the design doc for intended architecture and the codebase for implemented architecture. Do not blend multiple targets into one pass unless the user explicitly asks for both.
 - If the input is sparse, mark categories `insufficient evidence` instead of guessing.
 - If 4 or more categories would be `insufficient evidence`, say so explicitly, ask whether to narrow scope, and label the review `reduced-depth` if you continue without clarification.
 - If no material findings surface at the chosen depth, say so directly. Do not pad the review.
