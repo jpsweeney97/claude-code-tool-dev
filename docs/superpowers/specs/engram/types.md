@@ -106,6 +106,7 @@ Written by the Knowledge engine after a successful CLAUDE.md write. Stored as a 
 ```python
 @dataclass(frozen=True)
 class PromoteMeta:
+    meta_version: str             # "1.0" — see Version Evolution Policy
     target_section: str           # Advisory: last requested destination / insertion hint
     promoted_at: str              # ISO 8601
     promoted_content_sha256: Sha256Hex  # content_hash(lesson_content) at promotion time
@@ -113,10 +114,12 @@ class PromoteMeta:
     lesson_id: str                # Matches lesson-meta lesson_id — used for marker pair identification
 ```
 
+**`meta_version`**: Version of the promote-meta format. Currently `"1.0"`. Entries lacking this field are treated as `legacy`. See [Version Evolution Policy](#version-evolution-policy) for entry-level exact-match semantics and field preservation requirements.
+
 **Serialization:** All fields are required. Stored as an HTML comment in learnings.md immediately after the entry's `lesson-meta` comment:
 
 ```markdown
-<!-- promote-meta {"lesson_id": "550e8400-e29b-41d4-a716-446655440000", "target_section": "## Code Style", "promoted_at": "2026-03-17T14:30:00Z", "promoted_content_sha256": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", "transformed_text_sha256": "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"} -->
+<!-- promote-meta {"meta_version": "1.0", "lesson_id": "550e8400-e29b-41d4-a716-446655440000", "target_section": "## Code Style", "promoted_at": "2026-03-17T14:30:00Z", "promoted_content_sha256": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", "transformed_text_sha256": "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"} -->
 ```
 
 Field names match the Python dataclass exactly. All string values. `promoted_at` uses ISO 8601 UTC.
@@ -267,12 +270,13 @@ All published knowledge entries in `engram/knowledge/learnings.md` use a uniform
 
 ```markdown
 ### YYYY-MM-DD Entry title
-<!-- lesson-meta {"lesson_id": "<UUIDv4>", "content_sha256": "<hex>", "created_at": "<ISO8601>", "producer": "learn|curate"} -->
+<!-- lesson-meta {"meta_version": "1.0", "lesson_id": "<UUIDv4>", "content_sha256": "<hex>", "created_at": "<ISO8601>", "producer": "learn|curate"} -->
 
 Entry content...
 ```
 
 **Fields:**
+- **`meta_version`**: Version of the lesson-meta format. Currently `"1.0"`. Entries lacking this field are treated as `legacy` — see [Legacy Entries](#legacy-entries-missing-meta_version). See [Version Evolution Policy](#version-evolution-policy) for compatibility rules.
 - **`lesson_id`**: UUIDv4 generated at creation. Serves as `RecordRef.record_id` for knowledge entries. Stable across edits (content changes update `content_sha256`, not `lesson_id`).
 - **`content_sha256`**: [`Sha256Hex`](#scalar-types) produced by [`content_hash()`](#hash-producing-functions) on entry content (excluding the `lesson-meta` comment itself). Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
 - **`created_at`**: ISO 8601 timestamp of initial creation.
