@@ -67,7 +67,7 @@ Three cross-cutting principles guide implementation decisions across subsystems.
 
 ### Auxiliary State Authority
 
-Recovery manifests (`save_recovery.json`, `migration_report.json`) are operational aids only. Primary records — snapshots, tickets, learnings, chain state files — remain authoritative. Reconciliation metadata ([`promote-meta`](types.md#promote-meta-promotion-state-record)) is authoritative promotion-lifecycle state: its presence/absence gates the [promote state machine](operations.md#promote-knowledge-to-claudemd) (Branch A/B/C).
+Recovery manifests (`save_recovery.json`, `migration_report.json`) and chain state files (`chain/<worktree_id>-<session_id>`) are operational aids only. Primary records — snapshots, tickets, learnings — remain authoritative. Chain state files are ephemeral coordination artifacts with 24-hour TTL; their loss degrades `resumed_from` lineage tracking but does not invalidate any primary record. See [chain protocol](skill-surface.md#chain-protocol-session-lineage-tracking) for TTL and cleanup rules. Reconciliation metadata ([`promote-meta`](types.md#promote-meta-promotion-state-record)) is authoritative promotion-lifecycle state: its presence/absence gates the [promote state machine](operations.md#promote-knowledge-to-claudemd) (Branch A/B/C).
 
 Manifest failure degrades convenience (retry requires manual `snapshot_ref` lookup) but does not break standalone operations. Use distinct naming for each manifest to prevent shadow-authority confusion.
 
