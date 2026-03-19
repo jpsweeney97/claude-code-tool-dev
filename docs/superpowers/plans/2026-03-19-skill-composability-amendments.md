@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status: Historical / Partially Superseded.** All 7 tasks in this plan have been executed (commits on main). The second-pass design review (`2026-03-19-skill-composability-review-amendments.md`) reopened F1 and amended F3, F4, D1. This file is retained as historical record of the first-round amendments.
+
 **Goal:** Apply 5 amendments from the system design review + Codex dialogue to the skill composability design spec and implementation plan, before the main implementation plan can be executed.
 
 **Architecture:** All amendments target two markdown documents — the design spec (authoritative) and the implementation plan (derived). The identity model change (Task 1) is the critical path because it touches every capsule schema. All other spec amendments are parallel. Plan propagation (Task 6) depends on all spec amendments completing first.
@@ -18,7 +20,7 @@
 
 | Finding | Disposition | Amendment |
 |---------|------------|-----------|
-| F1 (pipeline coupling) | Closed by counter-evidence | Note only — pipeline steps are the public contract |
+| F1 (pipeline coupling) | ~~Closed by counter-evidence~~ → Reopened by second-pass review | SS2 doesn't cover pipeline stages; advisory fallback diagnostic added (see `2026-03-19-skill-composability-review-amendments.md` Task 2) |
 | F2 (provenance corruption) | Design change | Direct-edge provenance only (Task 2) |
 | F3 (artifact identity) | Design change | Split-field identity + timestamp IDs + inheritance (Task 1) |
 | F4 (classifier schema) | Design change | Narrow `classifier_source` to `rule \| model` (Task 4) |

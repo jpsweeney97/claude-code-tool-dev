@@ -4,7 +4,7 @@
 
 **Goal:** Add structural contracts, explicit handoffs, and a feedback loop between the adversarial-review, next-steps, and cross-model:dialogue skills.
 
-**Architecture:** Each skill remains standalone. Composition is additive — structured capsules/sentinels are appended to existing prose output. A shared composition contract governs artifact schemas, consumer classes, routing rules, and staleness detection. The dialogue skill consumes upstream handoffs through its existing pipeline stages.
+**Architecture:** Each skill remains standalone-first with protocol-rich composition. Structured capsules/sentinels are appended to existing prose output. A shared composition contract governs artifact schemas, consumer classes, routing rules, and staleness detection. The dialogue skill consumes upstream handoffs through its existing pipeline stages. Advisory/tolerant consumers emit a diagnostic when falling back to prose parsing.
 
 **Tech Stack:** Markdown instruction documents (SKILL.md files), YAML-in-markdown capsule schemas. No code changes.
 
@@ -50,14 +50,14 @@ Every capsule includes these fields:
 | `artifact_kind` | `adversarial_review \| next_steps_plan \| dialogue_feedback` | Artifact type |
 | `subject_key` | kebab-case string | What is being analyzed — shared across reruns |
 | `topic_key` | kebab-case string | Coarse grouping for iteration budget |
-| `created_at` | ISO 8601 | When this artifact was produced |
+| `created_at` | ISO 8601, UTC, millisecond precision (`YYYY-MM-DDTHH:MM:SS.sssZ`) | When this artifact was produced |
 | `supersedes` | artifact_id or null | Prior artifact of same kind and subject_key |
 | `source_artifacts` | list of `{artifact_id, artifact_kind, role}` | Cross-skill provenance |
 | `record_path` | path or null | Optional durable file location |
 
 **Artifact ID prefixes:** `ar:` (adversarial_review), `ns:` (next_steps_plan), `dialogue:` (dialogue_feedback).
 
-**Two identity keys:** `subject_key` for exact lineage matching (staleness, supersession). `topic_key` for coarse grouping (soft iteration budget). Generic inheritance rule: if a skill directly consumes an upstream capsule, it inherits both keys; if no upstream capsule is consumed, the skill mints both keys from its basis field. This applies in all directions, including the feedback loop (dialogue → AR re-review). Finding IDs, task IDs, and gate IDs are snapshot-scoped — they are valid only within their artifact.
+**Two identity keys:** `subject_key` for exact lineage matching (staleness, supersession). `topic_key` for coarse grouping (soft iteration budget); also propagated via inheritance by all downstream skills. Generic inheritance rule: if a skill directly consumes an upstream capsule, it inherits both keys; if no upstream capsule is consumed, the skill mints both keys from its basis field. This applies in all directions, including the feedback loop (dialogue → AR re-review). Finding IDs, task IDs, and gate IDs are snapshot-scoped — they are valid only within their artifact.
 
 ---
 
@@ -77,7 +77,7 @@ Every capsule includes these fields:
 
 | Class | Behavior | When capsule absent | When capsule invalid |
 |-------|----------|--------------------|--------------------|
-| Advisory/tolerant | Validate if present; enhance processing | Fall back to prose parsing | Fall back to prose parsing |
+| Advisory/tolerant | Validate if present; enhance processing. Emit diagnostic on fallback. | Fall back to prose parsing; emit diagnostic | Fall back to prose parsing; emit diagnostic |
 | Strict/deterministic | Validate; reject invalid but continue pipeline | Continue normal pipeline | Log warning; continue normal pipeline |
 
 **AR capsule → NS:** advisory/tolerant.
@@ -103,13 +103,13 @@ For items without explicit upstream ID references: constrained LLM classificatio
 
 ## Material-Delta Gating
 
-An item is **material** if any of:
-- New non-duplicate risk, assumption challenge, or alternative changing diagnostic surface
-- New dependency, blocker, gate change, or critical-path shift changing planning surface
-- Reopens or contradicts a previously RESOLVED item
-- Crosses action threshold: assumption → `wishful`, finding → `blocking`/`high`, task on/off critical path
+Evaluate in tier order. Stop at first match.
 
-**Not material:** restatement, implementation detail, low-support idea with no upstream refs, existing open question.
+**Tier 1 — Pre-screening exclusions:** Not material if: restatement, implementation detail, low-support idea with no upstream refs, existing open question. Set `materiality_source: rule` (or `model` when criterion required interpretation).
+
+**Tier 2 — Inclusions (rule):** Material if: reopens/contradicts RESOLVED, or crosses action threshold (assumption → `wishful`, finding → `blocking`/`high`, task on/off critical path). Set `materiality_source: rule`.
+
+**Tier 3 — Semantic (model):** If no tier matched: evaluate whether item introduces new risk/alternative changing diagnostic surface, or new dependency/blocker changing planning surface. Set `materiality_source: model`.
 
 ---
 
@@ -181,7 +181,7 @@ artifact_id: ar:<subject_key>:<created_at_compact>
 artifact_kind: adversarial_review
 subject_key: <kebab-case target identifier derived from the review target>
 topic_key: <coarse grouping key — same as subject_key unless reviewing a facet of a broader topic>
-created_at: <ISO 8601 timestamp>
+created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <artifact_id of the prior review of this same subject, or null if first review>
 source_artifacts: []
 record_path: <path to docs/reviews/ file if written, or null>
@@ -208,7 +208,7 @@ open_questions:
 - `open_questions` captures questions that arose during the review but were not answered.
 - Timestamp in artifact_id provides collision resistance. No sequence counter needed.
 
-**Composition contract:** This capsule follows the artifact metadata schema inlined as minimal operational subset in this skill. NS consumes it as advisory/tolerant — the capsule enhances but is not required.
+**Composition contract:** This capsule follows the artifact metadata schema inlined as minimal operational subset in this skill. NS consumes it as advisory/tolerant — the capsule enhances but is not required. Full protocol: `packages/plugins/cross-model/references/composition-contract.md`.
 ```
 
 - [ ] **Step 2: Add "After the review" section before Anti-patterns**
@@ -260,7 +260,7 @@ Before starting the workflow, scan the conversation for structured capsules from
 - Assumptions tagged `wishful` are candidate risks that may need their own resolution task.
 - Record the AR `artifact_id` for lineage — it becomes a `source_artifacts` entry in the NS handoff.
 
-**If the AR capsule is absent or invalid:** Fall back to reading the conversation prose for findings. This is the default behavior today — the capsule enhances but does not replace it.
+**If the AR capsule is absent or invalid:** Fall back to reading the conversation prose for findings. Emit a one-line diagnostic: "AR capsule not detected; lineage tracking unavailable for this run." This is the default behavior today — the capsule enhances but does not replace it.
 
 **Dialogue feedback capsule (`<!-- dialogue-feedback-capsule:v1 -->`):** If present, extract `unresolved` and `emerged` items. Treat EMERGED items as new findings to incorporate into the plan. Treat UNRESOLVED items as open questions that may need their own task or decision gate.
 ```
@@ -286,7 +286,7 @@ artifact_id: ns:<subject_key>:<created_at_compact>
 artifact_kind: next_steps_plan
 subject_key: <kebab-case subject identifier matching the plan topic — inherited from AR capsule if consumed, otherwise derived from plan topic>
 topic_key: <inherited from AR capsule if consumed, otherwise derived from plan topic>
-created_at: <ISO 8601 timestamp>
+created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior NS artifact_id for this subject, or null>
 source_artifacts:
   - artifact_id: <AR artifact_id if AR capsule was consumed, omit entry if not>
@@ -319,7 +319,7 @@ out_of_scope:
 
 **Provenance fallback:** If AR capsule was not structurally consumed (prose fallback), omit the AR entry from source_artifacts entirely.
 
-**Composition contract:** This handoff follows the artifact metadata schema inlined as minimal operational subset in this skill. Dialogue consumes it as strict/deterministic.
+**Composition contract:** This handoff follows the artifact metadata schema inlined as minimal operational subset in this skill. Dialogue consumes it as strict/deterministic. Full protocol: `packages/plugins/cross-model/references/composition-contract.md`.
 ```
 
 - [ ] **Step 3: Cross-reference check**
@@ -598,7 +598,7 @@ artifact_id: dialogue:<subject_key>:<created_at_compact>
 artifact_kind: dialogue_feedback
 subject_key: <derived from goal>
 topic_key: <inherited from NS handoff if consumed, otherwise derived from goal topic>
-created_at: <ISO 8601>
+created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior dialogue artifact_id or null>
 source_artifacts:
   - artifact_id: <NS artifact_id if handoff consumed>
@@ -631,10 +631,11 @@ feedback_candidates:
     material: <true | false>
     materiality_reason: <one-line explanation>
     classifier_source: <rule | model>
+    materiality_source: <rule | model>
 <!-- /dialogue-feedback-capsule:v1 -->
 ```
 
-**Composition contract:** This capsule follows the artifact metadata schema inlined as minimal operational subset in this skill. AR and NS consume it as advisory/tolerant.
+**Composition contract:** This capsule follows the artifact metadata schema inlined as minimal operational subset in this skill. AR and NS consume it as advisory/tolerant. Full protocol: `packages/plugins/cross-model/references/composition-contract.md`.
 ```
 
 - [ ] **Step 2: Cross-reference check**
@@ -685,7 +686,7 @@ For each UNRESOLVED and EMERGED item, determine the suggested feedback arc:
 
 **Dimension independence:** `classifier_source` and `suggested_arc` are independent dimensions. `classifier_source` describes the classification *method* (deterministic rule vs. LLM judgment). `suggested_arc` describes the routing *outcome* (where the item should go). `ambiguous` is a valid outcome (`suggested_arc = ambiguous`) but not a valid method — every classification is performed by either a rule or the model.
 
-**Material-delta gating:** Apply the material-delta rules from the composition contract (`packages/plugins/cross-model/references/composition-contract.md`). Set `material = true | false` based on whether the item meets any materiality criterion.
+**Material-delta gating:** Apply the tiered material-delta rules from the composition contract (`packages/plugins/cross-model/references/composition-contract.md`): Tier 1 exclusions (rule) → Tier 2 inclusions (rule) → Tier 3 semantic (model). Set `material = true | false` and `materiality_source = rule | model`.
 
 **Loop guardrails:** After classifying all items, check the soft iteration budget:
 - Count how many AR or NS capsules in the conversation share the same `topic_key` as this dialogue's topic.
@@ -777,3 +778,10 @@ After all tasks are complete, run these cross-file consistency checks:
 - [ ] Contract 3 source_artifacts is direct-edge only (NS, not AR)
 - [ ] `classifier_source = rule | model` — `ambiguous` removed from method, retained in `suggested_arc`
 - [ ] Composition contract stubs are self-contained (not "see the contract")
+- [ ] Advisory/tolerant consumer class includes diagnostic emission requirement
+- [ ] No reference to SS2 governance in boundary clarification
+- [ ] All `created_at` fields specify millisecond precision (`YYYY-MM-DDTHH:MM:SS.sssZ`)
+- [ ] Material-delta section uses tiered evaluation (exclusions → inclusions → model)
+- [ ] D1 heading says "standalone-first, protocol-rich composition"
+- [ ] topic_key "Used by" mentions inheritance propagation
+- [ ] Composition stubs include contract path reference
