@@ -227,7 +227,7 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority), 
 | Crash before envelope write | Snapshot has `save_expected_defer: true` but no downstream record and no `defer_completed` ledger event | `/triage` reports "completion not proven" for expected sub-operations. User retries via standalone `/defer --snapshot-ref`. |
 | Promote Step 2 failure (Branch A/C1/C2) | CLAUDE.md unchanged, no promote-meta written | Lesson remains eligible for next `/promote` run |
 | Promote Step 2 user declines (C2 drift) | User sees diff of their edits vs new text, chooses "skip" | Lesson remains eligible; user edits preserved in CLAUDE.md |
-| Promote Step 2 B2 manual reconcile | User shown old and new target_section, existing promoted text | User places block in new section; Step 3 records result |
+| Promote Step 2 B2 manual reconcile | User shown old and new target_section; existing promoted text shown if markers locatable | User places block in new section; Step 3 records result |
 | Promote Step 2 manual reconcile (C3 — markers missing) | User shown old target_section, content diff | User places text manually; Step 3 records result |
 | Promote Step 3 failure | CLAUDE.md written but promote-meta absent | `/triage` detects mismatch; surfaces for user resolution |
 | Legacy artifact lacks session_id | Appears in timeline as "unattributed" | Not silently omitted |
