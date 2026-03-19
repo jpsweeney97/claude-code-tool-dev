@@ -364,3 +364,63 @@ class LedgerEntry:
 All ledger producers use a shared locked append primitive in `engram_core/`. Advisory lock (`fcntl.flock`) on the shard file. Lock scope: read-append-fsync. Multi-producer integrity replaces the previous "single writer by sharding" assumption (which broke when engines became ledger producers).
 
 **Ledger append failure never invalidates a successful write.** If a `defer_completed` event fails to append after a successful ticket creation, the ticket exists — the ledger gap is a diagnostic degradation, not data loss.
+
+## Version Evolution Policy
+
+Five independent version spaces govern Engram's data contracts. Each evolves independently — a bump in one does not require a bump in any other.
+
+### Version Spaces
+
+| Space | Field | Location | Starting Value |
+|---|---|---|---|
+| Envelope protocol | `EnvelopeHeader.envelope_version` | Cross-subsystem envelopes | `"1.0"` |
+| Record provenance | `RecordMeta.schema_version` | All stored records via `IndexEntry` | `"1.0"` |
+| Ledger format | `LedgerEntry.schema_version` | Event ledger entries | `"1.0"` |
+| Knowledge entry metadata | `lesson-meta.meta_version` | `learnings.md` entries | `"1.0"` |
+| Promotion state metadata | `promote-meta.meta_version` | `learnings.md` promotion records | `"1.0"` |
+
+### RecordMeta.schema_version Semantics
+
+`RecordMeta.schema_version` versions the Engram per-record provenance contract as surfaced through `RecordMeta` and `IndexEntry.meta`. It does **not** version envelope wire format (`envelope_version`), ledger event schema (`LedgerEntry.schema_version`), or native subsystem body layout (subsystem-specific). Each of those has its own version space.
+
+### Compatibility Rules
+
+| Version Space | Read Behavior | Write Behavior |
+|---|---|---|
+| Envelope protocol | **Exact-match.** Target engine rejects envelopes with unrecognized `envelope_version` via `VERSION_UNSUPPORTED` error. No forward compatibility. | Writers emit the version they were built for. |
+| Record provenance | **Same-major tolerance with field preservation.** Readers accept records with the same major version (e.g., a v1.0 reader reads v1.1). Unknown fields must be preserved verbatim on rewrite — see [Field Preservation Requirement](#field-preservation-requirement). Records with a different major version are skipped with a warning via `QueryDiagnostics.warnings`. | Writers emit the version they were built for. |
+| Ledger format | **Same-major tolerance.** Readers skip entries with unrecognized major versions. Unknown fields are ignored (ledger entries are append-only, never rewritten). | Writers emit the version they were built for. |
+| Knowledge entry metadata | **Entry-level exact-match for interpretation; verbatim preservation for unrelated writes.** When interpreting a `lesson-meta` comment (dedup, promote eligibility), the Knowledge engine requires exact major.minor match. Entries with unrecognized `meta_version` are skipped with a per-entry warning — they do not block operations on other entries in the same file. When appending a new entry, existing entries with unrecognized `meta_version` are preserved verbatim. | Writers emit the version they were built for. |
+| Promotion state metadata | **Entry-level exact-match.** Same rules as knowledge entry metadata. Entries with unrecognized `promote-meta.meta_version` are skipped per-entry. Unrelated entries are preserved verbatim on rewrite. | Writers emit the version they were built for. |
+
+### Legacy Entries (Missing meta_version)
+
+Existing `lesson-meta` and `promote-meta` comments written before the `meta_version` field was introduced will lack the field entirely. These are **not** treated as implicit `"1.0"`:
+
+- **Discovery:** Entries with structured `lesson-meta` but missing `meta_version` remain discoverable via `query()` and addressable by `lesson_id`. They retain their original `record_kind` (not overloaded to `"legacy"` — that label is reserved for entries lacking `lesson-meta` entirely, per the [Knowledge Entry Format](#knowledge-entry-format-lesson-meta-contract)). A per-entry compatibility warning is added to `QueryDiagnostics.warnings`.
+- **Interpretation:** Operations that interpret metadata (dedup via `content_sha256`, promote eligibility via `promote-meta`) skip entries with missing `meta_version` with a per-entry warning. They do not block operations on other entries.
+- **Rewrite:** Rewrite paths (e.g., appending `promote-meta` to an entry) must not touch metadata blocks with missing `meta_version`. To upgrade, the user runs a migration that adds `meta_version: "1.0"` explicitly.
+- **Promote-meta without meta_version:** Promotion status for entries with pre-version `promote-meta` degrades to `unknown` (not interpretable for Branch A/B/C decisions). The lesson itself remains valid.
+
+**Rationale:** Treating missing `meta_version` as implicit `"1.0"` makes the field meaningless for existing entries and prevents distinguishing "written before versioning existed" from "written with v1.0 format."
+
+### Per-Entry Degradation Guarantee
+
+Mixed-version `learnings.md` files degrade per entry, never per file. A single entry with an unsupported `meta_version` (or missing `meta_version`) does not make other entries in the same file unreadable, unqueryable, or unwritable. This guarantee applies to both `lesson-meta` and `promote-meta` version mismatches.
+
+### Bump Triggers
+
+| Change Type | Version Impact | Examples |
+|---|---|---|
+| **Major** (breaking) | Increment major, reset minor to 0 | Removing or renaming a required field, changing field semantics, changing serialization format |
+| **Minor** (additive) | Increment minor | Adding an optional field, adding a new enum value to an existing field |
+
+No patch version. Documentation-only changes do not affect version numbers.
+
+### Field Preservation Requirement
+
+When a reader encounters a record with same-major, different-minor version and subsequently rewrites that record (e.g., appending `promote-meta` to a `lesson-meta` entry), it **must** preserve all fields from the original record verbatim — including fields the reader does not recognize. If an operation cannot preserve unknown fields, it must reject the rewrite rather than silently drop them.
+
+**Non-normative implementation note:** One acceptable strategy is to parse the JSON comment as a `dict`, update known keys, and serialize the merged object with `sort_keys=True`. Other implementations that satisfy the preservation invariant are equally valid.
+
+**Rationale:** Without field preservation, same-major tolerance is a data-loss trap. A v1.0 Knowledge engine that reparses and reserializes a v1.1 `lesson-meta` would silently drop the v1.1 field, corrupting the record for v1.1 consumers.
