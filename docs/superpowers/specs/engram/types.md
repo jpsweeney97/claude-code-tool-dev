@@ -264,6 +264,14 @@ These mechanisms are independent in purpose and enforcement stage: an idempotent
 
 The Knowledge engine **must** recompute [`content_hash(content)`](#hash-producing-functions) for every `DistillCandidate` and verify it matches the caller-provided `content_sha256`. Reject any candidate where the computed hash does not match. This prevents hash drift from corrupting the dedup invariant. Caller provides the hash (self-describing envelopes); engine verifies (trust-but-verify).
 
+### Promote Hash Verification
+
+The Knowledge engine **must** recompute [`drift_hash()`](#hash-producing-functions) on the exact text written to CLAUDE.md in [Step 2](operations.md#promote-knowledge-to-claudemd) and use that value for `PromoteMeta.transformed_text_sha256` in Step 3. The hash input is the final post-confirmation text between markers — not the `PromoteEnvelope.transformed_text` from Step 1.
+
+**Rationale:** The Approve/modify/skip confirmation in Step 2 (Branches C1, C2) allows the user to modify the transformed text before writing. If Step 3 uses the pre-confirmation hash from the envelope, `transformed_text_sha256` would not match the actual CLAUDE.md content, causing spurious drift detection on the next `/promote` run.
+
+**If the exact post-write text is unavailable** (e.g., Step 2 wrote to CLAUDE.md but the skill cannot retrieve the final text between markers), Step 3 **must** reject the promote-meta write rather than persist a hash computed from pre-confirmation text. The lesson remains eligible for the next `/promote` run (same recovery as [Step 2 failure](operations.md#failure-handling)).
+
 ## Knowledge Entry Format — lesson-meta Contract
 
 All published knowledge entries in `engram/knowledge/learnings.md` use a uniform format regardless of producer (`/learn` or `/curate`):
