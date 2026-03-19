@@ -778,18 +778,16 @@ class TestEmitAnalyticsInvariants:
             event = mock_log.call_args[0][0]
             assert event["termination_reason"] == "error"
 
-    def test_git_error_gate_does_not_set_block_flags(self) -> None:
+    def test_git_error_gate_emits_gate_error(self) -> None:
         from scripts.codex_delegate import _emit_analytics
-        # _raw_validate is patched: the validator's "blocked requires at least one
-        # block flag" invariant doesn't cover git_error (a 4th block type with no
-        # dedicated flag). This test verifies derivation logic only; the validator
-        # invariant gap is tracked separately.
-        with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log, \
-             patch("scripts.codex_delegate._raw_validate"):
+        # git_error is an infrastructure failure, not a security block.
+        # It gets termination_reason="gate_error" (not "blocked") so the
+        # "blocked requires block flag" invariant doesn't reject it.
+        with patch("scripts.codex_delegate.append_log", return_value=True) as mock_log:
             _emit_analytics(phase_a={"prompt": "test"}, parsed=None,
                             exit_code=None, blocked_by="git_error", dispatched=False)
             event = mock_log.call_args[0][0]
-            assert event["termination_reason"] == "blocked"
+            assert event["termination_reason"] == "gate_error"
             assert event["dirty_tree_blocked"] is False
             assert event["readable_secret_file_blocked"] is False
             assert event["credential_blocked"] is False

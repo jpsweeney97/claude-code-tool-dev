@@ -142,6 +142,10 @@ class TestDelegationTerminationReasons:
         from scripts.event_schema import VALID_DELEGATION_TERMINATION_REASONS
         assert "blocked" in VALID_DELEGATION_TERMINATION_REASONS
 
+    def test_gate_error_in_delegation_reasons(self) -> None:
+        from scripts.event_schema import VALID_DELEGATION_TERMINATION_REASONS
+        assert "gate_error" in VALID_DELEGATION_TERMINATION_REASONS
+
     def test_convergence_not_in_delegation_reasons(self) -> None:
         from scripts.event_schema import VALID_DELEGATION_TERMINATION_REASONS
         assert "convergence" not in VALID_DELEGATION_TERMINATION_REASONS

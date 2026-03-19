@@ -147,11 +147,13 @@ VALID_TERMINATION_REASONS: frozenset[str] = frozenset({
 })
 
 VALID_DELEGATION_TERMINATION_REASONS: frozenset[str] = frozenset({
-    "blocked", "complete", "error",
+    "blocked", "complete", "error", "gate_error",
 })
 """Valid termination_reason values for delegation_outcome events.
 Delegation has different terminal states than dialogue/consultation:
-'blocked' (credential/gate block), 'complete' (success), 'error' (adapter failure)."""
+'blocked' (credential/tree/secret block), 'complete' (success),
+'error' (adapter failure), 'gate_error' (infrastructure failure in
+pre-dispatch gates, e.g. git not found or git timeout)."""
 
 
 def valid_termination_reasons(event_type: str) -> frozenset[str]:

@@ -530,8 +530,10 @@ def _emit_analytics(
         "exit_code": exit_code,
         # R5-B5: Derive termination_reason from dispatched/blocked_by hierarchy
         # — prevents impossible state dispatched=false,exit_code=0 → "complete"
+        # git_error gets "gate_error" (infrastructure failure, not security block)
         "termination_reason": (
-            "blocked" if blocked_by
+            "gate_error" if blocked_by == "git_error"
+            else "blocked" if blocked_by
             else "error" if not dispatched
             else "complete" if exit_code == 0
             else "error"
