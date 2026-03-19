@@ -74,6 +74,8 @@ Give NS stable, machine-referenceable access to AR findings without requiring pr
 
 Advisory/tolerant. NS validates the capsule if present; falls back to prose parsing if absent or invalid.
 
+**Provenance in fallback:** When NS falls back to prose parsing (capsule absent or invalid), the NS handoff MUST omit `source_artifacts` entries for the absent capsule. Do not reference an AR `artifact_id` that was not structurally consumed. This preserves lineage integrity — downstream consumers can trust that `source_artifacts` entries represent structurally validated provenance, not prose-derived references.
+
 ### When emitted
 
 AR appends the capsule after its prose output (after the Confidence Check section). The capsule is always emitted when the adversarial-review skill runs — it costs nothing to produce and NS can ignore it.
@@ -456,6 +458,8 @@ Two edge types:
 | `source_artifacts[]` | Cross-kind artifacts | Provenance graph showing what this run consumed |
 
 Each `source_artifacts[]` entry includes `artifact_id`, `artifact_kind`, and `role` (e.g., `diagnosis`, `plan`).
+
+**Provenance rule:** `source_artifacts[]` records direct edges only — artifacts that this run directly parsed and validated. Transitive provenance is recovered by traversing upstream `source_artifacts[]` references. Example: dialogue's feedback capsule lists NS (direct consumer) but not AR (transitive — reached via NS's own `source_artifacts[]`).
 
 ### Staleness detection
 
