@@ -3,9 +3,9 @@
 ```yaml
 id: T-010
 date: 2026-03-19
-status: open
+status: complete
 priority: medium
-branch: null
+branch: feature/delegation-event-validation
 blocked_by: []
 blocks: []
 related: [PR-80]
