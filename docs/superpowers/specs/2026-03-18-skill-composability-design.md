@@ -87,12 +87,13 @@ AR appends the capsule after its prose output (after the Confidence Check sectio
 ### Schema
 
 ```yaml
-artifact_id: ar:<date>:<subject-key>:<sequence>
+artifact_id: ar:<subject_key>:<created_at_compact>
 artifact_kind: adversarial_review
-subject_key: <kebab-case target identifier>
-created_at: <ISO 8601>
-supersedes: <prior artifact_id or null>
-source_artifacts: []
+subject_key: <kebab-case derived from review_target, or inherited from upstream feedback capsule>
+topic_key: <coarse grouping key — same as subject_key unless reviewing a facet of a broader topic>
+created_at: <ISO 8601 full timestamp with fractional seconds, UTC>
+supersedes: <prior artifact_id of same kind and subject_key, or null>
+source_artifacts: <[] if standalone; include upstream feedback capsule if re-review triggered by dialogue feedback>
 record_path: <path to docs/reviews/ file or null>
 
 review_target: <one-line description of what was reviewed>
@@ -159,13 +160,14 @@ This is distinct from `<!-- dialogue-orchestrated-briefing -->`, which means "/d
 ### Schema
 
 ```yaml
-artifact_id: ns:<date>:<subject-key>:<sequence>
+artifact_id: ns:<subject_key>:<created_at_compact>
 artifact_kind: next_steps_plan
-subject_key: <kebab-case subject identifier>
-created_at: <ISO 8601>
-supersedes: <prior artifact_id or null>
+subject_key: <inherited from AR capsule if consumed, otherwise derived from plan topic>
+topic_key: <inherited from AR capsule if consumed, otherwise derived from plan topic>
+created_at: <ISO 8601 full timestamp with fractional seconds, UTC>
+supersedes: <prior NS artifact_id for this subject_key, or null>
 source_artifacts:
-  - artifact_id: <AR artifact_id>
+  - artifact_id: <AR artifact_id if AR capsule was consumed, omit entry if not>
     artifact_kind: adversarial_review
     role: diagnosis
 record_path: null
@@ -242,16 +244,14 @@ The `/dialogue` skill (not the codex-dialogue agent) appends the feedback capsul
 ### Schema
 
 ```yaml
-artifact_id: dialogue:<date>:<subject-key>:<sequence>
+artifact_id: dialogue:<subject_key>:<created_at_compact>
 artifact_kind: dialogue_feedback
-subject_key: <kebab-case subject identifier>
-created_at: <ISO 8601>
-supersedes: <prior dialogue artifact_id or null>
+subject_key: <inherited from NS handoff if consumed, otherwise derived from goal topic>
+topic_key: <inherited from NS handoff if consumed, otherwise derived from goal topic>
+created_at: <ISO 8601 full timestamp with fractional seconds, UTC>
+supersedes: <prior dialogue artifact_id for this subject_key, or null>
 source_artifacts:
-  - artifact_id: <AR artifact_id>
-    artifact_kind: adversarial_review
-    role: diagnosis
-  - artifact_id: <NS artifact_id>
+  - artifact_id: <NS artifact_id if handoff was consumed>
     artifact_kind: next_steps_plan
     role: plan
 record_path: null
@@ -281,8 +281,10 @@ feedback_candidates:
     affected_refs: [<upstream artifact_id/finding_id references>]
     material: true | false
     materiality_reason: <one-line explanation>
-    classifier_source: rule | model | ambiguous
+    classifier_source: rule | model
 ```
+
+Note: `classifier_source` narrowed to `rule | model` (no `ambiguous`).
 
 ---
 
@@ -351,7 +353,7 @@ An item is **not material** if only:
 
 1. **No auto-chaining.** Skills suggest the next arc; the user confirms. No skill auto-invokes another.
 2. **Material-delta gating.** Do not recommend a hop unless something changed relative to the source snapshot.
-3. **Soft iteration budget.** After 2 targeted loops in the same lineage (same `subject_key`), stop suggesting further hops automatically. Report remaining open items. User can override.
+3. **Soft iteration budget.** After 2 targeted loops in the same topic (same `topic_key`), stop suggesting further hops automatically. Report remaining open items. User can override. The budget uses `topic_key` (coarse grouping), not `subject_key` (exact lineage), so related reviews on different facets of the same topic share a budget.
 
 ### Thread Continuation vs Fresh Start
 
@@ -385,18 +387,64 @@ An artifact is one skill-run snapshot. The capsule is the machine-readable proje
 | One next-steps run | `next_steps_plan` |
 | One /dialogue run | `dialogue_feedback` |
 
+### Two identity keys
+
+Each artifact carries two identity keys serving different purposes:
+
+| Key | Purpose | Format | Example | Used by |
+|-----|---------|--------|---------|---------|
+| `subject_key` | Exact lineage matching (staleness, supersession) | kebab-case, deterministic from target | `redaction-pipeline` | Staleness detection, `supersedes` links |
+| `topic_key` | Coarse grouping (soft iteration budget) | kebab-case, broader than subject_key | `redaction-pipeline` | Loop guardrails only |
+
+For simple targets, `subject_key` and `topic_key` may be identical. They diverge when a subject is a specific facet of a broader topic (e.g., subject_key `redaction-format-layer` under topic_key `redaction-pipeline`).
+
+**Normalization rules for `subject_key` (exact key — minimally lossy):**
+- Lowercase, replace spaces/underscores with hyphens
+- Remove leading/trailing whitespace
+- No character limit — preserve full target specificity for exact lineage matching
+- Derived from the skill's basis field when minting, or inherited from upstream capsule
+
+**Normalization rules for `topic_key` (coarse key — grouping):**
+- Same base normalization as `subject_key`
+- Additionally: strip articles (a, an, the), trailing qualifiers, and implementation-specific suffixes
+- Limit to 50 characters, truncate at word boundary
+- Represents the broadest topic this analysis belongs to
+
+**Inheritance-first propagation:**
+- If a skill directly consumes an upstream capsule (any kind), it inherits both `subject_key` and `topic_key` from that capsule.
+- If no upstream capsule is directly consumed, the skill mints both keys from its own basis field (see table below).
+- **Rule:** Only the root of a composition chain mints keys. All downstream skills inherit. This eliminates cross-skill key drift.
+
+**Basis fields for key minting (when no upstream capsule is consumed):**
+
+| Skill | Basis field | Example |
+|-------|-------------|---------|
+| adversarial-review | `review_target` | "the redaction pipeline" → `redaction-pipeline` |
+| next-steps | Primary topic of the plan | "redaction pipeline remediation" → `redaction-pipeline-remediation` |
+| dialogue | Goal/question topic | "redaction pipeline architecture" → `redaction-pipeline-architecture` |
+
+**Examples of inheritance in the feedback loop:**
+- AR (standalone) → mints `redaction-pipeline`
+- NS (consumes AR capsule) → inherits `redaction-pipeline`
+- Dialogue (consumes NS handoff) → inherits `redaction-pipeline`
+- AR (re-review consuming dialogue feedback capsule) → inherits `redaction-pipeline`
+
 ### Artifact ID format
 
 ```
-<kind-prefix>:<date>:<subject-key>:<sequence>
+<kind-prefix>:<subject_key>:<created_at_compact>
 ```
 
-Examples:
-- `ar:2026-03-18:redaction-pipeline:01`
-- `ns:2026-03-18:redaction-pipeline:01`
-- `dialogue:2026-03-18:redaction-pipeline:01`
+Where `created_at_compact` is the `created_at` ISO 8601 value with separators removed: `YYYYMMDDTHHMMSS` at minimum, with fractional seconds appended when the `created_at` field includes them (e.g., `YYYYMMDDTHHMMSS.fff`). The timestamp component MUST preserve the full precision of the `created_at` field — do not truncate fractional seconds. All three skills MUST use the same precision.
 
-`subject_key` identifies what is being analyzed. Two reruns of AR on the same target share a `subject_key`; the `sequence` number increments.
+Examples:
+- `ar:redaction-pipeline:20260318T143052.123`
+- `ns:redaction-pipeline:20260318T144215.456`
+- `dialogue:redaction-pipeline:20260318T151033.789`
+
+**Artifact ID prefixes:** `ar:` (adversarial_review), `ns:` (next_steps_plan), `dialogue:` (dialogue_feedback).
+
+The timestamp component provides collision resistance derived from the full `created_at` precision. Two runs on the same subject at different times produce different artifact IDs. The sequence-based format (`:<01>`) is removed — timestamps are strictly more unique.
 
 ### DAG structure
 
