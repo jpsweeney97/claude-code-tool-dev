@@ -30,12 +30,16 @@ from tempfile import TemporaryFile
 # Sibling imports (same scripts/ directory)
 if __package__:
     from scripts.credential_scan import scan_text
+    from scripts.emit_analytics import validate as _raw_validate
     from scripts.event_log import ts, append_log, session_id
+    from scripts.event_schema import resolve_schema_version as _resolve_schema_version
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
         from credential_scan import scan_text  # type: ignore[import-not-found,no-redef]
+        from emit_analytics import validate as _raw_validate  # type: ignore[import-not-found,no-redef]
         from event_log import ts, append_log, session_id  # type: ignore[import-not-found,no-redef]
+        from event_schema import resolve_schema_version as _resolve_schema_version  # type: ignore[import-not-found,no-redef]
     except ModuleNotFoundError as exc:
         print(f"codex-delegate: fatal: cannot import sibling modules: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -471,6 +475,21 @@ def _parse_jsonl(stdout: str) -> dict:
     }
 
 
+def _validate_and_log(event: dict) -> None:
+    """Validate then log. Fail-closed: invalid events are dropped, not appended.
+
+    This ensures analytics stays clean. Invalid events produce a stderr warning
+    for debugging but do not pollute the structured event log.
+    """
+    try:
+        _raw_validate(event, "delegation_outcome")
+    except ValueError as exc:
+        print(f"codex-delegate: event dropped (validation failed): {exc}", file=sys.stderr)
+        return
+    if not append_log(event):
+        print("codex-delegate: analytics emission failed", file=sys.stderr)
+
+
 def _emit_analytics(
     phase_a: dict,
     parsed: dict | None,
@@ -485,7 +504,6 @@ def _emit_analytics(
     Logs raw values including invalid ones (F13 handles downstream).
     """
     event = {
-        "schema_version": "0.1.0",
         "event": "delegation_outcome",
         "ts": ts(),
         "consultation_id": str(uuid.uuid4()),
@@ -513,8 +531,8 @@ def _emit_analytics(
             else "error"
         ),
     }
-    if not append_log(event):
-        print("codex-delegate: analytics emission failed", file=sys.stderr)
+    event["schema_version"] = _resolve_schema_version(event)
+    _validate_and_log(event)
 
 
 # ---------------------------------------------------------------------------
