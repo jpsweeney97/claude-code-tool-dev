@@ -106,3 +106,11 @@ The engine-centric adapter pattern (Architecture E) solves a class of trust and 
 ### 2026-03-07 [testing, codex]
 
 When a codebase has gates or checks (precondition guards, transition validators, confidence thresholds), test suites tend to exercise the paths where the gate fires correctly and systematically miss the paths that bypass the gate entirely. In the ticket plugin adversarial review, the acceptance criteria check only covered `(in_progress, done)` keyed by `(current, target)` pair — the test at line 1577 verified this path worked, but no test exercised `open → done` via the `close` action, which bypassed the AC gate completely. The fix pattern: for every gate/check, enumerate all paths that *should* be blocked and verify each one independently. Test the bypass paths, not just the working paths. This generalizes — the confidence gate (hardcoded 0.95 vs threshold 0.65) was also untested for the "gate fires" case because no test supplied a low confidence value. Dead code and untested gates are the same failure mode: a safety mechanism that has never been exercised in the negative case.
+
+### 2026-03-19 [workflow, worktree]
+
+**Context:** After merging a feature branch to main from within a git worktree, attempted to clean up the worktree using raw `git worktree remove` — every subsequent bash command failed.
+
+**Insight:** When a worktree directory is removed while the session's CWD is inside it, all subsequent bash commands fail — the shell can't initialize in a non-existent directory. The `ExitWorktree` tool handles this cleanly by resetting the session CWD before removing the directory. Raw `git worktree remove` from within the worktree (or from the main repo while the session CWD points to the worktree) leaves the session stranded.
+
+**Implication:** Always use `ExitWorktree` to clean up worktrees created by `EnterWorktree`, never raw `git worktree remove`. When finishing work in a worktree: merge from the main repo, then `ExitWorktree action: "remove"` to reset CWD and clean up atomically.
