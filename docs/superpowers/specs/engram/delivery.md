@@ -49,6 +49,8 @@ Create plugin, core library, and type contracts. Validate the foundation before 
 - Query scans empty directories with correct diagnostics
 - `VERSION_UNSUPPORTED` error for unknown `envelope_version` (VR-7): submit envelope with `envelope_version="99.0"`, assert error code and expected version range
 - Normalization boundary test (VR-14): construct a string where `knowledge_normalize` and `drift_hash`-level normalization (NFC+LF only) produce different outputs (e.g., trailing whitespace). Assert `content_hash(input) != drift_hash(input)`. Separately, assert `content_hash(input) != work_dedup_fingerprint(input, [])` for a mixed-case input. This proves the three pipelines diverge — using the wrong one would produce a different hash.
+- Field preservation gate (T1-gate-1, activates at Step 2a): verify that rewriting a `lesson-meta` entry with an unknown field preserves that field verbatim. Deferred from Step 0a because field preservation is only exercised when the Knowledge engine performs its first rewrite-capable operation. Scheduled here for traceability; test fixture created in Step 2a.
+- Mixed-version degradation gate (T1-gate-2, activates at Step 2a): verify that a `lesson-meta` entry with `meta_version: "99.0"` is skipped per-entry (not per-file) with a warning in `QueryDiagnostics.warnings`. Deferred from Step 0a for the same reason. Scheduled here; test fixture created in Step 2a.
 
 ## Step 0b: Bootstrap and Identity
 
@@ -123,6 +125,9 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 
 #### Required Verification
 - Promote-path wiring check (VR-15): `PromoteMeta.transformed_text_sha256` must be produced by `drift_hash()`, not `content_hash()`. Construct promoted text with trailing whitespace. Assert `drift_hash(text)` detects the whitespace (different hash from stripped version) while `content_hash(text)` does not (same hash). This verifies the promote pipeline uses the correct — stricter — normalizer for drift detection.
+- Promote hash recomputation (VR-16): simulate the Approve/modify/skip flow where the user modifies transformed text during Step 2 confirmation. Assert: `PromoteMeta.transformed_text_sha256` matches `drift_hash()` of the *post-modification* text written to CLAUDE.md, not the original `PromoteEnvelope.transformed_text`. Separately, assert: if post-write text retrieval fails, Step 3 rejects the promote-meta write (lesson remains eligible for next `/promote`). See [Promote Hash Verification](types.md#promote-hash-verification).
+- T1-gate-1 implementation: rewrite a `lesson-meta` entry that contains an extra field `"future_field": "value"`. Assert the rewritten entry still contains `future_field` verbatim.
+- T1-gate-2 implementation: create a `lesson-meta` entry with `meta_version: "99.0"`. Run `query()`. Assert: entry is skipped, `QueryDiagnostics.warnings` contains a per-entry message, other entries in the same file are still returned.
 
 ### Step 2b — Retire
 
@@ -151,6 +156,7 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 - Envelope idempotency (SY-5): DeferEnvelope submitted twice returns same ref
 - Phase-scoped idempotency regression gate (VR-11): verify idempotency_key is checked by new Work engine after bridge replacement
 - Staging inbox cap (VR-8): cap=5, count=3, batch=3 → full rejection; cap=5, count=3, batch=2 → success
+- Staging cap edge case (VR-17): cap=5, count=0, batch=8 → full rejection with diagnostic message including both batch size and cap values. Assert error message contains "Batch size (8) exceeds staging cap (5)".
 
 ### Step 3b — Retire
 
@@ -217,9 +223,11 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 - Migration idempotency (SY-6): run twice, compare manifests
 - SessionStart timing (VR-4): run `engram_session` against fixture with 50 snapshots, 20 chain files; assert wall-clock < 500ms
 - /triage promote-meta detection (VR-6): fixture with CLAUDE.md markers + text but no promote-meta → assert mismatch reported; fixture with stale promote-meta → assert stale reported; fixture with CLAUDE.md text but markers deleted → assert manual reconcile surfaced
-- Promote marker lifecycle (VR-10): Branch A inserts markers + text; Branch C1 locates markers, drift_hash matches → normal replacement with user confirmation; Branch C2 locates markers, drift_hash mismatches (user edited managed block) → drift warning + 2-way diff surfaced before user confirmation; Branch C3 missing markers → manual reconcile; Branch B2 relocates marker-enclosed block to new section; Branch B2 markers missing → manual reconcile (same flow as C3)
+- Promote marker lifecycle (VR-10): Branch A inserts markers + text; Branch C1 locates markers, drift_hash matches → normal replacement with user confirmation; Branch C2 locates markers, drift_hash mismatches (user edited managed block) → drift warning + 2-way diff surfaced before user confirmation; Branch C3 missing markers → manual reconcile; Branch B2 shows old and new target_section plus existing promoted text → user confirms manual placement; Step 3 records updated target_section in promote-meta
 - Snapshot intent fields (VR-12): /save without flags → snapshot has orchestrated_by=save, save_expected_defer=true, save_expected_distill=true; /save --no-defer → save_expected_defer=false; /quicksave → no orchestration fields
 - Triage inference matrix (VR-13): fixture with expected_defer=true + ticket exists → satisfied; expected_defer=false + no ticket → skipped; expected_defer=true + no ticket + defer_completed(emitted_count=0) → zero-output success; expected_defer=true + no ticket + no completion event → completion-not-proven
+- Triage ledger-off inference (VR-18): same fixture as VR-13 but with `ledger.enabled=false`. Assert: cases (3) and (4) both report "completion not proven (ledger unavailable)" — no zero-output-success distinction. Assert: qualifier `reason=ledger_disabled` present on all collapsed cases.
+- Triage provenance anomaly (VR-19): fixture with a ticket in `engram/work/` that has no corresponding `.audit/` entry. Assert: `/triage` reports `provenance_not_established` anomaly for that ticket. Fixture with a snapshot missing `session_id` in frontmatter. Assert: `/triage` reports `provenance_not_established` for that snapshot.
 
 ### Step 4b — Retire
 
@@ -268,7 +276,7 @@ Triage old tests into three buckets:
 |---|---|---|
 | /search grouping ("never interleaved") | Multi-subsystem query, assert contiguous grouping | 4a |
 | All 13 skills functional | Automated smoke test per skill: one happy-path invocation, assert expected observable output | 5 |
-| /save no-unique-logic | Code review: verify `/save` sub-operations delegate to shared implementation | 4a |
+| /save shared-entrypoint delegation | Delegation test: `/save` defer sub-operation calls the same public entrypoint as standalone `/defer`; `/save` distill sub-operation calls the same public entrypoint as standalone `/distill`. Parity test: run both paths with identical input, assert identical output. Code review as backstop. | 4a |
 
 ### Invariants
 
