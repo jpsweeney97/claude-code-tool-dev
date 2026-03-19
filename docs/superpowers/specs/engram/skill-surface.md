@@ -33,11 +33,11 @@ authority: skill-contract
 
 Three rules constrain `/save` to prevent [God Skill](decisions.md#named-risks) drift:
 
-1. **No unique business logic.** Same code paths as standalone skills.
+1. **Shared entrypoint delegation.** Each `/save` sub-operation must delegate to the same public entrypoint function as its standalone counterpart (`/defer`, `/distill`). The entrypoint is the shared programmatic seam — `/save` is a thin wrapper that calls it, not a reimplementation.
 2. **No hidden behaviors.** Every sub-operation visible in per-step results.
 3. **Independently retryable.** Failed steps retry via standalone skills with explicit `--snapshot-ref` from [recovery manifest](operations.md#recovery-manifest). "Latest" is permitted for discovery UI only, never as the semantic source of a write.
 
-**Structural verification:** `/save` sub-operations should call the same implementation functions as their standalone counterparts. Recommended pattern: thin wrapper that delegates to shared implementation. Verified by code review; structural guard in [delivery.md exit criteria](delivery.md#step-4-context-cutover).
+**Structural verification:** `/save` sub-operations **must** call the same public entrypoint functions as their standalone counterparts. Verified by automated delegation test (spy/parity test that asserts `/save` invokes the shared entrypoint) and code review as backstop. See [delivery.md cross-cutting verification](delivery.md#cross-cutting-verification) for test specification.
 
 ## Chain Protocol — Session Lineage Tracking
 

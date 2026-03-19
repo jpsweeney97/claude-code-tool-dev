@@ -141,6 +141,8 @@ autonomy:
   knowledge_max_stages: 10    # Cumulative files in staging inbox, not per-session
 ledger:
   enabled: true               # Default on. Opt-out here.
+                                    # Disabling degrades /triage inference —
+                                    # see storage-and-indexing.md degradation model.
 ```
 
 ### Staging Inbox Cap
@@ -148,3 +150,5 @@ ledger:
 The Knowledge engine checks the cumulative count of files in `knowledge_staging/` **before** writing new staged candidates. If `count + batch_size > knowledge_max_stages`, the entire batch is rejected (whole-batch reject for determinism — no partial staging). The rejection response includes current count, cap, and a suggestion to run `/curate` to clear the inbox.
 
 Scope is cumulative (total files in directory), not per-session. This matches the stated risk ([staging accumulation](decisions.md#named-risks)), not per-session agent autonomy. The engine reads `knowledge_max_stages` from `.claude/engram.local.md` at invocation time — no caching.
+
+**Edge case: `batch_size > knowledge_max_stages`.** If a single distill batch produces more candidates than the configured cap (e.g., a rich snapshot yields 15 candidates against a cap of 10), the batch is rejected even with 0 files in staging — the cap applies to `count + batch_size`, and `0 + 15 > 10`. The rejection response must include a diagnostic: `"Batch size (N) exceeds staging cap (M). Increase knowledge_max_stages to at least N in .claude/engram.local.md."` This is a deliberate consequence of whole-batch rejection. Partial staging (accepting the first N candidates) is a [deferred decision](decisions.md#deferred-decisions).
