@@ -172,6 +172,31 @@ def check_deferred_annotations(contract_text: str) -> list[str]:
     return []
 
 
+def check_profile_validity(repo_root: Path) -> list[str]:
+    """Validate consultation-profiles.yaml against §14 invariants."""
+    profiles_path = (
+        repo_root
+        / "packages"
+        / "plugins"
+        / "cross-model"
+        / "references"
+        / "consultation-profiles.yaml"
+    )
+    try:
+        import sys
+
+        scripts_dir = (
+            repo_root / "packages" / "plugins" / "cross-model" / "scripts"
+        )
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        from validate_profiles import validate_profiles_file  # type: ignore[import-not-found]
+
+        return validate_profiles_file(profiles_path)
+    except Exception as exc:
+        return [f"profile validation failed: {exc}"]
+
+
 def validate(repo_root: Path | None = None) -> list[str]:
     """Run all checks. Returns list of error strings — empty list means all pass."""
     if repo_root is None:
@@ -268,6 +293,7 @@ def validate(repo_root: Path | None = None) -> list[str]:
             gatherer_falsifier_path, EXPECTED_GATHERER_GOVERNANCE_COUNT
         )
     )
+    errors.extend(check_profile_validity(repo_root))
     return errors
 
 
