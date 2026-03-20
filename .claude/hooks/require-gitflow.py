@@ -161,6 +161,8 @@ VALID_PATTERNS = [
     r"^spike/.+",
     r"^experiment/.+",
     r"^poc/.+",
+    # Git hygiene
+    r"^cleanup/.+",
 ]
 
 # Precompile patterns for performance (case-insensitive)

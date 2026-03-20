@@ -195,7 +195,7 @@ dev = [
 
 [[package]]
 name = "cross-model-plugin"
-version = "3.0.0"
+version = "3.1.2"
 source = { virtual = "packages/plugins/cross-model" }
 dependencies = [
     { name = "mcp" },
