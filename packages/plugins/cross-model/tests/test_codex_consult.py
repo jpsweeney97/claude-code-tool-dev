@@ -150,3 +150,64 @@ class TestCheckCodexVersion:
             mock_sub.TimeoutExpired = subprocess.TimeoutExpired
             with pytest.raises(ConsultationError, match="codex not found"):
                 _check_codex_version()
+
+
+class TestParseJsonl:
+    """JSONL parsing extracts continuation_id, response, usage."""
+
+    def _make_jsonl(self, *events: dict) -> str:
+        return "\n".join(json.dumps(e) for e in events)
+
+    def test_extracts_thread_id(self) -> None:
+        from scripts.codex_consult import _parse_jsonl
+        stdout = self._make_jsonl({"type": "thread.started", "thread_id": "thr_001"}, {"type": "turn.started"}, {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 5}})
+        result = _parse_jsonl(stdout)
+        assert result["continuation_id"] == "thr_001"
+
+    def test_last_thread_id_wins(self) -> None:
+        from scripts.codex_consult import _parse_jsonl
+        stdout = self._make_jsonl({"type": "thread.started", "thread_id": "thr_old"}, {"type": "thread.started", "thread_id": "thr_new"}, {"type": "turn.completed", "usage": {}})
+        result = _parse_jsonl(stdout)
+        assert result["continuation_id"] == "thr_new"
+
+    def test_extracts_agent_message(self) -> None:
+        from scripts.codex_consult import _parse_jsonl
+        stdout = self._make_jsonl({"type": "thread.started", "thread_id": "thr_001"}, {"type": "item.completed", "item": {"type": "agent_message", "text": "The answer is 42."}}, {"type": "turn.completed", "usage": {}})
+        result = _parse_jsonl(stdout)
+        assert result["response_text"] == "The answer is 42."
+
+    def test_concatenates_multiple_messages(self) -> None:
+        from scripts.codex_consult import _parse_jsonl
+        stdout = self._make_jsonl({"type": "thread.started", "thread_id": "thr_001"}, {"type": "item.completed", "item": {"type": "agent_message", "text": "Part 1."}}, {"type": "item.completed", "item": {"type": "agent_message", "text": "Part 2."}}, {"type": "turn.completed", "usage": {}})
+        result = _parse_jsonl(stdout)
+        assert "Part 1." in result["response_text"]
+        assert "Part 2." in result["response_text"]
+
+    def test_extracts_token_usage(self) -> None:
+        from scripts.codex_consult import _parse_jsonl
+        stdout = self._make_jsonl({"type": "thread.started", "thread_id": "thr_001"}, {"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}})
+        result = _parse_jsonl(stdout)
+        assert result["token_usage"] == {"input_tokens": 100, "output_tokens": 50}
+
+    def test_captures_runtime_failures(self) -> None:
+        from scripts.codex_consult import _parse_jsonl
+        stdout = self._make_jsonl({"type": "thread.started", "thread_id": "thr_001"}, {"type": "turn.failed", "error": "model overloaded"})
+        result = _parse_jsonl(stdout)
+        assert "model overloaded" in result["runtime_failures"]
+
+    def test_no_usable_events_errors(self) -> None:
+        from scripts.codex_consult import _parse_jsonl, ConsultationError
+        with pytest.raises(ConsultationError, match="no usable JSONL events"):
+            _parse_jsonl("")
+
+    def test_skips_malformed_lines(self) -> None:
+        from scripts.codex_consult import _parse_jsonl
+        stdout = "not json\n" + json.dumps({"type": "thread.started", "thread_id": "thr_001"}) + "\n" + json.dumps({"type": "turn.completed", "usage": {}})
+        result = _parse_jsonl(stdout)
+        assert result["continuation_id"] == "thr_001"
+
+    def test_null_thread_id_on_missing_event(self) -> None:
+        from scripts.codex_consult import _parse_jsonl
+        stdout = self._make_jsonl({"type": "turn.started"}, {"type": "turn.completed", "usage": {}})
+        result = _parse_jsonl(stdout)
+        assert result["continuation_id"] is None

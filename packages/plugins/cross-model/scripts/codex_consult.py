@@ -185,3 +185,81 @@ def _build_command(
     cmd.append("--")
     cmd.append(prompt)
     return cmd
+
+
+_KNOWN_EVENT_TYPES = {
+    "thread.started", "turn.started", "turn.completed", "turn.failed",
+    "item.started", "item.completed", "error",
+}
+
+
+def _parse_jsonl(stdout: str) -> dict:
+    """Parse JSONL events from codex exec stdout.
+
+    Opaque continuation tokens: uses LAST thread_id from thread.started
+    (not first-wins like codex_delegate.py). exec resume may emit a new
+    thread.started with a different ID.
+    """
+    continuation_id: str | None = None
+    response_parts: list[str] = []
+    token_usage: dict | None = None
+    runtime_failures: list[str] = []
+    usable_count = 0
+
+    for line in stdout.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            print("codex-consult: skipped malformed JSONL line", file=sys.stderr)
+            continue
+        if not isinstance(event, dict):
+            continue
+
+        event_type = event.get("type", "")
+        if event_type not in _KNOWN_EVENT_TYPES:
+            continue
+        usable_count += 1
+
+        if event_type == "thread.started":
+            tid = event.get("thread_id")
+            if isinstance(tid, str):
+                continuation_id = tid
+
+        elif event_type == "item.completed":
+            item = event.get("item", {})
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "agent_message":
+                text_val = item.get("text")
+                if isinstance(text_val, str):
+                    response_parts.append(text_val)
+
+        elif event_type == "turn.completed":
+            usage = event.get("usage", {})
+            if isinstance(usage, dict) and usage:
+                token_usage = {
+                    "input_tokens": usage.get("input_tokens", 0),
+                    "output_tokens": usage.get("output_tokens", 0),
+                }
+
+        elif event_type == "turn.failed":
+            runtime_failures.append(str(event.get("error", "unknown error")))
+
+        elif event_type == "error":
+            runtime_failures.append(str(event.get("message", event.get("error", "unknown error"))))
+
+    if usable_count == 0:
+        raise ConsultationError("parse failed: no usable JSONL events from codex exec")
+
+    if continuation_id is None:
+        print("codex-consult: no thread.started event, continuation_id will be null", file=sys.stderr)
+
+    return {
+        "continuation_id": continuation_id,
+        "response_text": "\n\n".join(response_parts) if response_parts else None,
+        "token_usage": token_usage,
+        "runtime_failures": runtime_failures,
+    }
