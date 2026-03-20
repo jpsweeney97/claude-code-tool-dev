@@ -3,7 +3,7 @@
 ```yaml
 id: T-20260319-01
 date: 2026-03-19
-status: open
+status: resolved
 priority: high
 tags: [cross-model, codex, infrastructure]
 blocked_by: []
@@ -83,3 +83,23 @@ Replace the MCP server transport with `codex exec` CLI invocations via a Python 
 - [ ] No MCP server dependency for cross-model consultation
 - [ ] Analytics events capture transport type
 - [ ] Existing 631 cross-model tests pass (or are updated for new transport)
+
+## Resolution
+
+**Approach taken:** D-prime architecture (adapter + shim) instead of direct skill/agent rewrites.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| T1 | `codex_consult.py` adapter with `consult()` API | Complete |
+| T2 | `consultation_safety.py` extraction | Complete |
+| T3 | `codex_shim.py` FastMCP MCP shim (18 tests) | Complete |
+| T4 | Wire shim into `.mcp.json` + E2E verification | Complete |
+
+**What this resolves:** The original problem (broken MCP server after codex-cli v0.116.0 update) is fully resolved. The local shim replaces the upstream binary, eliminating the tight coupling that caused the breakage.
+
+**What remains (T5):** Decide whether Phase 2 (optional shim removal — direct `codex exec` calls from skills/agents) is warranted. Phase 2 is only justified if the shim grows beyond ~150 lines or maintenance burden exceeds the adapter's blast-radius savings. Current shim is ~95 lines.
+
+**Open questions carried from Codex dialogue (`019d09f3`):**
+- Whether upstream `codex mcp-server` serializes concurrent requests (same as shim's FastMCP behavior)
+- Whether upstream handles cancellation/disconnect differently from the shim
+- `approval_policy` (underscore) vs `approval-policy` (hyphen) contract drift — normalize in a future pass
