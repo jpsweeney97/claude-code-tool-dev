@@ -382,6 +382,10 @@ FactPacket
 
 Default is paraphrase. At most one snippet per mid-turn packet unless explicitly about schema details.
 
+**Clarification:** Both modes are deterministic operations in the CLI — no LLM involvement.
+- `snippet`: extract verbatim text from the search result's `content` or `snippet` field, trim to budget.
+- `paraphrase`: select the most relevant sentence(s) from the search result's `content` field based on facet keyword overlap, trim to budget. This is extractive selection, not generative rewriting. The CLI picks passages; it does not rephrase them.
+
 ### Token Budgets
 
 | Phase | Budget | Max topics | Max facts |
@@ -576,6 +580,40 @@ dump_index_metadata (new claude-code-docs tool)
 
 Trigger: manual or tied to reload_docs cycle
 ```
+
+### `dump_index_metadata` Response Schema
+
+New tool added to the `claude-code-docs` MCP server. Returns structured metadata about the indexed documentation corpus — categories, headings, chunk IDs, and distinctive terms — without returning full document content.
+
+**Parameters:** None (dumps the full index metadata).
+
+**Response:**
+
+```json
+{
+  "index_version": "string",
+  "built_at": "ISO timestamp",
+  "categories": [
+    {
+      "name": "hooks",
+      "aliases": ["hook"],
+      "chunk_count": 12,
+      "chunks": [
+        {
+          "chunk_id": "hooks#pretooluse",
+          "source_file": "https://code.claude.com/docs/en/hooks",
+          "headings": ["Hooks", "Hook Events", "PreToolUse"],
+          "code_literals": ["PreToolUse", "permissionDecision", "updatedInput", "additionalContext"],
+          "config_keys": ["hookSpecificOutput"],
+          "distinctive_terms": ["PreToolUse", "tool_input", "permissionDecision"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+`build_inventory.py` consumes this to generate topic scaffolds: category names → family topics, headings → leaf topics, code literals → exact aliases, distinctive terms → phrase/token aliases.
 
 ### Untouched Components
 
