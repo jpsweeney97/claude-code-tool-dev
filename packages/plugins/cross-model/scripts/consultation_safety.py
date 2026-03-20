@@ -15,8 +15,15 @@ This module does NOT own:
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
+
+if __package__:
+    from scripts.credential_scan import scan_text
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from credential_scan import scan_text  # type: ignore[import-not-found,no-redef]
 
 _NODE_CAP = 10_000
 _CHAR_CAP = 256 * 1024
@@ -130,3 +137,48 @@ def extract_strings(tool_input: object, policy: ToolScanPolicy) -> tuple[list[st
         raise TypeError(f"tool_input traversal failed: unsupported value. Got: {value!r:.100}")
 
     return texts_to_scan, unexpected_fields
+
+
+_ACTION_RANK = {"block": 0, "shadow": 1, "allow": 2}
+_TIER_RANK = {"strict": 0, "contextual": 1}
+
+
+@dataclass(frozen=True)
+class SafetyVerdict:
+    """Result of running credential scan on tool_input."""
+
+    action: Literal["allow", "block", "shadow"]
+    reason: str | None = None
+    tier: str | None = None
+    unexpected_fields: list[str] = field(default_factory=list)
+
+
+def check_tool_input(tool_input: object, policy: ToolScanPolicy) -> SafetyVerdict:
+    """Run credential scan on tool_input per policy. Returns worst verdict."""
+    texts, unexpected = extract_strings(tool_input, policy)
+
+    worst_action = "allow"
+    worst_reason: str | None = None
+    worst_tier: str | None = None
+
+    for text in texts:
+        result = scan_text(text)
+
+        result_rank = _ACTION_RANK.get(result.action, 2)
+        current_rank = _ACTION_RANK.get(worst_action, 2)
+
+        if result_rank < current_rank:
+            worst_action = result.action
+            worst_reason = result.reason
+            worst_tier = result.tier
+        elif result_rank == current_rank and result.action == "block":
+            if _TIER_RANK.get(result.tier or "", 99) < _TIER_RANK.get(worst_tier or "", 99):
+                worst_reason = result.reason
+                worst_tier = result.tier
+
+    return SafetyVerdict(
+        action=worst_action,
+        reason=worst_reason,
+        tier=worst_tier,
+        unexpected_fields=unexpected,
+    )
