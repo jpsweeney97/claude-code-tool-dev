@@ -211,3 +211,68 @@ class TestParseJsonl:
         stdout = self._make_jsonl({"type": "turn.started"}, {"type": "turn.completed", "usage": {}})
         result = _parse_jsonl(stdout)
         assert result["continuation_id"] is None
+
+
+from unittest.mock import patch, MagicMock
+import subprocess as _subprocess
+
+
+class TestRunSubprocess:
+    """Subprocess execution with env propagation and dispatch tracking."""
+
+    @patch("scripts.codex_consult.subprocess")
+    def test_propagates_seatbelt_env(self, mock_sub: MagicMock) -> None:
+        from scripts.codex_consult import _run_subprocess
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 0
+        mock_sub.Popen.return_value = mock_proc
+        mock_sub.TimeoutExpired = _subprocess.TimeoutExpired
+
+        mock_stdout = MagicMock()
+        mock_stdout.tell.return_value = 10
+        mock_stdout.read.return_value = b'{"type":"turn.completed","usage":{}}'
+        mock_stdout.seek = MagicMock()
+        mock_stderr = MagicMock()
+
+        with patch("scripts.codex_consult.TemporaryFile", side_effect=[mock_stdout, mock_stderr]):
+            mock_stdout.__enter__ = MagicMock(return_value=mock_stdout)
+            mock_stdout.__exit__ = MagicMock(return_value=False)
+            mock_stderr.__enter__ = MagicMock(return_value=mock_stderr)
+            mock_stderr.__exit__ = MagicMock(return_value=False)
+            _run_subprocess(["codex", "exec", "--json", "--", "test"])
+
+        call_kwargs = mock_sub.Popen.call_args
+        env = call_kwargs.kwargs.get("env") or call_kwargs[1].get("env", {})
+        assert env.get("CODEX_SANDBOX") == "seatbelt"
+
+    def test_dispatch_state_values(self) -> None:
+        from scripts.codex_consult import DispatchState
+        assert DispatchState.NO_DISPATCH.value == "no_dispatch"
+        assert DispatchState.COMPLETE.value == "complete"
+        assert DispatchState.DISPATCHED_WITH_TOKEN_UNCERTAIN.value == "dispatched_with_token_uncertain"
+
+    @patch("scripts.codex_consult.subprocess")
+    def test_timeout_returns_partial_stdout(self, mock_sub: MagicMock) -> None:
+        from scripts.codex_consult import _run_subprocess, SubprocessTimeout
+        mock_proc = MagicMock()
+        mock_proc.wait.side_effect = _subprocess.TimeoutExpired(cmd=["codex"], timeout=300)
+        mock_proc.kill = MagicMock()
+        mock_sub.Popen.return_value = mock_proc
+        mock_sub.TimeoutExpired = _subprocess.TimeoutExpired
+
+        partial_jsonl = '{"type":"thread.started","thread_id":"thr_partial"}\n'
+        mock_stdout = MagicMock()
+        mock_stdout.tell.return_value = len(partial_jsonl)
+        mock_stdout.read.return_value = partial_jsonl.encode()
+        mock_stdout.seek = MagicMock()
+        mock_stderr = MagicMock()
+
+        with patch("scripts.codex_consult.TemporaryFile", side_effect=[mock_stdout, mock_stderr]):
+            mock_stdout.__enter__ = MagicMock(return_value=mock_stdout)
+            mock_stdout.__exit__ = MagicMock(return_value=False)
+            mock_stderr.__enter__ = MagicMock(return_value=mock_stderr)
+            mock_stderr.__exit__ = MagicMock(return_value=False)
+            with pytest.raises(SubprocessTimeout) as exc_info:
+                _run_subprocess(["codex", "exec", "--json", "--", "test"])
+            assert "thr_partial" in exc_info.value.partial_stdout

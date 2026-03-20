@@ -34,11 +34,11 @@ from pathlib import Path
 from tempfile import TemporaryFile
 
 if __package__:
-    from scripts.consultation_safety import check_tool_input, START_POLICY
+    from scripts.consultation_safety import check_tool_input, START_POLICY, SafetyVerdict
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
-        from consultation_safety import check_tool_input, START_POLICY  # type: ignore[import-not-found,no-redef]
+        from consultation_safety import check_tool_input, START_POLICY, SafetyVerdict  # type: ignore[import-not-found,no-redef]
     except ModuleNotFoundError as exc:
         print(f"codex-consult: fatal: cannot import sibling modules: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -263,3 +263,48 @@ def _parse_jsonl(stdout: str) -> dict:
         "token_usage": token_usage,
         "runtime_failures": runtime_failures,
     }
+
+
+def _read_stdout(stdout_sink) -> str:
+    """Read and decode stdout from the sink file, enforcing size cap."""
+    stdout_sink.seek(0, os.SEEK_END)
+    stdout_size = stdout_sink.tell()
+    stdout_sink.seek(0)
+    stdout_bytes = stdout_sink.read(_STDOUT_MAX_BYTES + 1)
+    if stdout_size > _STDOUT_MAX_BYTES:
+        print("codex-consult: stdout truncated (exceeded 50MB cap)", file=sys.stderr)
+    return stdout_bytes[:_STDOUT_MAX_BYTES].decode("utf-8", errors="replace")
+
+
+def _run_subprocess(cmd: list[str]) -> tuple[str, int]:
+    """Execute codex exec and return (stdout_text, returncode).
+
+    Propagates CODEX_SANDBOX=seatbelt to prevent macOS startup panics.
+    On timeout: reads partial stdout and raises SubprocessTimeout.
+    """
+    env = os.environ.copy()
+    env["CODEX_SANDBOX"] = "seatbelt"
+
+    try:
+        with TemporaryFile() as stdout_sink, TemporaryFile() as stderr_sink:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=stdout_sink,
+                stderr=stderr_sink,
+                env=env,
+                text=False,
+            )
+            try:
+                proc.wait(timeout=_SUBPROCESS_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                try:
+                    proc.wait()
+                except subprocess.TimeoutExpired:
+                    pass
+                partial = _read_stdout(stdout_sink)
+                raise SubprocessTimeout(partial)
+
+            return _read_stdout(stdout_sink), proc.returncode
+    except FileNotFoundError:
+        raise ConsultationError("exec failed: codex not found")
