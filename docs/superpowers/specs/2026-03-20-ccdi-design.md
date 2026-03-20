@@ -1,8 +1,8 @@
 # Claude Code Docs Injection (CCDI) — Design Document
 
 **Date:** 2026-03-20
-**Status:** Draft
-**Author:** JP + Claude + Codex (7-turn collaborative dialogue)
+**Status:** Draft (reviewed)
+**Author:** JP + Claude + Codex (7-turn design dialogue + 6-turn review dialogue)
 **Location:** `packages/plugins/cross-model/`
 
 ---
@@ -39,6 +39,27 @@ Detection is automatic (no manual flags). Injection is source-separated from rep
 | Search wide, inject narrow | Initial subagent retrieves broadly, delivers 2–3 families |
 | Auto-generated scaffold, curated overlay | Topic inventory stays current without full manual maintenance |
 | Persist semantics, derive performance | Compiled inventory stores meaning; runtime matcher is separate |
+| CCDI is premise enrichment, not retargeting | CCDI adds context to the follow-up prompt; it never changes what the agent asks Codex about |
+| Scout evidence beats CCDI evidence | When context-injection has a scout candidate at the same boundary, CCDI yields |
+
+### Rollout Strategy
+
+Ship in two phases to isolate risk:
+
+| Phase | Scope | Risk profile |
+|-------|-------|-------------|
+| **Phase A** | Initial CCDI only (ccdi-gatherer subagent + CCDI-lite) | Low — clean additive feature, no interaction with existing turn loop |
+| **Phase B** | Mid-dialogue CCDI (per-turn prepare/commit in codex-dialogue) | Higher — control-plane duplication risk, source hierarchy inversion potential |
+
+Phase B enters **shadow mode** first: the prepare/commit cycle runs and emits diagnostics but does NOT inject packets into the follow-up prompt. Shadow mode has kill criteria:
+
+- Abort if `effective_prepare_yield` < 40% — where yield = (prepared AND target-relevant AND surviving precedence) / total prepared. Low yield means CCDI is doing work that doesn't reach Codex.
+- Abort if average per-turn CCDI latency (prepare + commit) exceeds 500ms
+- Abort if false-positive injection rate (CCDI fires on non-Claude-Code topics) exceeds 10%
+
+Secondary diagnostic (not a hard kill): `relevant_but_scout_deferred_rate` — high values indicate healthy scout precedence, not CCDI failure.
+
+Graduate from shadow to active when kill criteria are clear across 10+ shadow dialogues.
 
 ---
 
@@ -55,8 +76,21 @@ CompiledInventory
 ├── docs_epoch: string | null        # reload/version marker from claude-code-docs
 ├── topics: Record<TopicKey, TopicRecord>
 ├── denylist: DenyRule[]
-└── overlay_meta: { overlay_version, applied_rules[] }
+├── overlay_meta: { overlay_version, overlay_schema_version, applied_rules[] }
+└── merge_semantics_version: "1"     # version of the overlay merge algorithm
 ```
+
+### Version Axes
+
+Three independent version axes prevent coupled evolution:
+
+| Axis | Field | What changes | Who changes it |
+|------|-------|-------------|---------------|
+| Inventory schema | `schema_version` | TopicRecord fields, Alias structure, DenyRule shape | Code change (Python) |
+| Overlay schema | `overlay_meta.overlay_schema_version` | Overlay file format, supported operations | Code change (Python) |
+| Merge semantics | `merge_semantics_version` | How overlay operations apply to inventory | Code change (Python) |
+
+`build_inventory.py` validates compatibility between all three axes at merge time. On mismatch: fail loudly with specific version pair and required action. Do NOT silently fall back — overlays are curated artifacts, and silent incompatibility corrupts human-maintained data.
 
 ### TopicRecord
 
@@ -105,6 +139,8 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 | `action` | `"drop" \| "downrank"` | Eliminate or penalize |
 | `penalty` | number | Weight reduction for downrank |
 | `reason` | string | Why this term is problematic |
+
+**Penalty application:** `downrank` reduces the individual alias weight before summing into the topic score. If alias `A` has weight 0.6 and matches denylist rule with penalty 0.35, the effective weight is `0.6 - 0.35 = 0.25`. Negative effective weights are clamped to 0.
 
 ### DocRef
 
@@ -183,9 +219,46 @@ hooks                          skills                    plugins
 ### Lifecycle
 
 - **Generation:** Auto-generated from `claude-code-docs` index metadata via `build_inventory.py` (MCP client calling `dump_index_metadata`).
-- **Overlay:** Small curated JSON with denylist rules, alias fixes, weight overrides.
+- **Overlay:** Small curated JSON with denylist rules, alias fixes, weight overrides. Has its own `overlay_schema_version` validated at merge time.
 - **Persistence:** Compiled to `data/topic_inventory.json`. Loaded at plugin startup from last-known-good artifact (no live MCP dependency at startup).
-- **Refresh:** Tied to `reload_docs` cycle — when docs refresh, inventory refreshes too.
+- **Refresh trigger:** `build_inventory.py` runs automatically as a post-reload hook when `reload_docs` is called and `docs_epoch` has changed since the last build. Also runnable manually: `python3 scripts/build_inventory.py [--force]`. The `--force` flag rebuilds even if `docs_epoch` matches.
+- **Dialogue pinning:** A running dialogue uses the inventory snapshot loaded at dialogue start. Inventory refreshes mid-dialogue do NOT affect active conversations — the classifier operates on a pinned copy for the dialogue lifetime.
+
+### Configuration: `ccdi_config.json`
+
+Tuning parameters live in a separate config file consumed only by the CLI tool. The agent never parses this file — it sees only the CLI's behavioral output.
+
+```json
+{
+  "config_version": "1",
+  "classifier": {
+    "confidence_high_min_weight": 0.8,
+    "confidence_medium_min_score": 0.5,
+    "confidence_medium_min_single_weight": 0.5
+  },
+  "injection": {
+    "initial_threshold_high_count": 1,
+    "initial_threshold_medium_same_family_count": 2,
+    "mid_turn_consecutive_medium_turns": 2,
+    "cooldown_max_new_topics_per_turn": 1,
+    "deferred_ttl_turns": 3
+  },
+  "packets": {
+    "initial_token_budget_min": 600,
+    "initial_token_budget_max": 1000,
+    "initial_max_topics": 3,
+    "initial_max_facts": 8,
+    "mid_turn_token_budget_min": 250,
+    "mid_turn_token_budget_max": 450,
+    "mid_turn_max_topics": 1,
+    "mid_turn_max_facts": 3,
+    "quality_min_result_score": 0.3,
+    "quality_min_useful_facts": 1
+  }
+}
+```
+
+The overlay can override config values via an optional `config_overrides` section — same merge semantics as topic overrides. This keeps all tuning in data files, not Python code.
 
 ---
 
@@ -220,11 +293,13 @@ Four deterministic rules:
 
 ### Confidence Levels
 
-| Level | Criteria |
-|-------|----------|
-| `high` | At least one exact/phrase match with weight ≥ 0.8 |
-| `medium` | Cumulative score ≥ 0.5 from multiple aliases, or one match with weight 0.5–0.79 |
-| `low` | Only token matches or generic terms, cumulative score < 0.5 |
+Thresholds are configurable via `ccdi_config.json` → `classifier`. Defaults shown:
+
+| Level | Criteria | Config key |
+|-------|----------|-----------|
+| `high` | At least one exact/phrase match with weight ≥ 0.8 | `confidence_high_min_weight` |
+| `medium` | Cumulative score ≥ 0.5 from multiple aliases, or one match with weight 0.5–0.79 | `confidence_medium_min_score`, `confidence_medium_min_single_weight` |
+| `low` | Only token matches or generic terms, cumulative score < 0.5 | (below medium thresholds) |
 
 ### Output Structure
 
@@ -245,11 +320,13 @@ ClassifierResult
 
 ### Injection Thresholds
 
-| Phase | Injection fires when |
-|-------|---------------------|
-| Initial (pre-dialogue) | 1 high-confidence topic, OR 2+ medium-confidence in same family |
-| Mid-dialogue | 1 high-confidence uncovered leaf, OR 1 medium-confidence leaf in 2+ consecutive turns, OR any uncovered topic Codex uses as actionable recommendation |
-| `/codex` (CCDI-lite) | Same as initial |
+Thresholds are configurable via `ccdi_config.json` → `injection`. Defaults shown:
+
+| Phase | Injection fires when | Config keys |
+|-------|---------------------|------------|
+| Initial (pre-dialogue) | 1 high-confidence topic, OR 2+ medium-confidence in same family | `initial_threshold_high_count`, `initial_threshold_medium_same_family_count` |
+| Mid-dialogue | 1 high-confidence uncovered leaf, OR 1 medium-confidence leaf in 2+ consecutive turns, OR agent provides semantic hint (see §4) | `mid_turn_consecutive_medium_turns` |
+| `/codex` (CCDI-lite) | Same as initial | (same keys) |
 
 Low-confidence detections are recorded in the topic registry but never trigger injection alone.
 
@@ -287,13 +364,14 @@ Per-conversation state machine tracking topic lifecycle. Prevents redundant inje
 TopicRegistryEntry
 ├── topic_key: TopicKey
 ├── family_key: TopicKey
-├── state: "detected" | "looked_up" | "injected" | "suppressed"
+├── state: "detected" | "injected" | "suppressed" | "deferred"
 ├── first_seen_turn: number
 ├── last_seen_turn: number
-├── last_lookup_turn: number | null
 ├── last_injected_turn: number | null
 ├── last_query_fingerprint: string | null
-├── suppression_reason: "weak_results" | "cooldown" | "redundant" | null
+├── suppression_reason: "weak_results" | "redundant" | null
+├── deferred_reason: "cooldown" | "scout_priority" | "target_mismatch" | null
+├── deferred_ttl: number | null       # turns remaining before re-evaluation
 └── coverage
     ├── overview_injected: boolean
     ├── facets_injected: Facet[]
@@ -301,23 +379,50 @@ TopicRegistryEntry
     └── injected_chunk_ids: string[]
 ```
 
+### Durable vs Attempt-Local States
+
+Only **durable states** are persisted to the registry file. Attempt-local states exist within a single CLI invocation and are never written to disk.
+
+| State | Durability | Meaning |
+|-------|-----------|---------|
+| `detected` | Durable | Classifier found this topic; not yet looked up |
+| `injected` | Durable | Packet was sent to Codex and send was confirmed |
+| `suppressed` | Durable | Lookup returned weak/redundant results; will not re-attempt unless signal strengthens |
+| `deferred` | Durable | Valid candidate that yielded to higher priority (scout evidence or cooldown); has TTL for re-evaluation |
+| `looked_up` | Attempt-local | Search completed; deciding packet eligibility (not persisted) |
+| `built` | Attempt-local | Packet built but not yet sent (not persisted) |
+
+`injected` commits only after the agent observes successful send (the follow-up prompt containing the packet was delivered to Codex). If send fails, the topic reverts to `detected` — not `injected`.
+
 ### State Transitions
 
 ```
-absent ──→ detected ──→ looked_up ──→ injected
-                              │
-                              └──→ suppressed ──→ detected (re-entry)
+absent ──→ detected ──→ [looked_up] ──→ [built] ──→ injected
+                │               │
+                │               ├──→ suppressed
+                │               └──→ deferred ──→ detected (TTL expiry)
+                │
+                └──→ deferred (scout priority / cooldown)
+
+suppressed ──→ detected (stronger signal)
 ```
+
+States in `[brackets]` are attempt-local — they exist only within a single `dialogue-turn` or `build-packet` CLI invocation.
 
 | Transition | Trigger |
 |-----------|---------|
 | `absent → detected` | Classifier resolves a new topic |
-| `detected → looked_up` | Scheduler selects topic for docs search |
-| `looked_up → injected` | Search returns enough signal for a non-empty fact packet |
-| `looked_up → suppressed` | Search results weak, redundant, or cooldown active |
-| `suppressed → detected` | Stronger alias appears, new facet requested, or cooldown expires and topic reappears |
+| `detected → [looked_up]` | Scheduler selects topic for docs search (within CLI call) |
+| `[looked_up] → [built]` | Search returns enough signal for a non-empty fact packet (within CLI call) |
+| `[built] → injected` | Agent confirms packet was included in sent prompt (commit phase) |
+| `[looked_up] → suppressed` | Search results weak or redundant |
+| `detected → deferred` | Valid candidate but cooldown active, scout evidence takes priority, or packet doesn't match composed target |
+| `deferred → detected` | TTL expires (configurable, default 3 turns) and topic reappears in classifier output |
+| `suppressed → detected` | Stronger alias appears or new facet requested |
 
 **Forward-only for `injected`:** Once injected, stays injected. If coverage is later insufficient, update `coverage` fields or create a new leaf entry — do not move backwards.
+
+**`deferred` vs `suppressed`:** These are semantically distinct. `suppressed` means "we looked and found nothing useful" — the evidence is weak. `deferred` means "this is a valid candidate that lost to higher priority" — the evidence may be strong but timing was wrong. Deferred reasons: `cooldown` (turn budget exhausted), `scout_priority` (scout evidence took precedence), `target_mismatch` (packet doesn't support the composed follow-up target). Deferred topics get automatic re-evaluation via TTL; suppressed topics require new signal.
 
 ### Family vs Leaf Coverage
 
@@ -336,10 +441,35 @@ Each turn, after classifier runs on Codex's latest response:
 1. **Diff** new resolved topics against registry.
 2. **Materially new** = one of:
    - New leaf under an already-covered family
-   - Codex makes a prescriptive claim about a family-only topic
+   - Agent provides a `semantic_hint` (see below) referencing a claim that touches a detected topic
    - Codex contradicts or extends an injected topic (coverage gap)
-3. **Cooldown:** Max one new docs topic injection per turn.
-4. **Schedule** highest-priority materially new topic for lookup.
+3. **Cooldown:** Max one new docs topic injection per turn (configurable via `ccdi_config.json` → `injection.cooldown_max_new_topics_per_turn`).
+4. **Scout priority:** If context-injection has a scout candidate targeting the same code boundary, defer the CCDI candidate (→ `deferred` state with `scout_priority` reason).
+5. **Schedule** highest-priority materially new topic for lookup.
+
+### Semantic Hints
+
+The `codex-dialogue` agent provides semantic judgment about Codex's responses; the CLI resolves topic keys and makes scheduling decisions. This separation keeps the CLI deterministic while leveraging the agent's conversational understanding.
+
+**Agent → CLI interface:** The `dialogue-turn` command accepts an optional `--semantic-hints-file <path>` argument containing a JSON array:
+
+```json
+[
+  {
+    "claim_index": 3,
+    "hint_type": "prescriptive",
+    "claim_excerpt": "you should use updatedInput to modify..."
+  }
+]
+```
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `claim_index` | number | Diagnostic/trace metadata only — position of the claim in Codex's response. The CLI does NOT use this for topic resolution. |
+| `hint_type` | `"prescriptive" \| "contradicts_prior" \| "extends_topic"` | What the agent observed |
+| `claim_excerpt` | string | **Authoritative locator.** Short excerpt the CLI classifies through its normal alias-matching pipeline (≤ 100 chars). This is how the CLI determines which topic the hint maps to. |
+
+The CLI uses hints as scheduling signals — a `prescriptive` hint on a detected-but-not-yet-injected topic elevates it to "materially new." The CLI classifies `claim_excerpt` through its standard two-stage pipeline to resolve the topic key. The agent never emits `topic_key` values — that would couple it to the CCDI taxonomy.
 
 ### Session-Local Cache
 
@@ -388,12 +518,16 @@ Default is paraphrase. At most one snippet per mid-turn packet unless explicitly
 
 ### Token Budgets
 
-| Phase | Budget | Max topics | Max facts |
-|-------|--------|------------|-----------|
-| Initial | 600–1000 tokens | 2–3 families | 5–8 facts |
-| Mid-turn | 250–450 tokens | 1 topic | 2–3 facts |
+All budget values are configurable via `ccdi_config.json` → `packets`. Defaults shown:
 
-**Skip rule:** If top results score below quality threshold or are redundant with already-injected chunks, skip injection entirely. A weak packet is worse than no packet.
+| Phase | Budget | Max topics | Max facts | Config keys |
+|-------|--------|------------|-----------|------------|
+| Initial | 600–1000 tokens | 2–3 families | 5–8 facts | `initial_token_budget_*`, `initial_max_*` |
+| Mid-turn | 250–450 tokens | 1 topic | 2–3 facts | `mid_turn_token_budget_*`, `mid_turn_max_*` |
+
+**Quality threshold:** Skip injection when the best search result's relevance score is below `quality_min_result_score` (default: 0.3) OR when fewer than `quality_min_useful_facts` (default: 1) facts survive deduplication and budget constraints. A weak packet is worse than no packet.
+
+**Source hierarchy:** CCDI packets are premise enrichment — they provide background knowledge, not primary evidence. When both CCDI docs content and repo evidence (`@ path:line`) address the same concept, repo evidence takes precedence. The packet builder must not produce rhetorically dominant content that could override Codex's assessment of repo-specific code.
 
 ### Citation Format
 
@@ -460,11 +594,11 @@ All deterministic logic lives in Python, exposed as coarse-grained workflow comm
 
 | Command | Input | Output | Used by |
 |---------|-------|--------|---------|
-| `classify --text-file <path> [--inventory <path>]` | Text file | `ClassifierResult` JSON (stdout) | Both modes |
-| `dialogue-turn --registry-file <path> --text-file <path> --source codex\|user` | Text file + registry | Updated registry file + injection candidates JSON (stdout) | Full CCDI |
-| `build-packet --results-file <path> --registry-file <path> --mode initial\|mid_turn [--mark-injected]` | Search results + registry | Rendered markdown (stdout) | Both modes |
+| `classify --text-file <path> [--inventory <path>] [--config <path>]` | Text file | `ClassifierResult` JSON (stdout) | Both modes |
+| `dialogue-turn --registry-file <path> --text-file <path> --source codex\|user [--semantic-hints-file <path>] [--config <path>]` | Text file + registry + optional hints | Updated registry file + injection candidates JSON (stdout) | Full CCDI |
+| `build-packet --results-file <path> --registry-file <path> --mode initial\|mid_turn [--mark-injected] [--config <path>]` | Search results + registry | Rendered markdown (stdout) | Both modes |
 
-Registry is a JSON file. The `codex-dialogue` agent passes it between calls — CLI reads, updates, and writes it back. No in-process state.
+All commands accept `--config <path>` to load `ccdi_config.json`. If omitted, uses built-in defaults. Registry is a JSON file containing only durable states (§4). Attempt-local states (`looked_up`, `built`) exist within a single CLI invocation and are never written to the file.
 
 ### Cross-Plugin Dependency
 
@@ -483,6 +617,7 @@ CCDI depends on `mcp__claude-code-docs__search_docs`. This is an optional depend
 | `topic_inventory.py` | CLI tool | `scripts/topic_inventory.py` |
 | `topic_inventory.json` | Data artifact | `data/topic_inventory.json` |
 | `topic_overlay.json` | Data artifact | `data/topic_overlay.json` |
+| `ccdi_config.json` | Config artifact | `data/ccdi_config.json` |
 | `build_inventory.py` | Script (MCP client) | `scripts/build_inventory.py` |
 | `ccdi-gatherer.md` | Subagent | `agents/ccdi-gatherer.md` |
 
@@ -532,7 +667,7 @@ User prompt
 │  ├─ Receives: classified topics + query plans
 │  ├─ Calls search_docs per topic (broad: families + sibling topics)
 │  ├─ Bash: python3 topic_inventory.py build-packet --mode initial --mark-injected
-│  └─ Returns: rendered markdown + serialized registry seed (JSON)
+│  └─ Returns: rendered markdown block + sentinel-wrapped registry seed
 │
 ├─ Briefing assembly
 │  ├─ ## Context
@@ -540,31 +675,75 @@ User prompt
 │  │   ├─ Repo evidence (@ path:line)  ← from context-gatherers
 │  │   └─ Claude Code Extension Reference ([ccdocs:...])  ← from ccdi-gatherer
 │  └─ ## Question
+│
+├─ Registry seed handoff
+│  ├─ /dialogue skill extracts JSON from ccdi-gatherer's sentinel block
+│  ├─ Writes registry seed to /tmp/ccdi_registry_<id>.json
+│  └─ Passes ccdi_seed envelope field to codex-dialogue delegation
 ```
+
+### Registry Seed Handoff
+
+The `ccdi-gatherer` subagent emits its registry seed as a sentinel-wrapped JSON block at the end of its output:
+
+```
+<!-- ccdi-registry-seed -->
+{"entries": [...], "docs_epoch": "...", "inventory_snapshot_version": "1"}
+<!-- /ccdi-registry-seed -->
+```
+
+The `/dialogue` skill:
+1. Extracts JSON between the sentinels from the ccdi-gatherer's output
+2. Writes the seed to a temp file (`/tmp/ccdi_registry_<id>.json`)
+3. Passes the file path as `ccdi_seed: <path>` in the delegation envelope to `codex-dialogue`
+
+The `codex-dialogue` agent detects the `ccdi_seed` field and uses the file as its initial `--registry-file` for the mid-dialogue CCDI loop. If the field is absent, CCDI mid-dialogue is disabled for the session.
+
+This follows the existing delegation envelope pattern (parallel to `scope_envelope`). The registry seed is NOT embedded in the briefing text — it is a separate envelope field. The consultation contract §6 does not need modification: `ccdi_seed` is an optional additive field, not a change to the existing envelope schema.
 
 **Mid-dialogue phase (per turn in codex-dialogue):**
 
+CCDI integrates into the existing turn loop as a **prepare/commit** protocol — not a single monolithic step. This prevents registering injection for packets that were built but never sent.
+
 ```
-codex-dialogue agent
+codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │
-├─ Send prompt to Codex via codex-reply
-├─ Receive Codex response
-├─ Write response to /tmp/ccdi_turn_<id>.txt
-├─ Bash: python3 topic_inventory.py dialogue-turn \
-│        --registry-file /tmp/ccdi_registry_<id>.json \
-│        --text-file /tmp/ccdi_turn_<id>.txt --source codex
-├─ Read candidates from stdout
-├─ If candidates:
-│   ├─ search_docs for each candidate's query plan
-│   ├─ Write results to /tmp/ccdi_results_<id>.json
-│   ├─ Bash: python3 topic_inventory.py build-packet \
-│   │        --results-file /tmp/ccdi_results_<id>.json \
+├─ [Steps 1-4: existing turn logic — extract, process_turn, scout, compose]
+│
+├─ Step 5.5: CCDI PREPARE (after composition, before send)
+│   ├─ Write Codex's latest response to /tmp/ccdi_turn_<id>.txt
+│   ├─ Optionally write semantic hints to /tmp/ccdi_hints_<id>.json
+│   ├─ Bash: python3 topic_inventory.py dialogue-turn \
 │   │        --registry-file /tmp/ccdi_registry_<id>.json \
-│   │        --mode mid_turn --mark-injected
-│   └─ Prepend rendered packet to next follow-up prompt
-├─ Else: no injection this turn
+│   │        --text-file /tmp/ccdi_turn_<id>.txt --source codex \
+│   │        [--semantic-hints-file /tmp/ccdi_hints_<id>.json]
+│   ├─ Read candidates from stdout
+│   ├─ If candidates AND no scout target for this turn:
+│   │   ├─ search_docs for the scheduled candidate's query plan
+│   │   ├─ Write results to /tmp/ccdi_results_<id>.json
+│   │   ├─ Bash: python3 topic_inventory.py build-packet \
+│   │   │        --results-file /tmp/ccdi_results_<id>.json \
+│   │   │        --registry-file /tmp/ccdi_registry_<id>.json \
+│   │   │        --mode mid_turn   (NO --mark-injected yet)
+│   │   ├─ Target-match check: verify staged packet supports the composed follow-up target
+│   │   └─ If target-relevant: stage for prepending. If not: defer (target_mismatch)
+│   ├─ If candidates AND scout target exists: defer CCDI (scout wins)
+│   └─ If no candidates: no CCDI this turn
+│
+├─ [Step 6: send follow-up to Codex with staged CCDI packet prepended]
+│
+├─ Step 7.5: CCDI COMMIT (after send confirmed)
+│   ├─ If packet was sent:
+│   │   └─ Bash: python3 topic_inventory.py build-packet \
+│   │            --results-file /tmp/ccdi_results_<id>.json \
+│   │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │            --mode mid_turn --mark-injected
+│   └─ If send failed or packet was not staged: no commit
+│
 └─ Continue dialogue loop
 ```
+
+**Key invariant:** `--mark-injected` is called only in the commit phase (Step 7.5), after the packet has been confirmed sent. This prevents the registry from recording injection for packets that were staged but never delivered (e.g., if the follow-up prompt was superseded by scout evidence or the Codex call failed).
 
 ### Inventory Generation
 
@@ -578,7 +757,7 @@ dump_index_metadata (new claude-code-docs tool)
    ├─ Reads topic_overlay.json → merges denylist, alias fixes, weight overrides
    └─ Writes topic_inventory.json
 
-Trigger: manual or tied to reload_docs cycle
+Trigger: automatic post-reload hook (when docs_epoch changes) or manual (--force)
 ```
 
 ### `dump_index_metadata` Response Schema
@@ -615,6 +794,10 @@ New tool added to the `claude-code-docs` MCP server. Returns structured metadata
 
 `build_inventory.py` consumes this to generate topic scaffolds: category names → family topics, headings → leaf topics, code literals → exact aliases, distinctive terms → phrase/token aliases.
 
+**Cross-package contract:** This response schema is a dependency of the `cross-model` plugin, but `dump_index_metadata` is implemented in `packages/mcp-servers/claude-code-docs/` (a separate TypeScript package). To prevent silent breakage:
+1. A boundary contract test in `test_ccdi_contracts.py` validates the response shape against expected fields.
+2. The `dump_index_metadata` tool implementation in `claude-code-docs` must document the CCDI consumer dependency (comment in the handler or a `CONSUMERS.md` file).
+
 ### Untouched Components
 
 - `codex_consult.py` — transport layer
@@ -633,12 +816,18 @@ New tool added to the `claude-code-docs` MCP server. Returns structured metadata
 |---------|-----------|----------|
 | `claude-code-docs` not installed | Tool availability check | Skip CCDI, surface note if topic detected |
 | `topic_inventory.json` missing/corrupt | CLI non-zero exit / parse error | Skip CCDI, log warning |
+| `ccdi_config.json` missing | CLI fallback | Use built-in defaults, log info |
+| `ccdi_config.json` corrupt/invalid | CLI parse error | Use built-in defaults, log warning |
 | `classify` returns no topics | Empty resolved_topics | Proceed without CCDI |
 | `search_docs` returns empty/errors | Empty results / MCP error | Skip injection for topic, mark `suppressed: weak_results` |
 | `build-packet` produces empty output | Below quality threshold | Skip injection, mark suppressed |
+| Packet staged but send fails | Agent observes send failure | No commit (topic stays `detected`, not `injected`) |
+| Scout takes priority over CCDI candidate | Scout target exists for turn | Defer CCDI candidate (→ `deferred: scout_priority`) |
 | `dialogue-turn` CLI fails mid-dialogue | Non-zero exit | Continue dialogue without mid-turn injection, preserve previous registry |
 | Registry file missing/corrupt | CLI error | Reinitialize empty registry, lose coverage history |
 | Inventory stale | `docs_epoch` mismatch | Use stale with diagnostics warning |
+| Semantic hints file malformed | CLI parse warning | Ignore hints, proceed with classifier-only scheduling |
+| Version axis mismatch at build time | `build_inventory.py` validation | Fail loudly with version pair and required action |
 
 ### Design Principle
 
@@ -646,23 +835,65 @@ CCDI failures never block consultations. Every failure path degrades to "consult
 
 ### Diagnostics
 
+Per-dialogue summary, accumulated across turns and emitted once at dialogue end via the analytics emitter:
+
 ```json
 {
   "ccdi": {
-    "status": "active | unavailable | no_topics | error",
+    "status": "active | shadow | unavailable | no_topics | error",
+    "phase": "initial_only | full",
     "topics_detected": ["hooks.pre_tool_use"],
     "topics_injected": ["hooks.pre_tool_use"],
+    "topics_deferred": ["skills.frontmatter"],
+    "topics_suppressed": [],
+    "packets_prepared": 3,
     "packets_injected": 2,
+    "packets_deferred_scout": 1,
     "total_tokens_injected": 680,
+    "semantic_hints_received": 1,
     "search_failures": 0,
-    "inventory_epoch": "2026-03-20T..."
+    "inventory_epoch": "2026-03-20T...",
+    "config_source": "data/ccdi_config.json | defaults"
   }
 }
 ```
 
+In shadow mode (Phase B rollout), `packets_prepared` accumulates but `packets_injected` stays 0. The shadow diagnostics reveal what CCDI *would have* injected for kill-criteria evaluation.
+
 ---
 
 ## 8. Testing Strategy
+
+### Three-Layer Approach
+
+| Layer | What it tests | How |
+|-------|--------------|-----|
+| **Unit tests** | CLI deterministic logic (classifier, registry, packet builder) | Standard pytest, full coverage of data shapes and state transitions |
+| **Replay harness** | Agent integration (prepare/commit loop, semantic hints, tool-call sequence) | Structured `ccdi_trace` + assertion on tool-call sequence and outcomes, not prose |
+| **Shadow mode** | End-to-end quality (false positives, source hierarchy, latency) | Phase B rollout with kill criteria (see §1 Rollout Strategy) |
+
+### Debug-Gated `ccdi_trace`
+
+The `codex-dialogue` agent emits a structured trace when CCDI is active, gated by a `ccdi_debug` flag in the delegation envelope:
+
+```json
+{
+  "turn": 3,
+  "classifier_result": {"resolved_topics": [...], "suppressed": [...]},
+  "semantic_hints": [{"claim_index": 3, "hint_type": "prescriptive"}],
+  "candidates": ["hooks.post_tool_use"],
+  "action": "prepare",
+  "packet_staged": true,
+  "scout_conflict": false,
+  "commit": true
+}
+```
+
+The replay harness collects these traces and asserts on:
+- Tool-call sequence: classify → dialogue-turn → search_docs → build-packet (prepare) → codex-reply → build-packet --mark-injected (commit)
+- State transitions: topic moved from `detected` → `[looked_up]` → `[built]` → `injected`
+- Deferred handling: scout conflict → `deferred` state, not `injected`
+- Semantic hint propagation: hint received → candidate elevated → packet built
 
 ### Unit Tests: `test_topic_inventory.py`
 
@@ -692,20 +923,29 @@ CCDI failures never block consultations. Every failure path degrades to "consult
 | Test | Verifies |
 |------|----------|
 | New topic → detected | First appearance starts in detected |
-| Happy path: detected → looked_up → injected | Full forward transition |
+| Happy path: detected → [looked_up] → [built] → injected | Full forward transition with commit |
+| Attempt states not persisted | looked_up and built absent from written registry file |
 | Candidate selection after detection | Detected topic in candidates |
 | Injected not re-selected | After mark-injected → not in candidates |
-| Suppressed: weak results | looked_up → suppressed on empty search |
-| Suppressed: redundant | looked_up → suppressed when coverage exists |
+| Suppressed: weak results | [looked_up] → suppressed on empty search |
+| Suppressed: redundant | [looked_up] → suppressed when coverage exists |
 | Suppressed re-enters on stronger signal | suppressed → detected |
-| Suppressed re-enters on cooldown expiry | suppressed → detected after N turns |
-| Cooldown prevents same-turn re-injection | Max one new topic per turn |
+| Deferred: cooldown | Candidate deferred when cooldown active |
+| Deferred: scout priority | Candidate deferred when scout target exists |
+| Deferred TTL expiry | deferred → detected after configured turns |
+| Deferred TTL not expired | deferred stays deferred before TTL |
+| Deferred vs suppressed distinction | Different reasons, different re-entry paths |
+| Cooldown configurable | Reads from ccdi_config.json |
 | Family injection doesn't cover leaves | Inject hooks → hooks.post_tool_use still detected |
 | Leaf inherits family_context_available | Flag set after family injected |
 | Leaf then family tracked independently | Both have separate coverage |
 | Facet evolution | overview injected, schema still pending → new lookup |
 | Idempotent mark-injected | Same packet twice doesn't corrupt |
+| No commit without send | build-packet without --mark-injected leaves topic in detected |
 | Registry corruption recovery | Malformed JSON → reinitialize empty |
+| Semantic hint elevates candidate | Prescriptive hint on detected topic → materially new |
+| Semantic hint with unknown topic | Hint doesn't match any topic → ignored |
+| Malformed hints file | Invalid JSON → ignored with warning |
 
 **Packet builder tests:**
 
@@ -743,6 +983,11 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Search results → packet builder | Required fields present (`chunk_id`, `category`, `content`), deduplication, ranking stability |
 | Packet builder → prompt assembler | Citation format, valid markdown, token budget enforced |
 | CLI → agents | Exit codes, stdout JSON contract, stderr behavior, file-path semantics |
+| Semantic hints → CLI | `claim_index`, `hint_type` enum values, `claim_excerpt` length cap, classifier resolution of excerpt |
+| `dump_index_metadata` → `build_inventory.py` | Response shape matches expected fields (`index_version`, `categories[].chunks[].chunk_id`, etc.) — cross-package contract |
+| Config → CLI | `ccdi_config.json` schema validated at load; unknown keys warned, missing keys use defaults |
+| Registry seed → delegation envelope | `ccdi_seed` file path valid, seed JSON parses to expected schema |
+| Version axes → overlay merge | `schema_version`, `overlay_schema_version`, `merge_semantics_version` compatibility validated at build time |
 
 ### Integration Tests
 
@@ -770,7 +1015,9 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 
 ## 9. Codex Consultation Summary
 
-This design was developed through a 7-turn Codex dialogue (thread: `019d0c24-29c9-7bf1-a2f4-d50f3056553b`).
+### Design Dialogue (7 turns)
+
+Thread: `019d0c24-29c9-7bf1-a2f4-d50f3056553b`
 
 | Turn | Topic | Key decision |
 |------|-------|-------------|
@@ -781,3 +1028,23 @@ This design was developed through a 7-turn Codex dialogue (thread: `019d0c24-29c
 | 5 | Simplification | Drop inverted indexes, keep alias objects, persist semantics / derive performance |
 | 6 | Integration gaps | Coarse-grained CLI commands, optional cross-plugin dependency, MCP client for inventory, CCDI-lite for /codex |
 | 7 | Testing review | Boundary contract tests, false-positive contexts, registry partial-coverage, external failure paths |
+
+### Review Dialogue (6 turns)
+
+Thread: `019d0c5d-59d7-7ec2-9a90-c0e6b44bdcd0`
+
+System design review surfaced 7 findings and 2 tensions; 6-turn exploratory dialogue resolved all major items:
+
+| Resolution | Source | Confidence |
+|-----------|--------|-----------|
+| Semantic hints with claim-index refs (not topic_ids) for prescriptive-claim detection | Convergence | High |
+| Briefing-carried ccdi_seed + opaque checkpoint for registry handoff | Convergence | High |
+| Prepare/commit split (Step 5.5 / Step 7.5) for turn-loop integration | Convergence | High |
+| Durable vs attempt-local registry states | Convergence | High |
+| CLI-only typed config file for tuning parameters | Convergence | High |
+| Scout target always beats CCDI targeting | Convergence | High |
+| Three version axes for schema evolution | Concession | Medium |
+| Three-layer test strategy with ccdi_trace replay harness | Concession | Medium |
+| Staged rollout: initial CCDI first, mid-dialogue in shadow mode | Concession | Medium |
+
+Unresolved (detail-level, for implementation): `ccdi_policy_snapshot` shape, version compatibility matrix format, `--source codex|user` differentiation semantics.
