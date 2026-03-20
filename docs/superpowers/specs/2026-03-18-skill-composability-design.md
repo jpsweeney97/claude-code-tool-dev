@@ -27,7 +27,7 @@ This creates three gaps:
 **Out of scope:**
 - Changes to the codex-dialogue agent's synthesis format (capsules are assembled by the `/dialogue` skill, not the agent)
 - Automatic multi-skill orchestration (user remains the circuit breaker)
-- File-based persistence requirements (conversation-local is sufficient for v1)
+- File-based persistence requirements (conversation-local is sufficient for v1, except `dialogue_feedback` which has selective durable persistence — see Feedback Loop Architecture)
 - Changes to the global CLAUDE.md protocols (Adversarial Self-Review, Next Steps Planning remain independent behaviors)
 
 ## Design Decisions
@@ -400,6 +400,28 @@ For items without explicit upstream ID references: constrained LLM classificatio
 
 **Disambiguation guidance:** If the ambiguity is "need more evidence before knowing which surface owns this item," the correct `suggested_arc` is `dialogue_continue` (same dialogue, still gathering evidence), not `ambiguous`. Use `ambiguous` only when the item is material but it is genuinely unclear whether diagnosis or planning owns the resolution.
 
+### Affected-Surface Validity Check
+
+After routing classification and materiality evaluation, `dialogue` validates the final tuple `(affected_surface, material, suggested_arc)` against a validity matrix. This check prevents invalid routing combinations from silently passing through.
+
+| `affected_surface` | `material` | Valid `suggested_arc` values |
+|--------------------|------------|------------------------------|
+| `diagnosis` | `true` | `adversarial-review`, `ambiguous` |
+| `planning` | `true` | `next-steps`, `ambiguous` |
+| `evidence-only` | `true` | `dialogue_continue` |
+| `diagnosis` | `false` | `dialogue_continue`, `ambiguous` |
+| `planning` | `false` | `dialogue_continue`, `ambiguous` |
+| `evidence-only` | `false` | `dialogue_continue` |
+
+**Correction rules** (deterministic, ordered):
+1. If `material = false` → `dialogue_continue`
+2. If `affected_surface = evidence-only` → `dialogue_continue`
+3. Otherwise → `ambiguous` (manual routing bucket with `hold` default)
+
+Corrected outcomes record `classifier_source: rule`. **Consequence prohibitions:** `diagnosis` MUST NOT emit `next-steps`; `planning` MUST NOT emit `adversarial-review`; `evidence-only` MUST NOT emit AR, NS, or `ambiguous`; material `diagnosis`/`planning` MUST NOT silently remain `dialogue_continue`.
+
+See composition contract §9.6 for normative specification.
+
 ### Material-Delta Gating
 
 Evaluate materiality using three tiers with a cross-tier guard. Tier 1 rule-based exclusions are final. Tier 1 model-judged exclusions are provisional — they must pass through Tier 2 before finalizing.
@@ -430,10 +452,13 @@ If the Tier 1 match used rule judgment (`materiality_source: rule`), the exclusi
 **Tier 2 — Rule-based inclusions (deterministic):**
 
 An item is **material** if any of:
-- Reopens or contradicts something previously RESOLVED
 - Crosses an action threshold: assumption status → `wishful`, finding severity → `blocking`/`high`, task → on/off critical path, decision gate → changed branch outcome
 
 If Tier 2 matches, the item is material. Set `material: true`, `materiality_source: rule`. Skip Tier 3.
+
+**Deferred from v1:** "Reopens or contradicts something previously resolved" removed from Tier 2 — NS handoff has no explicit resolved-item set, making this branch unreachable from `dialogue`'s direct source snapshot. See composition contract §9.4 deferral note.
+
+**NS handoff schema enrichment (2026-03-20):** To close cross-schema reachability gaps where §9.4 and §9.1 reference AR capsule fields not present in the NS handoff, Appendix B now includes `source_assumptions: SourceAssumption[]` and `source_open_questions: string[]`. These follow the existing `source_findings` selective forwarding pattern. B.3 Forwarding Rules govern population semantics. The composition contract §9 header now includes an explicit reachability rule: deterministic clauses MUST be evaluable from the direct source snapshot; MUST NOT read through to transitive upstream capsules.
 
 **Tier 3 — Semantic evaluation (model fallback):**
 
@@ -469,6 +494,25 @@ Fresh `/dialogue` with new briefing when ANY of:
 - Selected task/gate set changed
 
 Never inject updated AR/NS artifacts into an existing Codex thread. Once diagnosis or planning has changed, the old conversation state is stale.
+
+### Selective Durable Persistence
+
+**Decision (2026-03-20):** Only `dialogue_feedback` gets durable persistence. AR→NS and NS→dialogue arcs remain conversation-local in v1.
+
+**Rationale:** The feedback arc (dialogue → AR/NS) is the only composition path that reliably crosses invocation boundaries. AR→NS and NS→dialogue happen in rapid sequence within a single session. Dialogue feedback may be consumed hours or sessions later.
+
+| Arc | Transport | Persistence |
+|-----|-----------|-------------|
+| AR → NS | Conversation-local (sentinel scan) | None |
+| NS → Dialogue | Conversation-local (sentinel scan) | None |
+| Dialogue → AR/NS (feedback) | Conversation-local + durable file | `.claude/composition/feedback/` (gitignored) |
+
+**Source resolution precedence** (composition contract §8.1b):
+1. Explicit reference (artifact ID provided by user or upstream)
+2. Durable store (`.claude/composition/feedback/`)
+3. Conversation-local (sentinel scan of visible context)
+
+The durable file uses the same wire format as the conversation capsule. `record_path` in the dialogue feedback capsule MUST be non-null and MUST point to the durable file (composition contract Appendix C constraint).
 
 ---
 
@@ -508,6 +552,7 @@ Each artifact carries three identity keys serving different purposes:
 - Limit to 50 characters, truncate at word boundary
 - Represents the broadest topic this analysis belongs to
 - `topic_key` is descriptive metadata for UX and analytics. It is NOT used for budget enforcement or any control decisions. Collisions between independent chains sharing the same `topic_key` are harmless because budget tracks by `lineage_root_id`.
+- **Optionality recommendation:** Both evaluative and exploratory Codex dialogues recommended making `topic_key` optional in v1 — no consumer uses it for control decisions, and it can be derived from `subject_key` when needed. The composition contract currently includes it as required in all appendices; consider relaxing to optional in a future contract amendment.
 
 **`lineage_root_id` propagation:**
 - When a skill is the root of a composition chain (no upstream capsule consumed), set `lineage_root_id` to this artifact's own `artifact_id`.
@@ -647,7 +692,17 @@ Every skill must function correctly with only its inline stub. The contract is a
 
 Contract versioning is a CI/review-time concern, not runtime. Each skill stub includes `implements_composition_contract: v1` as a drift detection marker. Sentinel versioning (`v1` in sentinel comments) handles runtime wire compatibility. Contract version stays out of capsule schemas.
 
-**File location:** `packages/plugins/cross-model/references/composition-contract.md` — alongside the consultation contract, since all three skills interact through the cross-model dialogue system.
+**File location:** `packages/plugins/cross-model/references/composition-contract.md` (950 lines) — alongside the consultation contract, since all three skills interact through the cross-model dialogue system. The contract now exists and includes:
+
+- §1-§3: Purpose, normative terms with ownership matrix, shared vocabulary
+- §4: Sentinel registry (7-column machine-parseable table)
+- §5-§6: Capsule externalization rule, artifact metadata with DAG semantics and durable persistence for `dialogue_feedback`
+- §7-§8: Consumer classes, discovery and staleness semantics with source resolution pre-step
+- §9: Routing, materiality (with §9 reachability rule), budget rules, affected-surface validity matrix (§9.6)
+- §10-§12: Thread freshness, governance locks (4), conformance and drift detection
+- Appendices A-C: AR capsule, NS handoff (with `source_assumptions`, `source_open_questions`, B.3 Forwarding Rules), dialogue feedback field inventories
+
+**Inverted authority model:** Unlike the consultation contract (which IS runtime-loaded), the composition contract is NOT. Stubs carry the runtime projection. Contract→stub drift is a silent correctness bug detectable only by CI (§12).
 
 ---
 
@@ -665,9 +720,12 @@ Contract versioning is a CI/review-time concern, not runtime. Each skill stub in
 ## Open Items
 
 1. ~~**Soft echo filter specification**~~: Resolved — examples added to tier 3 (2026-03-19).
-2. **Composition contract file location**: Resolved — `packages/plugins/cross-model/references/composition-contract.md`, alongside consultation contract. Three-layer authority model: contract owns protocol core (normative), stubs own role-specific operations (runtime authority), design doc owns rationale (explanatory). Asymmetric stub sizes.
+2. **Composition contract file location**: Resolved — file exists at `packages/plugins/cross-model/references/composition-contract.md` (950 lines, 12 sections + 3 appendices). Inverted authority model: stubs are runtime-authoritative, contract is authoring-authoritative. CI is the only drift detection mechanism (§12).
 3. **upstream_handoff version field**: Deferred — sentinel versioning (`v1`) provides forward-compatibility. Version field adds no value until v2 exists.
 4. **codex-dialogue synthesis format**: Resolved — no changes needed. `/dialogue` projects feedback capsule from existing Synthesis Checkpoint output.
+5. **Tier 2 "reopens/contradicts previously resolved"**: Deferred from v1 — requires a direct resolved-item input surface in `dialogue`'s source snapshot. NS handoff has no explicit resolved-item set. See composition contract §9.4 deferral note.
+6. **CI enforcement of composition contract drift rules**: Not yet implemented — §12 specifies drift markers and CI rules, but no `validate_composition_contract.py` script exists. The consultation contract's checker (`validate_consultation_contract.py`) is the structural precedent.
+7. **Materiality validation harness**: Designed (T4 dialogue) but not yet implemented — 12 executable §9.4 fixtures, 24-case §9.6 exhaustive table, clause dependency manifest, Tier 3 calibration suite (6 minimal pairs).
 
 ## Cross-Model Validation
 
@@ -685,3 +743,7 @@ Architecture validated via Codex collaborative dialogue (thread `019d0284-a997-7
 - F5/T1: Three-layer authority model — contract owns protocol core (normative), stubs own role-specific operations (runtime authority), design doc owns rationale (explanatory); asymmetric stub sizes; CI-enforced versioning.
 - F2: Ambiguous routing — manual routing bucket gated on `material=true`; hold default; `dialogue_continue` vs `ambiguous` distinction clarified.
 - Emerged: novelty veto, capability flags on `upstream_handoff`, `lineage_root_id`, two distinct discovery algorithms.
+
+**Fourth-pass: System design review and composition contract (2026-03-20):** System design review (8 deep lenses) surfaced 7 findings (3 high-priority) and 2 tensions. Evaluative Codex dialogue (thread `019d0966-0746-7c13-88bd-7c07fc17ab19`, 6/12 turns, converged) produced split verdict: architecture 3/5 (sound), implementation 2/5 (7 hard gates before coding). Key emerged concepts: route/materiality coherence gap, persistence requirement for feedback loop, authority vacuum risk. Exploratory Codex dialogue (thread `019d0989-3af1-7e23-b2b6-79d5ef94513e`, 5+3 turns, converged) drafted the composition contract (12 sections + 3 appendices) with inverted authority model: stubs are runtime-authoritative, contract is authoring-authoritative. Key decisions: selective durable persistence for `dialogue_feedback` only (§6), affected-surface validity matrix (§9.6), source resolution pre-step (§8.1b).
+
+Exploratory Codex dialogue (thread `019d09cf-c967-7f73-bb33-f4e1fa419411`, 6 turns, converged) designed materiality validation harness: hybrid approach (behavioral tests + structural checker with clause dependency manifest + deferred golden fixtures), 12 executable §9.4 fixtures, exhaustive 24-case §9.6 table. Discovered 4 cross-schema reachability gaps where §9.4 and §9.1 reference AR capsule fields not present in NS handoff. Collaborative continuation (same thread, turns 7-9, converged) resolved all 4 gaps: gaps 1, 2, 4 via NS handoff schema enrichment (`source_assumptions`, `source_open_questions`); gap 3 (Tier 2 "reopens previously resolved") deferred from v1. Contract amendments: §9 reachability rule, §9.4 Tier 2 deferral, Appendix B enrichment + B.3 Forwarding Rules. Contract now 950 lines.
