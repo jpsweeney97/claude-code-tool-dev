@@ -367,7 +367,7 @@ def _build_command(
     output_file: Path,
 ) -> list[str]:
     """Step 9: Build codex exec command."""
-    cmd = ["codex", "exec", "--json", "-o", str(output_file), "-s", sandbox]
+    cmd = ["codex", "exec", "--json", "-o", str(output_file), "-s", sandbox, "--skip-git-repo-check"]
 
     if model:
         cmd.extend(["-m", model])

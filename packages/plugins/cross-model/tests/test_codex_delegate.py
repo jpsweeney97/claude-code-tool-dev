@@ -378,6 +378,11 @@ class TestBuildCommand:
         dash_idx = cmd.index("--")
         assert cmd[dash_idx + 1] == "-fix the thing"
 
+    def test_includes_skip_git_repo_check(self, tmp_path: Path) -> None:
+        from scripts.codex_delegate import _build_command
+        cmd = _build_command("fix tests", "workspace-write", None, "high", False, tmp_path / "o.txt")
+        assert "--skip-git-repo-check" in cmd
+
 
 class TestParseJsonlEvents:
     """Pipeline steps 11-12: JSONL parsing."""

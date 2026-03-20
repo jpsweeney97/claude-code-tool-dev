@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [3.1.3] — 2026-03-20
+
+### Fixed
+
+- Add `--skip-git-repo-check` to `codex_delegate.py` `_build_command()` — prevents delegation failures when the MCP server process runs from a directory Codex doesn't trust as a git repo
+
 ## [3.1.2] — 2026-03-20
 
 ### Fixed
