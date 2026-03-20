@@ -17,10 +17,10 @@ Safe worktree exit with verification. Prevents data loss from manual cleanup.
 
 **Key behavior:** On completion, `ExitWorktree` returns the session to the original working directory (the directory before `EnterWorktree` was called). This means after exiting, you're back in the main repo — not stranded in a deleted path.
 
-**Scope limitation:** `ExitWorktree` only operates on worktrees created by `EnterWorktree` in the *current session*. If the worktree was created in a previous session (e.g., `claude --worktree`), manually via `git worktree add`, or by another tool, `ExitWorktree` is a no-op — it reports "no worktree session is active" and takes no action. In this case, fall back to manual cleanup from the **main repo directory** (not from inside the worktree):
+**Scope:** Always try `ExitWorktree` first, regardless of how the worktree was created. It may work on worktrees from previous sessions or those created via `claude --worktree`. If it reports "no worktree session is active" (a true no-op), fall back to manual cleanup from the **main repo directory** (not from inside the worktree):
 
 ```bash
-# 1. cd to main repo FIRST to avoid CWD breakage
+# 1. Run from main repo to avoid CWD breakage
 git -C <main-repo-path> worktree remove <worktree-path>
 # 2. Delete the branch
 git -C <main-repo-path> branch -d <branch-name>
@@ -29,6 +29,8 @@ git -C <main-repo-path> branch -d <branch-name>
 The `-C` flag runs git from the main repo without changing your shell CWD, avoiding the "Path does not exist" failure. This is the ONLY acceptable fallback — never `cd` into the worktree and then try to remove it.
 
 **Why not `git worktree remove` from inside the worktree:** Running it from inside the worktree breaks the shell CWD — every subsequent Bash command fails with "Path does not exist." `ExitWorktree` avoids this entirely by restoring CWD before removing the directory. The `-C` fallback above also avoids it by never entering the worktree.
+
+**Branch cleanup after `ExitWorktree`:** `ExitWorktree` may not always delete the branch — particularly when using `discard_changes: true`. After exit, verify the branch was removed: `git branch --list '<branch-pattern>'`. If it survives, delete it manually with `git branch -d <branch-name>`.
 
 ## Why This Skill Exists
 
@@ -83,7 +85,22 @@ git log main --oneline -5
 ```
 Verify the merge commit or the branch's commits appear on main.
 
-**If neither:** Warn the user that exiting will lose work unless they choose to keep the worktree.
+**If work needs to be merged now (no PR, not yet on main):**
+
+You cannot `git checkout main` from inside a worktree — main is already checked out in the main worktree. Git prevents two worktrees from having the same branch checked out. Use `git -C` to merge from the main repo:
+
+```bash
+# Merge the worktree branch into main from the main repo
+git -C <main-repo-path> merge <branch-name>
+# Verify
+git -C <main-repo-path> log --oneline -3
+```
+
+After this merge succeeds, `ExitWorktree(action: "remove", discard_changes: true)` is safe — the "discarded" commit is already on main. The tool reports discarding because the worktree branch's commit is no longer exclusive to it, not because work is lost.
+
+If the merge fails (e.g., conflicts), resolve from the main repo (`git -C <main-repo-path> merge --abort` to cancel, or resolve conflicts there). Do NOT attempt to resolve merge conflicts from inside the worktree — you cannot checkout main there.
+
+**If neither merged nor mergeable:** Warn the user that exiting will lose work unless they choose to keep the worktree.
 
 ### 5. Ensure local main has the changes
 
@@ -124,14 +141,15 @@ If it reports uncommitted files or unmerged commits, go back to the checklist �
 - The user explicitly says to discard, OR
 - The worktree directory is already gone (broken state from a prior cleanup attempt)
 
-**3. Verify:**
+**3. Verify and clean up:**
 
 ```bash
 git worktree list
 git log --oneline -3
+git branch --list '<branch-pattern>'
 ```
 
-Confirm the worktree is gone and main shows the expected history.
+Confirm the worktree is gone and main shows the expected history. If the branch survived (common with `discard_changes: true`), delete it: `git branch -d <branch-name>`.
 
 ## Prohibited Actions
 
@@ -165,7 +183,9 @@ Do NOT use `-D` without first confirming the merge via `gh pr list`. The PR conf
 | Multiple worktrees exist | Only exit the one being discussed. Don't touch others. |
 | User wants to keep the worktree | `ExitWorktree(action: "keep")` — directory and branch remain. |
 | Remote branch already deleted by PR merge | Normal — GitHub deletes the remote branch on merge. Local branch cleanup still needed. |
-| Worktree created in a previous session or manually | `ExitWorktree` is a no-op. Use `git -C <main-repo> worktree remove` fallback (see tool section). |
+| Worktree created in a previous session or manually | Try `ExitWorktree` first — it may still work. If it reports "no worktree session is active," use `git -C <main-repo> worktree remove` fallback (see tool section). |
+| Work needs merging but main is checked out elsewhere | Cannot `git checkout main` from inside the worktree. Use `git -C <main-repo-path> merge <branch>` to merge from the main repo, then `ExitWorktree(action: "remove", discard_changes: true)`. |
+| Branch survives after `ExitWorktree` | Common with `discard_changes: true`. Verify with `git branch --list`, then `git branch -d <branch>`. |
 
 ## Integration
 
