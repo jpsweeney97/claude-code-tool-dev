@@ -23,7 +23,7 @@ class TestExtractReasoningEffort:
         assert _extract_reasoning_effort({"model_reasoning_effort": 42}) == "xhigh"
 
 
-from mcp.types import CallToolResult, TextContent
+from mcp.types import CallToolResult
 
 
 class TestBuildResponse:
