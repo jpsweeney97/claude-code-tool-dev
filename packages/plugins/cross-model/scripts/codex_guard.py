@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass
 
 if __package__:
     from scripts.credential_scan import scan_text
@@ -56,112 +55,29 @@ def _append_log(entry: dict) -> None:
         print(f"codex-guard: audit log write failed for {event_type}", file=sys.stderr)
 
 
-_NODE_CAP = 10_000
-_CHAR_CAP = 256 * 1024
-
-
-@dataclass(frozen=True)
-class ToolScanPolicy:
-    """Controls which tool_input fields are scanned for egress secrets."""
-
-    expected_fields: set[str]
-    content_fields: set[str]
-    scan_unknown_fields: bool = True
-
-
-CODEX_POLICY = ToolScanPolicy(
-    expected_fields={"sandbox", "approval-policy", "model", "profile"},
-    content_fields={"prompt", "base-instructions", "developer-instructions", "config"},
-)
-
-CODEX_REPLY_POLICY = ToolScanPolicy(
-    expected_fields={
-        "sandbox",
-        "approval-policy",
-        "model",
-        "profile",
-        "threadId",
-        "conversationId",
-    },
-    content_fields={"prompt", "base-instructions", "developer-instructions", "config"},
-)
-
-
-class ToolInputLimitExceeded(RuntimeError):
-    """Raised when tool_input traversal exceeds configured safety caps."""
+if __package__:
+    from scripts.consultation_safety import (
+        ToolScanPolicy,
+        ToolInputLimitExceeded,
+        extract_strings as _extract_strings,
+        START_POLICY as CODEX_POLICY,
+        REPLY_POLICY as CODEX_REPLY_POLICY,
+        policy_for_tool as _policy_for_tool,
+    )
+else:
+    from consultation_safety import (  # type: ignore[import-not-found,no-redef]
+        ToolScanPolicy,
+        ToolInputLimitExceeded,
+        extract_strings as _extract_strings,
+        START_POLICY as CODEX_POLICY,
+        REPLY_POLICY as CODEX_REPLY_POLICY,
+        policy_for_tool as _policy_for_tool,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Event handlers
 # ---------------------------------------------------------------------------
-
-
-def _policy_for_tool(tool_name: str) -> ToolScanPolicy:
-    if tool_name == "mcp__plugin_cross-model_codex__codex-reply":
-        return CODEX_REPLY_POLICY
-    return CODEX_POLICY
-
-
-def _extract_strings(tool_input: dict, policy: ToolScanPolicy) -> tuple[list[str], list[str]]:
-    """Extract string-bearing values selected by the scan policy."""
-
-    if not isinstance(tool_input, dict):
-        raise TypeError(f"tool_input must be dict. Got: {tool_input!r:.100}")
-
-    texts_to_scan: list[str] = []
-    unexpected_fields: list[str] = []
-    seen_unexpected: set[str] = set()
-    node_count = 0
-    char_count = 0
-    stack: list[tuple[object, bool, bool]] = [(tool_input, False, True)]
-
-    while stack:
-        value, scan_strings, is_root = stack.pop()
-        node_count += 1
-        if node_count > _NODE_CAP:
-            raise ToolInputLimitExceeded("tool_input traversal failed: node cap exceeded")
-
-        if isinstance(value, str):
-            char_count += len(value)
-            if char_count > _CHAR_CAP:
-                raise ToolInputLimitExceeded("tool_input traversal failed: char cap exceeded")
-            if scan_strings:
-                texts_to_scan.append(value)
-            continue
-
-        if value is None or isinstance(value, (bool, int, float)):
-            continue
-
-        if isinstance(value, dict):
-            for key, child in reversed(list(value.items())):
-                child_scan = scan_strings
-                if is_root:
-                    if key in policy.content_fields:
-                        child_scan = True
-                    elif key in policy.expected_fields:
-                        child_scan = False
-                    else:
-                        key_name = str(key)
-                        if key_name not in seen_unexpected:
-                            unexpected_fields.append(key_name)
-                            seen_unexpected.add(key_name)
-                        child_scan = policy.scan_unknown_fields
-                stack.append((child, child_scan, False))
-            continue
-
-        if isinstance(value, (list, tuple)):
-            for child in reversed(value):
-                stack.append((child, scan_strings, False))
-            continue
-
-        if isinstance(value, (set, frozenset)):
-            for child in value:
-                stack.append((child, scan_strings, False))
-            continue
-
-        raise TypeError(f"tool_input traversal failed: unsupported value. Got: {value!r:.100}")
-
-    return texts_to_scan, unexpected_fields
 
 
 def _log_block(tool: object, session_id: object, reason: str, prompt_length: int) -> int:
