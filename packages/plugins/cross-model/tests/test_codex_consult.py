@@ -121,6 +121,18 @@ class TestBuildCommand:
         dd_idx = cmd.index("--")
         assert cmd[dd_idx + 1] == "--dangerous-looking"
 
+    def test_includes_skip_git_repo_check(self) -> None:
+        """Shim runs from plugin cache (non-git dir); codex exec requires this flag."""
+        from scripts.codex_consult import _build_command
+        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model=None, reasoning_effort="xhigh")
+        assert "--skip-git-repo-check" in cmd
+
+    def test_resume_includes_skip_git_repo_check(self) -> None:
+        """Resume path also runs from non-git dir."""
+        from scripts.codex_consult import _build_command
+        cmd = _build_command(prompt="test", thread_id="thr_abc", sandbox="read-only", model=None, reasoning_effort="xhigh")
+        assert "--skip-git-repo-check" in cmd
+
 
 class TestCheckCodexVersion:
     """Version check requires >= 0.111.0."""

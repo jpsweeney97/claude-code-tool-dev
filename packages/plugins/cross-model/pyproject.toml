@@ -1,6 +1,6 @@
 [project]
 name = "cross-model-plugin"
-version = "3.1.0"
+version = "3.1.1"
 description = "Cross-model consultation plugin for Claude Code"
 requires-python = ">=3.11"
 dependencies = ["pyyaml>=6.0", "mcp>=1.9.0"]
