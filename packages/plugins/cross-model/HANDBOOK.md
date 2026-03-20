@@ -79,6 +79,9 @@ The package is split into five layers:
 - [packages/plugins/cross-model/scripts/codex_delegate.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/codex_delegate.py): `/delegate` adapter
 - [packages/plugins/cross-model/scripts/event_log.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/event_log.py): shared append helpers
 - [packages/plugins/cross-model/scripts/stats_common.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/stats_common.py): shared filtering, parsing, and aggregation utilities for `compute_stats.py`
+- [packages/plugins/cross-model/scripts/codex_consult.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/codex_consult.py): consultation adapter — wraps `codex exec` with programmatic `consult()` API
+- [packages/plugins/cross-model/scripts/codex_shim.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/codex_shim.py): FastMCP MCP shim translating tool calls to the consultation adapter
+- [packages/plugins/cross-model/scripts/consultation_safety.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/consultation_safety.py): shared safety utilities extracted from `codex_guard.py` (`ToolScanPolicy`, `SafetyVerdict`, `check_tool_input`)
 
 ### Context-injection server
 
@@ -127,8 +130,20 @@ The plugin auto-configures two MCP servers:
 
 | Server | Transport | Purpose |
 |--------|-----------|---------|
-| `codex` | stdio via `codex mcp-server` | consultation transport |
+| `codex` | stdio via `uv run codex_shim.py` (FastMCP) | consultation transport — local shim translates MCP tool calls to `codex exec` via `codex_consult.py`; replaces upstream `codex mcp-server` binary |
 | `context-injection` | stdio via `uv run --directory ${CLAUDE_PLUGIN_ROOT}/context-injection python -m context_injection` | mid-dialogue evidence gathering |
+
+The `codex` server is now a local FastMCP shim (`codex_shim.py`) rather than the upstream `codex mcp-server` binary. The shim is translation-only: it maps MCP tool parameters to the `consult()` API in `codex_consult.py`, which manages the `codex exec` subprocess. Safety enforcement (credential scan, telemetry) remains in `codex_guard.py` hooks and is unaffected by the shim.
+
+D-prime transport stack (consultation path):
+
+```
+MCP tool call → codex_guard.py PreToolUse (credential scan)
+  → codex_shim.py (FastMCP, parameter translation)
+  → consult() in codex_consult.py (subprocess management)
+  → codex exec CLI (actual Codex interaction)
+  → codex_guard.py PostToolUse (telemetry)
+```
 
 Operational notes:
 
@@ -305,6 +320,7 @@ The relay format is governed by the consultation contract. The user-facing respo
 | PreToolUse block | do not retry until payload is sanitized |
 | timeout or ambiguous upstream failure | do not auto-retry; duplicates are possible |
 | invalid or expired thread | rebuild briefing and start a fresh conversation |
+| `codex` MCP server fails to start | verify shim dependencies: `uv` available, `mcp>=1.9.0` installed, Python 3.11+ on path; check `.mcp.json` command points to `codex_shim.py` |
 
 ## `/dialogue` Runbook
 
@@ -617,6 +633,8 @@ The HMAC layer is implemented across:
 | consultation preflight | disallowed class, root, or budget breach | cancel before dispatch | reduce scope or re-consent |
 | `codex_guard.py` | strict or contextual credential hit | block dispatch | sanitize or redact payload |
 | `codex_guard.py` | process crash at OS level | fail-open limitation | treat as known residual risk; wrapper MCP needed for adversarial model |
+| `codex_shim.py` | server fails to start | MCP tool unavailable | verify `uv`, `mcp>=1.9.0`, Python 3.11+; check `.mcp.json` command |
+| `codex_consult.py` | `codex exec` subprocess not found | shim raises on dispatch | confirm `codex` CLI is installed and on `PATH` |
 | Codex consultation | upstream timeout after dispatch uncertainty | no automatic retry | ask before retrying |
 | continuity | invalid or expired `threadId` | start new conversation | rebuild briefing |
 | `codex-dialogue` startup | context-injection unavailable before first successful `process_turn` | fallback to `manual_legacy` | continue without scouting; track `mode=manual_legacy` |
@@ -765,6 +783,17 @@ Edit [packages/plugins/cross-model/scripts/codex_delegate.py](/Users/jp/Projects
 - clean-tree or secret-file gates
 - subprocess invocation
 - delegation analytics fields
+
+### Codex MCP shim
+
+Edit these together when changing the consultation transport:
+
+- [packages/plugins/cross-model/scripts/codex_shim.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/codex_shim.py): FastMCP server, tool registration, parameter translation
+- [packages/plugins/cross-model/scripts/codex_consult.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/codex_consult.py): `consult()` API, `codex exec` subprocess lifecycle
+- [packages/plugins/cross-model/scripts/consultation_safety.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/consultation_safety.py): `ToolScanPolicy`, `SafetyVerdict`, `check_tool_input` (shared between shim and guard)
+- [packages/plugins/cross-model/.mcp.json](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/.mcp.json): server command pointing to `codex_shim.py`
+
+Do NOT edit the shim to add safety logic. Safety enforcement belongs in `codex_guard.py` hooks; the shim is translation-only.
 
 ### Hooks and analytics
 

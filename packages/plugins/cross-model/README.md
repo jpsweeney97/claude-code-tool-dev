@@ -22,7 +22,7 @@ Protocol details live in the contracts. This file and the handbook link to them 
 | Requirement | Purpose | Check |
 |-------------|---------|-------|
 | **Claude Code** | Plugin host | `claude --version` |
-| **Codex CLI** | Consultation transport | `codex --version` (v0.111.0+ for `/delegate`) |
+| **Codex CLI** | Consultation transport | `codex --version` (v0.116.0+ (v0.111.0+ for `/delegate`)) |
 | **Python 3.11+** | Plugin scripts and MCP server | `python3 --version` |
 | **uv** | Python package management | `uv --version` |
 | **git** | Evidence gathering, delegation gates | `git --version` |
@@ -146,7 +146,7 @@ Reads `~/.claude/.codex-events.jsonl` and computes convergence rates, posture ef
 
 ### MCP Servers
 
-**Codex** — wraps the Codex CLI binary as an MCP server.
+**Codex** — a local FastMCP shim (`codex_shim.py`) that translates MCP tool calls to `codex exec` CLI invocations via the `codex_consult.py` adapter. Replaces the upstream `codex mcp-server` binary for stability against CLI updates.
 
 | Tool | Purpose |
 |------|---------|
@@ -178,6 +178,9 @@ Python scripts in `scripts/` provide the shared infrastructure:
 | `codex_guard.py` | PreToolUse/PostToolUse enforcement hook | Hook system |
 | `codex_delegate.py` | 14-step delegation pipeline adapter | `/delegate` |
 | `nudge_codex.py` | PostToolUseFailure optional nudge | Hook system |
+| `codex_consult.py` | Consultation adapter — wraps `codex exec` with programmatic `consult()` API | `codex_shim.py` |
+| `codex_shim.py` | FastMCP MCP shim translating tool calls to adapter | MCP server (`.mcp.json`) |
+| `consultation_safety.py` | Shared safety utilities (ToolScanPolicy, SafetyVerdict, check_tool_input) | `codex_guard.py`, `codex_consult.py` |
 
 ## Configuration
 
@@ -358,7 +361,7 @@ uv run --package cross-model-plugin pytest tests
 
 ```
 cross-model/
-├── .claude-plugin/plugin.json     Plugin manifest (v3.0.0)
+├── .claude-plugin/plugin.json     Plugin manifest (v3.1.0)
 ├── .mcp.json                      MCP server registration
 ├── skills/                        4 user-facing skills
 │   ├── codex/SKILL.md
@@ -371,7 +374,7 @@ cross-model/
 │   ├── context-gatherer-code.md
 │   └── context-gatherer-falsifier.md
 ├── hooks/hooks.json               Hook configuration
-├── scripts/                       Shared Python modules (10 files)
+├── scripts/                       Shared Python modules (13 files)
 ├── references/                    Normative contracts + profiles
 ├── context-injection/             Bundled MCP server (canonical)
 ├── tests/                         Plugin-level tests
@@ -395,7 +398,7 @@ cross-model/
 
 **Symptom:** `/codex` returns an MCP connection error.
 
-**Causes:** Codex CLI not installed (`npm install -g @openai/codex`), not authenticated (`codex login` or set `OPENAI_API_KEY`), or macOS sandbox panic (verify `CODEX_SANDBOX=seatbelt` is set in `.mcp.json`).
+**Causes:** `uv` not installed or not on PATH, `mcp>=1.9.0` dependency resolution failure, `${CLAUDE_PLUGIN_ROOT}` expansion issue, or Python < 3.11. The shim requires the same Python environment as the context-injection server.
 
 ### Context injection server fails to start
 

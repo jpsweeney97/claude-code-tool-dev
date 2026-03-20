@@ -2,11 +2,25 @@
 
 ## [Unreleased]
 
+## [3.1.0] — 2026-03-20
+
+### Added
+
+- `codex_consult.py` adapter — wraps `codex exec` CLI as a programmatic `consult()` API for new conversations and thread resumption
+- `consultation_safety.py` — extracted shared safety module from `codex_guard.py` (`ToolScanPolicy`, `SafetyVerdict`, `check_tool_input`, `extract_strings`)
+- `codex_shim.py` — thin FastMCP MCP server exposing `codex` and `codex-reply` tools backed by the `consult()` adapter, with `structuredContent.threadId` for backward compatibility
+- `.mcp.json` wiring validation tests (`test_mcp_wiring.py`) — 4 tests ensuring codex entry uses local shim
+
 ### Changed
 
+- `.mcp.json` codex entry now uses local `codex_shim.py` via `uv run` instead of upstream `codex mcp-server` binary — eliminates tight coupling to upstream CLI parameter changes
+- `codex_guard.py` imports safety utilities from `consultation_safety.py` instead of inline implementation
+- `approval_policy` (underscore) added to `START_POLICY.expected_fields` alongside `approval-policy` (hyphen) for shim schema compatibility
+- `mcp>=1.9.0` added to root plugin dependencies (previously only in context-injection sub-package)
 - `context-injection` is now maintained only in `packages/plugins/cross-model/context-injection`
 - The vendoring sync script and vendored marker file were removed
 - `docs/references/context-injection-contract.md` symlink was removed in favor of the plugin reference path
+- Plugin version bumped from 3.0.0 to 3.1.0
 
 ### Fixed
 

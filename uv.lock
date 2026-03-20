@@ -198,6 +198,7 @@ name = "cross-model-plugin"
 version = "3.0.0"
 source = { virtual = "packages/plugins/cross-model" }
 dependencies = [
+    { name = "mcp" },
     { name = "pyyaml" },
 ]
 
@@ -208,7 +209,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pyyaml", specifier = ">=6.0" }]
+requires-dist = [
+    { name = "mcp", specifier = ">=1.9.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [
