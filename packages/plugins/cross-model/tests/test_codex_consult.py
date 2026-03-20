@@ -380,3 +380,75 @@ class TestOutput:
         output = json.loads(capsys.readouterr().out)
         required = {"status", "dispatched", "continuation_id", "response_text", "token_usage", "runtime_failures", "error", "dispatch_state"}
         assert required.issubset(set(output.keys()))
+
+
+class TestConsult:
+    """Programmatic API: consult() — same pipeline as run() without file I/O."""
+
+    @patch("scripts.codex_consult._run_subprocess")
+    @patch("scripts.codex_consult._check_codex_version")
+    @patch("scripts.codex_consult.check_tool_input")
+    def test_success(self, mock_safety: MagicMock, mock_version: MagicMock, mock_run: MagicMock) -> None:
+        from scripts.codex_consult import consult, SafetyVerdict
+        mock_safety.return_value = SafetyVerdict(action="allow")
+        mock_run.return_value = (
+            '{"type":"thread.started","thread_id":"thr_api"}\n'
+            '{"type":"item.completed","item":{"type":"agent_message","text":"Response via API."}}\n'
+            '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}\n',
+            0,
+        )
+        result = consult(prompt="test prompt")
+        assert result["status"] == "ok"
+        assert result["dispatched"] is True
+        assert result["continuation_id"] == "thr_api"
+        assert result["response_text"] == "Response via API."
+        assert result["token_usage"] == {"input_tokens": 10, "output_tokens": 5}
+        assert result["dispatch_state"] == "complete"
+        assert result["error"] is None
+
+    @patch("scripts.codex_consult.check_tool_input")
+    def test_credential_block(self, mock_safety: MagicMock) -> None:
+        from scripts.codex_consult import consult, SafetyVerdict
+        mock_safety.return_value = SafetyVerdict(action="block", reason="AWS key", tier="strict")
+        result = consult(prompt="AKIAIOSFODNN7EXAMPLE")
+        assert result["status"] == "blocked"
+        assert result["dispatched"] is False
+        assert "AWS key" in result["error"]
+        assert result["dispatch_state"] == "no_dispatch"
+
+    @patch("scripts.codex_consult._run_subprocess")
+    @patch("scripts.codex_consult._check_codex_version")
+    @patch("scripts.codex_consult.check_tool_input")
+    def test_timeout_with_partial_token(self, mock_safety: MagicMock, mock_version: MagicMock, mock_run: MagicMock) -> None:
+        from scripts.codex_consult import consult, SubprocessTimeout, SafetyVerdict
+        mock_safety.return_value = SafetyVerdict(action="allow")
+        mock_run.side_effect = SubprocessTimeout('{"type":"thread.started","thread_id":"thr_partial"}\n')
+        result = consult(prompt="test")
+        assert result["status"] == "timeout_uncertain"
+        assert result["continuation_id"] == "thr_partial"
+        assert result["dispatch_state"] == "dispatched_with_token_uncertain"
+
+    @patch("scripts.codex_consult._run_subprocess")
+    @patch("scripts.codex_consult._check_codex_version")
+    @patch("scripts.codex_consult.check_tool_input")
+    def test_passes_thread_id_to_build_command(self, mock_safety: MagicMock, mock_version: MagicMock, mock_run: MagicMock) -> None:
+        from scripts.codex_consult import consult, SafetyVerdict
+        mock_safety.return_value = SafetyVerdict(action="allow")
+        mock_run.return_value = (
+            '{"type":"thread.started","thread_id":"thr_resumed"}\n'
+            '{"type":"item.completed","item":{"type":"agent_message","text":"Continued."}}\n'
+            '{"type":"turn.completed","usage":{}}\n',
+            0,
+        )
+        result = consult(prompt="continue", thread_id="thr_original")
+        assert result["status"] == "ok"
+        cmd = mock_run.call_args[0][0]
+        assert "resume" in cmd
+        assert "thr_original" in cmd
+
+    def test_invalid_reasoning_effort(self) -> None:
+        from scripts.codex_consult import consult
+        result = consult(prompt="test", reasoning_effort="ultra")
+        assert result["status"] == "error"
+        assert "reasoning_effort" in result["error"]
+        assert result["dispatched"] is False

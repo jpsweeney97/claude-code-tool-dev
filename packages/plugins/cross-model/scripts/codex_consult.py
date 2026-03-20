@@ -320,40 +320,56 @@ _OUTPUT_REQUIRED = {
 }
 
 
-def _output(status: str, **kwargs: object) -> str:
-    """Format adapter output as JSON. Validates all required fields present."""
+def _result(status: str, **kwargs: object) -> dict:
+    """Build result dict with field validation."""
     result: dict = {"status": status}
     result.update(kwargs)
     missing = _OUTPUT_REQUIRED - set(result.keys())
-    assert not missing, f"_output missing fields: {missing}"
-    return json.dumps(result)
+    assert not missing, f"_result missing fields: {missing}"
+    return result
+
+
+def _output(status: str, **kwargs: object) -> str:
+    """Format adapter output as JSON string. Validates all required fields."""
+    return json.dumps(_result(status, **kwargs))
 
 
 # ---------------------------------------------------------------------------
-# Main pipeline
+# Programmatic API
 # ---------------------------------------------------------------------------
 
 
-def run(input_path: Path) -> int:
-    """Execute the consultation pipeline. Returns exit code."""
+def consult(
+    prompt: str,
+    thread_id: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str = "xhigh",
+) -> dict:
+    """Run the consultation pipeline programmatically.
+
+    Returns a dict with all required output fields. Never raises.
+    Status is one of: ok, blocked, timeout_uncertain, error.
+    """
     dispatch = DispatchState.NO_DISPATCH
-    parsed: dict | None = None
 
     try:
-        phase_a = _parse_input(input_path)
+        if reasoning_effort not in _VALID_EFFORTS:
+            raise ConsultationError(
+                f"invalid reasoning_effort: must be one of {sorted(_VALID_EFFORTS)}"
+            )
 
-        verdict = check_tool_input({"prompt": phase_a["prompt"]}, START_POLICY)
+        verdict = check_tool_input({"prompt": prompt}, START_POLICY)
         if verdict.action == "block":
             raise CredentialBlockError(verdict.reason or "credential detected")
 
         _check_codex_version()
 
         cmd = _build_command(
-            prompt=phase_a["prompt"],
-            thread_id=phase_a["thread_id"],
-            sandbox=phase_a["sandbox"],
-            model=phase_a["model"],
-            reasoning_effort=phase_a["reasoning_effort"],
+            prompt=prompt,
+            thread_id=thread_id,
+            sandbox="read-only",
+            model=model,
+            reasoning_effort=reasoning_effort,
         )
 
         dispatch = DispatchState.DISPATCHED_NO_TOKEN
@@ -364,24 +380,22 @@ def run(input_path: Path) -> int:
         if parsed["continuation_id"]:
             dispatch = DispatchState.COMPLETE
 
-        print(_output(
+        return _result(
             "ok", dispatched=True,
             continuation_id=parsed["continuation_id"],
             response_text=parsed["response_text"],
             token_usage=parsed["token_usage"],
             runtime_failures=parsed["runtime_failures"],
             error=None, dispatch_state=dispatch.value,
-        ))
-        return 0
+        )
 
     except CredentialBlockError as exc:
-        print(_output(
+        return _result(
             "blocked", dispatched=False, error=str(exc),
             continuation_id=None, response_text=None,
             token_usage=None, runtime_failures=[],
             dispatch_state=DispatchState.NO_DISPATCH.value,
-        ))
-        return 0
+        )
 
     except SubprocessTimeout as exc:
         partial_token = None
@@ -394,31 +408,56 @@ def run(input_path: Path) -> int:
         if partial_token:
             dispatch = DispatchState.DISPATCHED_WITH_TOKEN_UNCERTAIN
 
-        print(_output(
+        return _result(
             "timeout_uncertain", dispatched=True, error=str(exc),
             continuation_id=partial_token, response_text=None,
             token_usage=None, runtime_failures=[],
             dispatch_state=dispatch.value,
-        ))
-        return 1
+        )
 
     except ConsultationError as exc:
-        print(_output(
+        return _result(
             "error", dispatched=(dispatch != DispatchState.NO_DISPATCH),
-            error=str(exc), continuation_id=parsed["continuation_id"] if parsed else None,
+            error=str(exc), continuation_id=None,
             response_text=None, token_usage=None, runtime_failures=[],
             dispatch_state=dispatch.value,
-        ))
-        return 1
+        )
 
     except Exception as exc:
-        print(_output(
+        return _result(
             "error", dispatched=(dispatch != DispatchState.NO_DISPATCH),
             error=f"internal error: {exc}", continuation_id=None,
             response_text=None, token_usage=None, runtime_failures=[],
             dispatch_state=dispatch.value,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Main pipeline
+# ---------------------------------------------------------------------------
+
+
+def run(input_path: Path) -> int:
+    """Execute the consultation pipeline from file. Returns exit code."""
+    try:
+        phase_a = _parse_input(input_path)
+    except ConsultationError as exc:
+        print(_output(
+            "error", dispatched=False, error=str(exc),
+            continuation_id=None, response_text=None,
+            token_usage=None, runtime_failures=[],
+            dispatch_state=DispatchState.NO_DISPATCH.value,
         ))
         return 1
+
+    result = consult(
+        prompt=phase_a["prompt"],
+        thread_id=phase_a["thread_id"],
+        model=phase_a["model"],
+        reasoning_effort=phase_a["reasoning_effort"],
+    )
+    print(json.dumps(result))
+    return 0 if result["status"] in ("ok", "blocked") else 1
 
 
 def main() -> int:
