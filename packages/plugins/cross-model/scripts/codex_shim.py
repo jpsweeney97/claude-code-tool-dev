@@ -39,3 +39,39 @@ def _extract_reasoning_effort(config: dict[str, Any] | None) -> str:
     if config and isinstance(config.get("model_reasoning_effort"), str):
         return config["model_reasoning_effort"]
     return "xhigh"
+
+
+def _build_response(result: dict) -> CallToolResult:
+    """Translate adapter result to MCP CallToolResult with structuredContent.
+
+    Success responses include structuredContent.threadId for consumers.
+    Timeout responses include structuredContent with partial continuation_id
+    (agents may use it for recovery). Block/error responses omit structuredContent.
+    """
+    status = result.get("status", "error")
+    response_text = result.get("response_text") or ""
+    continuation_id = result.get("continuation_id")
+
+    if status == "timeout_uncertain":
+        error_msg = result.get("error", "unknown error")
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"Timeout: {error_msg}")],
+            structuredContent={"threadId": continuation_id, "content": ""},
+            isError=True,
+        )
+
+    if status in ("blocked", "error"):
+        error_label = "Blocked" if status == "blocked" else "Error"
+        error_msg = result.get("error", "unknown error")
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"{error_label}: {error_msg}")],
+            isError=True,
+        )
+
+    return CallToolResult(
+        content=[TextContent(type="text", text=response_text)],
+        structuredContent={
+            "threadId": continuation_id,
+            "content": response_text,
+        },
+    )
