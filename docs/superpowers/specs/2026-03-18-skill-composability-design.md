@@ -92,7 +92,8 @@ AR appends the capsule after its prose output (after the Confidence Check sectio
 artifact_id: ar:<subject_key>:<created_at_compact>
 artifact_kind: adversarial_review
 subject_key: <kebab-case derived from review_target, or inherited from upstream feedback capsule>
-topic_key: <coarse grouping key — same as subject_key unless reviewing a facet of a broader topic>
+topic_key: <non-authoritative descriptive metadata — same as subject_key unless reviewing a facet of a broader topic>
+lineage_root_id: <this artifact's artifact_id if standalone (root of chain); inherited unchanged from upstream capsule if consuming one>
 created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior artifact_id of same kind and subject_key, or null>
 source_artifacts: <[] if standalone; include upstream feedback capsule if re-review triggered by dialogue feedback>
@@ -165,7 +166,8 @@ This is distinct from `<!-- dialogue-orchestrated-briefing -->`, which means "/d
 artifact_id: ns:<subject_key>:<created_at_compact>
 artifact_kind: next_steps_plan
 subject_key: <inherited from AR capsule if consumed, otherwise derived from plan topic>
-topic_key: <inherited from AR capsule if consumed, otherwise derived from plan topic>
+topic_key: <non-authoritative descriptive metadata — inherited from AR capsule if consumed, otherwise derived from plan topic>
+lineage_root_id: <inherited from AR capsule if consumed; otherwise this artifact's artifact_id (root of chain)>
 created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior NS artifact_id for this subject_key, or null>
 source_artifacts:
@@ -199,25 +201,25 @@ out_of_scope:
 
 ### Pipeline threading
 
-The NS handoff threads through the full `/dialogue` pipeline, not just Step 0:
+The NS handoff threads through the full `/dialogue` pipeline via the generic `upstream_handoff` state. Each stage consumes capability flags, not the NS schema directly:
 
-| Pipeline stage | How handoff is consumed |
-|----------------|----------------------|
-| Pre-Step 0 | Parse sentinel → normalize to `upstream_handoff` pipeline state |
-| Step 0 (`handoff_enriched` mode) | Seed decomposition: planning_question from focus_question + done_when; assumptions from source_findings; key_terms from task context entities |
-| Step 2 | Gatherer seeds enriched with task names, finding entities, decision gate conditions |
-| Step 3 | Deterministic projection of source_findings and decision_gates into briefing Context section |
-| Step 3c | Zero-output fallback preserves upstream context as sole grounding |
+| Pipeline stage | Capability consumed | How upstream context is used |
+|----------------|--------------------|-----------------------------|
+| Pre-Step 0 | (Stage A/B) | Parse sentinel → validate → normalize to `upstream_handoff` via adapter |
+| Step 0 | `decomposition_seed` | Seed decomposition: planning_question from focus_question + done_when; assumptions from source_findings; key_terms from task context entities |
+| Step 2 | `gatherer_seed` | Gatherer prompts enriched with task names, finding entities, decision gate conditions |
+| Step 3 | `briefing_context` | Deterministic projection of source_findings and decision_gates into briefing Context section |
+| Step 3c | `briefing_context` | Zero-output fallback preserves upstream context as sole grounding |
 
-**Boundary clarification:** The NS handoff intentionally couples to pipeline stages documented in the dialogue skill's SKILL.md. This is documented interface coupling, not hidden internal coupling.
+**Boundary clarification:** The `upstream_handoff` state couples to pipeline stages documented in the dialogue skill's SKILL.md. This is documented interface coupling through a generic internal interface, not NS-specific coupling.
 
 ### Posture precedence
 
 ```
-explicit --posture > --profile > NS recommended_posture > default collaborative
+explicit --posture > --profile > upstream_handoff recommended_posture > default collaborative
 ```
 
-NS does not derive multi-phase profiles from a single posture hint. If future handoff-driven phases are needed, NS would emit `recommended_phases[]`.
+Upstream handoffs do not derive multi-phase profiles from a single posture hint. If future handoff-driven phases are needed, upstream skills would emit `recommended_phases[]`.
 
 ### NS skill text changes
 
@@ -251,7 +253,8 @@ The `/dialogue` skill (not the codex-dialogue agent) appends the feedback capsul
 artifact_id: dialogue:<subject_key>:<created_at_compact>
 artifact_kind: dialogue_feedback
 subject_key: <inherited from NS handoff if consumed, otherwise derived from goal topic>
-topic_key: <inherited from NS handoff if consumed, otherwise derived from goal topic>
+topic_key: <non-authoritative descriptive metadata — inherited from NS handoff if consumed, otherwise derived from goal topic>
+lineage_root_id: <inherited from NS handoff if consumed; otherwise this artifact's artifact_id (root of chain)>
 created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior dialogue artifact_id for this subject_key, or null>
 source_artifacts:
@@ -293,18 +296,51 @@ Note: `classifier_source` narrowed to `rule | model` (no `ambiguous`).
 
 ---
 
-## Adaptive `--plan` (Two Decomposition Modes)
+## Adaptive `--plan` (Two-Stage Admission with Adapter Pattern)
 
-### Mode selection
+### Design principle: adapters not modes
 
-| Condition | Mode | Behavior |
-|-----------|------|----------|
-| `--plan` set, no NS handoff detected | `raw_input` | Current behavior — decompose from user's question |
-| `--plan` set AND `<!-- next-steps-dialogue-handoff:v1 -->` detected | `handoff_enriched` | Seed decomposition from task context, findings, decision gates |
-| `--plan` not set, NS handoff present | N/A | Handoff state available to later steps (gatherer seeds, briefing assembly) but no decomposition runs |
-| `--plan` not set, no NS handoff | N/A | Current behavior unchanged |
+Dialogue's internal interface uses a generic `upstream_handoff` state. Type-specific logic lives at the ingestion edge as adapters, not as decomposition modes. Adding a future upstream skill type means adding an adapter, not a new mode table entry.
+
+### Two-stage admission
+
+**Stage A — Detect and validate (type-specific):**
+
+Scan conversation context for a known upstream sentinel. v1 recognizes:
+
+| Sentinel | Producer | Adapter |
+|----------|----------|---------|
+| `<!-- next-steps-dialogue-handoff:v1 -->` | next-steps | NS adapter |
+
+If a sentinel is detected, validate the capsule schema against the expected format. If invalid, reject the capsule (strict consumer class) and proceed as if no upstream handoff exists.
+
+Future upstream skills register new sentinels and adapters here. The pipeline below Stage A is unchanged.
+
+**Stage B — Normalize to `upstream_handoff` (generic):**
+
+The adapter normalizes the validated capsule into a generic `upstream_handoff` pipeline state with capability flags:
+
+| Capability flag | Meaning | NS adapter sets |
+|----------------|---------|-----------------|
+| `decomposition_seed` | Can seed decomposition fields (planning_question, assumptions, key_terms, ambiguities) | `true` |
+| `gatherer_seed` | Can seed gatherer search terms with task/finding entities | `true` |
+| `briefing_context` | Can inject source_findings and decision_gates into briefing assembly | `true` |
+
+The pipeline gates enrichment on what the adapter provides, not what type produced it. A future adapter that provides `gatherer_seed` but not `decomposition_seed` would enrich gatherer prompts without affecting decomposition.
+
+### Decomposition behavior
+
+| Condition | Behavior |
+|-----------|----------|
+| `--plan` set, no `upstream_handoff` | `raw_input` — decompose from user's question (current behavior) |
+| `--plan` set, `upstream_handoff` with `decomposition_seed` | `handoff_enriched` — seed decomposition from upstream context |
+| `--plan` set, `upstream_handoff` without `decomposition_seed` | `raw_input` — decompose from question; upstream context available to later stages via other capability flags |
+| `--plan` not set, `upstream_handoff` present | No decomposition; upstream context available to later steps (gatherer seeds, briefing assembly) via capability flags |
+| `--plan` not set, no `upstream_handoff` | Current behavior unchanged |
 
 ### Enriched decomposition seeding
+
+When `decomposition_seed` is available:
 
 | Decomposition field | `raw_input` source | `handoff_enriched` source |
 |---------------------|-------------------|--------------------------|
@@ -353,19 +389,43 @@ For items without explicit upstream ID references: constrained LLM classificatio
 
 **Dimension independence:** `classifier_source` and `suggested_arc` are independent dimensions. `classifier_source` describes the classification *method* (deterministic rule vs. LLM judgment). `suggested_arc` describes the routing *outcome* (where the item should go). `ambiguous` is a valid outcome (`suggested_arc = ambiguous` means the router could not determine a clear destination) but not a valid method — every classification is performed by either a rule or the model.
 
+**Consumer behavior for `ambiguous` items:**
+
+`ambiguous` items enter the materiality gate like any other item. Their routing behavior depends on the materiality result:
+
+| Condition | Behavior |
+|-----------|----------|
+| `material: false` + `suggested_arc: ambiguous` | Informational only. Reported to user but does not surface as a routing decision. No hop suggested. |
+| `material: true` + `suggested_arc: ambiguous` | Manual routing bucket. User is presented three actions: (1) send to adversarial-review, (2) send to next-steps, (3) hold. Default is **hold** — no hop occurs, no budget consumed. |
+
+**Disambiguation guidance:** If the ambiguity is "need more evidence before knowing which surface owns this item," the correct `suggested_arc` is `dialogue_continue` (same dialogue, still gathering evidence), not `ambiguous`. Use `ambiguous` only when the item is material but it is genuinely unclear whether diagnosis or planning owns the resolution.
+
 ### Material-Delta Gating
 
-Evaluate materiality in tier order. Stop at the first tier that produces a definitive match.
+Evaluate materiality using three tiers with a cross-tier guard. Tier 1 rule-based exclusions are final. Tier 1 model-judged exclusions are provisional — they must pass through Tier 2 before finalizing.
 
-**Tier 1 — Pre-screening exclusions (check first):**
+**Pre-check — Novelty veto:**
 
-An item is **not material** if any of:
-- A restatement or example of an existing item
-- An implementation detail below the current abstraction level
-- A low-support idea with no affected upstream refs
+Before Tier 1, check whether the item introduces any new content relative to the source snapshot: a new failure mode, causal mechanism, consequence, dependency, gate effect, or contradiction. If the item introduces novel content, Tier 1 MUST return `no_match` regardless of exclusion class fit. Proceed directly to Tier 2.
+
+Rationale: items with novel content can pattern-match Tier 1 exclusion classes (e.g., a novel architectural consequence might look like an "implementation detail") but should never be pre-screened out. The novelty veto prevents this class of false negatives.
+
+**Tier 1 — Pre-screening exclusions (closed v1 set):**
+
+An item is **provisionally not material** if any of these apply (and the novelty veto did not fire):
+- An exact restatement or example of an existing item in the source snapshot
 - An open question already present in the source snapshot
+- A clearly unsupported tangent with no affected upstream refs
 
-Some Tier 1 criteria (e.g., "implementation detail") involve lightweight judgment. Set `materiality_source: rule` when the exclusion is clear-cut; set `materiality_source: model` with a one-line reason when it required interpretation. Either way, if Tier 1 matches, the item is not material. Skip Tiers 2-3.
+This is a closed set for v1. Do not add exclusion classes without updating this list.
+
+Set `materiality_source: rule` when the exclusion is clear-cut; set `materiality_source: model` with a one-line reason when it required interpretation.
+
+**Cross-tier guard:** If the Tier 1 match used model judgment (`materiality_source: model`), the exclusion is provisional. Check Tier 2 before finalizing:
+- If Tier 2 would include the item → Tier 2 takes precedence. Set `material: true`, `materiality_source: rule`.
+- If Tier 2 does not match → the Tier 1 model exclusion stands. Set `material: false`.
+
+If the Tier 1 match used rule judgment (`materiality_source: rule`), the exclusion is final. Skip Tiers 2-3.
 
 **Tier 2 — Rule-based inclusions (deterministic):**
 
@@ -377,9 +437,10 @@ If Tier 2 matches, the item is material. Set `material: true`, `materiality_sour
 
 **Tier 3 — Semantic evaluation (model fallback):**
 
-If neither Tier 1 nor Tier 2 matched, evaluate using judgment:
+If neither Tier 1 nor Tier 2 matched (or if Tier 1 returned `no_match` due to the novelty veto), evaluate using judgment:
 - Does the item introduce a new non-duplicate risk, assumption challenge, or alternative that changes AR's diagnostic surface?
 - Does it introduce a new dependency, blocker, gate change, or critical-path shift that changes NS's planning surface?
+- Is this an implementation detail below the current abstraction level? (Moved from Tier 1 — this criterion requires too much judgment for pre-screening.)
 
 Set `materiality_source: model`. Provide a one-line `materiality_reason`.
 
@@ -389,7 +450,7 @@ Set `materiality_source: model`. Provide a one-line `materiality_reason`.
 
 1. **No auto-chaining.** Skills suggest the next arc; the user confirms. No skill auto-invokes another.
 2. **Material-delta gating.** Do not recommend a hop unless something changed relative to the source snapshot.
-3. **Soft iteration budget.** After 2 targeted loops in the same topic (same `topic_key`), stop suggesting further hops automatically. Report remaining open items. User can override. The budget uses `topic_key` (coarse grouping), not `subject_key` (exact lineage), so related reviews on different facets of the same topic share a budget.
+3. **Soft iteration budget.** After 2 targeted loops in the same composition chain (same `lineage_root_id`), stop suggesting further hops automatically. Report remaining open items. User can override. The budget uses `lineage_root_id` (chain identity), not `topic_key` (descriptive) or `subject_key` (exact lineage). This ensures independent composition chains never share a budget, even if they happen to cover similar topics.
 
 ### Thread Continuation vs Fresh Start
 
@@ -423,16 +484,17 @@ An artifact is one skill-run snapshot. The capsule is the machine-readable proje
 | One next-steps run | `next_steps_plan` |
 | One /dialogue run | `dialogue_feedback` |
 
-### Two identity keys
+### Three identity keys
 
-Each artifact carries two identity keys serving different purposes:
+Each artifact carries three identity keys serving different purposes:
 
 | Key | Purpose | Format | Example | Used by |
 |-----|---------|--------|---------|---------|
 | `subject_key` | Exact lineage matching (staleness, supersession) | kebab-case, deterministic from target | `redaction-pipeline` | Staleness detection, `supersedes` links |
-| `topic_key` | Coarse grouping (soft iteration budget) | kebab-case, broader than subject_key | `redaction-pipeline` | Loop guardrails; propagated via inheritance by all downstream skills |
+| `topic_key` | Non-authoritative descriptive metadata for UX, summaries, and analytics | kebab-case, broader than subject_key | `redaction-pipeline` | Display only; NOT a control key |
+| `lineage_root_id` | Budget isolation — identifies the composition chain | The root artifact's `artifact_id`, copied unchanged | `ar:redaction-pipeline:20260318T143052.123` | Soft iteration budget guardrails |
 
-For simple targets, `subject_key` and `topic_key` may be identical. They diverge when a subject is a specific facet of a broader topic (e.g., subject_key `redaction-format-layer` under topic_key `redaction-pipeline`).
+`subject_key` and `topic_key` may be identical for simple targets. They diverge when a subject is a specific facet of a broader topic (e.g., subject_key `redaction-format-layer` under topic_key `redaction-pipeline`). `lineage_root_id` is always distinct from the other keys — it is a full `artifact_id`, not a kebab-case string.
 
 **Normalization rules for `subject_key` (exact key — minimally lossy):**
 - Lowercase, replace spaces/underscores with hyphens
@@ -440,13 +502,20 @@ For simple targets, `subject_key` and `topic_key` may be identical. They diverge
 - No character limit — preserve full target specificity for exact lineage matching
 - Derived from the skill's basis field when minting, or inherited from upstream capsule
 
-**Normalization rules for `topic_key` (coarse key — grouping):**
+**Normalization rules for `topic_key` (descriptive — non-authoritative):**
 - Same base normalization as `subject_key`
 - Additionally: strip articles (a, an, the), trailing qualifiers, and implementation-specific suffixes
 - Limit to 50 characters, truncate at word boundary
 - Represents the broadest topic this analysis belongs to
+- `topic_key` is descriptive metadata for UX and analytics. It is NOT used for budget enforcement or any control decisions. Collisions between independent chains sharing the same `topic_key` are harmless because budget tracks by `lineage_root_id`.
 
-**Inheritance-first propagation:**
+**`lineage_root_id` propagation:**
+- When a skill is the root of a composition chain (no upstream capsule consumed), set `lineage_root_id` to this artifact's own `artifact_id`.
+- When a skill consumes an upstream capsule, copy `lineage_root_id` unchanged from that capsule.
+- `lineage_root_id` is immutable within a chain — it is never re-minted downstream. This guarantees that all artifacts in a single composition chain share the same `lineage_root_id`, while independent chains have different values by construction.
+- `lineage_root_id` serves budget isolation only, not freshness detection or staleness — those are separate concerns handled by `subject_key` and `supersedes`.
+
+**Inheritance-first propagation (subject_key, topic_key):**
 - If a skill directly consumes an upstream capsule (any kind), it inherits both `subject_key` and `topic_key` from that capsule.
 - If no upstream capsule is directly consumed, the skill mints both keys from its own basis field (see table below).
 - **Rule:** Only the root of a composition chain mints keys. All downstream skills inherit. This eliminates cross-skill key drift.
@@ -460,10 +529,10 @@ For simple targets, `subject_key` and `topic_key` may be identical. They diverge
 | dialogue | Goal/question topic | "redaction pipeline architecture" → `redaction-pipeline-architecture` |
 
 **Examples of inheritance in the feedback loop:**
-- AR (standalone) → mints `redaction-pipeline`
-- NS (consumes AR capsule) → inherits `redaction-pipeline`
-- Dialogue (consumes NS handoff) → inherits `redaction-pipeline`
-- AR (re-review consuming dialogue feedback capsule) → inherits `redaction-pipeline`
+- AR (standalone) → mints `subject_key: redaction-pipeline`, sets `lineage_root_id: ar:redaction-pipeline:20260318T143052.123`
+- NS (consumes AR capsule) → inherits `subject_key: redaction-pipeline`, inherits `lineage_root_id: ar:redaction-pipeline:20260318T143052.123`
+- Dialogue (consumes NS handoff) → inherits both keys unchanged
+- AR (re-review consuming dialogue feedback capsule) → inherits both keys unchanged — same `lineage_root_id` throughout
 
 ### Artifact ID format
 
@@ -495,16 +564,42 @@ Each `source_artifacts[]` entry includes `artifact_id`, `artifact_kind`, and `ro
 
 **Provenance rule:** `source_artifacts[]` records direct edges only — artifacts that this run directly parsed and validated. Transitive provenance is recovered by traversing upstream `source_artifacts[]` references. Example: dialogue's feedback capsule lists NS (direct consumer) but not AR (transitive — reached via NS's own `source_artifacts[]`).
 
+### Artifact discovery (v1 — conversation-local)
+
+Two distinct discovery algorithms serve different purposes within conversation-local scope. Both operate on the conversation context available to the current skill invocation.
+
+**Consumption discovery** — used when a skill wants to consume an upstream capsule:
+
+1. Reverse-scan the available conversation context newest-first for the expected sentinel (e.g., `<!-- ar-capsule:v1 -->`).
+2. Take the first match only.
+3. Validate the candidate capsule schema.
+4. If invalid, reject and stop — do not backtrack to older capsules. Proceed as if no capsule exists.
+5. If no sentinel is found in available context, proceed without structural handoff.
+
+This is a single-result, no-backtrack algorithm. It finds the most recent valid capsule or nothing.
+
+**Staleness discovery** — used to determine whether a consumed artifact has been superseded:
+
+1. Scan the available conversation context for all valid capsules matching a given `artifact_kind` and `subject_key`.
+2. Index by `artifact_id` and `created_at`.
+3. Compare against the consumed artifact to detect supersession.
+
+This is a multi-scan algorithm that may return multiple results. It requires scanning more broadly than consumption discovery.
+
+**Scope boundary:** "Available conversation context" means the context visible to the current skill invocation. Multi-session discovery (capsules from prior conversations) is explicitly out of v1 scope.
+
 ### Staleness detection
 
-Consuming skills detect staleness and warn the user:
+Consuming skills detect staleness and warn the user. Evaluate in this order — the first matching status applies:
 
-| Status | Condition | Consumer behavior |
-|--------|-----------|------------------|
-| `current` | No superseder exists; all source_artifacts are current | Proceed normally |
-| `superseded` | A newer same-kind same-subject artifact exists | Prefer the newer one |
-| `stale_inputs` | One or more source_artifacts has been superseded | Warn; suggest rebase before continuing |
-| `unknown` | Insufficient lineage metadata | Do not block; fall back to current behavior |
+| Priority | Status | Condition | Consumer behavior |
+|----------|--------|-----------|------------------|
+| 1 | `superseded` | Positive evidence that a newer same-kind same-subject artifact exists in available context | Prefer the newer one |
+| 2 | `unknown` | A required direct `source_artifact` is absent from available context or its capsule is unparseable | Do not block; fall back to current behavior |
+| 3 | `stale_inputs` | A direct `source_artifact` has a newer visible superseder in available context | Warn; suggest rebase before continuing |
+| 4 | `current` | No superseder exists; all source_artifacts are current within available context | Proceed normally |
+
+**Must-not-infer-current rule:** Do not infer `current` from missing evidence. If a required source artifact is absent from context (it may have been compacted away, or produced in a prior session), the status is `unknown`, not `current`. `current` requires positive evidence that no superseder exists in the available context.
 
 ### File persistence
 
@@ -516,23 +611,41 @@ NS does not write files today. If `docs/plans/` is added later, use the same `ar
 
 ## Shared Composition Contract
 
-A thin reference document (~50-80 lines). The authoritative source for cross-skill composition semantics. Each participating skill inlines the minimal operational subset it needs as a self-contained stub. The full contract is additive context, not a required dependency — every skill must function correctly with only its inline stub.
+### Three-layer authority model
 
-Governs:
+The composition system distributes authority across three layers:
 
-- Artifact metadata schema (artifact_id, subject_key, supersedes, source_artifacts)
-- Capsule sentinel formats and version handling
+| Layer | Owner | Authority | Audience |
+|-------|-------|-----------|----------|
+| **Composition contract** | Shared reference document | Normative — protocol core that governs cross-skill semantics | Skill authors modifying composition behavior |
+| **Inline stubs** (per skill) | Each participating skill | Runtime authority — role-specific operational subset | Claude during skill execution |
+| **Design document** (this file) | Design author | Explanatory — rationale and tradeoff discussion | Non-normative; not loaded at runtime |
+
+**Contract owns protocol core (normative):**
+- Sentinel/version rules and unknown-version handling
+- Artifact metadata schema (artifact_id, subject_key, lineage_root_id, supersedes, source_artifacts)
 - Consumer class definitions (advisory/tolerant vs strict/deterministic)
 - Routing classification rules and precedence
-- Material-delta definitions
-- Staleness detection rules
+- Material-delta tier semantics (novelty veto, cross-tier guard, tier definitions)
+- Budget semantics (lineage_root_id tracking, soft iteration limit)
+- Staleness semantics (ordered algorithm, must-not-infer-current)
+- Discovery algorithms (consumption vs staleness)
 - Capsule emission rule: "same schema when externalized, no schema obligation when used as internal reasoning scaffolding"
 
-Each skill inlines a self-contained composition stub that is fully operational without reading the contract. The stub specifies:
-- What upstream capsule it can consume
-- What downstream capsule it emits
+**Stubs own role-specific operations (runtime authority):**
+- What upstream capsule this skill can consume
+- What downstream capsule this skill emits
+- Fallback behavior when upstream capsule is absent or invalid
+- Which shared semantics this skill executes (e.g., dialogue executes routing and materiality; AR and NS do not)
 - When to suggest the next hop
-- A reference to the authoritative contract path (`packages/plugins/cross-model/references/composition-contract.md`) for skill authors who need the full protocol
+
+Stub sizes are asymmetric by design — dialogue's stub is largest (routing, materiality, budget, discovery), AR and NS stubs are smaller (consume/emit with fallback). Do not target a symmetric line count.
+
+Every skill must function correctly with only its inline stub. The contract is additive context — skill authors consult it when modifying composition behavior, but Claude does not require it at runtime.
+
+### Versioning and drift detection
+
+Contract versioning is a CI/review-time concern, not runtime. Each skill stub includes `implements_composition_contract: v1` as a drift detection marker. Sentinel versioning (`v1` in sentinel comments) handles runtime wire compatibility. Contract version stays out of capsule schemas.
 
 **File location:** `packages/plugins/cross-model/references/composition-contract.md` — alongside the consultation contract, since all three skills interact through the cross-model dialogue system.
 
@@ -542,17 +655,17 @@ Each skill inlines a self-contained composition stub that is fully operational w
 
 | Skill | Changes required |
 |-------|-----------------|
-| **adversarial-review** | Add AR capsule emission after prose output. Add `/next-steps` suggestion. Inline self-contained composition stub (upstream/downstream capsules, consumer class, hop suggestion). |
-| **next-steps** | Add AR capsule consumption (advisory/tolerant). Add NS handoff block emission when suggesting dialogue. Inline self-contained composition stub (upstream/downstream capsules, consumer class, hop suggestion). |
-| **dialogue** | Add NS handoff detection and `upstream_handoff` pipeline state. Add `handoff_enriched` decomposition mode to Step 0. Thread handoff through Steps 2-3. Add dialogue feedback capsule emission after synthesis. Add routing classification. Inline self-contained composition stub (upstream/downstream capsules, consumer class, hop suggestion). |
-| **Shared contract** | New file: composition contract governing artifact schemas, consumer classes, routing, staleness. |
+| **adversarial-review** | Add AR capsule emission (with `lineage_root_id`) after prose output. Add `/next-steps` suggestion. Inline composition stub (small — consume feedback capsule, emit AR capsule, fallback behavior, hop suggestion). |
+| **next-steps** | Add AR capsule consumption (advisory/tolerant). Add NS handoff block emission when suggesting dialogue. Inline composition stub (small — consume AR capsule, emit NS handoff, fallback behavior, hop suggestion). |
+| **dialogue** | Add two-stage admission (Stage A: sentinel detection + validation, Stage B: normalize to `upstream_handoff` with capability flags). Add `handoff_enriched` decomposition mode. Thread `upstream_handoff` through Steps 2-3 via capability flags. Add feedback capsule emission after synthesis. Add routing classification + materiality evaluation. Inline composition stub (large — routing, materiality, budget, discovery, consume/emit, fallback). |
+| **Shared contract** | New file: composition contract owning protocol core (sentinel/version rules, artifact metadata, consumer classes, routing, material-delta, budget, staleness, discovery). |
 
 ---
 
 ## Open Items
 
 1. ~~**Soft echo filter specification**~~: Resolved — examples added to tier 3 (2026-03-19).
-2. **Composition contract file location**: Resolved — `packages/plugins/cross-model/references/composition-contract.md`, alongside consultation contract. Authority model: authoritative source, skills inline minimal stubs.
+2. **Composition contract file location**: Resolved — `packages/plugins/cross-model/references/composition-contract.md`, alongside consultation contract. Three-layer authority model: contract owns protocol core (normative), stubs own role-specific operations (runtime authority), design doc owns rationale (explanatory). Asymmetric stub sizes.
 3. **upstream_handoff version field**: Deferred — sentinel versioning (`v1`) provides forward-compatibility. Version field adds no value until v2 exists.
 4. **codex-dialogue synthesis format**: Resolved — no changes needed. `/dialogue` projects feedback capsule from existing Synthesis Checkpoint output.
 
@@ -563,3 +676,12 @@ Architecture validated via Codex collaborative dialogue (thread `019d0284-a997-7
 **Design review amendments (2026-03-19):** System design review surfaced 7 findings (F1-F7) and 2 tensions (T1-T2). Codex collaborative dialogue (thread `019d0682-3f52-70a1-b7ed-e536ad2b8652`, 5 turns) resolved all findings. Key amendments: split-field identity model (F3 emerged concept), direct-edge provenance (F2), classifier dimension separation (F4), inline-stub authority model (F6). ~~F1 closed by counter-evidence (pipeline steps are the public contract)~~ F1 reopened by second-pass review — see below. F5/F7 accepted as v1 tradeoffs.
 
 **Second-pass review amendments (2026-03-19):** Second-pass system design review surfaced 7 findings (F1-F7) and 1 tension (T1). Codex evaluative dialogue (thread `019d0728-c61a-7c03-b67c-f13512cd3d85`, 6 turns) resolved all findings. Key amendments: F1 reopened — advisory fallback diagnostic added, invalid SS2 claim removed; F3 canonical millisecond precision; F4 material-delta tiered into ordered evaluation; D1 reframed to "standalone-first, protocol-rich composition." F2/F7 accepted with low-cost fixes. F5/F6 deferred. Emerged: `ar_input_mode` degradation field (deferred), `materiality_source` field (integrated into tiered material-delta), v1 scope narrowing option (declined — full v1 confirmed).
+
+**Third-pass review amendments (2026-03-19):** System design review surfaced 6 findings (F1-F6) and 2 tensions (T1-T2). Codex collaborative dialogue (thread `019d091b-5077-7672-8a16-1dd46aca7894`, 6 turns) resolved all findings. Key amendments:
+- F3 (HIGH): Cross-tier guard with novelty veto — provisional Tier 1 model exclusions must survive Tier 2; items with novel content bypass Tier 1 entirely; "implementation detail" moved to Tier 3; closed v1 exclusion set.
+- F1: Two-stage adapter pattern — generic `upstream_handoff` state with capability flags (`decomposition_seed`, `gatherer_seed`, `briefing_context`); v1 producer set NS-only; "adapters not modes" extensibility.
+- F4+T2: Discovery algorithms — two distinct algorithms (consumption: single, no-backtrack; staleness: multi-scan); ordered staleness evaluation (superseded > unknown > stale_inputs > current); must-not-infer-current rule.
+- F6: `lineage_root_id` — first-class schema field for budget isolation; `topic_key` demoted to descriptive metadata; budget tracks by `lineage_root_id` not `topic_key`.
+- F5/T1: Three-layer authority model — contract owns protocol core (normative), stubs own role-specific operations (runtime authority), design doc owns rationale (explanatory); asymmetric stub sizes; CI-enforced versioning.
+- F2: Ambiguous routing — manual routing bucket gated on `material=true`; hold default; `dialogue_continue` vs `ambiguous` distinction clarified.
+- Emerged: novelty veto, capability flags on `upstream_handoff`, `lineage_root_id`, two distinct discovery algorithms.
