@@ -133,3 +133,55 @@ def _parse_input(input_path: Path) -> dict:
         "model": model,
         "reasoning_effort": reasoning_effort,
     }
+
+
+def _check_codex_version() -> None:
+    """Verify codex CLI >= 0.111.0."""
+    try:
+        result = subprocess.run(
+            ["codex", "--version"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except FileNotFoundError:
+        raise ConsultationError("codex not found on PATH")
+    except subprocess.TimeoutExpired:
+        raise ConsultationError("codex --version timed out")
+
+    if result.returncode != 0:
+        raise ConsultationError("codex --version failed")
+
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", result.stdout)
+    if not match:
+        raise ConsultationError("codex --version: cannot parse version")
+
+    version = tuple(int(g) for g in match.groups())
+    if version < _MIN_VERSION:
+        raise ConsultationError(
+            f"requires codex >= {'.'.join(str(v) for v in _MIN_VERSION)}, "
+            f"found {'.'.join(str(v) for v in version)}"
+        )
+
+
+def _build_command(
+    prompt: str,
+    thread_id: str | None,
+    sandbox: str,
+    model: str | None,
+    reasoning_effort: str,
+) -> list[str]:
+    """Build codex exec command. Supports new and resume conversations."""
+    if thread_id:
+        cmd = ["codex", "exec", "resume", thread_id, "--json"]
+    else:
+        cmd = ["codex", "exec", "--json"]
+
+    cmd.extend(["-s", sandbox])
+
+    if model:
+        cmd.extend(["-m", model])
+
+    cmd.extend(["-c", f"model_reasoning_effort={reasoning_effort}"])
+
+    cmd.append("--")
+    cmd.append(prompt)
+    return cmd

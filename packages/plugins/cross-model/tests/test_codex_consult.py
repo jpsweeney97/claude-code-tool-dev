@@ -71,3 +71,82 @@ class TestParseInput:
         from scripts.codex_consult import _parse_input, ConsultationError
         with pytest.raises(ConsultationError, match="input read failed"):
             _parse_input(tmp_path / "missing.json")
+
+
+import subprocess
+
+
+class TestBuildCommand:
+    """Build codex exec command for new and resume conversations."""
+
+    def test_new_conversation(self) -> None:
+        from scripts.codex_consult import _build_command
+        cmd = _build_command(prompt="explain this", thread_id=None, sandbox="read-only", model=None, reasoning_effort="xhigh")
+        assert cmd[:3] == ["codex", "exec", "--json"]
+        assert "-s" in cmd
+        idx = cmd.index("-s")
+        assert cmd[idx + 1] == "read-only"
+        assert "--" in cmd
+        assert cmd[-1] == "explain this"
+
+    def test_resume_conversation(self) -> None:
+        from scripts.codex_consult import _build_command
+        cmd = _build_command(prompt="follow up", thread_id="thr_abc", sandbox="read-only", model=None, reasoning_effort="xhigh")
+        assert cmd[:4] == ["codex", "exec", "resume", "thr_abc"]
+        assert "--json" in cmd
+        assert cmd[-1] == "follow up"
+
+    def test_includes_model_when_set(self) -> None:
+        from scripts.codex_consult import _build_command
+        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model="o3", reasoning_effort="xhigh")
+        assert "-m" in cmd
+        idx = cmd.index("-m")
+        assert cmd[idx + 1] == "o3"
+
+    def test_omits_model_when_none(self) -> None:
+        from scripts.codex_consult import _build_command
+        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model=None, reasoning_effort="xhigh")
+        assert "-m" not in cmd
+
+    def test_includes_reasoning_effort(self) -> None:
+        from scripts.codex_consult import _build_command
+        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model=None, reasoning_effort="high")
+        assert "-c" in cmd
+        idx = cmd.index("-c")
+        assert cmd[idx + 1] == "model_reasoning_effort=high"
+
+    def test_dash_prompt_protected(self) -> None:
+        from scripts.codex_consult import _build_command
+        cmd = _build_command(prompt="--dangerous-looking", thread_id=None, sandbox="read-only", model=None, reasoning_effort="xhigh")
+        dd_idx = cmd.index("--")
+        assert cmd[dd_idx + 1] == "--dangerous-looking"
+
+
+class TestCheckCodexVersion:
+    """Version check requires >= 0.111.0."""
+
+    def test_valid_version_passes(self) -> None:
+        from scripts.codex_consult import _check_codex_version
+        from unittest.mock import patch, MagicMock
+        with patch("scripts.codex_consult.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(returncode=0, stdout="codex 0.116.0\n")
+            mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+            _check_codex_version()
+
+    def test_old_version_errors(self) -> None:
+        from scripts.codex_consult import _check_codex_version, ConsultationError
+        from unittest.mock import patch, MagicMock
+        with patch("scripts.codex_consult.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(returncode=0, stdout="codex 0.100.0\n")
+            mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+            with pytest.raises(ConsultationError, match="requires codex"):
+                _check_codex_version()
+
+    def test_missing_codex_errors(self) -> None:
+        from scripts.codex_consult import _check_codex_version, ConsultationError
+        from unittest.mock import patch
+        with patch("scripts.codex_consult.subprocess") as mock_sub:
+            mock_sub.run.side_effect = FileNotFoundError("codex not found")
+            mock_sub.TimeoutExpired = subprocess.TimeoutExpired
+            with pytest.raises(ConsultationError, match="codex not found"):
+                _check_codex_version()
