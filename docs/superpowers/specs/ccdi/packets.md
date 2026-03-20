@@ -1,0 +1,119 @@
+---
+module: packets
+status: active
+normative: true
+authority: packet-contract
+---
+
+# CCDI Fact Packet Builder
+
+Transforms docs search results into compact, citation-backed content for injection into Codex's context. Operates on results from `claude-code-docs` search and [registry](registry.md) coverage state.
+
+## Packet Structure
+
+```
+FactPacket
+├── packet_kind: "initial" | "mid_turn"
+├── topics: TopicKey[]
+├── facts: FactItem[]
+│   ├── mode: "paraphrase" | "snippet"
+│   ├── facet: Facet
+│   ├── text: string
+│   └── refs: DocRef[]
+└── token_estimate: number
+```
+
+## Verbatim vs Paraphrase
+
+| Content type | Mode | Rationale |
+|-------------|------|-----------|
+| Field names, enum values, flags | `snippet` | Easy to misstate; exact syntax matters |
+| JSON schema fragments | `snippet` | Structure is the information |
+| Conceptual behavior, sequencing | `paraphrase` | Meaning > wording |
+| Design implications, constraints | `paraphrase` | Needs contextualization |
+
+Default is paraphrase. At most one snippet per mid-turn packet unless explicitly about schema details.
+
+Both modes are deterministic operations in the CLI — no LLM involvement:
+
+- **`snippet`**: Extract verbatim text from the search result's `content` or `snippet` field, trim to budget.
+- **`paraphrase`**: Select the most relevant sentence(s) from the search result's `content` field based on facet keyword overlap, trim to budget. This is extractive selection, not generative rewriting. The CLI picks passages; it does not rephrase them.
+
+## Token Budgets
+
+All budget values are configurable via [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `packets`. Defaults shown:
+
+| Phase | Budget | Max topics | Max facts | Config keys |
+|-------|--------|------------|-----------|------------|
+| Initial | 600–1000 tokens | ≤ 3 topics | ≤ 8 facts | `initial_token_budget_*`, `initial_max_*` |
+| Mid-turn | 250–450 tokens | 1 topic | ≤ 3 facts | `mid_turn_token_budget_*`, `mid_turn_max_*` |
+
+**Quality threshold:** Skip injection when the best search result's relevance score is below `quality_min_result_score` (default: 0.3) OR when fewer than `quality_min_useful_facts` (default: 1) facts survive deduplication and budget constraints. A weak packet is worse than no packet.
+
+**Source hierarchy:** CCDI packets are premise enrichment — they provide background knowledge, not primary evidence. When both CCDI docs content and repo evidence (`@ path:line`) address the same concept, repo evidence takes precedence. The packet builder must not produce rhetorically dominant content that could override Codex's assessment of repo-specific code.
+
+## Citation Format
+
+```
+[ccdocs:<chunk_id>]
+```
+
+Examples: `[ccdocs:hooks#pretooluse]`, `[ccdocs:skills#frontmatter]`. Source-separated from repo evidence (`@ path:line`). `source_file` and `category` stay in the internal packet for traceability but are not rendered inline.
+
+## Rendered Output
+
+### Initial Injection
+
+Placed in briefing under `## Material`, source-separated from repo evidence:
+
+```markdown
+## Material
+### Claude Code Extension Reference
+Detected topics: `hooks.pre_tool_use`, `hooks.post_tool_use`
+
+- `PreToolUse` runs before a tool call and can allow, block, or modify it.
+  [ccdocs:hooks#pretooluse]
+- Output field `hookSpecificOutput.permissionDecision` controls
+  allow/block/ask. [ccdocs:hooks#pretooluse]
+- `updatedInput` can modify tool input before execution;
+  `additionalContext` injects text into the conversation.
+  [ccdocs:hooks#pretooluse-2]
+- `PostToolUse` runs after successful tool completion; can replace
+  output via `updatedMCPToolOutput`. [ccdocs:hooks#posttooluse]
+
+Exact fields:
+- `hookSpecificOutput.permissionDecision`
+- `hookSpecificOutput.updatedInput`
+- `hookSpecificOutput.additionalContext`
+```
+
+### Mid-Dialogue Injection
+
+Lighter format, prepended to follow-up prompt:
+
+```markdown
+Claude Code docs context:
+- `PostToolUse` runs after a tool completes successfully.
+  [ccdocs:hooks#posttooluse]
+- For MCP tools, it can replace tool output via
+  `updatedMCPToolOutput`. [ccdocs:hooks#posttooluse]
+```
+
+## Build Process
+
+1. Receive search results from `claude-code-docs` (chunks with `chunk_id`, `category`, `source_file`, `snippet`, `content`).
+2. Dedupe against `injected_chunk_ids` from the [topic registry](registry.md). When no registry is provided (CCDI-lite mode), skip deduplication.
+3. Rank by relevance to the resolved facet.
+4. For each top result: decide paraphrase vs snippet based on content type.
+5. Assemble into `FactPacket`, check against token budget.
+6. If under quality threshold or budget exceeded with nothing useful: return empty (skip injection).
+7. Render to markdown format appropriate to the phase.
+
+## Failure Modes
+
+| Failure | Detection | Behavior |
+|---------|-----------|----------|
+| `build-packet` produces empty output | Below quality threshold | Skip injection, mark topic `suppressed: weak_results` in [registry](registry.md) |
+| `search_docs` returns empty or errors | Empty results / MCP error | Skip injection for topic, mark `suppressed: weak_results` |
+
+Per the [resilience principle](foundations.md#resilience-principle), packet builder failure never blocks consultations.

@@ -1,0 +1,66 @@
+shared_contract_version: 1
+readme: README.md
+
+authorities:
+  foundation:
+    description: Cross-cutting architecture, design principles, resilience principle, scope boundary, topic hierarchy, and component inventory for CCDI.
+    default_claims: [architecture_rule]
+
+  data-model:
+    description: Topic inventory schema (CompiledInventory, TopicRecord, Alias, QueryPlan, DenyRule, DocRef), version axes, overlay merge semantics, configuration schema, and inventory lifecycle.
+    default_claims: [persistence_schema]
+
+  classifier-contract:
+    description: Two-stage classifier pipeline (candidate generation, ambiguity resolution), confidence levels, injection thresholds, and classifier output structure.
+    default_claims: [behavior_contract, interface_contract]
+
+  registry-contract:
+    description: Per-conversation topic registry state machine, state transitions, scheduling rules, semantic hints, and session-local caches.
+    default_claims: [behavior_contract, interface_contract]
+
+  packet-contract:
+    description: Fact packet structure, verbatim vs paraphrase rules, token budgets, citation format, and rendered output templates.
+    default_claims: [behavior_contract, interface_contract]
+
+  integration:
+    description: CLI tool interface (topic_inventory.py commands), cross-plugin dependency, data flows (CCDI-lite and full CCDI), registry seed handoff, prepare/commit protocol, inventory generation, and dump_index_metadata schema.
+    default_claims: [behavior_contract, interface_contract]
+
+  delivery:
+    description: Rollout strategy (Phase A/B, shadow mode, kill criteria), testing strategy (three-layer approach, ccdi_trace replay), test matrices, and per-dialogue diagnostics schema.
+    default_claims: [implementation_plan, verification_strategy]
+
+  decisions:
+    description: Locked design decisions from the 7-turn design dialogue and 6-turn review dialogue with Codex.
+    default_claims: [decision_record]
+
+  supporting:
+    description: README and reference material.
+    default_claims: []
+
+precedence:
+  normative_first: true
+  claim_precedence:
+    architecture_rule: [foundation, data-model, decisions]
+    behavior_contract: [classifier-contract, registry-contract, packet-contract, integration, decisions]
+    interface_contract: [integration, classifier-contract, registry-contract, packet-contract, decisions]
+    persistence_schema: [data-model, integration, decisions]
+    decision_record: [decisions, foundation, delivery]
+    implementation_plan: [delivery, integration, decisions]
+    verification_strategy: [delivery, integration, decisions]
+  fallback_authority_order: [foundation, data-model, classifier-contract, registry-contract, packet-contract, integration, delivery, decisions]
+  unresolved: ambiguity_finding
+
+boundary_rules:
+  - on_change_to: [data-model]
+    review_authorities: [classifier-contract, registry-contract, packet-contract]
+    reason: Schema changes to inventory, aliases, or config affect all downstream consumers.
+  - on_change_to: [classifier-contract]
+    review_authorities: [registry-contract, integration]
+    reason: Classifier output structure and confidence semantics drive registry scheduling and integration wiring.
+  - on_change_to: [registry-contract]
+    review_authorities: [integration, delivery]
+    reason: Registry state changes and semantic hints schema affect CLI command behavior, argument shapes, and test strategy.
+  - on_change_to: [integration]
+    review_authorities: [registry-contract, delivery]
+    reason: CLI interface changes (including semantic hint schema) affect registry scheduling logic and test strategy.
