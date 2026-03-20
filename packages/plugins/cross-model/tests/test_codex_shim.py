@@ -106,3 +106,121 @@ class TestBuildResponse:
             "response_text": "Some response",
         })
         assert result.structuredContent["threadId"] is None
+
+
+import asyncio
+from unittest.mock import patch, MagicMock
+
+
+class TestCreateServer:
+    """FastMCP server creation and tool registration."""
+
+    def test_server_has_codex_tool(self) -> None:
+        from scripts.codex_shim import create_server
+        server = create_server()
+        tools = server._tool_manager.list_tools()
+        tool_names = [t.name for t in tools]
+        assert "codex" in tool_names
+
+    def test_server_has_codex_reply_tool(self) -> None:
+        from scripts.codex_shim import create_server
+        server = create_server()
+        tools = server._tool_manager.list_tools()
+        tool_names = [t.name for t in tools]
+        assert "codex-reply" in tool_names
+
+    def test_server_name_is_codex(self) -> None:
+        from scripts.codex_shim import create_server
+        server = create_server()
+        assert server.name == "codex"
+
+    def test_codex_tool_schema_is_flat(self) -> None:
+        from scripts.codex_shim import create_server
+        server = create_server()
+        tool = server._tool_manager._tools["codex"]
+        props = tool.parameters["properties"]
+        assert "prompt" in props
+        assert "model" in props
+        assert "config" in props
+        # No nested "params" wrapper
+        assert "params" not in props
+
+
+class TestRoundTrip:
+    """Full round-trip: mock consult, dispatch through FastMCP tool, verify response."""
+
+    @patch("scripts.codex_shim.consult")
+    def test_codex_new_conversation(self, mock_consult: MagicMock) -> None:
+        from scripts.codex_shim import create_server
+        from mcp.types import CallToolResult
+        mock_consult.return_value = {
+            "status": "ok",
+            "dispatched": True,
+            "continuation_id": "thr_new",
+            "response_text": "Analysis complete.",
+            "token_usage": {"input_tokens": 100, "output_tokens": 50},
+            "runtime_failures": [],
+            "error": None,
+            "dispatch_state": "complete",
+        }
+        server = create_server()
+        tool = server._tool_manager._tools["codex"]
+        result = asyncio.run(tool.run({
+            "prompt": "review this code",
+            "config": {"model_reasoning_effort": "high"},
+            "model": "o3-pro",
+        }))
+        assert isinstance(result, CallToolResult)
+        assert result.structuredContent["threadId"] == "thr_new"
+        assert result.content[0].text == "Analysis complete."
+        mock_consult.assert_called_once_with(
+            prompt="review this code",
+            model="o3-pro",
+            reasoning_effort="high",
+        )
+
+    @patch("scripts.codex_shim.consult")
+    def test_codex_reply_passes_thread_id(self, mock_consult: MagicMock) -> None:
+        from scripts.codex_shim import create_server
+        from mcp.types import CallToolResult
+        mock_consult.return_value = {
+            "status": "ok",
+            "dispatched": True,
+            "continuation_id": "thr_continued",
+            "response_text": "Follow-up answer.",
+            "token_usage": None,
+            "runtime_failures": [],
+            "error": None,
+            "dispatch_state": "complete",
+        }
+        server = create_server()
+        tool = server._tool_manager._tools["codex-reply"]
+        result = asyncio.run(tool.run({
+            "prompt": "elaborate on point 2",
+            "threadId": "thr_original",
+        }))
+        assert isinstance(result, CallToolResult)
+        assert result.structuredContent["threadId"] == "thr_continued"
+        mock_consult.assert_called_once_with(
+            prompt="elaborate on point 2",
+            thread_id="thr_original",
+        )
+
+    @patch("scripts.codex_shim.consult")
+    def test_codex_blocked_returns_error(self, mock_consult: MagicMock) -> None:
+        from scripts.codex_shim import create_server
+        mock_consult.return_value = {
+            "status": "blocked",
+            "dispatched": False,
+            "error": "credential detected",
+            "continuation_id": None,
+            "response_text": None,
+            "token_usage": None,
+            "runtime_failures": [],
+            "dispatch_state": "no_dispatch",
+        }
+        server = create_server()
+        tool = server._tool_manager._tools["codex"]
+        result = asyncio.run(tool.run({"prompt": "AKIAIOSFODNN7EXAMPLE"}))
+        assert result.isError is True
+        assert "Blocked" in result.content[0].text

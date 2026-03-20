@@ -75,3 +75,48 @@ def _build_response(result: dict) -> CallToolResult:
             "content": response_text,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# FastMCP server
+# ---------------------------------------------------------------------------
+
+
+def create_server() -> FastMCP:
+    """Create the codex MCP shim server."""
+    mcp = FastMCP("codex")
+
+    @mcp.tool(name="codex")
+    def codex_tool(
+        prompt: str,
+        sandbox: str | None = None,
+        model: str | None = None,
+        approval_policy: str | None = None,
+        config: dict | None = None,
+        profile: str | None = None,
+    ) -> CallToolResult:
+        """Start a new Codex consultation."""
+        result = consult(
+            prompt=prompt,
+            model=model,
+            reasoning_effort=_extract_reasoning_effort(config),
+        )
+        return _build_response(result)
+
+    @mcp.tool(name="codex-reply")
+    def codex_reply_tool(prompt: str, threadId: str) -> CallToolResult:
+        """Continue an existing Codex conversation."""
+        result = consult(prompt=prompt, thread_id=threadId)
+        return _build_response(result)
+
+    return mcp
+
+
+def main() -> None:
+    """Entry point for the codex MCP shim server."""
+    server = create_server()
+    server.run()
+
+
+if __name__ == "__main__":
+    main()
