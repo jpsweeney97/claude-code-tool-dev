@@ -276,3 +276,107 @@ class TestRunSubprocess:
             with pytest.raises(SubprocessTimeout) as exc_info:
                 _run_subprocess(["codex", "exec", "--json", "--", "test"])
             assert "thr_partial" in exc_info.value.partial_stdout
+
+
+class TestRun:
+    """End-to-end pipeline: input → output."""
+
+    @patch("scripts.codex_consult._run_subprocess")
+    @patch("scripts.codex_consult._check_codex_version")
+    @patch("scripts.codex_consult.check_tool_input")
+    def test_successful_consultation(self, mock_safety: MagicMock, mock_version: MagicMock, mock_run: MagicMock, tmp_path: Path, capsys) -> None:
+        from scripts.codex_consult import run, SafetyVerdict
+        mock_safety.return_value = SafetyVerdict(action="allow")
+        mock_run.return_value = ('{"type":"thread.started","thread_id":"thr_test"}\n{"type":"item.completed","item":{"type":"agent_message","text":"Hello!"}}\n{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}\n', 0)
+        f = tmp_path / "input.json"
+        f.write_text(json.dumps({"prompt": "hi"}))
+        exit_code = run(f)
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == "ok"
+        assert output["continuation_id"] == "thr_test"
+        assert output["response_text"] == "Hello!"
+        assert output["dispatched"] is True
+
+    @patch("scripts.codex_consult.check_tool_input")
+    def test_credential_blocked(self, mock_safety: MagicMock, tmp_path: Path, capsys) -> None:
+        from scripts.codex_consult import run, SafetyVerdict
+        mock_safety.return_value = SafetyVerdict(action="block", reason="AWS key detected", tier="strict")
+        f = tmp_path / "input.json"
+        f.write_text(json.dumps({"prompt": "AKIAIOSFODNN7EXAMPLE"}))
+        exit_code = run(f)
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == "blocked"
+        assert output["dispatched"] is False
+        assert "AWS key" in output["error"]
+
+    @patch("scripts.codex_consult._run_subprocess")
+    @patch("scripts.codex_consult._check_codex_version")
+    @patch("scripts.codex_consult.check_tool_input")
+    def test_timeout_surfaces_partial_token(self, mock_safety: MagicMock, mock_version: MagicMock, mock_run: MagicMock, tmp_path: Path, capsys) -> None:
+        from scripts.codex_consult import run, SubprocessTimeout, SafetyVerdict
+        mock_safety.return_value = SafetyVerdict(action="allow")
+        partial = '{"type":"thread.started","thread_id":"thr_partial"}\n'
+        mock_run.side_effect = SubprocessTimeout(partial)
+        f = tmp_path / "input.json"
+        f.write_text(json.dumps({"prompt": "test"}))
+        exit_code = run(f)
+        assert exit_code == 1
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == "timeout_uncertain"
+        assert output["continuation_id"] == "thr_partial"
+        assert output["dispatch_state"] == "dispatched_with_token_uncertain"
+
+    @patch("scripts.codex_consult._run_subprocess")
+    @patch("scripts.codex_consult._check_codex_version")
+    @patch("scripts.codex_consult.check_tool_input")
+    def test_timeout_without_token(self, mock_safety: MagicMock, mock_version: MagicMock, mock_run: MagicMock, tmp_path: Path, capsys) -> None:
+        from scripts.codex_consult import run, SubprocessTimeout, SafetyVerdict
+        mock_safety.return_value = SafetyVerdict(action="allow")
+        mock_run.side_effect = SubprocessTimeout("")
+        f = tmp_path / "input.json"
+        f.write_text(json.dumps({"prompt": "test"}))
+        exit_code = run(f)
+        assert exit_code == 1
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == "timeout_uncertain"
+        assert output["continuation_id"] is None
+        assert output["dispatch_state"] == "dispatched_no_token"
+
+    def test_invalid_input_returns_error(self, tmp_path: Path, capsys) -> None:
+        from scripts.codex_consult import run
+        f = tmp_path / "input.json"
+        f.write_text("not json")
+        exit_code = run(f)
+        assert exit_code == 1
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == "error"
+        assert output["dispatched"] is False
+
+    @patch("scripts.codex_consult._run_subprocess")
+    @patch("scripts.codex_consult._check_codex_version")
+    @patch("scripts.codex_consult.check_tool_input")
+    def test_resume_uses_thread_id(self, mock_safety: MagicMock, mock_version: MagicMock, mock_run: MagicMock, tmp_path: Path, capsys) -> None:
+        from scripts.codex_consult import run, SafetyVerdict
+        mock_safety.return_value = SafetyVerdict(action="allow")
+        mock_run.return_value = ('{"type":"thread.started","thread_id":"thr_resumed"}\n{"type":"item.completed","item":{"type":"agent_message","text":"Continued."}}\n{"type":"turn.completed","usage":{}}\n', 0)
+        f = tmp_path / "input.json"
+        f.write_text(json.dumps({"prompt": "continue", "thread_id": "thr_original"}))
+        exit_code = run(f)
+        assert exit_code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["continuation_id"] == "thr_resumed"
+
+
+class TestOutput:
+    """Output format validation."""
+
+    def test_all_required_fields_present(self, tmp_path: Path, capsys) -> None:
+        from scripts.codex_consult import run
+        f = tmp_path / "input.json"
+        f.write_text("not json")
+        run(f)
+        output = json.loads(capsys.readouterr().out)
+        required = {"status", "dispatched", "continuation_id", "response_text", "token_usage", "runtime_failures", "error", "dispatch_state"}
+        assert required.issubset(set(output.keys()))

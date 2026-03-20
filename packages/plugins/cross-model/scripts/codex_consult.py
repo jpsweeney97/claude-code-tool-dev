@@ -308,3 +308,129 @@ def _run_subprocess(cmd: list[str]) -> tuple[str, int]:
             return _read_stdout(stdout_sink), proc.returncode
     except FileNotFoundError:
         raise ConsultationError("exec failed: codex not found")
+
+
+# ---------------------------------------------------------------------------
+# Output formatting
+# ---------------------------------------------------------------------------
+
+_OUTPUT_REQUIRED = {
+    "status", "dispatched", "continuation_id", "response_text",
+    "token_usage", "runtime_failures", "error", "dispatch_state",
+}
+
+
+def _output(status: str, **kwargs: object) -> str:
+    """Format adapter output as JSON. Validates all required fields present."""
+    result: dict = {"status": status}
+    result.update(kwargs)
+    missing = _OUTPUT_REQUIRED - set(result.keys())
+    assert not missing, f"_output missing fields: {missing}"
+    return json.dumps(result)
+
+
+# ---------------------------------------------------------------------------
+# Main pipeline
+# ---------------------------------------------------------------------------
+
+
+def run(input_path: Path) -> int:
+    """Execute the consultation pipeline. Returns exit code."""
+    dispatch = DispatchState.NO_DISPATCH
+    parsed: dict | None = None
+
+    try:
+        phase_a = _parse_input(input_path)
+
+        verdict = check_tool_input({"prompt": phase_a["prompt"]}, START_POLICY)
+        if verdict.action == "block":
+            raise CredentialBlockError(verdict.reason or "credential detected")
+
+        _check_codex_version()
+
+        cmd = _build_command(
+            prompt=phase_a["prompt"],
+            thread_id=phase_a["thread_id"],
+            sandbox=phase_a["sandbox"],
+            model=phase_a["model"],
+            reasoning_effort=phase_a["reasoning_effort"],
+        )
+
+        dispatch = DispatchState.DISPATCHED_NO_TOKEN
+        stdout_text, returncode = _run_subprocess(cmd)
+
+        parsed = _parse_jsonl(stdout_text)
+
+        if parsed["continuation_id"]:
+            dispatch = DispatchState.COMPLETE
+
+        print(_output(
+            "ok", dispatched=True,
+            continuation_id=parsed["continuation_id"],
+            response_text=parsed["response_text"],
+            token_usage=parsed["token_usage"],
+            runtime_failures=parsed["runtime_failures"],
+            error=None, dispatch_state=dispatch.value,
+        ))
+        return 0
+
+    except CredentialBlockError as exc:
+        print(_output(
+            "blocked", dispatched=False, error=str(exc),
+            continuation_id=None, response_text=None,
+            token_usage=None, runtime_failures=[],
+            dispatch_state=DispatchState.NO_DISPATCH.value,
+        ))
+        return 0
+
+    except SubprocessTimeout as exc:
+        partial_token = None
+        try:
+            partial = _parse_jsonl(exc.partial_stdout)
+            partial_token = partial.get("continuation_id")
+        except ConsultationError:
+            pass
+
+        if partial_token:
+            dispatch = DispatchState.DISPATCHED_WITH_TOKEN_UNCERTAIN
+
+        print(_output(
+            "timeout_uncertain", dispatched=True, error=str(exc),
+            continuation_id=partial_token, response_text=None,
+            token_usage=None, runtime_failures=[],
+            dispatch_state=dispatch.value,
+        ))
+        return 1
+
+    except ConsultationError as exc:
+        print(_output(
+            "error", dispatched=(dispatch != DispatchState.NO_DISPATCH),
+            error=str(exc), continuation_id=parsed["continuation_id"] if parsed else None,
+            response_text=None, token_usage=None, runtime_failures=[],
+            dispatch_state=dispatch.value,
+        ))
+        return 1
+
+    except Exception as exc:
+        print(_output(
+            "error", dispatched=(dispatch != DispatchState.NO_DISPATCH),
+            error=f"internal error: {exc}", continuation_id=None,
+            response_text=None, token_usage=None, runtime_failures=[],
+            dispatch_state=dispatch.value,
+        ))
+        return 1
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print(_output(
+            "error", error="usage: codex_consult.py <input_file.json>",
+            dispatched=False, continuation_id=None, response_text=None,
+            token_usage=None, runtime_failures=[], dispatch_state="no_dispatch",
+        ))
+        return 1
+    return run(Path(sys.argv[1]))
+
+
+if __name__ == "__main__":
+    sys.exit(main())
