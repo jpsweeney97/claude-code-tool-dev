@@ -43,7 +43,7 @@ class ToolInputLimitExceeded(RuntimeError):
 
 
 START_POLICY = ToolScanPolicy(
-    expected_fields={"sandbox", "approval-policy", "model", "profile"},
+    expected_fields={"sandbox", "approval-policy", "approval_policy", "model", "profile"},
     content_fields={"prompt", "base-instructions", "developer-instructions", "config"},
 )
 
