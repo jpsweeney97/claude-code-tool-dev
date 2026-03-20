@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [3.1.2] — 2026-03-20
+
+### Fixed
+
+- Remove `-s` (sandbox) flag from `codex exec resume` command — `resume` subcommand does not accept this flag; sandbox is inherited from the original session. Fixes reply path failing with "unexpected argument '-s'" when called through MCP shim
+
+### Changed
+
+- `_build_command()` now applies `-s <sandbox>` only to new conversations, not resume conversations
+
 ## [3.1.0] — 2026-03-20
 
 ### Added

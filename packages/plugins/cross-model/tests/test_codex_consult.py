@@ -133,6 +133,20 @@ class TestBuildCommand:
         cmd = _build_command(prompt="test", thread_id="thr_abc", sandbox="read-only", model=None, reasoning_effort="xhigh")
         assert "--skip-git-repo-check" in cmd
 
+    def test_resume_omits_sandbox_flag(self) -> None:
+        """codex exec resume does not accept -s/--sandbox; sandbox is inherited from original session."""
+        from scripts.codex_consult import _build_command
+        cmd = _build_command(prompt="test", thread_id="thr_abc", sandbox="read-only", model=None, reasoning_effort="xhigh")
+        assert "-s" not in cmd, f"resume command should not contain -s flag, got: {cmd}"
+
+    def test_new_conversation_includes_sandbox_flag(self) -> None:
+        """New conversations must specify sandbox via -s flag."""
+        from scripts.codex_consult import _build_command
+        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model=None, reasoning_effort="xhigh")
+        assert "-s" in cmd
+        idx = cmd.index("-s")
+        assert cmd[idx + 1] == "read-only"
+
 
 class TestCheckCodexVersion:
     """Version check requires >= 0.111.0."""

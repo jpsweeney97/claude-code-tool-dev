@@ -174,9 +174,9 @@ def _build_command(
         cmd = ["codex", "exec", "resume", thread_id, "--json"]
     else:
         cmd = ["codex", "exec", "--json"]
+        cmd.extend(["-s", sandbox])
 
     cmd.append("--skip-git-repo-check")
-    cmd.extend(["-s", sandbox])
 
     if model:
         cmd.extend(["-m", model])
