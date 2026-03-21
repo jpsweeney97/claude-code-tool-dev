@@ -1,0 +1,57 @@
+shared_contract_version: 1
+readme: README.md
+
+authorities:
+  foundation:
+    description: Composability model, scope boundaries, consumer class definitions, cross-cutting architectural invariants.
+    default_claims: [architecture_rule]
+
+  decisions:
+    description: Locked design decisions (D1-D5) with alternatives considered and tradeoffs accepted.
+    default_claims: [decision_record]
+
+  capsule-contract:
+    description: Capsule schemas, sentinels, consumer class assignments, and wire format for inter-skill data exchange.
+    default_claims: [interface_contract]
+
+  pipeline:
+    description: Adaptive --plan behavior, two-stage admission with adapter pattern, decomposition modes, tautology filter, pipeline threading.
+    default_claims: [behavior_contract]
+
+  routing:
+    description: Routing classification, material-delta gating tiers, affected-surface validity matrix, guardrails, thread freshness, feedback persistence.
+    default_claims: [behavior_contract, enforcement_mechanism]
+
+  lineage:
+    description: Artifact identity system — three identity keys, ID format, DAG structure, discovery algorithms, staleness detection.
+    default_claims: [interface_contract, behavior_contract]
+
+  delivery:
+    description: Implementation plan per skill, open items, deferred work.
+    default_claims: [implementation_plan]
+
+  supporting:
+    description: Navigation, reading order, and reference material.
+    default_claims: []
+
+precedence:
+  normative_first: true
+  claim_precedence:
+    behavior_contract: [routing, pipeline, lineage]
+    interface_contract: [capsule-contract, lineage]
+  fallback_authority_order: [foundation, capsule-contract, routing, pipeline, lineage, decisions, delivery, supporting]
+  unresolved: ambiguity_finding
+
+boundary_rules:
+  - on_change_to: [capsule-contract]
+    review_authorities: [pipeline, routing, lineage]
+    reason: Capsule schemas are consumed by pipeline adapters, referenced by routing classification, and carry lineage identity fields.
+  - on_change_to: [routing]
+    review_authorities: [pipeline, lineage, delivery]
+    reason: Routing rules affect pipeline tautology filter design, budget enforcement depends on lineage_root_id, implementation sequence may change.
+  - on_change_to: [lineage]
+    review_authorities: [capsule-contract, routing, delivery]
+    reason: Identity keys are capsule schema fields, budget tracks by lineage_root_id, implementation depends on identity system.
+  - on_change_to: [pipeline]
+    review_authorities: [capsule-contract, routing, delivery]
+    reason: Pipeline adapters consume capsule schemas, tautology filter relates to materiality classification, skill text changes need updating.
