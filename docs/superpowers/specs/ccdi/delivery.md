@@ -208,7 +208,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Boundary | Contract verified |
 |----------|-------------------|
 | Inventory → classifier | `topic_key`, `family_key`, alias normalization, denylist shapes |
-| Classifier → registry | `confidence`, `facet`, `coverage_target`, `topic_key` enums |
+| Classifier → registry | `confidence`, `facet`, `coverage_target` (flows through candidates JSON), `topic_key` enums |
 | Registry → search orchestration | Candidates produce valid query specs and category hints |
 | Search results → packet builder | Required fields present (`chunk_id`, `category`, `content`), deduplication, ranking stability |
 | Packet builder → prompt assembler | Citation format, valid markdown, token budget enforced |
