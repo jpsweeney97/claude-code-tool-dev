@@ -50,14 +50,17 @@ Per-dialogue summary, accumulated across turns and emitted once at dialogue end 
     "semantic_hints_received": 1,
     "search_failures": 0,
     "inventory_epoch": "2026-03-20T...",
-    "config_source": "data/ccdi_config.json | defaults"
+    "config_source": "data/ccdi_config.json | defaults",
+    "packets_target_relevant": 2,
+    "packets_surviving_precedence": 1,
+    "false_positive_topic_detections": 0
   }
 }
 ```
 
 In shadow mode (Phase B rollout), `packets_prepared` accumulates but `packets_injected` stays 0. The shadow diagnostics reveal what CCDI *would have* injected for kill-criteria evaluation.
 
-Additional fields for shadow mode kill criteria computation:
+Fields `packets_target_relevant`, `packets_surviving_precedence`, and `false_positive_topic_detections` are present only when `status: "shadow"`. In active mode, they are omitted. Their definitions:
 
 - `packets_target_relevant`: count of prepared packets that passed the target-match check
 - `packets_surviving_precedence`: count of target-relevant packets not deferred by scout priority
