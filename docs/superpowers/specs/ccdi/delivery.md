@@ -89,7 +89,7 @@ Fields `packets_target_relevant`, `packets_surviving_precedence`, and `false_pos
 {"status": "approved" | "rejected", "evaluated_dialogues": 12, "labeled_topics": 150, "effective_prepare_yield": 0.65, "avg_latency_ms": 320, "false_positive_rate": 0.04, "approver": "<name>", "timestamp": "<ISO>", "notes": "..."}
 ```
 
-3. **Gate:** The `codex-dialogue` agent reads `graduation.json` at dialogue start. If `status` is not `"approved"`, CCDI runs in shadow mode (diagnostics only, no injection). If the file is absent, shadow mode is the default.
+3. **Gate:** The `codex-dialogue` agent reads `graduation.json` at dialogue start per the [shadow mode gate](integration.md#shadow-mode-gate). The graduation protocol (this section) governs how the file is produced and approved; the agent's startup behavior rule is specified in integration.md.
 4. **Rejection:** If any kill criterion exceeds its threshold, set `status: "rejected"` with the failing criterion in `notes`. Re-evaluate after tuning.
 
 ## Testing Strategy
@@ -177,7 +177,8 @@ The replay harness collects these traces and asserts on:
 | Suppressed re-entry: weak_results | `docs_epoch` change → suppressed topic re-enters as `detected` |
 | Suppressed re-entry: redundant | Coverage state change → suppressed topic re-enters as `detected` |
 | Cooldown configurable | Reads from ccdi_config.json |
-| Consecutive-turn medium threshold | Medium topic on turn 1 → no injection; same topic on turn 2 → injection fires; counter resets if topic changes |
+| Consecutive-turn medium threshold (leaf) | Medium **leaf** topic on turn 1 → no injection; same leaf topic on turn 2 → injection fires; counter resets if topic changes |
+| Consecutive-turn medium threshold (family excluded) | Medium **family** topic on turns 1, 2, 3 → `consecutive_medium_count` stays 0 on each turn; injection does NOT fire. Family-kind topics do not participate in consecutive-medium tracking (per [registry.md#scheduling-rules](registry.md#scheduling-rules) rule 4). |
 | Consecutive-medium reset on topic absence | Medium topic turn 1 (count=1), topic absent from classifier output turn 2 (count reset to 0), medium topic turn 3 (count=1) → injection does NOT fire on turn 3 (threshold requires 2 consecutive turns, absence breaks the streak) |
 | Family injection doesn't cover leaves | Inject hooks → hooks.post_tool_use still detected |
 | Leaf inherits family_context_available | Flag set after family injected |
@@ -186,6 +187,7 @@ The replay harness collects these traces and asserts on:
 | Idempotent mark-injected | Same packet twice doesn't corrupt |
 | No commit without send | build-packet without --mark-injected leaves topic in detected |
 | Send failure reverts to detected | When send fails and --mark-injected is skipped, topic remains `detected` (agent-level flow) |
+| Send failure preserves consecutive_medium_count | Medium topic turn 1 (count=1), send fails at turn 2 (count still 1, not reset) → turn 3 same medium topic (count=2) → injection fires. Verifies counter is NOT reset when `[built] → injected` transition does not fire. |
 | Registry corruption recovery | Malformed JSON → reinitialize empty |
 | Semantic hint elevates candidate | Prescriptive hint on detected topic → materially new |
 | Semantic hint with unknown topic | Hint doesn't match any topic → ignored |
@@ -230,6 +232,7 @@ The replay harness collects these traces and asserts on:
 | Budget boundary: N+1 facts where N fit | Mid-turn with 4 facts where 3 fit budget (max_facts=3) → output contains ≤ 3 facts, `token_estimate` ≤ 450 |
 | Quality threshold boundary: score at 0.3 | Best result score exactly 0.3 → packet IS built (threshold is "below 0.3", so 0.3 passes); score 0.29 → no packet |
 | Mid-turn topics cardinality enforced | Mid-turn with 2 topics in result set → output contains only 1 topic per `mid_turn_max_topics` config |
+| Mid-turn snippet cardinality enforced | Build mid-turn packet from result set where 3 results each warrant `snippet` mode → output contains at most 1 `snippet`-mode fact and ≥ 1 `paraphrase`-mode facts; `mode: "snippet"` count in `facts[]` is ≤ 1 (per [packets.md#verbatim-vs-paraphrase](packets.md#verbatim-vs-paraphrase) "at most one snippet per mid-turn packet") |
 
 ### CLI Integration Tests
 
@@ -275,6 +278,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Inventory → classifier: schema evolution | Unknown TopicRecord field present → ignored (not crash); required Alias field missing → non-zero exit; `schema_version` mismatch at classifier load → warning |
 | Inventory → registry: schema evolution | Unknown TopicRegistryEntry field in seed → ignored; required field missing → reinitialize empty (resilience principle) |
 | Inventory → packet builder: schema evolution | Unknown QueryPlan facet → skipped; missing `default_facet` → fallback to `overview` |
+| Registry null-field serialization | Write a TopicRegistryEntry in `detected` state (where `last_injected_turn`, `last_query_fingerprint`, `deferred_reason`, `deferred_ttl`, `suppression_reason`, `suppressed_docs_epoch` are all null) to the registry file, read back as raw JSON, and assert each nullable field key is present with a `null` value (not absent). Guards against Python serializers that omit null fields by default (e.g., `exclude_none=True`). Per [data-model.md#registryseed](data-model.md#registryseed) null-field serialization invariant. |
 | RegistrySeed ↔ TopicRegistryEntry durable fields | Every durable field in TopicRegistryEntry (all except attempt-local states `looked_up`, `built`) is present in RegistrySeed.entries field enumeration — schema-comparison test |
 | RegistrySeed ↔ ClassifierResult coverage_target | `RegistrySeed.entries[].coverage_target` matches `ClassifierResult.resolved_topics[].coverage_target` enum (`"family" \| "leaf"`) — cross-schema consistency test |
 | RegistrySeed ↔ ClassifierResult facet | `RegistrySeed.entries[].facet` matches `ClassifierResult.resolved_topics[].facet` enum (valid `Facet` values) — cross-schema consistency test |
@@ -317,7 +321,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Overlay rule unknown operation | Rule with unrecognized `operation` → warning, rule skipped |
 | DenyRule drop + non-null penalty → error | `action: "drop"`, `penalty: 0.35` → non-zero exit (discriminated union violation: drop requires null penalty) |
 | DenyRule downrank + null penalty → error | `action: "downrank"`, `penalty: null` → non-zero exit with "downrank requires non-null penalty" |
-| DenyRule downrank + zero penalty → warning | `action: "downrank"`, `penalty: 0` → warning "zero penalty is a no-op" |
+| DenyRule downrank + zero penalty → error | `action: "downrank"`, `penalty: 0` → non-zero exit with "downrank requires non-zero penalty" (penalty MUST be in (0.0, 1.0] per [data-model.md#denyrule](data-model.md#denyrule); zero is out of bounds) |
 | `override_weight` out-of-bounds clamped | `override_weight` with `weight: 1.5` → warning, clamped to 1.0; `weight: -0.2` → warning, clamped to 0.0; compiled inventory alias has clamped value |
 | `config_version` mismatch → defaults | `ccdi_config.json` with `config_version: "99"` → warning, all values use built-in defaults (same as corrupt/invalid) |
 | `remove_alias` on known topic with unknown alias_text | `remove_alias` targets existing topic but non-existent alias → warning, rule skipped (no-op), topic unchanged |
@@ -415,6 +419,8 @@ After all turns, verify the `assertions` object against the final registry state
 | Agent invokes classify before dialogue-turn | Tool-call ordering in codex-dialogue |
 | Agent skips build-packet when no candidates | Conditional tool invocation |
 | Agent calls --mark-injected only after successful codex-reply | Prepare/commit ordering |
+| Graduation gate: file absent → shadow mode | Delegation envelope with `ccdi_seed` but no `graduation.json` → agent tool-call log contains zero `build-packet --mark-injected` invocations; diagnostics show `status: "shadow"`. Per [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate). |
+| Graduation gate: status rejected → shadow mode | `graduation.json` with `status: "rejected"` → same assertions as above: zero commits, `status: "shadow"` in diagnostics. |
 
 **Required fixture scenarios:**
 
@@ -422,7 +428,7 @@ After all turns, verify the `assertions` object against the final registry state
 |---------|----------|
 | `happy_path.replay.json` | Single topic detected → searched → injected → committed |
 | `scout_defers_ccdi.replay.json` | Scout target exists → CCDI candidate deferred with `scout_priority` |
-| `send_failure_no_commit.replay.json` | Packet staged but codex-reply fails → commit skipped → topic stays `detected` |
+| `send_failure_no_commit.replay.json` | Packet staged but codex-reply fails → commit skipped → topic stays `detected`. `final_registry_file_assertions` MUST include: `{"path": "<topic>.consecutive_medium_count", "equals": 1}` (counter retained, not reset) and `{"path": "<topic>.state", "equals": "detected"}`. |
 | `target_mismatch_deferred.replay.json` | Fixture includes `composed_target` field; packet topics absent from target → `deferred: target_mismatch` |
 | `semantic_hint_elevation.replay.json` | Prescriptive hint on detected topic → elevated to materially new → injected |
 | `hint_no_effect_already_injected.replay.json` | Prescriptive hint on already-injected topic → no additional injection, no state change |
@@ -442,7 +448,7 @@ After all turns, verify the `assertions` object against the final registry state
 | `target_match_substring_only.replay.json` | Packet topic present as substring in `composed_target` → packet IS target-relevant via condition (a) alone. Classifier branch (b) is not needed. Isolates condition (a) as a standalone success path. |
 | `target_match_both_fail.replay.json` | Packet topic absent as substring from `composed_target` AND `classify` on composed target resolves no overlapping topic → both conditions fail → `deferred: target_mismatch`. Assert: (1) `classify` was called on `composed_target` (condition (b) was reached), (2) classifier returned no overlapping topic, (3) registry shows `deferred: target_mismatch`. This fixture prevents a short-circuit implementation that skips condition (b) entirely. |
 | `cache_hit_same_query.replay.json` | Turn 1 → topic A detected and injected with query Q. Turn 2 → same topic A reappears (e.g., via `extends_topic` hint at a new facet that resolves to the same query fingerprint) → assert `search_docs` invoked only once across both turns (cache hit on second). `final_registry_file_assertions` verifies `injected_chunk_ids` unchanged after cache-served build. |
-| `negative_cache_prevents_retry.replay.json` | Turn 1 → topic A detected, search returns weak results (below `quality_min_result_score`) → `suppressed: weak_results`. Turn 2 → topic A re-enters as `detected` (docs_epoch change), same query fingerprint → assert `search_docs` NOT re-invoked (negative cache hit); topic re-suppressed via cached weak flag. |
+| `negative_cache_prevents_retry.replay.json` | Turn 1 → topic A detected, search returns weak results (below `quality_min_result_score`) → `suppressed: weak_results`. Turn 2 → topic A re-enters as `detected` via `extends_topic` hint (NOT via docs_epoch change — a docs_epoch change would alter the cache key and guarantee a miss per [registry.md#session-local-cache](registry.md#session-local-cache)). Same query fingerprint and same `docs_epoch` → assert `search_docs` NOT re-invoked (negative cache hit); topic re-suppressed via cached weak flag. |
 
 ### Layer 2b: Agent Sequence Tests
 
