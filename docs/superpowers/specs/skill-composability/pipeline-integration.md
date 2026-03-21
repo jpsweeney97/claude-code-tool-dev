@@ -36,6 +36,7 @@ The adapter normalizes the validated capsule into a generic `upstream_handoff` p
 | `decomposition_seed` | Can seed decomposition fields (planning_question, assumptions, key_terms, ambiguities) | `true` |
 | `gatherer_seed` | Can seed gatherer search terms with task/finding entities | `true` |
 | `briefing_context` | Can inject source_findings and decision_gates into briefing assembly | `true` |
+| `tautology_filter_applied` | Confirms items passed through the [tautology filter](#three-tier-tautology-filter) during decomposition seeding — required precondition for [materiality evaluation](routing-and-materiality.md#material-delta-gating) | Set to `true` after tautology filter runs successfully during `handoff_enriched` decomposition; `false` otherwise |
 
 The pipeline gates enrichment on what the adapter provides, not what type produced it. A future adapter that provides `gatherer_seed` but not `decomposition_seed` would enrich gatherer prompts without affecting decomposition.
 
@@ -77,8 +78,10 @@ The NS handoff threads through the full `/dialogue` pipeline via the generic `up
 ## Posture Precedence
 
 ```
-explicit --posture > --profile > upstream_handoff recommended_posture > default collaborative
+explicit --posture > upstream_handoff recommended_posture > default collaborative
 ```
+
+**Deferred:** `--profile` (multi-phase posture profiles) is deferred from v1. When implemented, it would sit between `--posture` and `upstream_handoff` in the precedence chain. See [delivery.md](delivery.md#open-items).
 
 Upstream handoffs do not derive multi-phase profiles from a single posture hint. If future handoff-driven phases are needed, upstream skills would emit `recommended_phases[]`.
 

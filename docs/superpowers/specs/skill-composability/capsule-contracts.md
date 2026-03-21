@@ -146,11 +146,11 @@ out_of_scope:
 
 Enable iterative refinement by giving AR and NS structured access to dialogue outcomes — what was resolved, what emerged, and what needs re-review or replanning.
 
-### Consumer Class
+### Consumer Class (Contract 3)
 
 Advisory/tolerant. AR and NS validate the feedback capsule if present; fall back to conversation context if absent or invalid.
 
-### Emission
+### Emission (Contract 3)
 
 The `/dialogue` skill (not the codex-dialogue agent) appends the feedback capsule after presenting the synthesis to the user. Derived from the existing Synthesis Checkpoint output — not a new parallel format.
 
@@ -164,14 +164,15 @@ topic_key: <optional — non-authoritative descriptive metadata; inherited from 
 lineage_root_id: <inherited from NS handoff if consumed; otherwise this artifact's artifact_id>
 created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior dialogue artifact_id for this subject_key, or null>
-source_artifacts:
+source_artifacts:  # Direct edges only — AR artifact excluded per provenance rule ([lineage.md](lineage.md#dag-structure))
   - artifact_id: <NS artifact_id if handoff was consumed>
     artifact_kind: next_steps_plan
     role: plan
 record_path: <path to .claude/composition/feedback/ file — MUST be non-null>
-record_status: <ok | write_failed — optional, omit when ok; MUST be set to write_failed when durable file write fails>
+record_status: <ok | write_failed — MUST always be present; set to ok on successful write, write_failed when durable file write fails>
 
 thread_id: <Codex thread ID>
+thread_created_at: <ISO 8601, UTC, millisecond precision — when the Codex thread was established; used as the comparison baseline for thread continuation checks (see [routing-and-materiality.md](routing-and-materiality.md#thread-continuation-vs-fresh-start))>
 converged: <true | false>
 turn_count: <int>
 
@@ -182,7 +183,7 @@ resolved:
 unresolved:
   - item_id: U1
     text: <what remains open>
-    hold_reason: <routing_pending | evidence_incomplete | null — set when item was held from ambiguous routing prompt; null or omitted for items unresolved for other reasons>
+    hold_reason: <routing_pending | null — set to routing_pending when item was held from ambiguous routing prompt (see [routing-and-materiality.md](routing-and-materiality.md#ambiguous-item-behavior)); null or omitted for items unresolved for other reasons>
 emerged:
   - item_id: E1
     text: <new concept or risk that emerged>
@@ -203,8 +204,8 @@ feedback_candidates:
 
 ### Schema Constraints
 
-- **`material`/`suggested_arc` coherence:** Capsules MUST be emitted in their post-correction state. The [correction rules](routing-and-materiality.md#affected-surface-validity) (normative authority: routing) govern which `(affected_surface, material, suggested_arc)` tuples are valid in the emitted wire format. After correction, the only valid `suggested_arc` when `material: false` is `dialogue_continue`. See the [affected-surface validity matrix](routing-and-materiality.md#affected-surface-validity) for the complete rule set.
-- **`record_status` semantics:** When present with value `write_failed`, indicates the durable file write failed. `record_path` remains non-null (set to the intended path). The capsule is consumable via conversation-local sentinel scan, but cross-session resolution via durable store will fail. See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the full write failure recovery procedure.
+- **`material`/`suggested_arc` coherence:** The [affected-surface validity matrix and correction rules](routing-and-materiality.md#affected-surface-validity) (normative authority: routing-and-materiality) are the single source of truth for valid tuples in the emitted wire format. Capsules MUST be emitted in their post-correction state.
+- **`record_status` semantics:** See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the normative write-failure recovery procedure, consumer-side contract, and enforcement rules. `record_status` MUST always be present (`ok` or `write_failed`).
 
 ### Design Notes
 
