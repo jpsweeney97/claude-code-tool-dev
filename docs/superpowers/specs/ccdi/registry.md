@@ -91,7 +91,7 @@ Re-entry conditions are aligned with the `suppression_reason`, not with classifi
 
 | `suppression_reason` | Re-entry trigger |
 |---------------------|-----------------|
-| `weak_results` | `docs_epoch` changes (index updated) OR a new query facet is requested for the topic |
+| `weak_results` | `docs_epoch` changes (index updated) OR a new query facet is requested for the topic OR an `extends_topic` semantic hint resolves to the suppressed topic (see [Semantic Hints](#semantic-hints)) |
 | `redundant` | Coverage state changes — e.g., an injected facet is later identified as insufficient, or a new leaf variant appears under the same family |
 
 ## Family vs Leaf Coverage
