@@ -8,7 +8,7 @@ authorities:
 
   data-model:
     description: Topic inventory schema (CompiledInventory, TopicRecord, Alias, QueryPlan, DenyRule, DocRef), version axes, overlay merge semantics, configuration schema, and inventory lifecycle.
-    default_claims: [persistence_schema]
+    default_claims: [persistence_schema, architecture_rule]
 
   classifier-contract:
     description: Two-stage classifier pipeline (candidate generation, ambiguity resolution), confidence levels, injection thresholds, and classifier output structure.
@@ -54,7 +54,7 @@ precedence:
 boundary_rules:
   - on_change_to: [data-model]
     review_authorities: [classifier-contract, registry-contract, packet-contract]
-    reason: Schema changes to inventory, aliases, or config affect all downstream consumers.
+    reason: Schema changes to inventory, aliases, config, or RegistrySeed durable-field subset affect all downstream consumers.
   - on_change_to: [classifier-contract]
     review_authorities: [registry-contract, integration]
     reason: Classifier output structure and confidence semantics drive registry scheduling and integration wiring.
