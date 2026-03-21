@@ -47,9 +47,8 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 - Resets `consecutive_medium_count` to 0 for entries absent from classifier output.
 - Decrements `deferred_ttl` by 1 for all entries in `deferred` state.
 - Transitions `deferred → detected` when `deferred_ttl` reaches 0 and topic reappears in classifier output; resets `deferred_ttl` to config value when topic is absent at TTL=0.
-- Re-enters `suppressed → detected` when re-entry conditions are met: `docs_epoch` change for `weak_results`, coverage state change for `redundant`.
-- Re-enters `suppressed → detected` when `--semantic-hints-file` contains an `extends_topic` hint that resolves to a suppressed topic (applying the field updates from the `suppressed → detected` re-entry row).
-- Emits `facet_expansion` candidates when `extends_topic` hints resolve to `injected` topics with a facet not yet in `facets_injected` (cascade-resolved facet: hint-resolved → `pending_facets[0]` → `default_facet`; see [registry.md#semantic-hints](registry.md#semantic-hints)). Updates `coverage.pending_facets` per the field update rules.
+- Re-enters `suppressed → detected` per [registry.md#suppression-re-entry](registry.md#suppression-re-entry) conditions: (`weak_results`) `docs_epoch` change, new query facet requested, or any semantic hint resolving to the suppressed topic; (`redundant`) new leaf in same family, or any semantic hint resolving to the suppressed topic.
+- Emits `facet_expansion` candidates when `extends_topic` hints resolve to `injected` topics with a facet not yet in `facets_injected` (cascade-resolved facet: hint-resolved → `pending_facets[0]` → `default_facet`; see [registry.md#semantic-hints](registry.md#semantic-hints)). Does NOT mutate `coverage.pending_facets` — emits an immediate `facet_expansion` candidate via [registry.md#scheduling-rules](registry.md#scheduling-rules) step 10. (`pending_facets` is only mutated by `contradicts_prior` hints.)
 - Emits `pending_facet` candidates when an `injected` topic has non-empty `pending_facets` (from prior `contradicts_prior` hints) and the first pending facet is not yet in `facets_injected`.
 
 **`build-packet` automatic suppression:** When `--registry-file` is provided and `build-packet` returns empty output, it automatically writes a suppression state to the registry for the candidate topic. The suppression reason depends on *why* the output is empty:
@@ -61,7 +60,9 @@ No flag is needed — empty output triggers suppression unconditionally when a r
 
 **Suppression and deferral precedence:** If `build-packet` returns empty output, automatic suppression (either `weak_results` or `redundant`) writes to the registry. In this case, the target-match check has no packet to evaluate — skip the `--mark-deferred` path entirely. The topic is already handled by suppression. The mid-dialogue flow should check for empty output before proceeding to target-match.
 
-**`dialogue-turn` candidates JSON schema:** The `dialogue-turn` command writes injection candidates to stdout as a JSON array:
+#### `dialogue-turn` Candidates JSON Schema
+
+The `dialogue-turn` command writes injection candidates to stdout as a JSON array:
 
 ```json
 [
@@ -149,13 +150,9 @@ User prompt
 
 ### Shadow Mode Gate
 
-At dialogue start, `codex-dialogue` determines whether CCDI runs in active or shadow mode:
+Shadow mode active/inactive is controlled by [delivery.md#shadow-mode-gate](delivery.md#shadow-mode-gate) (the gate specification, graduation.json schema, and kill criteria all live under the delivery authority). This data flow section assumes the mode has already been determined at dialogue start.
 
-1. Read `data/ccdi_shadow/graduation.json`. If the file is absent, default to shadow mode.
-2. If `graduation.json` contains `"status": "approved"`, run in **active mode** (packets are injected into follow-up prompts).
-3. If `status` is any other value (including `"rejected"`), run in **shadow mode**: the full CCDI PREPARE cycle runs and diagnostics accumulate, but packets are NOT prepended to follow-up prompts. `packets_injected` stays 0.
-
-This gate determines only whether packets are delivered to Codex. In both modes, the prepare cycle runs identically — shadow mode observes what CCDI *would have* injected for kill-criteria evaluation (see [delivery.md#shadow-mode-kill-criteria](delivery.md#shadow-mode-kill-criteria)).
+In **active mode**, packets built by the PREPARE cycle are prepended to follow-up prompts. In **shadow mode**, the PREPARE cycle runs identically but packets are NOT delivered — diagnostics record what CCDI *would have* injected.
 
 ### Pre-Dialogue Phase
 
@@ -207,6 +204,10 @@ User prompt
 │  │              --facet <entry.facet> \
 │  │              --coverage-target <entry.coverage_target> --mark-injected
 │  │       (commit mutates the seed file in-place — entries transition to `injected`)
+│  │       If a per-topic build-packet --mark-injected exits non-zero, log the error
+│  │       and continue with remaining entries — partial commit is acceptable
+│  │       (uncommitted topics remain `detected` and are candidates for re-injection
+│  │       in mid-dialogue turns)
 │  └─ If briefing send failed: no commit (seed entries remain `detected`)
 │
 ├─ Pass ccdi_seed envelope field to codex-dialogue delegation
@@ -310,17 +311,17 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 
 **Key invariant:** `--mark-injected` is called only after the packet-containing prompt has been confirmed sent to Codex. This applies to both paths: the initial injection commit (after briefing send in `/dialogue`) and the mid-dialogue commit (Step 7.5 after follow-up send in `codex-dialogue`). This prevents the registry from recording injection for packets that were staged but never delivered (e.g., if the briefing or follow-up prompt failed).
 
+**Idempotency invariant:** `build-packet` called at commit time with the same `--results-file` and `--facet` as the prepare phase MUST produce identical chunk IDs. The packet builder MUST be deterministic given identical inputs — no randomization, stable sort for ranking. This ensures `coverage.injected_chunk_ids` accurately reflects the content sent to Codex, preserving deduplication correctness in subsequent turns.
+
 ### Target-Match Predicate
 
 The **composed follow-up target** is the follow-up question text that `codex-dialogue` has composed for the current turn (the text that will be sent to Codex via `codex-reply`). This text exists after Step 4 (composition) and before Step 5.5 (CCDI PREPARE).
 
-The target-match check determines whether a CCDI packet is relevant to the composed question. A packet is **target-relevant** when at least one of the packet's `topics` appears as a substring (case-insensitive) in the composed follow-up text, OR running the classifier on the follow-up text produces a topic that overlaps with the packet's `topics`.
+The target-match check determines whether a CCDI packet is relevant to the composed question. See [registry.md#scheduling-rules](registry.md#scheduling-rules) step 7 for the two-condition algorithm (substring check + optional classifier fallback) and the definition of "target-relevant."
 
-**CLI interface:** The target-match check is performed by the agent, not the CLI. The agent:
-1. Reads the `build-packet` stdout (rendered markdown).
-2. Checks condition (a): any of the packet's `topics` appears as a case-insensitive substring in the composed follow-up text.
-3. If condition (a) fails, checks condition (b): runs `classify --text-file <follow-up>` on the composed follow-up text and checks whether any classifier output topic matches a packet topic.
-4. If neither condition passes (not target-relevant): invokes `build-packet --mark-deferred --deferred-reason target_mismatch --skip-build`.
+**CLI interface:** The target-match check is performed by the agent, not the CLI. The CLI provides two supporting operations:
+1. `classify --text-file <follow-up>` — used by the agent for condition (b) when condition (a) fails.
+2. `build-packet --mark-deferred <topic_key> --deferred-reason target_mismatch --skip-build` — invoked by the agent when neither condition passes.
 
 **Replay fixture assertion:** The `target_mismatch_deferred.replay.json` fixture provides a `composed_target` field in each trace entry. The harness feeds this to the target-match check logic. The assertion verifies the registry transitions to `deferred: target_mismatch` when the packet topics do not appear in the composed target.
 

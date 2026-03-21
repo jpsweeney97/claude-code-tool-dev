@@ -18,6 +18,16 @@ Ship in two phases to isolate risk:
 
 Phase B enters **shadow mode** first: the [prepare/commit cycle](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue) runs and emits diagnostics but does NOT inject packets into the follow-up prompt.
 
+### Shadow Mode Gate
+
+At dialogue start, `codex-dialogue` determines whether CCDI runs in active or shadow mode:
+
+1. Read `data/ccdi_shadow/graduation.json`. If the file is absent, default to shadow mode.
+2. If `graduation.json` contains `"status": "approved"`, run in **active mode** (packets are injected into follow-up prompts).
+3. If `status` is any other value (including `"rejected"`), run in **shadow mode**: the full CCDI PREPARE cycle runs and diagnostics accumulate, but packets are NOT prepended to follow-up prompts. `packets_injected` stays 0.
+
+This gate determines only whether packets are delivered to Codex. In both modes, the prepare cycle runs identically — shadow mode observes what CCDI *would have* injected for kill-criteria evaluation (see below).
+
 ### Shadow Mode Kill Criteria
 
 | Criterion | Threshold | Metric |
@@ -66,7 +76,7 @@ Fields `packets_target_relevant`, `packets_surviving_precedence`, and `false_pos
 - `packets_surviving_precedence`: count of target-relevant packets not deferred by scout priority
 - `false_positive_topic_detections`: always 0 in the automated diagnostics emitter — the system cannot mechanically determine false positives. The actual count is produced by a human labeler during shadow evaluation (see labeling protocol below) and recorded in a separate annotation file, not in the emitted diagnostics JSON. The field is present in the schema for completeness and forward compatibility; its emitted value of 0 does NOT mean zero false positives
 
-`effective_prepare_yield` = `packets_surviving_precedence / packets_prepared`. `false_positive_rate` = `false_positive_topic_detections / topics_detected.length`. `relevant_but_scout_deferred_rate` = `packets_deferred_scout / packets_prepared` (derived from existing schema fields; not emitted directly — compute from the two component values).
+`effective_prepare_yield` = `packets_surviving_precedence / packets_prepared`. `relevant_but_scout_deferred_rate` = `packets_deferred_scout / packets_prepared` (derived from existing schema fields; not emitted directly — compute from the two component values). `false_positive_rate` is NOT derivable from diagnostics fields — it requires annotation data from the labeling protocol below (`labeled_false_positives / total_labeled_topics`). The `false_positive_topic_detections` field in automated diagnostics is always 0 and MUST NOT be used in the formula.
 
 **False-positive labeling protocol:** This kill criterion requires **human review** — it is not mechanically verifiable in CI. The `false_positive_topic_detections` field in the automated diagnostics is always 0 (the emitter has no way to determine false positives). The actual false-positive count is produced through a separate annotation process:
 
@@ -89,7 +99,7 @@ Fields `packets_target_relevant`, `packets_surviving_precedence`, and `false_pos
 {"status": "approved" | "rejected", "evaluated_dialogues": 12, "labeled_topics": 150, "effective_prepare_yield": 0.65, "avg_latency_ms": 320, "false_positive_rate": 0.04, "approver": "<name>", "timestamp": "<ISO>", "notes": "..."}
 ```
 
-3. **Gate:** The `codex-dialogue` agent reads `graduation.json` at dialogue start per the [shadow mode gate](integration.md#shadow-mode-gate). The graduation protocol (this section) governs how the file is produced and approved; the agent's startup behavior rule is specified in integration.md.
+3. **Gate:** The `codex-dialogue` agent reads `graduation.json` at dialogue start per the [shadow mode gate](#shadow-mode-gate) above. The graduation protocol (this section) governs how the file is produced and approved, and the gate condition that `codex-dialogue` evaluates at startup.
 4. **Rejection:** If any kill criterion exceeds its threshold, set `status: "rejected"` with the failing criterion in `notes`. Re-evaluate after tuning.
 
 ## Testing Strategy
@@ -206,6 +216,11 @@ The replay harness collects these traces and asserts on:
 | Deferred→detected consecutive_medium_count initialization | Topic deferred (TTL=3), TTL expires at turn N, topic reappears at medium confidence → assert `consecutive_medium_count` = 1 (not 0); reappears at high → assert `consecutive_medium_count` = 0 |
 | Suppressed→detected last_seen_turn update | Topic suppressed at turn 2, re-enters as detected at turn 5 (docs_epoch change) → assert `last_seen_turn` = 5 (the re-entry turn, not the original suppression turn) |
 | Suppressed:redundant re-entry via new leaf | Topic A (`family_key: hooks`) suppressed:redundant, then new leaf `hooks.post_tool_use` transitions to `detected` in same family → topic A re-enters as `detected` on the same `dialogue-turn` call |
+| Prescriptive hint re-enters suppressed:weak_results | Topic suppressed:weak_results, prescriptive hint resolves to same topic → state transitions to `detected`, `suppression_reason` ← null, `suppressed_docs_epoch` ← null, `last_seen_turn` updated |
+| Prescriptive hint re-enters suppressed:redundant | Topic suppressed:redundant, prescriptive hint resolves to same topic → same re-entry field updates as weak_results case |
+| Contradicts_prior hint re-enters suppressed:weak_results | Topic suppressed:weak_results, contradicts_prior hint resolves to same topic → state transitions to `detected` (same re-entry as prescriptive/suppressed) |
+| Contradicts_prior hint re-enters suppressed:redundant | Topic suppressed:redundant, contradicts_prior hint resolves to same topic → state transitions to `detected` |
+| Suppressed:redundant no re-entry on docs_epoch change | Topic suppressed:redundant at docs_epoch="A", re-evaluated at docs_epoch="B" → state stays `suppressed`, `suppression_reason` stays `redundant`. `docs_epoch` change triggers re-entry only for `weak_results`, not `redundant`. |
 | Result cache hit avoids re-search | Same query fingerprint submitted twice in one session → `search_docs` called once; second call returns cached results. Assert by counting `search_docs` invocations. |
 | Negative cache prevents retry after weak results | Query returns weak results (below `quality_min_result_score`) → same query resubmitted → `search_docs` NOT re-invoked; negative cache flag prevents retry. Assert suppression on second attempt without search. |
 | Packet cache serves existing packet | Same `(topic_key, facet)` pair requested twice in one session → `build-packet` returns cached packet on second call without re-ranking. Assert identical output. |
@@ -254,7 +269,8 @@ The replay harness collects these traces and asserts on:
 | Missing `--coverage-target` with `--mark-injected` → error | `build-packet --mark-injected --registry-file <path> --results-file <path> --mode mid_turn` (without `--coverage-target`) → non-zero exit with descriptive error |
 | Missing `--topic-key` with `--registry-file` → error | `build-packet --registry-file <path> --results-file <path> --mode mid_turn` (without `--topic-key`) → non-zero exit with descriptive error |
 | Missing `--facet` with `--mark-injected` → error | `build-packet --mark-injected --registry-file <path> --results-file <path> --mode mid_turn --topic-key <k> --coverage-target leaf` (without `--facet`) → non-zero exit with descriptive error |
-| Prepare/commit packet idempotency | Run `build-packet` (prepare, no `--mark-injected`) then `build-packet --mark-injected` with same `--results-file` → stdout markdown from commit matches stdout from prepare |
+| Prepare/commit packet idempotency (mid-turn) | Run `build-packet --mode mid_turn` (prepare, no `--mark-injected`) then `build-packet --mode mid_turn --mark-injected` with same `--results-file` → stdout markdown from commit matches stdout from prepare |
+| Prepare/commit packet idempotency (initial) | Run `build-packet --mode initial --results-file <multi-topic-results>` (prepare, no registry). Then for each topic: run `build-packet --mode initial --results-file <same> --registry-file <reg> --topic-key <k> --facet <f> --coverage-target <t> --mark-injected` → verify per-topic commit stdout matches corresponding topic section from initial prepare stdout, AND `coverage.injected_chunk_ids` matches chunk IDs in rendered packet |
 
 ## Boundary Contract Tests: `test_ccdi_contracts.py`
 
@@ -283,6 +299,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | RegistrySeed ↔ ClassifierResult coverage_target | `RegistrySeed.entries[].coverage_target` matches `ClassifierResult.resolved_topics[].coverage_target` enum (`"family" \| "leaf"`) — cross-schema consistency test |
 | RegistrySeed ↔ ClassifierResult facet | `RegistrySeed.entries[].facet` matches `ClassifierResult.resolved_topics[].facet` enum (valid `Facet` values) — cross-schema consistency test |
 | RegistrySeed version mismatch + topic_key discard | RegistrySeed with `inventory_snapshot_version` ≠ current `schema_version` AND one entry with valid `topic_key` (present in inventory) AND one with invalid `topic_key` (absent from inventory) → invalid entry discarded, valid entry retained, warning emitted, CLI continues |
+| RegistrySeed `results_file` stripped after commit | Write RegistrySeed with `results_file` field to temp file. Run `build-packet --mark-injected` against it. Read back the file and assert `results_file` key is absent. Per [data-model.md#registryseed](data-model.md#registryseed) stripping constraint. |
 | ccdi_policy_snapshot deferred coverage | `ccdi_policy_snapshot` field shape and boundary contract test must be added when field shape is defined in Phase B. This row is a placeholder — no test is possible until the shape is defined. See [Known Open Items](#known-open-items). |
 
 ## Integration Tests
@@ -295,6 +312,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Graceful degradation without `search_docs` | Consultation proceeds, `ccdi_status: unavailable` |
 | Malformed search results handled | Missing `chunk_id`, empty content → skip, not crash |
 | Inventory schema version mismatch | Older inventory → warning, not crash |
+| Inventory missing `overlay_meta` field | Valid JSON `topic_inventory.json` without `overlay_meta` key → warning emitted, CCDI continues with empty applied rules and no config overrides |
 | Inventory stale (`docs_epoch` mismatch) | Load `topic_inventory.json` with `docs_epoch` differing from active `claude-code-docs` server's epoch → diagnostics warning emitted, CCDI continues (non-blocking) |
 | `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`). `classifier_result` must contain `resolved_topics` and `suppressed_candidates` sub-fields per the [ClassifierResult contract](classifier.md#output-structure). `semantic_hints` is always present as a field: `null` when no hints were provided for the turn, a non-empty array when hints exist. Field-absent is NOT valid — always include the key with a null or array value. With `ccdi_debug` absent → no `ccdi_trace` key. |
 | `ccdi_trace` semantic_hints conditional presence | Multi-turn trace: turn 1 has no hints → `ccdi_trace[0].semantic_hints == null` (field present, value null); turn 2 has hints → `ccdi_trace[1].semantic_hints` is a non-empty array. Assert field is always present (never absent from the trace entry). Additionally: for every trace entry, assert `"semantic_hints" in entry` (key-presence check, independent of value) — this catches serializers that omit null-valued keys. |
@@ -319,6 +337,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Merge semantics version mismatch → loud failure | `merge_semantics_version` incompatible → non-zero exit |
 | Overlay format validation | Unknown root keys warned, missing `overlay_version` → non-zero exit |
 | Overlay rule unknown operation | Rule with unrecognized `operation` → warning, rule skipped |
+| DenyRule `match_type: "exact"` → error | `add_deny_rule` with `match_type: "exact"` → non-zero exit (`exact` is intentionally excluded from DenyRule match_type; use `token` for whole-word denial — see [data-model.md#denyrule](data-model.md#denyrule)) |
 | DenyRule drop + non-null penalty → error | `action: "drop"`, `penalty: 0.35` → non-zero exit (discriminated union violation: drop requires null penalty) |
 | DenyRule downrank + null penalty → error | `action: "downrank"`, `penalty: null` → non-zero exit with "downrank requires non-null penalty" |
 | DenyRule downrank + zero penalty → error | `action: "downrank"`, `penalty: 0` → non-zero exit with "downrank requires non-zero penalty" (penalty MUST be in (0.0, 1.0] per [data-model.md#denyrule](data-model.md#denyrule); zero is out of bounds) |
@@ -378,7 +397,7 @@ Structured replay harness for Layer 2a (CLI pipeline correctness) testing. Repla
 | `expected_classifier_result` | No | Assertion on `classify` stdout — if present, harness verifies match |
 | `expected_candidates` | No | Assertion on `dialogue-turn` stdout candidates |
 
-**Deep registry assertions:** In addition to `final_registry_state` (flat topic→state map), fixtures may include `final_registry_file_assertions` — an array of key-path assertions on the written registry JSON file:
+**Deep registry assertions:** In addition to `final_registry_state` (flat topic→state map), fixtures include `final_registry_file_assertions` — an array of key-path assertions on the written registry JSON file. Some fixtures REQUIRE specific assertions (documented per-fixture below); the harness runner validates that required assertions are present in the fixture file before executing:
 
 ```json
 {
@@ -419,8 +438,9 @@ After all turns, verify the `assertions` object against the final registry state
 | Agent invokes classify before dialogue-turn | Tool-call ordering in codex-dialogue |
 | Agent skips build-packet when no candidates | Conditional tool invocation |
 | Agent calls --mark-injected only after successful codex-reply | Prepare/commit ordering |
-| Graduation gate: file absent → shadow mode | Delegation envelope with `ccdi_seed` but no `graduation.json` → agent tool-call log contains zero `build-packet --mark-injected` invocations; diagnostics show `status: "shadow"`. Per [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate). |
+| Graduation gate: file absent → shadow mode | Delegation envelope with `ccdi_seed` but no `graduation.json` → agent tool-call log contains zero `build-packet --mark-injected` invocations; diagnostics show `status: "shadow"`. Per [delivery.md#shadow-mode-gate](delivery.md#shadow-mode-gate). |
 | Graduation gate: status rejected → shadow mode | `graduation.json` with `status: "rejected"` → same assertions as above: zero commits, `status: "shadow"` in diagnostics. |
+| Graduation gate: status approved → active mode | `graduation.json` with `status: "approved"` → agent tool-call log contains at least one `build-packet --mark-injected` invocation (when candidates exist); diagnostics show `status: "active"`. |
 
 **Required fixture scenarios:**
 
@@ -449,6 +469,10 @@ After all turns, verify the `assertions` object against the final registry state
 | `target_match_both_fail.replay.json` | Packet topic absent as substring from `composed_target` AND `classify` on composed target resolves no overlapping topic → both conditions fail → `deferred: target_mismatch`. Assert: (1) `classify` was called on `composed_target` (condition (b) was reached), (2) classifier returned no overlapping topic, (3) registry shows `deferred: target_mismatch`. This fixture prevents a short-circuit implementation that skips condition (b) entirely. |
 | `cache_hit_same_query.replay.json` | Turn 1 → topic A detected and injected with query Q. Turn 2 → same topic A reappears (e.g., via `extends_topic` hint at a new facet that resolves to the same query fingerprint) → assert `search_docs` invoked only once across both turns (cache hit on second). `final_registry_file_assertions` verifies `injected_chunk_ids` unchanged after cache-served build. |
 | `negative_cache_prevents_retry.replay.json` | Turn 1 → topic A detected, search returns weak results (below `quality_min_result_score`) → `suppressed: weak_results`. Turn 2 → topic A re-enters as `detected` via `extends_topic` hint (NOT via docs_epoch change — a docs_epoch change would alter the cache key and guarantee a miss per [registry.md#session-local-cache](registry.md#session-local-cache)). Same query fingerprint and same `docs_epoch` → assert `search_docs` NOT re-invoked (negative cache hit); topic re-suppressed via cached weak flag. |
+| `hint_prescriptive_on_suppressed.replay.json` | Topic suppressed:weak_results. Turn 2 → `prescriptive` hint resolves to suppressed topic → re-enters as `detected`, scheduled for immediate lookup. `final_registry_file_assertions`: `state: "detected"`, `suppression_reason: null`, `suppressed_docs_epoch: null`. |
+| `hint_contradicts_prior_on_suppressed.replay.json` | Topic suppressed:redundant. Turn 2 → `contradicts_prior` hint resolves to suppressed topic → re-enters as `detected`, scheduled for lookup. Same field assertions as prescriptive/suppressed. |
+| `suppressed_redundant_no_reentry_on_epoch_change.replay.json` | Turn 1 → topic A suppressed:redundant at docs_epoch="A". Turn 2 → inventory refreshed (docs_epoch="B"), topic A in classifier output → assert state stays `suppressed`, `suppression_reason` stays `redundant`. `docs_epoch` change triggers re-entry only for `weak_results`, not `redundant`. |
+| `deferred_ttl_countdown_resets.replay.json` | Configure `deferred_ttl_turns=3`. Turn 1 → topic B deferred (TTL=3). Turns 2-3 → topic B absent (TTL decrements to 2, then 1). Turn 4 → topic B absent at TTL=0 → verify TTL resets to 3, state stays `deferred`, `last_seen_turn` unchanged. Turn 5 → topic B reappears → verify transition to `detected`. |
 
 ### Layer 2b: Agent Sequence Tests
 
@@ -462,7 +486,7 @@ Tests that the `codex-dialogue` agent invokes CLI commands in the correct sequen
 
 **Execution model:** The test spawns a `codex-dialogue` agent via Claude Code's headless mode (`claude -p`) with a mock MCP server that intercepts `search_docs` and `codex-reply` tool calls and returns canned results. Bash invocations matching `topic_inventory.py *` are recorded by a wrapper script (`scripts/ccdi_cli_recorder.sh`) that logs the full command line to a temp file and delegates to the real CLI. After the agent completes (or the turn limit is reached), the test asserts that the recorded tool-call sequence matches the expected pattern.
 
-**Interception mechanism (primary):** The mock MCP server is configured via a test-specific `.mcp.json` that replaces `claude-code-docs` with a stub server returning canned `search_docs` results from the fixture. The `codex` MCP server is similarly replaced with a stub that records `codex-reply` calls and returns success/failure per fixture. The wrapper script is injected by prepending `scripts/ccdi_cli_recorder.sh` to `$PATH` as a shim named `python3` that intercepts `topic_inventory.py` invocations.
+**Interception mechanism (primary):** The mock MCP server is configured via a test-specific `.mcp.json` that replaces `claude-code-docs` with a stub server returning canned `search_docs` results from the fixture. The `codex` MCP server is similarly replaced with a stub that records `codex-reply` calls and returns success/failure per fixture. The wrapper script (`scripts/ccdi_cli_recorder.sh`) is injected via PATH to intercept CLI invocations. **Shim delegation:** The shim checks `argv[1]` — if it ends with `topic_inventory.py`, log the full command line and delegate to the real `python3`; otherwise exec the real `python3` directly (transparent passthrough). The shim MUST NOT be named `python3` — name it `ccdi_cli_recorder` and have the test script create a symlink or wrapper that routes only `topic_inventory.py` invocations through it, to avoid intercepting unrelated python3 calls.
 
 **Interception mechanism (fallback):** If the primary mechanism is infeasible (i.e., `claude -p` does not support custom `.mcp.json` paths or PATH injection in the test environment), use a `PreToolUse` command hook as the interception layer:
 

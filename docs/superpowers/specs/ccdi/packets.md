@@ -115,6 +115,8 @@ The `<!-- ccdi-packet ... -->` comment is a structured metadata line emitted by 
 6. If under quality threshold or budget exceeded with nothing useful: return empty (skip injection). Suppression reason depends on *why* the output is empty — see [Failure Modes](#failure-modes).
 7. Render to markdown format appropriate to the phase.
 
+**Shadow mode constraint:** In shadow mode (Phase B rollout — see [delivery.md#shadow-mode-kill-criteria](delivery.md#shadow-mode-kill-criteria)), the rendered markdown is staged for diagnostics but NOT prepended to the follow-up prompt. The build process runs identically in both modes — shadow mode suppresses delivery, not construction. See [delivery.md#shadow-mode-gate](delivery.md#shadow-mode-gate) for the gate condition.
+
 ## Failure Modes
 
 | Failure | Detection | Behavior |

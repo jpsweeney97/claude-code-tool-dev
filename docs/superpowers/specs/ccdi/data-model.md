@@ -232,9 +232,9 @@ RegistrySeed
 └── results_file: string            # path to search results file for initial commit phase
 ```
 
-**`results_file` field:** Absolute path to the search results JSON file written by `ccdi-gatherer` during the pre-dialogue phase (e.g., `/tmp/ccdi_results_<id>.json`). The `/dialogue` skill reads this path from the sentinel block and passes it to the initial CCDI commit's `build-packet --results-file` call. This is a transport field for the handoff — it is not written to the live registry file and is not used after the initial commit completes.
+**`results_file` field:** Absolute path to the search results JSON file written by `ccdi-gatherer` during the pre-dialogue phase (e.g., `/tmp/ccdi_results_<id>.json`). The `/dialogue` skill reads this path from the sentinel block and passes it to the initial CCDI commit's `build-packet --results-file` call. This is a transport field for the handoff — it is not written to the live registry file and is not used after the initial commit completes. Implementations MUST strip `results_file` from the JSON before writing the file back during in-place mutation (e.g., `--mark-injected`). The field is read once at initial commit time and MUST NOT appear in the persisted registry file after the first write — stale paths to deleted temp files would cause failures on subsequent loads.
 
-**`entries` field:** Each element is a `TopicRegistryEntry` (see [registry.md#entry-structure](registry.md#entry-structure)) containing only durable-state fields: `topic_key`, `family_key`, `state` (durable values only: `detected | injected | suppressed | deferred`), `first_seen_turn`, `last_seen_turn`, `last_injected_turn`, `last_query_fingerprint`, `consecutive_medium_count`, `suppression_reason`, `suppressed_docs_epoch`, `deferred_reason`, `deferred_ttl`, `coverage_target`, `facet`, `coverage` (all sub-fields: `overview_injected`, `facets_injected`, `pending_facets`, `family_context_available`, `injected_chunk_ids`).
+**`entries` field:** Each element contains all durable-state fields from `TopicRegistryEntry` — see [registry.md#durable-vs-attempt-local-states](registry.md#durable-vs-attempt-local-states) for the authoritative field list (all fields except attempt-local states `looked_up` and `built`). registry.md is the single source of truth for which fields are durable; this section covers the RegistrySeed envelope schema (`entries`, `docs_epoch`, `inventory_snapshot_version`, `results_file`), not the entry field set.
 
 `coverage_target` and `facet` are standard durable fields in `TopicRegistryEntry`, populated at `absent → detected` from `ClassifierResult.resolved_topics[]` (see [registry.md#field-update-rules](registry.md#field-update-rules)). They are required at commit time by `build-packet --mark-injected --coverage-target` and `--facet` respectively.
 
@@ -312,7 +312,9 @@ Keys use dot-separated paths matching the config schema above (e.g., `classifier
 `build_inventory.py` records each applied config override in `overlay_meta.applied_rules[]` with `operation: "override_config"` and `target` set to the config key path.
 
 **Config consumers:** Parameters are referenced by:
-- [classifier.md](classifier.md#confidence-levels) — `classifier.*` keys (confidence thresholds) and `injection.*` keys (injection thresholds, including `injection.mid_turn_consecutive_medium_turns` which is documented in classifier.md's injection thresholds table but evaluated by the registry scheduling layer)
+- CLI config loader — `config_version` (version mismatch gating; see [Failure Modes](#failure-modes))
+- [classifier.md](classifier.md#confidence-levels) — `classifier.*` keys (confidence thresholds)
+- [classifier.md](classifier.md#injection-thresholds) — `injection.initial_threshold_*` and `injection.initial_threshold_medium_same_family_count` keys (initial injection thresholds)
 - [registry.md](registry.md#scheduling-rules) — `injection.cooldown_max_new_topics_per_turn`, `injection.deferred_ttl_turns`, and `injection.mid_turn_consecutive_medium_turns`
 - [packets.md](packets.md#token-budgets) — `packets.*` keys (token budgets, quality thresholds)
 
@@ -330,6 +332,7 @@ Changes to config keys require checking all consumer files.
 | `ccdi_config.json` version mismatch (`config_version` differs from CLI's supported version) | CLI version check | Use built-in defaults, log warning (same behavior as corrupt/invalid — version-mismatched config is treated as unreadable) |
 | Inventory stale (`docs_epoch` mismatch) | Diagnostic check | Use stale inventory with diagnostics warning |
 | Version axis mismatch at build time | `build_inventory.py` validation | Fail loudly with version pair and required action |
-| `RegistrySeed.inventory_snapshot_version` differs from current inventory `schema_version` | CLI string comparison at seed load | Log warning. Continue with seed — `topic_key` values are stable across patch versions. Discard entries for `topic_key` values not present in the current inventory and continue. Field is used for traceability and forward-compatibility gating, not behavioral decisions. |
+| `RegistrySeed.inventory_snapshot_version` differs from current inventory `schema_version` | CLI string comparison at seed load | Log warning. Continue with seed — `topic_key` values are stable across patch versions. Discard entries for `topic_key` values not present in the current inventory and continue. Discarded entries are removed in-memory only — the registry file is NOT rewritten at load time due to version mismatch. Rewriting is deferred to the next normal `--mark-injected` or `--mark-deferred` mutation, at which point the file reflects only the retained entries. Field is used for traceability and forward-compatibility gating, not behavioral decisions. |
+| `topic_inventory.json` valid JSON but missing `overlay_meta` field | CLI field validation | Treat as partial inventory: log warning, use empty `applied_rules[]` and omit config overrides, continue CCDI. This is not "corrupt" — the inventory is usable without overlay metadata. |
 
 All failure modes degrade to "proceed without CCDI" per the [resilience principle](foundations.md#resilience-principle).
