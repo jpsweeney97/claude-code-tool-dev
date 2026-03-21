@@ -88,7 +88,7 @@ The `codex-dialogue` agent emits a structured trace when CCDI is active, gated b
 ```json
 {
   "turn": 3,
-  "classifier_result": {"resolved_topics": [...], "suppressed": [...]},
+  "classifier_result": {"resolved_topics": [...], "suppressed_candidates": [...]},
   "semantic_hints": [{"claim_index": 3, "hint_type": "prescriptive", "claim_excerpt": "you should use updatedInput to modify..."}],
   "candidates": ["hooks.post_tool_use"],
   "action": "prepare",
@@ -129,6 +129,8 @@ The replay harness collects these traces and asserts on:
 | Missing-facet fallback | Requested facet missing → falls back to `default_facet` |
 | Multi-leaf same family | Both `PreToolUse` and `PostToolUse` in one input |
 | Repeated mentions don't inflate | `"PreToolUse PreToolUse PreToolUse"` → same score as one mention |
+| Evaluation order: exact beats token | Input matching both an exact alias (weight 0.6) and a token alias (weight 0.9) on the same topic → exact match evaluated first; final score reflects evaluation-order semantics (exact-before-token precedence), not pure weight sum |
+| Evaluation order: longer phrase wins within type | Two phrase aliases of different lengths matching overlapping substrings → longer, more specific phrase takes precedence; shorter phrase does not additionally contribute to score |
 
 ### Registry Tests
 
@@ -140,7 +142,7 @@ The replay harness collects these traces and asserts on:
 | Candidate selection after detection | Detected topic in candidates |
 | Injected not re-selected | After mark-injected → not in candidates |
 | Suppressed: weak results | [looked_up] → suppressed on empty search |
-| Suppressed: redundant | [looked_up] → suppressed when coverage exists |
+| Suppressed: redundant | [looked_up] → suppressed when search returns results but all `chunk_id` values filtered by deduplication against `injected_chunk_ids` → `suppressed: redundant` (distinct from `weak_results`) |
 | Suppressed re-enters on stronger signal | suppressed → detected |
 | Deferred: cooldown | Candidate deferred when cooldown active |
 | Deferred: scout priority | Candidate deferred when scout target exists |
@@ -195,7 +197,8 @@ The replay harness collects these traces and asserts on:
 | `dialogue-turn` updates registry file | State persistence across calls |
 | `build-packet --mark-injected` updates registry | Side-effect correctness |
 | `dialogue-turn --source codex` vs `--source user` | Both accepted, same pipeline, no crash |
-| `build-packet` empty output writes suppressed automatically | Empty result + `--registry-file` present (NO explicit suppression flag) → `suppressed: weak_results` in registry; verify flag absence is the test condition |
+| `build-packet` empty output writes suppressed automatically (weak) | Search returns poor results + `--registry-file` present → `suppressed: weak_results` in registry |
+| `build-packet` empty output writes suppressed automatically (redundant) | Search returns good results but all chunk IDs already in `injected_chunk_ids` + `--registry-file` present → `suppressed: redundant` in registry; verify reason is `redundant` not `weak_results` |
 | `build-packet --mark-deferred` writes deferred state | Deferred topic_key and reason persisted to registry |
 | Missing inventory → non-zero exit | Graceful failure |
 | Malformed text → non-zero exit | Input validation |
@@ -237,7 +240,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Graceful degradation without `search_docs` | Consultation proceeds, `ccdi_status: unavailable` |
 | Malformed search results handled | Missing `chunk_id`, empty content → skip, not crash |
 | Inventory schema version mismatch | Older inventory → warning, not crash |
-| `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`). `semantic_hints` is present only when hints were provided for the turn; `null` otherwise; with `ccdi_debug` absent → no `ccdi_trace` key |
+| `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`). `classifier_result` must contain `resolved_topics` and `suppressed_candidates` sub-fields per the [ClassifierResult contract](classifier.md#output-structure). `semantic_hints` is present only when hints were provided for the turn; `null` otherwise; with `ccdi_debug` absent → no `ccdi_trace` key |
 
 ## Inventory Tests: `test_build_inventory.py`
 
@@ -262,12 +265,22 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 
 Structured replay harness for Layer 2a (CLI pipeline correctness) testing. Replays `ccdi_trace` recordings and asserts on CLI input/output and registry state transitions.
 
-**Fixture format:** Each fixture is a JSON file containing a `ccdi_trace` array (one entry per turn) plus an `assertions` object:
+**Fixture format:** Each fixture is a JSON file containing a `turns` array (one entry per turn) plus an `assertions` object:
 
 ```json
 {
-  "trace": [
-    {"turn": 1, "classifier_result": {...}, "candidates": [...], "search_results": {...}, "action": "prepare", ...},
+  "turns": [
+    {
+      "turn": 1,
+      "input_text": "I'm building a PreToolUse hook that validates tool inputs",
+      "source": "codex",
+      "semantic_hints": null,
+      "search_results": {"hooks.pre_tool_use": [{"chunk_id": "hooks#pretooluse", "category": "hooks", "content": "..."}]},
+      "codex_reply_error": false,
+      "composed_target": null,
+      "expected_classifier_result": {"resolved_topics": [...], "suppressed_candidates": [...]},
+      "expected_candidates": [{"topic_key": "hooks.pre_tool_use", "facet": "schema", "confidence": "high"}]
+    },
     {"turn": 2, ...}
   ],
   "assertions": {
@@ -278,6 +291,20 @@ Structured replay harness for Layer 2a (CLI pipeline correctness) testing. Repla
   }
 }
 ```
+
+**Turn fields:**
+
+| Field | Required | Purpose |
+|-------|----------|---------|
+| `turn` | Yes | Turn number |
+| `input_text` | Yes | Raw text fed to `classify --text-file` and `dialogue-turn --text-file` |
+| `source` | Yes | `"codex"` or `"user"` — passed to `dialogue-turn --source` |
+| `semantic_hints` | No | JSON array for `--semantic-hints-file`, or `null` (no hints) |
+| `search_results` | No | Canned results keyed by topic_key — returned by stubbed `search_docs` |
+| `codex_reply_error` | No | If `true`, simulate send failure (skip commit). Default: `false` |
+| `composed_target` | No | Follow-up text for target-match check. If absent, skip target-match |
+| `expected_classifier_result` | No | Assertion on `classify` stdout — if present, harness verifies match |
+| `expected_candidates` | No | Assertion on `dialogue-turn` stdout candidates |
 
 **Deep registry assertions:** In addition to `final_registry_state` (flat topic→state map), fixtures may include `final_registry_file_assertions` — an array of key-path assertions on the written registry JSON file:
 
@@ -295,13 +322,23 @@ Supported operators: `equals` (deep equality), `contains` (array membership), `l
 
 **Runner:** `uv run pytest tests/test_ccdi_replay.py` — reads all `*.replay.json` fixtures from `tests/fixtures/ccdi/`.
 
-**Execution model:** The replay harness operates in **static validation mode** — it validates pre-recorded traces against assertion schemas without re-running the agent. Each fixture's `trace` array is the input (a recorded sequence of CCDI decisions per turn); `assertions` is the expected outcome. The harness:
+**Execution model:** The replay harness runs the full CLI pipeline per turn using fixture data as inputs. It does NOT re-run the agent — only the deterministic CLI commands. For each turn in the `turns` array:
 
-1. Replays the trace entries in order, feeding each turn's `classifier_result` and `semantic_hints` into the CLI commands (`classify`, `dialogue-turn`, `build-packet`) via subprocess calls with fixture data as input files.
-2. Compares CLI stdout (candidates, registry state) against the fixture's `assertions`.
-3. Does NOT invoke `codex-reply` or `search_docs` — these are stubbed: `search_docs` returns canned results from a `search_results` field in the fixture; `codex-reply` is assumed successful unless the fixture explicitly sets `codex_reply_error: true`.
+1. Write `input_text` to a temp file.
+2. Run `classify --text-file <temp>` via subprocess. If `expected_classifier_result` is present, assert the stdout matches.
+3. Write `semantic_hints` (if non-null) to a temp file.
+4. Run `dialogue-turn --registry-file <registry> --text-file <temp> --source <source> [--semantic-hints-file <hints>]`. If `expected_candidates` is present, assert stdout candidates match.
+5. If candidates are non-empty AND `search_results` are provided for the candidate topic:
+   - Write canned `search_results` to a temp file.
+   - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --coverage-target <target>` (NO `--mark-injected` — prepare phase).
+   - If `composed_target` is present: run target-match check against the built packet.
+6. If `codex_reply_error` is false (default) and a packet was staged:
+   - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --coverage-target <target> --mark-injected` (commit phase).
+7. If `codex_reply_error` is true: skip commit (topic stays `detected`).
 
-This model tests the deterministic CLI pipeline end-to-end without requiring a live Codex connection or LLM invocation.
+After all turns, verify the `assertions` object against the final registry state and accumulated CLI call log.
+
+`search_docs` and `codex-reply` are NOT invoked — search results are canned from fixture data; `codex-reply` success/failure is controlled by `codex_reply_error`. This model tests the deterministic CLI pipeline end-to-end without requiring a live Codex connection or LLM invocation.
 
 **Scope limitation:** The replay harness verifies CLI pipeline correctness (Layer 2a). It does NOT verify that the `codex-dialogue` agent invokes CLI commands in the correct sequence — that requires a live agent invocation with mocked tools (Layer 2b). Layer 2b is a separate integration test category:
 

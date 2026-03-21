@@ -27,9 +27,14 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 
 **`--mark-injected` registry side-effects:** When `--mark-injected` is passed with `--registry-file`, the following fields are updated per the [Field Update Rules](registry.md#field-update-rules): `state` → `injected`, `last_injected_turn`, `last_query_fingerprint`, `coverage.injected_chunk_ids` (appended from built packet's chunk IDs), `coverage.facets_injected` (appended), `coverage.pending_facets` (served facet removed if present), `consecutive_medium_count` ← 0. When `--coverage-target family` and `facet=overview`: additionally `coverage.overview_injected` ← true.
 
-**`build-packet` automatic suppression:** When `--registry-file` is provided and `build-packet` returns empty output (below quality threshold), it automatically writes `suppressed: weak_results` to the registry for the candidate topic. This prevents repeated failed lookups with no backoff. No flag is needed — empty output triggers suppression unconditionally when a registry is available.
+**`build-packet` automatic suppression:** When `--registry-file` is provided and `build-packet` returns empty output, it automatically writes a suppression state to the registry for the candidate topic. The suppression reason depends on *why* the output is empty:
 
-**Suppression and deferral precedence:** If `build-packet` returns empty output (below quality threshold), automatic suppression writes `suppressed: weak_results` to the registry. In this case, the target-match check has no packet to evaluate — skip the `--mark-deferred` path entirely. The topic is already handled by suppression. The mid-dialogue flow should check for empty output before proceeding to target-match.
+- `weak_results` — search returned poor results (below quality threshold) or `search_docs` returned empty/error. The search signal is weak.
+- `redundant` — search returned useful results but all `chunk_id` values were filtered by deduplication against `injected_chunk_ids`. The topic is already covered.
+
+No flag is needed — empty output triggers suppression unconditionally when a registry is available. See [packets.md#failure-modes](packets.md#failure-modes) for the full decision tree.
+
+**Suppression and deferral precedence:** If `build-packet` returns empty output, automatic suppression (either `weak_results` or `redundant`) writes to the registry. In this case, the target-match check has no packet to evaluate — skip the `--mark-deferred` path entirely. The topic is already handled by suppression. The mid-dialogue flow should check for empty output before proceeding to target-match.
 
 **`dialogue-turn` candidates JSON schema:** The `dialogue-turn` command writes injection candidates to stdout as a JSON array:
 
@@ -92,7 +97,10 @@ User prompt
 │  ├─ Write prompt to /tmp/ccdi_text_<id>.txt
 │  ├─ Bash: python3 topic_inventory.py classify --text-file /tmp/ccdi_text_<id>.txt
 │  ├─ If no topics → proceed without CCDI
-│  ├─ If topics:
+│  ├─ Check injection threshold (same as initial — per classifier.md#injection-thresholds):
+│  │   1 high-confidence topic, OR 2+ medium-confidence in same family
+│  ├─ If threshold not met → proceed without CCDI (discard low/insufficient topics)
+│  ├─ If threshold met:
 │  │   ├─ search_docs per topic's query plan (1–2 queries)
 │  │   ├─ Write results to /tmp/ccdi_results_<id>.json
 │  │   ├─ Bash: python3 topic_inventory.py build-packet \

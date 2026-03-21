@@ -106,14 +106,15 @@ Claude Code docs context:
 3. Rank by relevance to the resolved facet.
 4. For each top result: decide paraphrase vs snippet based on content type.
 5. Assemble into `FactPacket`, check against token budget.
-6. If under quality threshold or budget exceeded with nothing useful: return empty (skip injection).
+6. If under quality threshold or budget exceeded with nothing useful: return empty (skip injection). Suppression reason depends on *why* the output is empty — see [Failure Modes](#failure-modes).
 7. Render to markdown format appropriate to the phase.
 
 ## Failure Modes
 
 | Failure | Detection | Behavior |
 |---------|-----------|----------|
-| `build-packet` produces empty output | Below quality threshold | Skip injection, mark topic `suppressed: weak_results` in [registry](registry.md) |
+| `build-packet` produces empty output — weak search results | Best result score below `quality_min_result_score` OR fewer than `quality_min_useful_facts` survive | Skip injection, mark topic `suppressed: weak_results` in [registry](registry.md) |
+| `build-packet` produces empty output — all results already injected | All results filtered by deduplication (step 2) — search returned useful results but every `chunk_id` is already in `injected_chunk_ids` | Skip injection, mark topic `suppressed: redundant` in [registry](registry.md) |
 | `search_docs` returns empty or errors | Empty results / MCP error | Skip injection for topic, mark `suppressed: weak_results` |
 
 Per the [resilience principle](foundations.md#resilience-principle), packet builder failure never blocks consultations.
