@@ -143,7 +143,7 @@ Each turn, after the [classifier](classifier.md) runs on Codex's latest response
 3. **Consecutive-turn medium tracking:** For each `detected` topic at medium confidence, increment `consecutive_medium_count`. Reset to 0 if the topic is absent from classifier output or appears at a different confidence level. Injection fires when `consecutive_medium_count` reaches `injection.mid_turn_consecutive_medium_turns` (default: 2). Reset to 0 after injection fires.
 4. **Cooldown:** Max one new docs topic injection per turn (configurable via [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `injection.cooldown_max_new_topics_per_turn`).
 5. **Scout priority:** If context-injection has a scout candidate targeting the same code boundary, defer the CCDI candidate (→ `deferred` state with `scout_priority` reason).
-6. **Target-match check:** After building a packet for a scheduled candidate, verify the packet supports the composed follow-up target. If not target-relevant, defer the topic (→ `deferred` state with `target_mismatch` reason via `--mark-deferred`). The definition of "composed follow-up target" and the CLI invocation are specified in [integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue).
+6. **Target-match check:** After building a packet for a scheduled candidate, verify the packet supports the composed follow-up target. If not target-relevant, defer the topic (→ `deferred` state with `target_mismatch` reason via `--mark-deferred`). The definition of "composed follow-up target" is specified in [integration.md#target-match-predicate](integration.md#target-match-predicate).
 7. **Schedule** highest-priority materially new topic for lookup.
 
 ## Semantic Hints
@@ -202,7 +202,7 @@ Cache is session-local — dies with the conversation. Include `docs_epoch` in c
 | Failure | Detection | Behavior |
 |---------|-----------|----------|
 | Packet staged but send fails | Agent observes send failure | No commit (topic stays `detected`, not `injected`) |
-| Staged packet doesn't match composed follow-up target | Target-match check in [Step 6](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue) | Defer CCDI candidate (→ `deferred: target_mismatch`) via `--mark-deferred` |
+| Staged packet doesn't match composed follow-up target | Target-match check in [Step 5.5 (CCDI PREPARE)](integration.md#target-match-predicate) | Defer CCDI candidate (→ `deferred: target_mismatch`) via `--mark-deferred` |
 | Scout takes priority over CCDI candidate | Scout target exists for turn | Defer CCDI candidate (→ `deferred: scout_priority`) |
 | Registry file missing or corrupt | CLI error | Reinitialize empty registry, log warning. Coverage history is lost — topics already sent may be re-injected. This is an acceptable degradation: premise enrichment is idempotent from Codex's perspective (duplicate context is low-harm). See [resilience principle](foundations.md#resilience-principle). |
 | Semantic hints file malformed | CLI parse warning | Ignore hints, proceed with classifier-only scheduling |

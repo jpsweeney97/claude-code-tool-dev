@@ -292,7 +292,7 @@ This model tests the deterministic CLI pipeline end-to-end without requiring a l
 | `happy_path.replay.json` | Single topic detected → searched → injected → committed |
 | `scout_defers_ccdi.replay.json` | Scout target exists → CCDI candidate deferred with `scout_priority` |
 | `send_failure_no_commit.replay.json` | Packet staged but codex-reply fails → commit skipped → topic stays `detected` |
-| `target_mismatch_deferred.replay.json` | Packet built but fails target-match → `deferred: target_mismatch` via `--mark-deferred` |
+| `target_mismatch_deferred.replay.json` | Fixture includes `composed_target` field; packet topics absent from target → `deferred: target_mismatch` |
 | `semantic_hint_elevation.replay.json` | Prescriptive hint on detected topic → elevated to materially new → injected |
 | `hint_no_effect_already_injected.replay.json` | Prescriptive hint on already-injected topic → no additional injection, no state change |
 | `hint_coverage_gap.replay.json` | `contradicts_prior` hint on injected topic → facet added to `pending_facets`, scheduled for re-injection at new facet |

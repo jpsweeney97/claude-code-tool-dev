@@ -233,6 +233,19 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 
 **Key invariant:** `--mark-injected` is called only after the packet-containing prompt has been confirmed sent to Codex. This applies to both paths: the initial injection commit (after briefing send in `/dialogue`) and the mid-dialogue commit (Step 7.5 after follow-up send in `codex-dialogue`). This prevents the registry from recording injection for packets that were staged but never delivered (e.g., if the briefing or follow-up prompt failed).
 
+### Target-Match Predicate
+
+The **composed follow-up target** is the follow-up question text that `codex-dialogue` has composed for the current turn (the text that will be sent to Codex via `codex-reply`). This text exists after Step 4 (composition) and before Step 5.5 (CCDI PREPARE).
+
+The target-match check determines whether a CCDI packet is relevant to the composed question. A packet is **target-relevant** when at least one of the packet's `topics` appears as a substring (case-insensitive) in the composed follow-up text, OR the packet's primary `facet` matches a concept referenced in the follow-up text (determined by running the classifier on the follow-up text and checking for topic overlap).
+
+**CLI interface:** The target-match check is performed by the agent, not the CLI. The agent:
+1. Reads the `build-packet` stdout (rendered markdown).
+2. Compares the packet's topic coverage against the composed follow-up text.
+3. If not target-relevant: invokes `build-packet --mark-deferred --deferred-reason target_mismatch --skip-build`.
+
+**Replay fixture assertion:** The `target_mismatch_deferred.replay.json` fixture provides a `composed_target` field in each trace entry. The harness feeds this to the target-match check logic. The assertion verifies the registry transitions to `deferred: target_mismatch` when the packet topics do not appear in the composed target.
+
 ## Inventory Generation
 
 ```
