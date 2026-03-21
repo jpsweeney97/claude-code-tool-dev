@@ -82,7 +82,7 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 | `pattern` | string | e.g., `"overview"`, `"settings"` |
 | `match_type` | `"token" \| "phrase" \| "regex"` | How to match |
 | `action` | `"drop" \| "downrank"` | Eliminate or penalize |
-| `penalty` | number \| null | Weight reduction for `downrank`; null or omit for `drop` (penalty is not applied when action is `drop`) |
+| `penalty` | number \| null | Weight reduction for `downrank` (required, non-null). Must be null for `drop` — penalty is not applied when action is `drop`. |
 | `reason` | string | Why this term is problematic |
 
 **Penalty application:** `downrank` reduces the individual alias weight before summing into the topic score. If alias `A` has weight 0.6 and matches denylist rule with penalty 0.35, the effective weight is `0.6 - 0.35 = 0.25`. Negative effective weights are clamped to 0.
@@ -148,8 +148,8 @@ Records which overlay operations were applied during inventory build. Stored in 
 | Field | Type | Purpose |
 |-------|------|---------|
 | `rule_id` | string | Overlay rule identifier |
-| `operation` | `"add_topic" \| "remove_alias" \| "add_deny_rule" \| "override_weight" \| "replace_aliases" \| "replace_refs" \| "replace_queries"` | What the rule did |
-| `target` | string | TopicKey or alias text affected |
+| `operation` | `"add_topic" \| "remove_alias" \| "add_deny_rule" \| "override_weight" \| "replace_aliases" \| "replace_refs" \| "replace_queries" \| "override_config"` | What the rule did |
+| `target` | string | TopicKey or alias text affected; for `override_config`, the dot-separated config key path (e.g., `classifier.confidence_high_min_weight`) |
 
 ## Overlay Merge Semantics
 
@@ -169,7 +169,7 @@ RegistrySeed
 └── inventory_snapshot_version: string  # schema_version from the active inventory
 ```
 
-**`entries` field:** Each element is a `TopicRegistryEntry` (see [registry.md#entry-structure](registry.md#entry-structure)) containing only durable-state fields (`topic_key`, `family_key`, `state`, `first_seen_turn`, `last_seen_turn`, `last_injected_turn`, `last_query_fingerprint`, `consecutive_medium_count`, `suppression_reason`, `deferred_reason`, `deferred_ttl`, `coverage`). Attempt-local fields (`looked_up`, `built`) are never included.
+**`entries` field:** Each element is a `TopicRegistryEntry` (see [registry.md#entry-structure](registry.md#entry-structure)) containing only durable-state fields (`topic_key`, `family_key`, `state`, `first_seen_turn`, `last_seen_turn`, `last_injected_turn`, `last_query_fingerprint`, `consecutive_medium_count`, `suppression_reason`, `suppressed_docs_epoch`, `deferred_reason`, `deferred_ttl`, `coverage` — all sub-fields: `overview_injected`, `facets_injected`, `pending_facets`, `family_context_available`, `injected_chunk_ids`). Topics in attempt-local states (`looked_up`, `built`) are not persisted to the seed — these states exist only within a single CLI invocation.
 
 **State at seed time:** After the [initial CCDI commit](integration.md#data-flow-full-ccdi-dialogue), entries transition to `injected` if the briefing was sent successfully. Before the commit, entries are in `detected` state.
 
@@ -245,7 +245,7 @@ Keys use dot-separated paths matching the config schema above (e.g., `classifier
 
 Changes to config keys require checking all consumer files.
 
-**Authority scope:** This section is normative for the config file's **schema** (field names, types, default values) under the `persistence_schema` claim. The **behavioral meaning** of each parameter is authoritative in its consumer file (classifier-contract, registry-contract, or packet-contract). For precedence between config schema and behavioral contracts, see `spec.yaml` → `claim_precedence`.
+**Authority scope:** This section is normative for the config file's **schema** (field names, types, default values) under the `persistence_schema` claim. The **behavioral meaning** of each parameter is authoritative in its consumer file — see `spec.yaml` → `claim_precedence` for resolution order.
 
 ## Failure Modes
 
