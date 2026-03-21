@@ -219,11 +219,26 @@ Tuning parameters live in a separate config file consumed only by the CLI tool. 
 }
 ```
 
-The overlay can override config values via an optional `config_overrides` section — same merge semantics as topic overrides.
+### Config Overrides in Overlay
+
+The overlay file may include an optional `config_overrides` object that overrides default values in `ccdi_config.json`. Merge semantics: **scalar replace only** (config values are flat scalars, not arrays or nested objects). Unknown keys are warned and skipped.
+
+```json
+{
+  "config_overrides": {
+    "classifier.confidence_high_min_weight": 0.9,
+    "packets.initial_max_topics": 2
+  }
+}
+```
+
+Keys use dot-separated paths matching the config schema above (e.g., `classifier.confidence_high_min_weight`). Only keys defined in the `ccdi_config.json` schema are valid override targets.
+
+`build_inventory.py` records each applied config override in `overlay_meta.applied_rules[]` with `operation: "override_config"` and `target` set to the config key path.
 
 **Config consumers:** Parameters are referenced by:
 - [classifier.md](classifier.md#confidence-levels) — `classifier.*` keys (confidence thresholds) and `injection.*` keys (injection thresholds)
-- [registry.md](registry.md#scheduling-rules) — `injection.cooldown_max_new_topics_per_turn` and `injection.deferred_ttl_turns`
+- [registry.md](registry.md#scheduling-rules) — `injection.cooldown_max_new_topics_per_turn`, `injection.deferred_ttl_turns`, and `injection.mid_turn_consecutive_medium_turns`
 - [packets.md](packets.md#token-budgets) — `packets.*` keys (token budgets, quality thresholds)
 
 Changes to config keys require checking all consumer files.
