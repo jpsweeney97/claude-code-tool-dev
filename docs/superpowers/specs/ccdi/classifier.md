@@ -78,7 +78,7 @@ Thresholds are configurable via [`ccdi_config.json`](data-model.md#configuration
 
 Semantic hints (see [registry.md#semantic-hints](registry.md#semantic-hints)) are an additional mid-dialogue injection trigger processed by the scheduling layer, independent of classifier output. The classifier does not process or output semantic hints.
 
-Low-confidence detections are recorded in the [topic registry](registry.md) but never trigger injection alone.
+In Full CCDI mode, low-confidence detections are recorded in the [topic registry](registry.md) but never trigger injection alone. In CCDI-lite mode (no registry), low-confidence detections are silently discarded after classification.
 
 ## Worked Example
 
