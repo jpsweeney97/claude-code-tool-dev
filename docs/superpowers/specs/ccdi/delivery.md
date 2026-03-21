@@ -159,6 +159,8 @@ The replay harness collects these traces and asserts on:
 | Semantic hint elevates candidate | Prescriptive hint on detected topic → materially new |
 | Semantic hint with unknown topic | Hint doesn't match any topic → ignored |
 | Malformed hints file | Invalid JSON → ignored with warning |
+| Single medium-confidence → no initial injection | 1 medium-confidence topic (no same-family companion) → injection candidates empty; no CCDI packet built |
+| Low-confidence topic → detected but never injected | Topic with `confidence: low` → enters `detected` state AND is excluded from `dialogue-turn` injection candidates output; no injection fires regardless of turn count |
 
 ### Packet Builder Tests
 
