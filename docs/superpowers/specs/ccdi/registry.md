@@ -15,7 +15,7 @@ Per-conversation state machine tracking topic lifecycle. Prevents redundant inje
 TopicRegistryEntry
 ├── topic_key: TopicKey
 ├── family_key: TopicKey
-├── state: "detected" | "injected" | "suppressed" | "deferred"
+├── state: "detected" | "injected" | "suppressed" | "deferred"  # persisted type; runtime may include "looked_up" | "built" (see Durable vs Attempt-Local States)
 ├── first_seen_turn: number
 ├── last_seen_turn: number
 ├── last_injected_turn: number | null
@@ -46,7 +46,7 @@ Only durable states are persisted to the registry file. Attempt-local states exi
 | `looked_up` | Attempt-local | Search completed; deciding packet eligibility (not persisted) |
 | `built` | Attempt-local | Packet built but not yet sent (not persisted) |
 
-`injected` commits only after the agent observes successful send (the follow-up prompt containing the packet was delivered to Codex). If send fails, the topic reverts to `detected` — not `injected`.
+`injected` commits only after the agent observes successful send (the follow-up prompt containing the packet was delivered to Codex). If send fails, the topic remains `detected` (the commit step is skipped; `--mark-injected` is not called; the registry is not modified).
 
 ## State Transitions
 
@@ -91,6 +91,7 @@ Fields updated at each state transition. Fields not listed are unchanged.
 | Re-detection (entry in `suppressed` state) | No field update — re-entry is governed by [Suppression Re-Entry](#suppression-re-entry) conditions, not by re-detection alone |
 | Topic absent from classifier output (entry exists, any durable state) | `consecutive_medium_count` ← 0 |
 | `contradicts_prior` hint resolves to `injected` topic | `coverage.pending_facets` ← append resolved facet (state stays `injected`) |
+| `contradicts_prior` or `prescriptive` hint resolves to `detected` or `deferred` topic | No field update — scheduling effect only (elevated to materially new for immediate lookup) |
 | `extends_topic` hint resolves to `injected` topic | `coverage.pending_facets` ← append resolved facet (if not already in `facets_injected`; state stays `injected`) |
 | `[built] → injected` (via `--mark-injected`) | `state` ← `injected`, `last_injected_turn` ← current turn, `last_query_fingerprint` ← normalized fingerprint of query used, `coverage.injected_chunk_ids` ← append chunk IDs from built packet, `coverage.facets_injected` ← append facet, `coverage.pending_facets` ← remove served facet (if present), `consecutive_medium_count` ← 0 |
 | `[built] → injected` (coverage_target=family, facet=overview) | Additionally: `coverage.overview_injected` ← true |
@@ -154,7 +155,7 @@ Each turn, after the [classifier](classifier.md) runs on Codex's latest response
 
 ## Semantic Hints
 
-The `codex-dialogue` agent provides semantic judgment about Codex's responses; the CLI resolves topic keys and makes scheduling decisions. This separation keeps the CLI deterministic while leveraging the agent's conversational understanding.
+The `codex-dialogue` agent provides semantic judgment about Codex's responses; the CLI resolves topic keys and makes scheduling decisions. This separation keeps the CLI deterministic while leveraging the agent's conversational understanding (see [foundations.md#cliagent-separation](foundations.md#cliagent-separation) for the architectural principle).
 
 **Agent → CLI interface:** The `dialogue-turn` command accepts an optional `--semantic-hints-file <path>` argument containing a JSON array:
 

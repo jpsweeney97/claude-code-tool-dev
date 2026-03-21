@@ -147,9 +147,11 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 
 Records which overlay operations were applied during inventory build. Stored in `overlay_meta.applied_rules[]`.
 
+**Dual-source note:** Most `applied_rules[]` entries correspond to items in the overlay's `rules[]` array. The exception is `operation: "override_config"` — these entries originate from the `config_overrides` root key, not from `rules[]`. Code reading `applied_rules[]` must handle this: there is no corresponding `OverlayRule` in `rules[]` for config override entries.
+
 | Field | Type | Purpose |
 |-------|------|---------|
-| `rule_id` | string | Overlay rule identifier |
+| `rule_id` | string | Overlay rule identifier (for `override_config`: a synthetic ID based on the config key) |
 | `operation` | `"add_topic" \| "remove_alias" \| "add_deny_rule" \| "override_weight" \| "replace_aliases" \| "replace_refs" \| "replace_queries" \| "override_config"` | What the rule did |
 | `target` | string | TopicKey or alias text affected; for `override_config`, the dot-separated config key path (e.g., `classifier.confidence_high_min_weight`) |
 
@@ -285,7 +287,7 @@ Tuning parameters live in a separate config file consumed only by the CLI tool. 
 
 ### Config Overrides in Overlay
 
-The overlay file may include an optional `config_overrides` object that overrides default values in `ccdi_config.json`. Merge semantics: **scalar replace only** (config values are flat scalars, not arrays or nested objects). Unknown keys are warned and skipped.
+The overlay file may include an optional `config_overrides` object that overrides default values in `ccdi_config.json`. Merge semantics: **scalar replace only** — `scalar` means `string | number | boolean` (no arrays, objects, or null). Config override values must match the type of the target key in `ccdi_config.json`. Type mismatches (e.g., string where number expected) are treated as unknown keys: warned and skipped. Unknown keys are warned and skipped.
 
 ```json
 {

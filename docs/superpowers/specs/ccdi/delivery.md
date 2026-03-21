@@ -209,7 +209,7 @@ The replay harness collects these traces and asserts on:
 | `classify` file I/O round-trip | Reads text file, returns valid JSON |
 | `dialogue-turn` updates registry file | State persistence across calls |
 | `build-packet --mark-injected` updates registry | Side-effect correctness |
-| `dialogue-turn --source codex` vs `--source user` | Both accepted, same pipeline, no crash |
+| `dialogue-turn --source codex` vs `--source user` | Both accepted, same pipeline, no crash. Additionally: same input text + same registry state → `--source codex` and `--source user` produce identical stdout candidates JSON and identical registry mutations (behavioral equivalence baseline for future divergence). |
 | `build-packet` empty output writes suppressed automatically (weak) | Search returns poor results + `--registry-file` present → `suppressed: weak_results` in registry |
 | `build-packet` empty output writes suppressed automatically (redundant) | Search returns good results but all chunk IDs already in `injected_chunk_ids` + `--registry-file` present → `suppressed: redundant` in registry; verify reason is `redundant` not `weak_results` |
 | `build-packet --mark-deferred` writes deferred state | Deferred topic_key and reason persisted to registry |
@@ -236,7 +236,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Search results → packet builder | Required fields present (`chunk_id`, `category`, `content`), deduplication, ranking stability |
 | Packet builder → prompt assembler | Citation format, valid markdown, token budget enforced |
 | CLI → agents | Exit codes, stdout JSON contract, stderr behavior, file-path semantics |
-| Semantic hints → CLI | `claim_index`, `hint_type` enum values, `claim_excerpt` length cap, classifier resolution of excerpt |
+| Semantic hints → CLI | `hint_type` enum values, `claim_excerpt` length cap, classifier resolution of excerpt. `claim_index` shape validated for forward compatibility only — CLI ignores its value (diagnostic/trace metadata). |
 | `dump_index_metadata` → `build_inventory.py` | Response shape matches expected fields (`index_version`, `docs_epoch`, `categories[].chunks[].chunk_id`, etc.) — cross-package contract |
 | `dump_index_metadata` → `build_inventory.py`: schema evolution | Response with unknown top-level field → `build_inventory.py` ignores it (exit 0); required chunk field missing → warning, chunk skipped; `index_version` value change → warning emitted |
 | Config → CLI | `ccdi_config.json` schema validated at load; unknown keys warned, missing keys use defaults |
@@ -292,6 +292,10 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Config override unknown keys warned and skipped | Overlay `config_overrides` with `{"nonexistent.key": 0.5}` → build succeeds (exit 0), warning emitted, known keys proceed normally |
 | Config override valid namespace unknown leaf | `config_overrides` with `{"classifier.nonexistent_key": 0.9}` → treated as unknown (warned and skipped), not silently applied |
 | Partial config missing keys → defaults | `ccdi_config.json` present but missing one key (e.g., `packets.mid_turn_max_facts` absent) → CLI uses built-in default for that key (3), no error |
+| `add_deny_rule` penalty out-of-bounds → error | `add_deny_rule` with `penalty: 1.5` → non-zero exit with penalty value and valid range (no clamping — see data-model.md penalty range enforcement) |
+| Config override type mismatch → skipped | `config_overrides` with `{"classifier.confidence_high_min_weight": "0.9"}` (string instead of number) → build succeeds, warning emitted, default value used for that key |
+
+**Known untested invariant:** The post-reload hook that triggers `build_inventory.py` when `docs_epoch` changes is a hook configuration, not a CLI behavior. It is not covered by `test_build_inventory.py` unit tests. Verification requires a hook integration test or manual smoke test confirming that `reload_docs` → epoch change → `build_inventory.py` invocation occurs.
 
 ## Replay Harness: `tests/test_ccdi_replay.py`
 
@@ -400,7 +404,7 @@ After all turns, verify the `assertions` object against the final registry state
 | `hint_extends_topic_on_deferred.replay.json` | `extends_topic` hint on deferred topic → elevated to materially new, scheduled for lookup |
 | `hint_unknown_topic_ignored.replay.json` | Hint with `claim_excerpt` matching no inventory topic → hint ignored, no state change, no scheduling effect |
 | `hint_contradicts_prior_on_detected.replay.json` | `contradicts_prior` hint on `detected` (non-deferred) topic → elevated to materially new, scheduled for immediate lookup |
-| `cooldown_defers_second_candidate.replay.json` | Turn with two high-confidence topics (A and B) → topic A scheduled and injected, topic B transitions to `deferred: cooldown`; subsequent turn sees topic B re-evaluated |
+| `cooldown_defers_second_candidate.replay.json` | Turn with two high-confidence topics (A and B) → topic A scheduled and injected, topic B transitions to `deferred: cooldown`; subsequent turn sees topic B re-evaluated. `final_registry_file_assertions` includes `{"path": "<topicA>.consecutive_medium_count", "equals": 0}` verifying reset after injection. |
 | `suppressed_docs_epoch_written.replay.json` | Topic detected → searched → empty results → `suppressed: weak_results`; assert `final_registry_file_assertions` includes `{"path": "<topic>.suppressed_docs_epoch", "equals": "<fixture-inventory-docs_epoch>"}` verifying the exact epoch value is stored (not merely non-null) |
 | `target_match_classifier_branch.replay.json` | Packet topic absent as substring from `composed_target`, but `classify` on the composed target resolves a topic that overlaps with the packet topic → packet IS target-relevant (NOT deferred). Exercises target-match condition (b) succeeding where condition (a) fails. |
 | `target_match_substring_only.replay.json` | Packet topic present as substring in `composed_target` → packet IS target-relevant via condition (a) alone. Classifier branch (b) is not needed. Isolates condition (a) as a standalone success path. |

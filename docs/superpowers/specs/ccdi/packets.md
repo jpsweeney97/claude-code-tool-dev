@@ -34,7 +34,7 @@ FactPacket
 
 Default is paraphrase. At most one snippet per mid-turn packet unless explicitly about schema details.
 
-Both modes are deterministic operations in the CLI — no LLM involvement:
+Both modes are deterministic operations in the CLI — no LLM involvement (see [foundations.md#cliagent-separation](foundations.md#cliagent-separation)):
 
 - **`snippet`**: Extract verbatim text from the search result's `content` or `snippet` field, trim to budget.
 - **`paraphrase`**: Select the most relevant sentence(s) from the search result's `content` field based on facet keyword overlap, trim to budget. This is extractive selection, not generative rewriting. The CLI picks passages; it does not rephrase them.

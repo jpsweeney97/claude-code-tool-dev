@@ -14,7 +14,7 @@ All deterministic logic lives in Python, exposed as coarse-grained workflow comm
 | Command | Input | Output | Used by |
 |---------|-------|--------|---------|
 | `classify --text-file <path> [--inventory <path>] [--config <path>]` | Text file | `ClassifierResult` JSON (stdout) | Both modes |
-| `dialogue-turn --registry-file <path> --text-file <path> --source codex\|user [--semantic-hints-file <path>] [--config <path>]` | Text file + registry + optional hints | Updated registry file + injection candidates JSON (stdout) | Full CCDI |
+| `dialogue-turn --registry-file <path> --text-file <path> --source codex\|user [--semantic-hints-file <path>] [--config <path>]` | Text file + registry + optional hints (hints file schema: see [registry.md#semantic-hints](registry.md#semantic-hints)) | Updated registry file + injection candidates JSON (stdout) | Full CCDI |
 | `build-packet [--results-file <path>] [--registry-file <path>] --mode initial\|mid_turn [--topic-key <key>] [--facet <facet>] [--coverage-target family\|leaf] [--mark-injected] [--mark-deferred <topic_key> --deferred-reason <reason>] [--skip-build] [--config <path>]` | Search results + optional registry | Rendered markdown (stdout); registry updated in-place if `--mark-injected` or `--mark-deferred` | Both modes |
 
 All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson). If omitted, uses built-in defaults. Registry is a JSON file containing only durable states (see [registry.md](registry.md#durable-vs-attempt-local-states)). Attempt-local states (`looked_up`, `built`) exist within a single CLI invocation and are never written to the file.
@@ -29,7 +29,7 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 
 **`--skip-build` flag:** When passed with `--mark-deferred`, skips packet construction and only writes deferred state to the registry. This avoids redundant rebuilds when the target-match check already determined the packet is not target-relevant. `--skip-build` is only valid with `--mark-deferred`; ignored otherwise. When `--skip-build` is passed with `--mark-deferred`, `--results-file` is not required — no packet construction occurs.
 
-**`--coverage-target family|leaf` flag:** Required when `--mark-injected` is passed with `--registry-file`. Determines whether `coverage.overview_injected` is set (when `family` + facet=overview). Omitted in CCDI-lite mode (no registry).
+**`--coverage-target family|leaf` flag:** Required when both `--mark-injected` and `--registry-file` are present. When `--registry-file` is absent (CCDI-lite mode), `--coverage-target` is ignored even if passed. Determines whether `coverage.overview_injected` is set (when `family` + facet=overview).
 
 **`--mark-injected` registry side-effects:** When `--mark-injected` is passed with `--registry-file`, the following fields are updated per the [Field Update Rules](registry.md#field-update-rules): `state` → `injected`, `last_injected_turn`, `last_query_fingerprint`, `coverage.injected_chunk_ids` (appended from built packet's chunk IDs), `coverage.facets_injected` (appended), `coverage.pending_facets` (served facet removed if present), `consecutive_medium_count` ← 0. When `--coverage-target family` and `facet=overview`: additionally `coverage.overview_injected` ← true.
 

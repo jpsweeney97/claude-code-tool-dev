@@ -41,6 +41,12 @@ System design review surfaced 7 findings and 2 tensions; 6-turn dialogue resolve
 | Three-layer test strategy with ccdi_trace replay harness | Concession | Medium |
 | Staged rollout: initial CCDI first, mid-dialogue in shadow mode | Concession | Medium |
 
+## External Contract Compatibility
+
+| Decision | Rationale |
+|----------|-----------|
+| `ccdi_seed` delegation envelope field is additive to consultation contract §6 — no modification to §6 required | `ccdi_seed` is an optional field; its absence means mid-dialogue CCDI is disabled. Existing envelope consumers ignore unknown fields. |
+
 ## Deferred Items
 
 The following items were identified during consultation but deferred to implementation. They are tracked in [delivery.md](delivery.md#known-open-items) under the `delivery` authority.
