@@ -14,7 +14,7 @@ Classification happens in `/dialogue` (the orchestrator), not in the codex-dialo
 | Signal | Suggested Arc | Rationale |
 |--------|--------------|-----------|
 | Item references upstream `finding_id` or `assumption_id` | `adversarial-review` | Diagnosis surface changed |
-| Item references upstream `task_id`, `decision_gate_id`, or critical path | `next-steps` | Planning surface changed |
+| Item references upstream `task_id`, `gate_id` (within `decision_gates[]`), or critical path | `next-steps` | Planning surface changed |
 | Item references neither, is evidence/framing question | `dialogue_continue` | Same scope, still gathering |
 | Item hits both AR and NS surfaces | `adversarial-review` | Diagnosis before planning (precedence) |
 
@@ -39,6 +39,8 @@ For items without explicit upstream ID references: constrained LLM classificatio
 
 **Disambiguation guidance:** If the ambiguity is "need more evidence before knowing which surface owns this item," the correct `suggested_arc` is `dialogue_continue`, not `ambiguous`. Use `ambiguous` only when the item is material but it is genuinely unclear whether diagnosis or planning owns the resolution.
 
+**Non-response behavior:** If the user does not respond to the ambiguous routing prompt within the current skill invocation (moves on, invokes a different skill, or ends the session), treat as `hold`. Pending ambiguous items are reported in the feedback capsule's `unresolved[]` list if a feedback capsule is emitted. They are not carried into subsequent invocations — no cross-session tracking of pending routing decisions in v1.
+
 ## Affected-Surface Validity
 
 After routing classification and materiality evaluation, validate the tuple `(affected_surface, material, suggested_arc)`:
@@ -52,11 +54,13 @@ After routing classification and materiality evaluation, validate the tuple `(af
 | `planning` | `false` | `dialogue_continue` |
 | `evidence-only` | `false` | `dialogue_continue` |
 
-**Correction rules** (deterministic, ordered):
+**Correction rules** (deterministic, ordered — apply only when `suggested_arc` is not in the valid set for the given `(affected_surface, material)` pair; valid tuples pass through uncorrected):
 
-1. If `material = false` → `dialogue_continue`
-2. If `affected_surface = evidence-only` → `dialogue_continue`
-3. Otherwise → `ambiguous` (manual routing bucket with `hold` default)
+1. If `material = false` AND `suggested_arc ≠ dialogue_continue` → correct to `dialogue_continue`
+2. If `affected_surface = evidence-only` AND `suggested_arc ≠ dialogue_continue` → correct to `dialogue_continue`
+3. If `affected_surface = diagnosis` AND `material = true` AND `suggested_arc ∉ {adversarial-review, ambiguous}` → correct to `adversarial-review`
+4. If `affected_surface = planning` AND `material = true` AND `suggested_arc ∉ {next-steps, ambiguous}` → correct to `next-steps`
+5. No remaining invalid tuples are possible given the matrix — if reached, emit `ambiguous` as a defensive fallback and log an unexpected-state warning.
 
 Corrected outcomes record `classifier_source: rule`.
 
@@ -71,13 +75,15 @@ Corrected outcomes record `classifier_source: rule`.
 
 Evaluate materiality using three tiers with a cross-tier guard. Tier 1 rule-based exclusions are final. Tier 1 model-judged exclusions are provisional.
 
+**Precondition:** Items entering materiality evaluation MUST have passed through the [tautology filter](pipeline-integration.md#three-tier-tautology-filter) during decomposition seeding (when `--plan` + `upstream_handoff` is active). Materiality evaluation on unfiltered items may classify upstream-framing echoes as material. When no tautology filter ran (no `upstream_handoff`), this precondition is trivially satisfied — there is no upstream framing to echo.
+
 ### Novelty Veto (Pre-Check)
 
 Before Tier 1, check whether the item introduces any new content relative to the source snapshot: a new failure mode, causal mechanism, consequence, dependency, gate effect, or contradiction.
 
-If the item introduces novel content, Tier 1 MUST return `no_match` regardless of exclusion class fit. Proceed directly to Tier 2.
+If the item introduces novel content, Tier 1 MUST return `no_match` regardless of exclusion class fit. Proceed to Tier 2; if Tier 2 does not match, proceed to Tier 3.
 
-**Rationale:** Items with novel content can pattern-match Tier 1 exclusion classes (e.g., a novel architectural consequence might look like an "implementation detail") but MUST NOT be pre-screened out.
+**Rationale:** Items with novel content can pattern-match Tier 1 exclusion classes (e.g., a novel architectural consequence might look like an "exact restatement") but MUST NOT be pre-screened out.
 
 ### Tier 1 — Pre-Screening Exclusions (closed v1 set)
 
@@ -118,7 +124,7 @@ If neither Tier 1 nor Tier 2 matched (or if Tier 1 returned `no_match` due to no
 - Does it introduce a new dependency, blocker, gate change, or critical-path shift that changes NS's planning surface?
 - Is this an implementation detail below the current abstraction level?
 
-Set `materiality_source: model`. Provide a one-line `materiality_reason`. See also the [tautology filter](pipeline-integration.md#three-tier-tautology-filter), which prevents upstream framing echo before items reach materiality evaluation.
+Set `materiality_source: model`. Provide a one-line `materiality_reason`. See also the [tautology filter](pipeline-integration.md#three-tier-tautology-filter), which prevents upstream framing echo during decomposition seeding — a related guard operating at the input stage (Step 0) rather than the feedback classification stage.
 
 For pending implementation items (CI enforcement, validation harness), see [delivery.md](delivery.md#open-items).
 
@@ -132,6 +138,10 @@ For pending implementation items (CI enforcement, validation harness), see [deli
 
 Skills suggest the next arc; the user confirms. No skill auto-invokes another.
 
+**Enforcement basis:** Claude Code's tool invocation model is the enforcement mechanism — skills cannot invoke tools (including other skill invocations) without user-visible tool calls that the user can interrupt or deny. This is a platform-architectural constraint, not an application-layer check. A violation would require Claude to autonomously invoke a skill invocation pattern (e.g., emitting `/<skill>` as a tool call) without user confirmation, which the host platform does not permit.
+
+**Capsule-level prohibition:** Feedback capsule fields (`continuation_warranted`, `feedback_candidates[].suggested_arc`) are informational signals to the user. Skill stubs MUST NOT use these fields to programmatically trigger another skill invocation. They inform the hop suggestion text presented to the user, not an automatic dispatch.
+
 ### Material-Delta Gating
 
 Do not recommend a hop unless something changed relative to the source snapshot.
@@ -141,6 +151,16 @@ Do not recommend a hop unless something changed relative to the source snapshot.
 After 2 targeted loops in the same composition chain (same `lineage_root_id`), stop suggesting further hops automatically. Report remaining open items. User can override.
 
 The budget uses `lineage_root_id` (chain identity), not `topic_key` (descriptive) or `subject_key` (exact lineage). Independent composition chains never share a budget. See [lineage.md](lineage.md#key-propagation) for `lineage_root_id` propagation rules.
+
+#### Budget Enforcement Mechanics
+
+**Targeted loop definition:** One targeted loop = one completed composition hop where a skill run produces a new artifact that is structurally consumed by the next skill in the chain via capsule sentinel. A hop suggested but not confirmed by the user does not consume a loop. `dialogue_continue` hops (same skill, no arc change) do not consume a loop — only cross-skill hops (`adversarial-review`, `next-steps`) count.
+
+**Counter storage:** Conversation-local for v1. The dialogue skill's composition stub maintains the count by scanning the conversation context for artifacts sharing the current `lineage_root_id` and counting distinct cross-skill transitions. No durable counter file is needed — the artifacts themselves are the ledger.
+
+**Enforcement action:** When the budget is exhausted (2 targeted loops counted for the current `lineage_root_id`): (1) omit the hop suggestion block from the feedback capsule presentation, (2) emit a prose notice: "Composition budget reached for this chain (2/2 hops). Remaining open items listed below. Say 'continue' to override." (3) set `continuation_warranted` based on the synthesis outcome regardless of budget — the field remains informational.
+
+**Override mechanism:** User says "continue" (or equivalent confirmation) in the next prompt. The override applies to the current `lineage_root_id` only and permits one additional hop. The budget does not reset — each override permits exactly one more hop.
 
 ## Thread Continuation vs Fresh Start
 
@@ -181,3 +201,5 @@ Only `dialogue_feedback` gets durable persistence. AR→NS and NS→dialogue arc
 3. Conversation-local (sentinel scan of visible context)
 
 The durable file uses the same wire format as the conversation capsule. `record_path` in the dialogue feedback capsule MUST be non-null and MUST point to the durable file.
+
+**Write failure recovery:** If the durable file write fails (disk full, permission error, path unavailable): (1) surface a prose warning to the user identifying the write failure and intended path, (2) emit the feedback capsule with `record_path` set to the intended path and an additional `record_status: write_failed` field, (3) the capsule remains consumable via conversation-local sentinel scan but cross-session resolution via durable store will fail. Do NOT emit a capsule with `record_path: null` — this violates the non-null MUST and silently degrades the feedback arc.

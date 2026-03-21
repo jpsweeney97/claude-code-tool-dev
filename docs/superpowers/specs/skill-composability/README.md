@@ -51,6 +51,7 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 | 5 | [pipeline-integration.md](pipeline-integration.md) | pipeline | Adapter pattern, two-stage admission, decomposition, tautology filter |
 | 6 | [routing-and-materiality.md](routing-and-materiality.md) | routing | Routing classification, material-delta tiers, validity matrix, guardrails |
 | 7 | [delivery.md](delivery.md) | delivery | Skill text changes, open items |
+| 8 | [verification.md](verification.md) | delivery | Verification paths for normative claims, test instruments, deferred verification |
 
 ## Cross-Reference Conventions
 

@@ -27,7 +27,7 @@ authorities:
     default_claims: [interface_contract, behavior_contract]
 
   delivery:
-    description: Implementation plan per skill, open items, deferred work.
+    description: Implementation plan per skill, open items, deferred work, verification strategy.
     default_claims: [implementation_plan]
 
   supporting:

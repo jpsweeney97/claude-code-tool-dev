@@ -15,7 +15,7 @@ Dialogue's internal interface uses a generic `upstream_handoff` state. Type-spec
 
 ### Stage A — Detect and Validate (type-specific)
 
-Scan conversation context for a known upstream sentinel (see [capsule-contracts.md](capsule-contracts.md) for schema definitions). v1 recognizes:
+Reverse-scan conversation context newest-first for a known upstream sentinel (see [lineage.md](lineage.md#consumption-discovery) for the full consumption discovery algorithm; [capsule-contracts.md](capsule-contracts.md) for schema definitions). v1 recognizes:
 
 | Sentinel | Producer | Adapter |
 |----------|----------|---------|
