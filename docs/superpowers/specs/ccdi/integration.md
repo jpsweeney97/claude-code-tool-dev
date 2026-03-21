@@ -15,13 +15,17 @@ All deterministic logic lives in Python, exposed as coarse-grained workflow comm
 |---------|-------|--------|---------|
 | `classify --text-file <path> [--inventory <path>] [--config <path>]` | Text file | `ClassifierResult` JSON (stdout) | Both modes |
 | `dialogue-turn --registry-file <path> --text-file <path> --source codex\|user [--semantic-hints-file <path>] [--config <path>]` | Text file + registry + optional hints | Updated registry file + injection candidates JSON (stdout) | Full CCDI |
-| `build-packet --results-file <path> [--registry-file <path>] --mode initial\|mid_turn [--mark-injected] [--mark-deferred <topic_key> --deferred-reason <reason>] [--config <path>]` | Search results + optional registry | Rendered markdown (stdout); registry updated in-place if `--mark-injected` or `--mark-deferred` | Both modes |
+| `build-packet --results-file <path> [--registry-file <path>] --mode initial\|mid_turn [--mark-injected] [--mark-deferred <topic_key> --deferred-reason <reason>] [--skip-build] [--config <path>]` | Search results + optional registry | Rendered markdown (stdout); registry updated in-place if `--mark-injected` or `--mark-deferred` | Both modes |
 
 All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson). If omitted, uses built-in defaults. Registry is a JSON file containing only durable states (see [registry.md](registry.md#durable-vs-attempt-local-states)). Attempt-local states (`looked_up`, `built`) exist within a single CLI invocation and are never written to the file.
 
 **`--registry-file` optionality on `build-packet`:** When omitted (CCDI-lite mode), deduplication against prior injections is skipped and `--mark-injected` / `--mark-deferred` are no-ops. CCDI-lite has no registry — each invocation builds a fresh packet without coverage history.
 
+**`--skip-build` flag:** When passed with `--mark-deferred`, skips packet construction and only writes deferred state to the registry. This avoids redundant rebuilds when the target-match check already determined the packet is not target-relevant. `--skip-build` is only valid with `--mark-deferred`; ignored otherwise.
+
 **`build-packet` automatic suppression:** When `--registry-file` is provided and `build-packet` returns empty output (below quality threshold), it automatically writes `suppressed: weak_results` to the registry for the candidate topic. This prevents repeated failed lookups with no backoff. No flag is needed — empty output triggers suppression unconditionally when a registry is available.
+
+**Suppression and deferral precedence:** If `build-packet` returns empty output (below quality threshold), automatic suppression writes `suppressed: weak_results` to the registry. In this case, the target-match check has no packet to evaluate — skip the `--mark-deferred` path entirely. The topic is already handled by suppression. The mid-dialogue flow should check for empty output before proceeding to target-match.
 
 **`dialogue-turn` candidates JSON schema:** The `dialogue-turn` command writes injection candidates to stdout as a JSON array:
 
@@ -179,6 +183,7 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   │        --results-file /tmp/ccdi_results_<id>.json \
 │   │   │        --registry-file /tmp/ccdi_registry_<id>.json \
 │   │   │        --mode mid_turn   (NO --mark-injected yet)
+│   │   ├─ If build-packet returned empty: no packet to stage (automatic suppression already fired); skip target-match
 │   │   ├─ Target-match check: verify staged packet supports the composed follow-up target
 │   │   ├─ If target-relevant: stage for prepending
 │   │   └─ If not target-relevant:
@@ -186,7 +191,8 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │                --results-file /tmp/ccdi_results_<id>.json \
 │   │                --registry-file /tmp/ccdi_registry_<id>.json \
 │   │                --mode mid_turn \
-│   │                --mark-deferred <topic_key> --deferred-reason target_mismatch
+│   │                --mark-deferred <topic_key> --deferred-reason target_mismatch \
+│   │                --skip-build
 │   ├─ If candidates AND scout target exists: defer CCDI (scout wins)
 │   └─ If no candidates: no CCDI this turn
 │
