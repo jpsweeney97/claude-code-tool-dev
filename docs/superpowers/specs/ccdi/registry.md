@@ -112,6 +112,8 @@ Re-entry conditions are aligned with the `suppression_reason`, not with classifi
 | `weak_results` | `docs_epoch` changes (index updated) OR a new query facet is requested for the topic OR an `extends_topic` semantic hint resolves to the suppressed topic (see [Semantic Hints](#semantic-hints)) |
 | `redundant` | Coverage state changes — e.g., an injected facet is later identified as insufficient, or a new leaf variant appears under the same family |
 
+**`docs_epoch` comparison semantics:** `null == null` is not a change (no re-entry). `null → non-null` is a change (re-entry fires). `non-null → null` is a change (re-entry fires). Comparison is string equality on non-null values.
+
 ## Family vs Leaf Coverage
 
 Family injection does NOT satisfy leaf-specific needs:
@@ -131,9 +133,11 @@ Each turn, after the [classifier](classifier.md) runs on Codex's latest response
    - New leaf under an already-covered family
    - Agent provides a `semantic_hint` (see [below](#semantic-hints)) referencing a claim that touches a detected topic
    - Codex contradicts or extends an injected topic (coverage gap)
-3. **Cooldown:** Max one new docs topic injection per turn (configurable via [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `injection.cooldown_max_new_topics_per_turn`).
-4. **Scout priority:** If context-injection has a scout candidate targeting the same code boundary, defer the CCDI candidate (→ `deferred` state with `scout_priority` reason).
-5. **Schedule** highest-priority materially new topic for lookup.
+3. **Consecutive-turn medium tracking:** For each `detected` topic at medium confidence, increment `consecutive_medium_count`. Reset to 0 if the topic is absent from classifier output or appears at a different confidence level. Injection fires when `consecutive_medium_count` reaches `injection.mid_turn_consecutive_medium_turns` (default: 2). Reset to 0 after injection fires.
+4. **Cooldown:** Max one new docs topic injection per turn (configurable via [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `injection.cooldown_max_new_topics_per_turn`).
+5. **Scout priority:** If context-injection has a scout candidate targeting the same code boundary, defer the CCDI candidate (→ `deferred` state with `scout_priority` reason).
+6. **Target-match check:** After building a packet for a scheduled candidate, verify the packet supports the composed follow-up target. If not target-relevant, defer the topic (→ `deferred` state with `target_mismatch` reason via `--mark-deferred`). The definition of "composed follow-up target" and the CLI invocation are specified in [integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue).
+7. **Schedule** highest-priority materially new topic for lookup.
 
 ## Semantic Hints
 
@@ -171,6 +175,10 @@ The CLI classifies `claim_excerpt` through its standard two-stage pipeline to re
 | `extends_topic` | `detected` or `deferred` | Elevate to "materially new" (same as `prescriptive`) |
 | `extends_topic` | `injected` | Flag for facet expansion — schedule lookup at a facet not yet in `facets_injected` |
 | *(any)* | topic not resolved | Hint ignored — `claim_excerpt` did not match any inventory topic |
+
+**Hint facet resolution:** When a semantic hint elevates a topic, the CLI classifies `claim_excerpt` through the standard two-stage pipeline to resolve both the topic key and the facet hint from matched aliases. The resolved facet from `claim_excerpt` classification is used as the candidate facet, overriding any facet from prior detection.
+
+**`contradicts_prior` on `injected` — operational definition:** When a `contradicts_prior` hint resolves to an `injected` topic, the CLI appends the resolved facet to `coverage.pending_facets` (the field added in the entry structure). The topic's `state` does not change — it remains `injected`. On subsequent scheduling passes, the scheduler checks `pending_facets` and schedules a lookup at the first pending facet not already in `facets_injected`. After successful injection at the pending facet, remove it from `pending_facets`.
 
 ## Session-Local Cache
 
