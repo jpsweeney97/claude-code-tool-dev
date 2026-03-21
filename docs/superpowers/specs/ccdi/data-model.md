@@ -13,14 +13,22 @@ A JSON artifact mapping Claude Code extension concepts to aliases, query plans, 
 
 ```
 CompiledInventory
-├── schema_version: "1"
+├── schema_version: string             # current: "1"
 ├── built_at: ISO timestamp
-├── docs_epoch: string | null        # reload/version marker from claude-code-docs
+├── docs_epoch: string | null          # reload/version marker from claude-code-docs
 ├── topics: Record<TopicKey, TopicRecord>
 ├── denylist: DenyRule[]
-├── overlay_meta: { overlay_version, overlay_schema_version, applied_rules: AppliedRule[] }
-└── merge_semantics_version: "1"     # version of the overlay merge algorithm
+├── overlay_meta: { overlay_version: string, overlay_schema_version: string, applied_rules: AppliedRule[] }
+└── merge_semantics_version: string    # current: "1"; version of the overlay merge algorithm
 ```
+
+### OverlayMeta
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `overlay_version` | string | Instance version of the curated overlay file (monotonically incremented by curator) |
+| `overlay_schema_version` | string | Format version of the overlay file (validated at merge time) |
+| `applied_rules` | `AppliedRule[]` | Records of overlay operations applied during inventory build |
 
 ## Version Axes
 
@@ -85,7 +93,7 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 | `penalty` | number \| null | Discriminated by `action`: when `action: "drop"`, `penalty` MUST be `null`. When `action: "downrank"`, `penalty` MUST be a non-null number in the range (0.0, 1.0] — i.e., strictly greater than zero and at most 1.0. `penalty: 0` violates this constraint and is a build-time error (not merely a warning) because a zero-penalty downrank rule silently has no effect on alias weights, defeating the purpose of the curated deny rule. Violations of the discriminated union (drop + non-null, downrank + null, downrank + zero) are build-time errors — `build_inventory.py` rejects the overlay with non-zero exit. |
 | `reason` | string | Why this term is problematic |
 
-**Penalty range enforcement:** Out-of-bounds `penalty` values (<= 0.0 or > 1.0) in `add_deny_rule` overlay operations are build-time errors — `build_inventory.py` fails loudly with the penalty value and valid range. This includes `penalty: 0`, which is a build-time error (not a warning) because a zero-penalty downrank is a no-op that almost certainly indicates a curator mistake. Do NOT clamp silently (unlike `override_weight` which clamps with a warning), because deny rules are curated artifacts where silent modification is misleading.
+**Penalty range enforcement:** All penalty validation rules are defined in the `DenyRule` discriminated union constraint above — violations (including `penalty: 0`, out-of-range values, and union mismatches) are build-time errors.
 
 **Penalty application:** `downrank` reduces the individual alias weight before summing into the topic score. If alias `A` has weight 0.6 and matches denylist rule with penalty 0.35, the effective weight is `0.6 - 0.35 = 0.25`. Negative effective weights are clamped to 0.
 
@@ -159,8 +167,11 @@ Records which overlay operations were applied during inventory build. Stored in 
 
 - Scalar fields in `TopicRecord`: replace scaffold values.
 - `aliases`, `canonical_refs`, `query_plan.facets[*]`: append + dedupe by normalized value, unless `replace_*` is explicitly set in the overlay rule.
-- Overlay can: add topics, remove aliases, add deny rules, override weights.
+- Overlay can: add topics, remove aliases, add deny rules, override weights, replace aliases, replace refs, replace queries.
 - `remove_alias` on a known topic with unknown `alias_text`: warning, rule skipped (no-op). Stale remove rules are expected as the scaffold evolves.
+- `replace_aliases(topic_key, aliases[])`: Atomically replaces the entire `aliases` array on the target topic. If `topic_key` does not exist in the inventory: warning logged, rule skipped.
+- `replace_refs(topic_key, canonical_refs[])`: Atomically replaces the entire `canonical_refs` array. Same unknown-topic behavior.
+- `replace_queries(topic_key, query_plan)`: Atomically replaces the entire `query_plan` object. Same unknown-topic behavior.
 - Generated scaffold builds the bulk. Overlay only fixes ambiguity and adds missing synonyms.
 
 ### Overlay File Format
@@ -232,9 +243,9 @@ RegistrySeed
 └── results_file: string            # path to search results file for initial commit phase
 ```
 
-**`results_file` field:** Absolute path to the search results JSON file written by `ccdi-gatherer` during the pre-dialogue phase (e.g., `/tmp/ccdi_results_<id>.json`). The `/dialogue` skill reads this path from the sentinel block and passes it to the initial CCDI commit's `build-packet --results-file` call. This is a transport field for the handoff — it is not written to the live registry file and is not used after the initial commit completes. Implementations MUST strip `results_file` from the JSON before writing the file back during in-place mutation (e.g., `--mark-injected`). The field is read once at initial commit time and MUST NOT appear in the persisted registry file after the first write — stale paths to deleted temp files would cause failures on subsequent loads.
+**`results_file` field:** `results_file` is required in the sentinel RegistrySeed when a pre-dialogue search was performed. If absent (no results generated), the initial CCDI commit phase is skipped — no results to commit. When present, the value is an absolute path to the search results JSON file written by `ccdi-gatherer` during the pre-dialogue phase (e.g., `/tmp/ccdi_results_<id>.json`). The `/dialogue` skill reads this path from the sentinel block and passes it to the initial CCDI commit's `build-packet --results-file` call. This is a transport field for the handoff — it is not written to the live registry file and is not used after the initial commit completes. Implementations MUST strip `results_file` from the JSON before writing the file back during in-place mutation (e.g., `--mark-injected`). The field is read once at initial commit time and MUST NOT appear in the persisted registry file after the first write — stale paths to deleted temp files would cause failures on subsequent loads.
 
-**`entries` field:** Each element contains all durable-state fields from `TopicRegistryEntry` — see [registry.md#durable-vs-attempt-local-states](registry.md#durable-vs-attempt-local-states) for the authoritative field list (all fields except attempt-local states `looked_up` and `built`). registry.md is the single source of truth for which fields are durable; this section covers the RegistrySeed envelope schema (`entries`, `docs_epoch`, `inventory_snapshot_version`, `results_file`), not the entry field set.
+**`entries` field:** Each element contains all durable-state fields from `TopicRegistryEntry` — see [registry.md#durable-vs-attempt-local-states](registry.md#durable-vs-attempt-local-states) for the authoritative field list (all fields except attempt-local states `looked_up` and `built`). **Authority split:** data-model.md (persistence_schema authority) owns the RegistrySeed envelope schema (`entries`, `docs_epoch`, `inventory_snapshot_version`, `results_file`). registry.md (registry-contract authority) owns the `TopicRegistryEntry` field set and durable/attempt-local classification within `entries[]`. When the entry field set changes in registry.md, the RegistrySeed envelope schema here does not need updating — only the entry-level fields change.
 
 `coverage_target` and `facet` are standard durable fields in `TopicRegistryEntry`, populated at `absent → detected` from `ClassifierResult.resolved_topics[]` (see [registry.md#field-update-rules](registry.md#field-update-rules)). They are required at commit time by `build-packet --mark-injected --coverage-target` and `--facet` respectively.
 
@@ -247,6 +258,18 @@ Topics in attempt-local states (`looked_up`, `built`) are not persisted to the s
 **In-place mutation:** The `/dialogue` skill writes the seed to a temp file, which is then updated in-place by the commit-phase `build-packet --mark-injected` call at the same path. After commit, entries at that path reflect `injected` state. See [integration.md#registry-seed-handoff](integration.md#registry-seed-handoff) for the full lifecycle.
 
 **Null-field serialization:** All durable-state fields are always serialized in JSON, including those with null values (e.g., `last_query_fingerprint: null`, `deferred_reason: null`). An absent field is treated as missing on load and triggers entry reinitialization per the [resilience principle](foundations.md#resilience-principle). Implementations MUST NOT omit null-valued fields during serialization.
+
+### Live Registry File Schema
+
+The post-commit live registry file is the RegistrySeed with `results_file` stripped at initial commit. Structure:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `entries` | `TopicRegistryEntry[]` | Array of topic entries in durable states (see [registry.md#durable-vs-attempt-local-states](registry.md#durable-vs-attempt-local-states)) |
+| `docs_epoch` | `string \| null` | Hash of the indexed document set at seed creation time; retained for traceability |
+| `inventory_snapshot_version` | `string` | `CompiledInventory.schema_version` captured at seed creation; used for version-mismatch gating at seed load |
+
+`results_file` is stripped at initial commit and MUST NOT appear in the live file. `docs_epoch` and `inventory_snapshot_version` are retained as traceability fields and are not modified after initial write.
 
 ## Inventory Lifecycle
 
@@ -294,6 +317,8 @@ Tuning parameters live in a separate config file consumed only by the CLI tool. 
 }
 ```
 
+All keys are optional. If `ccdi_config.json` is absent or a key is missing, the built-in defaults shown above apply. Type for each key is inferred from its default value (numeric keys are `number`; `string` keys are `string`).
+
 ### Config Overrides in Overlay
 
 The overlay file may include an optional `config_overrides` object that overrides default values in `ccdi_config.json`. Merge semantics: **scalar replace only** — `scalar` means `string | number | boolean` (no arrays, objects, or null). Config override values must match the type of the target key in `ccdi_config.json`. Type mismatches (e.g., string where number expected) are treated as unknown keys: warned and skipped. Unknown keys are warned and skipped.
@@ -314,7 +339,7 @@ Keys use dot-separated paths matching the config schema above (e.g., `classifier
 **Config consumers:** Parameters are referenced by:
 - CLI config loader — `config_version` (version mismatch gating; see [Failure Modes](#failure-modes))
 - [classifier.md](classifier.md#confidence-levels) — `classifier.*` keys (confidence thresholds)
-- [classifier.md](classifier.md#injection-thresholds) — `injection.initial_threshold_*` and `injection.initial_threshold_medium_same_family_count` keys (initial injection thresholds)
+- [classifier.md](classifier.md#injection-thresholds) — `injection.initial_threshold_*` keys (initial injection thresholds)
 - [registry.md](registry.md#scheduling-rules) — `injection.cooldown_max_new_topics_per_turn`, `injection.deferred_ttl_turns`, and `injection.mid_turn_consecutive_medium_turns`
 - [packets.md](packets.md#token-budgets) — `packets.*` keys (token budgets, quality thresholds)
 
@@ -335,4 +360,4 @@ Changes to config keys require checking all consumer files.
 | `RegistrySeed.inventory_snapshot_version` differs from current inventory `schema_version` | CLI string comparison at seed load | Log warning. Continue with seed — `topic_key` values are stable across patch versions. Discard entries for `topic_key` values not present in the current inventory and continue. Discarded entries are removed in-memory only — the registry file is NOT rewritten at load time due to version mismatch. Rewriting is deferred to the next normal `--mark-injected` or `--mark-deferred` mutation, at which point the file reflects only the retained entries. Field is used for traceability and forward-compatibility gating, not behavioral decisions. |
 | `topic_inventory.json` valid JSON but missing `overlay_meta` field | CLI field validation | Treat as partial inventory: log warning, use empty `applied_rules[]` and omit config overrides, continue CCDI. This is not "corrupt" — the inventory is usable without overlay metadata. |
 
-All failure modes degrade to "proceed without CCDI" per the [resilience principle](foundations.md#resilience-principle).
+All failure modes degrade gracefully — consultations are never blocked per the [resilience principle](foundations.md#resilience-principle). Degradation ranges from session-level CCDI disable (inventory missing) to continued operation with built-in defaults or stale data — see individual rows above.

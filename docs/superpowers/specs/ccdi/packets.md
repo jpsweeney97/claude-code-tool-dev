@@ -20,9 +20,19 @@ FactPacket
 │   ├── mode: "paraphrase" | "snippet"
 │   ├── facet: Facet
 │   ├── text: string
-│   └── refs: DocRef[]
+│   └── refs: [DocRef](data-model.md#docref)[]
 └── token_estimate: number
 ```
+
+**FactPacket field types:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `packet_kind` | `"initial" \| "mid_turn"` | Injection phase that produced this packet |
+| `topics` | `TopicKey[]` | Topic keys included in this packet; bounded by config (`initial_max_topics` or `mid_turn_max_topics`). MUST NOT be empty. |
+| `facet` | `Facet` | Primary facet used for the search (see [data-model.md#queryplan](data-model.md#queryplan)) |
+| `facts` | `FactItem[]` | Ordered list of fact items |
+| `token_estimate` | `integer` (>= 0) | Estimated token count for the rendered packet |
 
 The top-level `facet` is the primary facet used when building the packet (from `--facet` flag or the scheduled candidate's resolved facet). Individual `FactItem.facet` may differ when facts span multiple facets within a topic. The top-level `facet` is emitted in the `<!-- ccdi-packet -->` metadata comment in mid-turn rendered output, enabling the agent to evaluate target-match without parsing fact-level details.
 

@@ -42,7 +42,7 @@ Detection is automatic (no manual flags). Injection is source-separated from rep
 
 ## CLI/Agent Separation
 
-All deterministic logic lives in Python (`topic_inventory.py`), exposed as coarse-grained workflow commands. Agents invoke via Bash with file-oriented I/O. Agents provide semantic judgment (e.g., semantic hints, target-match decisions); the CLI provides deterministic computation (classification, registry state transitions, packet building). This separation ensures reproducibility — the CLI produces identical output for identical inputs regardless of which agent invokes it.
+All deterministic logic lives in Python (`topic_inventory.py`), exposed as coarse-grained workflow commands. Agents invoke via Bash with file-oriented I/O. Agents provide semantic judgment (e.g., semantic hints) and orchestrate deterministic CLI calls (e.g., target-match invocation); the CLI provides deterministic computation (classification, registry state transitions, packet building). This separation ensures reproducibility — the CLI produces identical output for identical inputs regardless of which agent invokes it.
 
 **Boundary rule:** Agents do NOT hold CCDI state. State lives in the registry file on disk. Agents read CLI stdout and write CLI input files. The prepare/commit protocol ([integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue)) exists because of this separation — the agent must confirm send success before instructing the CLI to commit state.
 

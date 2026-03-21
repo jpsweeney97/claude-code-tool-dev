@@ -15,9 +15,11 @@ All deterministic logic lives in Python, exposed as coarse-grained workflow comm
 |---------|-------|--------|---------|
 | `classify --text-file <path> [--inventory <path>] [--config <path>]` | Text file | `ClassifierResult` JSON (stdout) | Both modes |
 | `dialogue-turn --registry-file <path> --text-file <path> --source codex\|user [--semantic-hints-file <path>] [--config <path>]` | Text file + registry + optional hints (hints file schema: see [registry.md#semantic-hints](registry.md#semantic-hints)) | Updated registry file + injection candidates JSON (stdout) | Full CCDI |
-| `build-packet [--results-file <path>] [--registry-file <path>] --mode initial\|mid_turn [--topic-key <key>] [--facet <facet>] [--coverage-target family\|leaf] [--mark-injected] [--mark-deferred <topic_key> --deferred-reason <reason>] [--skip-build] [--config <path>]` | Search results + optional registry | Rendered markdown (stdout); registry updated in-place if `--mark-injected` or `--mark-deferred` | Both modes |
+| `build-packet [--results-file <path>] [--registry-file <path>] --mode initial\|mid_turn [--topic-key <key>] [--facet <facet>]† [--coverage-target family\|leaf] [--mark-injected] [--mark-deferred <topic_key> --deferred-reason <reason>] [--skip-build] [--config <path>]` | Search results + optional registry | Rendered markdown (stdout); registry updated in-place if `--mark-injected` or `--mark-deferred` | Both modes |
 
-All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson). If omitted, uses built-in defaults. Registry is a JSON file containing only durable states (see [registry.md](registry.md#durable-vs-attempt-local-states)). Attempt-local states (`looked_up`, `built`) exist within a single CLI invocation and are never written to the file.
+†`--facet` is required when `--mark-injected` is passed with `--registry-file`.
+
+All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson). If omitted, uses built-in defaults. The live registry file has the structure defined in [data-model.md#live-registry-file-schema](data-model.md#live-registry-file-schema) — `TopicRegistryEntry` durable states plus `RegistrySeed` envelope fields (`docs_epoch`, `inventory_snapshot_version`); `results_file` is stripped at initial commit. See [registry.md](registry.md#durable-vs-attempt-local-states) for the durable vs attempt-local distinction. Attempt-local states (`looked_up`, `built`) exist within a single CLI invocation and are never written to the file.
 
 **`--registry-file` optionality on `build-packet`:** When omitted (CCDI-lite mode), deduplication against prior injections is skipped and `--mark-injected` / `--mark-deferred` are no-ops. CCDI-lite has no registry — each invocation builds a fresh packet without coverage history.
 
@@ -32,13 +34,13 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 
 **Facet consistency (mid-turn mode):** In mid-turn mode, the `facet` value at commit time MUST match the facet used during the prepare phase. The prepare `build-packet` output includes a `<!-- ccdi-packet ... facet="..." -->` metadata comment containing the facet actually used for the search. The agent passes `candidate.facet` from `dialogue-turn` candidates JSON (the source of truth for both calls) to `--facet` at both prepare and commit time.
 
-**Facet in initial mode:** The ccdi-gatherer's prepare call omits `--facet` because initial packets cover multiple topics, each with its own classifier-resolved facet. The commit call passes `--facet <entry.facet>` per-topic from the seed file, which records the classifier's resolved facet at seed-build time. Consistency is maintained because both the prepare-phase ranking facet (derived per-topic from the classifier result) and the commit-phase `--facet` (from `RegistrySeed.entries[].facet`) originate from the same source: `ClassifierResult.resolved_topics[].facet`.
+**Facet in initial mode:** The ccdi-gatherer's prepare call omits `--facet` because initial packets cover multiple topics, each with its own classifier-resolved facet. The commit call passes `--facet <entry.facet>` per-topic from the seed file, which records the classifier's resolved facet at seed-build time. Consistency is maintained because both the prepare-phase ranking facet (derived per-topic from the classifier result) and the commit-phase `--facet` (from `RegistrySeed.entries[].facet`) originate from the same source: `ClassifierResult.resolved_topics[].facet`. The commit-phase facet is sourced solely from the `RegistrySeed` entry's `facet` field (populated from `ClassifierResult.resolved_topics[].facet` at seed creation). No cross-check mechanism exists in initial mode — the `RegistrySeed` entry is the ground truth for the commit phase.
 
 **`--skip-build` flag:** When passed with `--mark-deferred`, skips packet construction and only writes deferred state to the registry. This avoids redundant rebuilds when the target-match check already determined the packet is not target-relevant. `--skip-build` is only valid with `--mark-deferred`; ignored otherwise. When `--skip-build` is passed with `--mark-deferred`, `--results-file` is not required — no packet construction occurs.
 
 **`--coverage-target family|leaf` flag:** Required when both `--mark-injected` and `--registry-file` are present. When `--registry-file` is absent (CCDI-lite mode), `--coverage-target` is ignored even if passed. Determines whether `coverage.overview_injected` is set (when `family` + facet=overview).
 
-**`--mark-injected` registry side-effects:** When `--mark-injected` is passed with `--registry-file`, the following fields are updated per the [Field Update Rules](registry.md#field-update-rules): `state` → `injected`, `last_injected_turn`, `last_query_fingerprint`, `coverage.injected_chunk_ids` (appended from built packet's chunk IDs), `coverage.facets_injected` (appended), `coverage.pending_facets` (served facet removed if present), `consecutive_medium_count` ← 0. When `--coverage-target family` and `facet=overview`: additionally `coverage.overview_injected` ← true.
+**`--mark-injected` registry side-effects:** When `--mark-injected` is passed with `--registry-file`, the following fields are updated per the [Field Update Rules](registry.md#field-update-rules): `state` → `injected`, `last_injected_turn`, `last_query_fingerprint`, `coverage.injected_chunk_ids` (appended from built packet's chunk IDs), `coverage.facets_injected` (appended), `coverage.pending_facets` (served facet removed if present), `consecutive_medium_count` ← 0. When `--coverage-target family` and `facet=overview`: additionally `coverage.overview_injected` ← true. Additionally, strips `results_file` from the registry file if present (per [data-model.md#registryseed](data-model.md#registryseed) — `results_file` is a transport-only field that MUST NOT persist after initial commit).
 
 **`dialogue-turn` registry side-effects:** `dialogue-turn` performs the following registry mutations (per the [Field Update Rules](registry.md#field-update-rules)):
 
@@ -47,7 +49,7 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 - Resets `consecutive_medium_count` to 0 for entries absent from classifier output.
 - Decrements `deferred_ttl` by 1 for all entries in `deferred` state.
 - Transitions `deferred → detected` when `deferred_ttl` reaches 0 and topic reappears in classifier output; resets `deferred_ttl` to config value when topic is absent at TTL=0.
-- Re-enters `suppressed → detected` per [registry.md#suppression-re-entry](registry.md#suppression-re-entry) conditions: (`weak_results`) `docs_epoch` change, new query facet requested, or any semantic hint resolving to the suppressed topic; (`redundant`) new leaf in same family, or any semantic hint resolving to the suppressed topic.
+- For entries in `suppressed` state that appear in classifier output: re-entry condition check is performed first (per [registry.md#suppression-re-entry](registry.md#suppression-re-entry)). If a re-entry condition is met, transitions to `detected` per the field update rules — conditions by reason: (`weak_results`) `docs_epoch` change, new query facet requested, or any semantic hint resolving to the suppressed topic; (`redundant`) new leaf in same family, or any semantic hint resolving to the suppressed topic. If no re-entry condition is met, NO field update occurs — `last_seen_turn` is NOT updated and `consecutive_medium_count` is NOT modified. Re-entry condition check precedes all field update decisions for suppressed entries.
 - Emits `facet_expansion` candidates when `extends_topic` hints resolve to `injected` topics with a facet not yet in `facets_injected` (cascade-resolved facet: hint-resolved → `pending_facets[0]` → `default_facet`; see [registry.md#semantic-hints](registry.md#semantic-hints)). Does NOT mutate `coverage.pending_facets` — emits an immediate `facet_expansion` candidate via [registry.md#scheduling-rules](registry.md#scheduling-rules) step 10. (`pending_facets` is only mutated by `contradicts_prior` hints.)
 - Emits `pending_facet` candidates when an `injected` topic has non-empty `pending_facets` (from prior `contradicts_prior` hints) and the first pending facet is not yet in `facets_injected`.
 
@@ -78,7 +80,7 @@ The `dialogue-turn` command writes injection candidates to stdout as a JSON arra
 ]
 ```
 
-Each element contains: `topic_key` (string), `family_key` (string), `facet` (Facet — the resolved facet for this candidate), `confidence` (`"high" | "medium" | null` — `null` for `facet_expansion` and `pending_facet` candidates which bypass confidence thresholds; low-confidence topics are tracked in the registry but excluded from injection candidates; see [classifier.md#injection-thresholds](classifier.md#injection-thresholds)), `coverage_target` (`"family" | "leaf"` — the classifier's resolved coverage target for this candidate), `candidate_type` (see below), and `query_plan` (the topic's QueryPlan from the inventory, for the agent to execute search). An empty array means no injection candidates this turn.
+Each element contains: `topic_key` (string), `family_key` (string), `facet` (Facet — the resolved facet for this candidate), `confidence` (`"high" | "medium" | null` — `null` for `facet_expansion` and `pending_facet` candidates which bypass confidence thresholds; low-confidence topics are tracked in the registry but excluded from injection candidates; see [classifier.md#injection-thresholds](classifier.md#injection-thresholds)), `coverage_target` (`"family" | "leaf"` — sourcing depends on candidate type: for `candidate_type: new` candidates, sourced from `ClassifierResult.resolved_topics[].coverage_target`; for `candidate_type: facet_expansion` and `pending_facet` candidates, sourced from the persisted `TopicRegistryEntry.coverage_target` field since the topic is already in `injected` state), `candidate_type` (see below), and `query_plan` (the topic's QueryPlan from the inventory, for the agent to execute search). An empty array means no injection candidates this turn.
 
 **`candidate_type` field:** Discriminates how the candidate was scheduled. The agent uses this to distinguish standard injection candidates from hint-driven facet operations on already-injected topics.
 
@@ -241,7 +243,9 @@ The `/dialogue` skill passes these optional fields to `codex-dialogue`:
 | `ccdi_seed` | file path (string) | ccdi-gatherer output | Initial registry file for mid-dialogue CCDI loop. Absent → mid-dialogue CCDI disabled. |
 | `scope_envelope` | object | context-gatherers | Existing field — repo evidence scope. |
 | `ccdi_debug` | boolean \| absent | `/dialogue` skill | When `true`, `codex-dialogue` emits `ccdi_trace` in its output. Absent or `false` → no trace. Testing-only; see [delivery.md#debug-gated-ccdi_trace](delivery.md#debug-gated-ccdi_trace) for trace schema. |
-| `ccdi_policy_snapshot` | TBD | Phase B | Config snapshot for pinning CCDI tuning params during dialogue. Shape undefined — see [delivery.md#known-open-items](delivery.md#known-open-items). |
+| `ccdi_policy_snapshot`* | TBD | Phase B | *[Phase B — deferred]* Config snapshot for pinning CCDI tuning params during dialogue. Shape undefined — see [delivery.md#known-open-items](delivery.md#known-open-items). Not operative in Phase A. |
+
+\*Deferred to Phase B. Shape undefined — see [delivery.md#known-open-items](delivery.md#known-open-items). Not operative in Phase A.
 
 This follows the existing delegation envelope pattern (parallel to `scope_envelope`). The registry seed is NOT embedded in the briefing text — it is a separate envelope field. The consultation contract §6 does not need modification: `ccdi_seed` is an optional additive field, not a change to the existing envelope schema.
 
@@ -284,6 +288,11 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │                --mark-deferred <topic_key> --deferred-reason target_mismatch \
 │   │                --skip-build
 │   ├─ If candidates AND scout target exists:
+│   │   (Scout target detection is agent-side: the codex-dialogue agent determines whether
+│   │    execute_scout produced a scout candidate for the current turn from the scope_envelope
+│   │    returned by process_turn. No CLI flag is involved — the CLI has no awareness of scout
+│   │    state. The agent makes this determination and calls --mark-deferred scout_priority
+│   │    when appropriate.)
 │   │   └─ Bash: python3 topic_inventory.py build-packet \
 │   │            --registry-file /tmp/ccdi_registry_<id>.json \
 │   │            --mode mid_turn \
@@ -294,6 +303,10 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 ├─ [Step 6: send follow-up to Codex]
 │   ├─ If active mode AND packet staged: prepend packet to follow-up before sending
 │   └─ If shadow mode: send follow-up without packet (diagnostics record the staged packet)
+│       Shadow mode behavioral branching is subordinate to delivery.md#shadow-mode-gate —
+│       the gate definition, graduation.json schema, and kill criteria all live under the
+│       delivery authority. If the gate conditions change in delivery.md, the per-turn
+│       branching here must be updated to match.
 │
 ├─ Step 7.5: CCDI COMMIT (after send confirmed)
 │   ├─ If active mode AND packet was sent:
@@ -372,6 +385,15 @@ New tool added to the `claude-code-docs` MCP server. Returns structured metadata
   ]
 }
 ```
+
+**Field types:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `index_version` | `string` | Version tag for the search index schema. |
+| `built_at` | `string` (ISO 8601 timestamp) | When the index was last built. |
+| `docs_epoch` | `string \| null` | Hash of the indexed document set; `null` when index is empty. |
+| `categories` | `array` of category objects | One per indexed documentation category. |
 
 `docs_epoch` is the index epoch — a version marker that changes on each `reload_docs` call. `build_inventory.py` records this value as `CompiledInventory.docs_epoch` and propagates it to `RegistrySeed.docs_epoch`. The suppression re-entry logic in [registry.md#suppression-re-entry](registry.md#suppression-re-entry) compares `suppressed_docs_epoch` against the current `docs_epoch` to determine whether `weak_results`-suppressed topics should re-enter. If `docs_epoch` is null (e.g., index has never been reloaded), it is stored as-is.
 
