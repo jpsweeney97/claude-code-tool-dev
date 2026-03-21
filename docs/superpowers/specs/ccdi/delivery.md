@@ -164,6 +164,12 @@ The replay harness collects these traces and asserts on:
 | Malformed hints file | Invalid JSON → ignored with warning |
 | Single medium-confidence → no initial injection | 1 medium-confidence topic (no same-family companion) → injection candidates empty; no CCDI packet built |
 | Low-confidence topic → detected but never injected | Topic with `confidence: low` → enters `detected` state AND is excluded from `dialogue-turn` injection candidates output; no injection fires regardless of turn count |
+| docs_epoch null comparison: null == null → no re-entry | Suppressed topic at docs_epoch=null, re-evaluated at docs_epoch=null → suppression_reason unchanged, state stays `suppressed` |
+| docs_epoch null comparison: null → non-null → re-entry | Suppressed topic at docs_epoch=null, re-evaluated at docs_epoch="2026-03-20" → state transitions to `detected`, `suppressed_docs_epoch` ← null |
+| docs_epoch null comparison: non-null → null → re-entry | Suppressed topic at docs_epoch="A", re-evaluated at docs_epoch=null → state transitions to `detected` |
+| consecutive_medium_count reset after injection | Medium topic turn 1 (count=1), turn 2 (count=2, injection fires, committed) → turn 3 same medium topic → injection does NOT fire (counter reset to 0 at injection; count=1, threshold not yet met) |
+| pending_facets cleared after serving | `contradicts_prior` hint adds facet F to `pending_facets` → injection at facet F succeeds via `--mark-injected` → verify `coverage.pending_facets` does NOT contain F AND `coverage.facets_injected` DOES contain F |
+| injected_chunk_ids populated at commit | `build-packet --mark-injected` with result set containing chunk IDs [X, Y] → verify `coverage.injected_chunk_ids` contains [X, Y] → subsequent `build-packet` call with same results → chunk IDs excluded from output |
 
 ### Packet Builder Tests
 
@@ -191,6 +197,9 @@ The replay harness collects these traces and asserts on:
 | Missing inventory → non-zero exit | Graceful failure |
 | Malformed text → non-zero exit | Input validation |
 | stdout/stderr separation | JSON on stdout only, errors on stderr |
+| Automatic suppression requires registry | `build-packet` returns empty output WITHOUT `--registry-file` → no suppression written (stdout empty, no side effects). With `--registry-file` → `suppressed: weak_results` written. Tests the conditional nature of automatic suppression. |
+| `--skip-build` with `--mark-deferred` skips packet construction | `build-packet --mark-deferred <key> --deferred-reason <r> --skip-build --registry-file <path>` → registry writes deferred state AND stdout is empty (no packet built) |
+| `--skip-build` without `--mark-deferred` is ignored | `build-packet --skip-build --results-file <path> --mode initial` → normal packet construction proceeds (flag silently ignored) |
 
 ## Boundary Contract Tests: `test_ccdi_contracts.py`
 
@@ -208,7 +217,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | `dump_index_metadata` → `build_inventory.py` | Response shape matches expected fields (`index_version`, `categories[].chunks[].chunk_id`, etc.) — cross-package contract |
 | Config → CLI | `ccdi_config.json` schema validated at load; unknown keys warned, missing keys use defaults |
 | Registry seed → delegation envelope | `ccdi_seed` file path valid, seed JSON parses to expected schema |
-| Mid-dialogue CCDI disabled without ccdi_seed | Delegation envelope without `ccdi_seed` field → `codex-dialogue` agent does not invoke `dialogue-turn` or `build-packet` during turn loop; diagnostics show `phase: initial_only` |
+| Mid-dialogue CCDI disabled without ccdi_seed | Delegation envelope without `ccdi_seed` field → diagnostics show `phase: initial_only` AND agent tool-call log contains zero invocations of `dialogue-turn` or `build-packet` (Layer 2b test — requires live agent with mocked tools) |
 | Version axes → overlay merge | `schema_version`, `overlay_schema_version`, `merge_semantics_version` compatibility validated at build time |
 
 ## Integration Tests
@@ -221,7 +230,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Graceful degradation without `search_docs` | Consultation proceeds, `ccdi_status: unavailable` |
 | Malformed search results handled | Missing `chunk_id`, empty content → skip, not crash |
 | Inventory schema version mismatch | Older inventory → warning, not crash |
-| `ccdi_debug` gating of trace emission | With `ccdi_debug=true` in delegation envelope → `ccdi_trace` key present in agent output; with `ccdi_debug` absent → no `ccdi_trace` key |
+| `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`classifier_result`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`); with `ccdi_debug` absent → no `ccdi_trace` key |
 
 ## Inventory Tests: `test_build_inventory.py`
 
@@ -289,6 +298,9 @@ This model tests the deterministic CLI pipeline end-to-end without requiring a l
 | `hint_coverage_gap.replay.json` | `contradicts_prior` hint on injected topic → facet added to `pending_facets`, scheduled for re-injection at new facet |
 | `hint_re_enters_suppressed.replay.json` | `extends_topic` hint on suppressed topic → re-enters as `detected`, scheduled for lookup |
 | `hint_facet_expansion.replay.json` | `extends_topic` hint on injected topic → facet expansion lookup at a facet not yet in `facets_injected` |
+| `hint_contradicts_prior_on_deferred.replay.json` | `contradicts_prior` hint on deferred topic → elevated to materially new, scheduled for lookup |
+| `hint_extends_topic_on_deferred.replay.json` | `extends_topic` hint on deferred topic → elevated to materially new, scheduled for lookup |
+| `hint_unknown_topic_ignored.replay.json` | Hint with `claim_excerpt` matching no inventory topic → hint ignored, no state change, no scheduling effect |
 
 ## Known Open Items
 
