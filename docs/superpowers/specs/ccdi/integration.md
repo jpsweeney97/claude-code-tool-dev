@@ -27,6 +27,16 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 
 **`--mark-injected` registry side-effects:** When `--mark-injected` is passed with `--registry-file`, the following fields are updated per the [Field Update Rules](registry.md#field-update-rules): `state` → `injected`, `last_injected_turn`, `last_query_fingerprint`, `coverage.injected_chunk_ids` (appended from built packet's chunk IDs), `coverage.facets_injected` (appended), `coverage.pending_facets` (served facet removed if present), `consecutive_medium_count` ← 0. When `--coverage-target family` and `facet=overview`: additionally `coverage.overview_injected` ← true.
 
+**`dialogue-turn` registry side-effects:** `dialogue-turn` performs the following registry mutations (per the [Field Update Rules](registry.md#field-update-rules)):
+
+- Writes new `detected` entries for newly resolved topics (`absent → detected`).
+- Updates `last_seen_turn` and `consecutive_medium_count` for existing entries on re-detection.
+- Resets `consecutive_medium_count` to 0 for entries absent from classifier output.
+- Decrements `deferred_ttl` by 1 for all entries in `deferred` state.
+- Transitions `deferred → detected` when `deferred_ttl` reaches 0 and topic reappears in classifier output; resets `deferred_ttl` to config value when topic is absent at TTL=0.
+- Re-enters `suppressed → detected` when re-entry conditions are met: `docs_epoch` change for `weak_results`, coverage state change for `redundant`.
+- Re-enters `suppressed → detected` when `--semantic-hints-file` contains an `extends_topic` hint that resolves to a suppressed topic (applying the field updates from the `suppressed → detected` re-entry row).
+
 **`build-packet` automatic suppression:** When `--registry-file` is provided and `build-packet` returns empty output, it automatically writes a suppression state to the registry for the candidate topic. The suppression reason depends on *why* the output is empty:
 
 - `weak_results` — search returned poor results (below quality threshold) or `search_docs` returned empty/error. The search signal is weak.
@@ -53,7 +63,7 @@ No flag is needed — empty output triggers suppression unconditionally when a r
 
 Each element contains: `topic_key` (string), `family_key` (string), `facet` (Facet — the resolved facet for this candidate), `confidence` (`"high" | "medium"` — low-confidence topics are tracked in the registry but excluded from injection candidates; see [classifier.md#injection-thresholds](classifier.md#injection-thresholds)), `coverage_target` (`"family" | "leaf"` — the classifier's resolved coverage target for this candidate), and `query_plan` (the topic's QueryPlan from the inventory, for the agent to execute search). An empty array means no injection candidates this turn.
 
-**`--source codex|user` on `dialogue-turn`:** `codex` = classifier runs on Codex's response text; `user` = classifier runs on the user's turn text. Both sources use the same two-stage pipeline. Scheduling behavior by source is defined in [registry.md#scheduling-rules](registry.md#scheduling-rules); see [delivery.md#known-open-items](delivery.md#known-open-items) for deferred divergence.
+**`--source codex|user` on `dialogue-turn`:** `codex` = classifier runs on Codex's response text; `user` = classifier runs on the user's turn text. Both sources use the same two-stage pipeline and identical scheduling behavior — no source-differentiated rules are currently defined. See [delivery.md#known-open-items](delivery.md#known-open-items) for the deferred divergence item.
 
 ## Cross-Plugin Dependency
 
@@ -182,6 +192,7 @@ The `/dialogue` skill passes these optional fields to `codex-dialogue`:
 | `ccdi_seed` | file path (string) | ccdi-gatherer output | Initial registry file for mid-dialogue CCDI loop. Absent → mid-dialogue CCDI disabled. |
 | `scope_envelope` | object | context-gatherers | Existing field — repo evidence scope. |
 | `ccdi_debug` | boolean \| absent | `/dialogue` skill | When `true`, `codex-dialogue` emits `ccdi_trace` in its output. Absent or `false` → no trace. Testing-only; see [delivery.md#debug-gated-ccdi_trace](delivery.md#debug-gated-ccdi_trace) for trace schema. |
+| `ccdi_policy_snapshot` | TBD | Phase B | Config snapshot for pinning CCDI tuning params during dialogue. Shape undefined — see [delivery.md#known-open-items](delivery.md#known-open-items). |
 
 This follows the existing delegation envelope pattern (parallel to `scope_envelope`). The registry seed is NOT embedded in the briefing text — it is a separate envelope field. The consultation contract §6 does not need modification: `ccdi_seed` is an optional additive field, not a change to the existing envelope schema.
 
@@ -252,8 +263,9 @@ The target-match check determines whether a CCDI packet is relevant to the compo
 
 **CLI interface:** The target-match check is performed by the agent, not the CLI. The agent:
 1. Reads the `build-packet` stdout (rendered markdown).
-2. Compares the packet's topic coverage against the composed follow-up text.
-3. If not target-relevant: invokes `build-packet --mark-deferred --deferred-reason target_mismatch --skip-build`.
+2. Checks condition (a): any of the packet's `topics` appears as a case-insensitive substring in the composed follow-up text.
+3. If condition (a) fails, checks condition (b): runs `classify --text-file <follow-up>` on the composed follow-up text and checks whether any classifier output topic matches a packet topic.
+4. If neither condition passes (not target-relevant): invokes `build-packet --mark-deferred --deferred-reason target_mismatch --skip-build`.
 
 **Replay fixture assertion:** The `target_mismatch_deferred.replay.json` fixture provides a `composed_target` field in each trace entry. The harness feeds this to the target-match check logic. The assertion verifies the registry transitions to `deferred: target_mismatch` when the packet topics do not appear in the composed target.
 

@@ -82,7 +82,7 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 | `pattern` | string | e.g., `"overview"`, `"settings"` |
 | `match_type` | `"token" \| "phrase" \| "regex"` | How to match |
 | `action` | `"drop" \| "downrank"` | Eliminate or penalize |
-| `penalty` | number \| null | Weight reduction for `downrank` (required, non-null). Must be null for `drop` — penalty is not applied when action is `drop`. |
+| `penalty` | number \| null | Discriminated by `action`: when `action: "drop"`, `penalty` MUST be `null`. When `action: "downrank"`, `penalty` MUST be a non-null number (0.0–1.0). Violations are build-time errors — `build_inventory.py` rejects the overlay with non-zero exit. |
 | `reason` | string | Why this term is problematic |
 
 **Penalty application:** `downrank` reduces the individual alias weight before summing into the topic score. If alias `A` has weight 0.6 and matches denylist rule with penalty 0.35, the effective weight is `0.6 - 0.35 = 0.25`. Negative effective weights are clamped to 0.
@@ -207,7 +207,7 @@ The overlay file (`topic_overlay.json`) is a JSON object with these root keys:
 | `add_topic` | `rule_id`, `operation`, `topic_key`, `topic_record` | — |
 | `remove_alias` | `rule_id`, `operation`, `topic_key`, `alias_text` | — |
 | `add_deny_rule` | `rule_id`, `operation`, `deny_rule` (DenyRule object) | — |
-| `override_weight` | `rule_id`, `operation`, `topic_key`, `alias_text`, `weight` | — |
+| `override_weight` | `rule_id`, `operation`, `topic_key`, `alias_text`, `weight` (0.0–1.0; out-of-bounds values are clamped with warning) | — |
 | `replace_aliases` | `rule_id`, `operation`, `topic_key`, `aliases` (Alias[]) | — |
 | `replace_refs` | `rule_id`, `operation`, `topic_key`, `canonical_refs` (DocRef[]) | — |
 | `replace_queries` | `rule_id`, `operation`, `topic_key`, `query_plan` (QueryPlan) | — |
@@ -311,6 +311,7 @@ Changes to config keys require checking all consumer files.
 | `topic_inventory.json` missing or corrupt | CLI non-zero exit / parse error | Skip CCDI, log warning |
 | `ccdi_config.json` missing | CLI fallback | Use built-in defaults, log info |
 | `ccdi_config.json` corrupt or invalid | CLI parse error | Use built-in defaults, log warning |
+| `ccdi_config.json` version mismatch (`config_version` differs from CLI's supported version) | CLI version check | Use built-in defaults, log warning (same behavior as corrupt/invalid — version-mismatched config is treated as unreadable) |
 | Inventory stale (`docs_epoch` mismatch) | Diagnostic check | Use stale inventory with diagnostics warning |
 | Version axis mismatch at build time | `build_inventory.py` validation | Fail loudly with version pair and required action |
 

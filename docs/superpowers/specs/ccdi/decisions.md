@@ -37,7 +37,7 @@ System design review surfaced 7 findings and 2 tensions; 6-turn dialogue resolve
 | Durable vs attempt-local registry states | Convergence | High |
 | CLI-only typed config file for tuning parameters | Convergence | High |
 | Scout target always beats CCDI targeting | Convergence | High |
-| Three version axes for schema evolution | Concession | Medium |
+| Four version axes for schema evolution (three compatibility + one instance) | Concession | Medium |
 | Three-layer test strategy with ccdi_trace replay harness | Concession | Medium |
 | Staged rollout: initial CCDI first, mid-dialogue in shadow mode | Concession | Medium |
 

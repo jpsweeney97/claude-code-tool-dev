@@ -97,7 +97,8 @@ Fields updated at each state transition. Fields not listed are unchanged.
 | `detected → deferred` (via `--mark-deferred`) | `state` ← `deferred`, `deferred_reason` ← reason, `deferred_ttl` ← `injection.deferred_ttl_turns` from config |
 | `[looked_up] → suppressed` | `state` ← `suppressed`, `suppression_reason` ← reason, `suppressed_docs_epoch` ← current inventory's `docs_epoch` |
 | `suppressed → detected` (re-entry) | `state` ← `detected`, `suppression_reason` ← null, `suppressed_docs_epoch` ← null, `last_seen_turn` ← current turn |
-| `deferred → detected` (TTL expiry + reappearance) | `state` ← `detected`, `deferred_reason` ← null, `deferred_ttl` ← null, `last_seen_turn` ← current turn |
+| `deferred → detected` (TTL expiry + reappearance) | `state` ← `detected`, `deferred_reason` ← null, `deferred_ttl` ← null, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if re-entry turn confidence is medium, else 0) |
+| `deferred → deferred` (TTL=0, topic absent from classifier) | `deferred_ttl` ← `injection.deferred_ttl_turns` from config (reset; state and deferred_reason unchanged) |
 
 **`last_query_fingerprint` normalization:** Lowercased query string with whitespace collapsed. Includes `docs_epoch` if available — same key composition as the [session-local cache](#session-local-cache).
 
@@ -144,7 +145,7 @@ Each turn, after the [classifier](classifier.md) runs on Codex's latest response
 3. **Consecutive-turn medium tracking:** For each `detected` topic at medium confidence, increment `consecutive_medium_count`. Reset to 0 if the topic is absent from classifier output or appears at a different confidence level. Injection fires when `consecutive_medium_count` reaches `injection.mid_turn_consecutive_medium_turns` (default: 2). Reset to 0 after injection fires.
 4. **Cooldown:** Max one new docs topic injection per turn (configurable via [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `injection.cooldown_max_new_topics_per_turn`).
 5. **Scout priority:** If context-injection has a scout candidate targeting the same code boundary, defer the CCDI candidate (→ `deferred` state with `scout_priority` reason).
-6. **Target-match check:** After building a packet for a scheduled candidate, verify the packet supports the composed follow-up target. If not target-relevant, defer the topic (→ `deferred` state with `target_mismatch` reason via `--mark-deferred`). The definition of "composed follow-up target" is specified in [integration.md#target-match-predicate](integration.md#target-match-predicate).
+6. **Target-match check:** After building a packet for a scheduled candidate, verify the packet supports the composed follow-up target. If not target-relevant, defer the topic (→ `deferred` state with `target_mismatch` reason via `--mark-deferred`). A packet is **target-relevant** when at least one of the packet's `topics` appears as a substring (case-insensitive) in the composed follow-up text, OR the packet's primary `facet` matches a concept referenced in the follow-up text (determined by running the classifier on the follow-up text and checking for topic overlap). The **composed follow-up target** is the follow-up question text that `codex-dialogue` has composed for the current turn. See [integration.md#target-match-predicate](integration.md#target-match-predicate) for the CLI interface and agent-side implementation.
 7. **Schedule** highest-priority materially new topic for lookup.
 
 ## Semantic Hints
@@ -181,10 +182,10 @@ The CLI classifies `claim_excerpt` through its standard two-stage pipeline to re
 | `contradicts_prior` | `detected` or `deferred` | Elevate to "materially new" (same as `prescriptive`) |
 | `extends_topic` | `suppressed` | Re-enter as `detected` (new signal overrides prior `weak_results` suppression) |
 | `extends_topic` | `detected` or `deferred` | Elevate to "materially new" (same as `prescriptive`) |
-| `extends_topic` | `injected` | Flag for facet expansion — schedule lookup at a facet not yet in `facets_injected` |
+| `extends_topic` | `injected` | Flag for facet expansion — use the facet resolved from `claim_excerpt` classification as the candidate facet. If that facet is already in `facets_injected`, fall back to the first entry in `pending_facets` (if any), then to `default_facet`. Schedule lookup at the selected facet if not yet in `facets_injected`. |
 | *(any)* | topic not resolved | Hint ignored — `claim_excerpt` did not match any inventory topic |
 
-**Hint facet resolution:** When a semantic hint elevates a topic, the CLI classifies `claim_excerpt` through the standard two-stage pipeline to resolve both the topic key and the facet hint from matched aliases. The resolved facet from `claim_excerpt` classification is used as the candidate facet, overriding any facet from prior detection.
+**Hint facet resolution:** When a semantic hint triggers any scheduling effect (elevation, facet expansion, or re-entry), the CLI classifies `claim_excerpt` through the standard two-stage pipeline to resolve both the topic key and the facet hint from matched aliases. The resolved facet from `claim_excerpt` classification is used as the candidate facet, overriding any facet from prior detection. This applies to all hint types and all topic states — including `extends_topic` on `injected` topics (where the resolved facet is the primary candidate for expansion).
 
 **`contradicts_prior` on `injected` — operational definition:** When a `contradicts_prior` hint resolves to an `injected` topic, the CLI appends the resolved facet to `coverage.pending_facets` (the field added in the entry structure). The topic's `state` does not change — it remains `injected`. On subsequent scheduling passes, the scheduler checks `pending_facets` and schedules a lookup at the first pending facet not already in `facets_injected`. After successful injection at the pending facet, remove it from `pending_facets`.
 

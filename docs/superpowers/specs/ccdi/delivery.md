@@ -26,7 +26,7 @@ Phase B enters **shadow mode** first: the [prepare/commit cycle](integration.md#
 | Per-turn CCDI latency | > 500ms | Average of prepare + commit per turn |
 | False-positive injection rate | > 10% | CCDI fires on non-Claude-Code topics |
 
-Secondary diagnostic (not a hard kill): `relevant_but_scout_deferred_rate` — high values indicate healthy scout precedence, not CCDI failure.
+Secondary diagnostic (not a hard kill): `relevant_but_scout_deferred_rate` = `packets_deferred_scout / packets_prepared`. High values indicate healthy scout precedence, not CCDI failure.
 
 Graduate from shadow to active when kill criteria are clear across 10+ shadow dialogues.
 
@@ -66,9 +66,9 @@ Fields `packets_target_relevant`, `packets_surviving_precedence`, and `false_pos
 - `packets_surviving_precedence`: count of target-relevant packets not deferred by scout priority
 - `false_positive_topic_detections`: count of topics classified as high/medium confidence that were not Claude Code extension topics (requires manual labeling during shadow evaluation)
 
-`effective_prepare_yield` = `packets_surviving_precedence / packets_prepared`. `false_positive_rate` = `false_positive_topic_detections / topics_detected.length`.
+`effective_prepare_yield` = `packets_surviving_precedence / packets_prepared`. `false_positive_rate` = `false_positive_topic_detections / topics_detected.length`. `relevant_but_scout_deferred_rate` = `packets_deferred_scout / packets_prepared` (derived from existing schema fields; not emitted directly — compute from the two component values).
 
-**False-positive labeling protocol:** During shadow evaluation, label a minimum of 100 detected topics across 10+ dialogues. For each topic in `topics_detected`, a labeler checks whether the input text genuinely discusses a Claude Code extension concept. Topics where the input text uses extension terminology in a non-Claude-Code context (e.g., "React hook", "webpack plugin") are false positives. `false_positive_rate` = `false_positive_topic_detections / len(topics_detected)`. The 10% kill threshold requires statistical confidence: label at least 100 topics before evaluating.
+**False-positive labeling protocol:** This kill criterion requires **human review** — it is not mechanically verifiable in CI. During shadow evaluation, a human labeler reviews a minimum of 100 detected topics across 10+ dialogues. For each topic in `topics_detected`, the labeler checks whether the input text genuinely discusses a Claude Code extension concept. Topics where the input text uses extension terminology in a non-Claude-Code context (e.g., "React hook", "webpack plugin") are false positives. `false_positive_rate` = `false_positive_topic_detections / len(topics_detected)`. The 10% kill threshold requires statistical confidence: label at least 100 topics before evaluating. Shadow-to-active graduation is a manual gate, not an automated CI check.
 
 ## Testing Strategy
 
@@ -175,6 +175,7 @@ The replay harness collects these traces and asserts on:
 | consecutive_medium_count reset after injection | Medium topic turn 1 (count=1), turn 2 (count=2, injection fires, committed) → turn 3 same medium topic → injection does NOT fire (counter reset to 0 at injection; count=1, threshold not yet met) |
 | pending_facets cleared after serving | `contradicts_prior` hint adds facet F to `pending_facets` → injection at facet F succeeds via `--mark-injected` → verify `coverage.pending_facets` does NOT contain F AND `coverage.facets_injected` DOES contain F |
 | injected_chunk_ids populated at commit | `build-packet --mark-injected` with result set containing chunk IDs [X, Y] → verify `coverage.injected_chunk_ids` contains [X, Y] → subsequent `build-packet` call with same results → chunk IDs excluded from output |
+| Injected forward-only invariant | Topic transitions to `injected`, then `dialogue-turn` called with same topic in classifier output → assert state remains `injected` (not overwritten to `detected`); `last_seen_turn` updated but state unchanged |
 
 ### Packet Builder Tests
 
@@ -206,6 +207,7 @@ The replay harness collects these traces and asserts on:
 | Automatic suppression requires registry | `build-packet` returns empty output WITHOUT `--registry-file` → no suppression written (stdout empty, no side effects). With `--registry-file` → `suppressed: weak_results` written. Tests the conditional nature of automatic suppression. |
 | `--skip-build` with `--mark-deferred` skips packet construction | `build-packet --mark-deferred <key> --deferred-reason <r> --skip-build --registry-file <path>` → registry writes deferred state AND stdout is empty (no packet built) |
 | `--skip-build` without `--mark-deferred` is ignored | `build-packet --skip-build --results-file <path> --mode initial` → normal packet construction proceeds (flag silently ignored) |
+| Missing `--coverage-target` with `--mark-injected` → error | `build-packet --mark-injected --registry-file <path> --results-file <path> --mode mid_turn` (without `--coverage-target`) → non-zero exit with descriptive error |
 
 ## Boundary Contract Tests: `test_ccdi_contracts.py`
 
@@ -240,6 +242,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Graceful degradation without `search_docs` | Consultation proceeds, `ccdi_status: unavailable` |
 | Malformed search results handled | Missing `chunk_id`, empty content → skip, not crash |
 | Inventory schema version mismatch | Older inventory → warning, not crash |
+| Inventory stale (`docs_epoch` mismatch) | Load `topic_inventory.json` with `docs_epoch` differing from active `claude-code-docs` server's epoch → diagnostics warning emitted, CCDI continues (non-blocking) |
 | `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`). `classifier_result` must contain `resolved_topics` and `suppressed_candidates` sub-fields per the [ClassifierResult contract](classifier.md#output-structure). `semantic_hints` is present only when hints were provided for the turn; `null` otherwise; with `ccdi_debug` absent → no `ccdi_trace` key |
 
 ## Inventory Tests: `test_build_inventory.py`
@@ -257,9 +260,11 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Merge semantics version mismatch → loud failure | `merge_semantics_version` incompatible → non-zero exit |
 | Overlay format validation | Unknown root keys warned, missing `overlay_version` → non-zero exit |
 | Overlay rule unknown operation | Rule with unrecognized `operation` → warning, rule skipped |
-| DenyRule drop + non-null penalty → warning | `action: "drop"`, `penalty: 0.35` → `build_inventory.py` emits warning, sets penalty to null |
+| DenyRule drop + non-null penalty → error | `action: "drop"`, `penalty: 0.35` → non-zero exit (discriminated union violation: drop requires null penalty) |
 | DenyRule downrank + null penalty → error | `action: "downrank"`, `penalty: null` → non-zero exit with "downrank requires non-null penalty" |
 | DenyRule downrank + zero penalty → warning | `action: "downrank"`, `penalty: 0` → warning "zero penalty is a no-op" |
+| `override_weight` out-of-bounds clamped | `override_weight` with `weight: 1.5` → warning, clamped to 1.0; `weight: -0.2` → warning, clamped to 0.0; compiled inventory alias has clamped value |
+| `config_version` mismatch → defaults | `ccdi_config.json` with `config_version: "99"` → warning, all values use built-in defaults (same as corrupt/invalid) |
 
 ## Replay Harness: `tests/test_ccdi_replay.py`
 
@@ -364,6 +369,7 @@ After all turns, verify the `assertions` object against the final registry state
 | `hint_contradicts_prior_on_deferred.replay.json` | `contradicts_prior` hint on deferred topic → elevated to materially new, scheduled for lookup |
 | `hint_extends_topic_on_deferred.replay.json` | `extends_topic` hint on deferred topic → elevated to materially new, scheduled for lookup |
 | `hint_unknown_topic_ignored.replay.json` | Hint with `claim_excerpt` matching no inventory topic → hint ignored, no state change, no scheduling effect |
+| `hint_contradicts_prior_on_detected.replay.json` | `contradicts_prior` hint on `detected` (non-deferred) topic → elevated to materially new, scheduled for immediate lookup |
 
 ### Layer 2b: Agent Sequence Tests
 
@@ -375,11 +381,13 @@ Tests that the `codex-dialogue` agent invokes CLI commands in the correct sequen
 
 **Mock interface:** Tests use a tool-call interceptor that records all Bash invocations matching `topic_inventory.py *`. The test asserts on the sequence of recorded commands, their arguments, and their relative ordering. `search_docs` calls are intercepted and return canned results. `codex-reply` calls are intercepted and return success unless the fixture specifies failure.
 
+**Execution model:** The test spawns a `codex-dialogue` agent in a sandboxed environment with intercepted tools. The agent processes canned Codex responses (one per turn) and makes tool calls. The interceptor records all Bash invocations matching `topic_inventory.py *`. After the agent completes (or the turn limit is reached), the test asserts that the recorded tool-call sequence matches the expected pattern.
+
 **Fixture format:** Each test case provides:
 - `delegation_envelope`: the envelope passed to `codex-dialogue` (with/without `ccdi_seed`)
 - `codex_responses`: array of canned Codex response strings (one per turn)
 - `search_results`: canned `search_docs` results per query
-- `expected_tool_sequence`: ordered array of expected CLI command patterns
+- `expected_tool_sequence`: ordered array of expected CLI command patterns, matched by prefix (e.g., `"classify"` matches any `classify --text-file ...` invocation; `"build-packet --mark-injected"` matches that specific flag combination)
 
 ## Known Open Items
 
