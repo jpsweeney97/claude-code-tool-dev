@@ -82,10 +82,10 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 | `pattern` | string | e.g., `"overview"`, `"settings"` |
 | `match_type` | `"token" \| "phrase" \| "regex"` | How to match. `"exact"` is intentionally excluded — deny rules operate on alias text during compilation, where `"token"` covers whole-word denial, `"phrase"` covers multi-word, and `"regex"` covers precise patterns. Use `"token"` for whole-word denial of identifiers. |
 | `action` | `"drop" \| "downrank"` | Eliminate or penalize |
-| `penalty` | number \| null | Discriminated by `action`: when `action: "drop"`, `penalty` MUST be `null`. When `action: "downrank"`, `penalty` MUST be a non-null number in the range (0.0, 1.0] — i.e., greater than zero and at most 1.0. `penalty: 0` is a build-time warning ("zero penalty is a no-op") because a zero-penalty downrank rule is applied but has no effect on alias weights, which is almost certainly a curator error. Violations of the discriminated union (drop + non-null, downrank + null) are build-time errors — `build_inventory.py` rejects the overlay with non-zero exit. |
+| `penalty` | number \| null | Discriminated by `action`: when `action: "drop"`, `penalty` MUST be `null`. When `action: "downrank"`, `penalty` MUST be a non-null number in the range (0.0, 1.0] — i.e., strictly greater than zero and at most 1.0. `penalty: 0` violates this constraint and is a build-time error (not merely a warning) because a zero-penalty downrank rule silently has no effect on alias weights, defeating the purpose of the curated deny rule. Violations of the discriminated union (drop + non-null, downrank + null, downrank + zero) are build-time errors — `build_inventory.py` rejects the overlay with non-zero exit. |
 | `reason` | string | Why this term is problematic |
 
-**Penalty range enforcement:** Out-of-bounds `penalty` values (< 0.0 or > 1.0) in `add_deny_rule` overlay operations are build-time errors — `build_inventory.py` fails loudly with the penalty value and valid range. Do NOT clamp silently (unlike `override_weight` which clamps with a warning), because deny rules are curated artifacts where silent modification is misleading.
+**Penalty range enforcement:** Out-of-bounds `penalty` values (<= 0.0 or > 1.0) in `add_deny_rule` overlay operations are build-time errors — `build_inventory.py` fails loudly with the penalty value and valid range. This includes `penalty: 0`, which is a build-time error (not a warning) because a zero-penalty downrank is a no-op that almost certainly indicates a curator mistake. Do NOT clamp silently (unlike `override_weight` which clamps with a warning), because deny rules are curated artifacts where silent modification is misleading.
 
 **Penalty application:** `downrank` reduces the individual alias weight before summing into the topic score. If alias `A` has weight 0.6 and matches denylist rule with penalty 0.35, the effective weight is `0.6 - 0.35 = 0.25`. Negative effective weights are clamped to 0.
 
@@ -240,7 +240,7 @@ RegistrySeed
 
 Topics in attempt-local states (`looked_up`, `built`) are not persisted to the seed — these states exist only within a single CLI invocation.
 
-**Seed-build initialization:** At seed-build time, durable-state fields are initialized per the `absent → detected` field update rule in [registry.md#field-update-rules](registry.md#field-update-rules). In particular, `consecutive_medium_count` is `1` if the entry's initial detection confidence is `medium`, else `0`. This ensures the mid-dialogue scheduling logic starts with the correct baseline — a topic first detected at medium confidence needs one more medium turn (not two) to reach the injection threshold.
+**Seed-build initialization:** At seed-build time, durable-state fields are initialized per the `absent → detected` field update rule in [registry.md#field-update-rules](registry.md#field-update-rules). See the seed-build initialization note in that section for the specific `consecutive_medium_count` baseline rule.
 
 **State at seed time:** After the [initial CCDI commit](integration.md#data-flow-full-ccdi-dialogue), entries transition to `injected` if the briefing was sent successfully. Before the commit, entries are in `detected` state.
 

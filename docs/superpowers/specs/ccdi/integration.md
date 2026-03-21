@@ -77,7 +77,7 @@ No flag is needed — empty output triggers suppression unconditionally when a r
 ]
 ```
 
-Each element contains: `topic_key` (string), `family_key` (string), `facet` (Facet — the resolved facet for this candidate), `confidence` (`"high" | "medium"` — low-confidence topics are tracked in the registry but excluded from injection candidates; see [classifier.md#injection-thresholds](classifier.md#injection-thresholds)), `coverage_target` (`"family" | "leaf"` — the classifier's resolved coverage target for this candidate), `candidate_type` (see below), and `query_plan` (the topic's QueryPlan from the inventory, for the agent to execute search). An empty array means no injection candidates this turn.
+Each element contains: `topic_key` (string), `family_key` (string), `facet` (Facet — the resolved facet for this candidate), `confidence` (`"high" | "medium" | null` — `null` for `facet_expansion` and `pending_facet` candidates which bypass confidence thresholds; low-confidence topics are tracked in the registry but excluded from injection candidates; see [classifier.md#injection-thresholds](classifier.md#injection-thresholds)), `coverage_target` (`"family" | "leaf"` — the classifier's resolved coverage target for this candidate), `candidate_type` (see below), and `query_plan` (the topic's QueryPlan from the inventory, for the agent to execute search). An empty array means no injection candidates this turn.
 
 **`candidate_type` field:** Discriminates how the candidate was scheduled. The agent uses this to distinguish standard injection candidates from hint-driven facet operations on already-injected topics.
 
@@ -146,6 +146,16 @@ User prompt
 ```
 
 ## Data Flow: Full CCDI (`/dialogue`)
+
+### Shadow Mode Gate
+
+At dialogue start, `codex-dialogue` determines whether CCDI runs in active or shadow mode:
+
+1. Read `data/ccdi_shadow/graduation.json`. If the file is absent, default to shadow mode.
+2. If `graduation.json` contains `"status": "approved"`, run in **active mode** (packets are injected into follow-up prompts).
+3. If `status` is any other value (including `"rejected"`), run in **shadow mode**: the full CCDI PREPARE cycle runs and diagnostics accumulate, but packets are NOT prepended to follow-up prompts. `packets_injected` stays 0.
+
+This gate determines only whether packets are delivered to Codex. In both modes, the prepare cycle runs identically — shadow mode observes what CCDI *would have* injected for kill-criteria evaluation (see [delivery.md#shadow-mode-kill-criteria](delivery.md#shadow-mode-kill-criteria)).
 
 ### Pre-Dialogue Phase
 
@@ -280,16 +290,19 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │            --skip-build
 │   └─ If no candidates: no CCDI this turn
 │
-├─ [Step 6: send follow-up to Codex with staged CCDI packet prepended]
+├─ [Step 6: send follow-up to Codex]
+│   ├─ If active mode AND packet staged: prepend packet to follow-up before sending
+│   └─ If shadow mode: send follow-up without packet (diagnostics record the staged packet)
 │
 ├─ Step 7.5: CCDI COMMIT (after send confirmed)
-│   ├─ If packet was sent:
+│   ├─ If active mode AND packet was sent:
 │   │   └─ Bash: python3 topic_inventory.py build-packet \
 │   │            --results-file /tmp/ccdi_results_<id>.json \
 │   │            --registry-file /tmp/ccdi_registry_<id>.json \
 │   │            --mode mid_turn --topic-key <candidate.topic_key> \
 │   │            --facet <candidate.facet> \
 │   │            --coverage-target <candidate.coverage_target> --mark-injected
+│   ├─ If shadow mode: no commit (packet staged but not delivered)
 │   └─ If send failed or packet was not staged: no commit
 │
 └─ Continue dialogue loop
