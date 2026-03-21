@@ -24,13 +24,16 @@ CompiledInventory
 
 ## Version Axes
 
-Three independent version axes prevent coupled evolution:
+Four version axes prevent coupled evolution (three compatibility axes + one instance version):
 
 | Axis | Field | What changes | Who changes it |
 |------|-------|-------------|---------------|
 | Inventory schema | `schema_version` | TopicRecord fields, Alias structure, DenyRule shape | Code change (Python) |
 | Overlay schema | `overlay_meta.overlay_schema_version` | Overlay file format, supported operations | Code change (Python) |
 | Merge semantics | `merge_semantics_version` | How overlay operations apply to inventory | Code change (Python) |
+| Overlay instance | `overlay_meta.overlay_version` | Which version of the curated overlay file was applied | Manual edit (human) |
+
+`overlay_version` is an **instance version** (which edit of the overlay file), not a **compatibility axis** (whether the overlay format is readable). It is monotonically incremented by the overlay curator on each manual edit. `build_inventory.py` records it in `overlay_meta` for traceability but does not validate compatibility — that is the job of `overlay_schema_version`.
 
 `build_inventory.py` validates compatibility between all three axes at merge time. On mismatch: fail loudly with specific version pair and required action. Do NOT silently fall back — overlays are curated artifacts, and silent incompatibility corrupts human-maintained data.
 
@@ -79,7 +82,7 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 | `pattern` | string | e.g., `"overview"`, `"settings"` |
 | `match_type` | `"token" \| "phrase" \| "regex"` | How to match |
 | `action` | `"drop" \| "downrank"` | Eliminate or penalize |
-| `penalty` | number | Weight reduction for downrank |
+| `penalty` | number \| null | Weight reduction for `downrank`; null or omit for `drop` (penalty is not applied when action is `drop`) |
 | `reason` | string | Why this term is problematic |
 
 **Penalty application:** `downrank` reduces the individual alias weight before summing into the topic score. If alias `A` has weight 0.6 and matches denylist rule with penalty 0.35, the effective weight is `0.6 - 0.35 = 0.25`. Negative effective weights are clamped to 0.
@@ -133,7 +136,7 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 
 ```json
 [
-  {"id": "drop-overview", "pattern": "overview", "match_type": "token", "action": "drop", "penalty": 1.0, "reason": "too generic"},
+  {"id": "drop-overview", "pattern": "overview", "match_type": "token", "action": "drop", "penalty": null, "reason": "too generic"},
   {"id": "downrank-schema", "pattern": "schema", "match_type": "token", "action": "downrank", "penalty": 0.35, "reason": "facet word, not topic anchor"}
 ]
 ```
@@ -166,7 +169,7 @@ RegistrySeed
 └── inventory_snapshot_version: string  # schema_version from the active inventory
 ```
 
-**`entries` field:** Each element is a `TopicRegistryEntry` (see [above](#entry-structure)) containing only durable-state fields (`topic_key`, `family_key`, `state`, `first_seen_turn`, `last_seen_turn`, `last_injected_turn`, `last_query_fingerprint`, `consecutive_medium_count`, `suppression_reason`, `deferred_reason`, `deferred_ttl`, `coverage`). Attempt-local fields (`looked_up`, `built`) are never included.
+**`entries` field:** Each element is a `TopicRegistryEntry` (see [registry.md#entry-structure](registry.md#entry-structure)) containing only durable-state fields (`topic_key`, `family_key`, `state`, `first_seen_turn`, `last_seen_turn`, `last_injected_turn`, `last_query_fingerprint`, `consecutive_medium_count`, `suppression_reason`, `deferred_reason`, `deferred_ttl`, `coverage`). Attempt-local fields (`looked_up`, `built`) are never included.
 
 **State at seed time:** After the [initial CCDI commit](integration.md#data-flow-full-ccdi-dialogue), entries transition to `injected` if the briefing was sent successfully. Before the commit, entries are in `detected` state.
 
@@ -225,7 +228,7 @@ The overlay can override config values via an optional `config_overrides` sectio
 
 Changes to config keys require checking all consumer files.
 
-**Authority scope:** This section is normative for the config file's **schema** (field names, types, default values) under the `persistence_schema` claim. The **behavioral meaning** of each parameter is authoritative in its consumer file (classifier-contract, registry-contract, or packet-contract). If a consumer file's description of a parameter's behavioral effect conflicts with the default value here, the consumer file's behavioral contract takes precedence per `claim_precedence` for `behavior_contract`.
+**Authority scope:** This section is normative for the config file's **schema** (field names, types, default values) under the `persistence_schema` claim. The **behavioral meaning** of each parameter is authoritative in its consumer file (classifier-contract, registry-contract, or packet-contract). For precedence between config schema and behavioral contracts, see `spec.yaml` → `claim_precedence`.
 
 ## Failure Modes
 
