@@ -46,6 +46,9 @@ precedence:
   #   supersede all other authorities for any claim they address)
   # - Other authorities appear where they provide implementation-level
   #   elaboration relevant to resolving conflicts in that claim family
+  # - `integration` ranks first for interface_contract because it defines the
+  #   external CLI interface consumed by agents; component contracts rank first
+  #   for behavior_contract because they own their internal behavioral rules
   claim_precedence:
     architecture_rule: [foundation, data-model, decisions]
     behavior_contract: [classifier-contract, registry-contract, packet-contract, integration, decisions]
@@ -68,5 +71,5 @@ boundary_rules:
     review_authorities: [integration, delivery, data-model]
     reason: Registry state changes and semantic hints schema affect CLI command behavior, argument shapes, test strategy, and RegistrySeed.entries durable-field subset.
   - on_change_to: [integration]
-    review_authorities: [registry-contract, delivery]
-    reason: CLI interface changes (including semantic hint schema) affect registry scheduling logic and test strategy.
+    review_authorities: [registry-contract, delivery, data-model]
+    reason: CLI interface changes (including semantic hint schema) affect registry scheduling logic, test strategy, and dump_index_metadata schema changes affect inventory generation (data-model).

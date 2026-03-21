@@ -156,6 +156,7 @@ The replay harness collects these traces and asserts on:
 | Suppressed re-entry: redundant | Coverage state change → suppressed topic re-enters as `detected` |
 | Cooldown configurable | Reads from ccdi_config.json |
 | Consecutive-turn medium threshold | Medium topic on turn 1 → no injection; same topic on turn 2 → injection fires; counter resets if topic changes |
+| Consecutive-medium reset on topic absence | Medium topic turn 1 (count=1), topic absent from classifier output turn 2 (count reset to 0), medium topic turn 3 (count=1) → injection does NOT fire on turn 3 (threshold requires 2 consecutive turns, absence breaks the streak) |
 | Family injection doesn't cover leaves | Inject hooks → hooks.post_tool_use still detected |
 | Leaf inherits family_context_available | Flag set after family injected |
 | Leaf then family tracked independently | Both have separate coverage |
@@ -176,6 +177,7 @@ The replay harness collects these traces and asserts on:
 | pending_facets cleared after serving | `contradicts_prior` hint adds facet F to `pending_facets` → injection at facet F succeeds via `--mark-injected` → verify `coverage.pending_facets` does NOT contain F AND `coverage.facets_injected` DOES contain F |
 | injected_chunk_ids populated at commit | `build-packet --mark-injected` with result set containing chunk IDs [X, Y] → verify `coverage.injected_chunk_ids` contains [X, Y] → subsequent `build-packet` call with same results → chunk IDs excluded from output |
 | Injected forward-only invariant | Topic transitions to `injected`, then `dialogue-turn` called with same topic in classifier output → assert state remains `injected` (not overwritten to `detected`); `last_seen_turn` updated but state unchanged |
+| Multiple pending_facets ordering | Two `contradicts_prior` hints add F1 then F2 to `pending_facets` → assert `pending_facets = [F1, F2]`; first injection serves F1 → `pending_facets = [F2]`; second injection serves F2 → `pending_facets = []` |
 
 ### Packet Builder Tests
 
@@ -189,6 +191,9 @@ The replay harness collects these traces and asserts on:
 | Snippet mode for field names | Exact identifiers use snippet |
 | Paraphrase mode for concepts | Behavioral descriptions use paraphrase |
 | Too-large snippet truncated | Graceful handling under budget pressure |
+| Budget boundary: N+1 facts where N fit | Mid-turn with 4 facts where 3 fit budget (max_facts=3) → output contains ≤ 3 facts, `token_estimate` ≤ 450 |
+| Quality threshold boundary: score at 0.3 | Best result score exactly 0.3 → packet IS built (threshold is "below 0.3", so 0.3 passes); score 0.29 → no packet |
+| Mid-turn topics cardinality enforced | Mid-turn with 2 topics in result set → output contains only 1 topic per `mid_turn_max_topics` config |
 
 ### CLI Integration Tests
 
@@ -244,6 +249,8 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Inventory schema version mismatch | Older inventory → warning, not crash |
 | Inventory stale (`docs_epoch` mismatch) | Load `topic_inventory.json` with `docs_epoch` differing from active `claude-code-docs` server's epoch → diagnostics warning emitted, CCDI continues (non-blocking) |
 | `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`). `classifier_result` must contain `resolved_topics` and `suppressed_candidates` sub-fields per the [ClassifierResult contract](classifier.md#output-structure). `semantic_hints` is present only when hints were provided for the turn; `null` otherwise; with `ccdi_debug` absent → no `ccdi_trace` key |
+| `ccdi_trace` semantic_hints conditional presence | Multi-turn trace: turn 1 has no hints → `ccdi_trace[0].semantic_hints == null`; turn 2 has hints → `ccdi_trace[1].semantic_hints` is a non-empty array |
+| Temp file identity per turn | Verify `<id>` in `/tmp/ccdi_*_<id>.*` paths is unique per turn (not per dialogue), preventing cross-turn file collisions in the prepare/commit protocol |
 
 ## Inventory Tests: `test_build_inventory.py`
 
@@ -265,6 +272,10 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | DenyRule downrank + zero penalty → warning | `action: "downrank"`, `penalty: 0` → warning "zero penalty is a no-op" |
 | `override_weight` out-of-bounds clamped | `override_weight` with `weight: 1.5` → warning, clamped to 1.0; `weight: -0.2` → warning, clamped to 0.0; compiled inventory alias has clamped value |
 | `config_version` mismatch → defaults | `ccdi_config.json` with `config_version: "99"` → warning, all values use built-in defaults (same as corrupt/invalid) |
+| `remove_alias` on known topic with unknown alias_text | `remove_alias` targets existing topic but non-existent alias → warning, rule skipped (no-op), topic unchanged |
+| Config override unknown keys warned and skipped | Overlay `config_overrides` with `{"nonexistent.key": 0.5}` → build succeeds (exit 0), warning emitted, known keys proceed normally |
+| Config override valid namespace unknown leaf | `config_overrides` with `{"classifier.nonexistent_key": 0.9}` → treated as unknown (warned and skipped), not silently applied |
+| Partial config missing keys → defaults | `ccdi_config.json` present but missing one key (e.g., `packets.mid_turn_max_facts` absent) → CLI uses built-in default for that key (3), no error |
 
 ## Replay Harness: `tests/test_ccdi_replay.py`
 
@@ -370,6 +381,8 @@ After all turns, verify the `assertions` object against the final registry state
 | `hint_extends_topic_on_deferred.replay.json` | `extends_topic` hint on deferred topic → elevated to materially new, scheduled for lookup |
 | `hint_unknown_topic_ignored.replay.json` | Hint with `claim_excerpt` matching no inventory topic → hint ignored, no state change, no scheduling effect |
 | `hint_contradicts_prior_on_detected.replay.json` | `contradicts_prior` hint on `detected` (non-deferred) topic → elevated to materially new, scheduled for immediate lookup |
+| `cooldown_defers_second_candidate.replay.json` | Turn with two high-confidence topics (A and B) → topic A scheduled and injected, topic B transitions to `deferred: cooldown`; subsequent turn sees topic B re-evaluated |
+| `suppressed_docs_epoch_written.replay.json` | Topic detected → searched → empty results → `suppressed: weak_results`; assert `final_registry_file_assertions` includes `{"path": "<topic>.suppressed_docs_epoch", "not_null": true}` matching the fixture's inventory `docs_epoch` |
 
 ### Layer 2b: Agent Sequence Tests
 

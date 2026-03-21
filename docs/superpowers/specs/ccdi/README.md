@@ -42,6 +42,8 @@ Modular specification for CCDI: automatic detection and injection of Claude Code
 | 7 | [integration.md](integration.md) | integration | CLI interface, data flows, prepare/commit protocol, inventory generation |
 | 8 | [delivery.md](delivery.md) | delivery | Rollout strategy, testing strategy, test matrices, diagnostics |
 
+Note: The `supporting` authority (this README) is excluded from the reading order — it is entry point documentation, not a spec file.
+
 ## Cross-Reference Conventions
 
 - Relative markdown links: `[classifier.md](classifier.md)`, `[data-model.md](data-model.md#alias)`

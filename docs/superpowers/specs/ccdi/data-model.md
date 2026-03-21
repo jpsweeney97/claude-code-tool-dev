@@ -156,6 +156,7 @@ Records which overlay operations were applied during inventory build. Stored in 
 - Scalar fields in `TopicRecord`: replace scaffold values.
 - `aliases`, `canonical_refs`, `query_plan.facets[*]`: append + dedupe by normalized value, unless `replace_*` is explicitly set in the overlay rule.
 - Overlay can: add topics, remove aliases, add deny rules, override weights.
+- `remove_alias` on a known topic with unknown `alias_text`: warning, rule skipped (no-op). Stale remove rules are expected as the scaffold evolves.
 - Generated scaffold builds the bulk. Overlay only fixes ambiguity and adds missing synonyms.
 
 ### Overlay File Format
@@ -226,7 +227,7 @@ RegistrySeed
 └── inventory_snapshot_version: string  # schema_version from the active inventory
 ```
 
-**`entries` field:** Each element is a `TopicRegistryEntry` (see [registry.md#entry-structure](registry.md#entry-structure)) containing only durable-state fields (`topic_key`, `family_key`, `state`, `first_seen_turn`, `last_seen_turn`, `last_injected_turn`, `last_query_fingerprint`, `consecutive_medium_count`, `suppression_reason`, `suppressed_docs_epoch`, `deferred_reason`, `deferred_ttl`, `coverage` — all sub-fields: `overview_injected`, `facets_injected`, `pending_facets`, `family_context_available`, `injected_chunk_ids`). Topics in attempt-local states (`looked_up`, `built`) are not persisted to the seed — these states exist only within a single CLI invocation.
+**`entries` field:** Each element is a `TopicRegistryEntry` (see [registry.md#entry-structure](registry.md#entry-structure)) containing only durable-state fields (`topic_key`, `family_key`, `state` (durable values only: `detected | injected | suppressed | deferred`), `first_seen_turn`, `last_seen_turn`, `last_injected_turn`, `last_query_fingerprint`, `consecutive_medium_count`, `suppression_reason`, `suppressed_docs_epoch`, `deferred_reason`, `deferred_ttl`, `coverage` — all sub-fields: `overview_injected`, `facets_injected`, `pending_facets`, `family_context_available`, `injected_chunk_ids`). Topics in attempt-local states (`looked_up`, `built`) are not persisted to the seed — these states exist only within a single CLI invocation.
 
 **State at seed time:** After the [initial CCDI commit](integration.md#data-flow-full-ccdi-dialogue), entries transition to `injected` if the briefing was sent successfully. Before the commit, entries are in `detected` state.
 
@@ -291,7 +292,7 @@ The overlay file may include an optional `config_overrides` object that override
 }
 ```
 
-Keys use dot-separated paths matching the config schema above (e.g., `classifier.confidence_high_min_weight`). Only keys defined in the `ccdi_config.json` schema are valid override targets.
+Keys use dot-separated paths matching the config schema above (e.g., `classifier.confidence_high_min_weight`). A key is "defined in the schema" when the full dot-path resolves to a leaf scalar in the `ccdi_config.json` structure — exact-match only, no prefix matching. Valid namespace but unknown leaf (e.g., `classifier.nonexistent_key`) is treated as unknown: warned and skipped.
 
 `build_inventory.py` records each applied config override in `overlay_meta.applied_rules[]` with `operation: "override_config"` and `target` set to the config key path.
 

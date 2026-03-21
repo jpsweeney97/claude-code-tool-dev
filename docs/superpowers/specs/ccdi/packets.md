@@ -14,7 +14,7 @@ Transforms docs search results into compact, citation-backed content for injecti
 ```
 FactPacket
 ├── packet_kind: "initial" | "mid_turn"
-├── topics: TopicKey[]
+├── topics: TopicKey[]           # max length: initial_max_topics (initial) or mid_turn_max_topics (mid_turn) from config
 ├── facts: FactItem[]
 │   ├── mode: "paraphrase" | "snippet"
 │   ├── facet: Facet
@@ -102,7 +102,7 @@ Claude Code docs context:
 ## Build Process
 
 1. Receive search results from `claude-code-docs` (chunks with `chunk_id`, `category`, `source_file`, `snippet`, `content`).
-2. Dedupe against `injected_chunk_ids` from the [topic registry](registry.md). When no registry is provided (CCDI-lite mode), skip deduplication.
+2. Dedupe against `injected_chunk_ids` from the [topic registry](registry.md). When no `--registry-file` is provided (CCDI-lite mode or the initial ccdi-gatherer call in Full CCDI where no prior state exists), skip deduplication.
 3. Rank by relevance to the resolved facet.
 4. For each top result: decide paraphrase vs snippet based on content type.
 5. Assemble into `FactPacket`, check against token budget.
