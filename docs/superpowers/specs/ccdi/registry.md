@@ -77,6 +77,22 @@ States in `[brackets]` are attempt-local — they exist only within a single `di
 
 **`deferred` vs `suppressed`:** These are semantically distinct. `suppressed` means "we looked and found nothing useful" — the evidence is weak. `deferred` means "this is a valid candidate that lost to higher priority" — the evidence may be strong but timing was wrong. Deferred reasons: `cooldown` (turn budget exhausted), `scout_priority` (scout evidence took precedence), `target_mismatch` (packet doesn't support the composed follow-up target). Deferred topics get automatic re-evaluation via TTL; suppressed topics require new signal.
 
+### Field Update Rules
+
+Fields updated at each state transition. Fields not listed are unchanged.
+
+| Transition | Fields updated |
+|-----------|----------------|
+| `absent → detected` | `first_seen_turn` ← current turn, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if medium, else 0) |
+| Re-detection (topic already in registry, any state) | `last_seen_turn` ← current turn |
+| `[built] → injected` (via `--mark-injected`) | `state` ← `injected`, `last_injected_turn` ← current turn, `last_query_fingerprint` ← normalized fingerprint of query used, `coverage.injected_chunk_ids` ← append chunk IDs from built packet, `coverage.facets_injected` ← append facet, `consecutive_medium_count` ← 0 |
+| `detected → deferred` (via `--mark-deferred`) | `state` ← `deferred`, `deferred_reason` ← reason, `deferred_ttl` ← `injection.deferred_ttl_turns` from config |
+| `[looked_up] → suppressed` | `state` ← `suppressed`, `suppression_reason` ← reason |
+| `suppressed → detected` (re-entry) | `state` ← `detected`, `suppression_reason` ← null, `last_seen_turn` ← current turn |
+| `deferred → detected` (TTL expiry + reappearance) | `state` ← `detected`, `deferred_reason` ← null, `deferred_ttl` ← null, `last_seen_turn` ← current turn |
+
+**`last_query_fingerprint` normalization:** Lowercased query string with whitespace collapsed. Includes `docs_epoch` if available — same key composition as the [session-local cache](#session-local-cache).
+
 ### TTL Lifecycle
 
 When a topic transitions to `deferred`, set `deferred_ttl` to the value of [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `injection.deferred_ttl_turns` (default: 3).
