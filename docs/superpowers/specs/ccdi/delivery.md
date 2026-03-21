@@ -222,6 +222,10 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Registry seed → delegation envelope | `ccdi_seed` file path valid, seed JSON parses to expected schema |
 | Mid-dialogue CCDI disabled without ccdi_seed | Delegation envelope without `ccdi_seed` field → diagnostics show `phase: initial_only` AND agent tool-call log contains zero invocations of `dialogue-turn` or `build-packet` (Layer 2b test — see [Layer 2b: Agent Sequence Tests](#layer-2b-agent-sequence-tests)) |
 | Version axes → overlay merge | `schema_version`, `overlay_schema_version`, `merge_semantics_version` compatibility validated at build time |
+| Inventory → classifier: schema evolution | Unknown TopicRecord field present → ignored (not crash); required Alias field missing → non-zero exit; `schema_version` mismatch at classifier load → warning |
+| Inventory → registry: schema evolution | Unknown TopicRegistryEntry field in seed → ignored; required field missing → reinitialize empty (resilience principle) |
+| Inventory → packet builder: schema evolution | Unknown QueryPlan facet → skipped; missing `default_facet` → fallback to `overview` |
+| RegistrySeed ↔ TopicRegistryEntry durable fields | Every durable field in TopicRegistryEntry (all except attempt-local states `looked_up`, `built`) is present in RegistrySeed.entries field enumeration — schema-comparison test |
 
 ## Integration Tests
 
@@ -250,6 +254,9 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Merge semantics version mismatch → loud failure | `merge_semantics_version` incompatible → non-zero exit |
 | Overlay format validation | Unknown root keys warned, missing `overlay_version` → non-zero exit |
 | Overlay rule unknown operation | Rule with unrecognized `operation` → warning, rule skipped |
+| DenyRule drop + non-null penalty → warning | `action: "drop"`, `penalty: 0.35` → `build_inventory.py` emits warning, sets penalty to null |
+| DenyRule downrank + null penalty → error | `action: "downrank"`, `penalty: null` → non-zero exit with "downrank requires non-null penalty" |
+| DenyRule downrank + zero penalty → warning | `action: "downrank"`, `penalty: 0` → warning "zero penalty is a no-op" |
 
 ## Replay Harness: `tests/test_ccdi_replay.py`
 
@@ -271,6 +278,20 @@ Structured replay harness for Layer 2a (CLI pipeline correctness) testing. Repla
   }
 }
 ```
+
+**Deep registry assertions:** In addition to `final_registry_state` (flat topic→state map), fixtures may include `final_registry_file_assertions` — an array of key-path assertions on the written registry JSON file:
+
+```json
+{
+  "final_registry_file_assertions": [
+    {"path": "hooks.pre_tool_use.coverage.pending_facets", "equals": []},
+    {"path": "hooks.pre_tool_use.coverage.facets_injected", "contains": ["schema"]},
+    {"path": "hooks.pre_tool_use.coverage.injected_chunk_ids", "length_gte": 1}
+  ]
+}
+```
+
+Supported operators: `equals` (deep equality), `contains` (array membership), `length_gte` (minimum array length), `is_null`, `not_null`.
 
 **Runner:** `uv run pytest tests/test_ccdi_replay.py` — reads all `*.replay.json` fixtures from `tests/fixtures/ccdi/`.
 
