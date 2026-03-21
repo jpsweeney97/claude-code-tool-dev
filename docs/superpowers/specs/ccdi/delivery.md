@@ -65,6 +65,8 @@ Additional fields for shadow mode kill criteria computation:
 
 `effective_prepare_yield` = `packets_surviving_precedence / packets_prepared`. `false_positive_rate` = `false_positive_topic_detections / topics_detected.length`.
 
+**False-positive labeling protocol:** During shadow evaluation, label a minimum of 100 detected topics across 10+ dialogues. For each topic in `topics_detected`, a labeler checks whether the input text genuinely discusses a Claude Code extension concept. Topics where the input text uses extension terminology in a non-Claude-Code context (e.g., "React hook", "webpack plugin") are false positives. `false_positive_rate` = `false_positive_topic_detections / len(topics_detected)`. The 10% kill threshold requires statistical confidence: label at least 100 topics before evaluating.
+
 ## Testing Strategy
 
 ### Three-Layer Approach
@@ -142,7 +144,7 @@ The replay harness collects these traces and asserts on:
 | Deferred TTL initialization | TTL set to `deferred_ttl_turns` config value at deferral time |
 | Deferred TTL decrement per turn | TTL decrements by 1 on each `dialogue-turn` call regardless of classifier output |
 | Deferred TTL expiry + reappearance | TTL=0 AND topic in classifier output → `detected` |
-| Deferred TTL expiry without reappearance | TTL=0 but topic absent from classifier → TTL reset, stays `deferred` |
+| Deferred TTL expiry without reappearance | TTL=0 but topic absent from classifier → TTL resets to `ccdi_config.injection.deferred_ttl_turns` (not hardcoded), stays `deferred`; verify with non-default config value (e.g., `deferred_ttl_turns=5`) |
 | Deferred vs suppressed distinction | Different reasons, different re-entry paths |
 | Suppressed re-entry: weak_results | `docs_epoch` change → suppressed topic re-enters as `detected` |
 | Suppressed re-entry: redundant | Coverage state change → suppressed topic re-enters as `detected` |
@@ -183,11 +185,12 @@ The replay harness collects these traces and asserts on:
 | `dialogue-turn` updates registry file | State persistence across calls |
 | `build-packet --mark-injected` updates registry | Side-effect correctness |
 | `dialogue-turn --source codex` vs `--source user` | Both accepted, same pipeline, no crash |
-| `build-packet` empty output writes suppressed | Empty result + registry → `suppressed: weak_results` in registry |
+| `build-packet` empty output writes suppressed automatically | Empty result + `--registry-file` present (NO explicit suppression flag) → `suppressed: weak_results` in registry; verify flag absence is the test condition |
 | `build-packet --mark-deferred` writes deferred state | Deferred topic_key and reason persisted to registry |
 | Missing inventory → non-zero exit | Graceful failure |
 | Malformed text → non-zero exit | Input validation |
 | stdout/stderr separation | JSON on stdout only, errors on stderr |
+| `ccdi_debug` gating of trace emission | With `ccdi_debug=true` in delegation envelope → `ccdi_trace` key present in agent output; with `ccdi_debug` absent → no `ccdi_trace` key |
 
 ## Boundary Contract Tests: `test_ccdi_contracts.py`
 
@@ -205,6 +208,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | `dump_index_metadata` → `build_inventory.py` | Response shape matches expected fields (`index_version`, `categories[].chunks[].chunk_id`, etc.) — cross-package contract |
 | Config → CLI | `ccdi_config.json` schema validated at load; unknown keys warned, missing keys use defaults |
 | Registry seed → delegation envelope | `ccdi_seed` file path valid, seed JSON parses to expected schema |
+| Mid-dialogue CCDI disabled without ccdi_seed | Delegation envelope without `ccdi_seed` field → `codex-dialogue` agent does not invoke `dialogue-turn` or `build-packet` during turn loop; diagnostics show `phase: initial_only` |
 | Version axes → overlay merge | `schema_version`, `overlay_schema_version`, `merge_semantics_version` compatibility validated at build time |
 
 ## Integration Tests
@@ -255,6 +259,14 @@ Structured replay harness for Layer 2 (agent integration) testing. Replays `ccdi
 
 **Runner:** `uv run pytest tests/test_ccdi_replay.py` — reads all `*.replay.json` fixtures from `tests/fixtures/ccdi/`.
 
+**Execution model:** The replay harness operates in **static validation mode** — it validates pre-recorded traces against assertion schemas without re-running the agent. Each fixture's `trace` array is the input (a recorded sequence of CCDI decisions per turn); `assertions` is the expected outcome. The harness:
+
+1. Replays the trace entries in order, feeding each turn's `classifier_result` and `semantic_hints` into the CLI commands (`classify`, `dialogue-turn`, `build-packet`) via subprocess calls with fixture data as input files.
+2. Compares CLI stdout (candidates, registry state) against the fixture's `assertions`.
+3. Does NOT invoke `codex-reply` or `search_docs` — these are stubbed: `search_docs` returns canned results from a `search_results` field in the fixture; `codex-reply` is assumed successful unless the fixture explicitly sets `codex_reply_error: true`.
+
+This model tests the deterministic CLI pipeline end-to-end without requiring a live Codex connection or LLM invocation.
+
 **Required fixture scenarios:**
 
 | Fixture | Scenario |
@@ -264,6 +276,10 @@ Structured replay harness for Layer 2 (agent integration) testing. Replays `ccdi
 | `send_failure_no_commit.replay.json` | Packet staged but codex-reply fails → commit skipped → topic stays `detected` |
 | `target_mismatch_deferred.replay.json` | Packet built but fails target-match → `deferred: target_mismatch` via `--mark-deferred` |
 | `semantic_hint_elevation.replay.json` | Prescriptive hint on detected topic → elevated to materially new → injected |
+| `hint_no_effect_already_injected.replay.json` | Prescriptive hint on already-injected topic → no additional injection, no state change |
+| `hint_coverage_gap.replay.json` | `contradicts_prior` hint on injected topic → facet added to `pending_facets`, scheduled for re-injection at new facet |
+| `hint_re_enters_suppressed.replay.json` | `extends_topic` hint on suppressed topic → re-enters as `detected`, scheduled for lookup |
+| `hint_facet_expansion.replay.json` | `extends_topic` hint on injected topic → facet expansion lookup at a facet not yet in `facets_injected` |
 
 ## Known Open Items
 
