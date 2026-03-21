@@ -37,7 +37,7 @@ Detection is automatic (no manual flags). Injection is source-separated from rep
 | Search wide, inject narrow | Initial subagent retrieves broadly, delivers 2–3 families |
 | Auto-generated scaffold, curated overlay | Topic inventory stays current without full manual maintenance |
 | Persist semantics, derive performance | Compiled inventory stores meaning; runtime matcher is separate |
-| CCDI is premise enrichment, not retargeting | CCDI adds context to the follow-up prompt; it never changes what the agent asks Codex about |
+| CCDI is premise enrichment, not retargeting | CCDI adds context to the follow-up prompt; it never changes what the agent asks Codex about. Packet content should provide background, not prescriptive directives — repo evidence is always the primary signal for Codex's assessment |
 | Scout evidence beats CCDI evidence | When context-injection has a scout candidate at the same boundary, CCDI yields |
 
 ## Resilience Principle

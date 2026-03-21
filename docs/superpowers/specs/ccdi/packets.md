@@ -50,7 +50,7 @@ All budget values are configurable via [`ccdi_config.json`](data-model.md#config
 
 **Quality threshold:** Skip injection when the best search result's relevance score is below `quality_min_result_score` (default: 0.3) OR when fewer than `quality_min_useful_facts` (default: 1) facts survive deduplication and budget constraints. A weak packet is worse than no packet.
 
-**Source hierarchy:** CCDI packets are premise enrichment — they provide background knowledge, not primary evidence. When both CCDI docs content and repo evidence (`@ path:line`) address the same concept, repo evidence takes precedence. The packet builder must not produce rhetorically dominant content that could override Codex's assessment of repo-specific code.
+**Source hierarchy:** CCDI packets are premise enrichment — they provide background knowledge, not primary evidence. When both CCDI docs content and repo evidence (`@ path:line`) address the same concept, repo evidence takes precedence. CCDI content is placed under `## Material` source-separated from repo evidence (`[ccdocs:...]` citations vs `@ path:line` citations). See [foundations.md#design-principles](foundations.md#design-principles) for the "premise enrichment, not retargeting" architectural constraint.
 
 ## Citation Format
 
