@@ -83,6 +83,8 @@ Give dialogue's `--plan` flag structured task context, dependencies, originating
 
 Strict/deterministic. Dialogue rejects an invalid handoff block but continues its normal pipeline (gatherers, briefing assembly, delegation). It does not fall back to a different data source.
 
+**Validity criteria:** A handoff block is invalid if: (1) any required field (`artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `focus_question`, `selected_tasks`) is absent or not well-typed, (2) `artifact_kind` is not `next_steps_plan`, or (3) `selected_tasks` is present but empty. Missing optional fields (`topic_key`, `recommended_posture`, `source_findings`, `source_assumptions`, `source_open_questions`, `out_of_scope`, `decision_gates`) do not invalidate the capsule.
+
 ### Emission
 
 NS emits one handoff block when it suggests `/dialogue`. The block's `selected_tasks[]` list contains the tasks recommended for this dialogue invocation — typically the highest-risk task or recommended first move. One block per NS run, not one block per task.
@@ -136,7 +138,7 @@ out_of_scope:
 
 - **When AR capsule was consumed:** Selectively forward items relevant to the selected tasks. Not a full copy — include only items that inform the dialogue's focus question.
 - **When no AR capsule was consumed:** All three fields are empty arrays.
-- **Reachability guarantee:** These fields close cross-schema reachability gaps where [routing](routing-and-materiality.md#routing-classification) and [materiality](routing-and-materiality.md#material-delta-gating) rules reference AR capsule fields. Deterministic routing and materiality clauses MUST be evaluable from the direct source snapshot (the NS handoff); they MUST NOT read through to transitive upstream capsules.
+- **Reachability guarantee:** These fields close cross-schema reachability gaps where [routing](routing-and-materiality.md#routing-classification) and [materiality](routing-and-materiality.md#material-delta-gating) rules reference AR capsule fields. Deterministic routing and materiality clauses MUST be evaluable from the direct source snapshot (the NS handoff); they MUST NOT read through to transitive upstream capsules. When no NS handoff is consumed (standalone dialogue invocation), this guarantee is vacuously satisfied — there is no transitive upstream chain. Routing and materiality evaluate items against conversation context only.
 
 ## Contract 3: Dialogue → AR/NS (Feedback Capsule)
 
@@ -146,7 +148,7 @@ Enable iterative refinement by giving AR and NS structured access to dialogue ou
 
 ### Consumer Class
 
-Advisory/tolerant. AR and NS validate the feedback capsule if present; fall back to conversation context if absent.
+Advisory/tolerant. AR and NS validate the feedback capsule if present; fall back to conversation context if absent or invalid.
 
 ### Emission
 
@@ -167,6 +169,7 @@ source_artifacts:
     artifact_kind: next_steps_plan
     role: plan
 record_path: <path to .claude/composition/feedback/ file — MUST be non-null>
+record_status: <ok | write_failed — optional, omit when ok>
 
 thread_id: <Codex thread ID>
 converged: <true | false>
@@ -199,7 +202,8 @@ feedback_candidates:
 
 ### Schema Constraints
 
-- **`material`/`suggested_arc` coherence:** MUST NOT set `suggested_arc` to `adversarial-review`, `next-steps`, or `ambiguous` when `material: false`. The only valid `suggested_arc` when `material: false` is `dialogue_continue`. This constraint mirrors the [correction rules](routing-and-materiality.md#affected-surface-validity) — capsules MUST be emitted in their post-correction state, not their pre-correction state.
+- **`material`/`suggested_arc` coherence:** Capsules MUST be emitted in their post-correction state. The [correction rules](routing-and-materiality.md#affected-surface-validity) (normative authority: routing) govern which `(affected_surface, material, suggested_arc)` tuples are valid in the emitted wire format. After correction, the only valid `suggested_arc` when `material: false` is `dialogue_continue`. See the [affected-surface validity matrix](routing-and-materiality.md#affected-surface-validity) for the complete rule set.
+- **`record_status` semantics:** When present with value `write_failed`, indicates the durable file write failed. `record_path` remains non-null (set to the intended path). The capsule is consumable via conversation-local sentinel scan, but cross-session resolution via durable store will fail. See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the full write failure recovery procedure.
 
 ### Design Notes
 

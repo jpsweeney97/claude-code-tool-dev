@@ -42,17 +42,17 @@ Two consumer classes govern how skills process upstream capsules:
 | Class | Behavior | Used by |
 |-------|----------|---------|
 | **Advisory/tolerant** | Validate capsule if present; fall back to the appropriate alternative source if absent or invalid. Emit a one-line prose diagnostic when falling back. | NS consuming AR capsule; AR/NS consuming feedback capsule |
+| **Strict/deterministic** | Reject invalid capsule but continue normal pipeline — no fallback to a different data source. | Dialogue consuming NS handoff |
 
-**Fallback source by arc:**
+**Fallback source by arc** (advisory/tolerant arcs only — strict/deterministic has no fallback source):
 
 | Consumer | Upstream Capsule | Fallback Source |
 |----------|-----------------|-----------------|
 | NS consuming AR capsule | `ar-capsule:v1` | Prose parsing of AR's review output |
 | AR consuming feedback capsule | `dialogue-feedback-capsule:v1` | Conversation context (prior dialogue synthesis visible in conversation) |
 | NS consuming feedback capsule | `dialogue-feedback-capsule:v1` | Conversation context (prior dialogue synthesis visible in conversation) |
-| **Strict/deterministic** | Reject invalid capsule but continue normal pipeline — no fallback to a different data source. | Dialogue consuming NS handoff |
 
-**Unknown sentinel versions:** See [capsule-contracts.md](capsule-contracts.md#unknown-version-behavior) for the normative rule. Summary: reject the capsule block, not the skill session.
+**Unknown sentinel versions:** See [capsule-contracts.md](capsule-contracts.md#unknown-version-behavior) for the normative rule. Summary: reject the capsule block, not the skill session. For advisory/tolerant consumers, this means applying the fallback source listed above. For strict/deterministic consumers, this means proceeding as if no upstream handoff is present (same as the "no sentinel found" case in [pipeline-integration.md](pipeline-integration.md#two-stage-admission)).
 
 ## Three-Layer Authority Model
 
@@ -104,4 +104,9 @@ Contract versioning is a CI/review-time concern, not runtime. Each skill stub in
 
 **Inverted authority model:** Unlike the consultation contract (which IS runtime-loaded), the composition contract is NOT. Stubs carry the runtime projection. Contract→stub drift is a silent correctness bug. Detection requires CI tooling (`validate_composition_contract.py`) that is designed but not yet implemented — see [delivery.md](delivery.md#open-items) item #6.
 
-**Interim drift mitigation (until CI enforcement exists):** Any modification to the composition contract's routing, materiality, lineage, or capsule schema sections MUST be accompanied by a manual review of all three participating skill stubs (adversarial-review, next-steps, dialogue) against the updated contract text. The PR description MUST include a stub-impact checklist confirming which stubs were reviewed and whether updates are needed. This protocol is a P0 prerequisite — merging contract changes without stub review recreates the silent correctness bug this section warns about.
+**Interim drift mitigation (until CI enforcement exists):** This protocol is bidirectional — both contract changes and stub changes can introduce drift.
+
+- **Contract → stub:** Any modification to the composition contract's routing, materiality, lineage, or capsule schema sections MUST be accompanied by a manual review of all three participating skill stubs (adversarial-review, next-steps, dialogue) against the updated contract text. The PR description MUST include a stub-impact checklist confirming which stubs were reviewed and whether updates are needed.
+- **Stub → contract:** Any modification to a participating skill stub's composition section (routing, materiality, lineage, or capsule emit/consume logic) MUST be accompanied by verification that the change conforms to the current contract. The PR description MUST confirm the stub change does not diverge from contract intent.
+
+This protocol is a P0 prerequisite in both directions — merging changes without cross-checking recreates the silent correctness bug this section warns about.

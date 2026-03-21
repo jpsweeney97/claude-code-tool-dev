@@ -30,16 +30,18 @@ For items without explicit upstream ID references: constrained LLM classificatio
 
 ### Ambiguous Item Behavior
 
-`ambiguous` items enter the materiality gate like any other item:
+`ambiguous` items enter the materiality gate like any other item. This table describes user-facing behavior during feedback evaluation (pre-correction classification). The [correction rules](#affected-surface-validity) subsequently transform these tuples before capsule emission — `material: false` + `suggested_arc: ambiguous` is corrected to `dialogue_continue` in the emitted wire format.
 
-| Condition | Behavior |
-|-----------|----------|
-| `material: false` + `suggested_arc: ambiguous` | Informational only. Reported to user but does not surface as a routing decision. No hop suggested. |
+| Condition | User-Facing Behavior (pre-correction) |
+|-----------|----------------------------------------|
+| `material: false` + `suggested_arc: ambiguous` | Informational only. Reported to user but does not surface as a routing decision. No hop suggested. Corrected to `dialogue_continue` before capsule emission (rule 1). |
 | `material: true` + `suggested_arc: ambiguous` | Manual routing bucket. User presented three actions: (1) send to adversarial-review, (2) send to next-steps, (3) hold. Default is **hold** — no hop occurs, no budget consumed. |
 
 **Disambiguation guidance:** If the ambiguity is "need more evidence before knowing which surface owns this item," the correct `suggested_arc` is `dialogue_continue`, not `ambiguous`. Use `ambiguous` only when the item is material but it is genuinely unclear whether diagnosis or planning owns the resolution.
 
 **Non-response behavior:** If the user does not respond to the ambiguous routing prompt within the current skill invocation (moves on, invokes a different skill, or ends the session), treat as `hold`. Pending ambiguous items are reported in the feedback capsule's `unresolved[]` list if a feedback capsule is emitted. They are not carried into subsequent invocations — no cross-session tracking of pending routing decisions in v1.
+
+**Hold item loss (v1 limitation):** If the session terminates before a feedback capsule is emitted (user abandons dialogue, operational interruption), held ambiguous items are lost. This is an expected v1 loss path — conversation-local state has no recovery mechanism for interrupted sessions. The durable feedback file (see [selective durable persistence](#selective-durable-persistence)) only captures items that reach capsule emission.
 
 ## Affected-Surface Validity
 
@@ -60,9 +62,11 @@ After routing classification and materiality evaluation, validate the tuple `(af
 2. If `affected_surface = evidence-only` AND `suggested_arc ≠ dialogue_continue` → correct to `dialogue_continue`
 3. If `affected_surface = diagnosis` AND `material = true` AND `suggested_arc ∉ {adversarial-review, ambiguous}` → correct to `adversarial-review`
 4. If `affected_surface = planning` AND `material = true` AND `suggested_arc ∉ {next-steps, ambiguous}` → correct to `next-steps`
-5. No remaining invalid tuples are possible given the matrix — if reached, emit `ambiguous` as a defensive fallback and log an unexpected-state warning.
+5. No remaining invalid tuples are possible given the matrix — if reached, emit `ambiguous` as a defensive fallback, set `classifier_source: rule`, and log a structured unexpected-state warning with the original `(affected_surface, material, suggested_arc)` tuple.
 
 Corrected outcomes record `classifier_source: rule`.
+
+**Emission-time enforcement:** The correction pipeline MUST run before feedback capsule assembly. Every `feedback_candidates[]` entry in the emitted capsule MUST reflect post-correction state. Capsule assembly paths that bypass the correction pipeline (e.g., direct model output projection) MUST still apply correction rules before writing `feedback_candidates[]`.
 
 **Consequence prohibitions:**
 
@@ -156,7 +160,9 @@ The budget uses `lineage_root_id` (chain identity), not `topic_key` (descriptive
 
 **Targeted loop definition:** One targeted loop = one completed composition hop where a skill run produces a new artifact that is structurally consumed by the next skill in the chain via capsule sentinel. A hop suggested but not confirmed by the user does not consume a loop. `dialogue_continue` hops (same skill, no arc change) do not consume a loop — only cross-skill hops (`adversarial-review`, `next-steps`) count.
 
-**Counter storage:** Conversation-local for v1. The dialogue skill's composition stub maintains the count by scanning the conversation context for artifacts sharing the current `lineage_root_id` and counting distinct cross-skill transitions. No durable counter file is needed — the artifacts themselves are the ledger.
+**Counter storage:** Conversation-local for v1. The dialogue skill's composition stub maintains the count by scanning the conversation context for artifacts sharing the current `lineage_root_id` and counting distinct cross-skill transitions.
+
+**Context compression resilience:** In long sessions, Claude Code compresses prior conversation turns, which may remove earlier hop artifacts from the visible context. When the scan finds fewer artifacts than expected (e.g., a feedback capsule references a `lineage_root_id` but no prior artifacts with that ID are visible), the counter is indeterminate. In this case: treat the budget as not-exhausted and emit a prose warning: "Budget count may be inaccurate due to context compression — prior hop artifacts not visible. Proceeding as if budget is available." This is a known v1 limitation of conversation-local storage; a durable counter file would eliminate it but is deferred.
 
 **Enforcement action:** When the budget is exhausted (2 targeted loops counted for the current `lineage_root_id`): (1) omit the hop suggestion block from the feedback capsule presentation, (2) emit a prose notice: "Composition budget reached for this chain (2/2 hops). Remaining open items listed below. Say 'continue' to override." (3) set `continuation_warranted` based on the synthesis outcome regardless of budget — the field remains informational.
 
