@@ -220,7 +220,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | `dump_index_metadata` → `build_inventory.py` | Response shape matches expected fields (`index_version`, `categories[].chunks[].chunk_id`, etc.) — cross-package contract |
 | Config → CLI | `ccdi_config.json` schema validated at load; unknown keys warned, missing keys use defaults |
 | Registry seed → delegation envelope | `ccdi_seed` file path valid, seed JSON parses to expected schema |
-| Mid-dialogue CCDI disabled without ccdi_seed | Delegation envelope without `ccdi_seed` field → diagnostics show `phase: initial_only` AND agent tool-call log contains zero invocations of `dialogue-turn` or `build-packet` (Layer 2b test — requires live agent with mocked tools) |
+| Mid-dialogue CCDI disabled without ccdi_seed | Delegation envelope without `ccdi_seed` field → diagnostics show `phase: initial_only` AND agent tool-call log contains zero invocations of `dialogue-turn` or `build-packet` (Layer 2b test — see [Layer 2b: Agent Sequence Tests](#layer-2b-agent-sequence-tests)) |
 | Version axes → overlay merge | `schema_version`, `overlay_schema_version`, `merge_semantics_version` compatibility validated at build time |
 
 ## Integration Tests
@@ -304,6 +304,22 @@ This model tests the deterministic CLI pipeline end-to-end without requiring a l
 | `hint_contradicts_prior_on_deferred.replay.json` | `contradicts_prior` hint on deferred topic → elevated to materially new, scheduled for lookup |
 | `hint_extends_topic_on_deferred.replay.json` | `extends_topic` hint on deferred topic → elevated to materially new, scheduled for lookup |
 | `hint_unknown_topic_ignored.replay.json` | Hint with `claim_excerpt` matching no inventory topic → hint ignored, no state change, no scheduling effect |
+
+### Layer 2b: Agent Sequence Tests
+
+Tests that the `codex-dialogue` agent invokes CLI commands in the correct sequence. Requires a live agent invocation with mocked tools — cannot be tested via the replay harness.
+
+**File location:** `tests/test_ccdi_agent_sequence.py`
+
+**Runner:** `uv run pytest tests/test_ccdi_agent_sequence.py -v`
+
+**Mock interface:** Tests use a tool-call interceptor that records all Bash invocations matching `topic_inventory.py *`. The test asserts on the sequence of recorded commands, their arguments, and their relative ordering. `search_docs` calls are intercepted and return canned results. `codex-reply` calls are intercepted and return success unless the fixture specifies failure.
+
+**Fixture format:** Each test case provides:
+- `delegation_envelope`: the envelope passed to `codex-dialogue` (with/without `ccdi_seed`)
+- `codex_responses`: array of canned Codex response strings (one per turn)
+- `search_results`: canned `search_docs` results per query
+- `expected_tool_sequence`: ordered array of expected CLI command patterns
 
 ## Known Open Items
 
