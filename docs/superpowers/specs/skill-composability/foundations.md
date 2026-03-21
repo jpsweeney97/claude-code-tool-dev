@@ -41,10 +41,18 @@ Two consumer classes govern how skills process upstream capsules:
 
 | Class | Behavior | Used by |
 |-------|----------|---------|
-| **Advisory/tolerant** | Validate capsule if present; fall back to prose parsing if absent or invalid. Emit a one-line prose diagnostic when falling back. | NS consuming AR capsule; AR/NS consuming feedback capsule |
+| **Advisory/tolerant** | Validate capsule if present; fall back to the appropriate alternative source if absent or invalid. Emit a one-line prose diagnostic when falling back. | NS consuming AR capsule; AR/NS consuming feedback capsule |
+
+**Fallback source by arc:**
+
+| Consumer | Upstream Capsule | Fallback Source |
+|----------|-----------------|-----------------|
+| NS consuming AR capsule | `ar-capsule:v1` | Prose parsing of AR's review output |
+| AR consuming feedback capsule | `dialogue-feedback-capsule:v1` | Conversation context (prior dialogue synthesis visible in conversation) |
+| NS consuming feedback capsule | `dialogue-feedback-capsule:v1` | Conversation context (prior dialogue synthesis visible in conversation) |
 | **Strict/deterministic** | Reject invalid capsule but continue normal pipeline — no fallback to a different data source. | Dialogue consuming NS handoff |
 
-**Unknown sentinel versions:** Reject the capsule block, not the skill session. A version mismatch prevents capsule consumption but does not break the skill invocation.
+**Unknown sentinel versions:** See [capsule-contracts.md](capsule-contracts.md#unknown-version-behavior) for the normative rule. Summary: reject the capsule block, not the skill session.
 
 ## Three-Layer Authority Model
 
@@ -60,7 +68,7 @@ The composition system distributes authority across three layers:
 
 **Contract carries runtime projection of protocol core:**
 
-- Sentinel/version rules and unknown-version handling — see [capsule-contracts.md](capsule-contracts.md#sentinel-registry)
+- Sentinel/version rules and unknown-version handling — see [capsule-contracts.md](capsule-contracts.md#unknown-version-behavior)
 - Artifact metadata schema — see [lineage.md](lineage.md#artifact-identity)
 - Consumer class definitions — see [Consumer Classes](#consumer-classes) below
 - Routing classification rules and precedence — see [routing-and-materiality.md](routing-and-materiality.md#routing-classification)
@@ -95,3 +103,5 @@ Contract versioning is a CI/review-time concern, not runtime. Each skill stub in
 **Contract location:** `packages/plugins/cross-model/references/composition-contract.md` — alongside the consultation contract, since all three skills interact through the cross-model dialogue system.
 
 **Inverted authority model:** Unlike the consultation contract (which IS runtime-loaded), the composition contract is NOT. Stubs carry the runtime projection. Contract→stub drift is a silent correctness bug. Detection requires CI tooling (`validate_composition_contract.py`) that is designed but not yet implemented — see [delivery.md](delivery.md#open-items) item #6.
+
+**Interim drift mitigation (until CI enforcement exists):** Any modification to the composition contract's routing, materiality, lineage, or capsule schema sections MUST be accompanied by a manual review of all three participating skill stubs (adversarial-review, next-steps, dialogue) against the updated contract text. The PR description MUST include a stub-impact checklist confirming which stubs were reviewed and whether updates are needed. This protocol is a P0 prerequisite — merging contract changes without stub review recreates the silent correctness bug this section warns about.

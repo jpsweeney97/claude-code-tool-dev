@@ -19,6 +19,10 @@ Three capsule contracts define the inter-skill data exchange format. Each contra
 
 `<!-- dialogue-orchestrated-briefing -->` is a distinct sentinel meaning "/dialogue already assembled the full Codex briefing." The NS handoff sentinel is input to dialogue's pipeline, not a replacement. The NS sentinel never reaches codex-dialogue.
 
+### Unknown Version Behavior
+
+When a consumer encounters a sentinel with an unrecognized version (e.g., `<!-- ar-capsule:v2 -->` when only `v1` is known): reject the capsule block, not the skill session. A version mismatch prevents capsule consumption but does not break the skill invocation. The consumer proceeds as if no capsule exists, applying its consumer class fallback behavior (see [foundations.md](foundations.md#consumer-classes)).
+
 ## Contract 1: AR → NS (AR Capsule)
 
 ### Purpose
@@ -41,7 +45,7 @@ AR appends the capsule after its prose output (after the Confidence Check sectio
 artifact_id: ar:<subject_key>:<created_at_compact>
 artifact_kind: adversarial_review
 subject_key: <kebab-case derived from review_target, or inherited from upstream feedback capsule>
-topic_key: <non-authoritative descriptive metadata — same as subject_key unless reviewing a facet of a broader topic>
+topic_key: <optional — non-authoritative descriptive metadata; omit or set equal to subject_key when not needed>
 lineage_root_id: <this artifact's artifact_id if standalone; inherited unchanged from upstream capsule if consuming one>
 created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior artifact_id of same kind and subject_key, or null>
@@ -81,7 +85,7 @@ Strict/deterministic. Dialogue rejects an invalid handoff block but continues it
 
 ### Emission
 
-NS emits one handoff block per recommended task when it suggests `/dialogue`. Typically accompanies the highest-risk task or recommended first move.
+NS emits one handoff block when it suggests `/dialogue`. The block's `selected_tasks[]` list contains the tasks recommended for this dialogue invocation — typically the highest-risk task or recommended first move. One block per NS run, not one block per task.
 
 ### Schema
 
@@ -89,7 +93,7 @@ NS emits one handoff block per recommended task when it suggests `/dialogue`. Ty
 artifact_id: ns:<subject_key>:<created_at_compact>
 artifact_kind: next_steps_plan
 subject_key: <inherited from AR capsule if consumed, otherwise derived from plan topic>
-topic_key: <non-authoritative descriptive metadata — inherited from AR capsule if consumed, otherwise derived>
+topic_key: <optional — non-authoritative descriptive metadata; inherited from AR capsule if consumed, otherwise derived or omitted>
 lineage_root_id: <inherited from AR capsule if consumed; otherwise this artifact's artifact_id>
 created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior NS artifact_id for this subject_key, or null>
@@ -154,7 +158,7 @@ The `/dialogue` skill (not the codex-dialogue agent) appends the feedback capsul
 artifact_id: dialogue:<subject_key>:<created_at_compact>
 artifact_kind: dialogue_feedback
 subject_key: <inherited from NS handoff if consumed, otherwise derived from goal topic>
-topic_key: <non-authoritative descriptive metadata — inherited from NS handoff if consumed, otherwise derived>
+topic_key: <optional — non-authoritative descriptive metadata; inherited from NS handoff if consumed, otherwise derived or omitted>
 lineage_root_id: <inherited from NS handoff if consumed; otherwise this artifact's artifact_id>
 created_at: <ISO 8601, UTC, millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ>
 supersedes: <prior dialogue artifact_id for this subject_key, or null>
