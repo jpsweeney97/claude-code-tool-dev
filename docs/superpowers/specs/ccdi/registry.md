@@ -22,6 +22,7 @@ TopicRegistryEntry
 ├── last_query_fingerprint: string | null
 ├── consecutive_medium_count: number   # consecutive turns at medium confidence; reset on injection or confidence change
 ├── suppression_reason: "weak_results" | "redundant" | null
+├── suppressed_docs_epoch: string | null  # docs_epoch at time of suppression; used for re-entry comparison
 ├── deferred_reason: "cooldown" | "scout_priority" | "target_mismatch" | null
 ├── deferred_ttl: number | null       # turns remaining before re-evaluation
 └── coverage
@@ -85,12 +86,16 @@ Fields updated at each state transition. Fields not listed are unchanged.
 |-----------|----------------|
 | `absent → detected` | `first_seen_turn` ← current turn, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if medium, else 0) |
 | Re-detection at medium confidence | `last_seen_turn` ← current turn, `consecutive_medium_count` ← `consecutive_medium_count` + 1 |
-| Re-detection at non-medium confidence (or topic absent) | `last_seen_turn` ← current turn (if present), `consecutive_medium_count` ← 0 |
+| Re-detection at non-medium confidence (entry exists) | `last_seen_turn` ← current turn, `consecutive_medium_count` ← 0 |
+| Topic absent from classifier output (entry exists) | `consecutive_medium_count` ← 0 |
 | `contradicts_prior` hint resolves to `injected` topic | `coverage.pending_facets` ← append resolved facet (state stays `injected`) |
 | `[built] → injected` (via `--mark-injected`) | `state` ← `injected`, `last_injected_turn` ← current turn, `last_query_fingerprint` ← normalized fingerprint of query used, `coverage.injected_chunk_ids` ← append chunk IDs from built packet, `coverage.facets_injected` ← append facet, `coverage.pending_facets` ← remove served facet (if present), `consecutive_medium_count` ← 0 |
+| `[built] → injected` (coverage_target=family, facet=overview) | Additionally: `coverage.overview_injected` ← true |
+| `absent → detected` (leaf, parent family has `coverage.overview_injected = true`) | Additionally: `coverage.family_context_available` ← true |
+| `absent → detected` (leaf, parent family not injected or not overview-covered) | `coverage.family_context_available` ← false |
 | `detected → deferred` (via `--mark-deferred`) | `state` ← `deferred`, `deferred_reason` ← reason, `deferred_ttl` ← `injection.deferred_ttl_turns` from config |
-| `[looked_up] → suppressed` | `state` ← `suppressed`, `suppression_reason` ← reason |
-| `suppressed → detected` (re-entry) | `state` ← `detected`, `suppression_reason` ← null, `last_seen_turn` ← current turn |
+| `[looked_up] → suppressed` | `state` ← `suppressed`, `suppression_reason` ← reason, `suppressed_docs_epoch` ← current inventory's `docs_epoch` |
+| `suppressed → detected` (re-entry) | `state` ← `detected`, `suppression_reason` ← null, `suppressed_docs_epoch` ← null, `last_seen_turn` ← current turn |
 | `deferred → detected` (TTL expiry + reappearance) | `state` ← `detected`, `deferred_reason` ← null, `deferred_ttl` ← null, `last_seen_turn` ← current turn |
 
 **`last_query_fingerprint` normalization:** Lowercased query string with whitespace collapsed. Includes `docs_epoch` if available — same key composition as the [session-local cache](#session-local-cache).
@@ -111,7 +116,7 @@ Re-entry conditions are aligned with the `suppression_reason`, not with classifi
 
 | `suppression_reason` | Re-entry trigger |
 |---------------------|-----------------|
-| `weak_results` | `docs_epoch` changes (index updated) OR a new query facet is requested for the topic OR an `extends_topic` semantic hint resolves to the suppressed topic (see [Semantic Hints](#semantic-hints)) |
+| `weak_results` | `docs_epoch` differs from `suppressed_docs_epoch` (index updated since suppression — uses null comparison rules below) OR a new query facet is requested for the topic OR an `extends_topic` semantic hint resolves to the suppressed topic (see [Semantic Hints](#semantic-hints)) |
 | `redundant` | Coverage state changes — e.g., an injected facet is later identified as insufficient, or a new leaf variant appears under the same family |
 
 **`docs_epoch` comparison semantics:** `null == null` is not a change (no re-entry). `null → non-null` is a change (re-entry fires). `non-null → null` is a change (re-entry fires). Comparison is string equality on non-null values.
@@ -199,7 +204,7 @@ Cache is session-local — dies with the conversation. Include `docs_epoch` in c
 | Packet staged but send fails | Agent observes send failure | No commit (topic stays `detected`, not `injected`) |
 | Staged packet doesn't match composed follow-up target | Target-match check in [Step 6](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue) | Defer CCDI candidate (→ `deferred: target_mismatch`) via `--mark-deferred` |
 | Scout takes priority over CCDI candidate | Scout target exists for turn | Defer CCDI candidate (→ `deferred: scout_priority`) |
-| Registry file missing or corrupt | CLI error | Reinitialize empty registry, lose coverage history |
+| Registry file missing or corrupt | CLI error | Reinitialize empty registry, log warning. Coverage history is lost — topics already sent may be re-injected. This is an acceptable degradation: premise enrichment is idempotent from Codex's perspective (duplicate context is low-harm). See [resilience principle](foundations.md#resilience-principle). |
 | Semantic hints file malformed | CLI parse warning | Ignore hints, proceed with classifier-only scheduling |
 
 All failure modes degrade to "proceed without CCDI" per the [resilience principle](foundations.md#resilience-principle).

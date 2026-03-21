@@ -44,6 +44,8 @@ Detection is automatic (no manual flags). Injection is source-separated from rep
 
 CCDI failures never block consultations. Every failure path degrades to "consultation proceeds without extension docs" — the current behavior. The system adds value when it works; it is invisible when it doesn't.
 
+**Registry reinit exception:** When the topic registry is corrupted mid-dialogue, CCDI reinitializes an empty registry and continues. This may re-inject topics already sent — an acceptable degradation because premise enrichment is idempotent (duplicate context is low-harm, unlike missing context).
+
 Per-component failure modes are specified in each contract file: [classifier.md](classifier.md#failure-modes), [registry.md](registry.md#failure-modes), [packets.md](packets.md#failure-modes), [integration.md](integration.md#failure-modes), and [data-model.md](data-model.md#failure-modes).
 
 ## Topic Hierarchy
