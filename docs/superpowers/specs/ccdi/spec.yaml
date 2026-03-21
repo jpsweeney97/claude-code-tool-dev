@@ -64,3 +64,6 @@ boundary_rules:
   - on_change_to: [integration]
     review_authorities: [registry-contract, delivery]
     reason: CLI interface changes (including semantic hint schema) affect registry scheduling logic and test strategy.
+  - on_change_to: [registry-contract]
+    review_authorities: [data-model]
+    reason: TopicRegistryEntry field changes affect RegistrySeed.entries durable-field subset in data-model.md.

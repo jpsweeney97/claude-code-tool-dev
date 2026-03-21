@@ -173,6 +173,8 @@ RegistrySeed
 
 **State at seed time:** After the [initial CCDI commit](integration.md#data-flow-full-ccdi-dialogue), entries transition to `injected` if the briefing was sent successfully. Before the commit, entries are in `detected` state.
 
+**In-place mutation:** The `/dialogue` skill writes the seed to a temp file, which is then updated in-place by the commit-phase `build-packet --mark-injected` call at the same path. After commit, entries at that path reflect `injected` state. See [integration.md#registry-seed-handoff](integration.md#registry-seed-handoff) for the full lifecycle.
+
 ## Inventory Lifecycle
 
 | Phase | Mechanism | Trigger |

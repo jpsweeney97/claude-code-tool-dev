@@ -32,7 +32,7 @@ System design review surfaced 7 findings and 2 tensions; 6-turn dialogue resolve
 | Resolution | Convergence type | Confidence |
 |-----------|-----------------|------------|
 | Semantic hints with claim-index refs (not topic_ids) for prescriptive-claim detection | Convergence | High |
-| Briefing-carried ccdi_seed + opaque checkpoint for registry handoff | Convergence | High |
+| ccdi_seed delegation-envelope field (file path) with sentinel-wrapped registry seed for handoff | Convergence | High |
 | Prepare/commit split (Step 5.5 / Step 7.5) for turn-loop integration | Convergence | High |
 | Durable vs attempt-local registry states | Convergence | High |
 | CLI-only typed config file for tuning parameters | Convergence | High |

@@ -43,7 +43,7 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 
 Each element contains: `topic_key` (string), `family_key` (string), `facet` (Facet — the resolved facet for this candidate), `confidence` (`"high" | "medium" | "low"`), and `query_plan` (the topic's QueryPlan from the inventory, for the agent to execute search). An empty array means no injection candidates this turn.
 
-**`--source codex|user` on `dialogue-turn`:** `codex` = classifier runs on Codex's response text; `user` = classifier runs on the user's turn text. Both sources use the same two-stage pipeline. Behavioral divergence in scheduling (if any) is deferred to implementation — currently treated identically.
+**`--source codex|user` on `dialogue-turn`:** `codex` = classifier runs on Codex's response text; `user` = classifier runs on the user's turn text. Both sources use the same two-stage pipeline. Scheduling behavior by source is defined in [registry.md#scheduling-rules](registry.md#scheduling-rules); see [delivery.md#known-open-items](delivery.md#known-open-items) for deferred divergence.
 
 ## Cross-Plugin Dependency
 
@@ -158,6 +158,8 @@ The `/dialogue` skill:
 The `codex-dialogue` agent detects the `ccdi_seed` field and uses the file as its initial `--registry-file` for the mid-dialogue CCDI loop. If the field is absent, CCDI mid-dialogue is disabled for the session.
 
 This follows the existing delegation envelope pattern (parallel to `scope_envelope`). The registry seed is NOT embedded in the briefing text — it is a separate envelope field. The consultation contract §6 does not need modification: `ccdi_seed` is an optional additive field, not a change to the existing envelope schema.
+
+**Seed file identity invariant:** The registry seed file written by `/dialogue` at `/tmp/ccdi_registry_<id>.json` is the same file path passed to the commit-phase `build-packet --mark-injected` call. The commit mutates the seed file in-place. By the time `codex-dialogue` receives `ccdi_seed` and begins its mid-dialogue loop, the registry file reflects post-commit state (`injected` entries). The seed is not a separate read-only artifact — it is the live registry file from dialogue start.
 
 ### Mid-Dialogue Phase (Per Turn in `codex-dialogue`)
 
