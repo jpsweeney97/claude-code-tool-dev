@@ -204,6 +204,16 @@ The replay harness collects these traces and asserts on:
 | Deferred→detected consecutive_medium_count initialization | Topic deferred (TTL=3), TTL expires at turn N, topic reappears at medium confidence → assert `consecutive_medium_count` = 1 (not 0); reappears at high → assert `consecutive_medium_count` = 0 |
 | Suppressed→detected last_seen_turn update | Topic suppressed at turn 2, re-enters as detected at turn 5 (docs_epoch change) → assert `last_seen_turn` = 5 (the re-entry turn, not the original suppression turn) |
 | Suppressed:redundant re-entry via new leaf | Topic A (`family_key: hooks`) suppressed:redundant, then new leaf `hooks.post_tool_use` transitions to `detected` in same family → topic A re-enters as `detected` on the same `dialogue-turn` call |
+| Result cache hit avoids re-search | Same query fingerprint submitted twice in one session → `search_docs` called once; second call returns cached results. Assert by counting `search_docs` invocations. |
+| Negative cache prevents retry after weak results | Query returns weak results (below `quality_min_result_score`) → same query resubmitted → `search_docs` NOT re-invoked; negative cache flag prevents retry. Assert suppression on second attempt without search. |
+| Packet cache serves existing packet | Same `(topic_key, facet)` pair requested twice in one session → `build-packet` returns cached packet on second call without re-ranking. Assert identical output. |
+| Cache is per-session only | Registry reinitialized (new session) → previously cached query fingerprint re-searched. Assert `search_docs` invoked despite identical query. |
+| Cache keys include docs_epoch | Same query string with different `docs_epoch` → cache miss (separate entries). Assert both queries invoke `search_docs`. |
+| `facet_expansion` candidate emitted for extends_topic on injected | Topic injected at facet `overview`. `extends_topic` hint resolves to same topic at facet `schema` (not in `facets_injected`) → `dialogue-turn` candidates includes element with `candidate_type: "facet_expansion"`, `facet: "schema"`, `confidence: null`. Topic state remains `injected`. |
+| `facet_expansion` cascade fallback to pending_facets | Topic injected at facets `[overview, schema]`. `extends_topic` hint resolves facet `schema` (already in `facets_injected`), `pending_facets: ["config"]` → candidate emitted with `facet: "config"` (cascade fallback to `pending_facets[0]`). |
+| `facet_expansion` all facets exhausted → no candidate | Topic injected at all facets including default. `extends_topic` hint resolves to same topic → all candidate facets in `facets_injected` → hint discarded, no candidate emitted, candidates array empty. |
+| `pending_facet` candidate emitted after contradicts_prior | Topic injected. `contradicts_prior` hint adds facet F to `pending_facets`. Next `dialogue-turn` call → candidates includes element with `candidate_type: "pending_facet"`, `facet: F`, `confidence: null`. |
+| `candidate_type: "new"` for standard candidates | Topic detected at high confidence → `dialogue-turn` candidates includes element with `candidate_type: "new"`. Verifies backward-compatible field presence. |
 
 ### Packet Builder Tests
 
@@ -250,7 +260,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Boundary | Contract verified |
 |----------|-------------------|
 | Inventory → classifier | `topic_key`, `family_key`, alias normalization, denylist shapes |
-| Classifier → registry | `confidence`, `facet`, `coverage_target` (flows through candidates JSON), `topic_key` enums |
+| Classifier → registry | `confidence`, `facet`, `coverage_target` (flows through candidates JSON), `candidate_type` enum (`"new" \| "facet_expansion" \| "pending_facet"`), `topic_key` enums |
 | Registry → search orchestration | Candidates produce valid query specs and category hints |
 | Search results → packet builder | Required fields present (`chunk_id`, `category`, `content`), deduplication, ranking stability |
 | Packet builder → prompt assembler | Citation format, valid markdown, token budget enforced |
@@ -388,7 +398,7 @@ Supported operators: `equals` (deep equality), `contains` (array membership), `l
 4. Run `dialogue-turn --registry-file <registry> --text-file <temp> --source <source> [--semantic-hints-file <hints>]`. If `expected_candidates` is present, assert stdout candidates match.
 5. If candidates are non-empty AND `search_results` are provided for the candidate topic:
    - Write canned `search_results` to a temp file.
-   - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --coverage-target <target>` (NO `--mark-injected` — prepare phase).
+   - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target>` (NO `--mark-injected` — prepare phase; `--facet` provided for ranking consistency).
    - If `composed_target` is present: run target-match check against the built packet (using topics from `<!-- ccdi-packet -->` metadata comment).
 6. If `codex_reply_error` is false (default) and a packet was staged:
    - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target> --mark-injected` (commit phase).
@@ -431,6 +441,8 @@ After all turns, verify the `assertions` object against the final registry state
 | `target_match_classifier_branch.replay.json` | Packet topic absent as substring from `composed_target`, but `classify` on the composed target resolves a topic that overlaps with the packet topic → packet IS target-relevant (NOT deferred). Exercises target-match condition (b) succeeding where condition (a) fails. |
 | `target_match_substring_only.replay.json` | Packet topic present as substring in `composed_target` → packet IS target-relevant via condition (a) alone. Classifier branch (b) is not needed. Isolates condition (a) as a standalone success path. |
 | `target_match_both_fail.replay.json` | Packet topic absent as substring from `composed_target` AND `classify` on composed target resolves no overlapping topic → both conditions fail → `deferred: target_mismatch`. Assert: (1) `classify` was called on `composed_target` (condition (b) was reached), (2) classifier returned no overlapping topic, (3) registry shows `deferred: target_mismatch`. This fixture prevents a short-circuit implementation that skips condition (b) entirely. |
+| `cache_hit_same_query.replay.json` | Turn 1 → topic A detected and injected with query Q. Turn 2 → same topic A reappears (e.g., via `extends_topic` hint at a new facet that resolves to the same query fingerprint) → assert `search_docs` invoked only once across both turns (cache hit on second). `final_registry_file_assertions` verifies `injected_chunk_ids` unchanged after cache-served build. |
+| `negative_cache_prevents_retry.replay.json` | Turn 1 → topic A detected, search returns weak results (below `quality_min_result_score`) → `suppressed: weak_results`. Turn 2 → topic A re-enters as `detected` (docs_epoch change), same query fingerprint → assert `search_docs` NOT re-invoked (negative cache hit); topic re-suppressed via cached weak flag. |
 
 ### Layer 2b: Agent Sequence Tests
 

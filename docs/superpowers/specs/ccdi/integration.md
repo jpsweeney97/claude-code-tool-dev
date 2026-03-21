@@ -49,6 +49,8 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 - Transitions `deferred → detected` when `deferred_ttl` reaches 0 and topic reappears in classifier output; resets `deferred_ttl` to config value when topic is absent at TTL=0.
 - Re-enters `suppressed → detected` when re-entry conditions are met: `docs_epoch` change for `weak_results`, coverage state change for `redundant`.
 - Re-enters `suppressed → detected` when `--semantic-hints-file` contains an `extends_topic` hint that resolves to a suppressed topic (applying the field updates from the `suppressed → detected` re-entry row).
+- Emits `facet_expansion` candidates when `extends_topic` hints resolve to `injected` topics with a facet not yet in `facets_injected` (cascade-resolved facet: hint-resolved → `pending_facets[0]` → `default_facet`; see [registry.md#semantic-hints](registry.md#semantic-hints)). Updates `coverage.pending_facets` per the field update rules.
+- Emits `pending_facet` candidates when an `injected` topic has non-empty `pending_facets` (from prior `contradicts_prior` hints) and the first pending facet is not yet in `facets_injected`.
 
 **`build-packet` automatic suppression:** When `--registry-file` is provided and `build-packet` returns empty output, it automatically writes a suppression state to the registry for the candidate topic. The suppression reason depends on *why* the output is empty:
 
@@ -69,12 +71,23 @@ No flag is needed — empty output triggers suppression unconditionally when a r
     "facet": "schema",
     "confidence": "high",
     "coverage_target": "leaf",
+    "candidate_type": "new",
     "query_plan": {"default_facet": "overview", "facets": {"schema": [...]}}
   }
 ]
 ```
 
-Each element contains: `topic_key` (string), `family_key` (string), `facet` (Facet — the resolved facet for this candidate), `confidence` (`"high" | "medium"` — low-confidence topics are tracked in the registry but excluded from injection candidates; see [classifier.md#injection-thresholds](classifier.md#injection-thresholds)), `coverage_target` (`"family" | "leaf"` — the classifier's resolved coverage target for this candidate), and `query_plan` (the topic's QueryPlan from the inventory, for the agent to execute search). An empty array means no injection candidates this turn.
+Each element contains: `topic_key` (string), `family_key` (string), `facet` (Facet — the resolved facet for this candidate), `confidence` (`"high" | "medium"` — low-confidence topics are tracked in the registry but excluded from injection candidates; see [classifier.md#injection-thresholds](classifier.md#injection-thresholds)), `coverage_target` (`"family" | "leaf"` — the classifier's resolved coverage target for this candidate), `candidate_type` (see below), and `query_plan` (the topic's QueryPlan from the inventory, for the agent to execute search). An empty array means no injection candidates this turn.
+
+**`candidate_type` field:** Discriminates how the candidate was scheduled. The agent uses this to distinguish standard injection candidates from hint-driven facet operations on already-injected topics.
+
+| `candidate_type` | Meaning | When emitted |
+|------------------|---------|-------------|
+| `"new"` | Standard injection candidate (topic not yet `injected`) | Classifier-driven detection or re-detection |
+| `"facet_expansion"` | Facet expansion on an `injected` topic | `extends_topic` hint resolved to an injected topic with a facet not yet in `facets_injected` |
+| `"pending_facet"` | Pending facet re-injection on an `injected` topic | `contradicts_prior` hint previously appended to `pending_facets`; scheduler selected the first pending facet |
+
+For `facet_expansion` and `pending_facet` candidates, the `facet` field contains the cascade-resolved facet computed by `dialogue-turn` (the facet the agent should pass to `--facet` at both prepare and commit time). The `confidence` field is `null` for these candidate types (confidence is a classifier concept; hint-driven candidates bypass confidence thresholds). The topic's state remains `injected` — these candidates do not change the topic's durable state until `--mark-injected` commits the facet coverage update.
 
 **`--source codex|user` on `dialogue-turn`:** `codex` = classifier runs on Codex's response text; `user` = classifier runs on the user's turn text. Both sources use the same two-stage pipeline and identical scheduling behavior — no source-differentiated rules are currently defined. See [delivery.md#known-open-items](delivery.md#known-open-items) for the deferred divergence item.
 
@@ -247,7 +260,8 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   │        --results-file /tmp/ccdi_results_<id>.json \
 │   │   │        --registry-file /tmp/ccdi_registry_<id>.json \
 │   │   │        --mode mid_turn --topic-key <candidate.topic_key> \
-│   │   │        --coverage-target <candidate.coverage_target>   (NO --mark-injected yet)
+│   │   │        --facet <candidate.facet> \
+│   │   │        --coverage-target <candidate.coverage_target>   (NO --mark-injected yet; --facet provided for ranking consistency)
 │   │   ├─ If build-packet returned empty: no packet to stage (automatic suppression already fired); skip target-match
 │   │   ├─ Target-match check: verify staged packet supports the composed follow-up target
 │   │   ├─ If target-relevant: stage for prepending
