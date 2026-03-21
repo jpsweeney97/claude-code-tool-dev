@@ -74,7 +74,8 @@ Additional fields for shadow mode kill criteria computation:
 | Layer | What it tests | How |
 |-------|--------------|-----|
 | **Unit tests** | CLI deterministic logic ([classifier](classifier.md), [registry](registry.md), [packet builder](packets.md)) | Standard pytest, full coverage of data shapes and state transitions |
-| **Replay harness** | Agent integration ([prepare/commit](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue) loop, [semantic hints](registry.md#semantic-hints), tool-call sequence) | Structured `ccdi_trace` + assertion on tool-call sequence and outcomes, not prose |
+| **Replay harness (Layer 2a)** | CLI pipeline correctness ([prepare/commit](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue) loop, [semantic hints](registry.md#semantic-hints), state transitions) | Structured `ccdi_trace` + assertion on CLI input/output and registry state, not prose |
+| **Agent sequence tests (Layer 2b)** | Agent tool-call ordering (codex-dialogue invokes CLI commands in correct sequence) | Live agent invocation with mocked tools |
 | **Shadow mode** | End-to-end quality (false positives, source hierarchy, latency) | Phase B rollout with kill criteria (see [above](#shadow-mode-kill-criteria)) |
 
 ### Debug-Gated `ccdi_trace`
@@ -96,7 +97,7 @@ The `codex-dialogue` agent emits a structured trace when CCDI is active, gated b
 
 The replay harness collects these traces and asserts on:
 
-- **Tool-call sequence:** classify → dialogue-turn → search_docs → build-packet (prepare) → codex-reply → build-packet --mark-injected (commit)
+- **CLI pipeline sequence:** classify → dialogue-turn → build-packet (prepare) → build-packet --mark-injected (commit). The harness validates the deterministic CLI pipeline produces correct outputs given canned inputs. `search_docs` results are canned from fixture data; `codex-reply` is assumed successful unless the fixture sets `codex_reply_error: true`.
 - **State transitions:** topic moved from `detected` → `[looked_up]` → `[built]` → `injected`
 - **Deferred handling:** scout conflict → `deferred` state, not `injected`; target mismatch → `deferred: target_mismatch`
 - **Send failure revert:** codex-reply error → commit step not invoked → topic remains `detected`
@@ -238,7 +239,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 
 ## Replay Harness: `tests/test_ccdi_replay.py`
 
-Structured replay harness for Layer 2 (agent integration) testing. Replays `ccdi_trace` recordings and asserts on tool-call sequence and state transitions.
+Structured replay harness for Layer 2a (CLI pipeline correctness) testing. Replays `ccdi_trace` recordings and asserts on CLI input/output and registry state transitions.
 
 **Fixture format:** Each fixture is a JSON file containing a `ccdi_trace` array (one entry per turn) plus an `assertions` object:
 
@@ -266,6 +267,14 @@ Structured replay harness for Layer 2 (agent integration) testing. Replays `ccdi
 3. Does NOT invoke `codex-reply` or `search_docs` — these are stubbed: `search_docs` returns canned results from a `search_results` field in the fixture; `codex-reply` is assumed successful unless the fixture explicitly sets `codex_reply_error: true`.
 
 This model tests the deterministic CLI pipeline end-to-end without requiring a live Codex connection or LLM invocation.
+
+**Scope limitation:** The replay harness verifies CLI pipeline correctness (Layer 2a). It does NOT verify that the `codex-dialogue` agent invokes CLI commands in the correct sequence — that requires a live agent invocation with mocked tools (Layer 2b). Layer 2b is a separate integration test category:
+
+| Test | Verifies |
+|------|----------|
+| Agent invokes classify before dialogue-turn | Tool-call ordering in codex-dialogue |
+| Agent skips build-packet when no candidates | Conditional tool invocation |
+| Agent calls --mark-injected only after successful codex-reply | Prepare/commit ordering |
 
 **Required fixture scenarios:**
 
