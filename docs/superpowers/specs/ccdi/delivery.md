@@ -259,7 +259,7 @@ Structured replay harness for Layer 2a (CLI pipeline correctness) testing. Repla
     {"turn": 2, ...}
   ],
   "assertions": {
-    "tool_call_sequence": ["classify", "dialogue-turn", "search_docs", "build-packet", "codex-reply", "build-packet --mark-injected"],
+    "cli_pipeline_sequence": ["classify", "dialogue-turn", "build-packet", "build-packet --mark-injected"],
     "final_registry_state": {"hooks.pre_tool_use": "injected"},
     "deferred_topics": [],
     "packets_injected_count": 1
