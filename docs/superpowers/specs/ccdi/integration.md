@@ -151,18 +151,23 @@ User prompt
 │
 ├─ Send briefing to Codex (via codex tool)
 │
-├─ Initial CCDI COMMIT (after briefing send confirmed)
-│  ├─ If briefing was sent successfully:
-│  │   └─ Bash: python3 topic_inventory.py build-packet \
-│  │            --results-file /tmp/ccdi_results_<id>.json \
-│  │            --registry-file /tmp/ccdi_registry_<id>.json \
-│  │            --mode initial --coverage-target <target> --mark-injected
-│  └─ If briefing send failed: no commit (seed entries remain `detected`)
-│
 ├─ Registry seed handoff
 │  ├─ /dialogue skill extracts JSON from ccdi-gatherer's sentinel block
 │  ├─ Writes registry seed to /tmp/ccdi_registry_<id>.json
-│  └─ Passes ccdi_seed envelope field to codex-dialogue delegation
+│  │   (seed entries contain `coverage_target` per entry from classifier)
+│  └─ Seed file is now the live registry file for the rest of the dialogue
+│
+├─ Initial CCDI COMMIT (after briefing send confirmed)
+│  ├─ If briefing was sent successfully:
+│  │   └─ For each seed entry, read `coverage_target` from the seed file:
+│  │       Bash: python3 topic_inventory.py build-packet \
+│  │              --results-file /tmp/ccdi_results_<id>.json \
+│  │              --registry-file /tmp/ccdi_registry_<id>.json \
+│  │              --mode initial --coverage-target <entry.coverage_target> --mark-injected
+│  │       (commit mutates the seed file in-place — entries transition to `injected`)
+│  └─ If briefing send failed: no commit (seed entries remain `detected`)
+│
+├─ Pass ccdi_seed envelope field to codex-dialogue delegation
 ```
 
 ### Registry Seed Handoff
@@ -296,6 +301,7 @@ New tool added to the `claude-code-docs` MCP server. Returns structured metadata
 {
   "index_version": "string",
   "built_at": "ISO timestamp",
+  "docs_epoch": "string | null",
   "categories": [
     {
       "name": "hooks",
@@ -315,6 +321,8 @@ New tool added to the `claude-code-docs` MCP server. Returns structured metadata
   ]
 }
 ```
+
+`docs_epoch` is the index epoch — a version marker that changes on each `reload_docs` call. `build_inventory.py` records this value as `CompiledInventory.docs_epoch` and propagates it to `RegistrySeed.docs_epoch`. The suppression re-entry logic in [registry.md#suppression-re-entry](registry.md#suppression-re-entry) compares `suppressed_docs_epoch` against the current `docs_epoch` to determine whether `weak_results`-suppressed topics should re-enter. If `docs_epoch` is null (e.g., index has never been reloaded), it is stored as-is.
 
 `build_inventory.py` consumes this to generate topic scaffolds: category names → family topics, headings → leaf topics, code literals → exact aliases, distinctive terms → phrase/token aliases, config_keys → exact aliases with `facet_hint: "config"`.
 

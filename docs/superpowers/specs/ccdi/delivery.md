@@ -64,11 +64,18 @@ Fields `packets_target_relevant`, `packets_surviving_precedence`, and `false_pos
 
 - `packets_target_relevant`: count of prepared packets that passed the target-match check
 - `packets_surviving_precedence`: count of target-relevant packets not deferred by scout priority
-- `false_positive_topic_detections`: count of topics classified as high/medium confidence that were not Claude Code extension topics (requires manual labeling during shadow evaluation)
+- `false_positive_topic_detections`: always 0 in the automated diagnostics emitter — the system cannot mechanically determine false positives. The actual count is produced by a human labeler during shadow evaluation (see labeling protocol below) and recorded in a separate annotation file, not in the emitted diagnostics JSON. The field is present in the schema for completeness and forward compatibility; its emitted value of 0 does NOT mean zero false positives
 
 `effective_prepare_yield` = `packets_surviving_precedence / packets_prepared`. `false_positive_rate` = `false_positive_topic_detections / topics_detected.length`. `relevant_but_scout_deferred_rate` = `packets_deferred_scout / packets_prepared` (derived from existing schema fields; not emitted directly — compute from the two component values).
 
-**False-positive labeling protocol:** This kill criterion requires **human review** — it is not mechanically verifiable in CI. During shadow evaluation, a human labeler reviews a minimum of 100 detected topics across 10+ dialogues. For each topic in `topics_detected`, the labeler checks whether the input text genuinely discusses a Claude Code extension concept. Topics where the input text uses extension terminology in a non-Claude-Code context (e.g., "React hook", "webpack plugin") are false positives. `false_positive_rate` = `false_positive_topic_detections / len(topics_detected)`. The 10% kill threshold requires statistical confidence: label at least 100 topics before evaluating. Shadow-to-active graduation is a manual gate, not an automated CI check.
+**False-positive labeling protocol:** This kill criterion requires **human review** — it is not mechanically verifiable in CI. The `false_positive_topic_detections` field in the automated diagnostics is always 0 (the emitter has no way to determine false positives). The actual false-positive count is produced through a separate annotation process:
+
+1. During shadow evaluation, the diagnostics emitter writes `topics_detected` arrays to per-dialogue diagnostics files.
+2. A human labeler reviews a minimum of 100 detected topics across 10+ dialogues. For each topic in `topics_detected`, the labeler checks whether the input text genuinely discusses a Claude Code extension concept. Topics where the input text uses extension terminology in a non-Claude-Code context (e.g., "React hook", "webpack plugin") are false positives.
+3. The labeler records false-positive labels in a separate annotation file (format TBD during Phase B implementation — not part of the diagnostics emitter).
+4. `false_positive_rate` = `labeled_false_positives / total_labeled_topics`. The 10% kill threshold requires statistical confidence: label at least 100 topics before evaluating.
+
+Shadow-to-active graduation is a manual gate, not an automated CI check.
 
 ## Testing Strategy
 
@@ -227,7 +234,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Packet builder → prompt assembler | Citation format, valid markdown, token budget enforced |
 | CLI → agents | Exit codes, stdout JSON contract, stderr behavior, file-path semantics |
 | Semantic hints → CLI | `claim_index`, `hint_type` enum values, `claim_excerpt` length cap, classifier resolution of excerpt |
-| `dump_index_metadata` → `build_inventory.py` | Response shape matches expected fields (`index_version`, `categories[].chunks[].chunk_id`, etc.) — cross-package contract |
+| `dump_index_metadata` → `build_inventory.py` | Response shape matches expected fields (`index_version`, `docs_epoch`, `categories[].chunks[].chunk_id`, etc.) — cross-package contract |
 | Config → CLI | `ccdi_config.json` schema validated at load; unknown keys warned, missing keys use defaults |
 | Registry seed → delegation envelope | `ccdi_seed` file path valid, seed JSON parses to expected schema |
 | Mid-dialogue CCDI disabled without ccdi_seed | Delegation envelope without `ccdi_seed` field → diagnostics show `phase: initial_only` AND agent tool-call log contains zero invocations of `dialogue-turn` or `build-packet` (Layer 2b test — see [Layer 2b: Agent Sequence Tests](#layer-2b-agent-sequence-tests)) |
@@ -236,6 +243,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Inventory → registry: schema evolution | Unknown TopicRegistryEntry field in seed → ignored; required field missing → reinitialize empty (resilience principle) |
 | Inventory → packet builder: schema evolution | Unknown QueryPlan facet → skipped; missing `default_facet` → fallback to `overview` |
 | RegistrySeed ↔ TopicRegistryEntry durable fields | Every durable field in TopicRegistryEntry (all except attempt-local states `looked_up`, `built`) is present in RegistrySeed.entries field enumeration — schema-comparison test |
+| RegistrySeed ↔ ClassifierResult coverage_target | `RegistrySeed.entries[].coverage_target` matches `ClassifierResult.resolved_topics[].coverage_target` enum (`"family" \| "leaf"`) — cross-schema consistency test |
 
 ## Integration Tests
 
@@ -383,6 +391,8 @@ After all turns, verify the `assertions` object against the final registry state
 | `hint_contradicts_prior_on_detected.replay.json` | `contradicts_prior` hint on `detected` (non-deferred) topic → elevated to materially new, scheduled for immediate lookup |
 | `cooldown_defers_second_candidate.replay.json` | Turn with two high-confidence topics (A and B) → topic A scheduled and injected, topic B transitions to `deferred: cooldown`; subsequent turn sees topic B re-evaluated |
 | `suppressed_docs_epoch_written.replay.json` | Topic detected → searched → empty results → `suppressed: weak_results`; assert `final_registry_file_assertions` includes `{"path": "<topic>.suppressed_docs_epoch", "not_null": true}` matching the fixture's inventory `docs_epoch` |
+| `target_match_classifier_branch.replay.json` | Packet topic absent as substring from `composed_target`, but `classify` on the composed target resolves a topic that overlaps with the packet topic → packet IS target-relevant (NOT deferred). Exercises target-match condition (b) succeeding where condition (a) fails. |
+| `target_match_substring_only.replay.json` | Packet topic present as substring in `composed_target` → packet IS target-relevant via condition (a) alone. Classifier branch (b) is not needed. Isolates condition (a) as a standalone success path. |
 
 ### Layer 2b: Agent Sequence Tests
 
