@@ -190,7 +190,6 @@ The replay harness collects these traces and asserts on:
 | Missing inventory → non-zero exit | Graceful failure |
 | Malformed text → non-zero exit | Input validation |
 | stdout/stderr separation | JSON on stdout only, errors on stderr |
-| `ccdi_debug` gating of trace emission | With `ccdi_debug=true` in delegation envelope → `ccdi_trace` key present in agent output; with `ccdi_debug` absent → no `ccdi_trace` key |
 
 ## Boundary Contract Tests: `test_ccdi_contracts.py`
 
@@ -221,6 +220,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Graceful degradation without `search_docs` | Consultation proceeds, `ccdi_status: unavailable` |
 | Malformed search results handled | Missing `chunk_id`, empty content → skip, not crash |
 | Inventory schema version mismatch | Older inventory → warning, not crash |
+| `ccdi_debug` gating of trace emission | With `ccdi_debug=true` in delegation envelope → `ccdi_trace` key present in agent output; with `ccdi_debug` absent → no `ccdi_trace` key |
 
 ## Inventory Tests: `test_build_inventory.py`
 
@@ -245,7 +245,7 @@ Structured replay harness for Layer 2 (agent integration) testing. Replays `ccdi
 ```json
 {
   "trace": [
-    {"turn": 1, "classifier_result": {...}, "candidates": [...], "action": "prepare", ...},
+    {"turn": 1, "classifier_result": {...}, "candidates": [...], "search_results": {...}, "action": "prepare", ...},
     {"turn": 2, ...}
   ],
   "assertions": {
