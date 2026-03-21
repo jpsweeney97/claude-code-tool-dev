@@ -245,7 +245,7 @@ Keys use dot-separated paths matching the config schema above (e.g., `classifier
 
 Changes to config keys require checking all consumer files.
 
-**Authority scope:** This section is normative for the config file's **schema** (field names, types, default values) under the `persistence_schema` claim. The **behavioral meaning** of each parameter is authoritative in its consumer file — see `spec.yaml` → `claim_precedence` for resolution order.
+**Authority scope:** This section is normative for the config file's **schema** (field names, types, default values) under the `persistence_schema` claim. For behavioral meaning of each parameter, see the consumer file listed in the config consumers table above. See `spec.yaml` → `claim_precedence` for resolution order when consumer files conflict.
 
 ## Failure Modes
 
