@@ -158,6 +158,63 @@ Records which overlay operations were applied during inventory build. Stored in 
 - Overlay can: add topics, remove aliases, add deny rules, override weights.
 - Generated scaffold builds the bulk. Overlay only fixes ambiguity and adds missing synonyms.
 
+### Overlay File Format
+
+The overlay file (`topic_overlay.json`) is a JSON object with these root keys:
+
+```json
+{
+  "overlay_version": "1",
+  "overlay_schema_version": "1",
+  "rules": [
+    {
+      "rule_id": "add-tool-inputs-alias",
+      "operation": "remove_alias",
+      "topic_key": "hooks.pre_tool_use",
+      "alias_text": "tool inputs"
+    },
+    {
+      "rule_id": "boost-pretooluse",
+      "operation": "override_weight",
+      "topic_key": "hooks.pre_tool_use",
+      "alias_text": "tool inputs",
+      "weight": 0.5
+    },
+    {
+      "rule_id": "add-custom-topic",
+      "operation": "add_topic",
+      "topic_key": "hooks.user_prompt_submit",
+      "topic_record": { "...": "full TopicRecord" }
+    }
+  ],
+  "config_overrides": {
+    "classifier.confidence_high_min_weight": 0.9
+  }
+}
+```
+
+| Root key | Type | Required | Purpose |
+|----------|------|----------|---------|
+| `overlay_version` | string | Yes | Instance version — monotonically incremented by curator on each edit |
+| `overlay_schema_version` | string | Yes | Format version — validated against `build_inventory.py`'s supported range |
+| `rules` | `OverlayRule[]` | Yes | Ordered list of overlay operations |
+| `config_overrides` | `Record<string, scalar>` | No | See [Config Overrides in Overlay](#config-overrides-in-overlay) |
+
+**OverlayRule fields by operation:**
+
+| Operation | Required fields | Optional fields |
+|-----------|----------------|-----------------|
+| `add_topic` | `rule_id`, `operation`, `topic_key`, `topic_record` | — |
+| `remove_alias` | `rule_id`, `operation`, `topic_key`, `alias_text` | — |
+| `add_deny_rule` | `rule_id`, `operation`, `deny_rule` (DenyRule object) | — |
+| `override_weight` | `rule_id`, `operation`, `topic_key`, `alias_text`, `weight` | — |
+| `replace_aliases` | `rule_id`, `operation`, `topic_key`, `aliases` (Alias[]) | — |
+| `replace_refs` | `rule_id`, `operation`, `topic_key`, `canonical_refs` (DocRef[]) | — |
+| `replace_queries` | `rule_id`, `operation`, `topic_key`, `query_plan` (QueryPlan) | — |
+| `override_config` | Expressed via `config_overrides` root key, not as a rule entry | — |
+
+`override_config` is not expressed as an `OverlayRule`. It uses the separate `config_overrides` root key. `build_inventory.py` records each applied config override as an `AppliedRule` with `operation: "override_config"` — see [Config Overrides in Overlay](#config-overrides-in-overlay).
+
 ## RegistrySeed
 
 Schema for the registry seed emitted by `ccdi-gatherer` and consumed by `codex-dialogue` via the [registry seed handoff](integration.md#registry-seed-handoff).

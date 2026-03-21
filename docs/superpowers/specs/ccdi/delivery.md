@@ -248,6 +248,8 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Version axis mismatch → loud failure | `schema_version` mismatch between inventory and overlay → non-zero exit with version pair in error |
 | Overlay schema version mismatch → loud failure | `overlay_schema_version` incompatible → non-zero exit |
 | Merge semantics version mismatch → loud failure | `merge_semantics_version` incompatible → non-zero exit |
+| Overlay format validation | Unknown root keys warned, missing `overlay_version` → non-zero exit |
+| Overlay rule unknown operation | Rule with unrecognized `operation` → warning, rule skipped |
 
 ## Replay Harness: `tests/test_ccdi_replay.py`
 
