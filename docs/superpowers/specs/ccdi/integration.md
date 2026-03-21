@@ -23,6 +23,8 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 
 **`--skip-build` flag:** When passed with `--mark-deferred`, skips packet construction and only writes deferred state to the registry. This avoids redundant rebuilds when the target-match check already determined the packet is not target-relevant. `--skip-build` is only valid with `--mark-deferred`; ignored otherwise.
 
+**`--mark-injected` registry side-effects:** When `--mark-injected` is passed with `--registry-file`, the following fields are updated per the [Field Update Rules](registry.md#field-update-rules): `state` → `injected`, `last_injected_turn`, `last_query_fingerprint`, `coverage.injected_chunk_ids` (appended from built packet's chunk IDs), `coverage.facets_injected` (appended), `coverage.pending_facets` (served facet removed if present), `consecutive_medium_count` ← 0.
+
 **`build-packet` automatic suppression:** When `--registry-file` is provided and `build-packet` returns empty output (below quality threshold), it automatically writes `suppressed: weak_results` to the registry for the candidate topic. This prevents repeated failed lookups with no backoff. No flag is needed — empty output triggers suppression unconditionally when a registry is available.
 
 **Suppression and deferral precedence:** If `build-packet` returns empty output (below quality threshold), automatic suppression writes `suppressed: weak_results` to the registry. In this case, the target-match check has no packet to evaluate — skip the `--mark-deferred` path entirely. The topic is already handled by suppression. The mid-dialogue flow should check for empty output before proceeding to target-match.
@@ -156,6 +158,16 @@ The `/dialogue` skill:
 3. Passes the file path as `ccdi_seed: <path>` in the delegation envelope to `codex-dialogue`.
 
 The `codex-dialogue` agent detects the `ccdi_seed` field and uses the file as its initial `--registry-file` for the mid-dialogue CCDI loop. If the field is absent, CCDI mid-dialogue is disabled for the session.
+
+### Delegation Envelope Fields
+
+The `/dialogue` skill passes these optional fields to `codex-dialogue`:
+
+| Field | Type | Source | Purpose |
+|-------|------|--------|---------|
+| `ccdi_seed` | file path (string) | ccdi-gatherer output | Initial registry file for mid-dialogue CCDI loop. Absent → mid-dialogue CCDI disabled. |
+| `scope_envelope` | object | context-gatherers | Existing field — repo evidence scope. |
+| `ccdi_debug` | boolean \| absent | `/dialogue` skill | When `true`, `codex-dialogue` emits `ccdi_trace` in its output. Absent or `false` → no trace. Testing-only; see [delivery.md#debug-gated-ccdi_trace](delivery.md#debug-gated-ccdi_trace) for trace schema. |
 
 This follows the existing delegation envelope pattern (parallel to `scope_envelope`). The registry seed is NOT embedded in the briefing text — it is a separate envelope field. The consultation contract §6 does not need modification: `ccdi_seed` is an optional additive field, not a change to the existing envelope schema.
 
