@@ -49,7 +49,7 @@ System design review surfaced 7 findings and 2 tensions; 6-turn dialogue resolve
 
 ## Normative Decision Constraints
 
-The following locked decisions have implementation implications. Each is stated as a testable invariant.
+The following locked decisions have implementation implications. Each is stated as a testable invariant. Per `spec.yaml` claim_precedence, component contracts (classifier-contract, registry-contract, packet-contract, integration) outrank decisions for `behavior_contract` and `interface_contract` claims. The invariants below are authoritative only when component contracts are silent — when a component contract specifies the same behavior, the component contract is the normative source and these rows serve as cross-references.
 
 | Decision | Invariant | Test Reference |
 |----------|-----------|----------------|
@@ -58,7 +58,7 @@ The following locked decisions have implementation implications. Each is stated 
 | CLI-only typed config file (Review Turn 2) | The agent MUST NOT Read files matching `*ccdi_config*`. All configuration is consumed exclusively by CLI tools via `--config` flag. | delivery.md [Layer 2b: Agent Sequence Tests](delivery.md#layer-2b-agent-sequence-tests) |
 | Registry seed in sentinel block (Design Turn 3 / Review Turn 2) | Registry seed is transmitted as JSON within `<!-- ccdi-registry-seed -->` sentinel tags in `ccdi-gatherer` output. The delegation envelope carries a `ccdi_seed` file path, not inline JSON. | delivery.md [Boundary Contract Tests](delivery.md#boundary-contract-tests-test_ccdi_contractspy): sentinel extraction |
 | Scout target always beats CCDI targeting (Review Turn 4) | When both CCDI and context-injection produce content for the same turn, scout-sourced repo evidence takes precedence. CCDI content is placed under `## Material` source-separated from repo evidence. | [foundations.md](foundations.md#design-principles): premise enrichment, not retargeting |
-| Staged rollout: initial CCDI first, mid-dialogue in shadow mode (Review Turn 6) | Mid-dialogue CCDI MUST NOT commit registry state changes (`--mark-injected`) until the shadow-mode graduation gate approves. Graduation requires `graduation.json` with `status: "approved"`. | delivery.md [Shadow Mode Gate](delivery.md#shadow-mode-gate), Layer 2b graduation gate tests |
+| Staged rollout: initial CCDI first, mid-dialogue in shadow mode (Review Turn 6) | Mid-dialogue CCDI MUST NOT commit registry state changes (`--mark-injected` or `--mark-deferred`) until the shadow-mode graduation gate approves. In shadow mode, the prepare cycle runs for diagnostic purposes, but neither injection commits nor deferral mutations are written to the registry. Graduation requires `graduation.json` with `status: "approved"`. | delivery.md [Shadow Mode Gate](delivery.md#shadow-mode-gate), Layer 2b graduation gate tests |
 
 ## Deferred Items
 

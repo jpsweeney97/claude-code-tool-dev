@@ -49,7 +49,7 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 - Resets `consecutive_medium_count` to 0 for entries absent from classifier output.
 - Decrements `deferred_ttl` by 1 for all entries in `deferred` state.
 - Transitions `deferred → detected` when `deferred_ttl` reaches 0 and topic reappears in classifier output; resets `deferred_ttl` to config value when topic is absent at TTL=0.
-- For entries in `suppressed` state that appear in classifier output: re-entry condition check is performed first (per [registry.md#suppression-re-entry](registry.md#suppression-re-entry)). If a re-entry condition is met, transitions to `detected` per the field update rules — conditions by reason: (`weak_results`) `docs_epoch` change, new query facet requested, or any semantic hint resolving to the suppressed topic; (`redundant`) new leaf in same family, or any semantic hint resolving to the suppressed topic. If no re-entry condition is met, NO field update occurs — `last_seen_turn` is NOT updated and `consecutive_medium_count` is NOT modified. Re-entry condition check precedes all field update decisions for suppressed entries.
+- For entries in `suppressed` state that appear in classifier output: re-entry condition check is performed first (per [registry.md#suppression-re-entry](registry.md#suppression-re-entry)). If a re-entry condition is met, transitions to `detected` per the field update rules — conditions by reason: (`weak_results`) `docs_epoch` change or any semantic hint resolving to the suppressed topic; (`redundant`) new leaf in same family, or any semantic hint resolving to the suppressed topic. If no re-entry condition is met, NO field update occurs — `last_seen_turn` is NOT updated and `consecutive_medium_count` is NOT modified. Re-entry condition check precedes all field update decisions for suppressed entries.
 - Emits `facet_expansion` candidates when `extends_topic` hints resolve to `injected` topics with a facet not yet in `facets_injected` (cascade-resolved facet: hint-resolved → `pending_facets[0]` → `default_facet`; see [registry.md#semantic-hints](registry.md#semantic-hints)). Does NOT mutate `coverage.pending_facets` — emits an immediate `facet_expansion` candidate via [registry.md#scheduling-rules](registry.md#scheduling-rules) step 10. (`pending_facets` is only mutated by `contradicts_prior` hints.)
 - Emits `pending_facet` candidates when an `injected` topic has non-empty `pending_facets` (from prior `contradicts_prior` hints) and the first pending facet is not yet in `facets_injected`.
 
@@ -80,7 +80,19 @@ The `dialogue-turn` command writes injection candidates to stdout as a JSON arra
 ]
 ```
 
-Each element contains: `topic_key` (string), `family_key` (string), `facet` (Facet — the resolved facet for this candidate), `confidence` (`"high" | "medium" | null` — `null` for `facet_expansion` and `pending_facet` candidates which bypass confidence thresholds; low-confidence topics are tracked in the registry but excluded from injection candidates; see [classifier.md#injection-thresholds](classifier.md#injection-thresholds)), `coverage_target` (`"family" | "leaf"` — sourcing depends on candidate type: for `candidate_type: new` candidates, sourced from `ClassifierResult.resolved_topics[].coverage_target`; for `candidate_type: facet_expansion` and `pending_facet` candidates, sourced from the persisted `TopicRegistryEntry.coverage_target` field since the topic is already in `injected` state), `candidate_type` (see below), and `query_plan` (the topic's QueryPlan from the inventory, for the agent to execute search). An empty array means no injection candidates this turn.
+**Candidate fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `topic_key` | `string` | Hierarchical topic key |
+| `family_key` | `string` | Parent family key |
+| `facet` | `Facet` | Resolved facet for this candidate |
+| `confidence` | `"high" \| "medium" \| null` | `null` for `facet_expansion` and `pending_facet` candidates which bypass confidence thresholds. Low-confidence topics are tracked in the registry but excluded from injection candidates (see [classifier.md#injection-thresholds](classifier.md#injection-thresholds)). |
+| `coverage_target` | `"family" \| "leaf"` | For `candidate_type: "new"`: sourced from `ClassifierResult.resolved_topics[].coverage_target`. For `facet_expansion` and `pending_facet`: sourced from persisted `TopicRegistryEntry.coverage_target`. |
+| `candidate_type` | `"new" \| "facet_expansion" \| "pending_facet"` | How the candidate was scheduled (see table below) |
+| `query_plan` | `QueryPlan` | The topic's [QueryPlan](data-model.md#queryplan) from the inventory, for the agent to execute search |
+
+An empty array means no injection candidates this turn.
 
 **`candidate_type` field:** Discriminates how the candidate was scheduled. The agent uses this to distinguish standard injection candidates from hint-driven facet operations on already-injected topics.
 
@@ -281,32 +293,34 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   ├─ Target-match check: verify staged packet supports the composed follow-up target
 │   │   ├─ If target-relevant: stage for prepending
 │   │   └─ If not target-relevant:
-│   │       └─ Bash: python3 topic_inventory.py build-packet \
-│   │                --results-file /tmp/ccdi_results_<id>.json \
-│   │                --registry-file /tmp/ccdi_registry_<id>.json \
-│   │                --mode mid_turn \
-│   │                --mark-deferred <topic_key> --deferred-reason target_mismatch \
-│   │                --skip-build
+│   │       ├─ If active mode:
+│   │       │   └─ Bash: python3 topic_inventory.py build-packet \
+│   │       │            --results-file /tmp/ccdi_results_<id>.json \
+│   │       │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │       │            --mode mid_turn \
+│   │       │            --mark-deferred <topic_key> --deferred-reason target_mismatch \
+│   │       │            --skip-build
+│   │       └─ If shadow mode: no registry mutation (diagnostics record the intended deferral)
 │   ├─ If candidates AND scout target exists:
 │   │   (Scout target detection is agent-side: the codex-dialogue agent determines whether
 │   │    execute_scout produced a scout candidate for the current turn from the scope_envelope
 │   │    returned by process_turn. No CLI flag is involved — the CLI has no awareness of scout
 │   │    state. The agent makes this determination and calls --mark-deferred scout_priority
 │   │    when appropriate.)
-│   │   └─ Bash: python3 topic_inventory.py build-packet \
-│   │            --registry-file /tmp/ccdi_registry_<id>.json \
-│   │            --mode mid_turn \
-│   │            --mark-deferred <topic_key> --deferred-reason scout_priority \
-│   │            --skip-build
+│   │   ├─ If active mode:
+│   │   │   └─ Bash: python3 topic_inventory.py build-packet \
+│   │   │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │   │            --mode mid_turn \
+│   │   │            --mark-deferred <topic_key> --deferred-reason scout_priority \
+│   │   │            --skip-build
+│   │   └─ If shadow mode: no registry mutation (diagnostics record the intended deferral)
 │   └─ If no candidates: no CCDI this turn
 │
 ├─ [Step 6: send follow-up to Codex]
 │   ├─ If active mode AND packet staged: prepend packet to follow-up before sending
 │   └─ If shadow mode: send follow-up without packet (diagnostics record the staged packet)
-│       Shadow mode behavioral branching is subordinate to delivery.md#shadow-mode-gate —
-│       the gate definition, graduation.json schema, and kill criteria all live under the
-│       delivery authority. If the gate conditions change in delivery.md, the per-turn
-│       branching here must be updated to match.
+│       See [delivery.md#shadow-mode-gate](delivery.md#shadow-mode-gate) for the gate
+│       definition, graduation.json schema, and kill criteria.
 │
 ├─ Step 7.5: CCDI COMMIT (after send confirmed)
 │   ├─ If active mode AND packet was sent:
@@ -322,6 +336,8 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 └─ Continue dialogue loop
 ```
 
+**Shadow-mode registry invariant:** In shadow mode, neither `--mark-injected` (Step 7.5) nor `--mark-deferred` (Step 5.5) mutates the registry. The prepare cycle runs to measure yield and latency for diagnostics, but the registry reflects only classifier-driven state (`detected`, `suppressed` via automatic build-packet suppression). Deferral state is recorded in diagnostics only. This prevents shadow-mode registry pollution from corrupting graduation kill-criteria metrics. See [decisions.md#normative-decision-constraints](decisions.md#normative-decision-constraints).
+
 **Key invariant:** `--mark-injected` is called only after the packet-containing prompt has been confirmed sent to Codex. This applies to both paths: the initial injection commit (after briefing send in `/dialogue`) and the mid-dialogue commit (Step 7.5 after follow-up send in `codex-dialogue`). This prevents the registry from recording injection for packets that were staged but never delivered (e.g., if the briefing or follow-up prompt failed).
 
 **Idempotency invariant:** `build-packet` called at commit time with the same `--results-file` and `--facet` as the prepare phase MUST produce identical chunk IDs. The packet builder MUST be deterministic given identical inputs — no randomization, stable sort for ranking. This ensures `coverage.injected_chunk_ids` accurately reflects the content sent to Codex, preserving deduplication correctness in subsequent turns.
@@ -330,7 +346,12 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 
 The **composed follow-up target** is the follow-up question text that `codex-dialogue` has composed for the current turn (the text that will be sent to Codex via `codex-reply`). This text exists after Step 4 (composition) and before Step 5.5 (CCDI PREPARE).
 
-The target-match check determines whether a CCDI packet is relevant to the composed question. See [registry.md#scheduling-rules](registry.md#scheduling-rules) step 7 for the two-condition algorithm (substring check + optional classifier fallback) and the definition of "target-relevant."
+The target-match check determines whether a CCDI packet is relevant to the composed question. A packet is **target-relevant** when at least one of:
+
+- **(a)** Any of the packet's `topics` (from the `<!-- ccdi-packet -->` metadata comment) appears as a substring (case-insensitive) in the composed follow-up text.
+- **(b)** Running `classify` on the composed follow-up text produces a topic that overlaps with the packet's `topics`.
+
+The agent performs this check. When condition (a) fails, the agent MUST invoke `classify --text-file <follow-up>` and evaluate condition (b) before deciding to defer. The agent makes the final pass/fail decision and invokes `build-packet --mark-deferred <topic_key> --deferred-reason target_mismatch --skip-build` if the check fails.
 
 **CLI interface:** The target-match check is performed by the agent, not the CLI. The CLI provides two supporting operations:
 1. `classify --text-file <follow-up>` — used by the agent for condition (b) when condition (a) fails.
