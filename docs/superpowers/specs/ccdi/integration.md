@@ -46,7 +46,7 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 ]
 ```
 
-Each element contains: `topic_key` (string), `family_key` (string), `facet` (Facet — the resolved facet for this candidate), `confidence` (`"high" | "medium" | "low"`), `coverage_target` (`"family" | "leaf"` — the classifier's resolved coverage target for this candidate), and `query_plan` (the topic's QueryPlan from the inventory, for the agent to execute search). An empty array means no injection candidates this turn.
+Each element contains: `topic_key` (string), `family_key` (string), `facet` (Facet — the resolved facet for this candidate), `confidence` (`"high" | "medium"` — low-confidence topics are tracked in the registry but excluded from injection candidates; see [classifier.md#injection-thresholds](classifier.md#injection-thresholds)), `coverage_target` (`"family" | "leaf"` — the classifier's resolved coverage target for this candidate), and `query_plan` (the topic's QueryPlan from the inventory, for the agent to execute search). An empty array means no injection candidates this turn.
 
 **`--source codex|user` on `dialogue-turn`:** `codex` = classifier runs on Codex's response text; `user` = classifier runs on the user's turn text. Both sources use the same two-stage pipeline. Scheduling behavior by source is defined in [registry.md#scheduling-rules](registry.md#scheduling-rules); see [delivery.md#known-open-items](delivery.md#known-open-items) for deferred divergence.
 
@@ -110,7 +110,10 @@ User prompt
 │
 ├─ /dialogue skill (Claude)
 │  ├─ Bash: python3 topic_inventory.py classify --text-file <prompt>
-│  ├─ If topics → dispatch ccdi-gatherer in parallel with context-gatherers
+│  ├─ If injection threshold met → dispatch ccdi-gatherer in parallel
+│  │   (threshold: 1 high-confidence OR 2+ medium-confidence same family;
+│  │    per classifier.md#injection-thresholds)
+│  ├─ If topics below threshold → proceed without CCDI
 │  └─ Dispatch context-gatherer-code + context-gatherer-falsifier (as before)
 │
 ├─ ccdi-gatherer (subagent, parallel)

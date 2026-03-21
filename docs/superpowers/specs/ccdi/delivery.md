@@ -233,7 +233,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Graceful degradation without `search_docs` | Consultation proceeds, `ccdi_status: unavailable` |
 | Malformed search results handled | Missing `chunk_id`, empty content → skip, not crash |
 | Inventory schema version mismatch | Older inventory → warning, not crash |
-| `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`classifier_result`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`); with `ccdi_debug` absent → no `ccdi_trace` key |
+| `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`). `semantic_hints` is present only when hints were provided for the turn; `null` otherwise; with `ccdi_debug` absent → no `ccdi_trace` key |
 
 ## Inventory Tests: `test_build_inventory.py`
 

@@ -89,6 +89,7 @@ Fields updated at each state transition. Fields not listed are unchanged.
 | Re-detection at non-medium confidence (entry exists) | `last_seen_turn` ← current turn, `consecutive_medium_count` ← 0 |
 | Topic absent from classifier output (entry exists) | `consecutive_medium_count` ← 0 |
 | `contradicts_prior` hint resolves to `injected` topic | `coverage.pending_facets` ← append resolved facet (state stays `injected`) |
+| `extends_topic` hint resolves to `injected` topic | `coverage.pending_facets` ← append resolved facet (if not already in `facets_injected`; state stays `injected`) |
 | `[built] → injected` (via `--mark-injected`) | `state` ← `injected`, `last_injected_turn` ← current turn, `last_query_fingerprint` ← normalized fingerprint of query used, `coverage.injected_chunk_ids` ← append chunk IDs from built packet, `coverage.facets_injected` ← append facet, `coverage.pending_facets` ← remove served facet (if present), `consecutive_medium_count` ← 0 |
 | `[built] → injected` (coverage_target=family, facet=overview) | Additionally: `coverage.overview_injected` ← true |
 | `absent → detected` (leaf, parent family has `coverage.overview_injected = true`) | Additionally: `coverage.family_context_available` ← true |
