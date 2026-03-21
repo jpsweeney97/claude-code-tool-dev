@@ -25,7 +25,14 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 
 **`--topic-key <key>` flag:** Required when `--registry-file` is provided. Identifies which topic's registry entry to update for automatic suppression (on empty output), `--mark-injected`, or `--mark-deferred`. Without `--registry-file` (CCDI-lite mode), `--topic-key` is ignored.
 
-**`--facet <facet>` flag:** Required when `--mark-injected` is passed with `--registry-file`. Specifies which facet to append to `coverage.facets_injected` at commit time. The agent passes this value from the candidates JSON (`facet` field) returned by `dialogue-turn`. Without `--mark-injected`, `--facet` is ignored. **Facet consistency:** The `facet` value at commit time MUST match the facet used during the prepare phase. In mid-turn mode, the prepare `build-packet` output includes a `<!-- ccdi-packet ... facet="..." -->` metadata comment containing the facet actually used for the search. The agent should pass this same value (or the `candidate.facet` from `dialogue-turn` candidates JSON, which is the source of truth) to `--facet` at commit time.
+**`--facet <facet>` flag:** Serves two purposes depending on mode:
+
+- **During packet construction:** When provided, directs facet-based ranking in [packets.md build process step 3](packets.md#build-process). When absent (initial mode without `--mark-injected`), the CLI derives the ranking facet per-topic from `ClassifierResult.resolved_topics[].facet` (see [packets.md](packets.md#build-process) for fallback rules).
+- **At commit time (`--mark-injected`):** Required when `--mark-injected` is passed with `--registry-file`. Specifies which facet to append to `coverage.facets_injected`.
+
+**Facet consistency (mid-turn mode):** In mid-turn mode, the `facet` value at commit time MUST match the facet used during the prepare phase. The prepare `build-packet` output includes a `<!-- ccdi-packet ... facet="..." -->` metadata comment containing the facet actually used for the search. The agent passes `candidate.facet` from `dialogue-turn` candidates JSON (the source of truth for both calls) to `--facet` at both prepare and commit time.
+
+**Facet in initial mode:** The ccdi-gatherer's prepare call omits `--facet` because initial packets cover multiple topics, each with its own classifier-resolved facet. The commit call passes `--facet <entry.facet>` per-topic from the seed file, which records the classifier's resolved facet at seed-build time. Consistency is maintained because both the prepare-phase ranking facet (derived per-topic from the classifier result) and the commit-phase `--facet` (from `RegistrySeed.entries[].facet`) originate from the same source: `ClassifierResult.resolved_topics[].facet`.
 
 **`--skip-build` flag:** When passed with `--mark-deferred`, skips packet construction and only writes deferred state to the registry. This avoids redundant rebuilds when the target-match check already determined the packet is not target-relevant. `--skip-build` is only valid with `--mark-deferred`; ignored otherwise. When `--skip-build` is passed with `--mark-deferred`, `--results-file` is not required — no packet construction occurs.
 
@@ -147,7 +154,8 @@ User prompt
 │  ├─ Writes search results to /tmp/ccdi_results_<id>.json
 │  ├─ Bash: python3 topic_inventory.py build-packet \
 │  │        --results-file /tmp/ccdi_results_<id>.json --mode initial
-│  │        (NO --registry-file, NO --mark-injected — pure packet build, no state mutation)
+│  │        (NO --registry-file, NO --mark-injected, NO --facet — pure packet build;
+│  │         ranking facet derived per-topic from ClassifierResult.resolved_topics[].facet)
 │  └─ Returns: rendered markdown block + sentinel-wrapped registry seed
 │             + results file path in sentinel block for commit-phase use
 │
@@ -279,7 +287,7 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 
 The **composed follow-up target** is the follow-up question text that `codex-dialogue` has composed for the current turn (the text that will be sent to Codex via `codex-reply`). This text exists after Step 4 (composition) and before Step 5.5 (CCDI PREPARE).
 
-The target-match check determines whether a CCDI packet is relevant to the composed question. A packet is **target-relevant** when at least one of the packet's `topics` appears as a substring (case-insensitive) in the composed follow-up text, OR the packet's primary `facet` matches a concept referenced in the follow-up text (determined by running the classifier on the follow-up text and checking for topic overlap).
+The target-match check determines whether a CCDI packet is relevant to the composed question. A packet is **target-relevant** when at least one of the packet's `topics` appears as a substring (case-insensitive) in the composed follow-up text, OR running the classifier on the follow-up text produces a topic that overlaps with the packet's `topics`.
 
 **CLI interface:** The target-match check is performed by the agent, not the CLI. The agent:
 1. Reads the `build-packet` stdout (rendered markdown).

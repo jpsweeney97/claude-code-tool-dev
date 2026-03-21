@@ -109,7 +109,7 @@ The `<!-- ccdi-packet ... -->` comment is a structured metadata line emitted by 
 
 1. Receive search results from `claude-code-docs` (chunks with `chunk_id`, `category`, `source_file`, `snippet`, `content`).
 2. Dedupe against `injected_chunk_ids` from the [topic registry](registry.md). When no `--registry-file` is provided (CCDI-lite mode or the initial ccdi-gatherer call in Full CCDI where no prior state exists), skip deduplication.
-3. Rank by relevance to the resolved facet.
+3. Rank by relevance to the resolved facet. **Facet source:** When `--facet` is provided, use it. When `--facet` is absent (initial mode without `--mark-injected`), use each topic's classifier-resolved facet from the query plan (i.e., the facet in the `ClassifierResult.resolved_topics[].facet` that drove query selection). If the resolved facet is absent from the topic's `QueryPlan.facets`, fall back to `default_facet`.
 4. For each top result: decide paraphrase vs snippet based on content type.
 5. Assemble into `FactPacket`, check against token budget.
 6. If under quality threshold or budget exceeded with nothing useful: return empty (skip injection). Suppression reason depends on *why* the output is empty — see [Failure Modes](#failure-modes).
