@@ -166,7 +166,7 @@ RegistrySeed
 └── inventory_snapshot_version: string  # schema_version from the active inventory
 ```
 
-**`entries` field:** Each element is a `TopicRegistryEntry` (see [above](#entry-structure)) containing only durable-state fields (`topic_key`, `family_key`, `state`, `first_seen_turn`, `last_seen_turn`, `last_injected_turn`, `last_query_fingerprint`, `suppression_reason`, `deferred_reason`, `deferred_ttl`, `coverage`). Attempt-local fields (`looked_up`, `built`) are never included.
+**`entries` field:** Each element is a `TopicRegistryEntry` (see [above](#entry-structure)) containing only durable-state fields (`topic_key`, `family_key`, `state`, `first_seen_turn`, `last_seen_turn`, `last_injected_turn`, `last_query_fingerprint`, `consecutive_medium_count`, `suppression_reason`, `deferred_reason`, `deferred_ttl`, `coverage`). Attempt-local fields (`looked_up`, `built`) are never included.
 
 **State at seed time:** After the [initial CCDI commit](integration.md#data-flow-full-ccdi-dialogue), entries transition to `injected` if the briefing was sent successfully. Before the commit, entries are in `detected` state.
 

@@ -20,12 +20,14 @@ TopicRegistryEntry
 ├── last_seen_turn: number
 ├── last_injected_turn: number | null
 ├── last_query_fingerprint: string | null
+├── consecutive_medium_count: number   # consecutive turns at medium confidence; reset on injection or confidence change
 ├── suppression_reason: "weak_results" | "redundant" | null
 ├── deferred_reason: "cooldown" | "scout_priority" | "target_mismatch" | null
 ├── deferred_ttl: number | null       # turns remaining before re-evaluation
 └── coverage
     ├── overview_injected: boolean
     ├── facets_injected: Facet[]
+    ├── pending_facets: Facet[]        # facets flagged for re-injection by contradicts_prior hint
     ├── family_context_available: boolean
     └── injected_chunk_ids: string[]
 ```
