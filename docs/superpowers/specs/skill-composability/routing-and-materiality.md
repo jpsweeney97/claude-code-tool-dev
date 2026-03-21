@@ -62,30 +62,34 @@ After routing classification and materiality evaluation, validate the tuple `(af
 2. If `affected_surface = evidence-only` AND `suggested_arc ≠ dialogue_continue` → correct to `dialogue_continue`
 3. If `affected_surface = diagnosis` AND `material = true` AND `suggested_arc ∉ {adversarial-review, ambiguous}` → correct to `adversarial-review`
 4. If `affected_surface = planning` AND `material = true` AND `suggested_arc ∉ {next-steps, ambiguous}` → correct to `next-steps`
-5. No remaining invalid tuples are possible given the matrix — if reached, emit `ambiguous` as a defensive fallback, set `classifier_source: rule`, and log a structured unexpected-state warning with the original `(affected_surface, material, suggested_arc)` tuple.
+5. No remaining invalid tuples are possible given the matrix — if reached, emit `dialogue_continue` as the defensive fallback, set `classifier_source: rule`, and log a structured unexpected-state warning with the original `(affected_surface, material, suggested_arc)` tuple. Do NOT emit `ambiguous` — it is only valid for `diagnosis/true` and `planning/true` surfaces, which cannot be guaranteed in an unexpected state. `dialogue_continue` is the only `suggested_arc` valid for every `(affected_surface, material)` combination in the matrix.
 
 Corrected outcomes record `classifier_source: rule`.
 
-**Emission-time enforcement:** The correction pipeline MUST run before feedback capsule assembly. Every `feedback_candidates[]` entry in the emitted capsule MUST reflect post-correction state. Capsule assembly paths that bypass the correction pipeline (e.g., direct model output projection) MUST still apply correction rules before writing `feedback_candidates[]`.
+**Emission-time enforcement:** The correction pipeline is a required gate before `feedback_candidates[]` is written — capsule assembly MUST NOT begin until all entries have passed through the correction pipeline. Every `feedback_candidates[]` entry in the emitted capsule MUST reflect post-correction state. Capsule assembly paths that bypass the correction pipeline (e.g., direct model output projection) MUST still apply correction rules before writing `feedback_candidates[]`.
 
-**Consequence prohibitions:**
+**Partial correction failure:** If the correction pipeline fails partway through `feedback_candidates[]` processing (unexpected state in any entry), abort capsule assembly entirely and surface a prose error to the user — do NOT emit a partially corrected capsule. The capsule MUST be either fully corrected or not emitted. A partially corrected capsule is a silent protocol violation.
 
-- `diagnosis` MUST NOT emit `next-steps`
-- `planning` MUST NOT emit `adversarial-review`
-- `evidence-only` MUST NOT emit AR, NS, or `ambiguous`
-- Material `diagnosis`/`planning` MUST NOT silently remain `dialogue_continue`
+**Consequence prohibitions** (with enforcing correction rule):
+
+- `diagnosis` MUST NOT emit `next-steps` — enforced by rule 3
+- `planning` MUST NOT emit `adversarial-review` — enforced by rule 4
+- `evidence-only` MUST NOT emit AR, NS, or `ambiguous` — enforced by rule 2
+- Material `diagnosis`/`planning` MUST NOT silently remain `dialogue_continue` — enforced by rules 3 and 4 (which correct to the appropriate arc)
 
 ## Material-Delta Gating
 
 Evaluate materiality using three tiers with a cross-tier guard. Tier 1 rule-based exclusions are final. Tier 1 model-judged exclusions are provisional.
 
-**Precondition:** Items entering materiality evaluation MUST have passed through the [tautology filter](pipeline-integration.md#three-tier-tautology-filter) during decomposition seeding (when `--plan` + `upstream_handoff` is active). Materiality evaluation on unfiltered items may classify upstream-framing echoes as material. When no tautology filter ran (no `upstream_handoff`), this precondition is trivially satisfied — there is no upstream framing to echo.
+**Precondition (Step 0):** Before running materiality evaluation, verify either (a) items passed through the [tautology filter](pipeline-integration.md#three-tier-tautology-filter) during decomposition seeding (when `--plan` + `upstream_handoff` is active), or (b) no `upstream_handoff` exists (standalone dialogue invocation — precondition trivially satisfied). If neither condition holds (upstream_handoff present but tautology filter was skipped), do NOT proceed with materiality evaluation — this is an unexpected pipeline state. Emit a structured warning and abort materiality evaluation for those items. Materiality evaluation on unfiltered items may classify upstream-framing echoes as material.
 
 ### Novelty Veto (Pre-Check)
 
 Before Tier 1, check whether the item introduces any new content relative to the source snapshot: a new failure mode, causal mechanism, consequence, dependency, gate effect, or contradiction.
 
 If the item introduces novel content, Tier 1 MUST return `no_match` regardless of exclusion class fit. Proceed to Tier 2; if Tier 2 does not match, proceed to Tier 3.
+
+**Tie-breaking rule:** When the novelty determination is uncertain (the item neither clearly introduces nor clearly restates known content), treat as novel — Tier 1 returns `no_match`. Novelty veto errors MUST favor false positives (unnecessary Tier 2/3 evaluation) over false negatives (suppression of potentially material items).
 
 **Rationale:** Items with novel content can pattern-match Tier 1 exclusion classes (e.g., a novel architectural consequence might look like an "exact restatement") but MUST NOT be pre-screened out.
 
@@ -142,11 +146,11 @@ For pending implementation items (CI enforcement, validation harness), see [deli
 
 Skills suggest the next arc; the user confirms. No skill auto-invokes another.
 
-**Enforcement basis:** Claude Code's tool invocation model is the enforcement mechanism — skills cannot invoke tools (including other skill invocations) without user-visible tool calls that the user can interrupt or deny. This is a platform-architectural constraint, not an application-layer check. A violation would require Claude to autonomously invoke a skill invocation pattern (e.g., emitting `/<skill>` as a tool call) without user confirmation, which the host platform does not permit.
+**Enforcement basis:** The platform-architectural constraint is the primary enforcement mechanism — skills cannot invoke tools (including other skill invocations) without user-visible tool calls that the user can interrupt or deny. A violation would require Claude to autonomously invoke a skill invocation pattern (e.g., emitting `/<skill>` as a tool call) without user confirmation, which the host platform does not permit. Application-layer checks (stub text review, grep-based CI) serve as defense-in-depth against accidental pattern introduction, not as the primary enforcement path. See [verification.md](verification.md) for the specific application-layer checks.
 
-**Capsule-level prohibition:** Feedback capsule fields (`continuation_warranted`, `feedback_candidates[].suggested_arc`) are informational signals to the user. Skill stubs MUST NOT use these fields to programmatically trigger another skill invocation. They inform the hop suggestion text presented to the user, not an automatic dispatch.
+**Capsule-level prohibition:** Feedback capsule fields (`continuation_warranted`, `feedback_candidates[].suggested_arc`) are informational signals to the user. Skill stubs MUST NOT use these fields to programmatically trigger another skill invocation — either by emitting literal `/<skill>` invocation patterns in conditional logic, or by reading these fields in conditional branches that emit user-facing text formatted as skill invocation prompts (de-facto chaining). They inform the hop suggestion text presented to the user, not an automatic dispatch.
 
-### Material-Delta Gating
+### Material-Delta Gating (Guardrail)
 
 Do not recommend a hop unless something changed relative to the source snapshot.
 
@@ -160,9 +164,11 @@ The budget uses `lineage_root_id` (chain identity), not `topic_key` (descriptive
 
 **Targeted loop definition:** One targeted loop = one completed composition hop where a skill run produces a new artifact that is structurally consumed by the next skill in the chain via capsule sentinel. A hop suggested but not confirmed by the user does not consume a loop. `dialogue_continue` hops (same skill, no arc change) do not consume a loop — only cross-skill hops (`adversarial-review`, `next-steps`) count.
 
+**What counts as "structurally consumed":** An artifact counts toward the budget counter if and only if it passed the [consumption discovery](lineage.md#consumption-discovery) validation gate (sentinel found, schema validated, capsule accepted) and represents a cross-skill transition (`artifact_kind` different from the prior artifact in the chain). Invalid or rejected capsules do not count toward the budget.
+
 **Counter storage:** Conversation-local for v1. The dialogue skill's composition stub maintains the count by scanning the conversation context for artifacts sharing the current `lineage_root_id` and counting distinct cross-skill transitions.
 
-**Context compression resilience:** In long sessions, Claude Code compresses prior conversation turns, which may remove earlier hop artifacts from the visible context. When the scan finds fewer artifacts than expected (e.g., a feedback capsule references a `lineage_root_id` but no prior artifacts with that ID are visible), the counter is indeterminate. In this case: treat the budget as not-exhausted and emit a prose warning: "Budget count may be inaccurate due to context compression — prior hop artifacts not visible. Proceeding as if budget is available." This is a known v1 limitation of conversation-local storage; a durable counter file would eliminate it but is deferred.
+**Context compression resilience:** In long sessions, Claude Code compresses prior conversation turns, which may remove earlier hop artifacts from the visible context. When the scan finds fewer artifacts than expected (e.g., a feedback capsule references a `lineage_root_id` but no prior artifacts with that ID are visible), the counter is indeterminate. In this case: treat the budget as not-exhausted and MUST emit a prose warning: "Budget count may be inaccurate due to context compression — prior hop artifacts not visible. Proceeding as if budget is available." Do NOT silently treat indeterminate state as exhausted or as zero. This is a known v1 limitation of conversation-local storage; a durable counter file would eliminate it but is deferred.
 
 **Enforcement action:** When the budget is exhausted (2 targeted loops counted for the current `lineage_root_id`): (1) omit the hop suggestion block from the feedback capsule presentation, (2) emit a prose notice: "Composition budget reached for this chain (2/2 hops). Remaining open items listed below. Say 'continue' to override." (3) set `continuation_warranted` based on the synthesis outcome regardless of budget — the field remains informational.
 
@@ -175,7 +181,7 @@ The budget uses `lineage_root_id` (chain identity), not `topic_key` (descriptive
 **Continue existing Codex thread** only when ALL of:
 
 - Same goal
-- Same upstream snapshot set (no new AR or NS artifact)
+- Same upstream snapshot set (no new AR or NS artifact) — **deterministic check:** if ANY AR or NS capsule sentinel appears in conversation context with a `created_at` timestamp after the current Codex thread's `thread_id` was established, this condition MUST evaluate as false (no model judgment permitted)
 - Unresolved items are evidence/clarification questions, not changed diagnosis or plan
 - Prior termination was operational (budget exhaustion, scope breach resolved, interruption)
 
@@ -207,5 +213,7 @@ Only `dialogue_feedback` gets durable persistence. AR→NS and NS→dialogue arc
 3. Conversation-local (sentinel scan of visible context)
 
 The durable file uses the same wire format as the conversation capsule. `record_path` in the dialogue feedback capsule MUST be non-null and MUST point to the durable file.
+
+**Consumer-side contract for durable store lookup:** When checking the durable store (step 2): if `record_path` is non-null but the file does not exist, check `record_status`. If `record_status: write_failed`, fall through to conversation-local sentinel scan (step 3). If `record_status` is absent or `ok` but the file is missing, treat as an unexpected state — emit a one-line prose warning and fall through to step 3. Do NOT block the skill invocation on a missing durable file.
 
 **Write failure recovery:** If the durable file write fails (disk full, permission error, path unavailable): (1) surface a prose warning to the user identifying the write failure and intended path, (2) emit the feedback capsule with `record_path` set to the intended path and an additional `record_status: write_failed` field, (3) the capsule remains consumable via conversation-local sentinel scan but cross-session resolution via durable store will fail. Do NOT emit a capsule with `record_path: null` — this violates the non-null MUST and silently degrades the feedback arc.

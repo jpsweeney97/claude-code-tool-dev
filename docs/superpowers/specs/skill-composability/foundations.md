@@ -42,7 +42,7 @@ Two consumer classes govern how skills process upstream capsules:
 | Class | Behavior | Used by |
 |-------|----------|---------|
 | **Advisory/tolerant** | Validate capsule if present; fall back to the appropriate alternative source if absent or invalid. Emit a one-line prose diagnostic when falling back. | NS consuming AR capsule; AR/NS consuming feedback capsule |
-| **Strict/deterministic** | Reject invalid capsule but continue normal pipeline — no fallback to a different data source. | Dialogue consuming NS handoff |
+| **Strict/deterministic** | Reject invalid capsule but continue normal pipeline in baseline mode (no enriched decomposition, no upstream context injection) — no fallback to a different data source. | Dialogue consuming NS handoff |
 
 **Fallback source by arc** (advisory/tolerant arcs only — strict/deterministic has no fallback source):
 
@@ -54,7 +54,9 @@ Two consumer classes govern how skills process upstream capsules:
 
 **Unknown sentinel versions:** See [capsule-contracts.md](capsule-contracts.md#unknown-version-behavior) for the normative rule. Summary: reject the capsule block, not the skill session. For advisory/tolerant consumers, this means applying the fallback source listed above. For strict/deterministic consumers, this means proceeding as if no upstream handoff is present (same as the "no sentinel found" case in [pipeline-integration.md](pipeline-integration.md#two-stage-admission)).
 
-## Three-Layer Authority Model
+**Strict/deterministic baseline mode:** When the handoff is invalid or unknown-version, the pipeline runs in baseline mode — no enriched decomposition, no upstream context injection. This differs from advisory/tolerant in that no alternative source is consulted; the pipeline simply lacks upstream enrichment. The behavioral contract for strict/deterministic consumers is defined in [capsule-contracts.md](capsule-contracts.md#contract-2-ns--dialogue-ns-handoff-block).
+
+## Three-Layer Delivery Authority
 
 The composition system distributes authority across three layers:
 
@@ -100,9 +102,9 @@ Capsules are for externalized artifacts from explicit skill invocations. The glo
 
 Contract versioning is a CI/review-time concern, not runtime. Each skill stub includes `implements_composition_contract: v1` as a drift detection marker. Sentinel versioning (`v1` in sentinel comments) handles runtime wire compatibility. Contract version stays out of capsule schemas.
 
-**Contract location:** `packages/plugins/cross-model/references/composition-contract.md` — alongside the consultation contract, since all three skills interact through the cross-model dialogue system.
+**Contract location:** See [delivery.md](delivery.md#skill-text-changes) for the contract file path. The contract sits alongside the consultation contract, since all three skills interact through the cross-model dialogue system.
 
-**Inverted authority model:** Unlike the consultation contract (which IS runtime-loaded), the composition contract is NOT. Stubs carry the runtime projection. Contract→stub drift is a silent correctness bug. Detection requires CI tooling (`validate_composition_contract.py`) that is designed but not yet implemented — see [delivery.md](delivery.md#open-items) item #6.
+**Inverted runtime loading:** Unlike the consultation contract (which IS runtime-loaded), the composition contract is NOT. Stubs carry the runtime projection. Contract→stub drift is a silent correctness bug. Detection requires CI tooling (`validate_composition_contract.py`) that is designed but not yet implemented — see [delivery.md](delivery.md#open-items) item #6.
 
 **Interim drift mitigation (until CI enforcement exists):** This protocol is bidirectional — both contract changes and stub changes can introduce drift.
 

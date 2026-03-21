@@ -23,6 +23,8 @@ Reverse-scan conversation context newest-first for a known upstream sentinel (se
 
 If a sentinel is detected, validate the capsule schema against the expected format. If invalid, reject the capsule (strict consumer class — see [foundations.md](foundations.md#consumer-classes)) and proceed as if no upstream handoff exists.
 
+**Note:** The distinction between "NS never ran" and "NS ran but did not suggest /dialogue" is invisible to dialogue at Stage A — both present as "no sentinel found." Proceed identically in both cases. The user's decision to invoke /dialogue directly is sufficient authorization regardless of whether NS emitted a handoff.
+
 Future upstream skills register new sentinels and adapters here. The pipeline below Stage A is unchanged.
 
 ### Stage B — Normalize to `upstream_handoff` (generic)

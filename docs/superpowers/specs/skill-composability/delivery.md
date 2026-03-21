@@ -2,7 +2,7 @@
 module: delivery
 status: active
 normative: true
-authority: delivery
+authority: delivery-plan
 ---
 
 # Delivery
@@ -28,6 +28,15 @@ Add capsule emission instructions (always emit after prose output).
 
 Add handoff block emission when suggesting dialogue. Update existing dialogue suggestion to include the sentinel block.
 
+### Dialogue Skill Text Addition
+
+The dialogue skill receives the most extensive changes. Insert additions at these locations:
+
+1. **Stage A/B admission logic:** Before the existing decomposition step (Step 0). Add sentinel detection (reverse-scan for `<!-- next-steps-dialogue-handoff:v1 -->`), schema validation, and normalization to `upstream_handoff` via the NS adapter.
+2. **Feedback capsule emission:** After the existing Synthesis Checkpoint output. Assemble `feedback_candidates[]` from synthesis items, run routing classification and materiality evaluation, apply the correction pipeline, and emit the capsule with sentinel.
+3. **Routing classification + materiality evaluation:** Within the feedback capsule assembly path. Cross-reference [routing-and-materiality.md](routing-and-materiality.md#routing-classification) for the full evaluation flow.
+4. **Inline composition stub:** The largest stub of the three skills. Must cover: routing, materiality, budget enforcement, consumption discovery, capsule emit/consume, fallback behavior, and hop suggestion logic.
+
 ## Open Items
 
 | # | Item | Status | Notes |
@@ -38,4 +47,4 @@ Add handoff block emission when suggesting dialogue. Update existing dialogue su
 | 4 | codex-dialogue synthesis format | Resolved | No changes needed; `/dialogue` projects from existing Synthesis Checkpoint |
 | 5 | Tier 2 "reopens/contradicts resolved" | Deferred from v1 | Requires resolved-item input surface; NS handoff lacks explicit resolved-item set |
 | 6 | CI enforcement of contract drift | **P0 blocker** | `validate_composition_contract.py` does not exist. Contract→stub drift is a silent correctness bug ([foundations.md](foundations.md#versioning-and-drift-detection)). Interim manual review protocol added. Implement validator modeled on `validate_consultation_contract.py`: check `implements_composition_contract: v1` marker in stubs, verify sentinel registry consistency, detect ownership mismatches. |
-| 7 | Materiality validation harness | **P0 blocker** | 12 executable §9.4 fixtures, 24-case §9.6 table, clause dependency manifest, Tier 3 calibration suite. The most complex behavioral logic (5 evaluation steps with ordering dependencies) has no test cases. Interim manual verification protocol added — see [verification.md](verification.md#interim-materiality-verification-protocol). See [verification.md](verification.md) for the full verification map. |
+| 7 | Materiality validation harness | **P0 blocker** | 12 executable materiality fixtures, 24-case validity matrix table, clause dependency manifest, Tier 3 calibration suite. The most complex behavioral logic (5 evaluation steps with ordering dependencies) has no test cases. Interim manual verification protocol added — see [verification.md](verification.md#interim-materiality-verification-protocol). See [verification.md](verification.md) for the full verification map. Section references are provisional — use semantic names (e.g., "the Materiality Fixtures section" and "the Correction Rules Table section") rather than numeric references until the composition contract is authored. |
