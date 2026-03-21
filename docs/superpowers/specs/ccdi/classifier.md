@@ -59,8 +59,17 @@ ClassifierResult
 │   ├── coverage_target: "family" | "leaf"
 │   ├── confidence: "high" | "medium" | "low"
 │   ├── facet: Facet
-│   ├── matched_aliases: { text, span, weight }[]
+│   ├── matched_aliases[]
+│   │   ├── text: string            # the matched alias text
+│   │   ├── span: [number, number]  # start and end character offsets (0-indexed) in the input text
+│   │   └── weight: number          # alias weight from TopicRecord.aliases[]
 │   └── reason: string
+│
+│   Note: The `confidence` field in `dialogue-turn` candidates JSON
+│   (see integration.md § dialogue-turn Candidates JSON Schema) extends
+│   this type to include `null` for hint-driven `facet_expansion` and
+│   `pending_facet` candidates, which are not produced by the classifier.
+│
 └── suppressed_candidates[]
     ├── topic_key: TopicKey
     └── reason: string

@@ -63,7 +63,8 @@ Per-dialogue summary, accumulated across turns and emitted once at dialogue end 
     "config_source": "data/ccdi_config.json | defaults",
     "packets_target_relevant": 2,
     "packets_surviving_precedence": 1,
-    "false_positive_topic_detections": 0
+    "false_positive_topic_detections": 0,
+    "per_turn_latency_ms": [312, 287, 345]
   }
 }
 ```
@@ -75,6 +76,7 @@ Fields `packets_target_relevant`, `packets_surviving_precedence`, and `false_pos
 - `packets_target_relevant`: count of prepared packets that passed the target-match check
 - `packets_surviving_precedence`: count of target-relevant packets not deferred by scout priority
 - `false_positive_topic_detections`: always 0 in the automated diagnostics emitter — the system cannot mechanically determine false positives. The actual count is produced by a human labeler during shadow evaluation (see labeling protocol below) and recorded in a separate annotation file, not in the emitted diagnostics JSON. The field is present in the schema for completeness and forward compatibility; its emitted value of 0 does NOT mean zero false positives
+- `per_turn_latency_ms`: array of wall-clock milliseconds, one entry per turn, measuring from `dialogue-turn` invocation start to `build-packet --mark-injected` completion (or `--mark-deferred` if deferred). Turns where no candidate is produced record the latency from `dialogue-turn` start to `dialogue-turn` exit. Latency measurement boundary: wall-clock time per turn from `dialogue-turn` start to final commit/defer. The graduation report's `avg_latency_ms` is computed as the mean of this array.
 
 `effective_prepare_yield` = `packets_surviving_precedence / packets_prepared`. `relevant_but_scout_deferred_rate` = `packets_deferred_scout / packets_prepared` (derived from existing schema fields; not emitted directly — compute from the two component values). `false_positive_rate` is NOT derivable from diagnostics fields — it requires annotation data from the labeling protocol below (`labeled_false_positives / total_labeled_topics`). The `false_positive_topic_detections` field in automated diagnostics is always 0 and MUST NOT be used in the formula.
 
@@ -118,17 +120,31 @@ Fields `packets_target_relevant`, `packets_surviving_precedence`, and `false_pos
 The `codex-dialogue` agent emits a structured trace when CCDI is active, gated by a `ccdi_debug` flag in the delegation envelope:
 
 ```json
-{
-  "turn": 3,
-  "classifier_result": {"resolved_topics": [...], "suppressed_candidates": [...]},
-  "semantic_hints": [{"claim_index": 3, "hint_type": "prescriptive", "claim_excerpt": "you should use updatedInput to modify..."}],
-  "candidates": ["hooks.post_tool_use"],
-  "action": "prepare",
-  "packet_staged": true,
-  "scout_conflict": false,
-  "commit": true
-}
+[
+  {
+    "turn": 1,
+    "classifier_result": {"resolved_topics": [...], "suppressed_candidates": [...]},
+    "semantic_hints": null,
+    "candidates": [],
+    "action": "none",
+    "packet_staged": false,
+    "scout_conflict": false,
+    "commit": false
+  },
+  {
+    "turn": 3,
+    "classifier_result": {"resolved_topics": [...], "suppressed_candidates": [...]},
+    "semantic_hints": [{"claim_index": 3, "hint_type": "prescriptive", "claim_excerpt": "you should use updatedInput to modify..."}],
+    "candidates": [{"topic_key": "hooks.post_tool_use", "facet": "schema", "confidence": "high", "coverage_target": "leaf", "candidate_type": "new"}],
+    "action": "prepare",
+    "packet_staged": true,
+    "scout_conflict": false,
+    "commit": true
+  }
+]
 ```
+
+Full candidate object schema: see [integration.md#dialogue-turn-candidates-json-schema](integration.md#dialogue-turn-candidates-json-schema).
 
 The replay harness collects these traces and asserts on:
 
@@ -213,6 +229,9 @@ The replay harness collects these traces and asserts on:
 | Injected forward-only invariant | Topic transitions to `injected`, then `dialogue-turn` called with same topic in classifier output → assert state remains `injected` (not overwritten to `detected`); `last_seen_turn` updated but state unchanged |
 | Multiple pending_facets ordering | Two `contradicts_prior` hints add F1 then F2 to `pending_facets` → assert `pending_facets = [F1, F2]`; first injection serves F1 → `pending_facets = [F2]`; second injection serves F2 → `pending_facets = []` |
 | Consecutive-medium reset on confidence change | Medium topic turn 1 (count=1), same topic at HIGH confidence turn 2 → `consecutive_medium_count` resets to 0 (injection does NOT fire via the medium path; may fire via the high-confidence path separately) |
+| Scheduling tiebreaker: same confidence, same first_seen_turn → topic_key ascending | Two high-confidence topics detected on the same turn; topic B < topic A lexicographically → topic B is scheduled first |
+| Suppressed re-detection no-op | Topic in `suppressed:weak_results` at turn N. Turn N+1: topic in classifier output, no re-entry trigger fires → `last_seen_turn` stays N (not N+1), `consecutive_medium_count` unchanged, `state` remains `suppressed` |
+| last_query_fingerprint normalization | Querying `"PreToolUse hook"` and `"pretooluse  hook"` (different case/whitespace) produce the same fingerprint. Same query with `docs_epoch="A"` produces a different fingerprint than with `docs_epoch=null` |
 | Deferred→detected consecutive_medium_count initialization | Topic deferred (TTL=3), TTL expires at turn N, topic reappears at medium confidence → assert `consecutive_medium_count` = 1 (not 0); reappears at high → assert `consecutive_medium_count` = 0 |
 | Suppressed→detected last_seen_turn update | Topic suppressed at turn 2, re-enters as detected at turn 5 (docs_epoch change) → assert `last_seen_turn` = 5 (the re-entry turn, not the original suppression turn) |
 | Suppressed:redundant re-entry via new leaf | Topic A (`family_key: hooks`) suppressed:redundant, then new leaf `hooks.post_tool_use` transitions to `detected` in same family → topic A re-enters as `detected` on the same `dialogue-turn` call |
@@ -317,10 +336,13 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`). `classifier_result` must contain `resolved_topics` and `suppressed_candidates` sub-fields per the [ClassifierResult contract](classifier.md#output-structure). `semantic_hints` is always present as a field: `null` when no hints were provided for the turn, a non-empty array when hints exist. Field-absent is NOT valid — always include the key with a null or array value. With `ccdi_debug` absent → no `ccdi_trace` key. |
 | `ccdi_trace` semantic_hints conditional presence | Multi-turn trace: turn 1 has no hints → `ccdi_trace[0].semantic_hints == null` (field present, value null); turn 2 has hints → `ccdi_trace[1].semantic_hints` is a non-empty array. Assert field is always present (never absent from the trace entry). Additionally: for every trace entry, assert `"semantic_hints" in entry` (key-presence check, independent of value) — this catches serializers that omit null-valued keys. |
 | Sentinel extraction from ccdi-gatherer | Valid sentinel block (matching open/close tags, valid JSON between) → `ccdi_seed` path present in delegation envelope and file contains valid RegistrySeed JSON |
-| Malformed sentinel handling | Missing closing sentinel tag or invalid JSON between sentinels → `/dialogue` proceeds without `ccdi_seed` (graceful degradation to `initial_only` phase) |
+| Malformed sentinel handling | Covers: (a) missing closing sentinel tag, (b) invalid JSON between sentinels, (c) mismatched tag names (open tag correct, close tag uses different separator). All → graceful degradation to `initial_only` phase; `/dialogue` proceeds without `ccdi_seed`. |
 | ccdi-gatherer returns no sentinel | No sentinel block in ccdi-gatherer output → no `ccdi_seed` field in delegation envelope, `phase: initial_only` in diagnostics |
 | Initial CCDI commit skip on briefing-send failure | Briefing send fails → seed entries remain in `detected` state (verify registry file contains `state: "detected"` for all entries, not `state: "injected"`) |
 | Temp file identity per turn | Verify `<id>` in `/tmp/ccdi_*_<id>.*` paths is unique per turn (not per dialogue), preventing cross-turn file collisions in the prepare/commit protocol |
+| CCDI-lite: low-confidence detection → no injection, no state written | All resolved topics are low-confidence in CCDI-lite mode → `build-packet` is not invoked, no registry file created or modified |
+| Initial threshold not met (Full CCDI) | All resolved topics are low-confidence → ccdi-gatherer not dispatched, no `### Claude Code Extension Reference` section in briefing |
+| Initial threshold not met (CCDI-lite) | Low-confidence only → no `build-packet` invoked, briefing proceeds without CCDI content |
 
 ## Inventory Tests: `test_build_inventory.py`
 
@@ -411,6 +433,17 @@ Structured replay harness for Layer 2a (CLI pipeline correctness) testing. Repla
 
 Supported operators: `equals` (deep equality), `contains` (array membership), `length_gte` (minimum array length), `is_null`, `not_null`.
 
+`trace_assertions` (optional): Array of per-turn assertions on `ccdi_trace` entries, including key-presence checks. E.g., `{"turn": 1, "assert_key_present": "semantic_hints"}` verifies the key exists regardless of value (supporting the null-is-valid invariant). Example in fixture:
+
+```json
+{
+  "trace_assertions": [
+    {"turn": 1, "assert_key_present": "semantic_hints"},
+    {"turn": 2, "assert_key_present": "candidates"}
+  ]
+}
+```
+
 **Runner:** `uv run pytest tests/test_ccdi_replay.py` — reads all `*.replay.json` fixtures from `tests/fixtures/ccdi/`.
 
 **Execution model:** The replay harness runs the full CLI pipeline per turn using fixture data as inputs. It does NOT re-run the agent — only the deterministic CLI commands. For each turn in the `turns` array:
@@ -422,7 +455,10 @@ Supported operators: `equals` (deep equality), `contains` (array membership), `l
 5. If candidates are non-empty AND `search_results` are provided for the candidate topic:
    - Write canned `search_results` to a temp file.
    - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target>` (NO `--mark-injected` — prepare phase; `--facet` provided for ranking consistency).
-   - If `composed_target` is present: run target-match check against the built packet (using topics from `<!-- ccdi-packet -->` metadata comment).
+   - If `composed_target` is present: run target-match check against the built packet (using topics from `<!-- ccdi-packet -->` metadata comment):
+     - (a) Check whether the packet topic is a substring of `composed_target`.
+     - (b) If condition (a) fails, invoke `classify --text-file <composed_target_tempfile>` and check whether any resolved topic overlaps with packet topics. This is condition (b) — see [registry.md#scheduling-rules](registry.md#scheduling-rules) step 7.
+     - If both (a) and (b) fail, run `build-packet --mark-deferred <topic_key> --deferred-reason target_mismatch --skip-build --registry-file <registry>`.
 6. If `codex_reply_error` is false (default) and a packet was staged:
    - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target> --mark-injected` (commit phase).
 7. If `codex_reply_error` is true: skip commit (topic stays `detected`).
@@ -441,6 +477,8 @@ After all turns, verify the `assertions` object against the final registry state
 | Graduation gate: file absent → shadow mode | Delegation envelope with `ccdi_seed` but no `graduation.json` → agent tool-call log contains zero `build-packet --mark-injected` invocations; diagnostics show `status: "shadow"`. Per [delivery.md#shadow-mode-gate](delivery.md#shadow-mode-gate). |
 | Graduation gate: status rejected → shadow mode | `graduation.json` with `status: "rejected"` → same assertions as above: zero commits, `status: "shadow"` in diagnostics. |
 | Graduation gate: status approved → active mode | `graduation.json` with `status: "approved"` → agent tool-call log contains at least one `build-packet --mark-injected` invocation (when candidates exist); diagnostics show `status: "active"`. |
+| Scout pipeline contains no CCDI CLI calls | In a fixture with both scout candidate and CCDI candidate active, assert that `execute_scout`/`process_turn` tool-call log contains zero `topic_inventory.py` invocations |
+| Agent does not read ccdi_config.json | Assert agent tool-call log contains zero Read invocations on paths matching `*ccdi_config*` or `*topic_inventory.json` during dialogue |
 
 **Required fixture scenarios:**
 
@@ -453,7 +491,8 @@ After all turns, verify the `assertions` object against the final registry state
 | `semantic_hint_elevation.replay.json` | Prescriptive hint on detected topic → elevated to materially new → injected |
 | `hint_no_effect_already_injected.replay.json` | Prescriptive hint on already-injected topic → no additional injection, no state change |
 | `hint_coverage_gap.replay.json` | `contradicts_prior` hint on injected topic → facet added to `pending_facets`, scheduled for re-injection at new facet |
-| `hint_re_enters_suppressed.replay.json` | `extends_topic` hint on suppressed topic → re-enters as `detected`, scheduled for lookup |
+| `hint_re_enters_suppressed.replay.json` | `extends_topic` hint on suppressed topic → re-enters as `detected`, scheduled for lookup. Covers `suppressed:weak_results`. A companion fixture `hint_re_enters_suppressed_redundant.replay.json` should exercise `suppressed:redundant` to verify re-entry works regardless of suppression reason. |
+| `hint_re_enters_suppressed_redundant.replay.json` | `extends_topic` hint on suppressed:redundant topic → re-enters as `detected`, scheduled for lookup. Companion to `hint_re_enters_suppressed.replay.json` covering the `suppressed:redundant` suppression reason. |
 | `hint_facet_expansion.replay.json` | `extends_topic` hint on injected topic → facet expansion lookup at a facet not yet in `facets_injected` |
 | `hint_facet_expansion_fallback_pending.replay.json` | `extends_topic` hint on injected topic where resolved facet IS in `facets_injected` but `pending_facets` is non-empty → lookup uses `pending_facets[0]` |
 | `hint_facet_expansion_fallback_default.replay.json` | `extends_topic` hint on injected topic where resolved facet and all `pending_facets` are in `facets_injected` → lookup uses `default_facet` (if not in `facets_injected`); if `default_facet` also exhausted → hint discarded |
@@ -496,7 +535,7 @@ Tests that the `codex-dialogue` agent invokes CLI commands in the correct sequen
 
 This fallback uses only documented Claude Code extension APIs (hooks, `additionalContext`, exit codes) and does not require PATH injection or custom `.mcp.json` paths.
 
-**Phase A feasibility gate:** Validate the primary mechanism during Phase A implementation. If the primary mechanism works, use it (simpler, fewer moving parts). If not, implement the fallback. This gate must be resolved before Phase B (mid-dialogue CCDI), since Layer 2b coverage of prepare/commit ordering is a prerequisite for Phase B graduation. **Done when:** One mechanism is implemented and the 3 Layer 2b test cases below pass.
+**Phase A feasibility gate:** Validate the primary mechanism during Phase A implementation. If the primary mechanism works, use it (simpler, fewer moving parts). If not, implement the fallback. This gate must be resolved before Phase B (mid-dialogue CCDI), since Layer 2b coverage of prepare/commit ordering is a prerequisite for Phase B graduation. **Done when:** One mechanism is implemented and the 3 behavioral agent sequence tests (classify ordering, skip-when-no-candidates, --mark-injected-after-codex-reply) pass. Graduation gate tests (file absent, rejected, approved) are Phase B prerequisites.
 
 **Fixture format:** Each test case provides:
 - `delegation_envelope`: the envelope passed to `codex-dialogue` (with/without `ccdi_seed`)
