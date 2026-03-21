@@ -73,8 +73,10 @@ Thresholds are configurable via [`ccdi_config.json`](data-model.md#configuration
 | Phase | Injection fires when | Config keys |
 |-------|---------------------|------------|
 | Initial (pre-dialogue) | 1 high-confidence topic, OR 2+ medium-confidence in same family | `initial_threshold_high_count`, `initial_threshold_medium_same_family_count` |
-| Mid-dialogue | 1 high-confidence uncovered leaf, OR 1 medium-confidence leaf in 2+ consecutive turns, OR agent provides semantic hint (see [registry.md](registry.md#semantic-hints)) | `mid_turn_consecutive_medium_turns` |
+| Mid-dialogue | 1 high-confidence uncovered leaf, OR 1 medium-confidence leaf in 2+ consecutive turns | `mid_turn_consecutive_medium_turns` |
 | `/codex` (CCDI-lite) | Same as initial | *(same keys)* |
+
+Semantic hints (see [registry.md#semantic-hints](registry.md#semantic-hints)) are an additional mid-dialogue injection trigger processed by the scheduling layer, independent of classifier output. The classifier does not process or output semantic hints.
 
 Low-confidence detections are recorded in the [topic registry](registry.md) but never trigger injection alone.
 
