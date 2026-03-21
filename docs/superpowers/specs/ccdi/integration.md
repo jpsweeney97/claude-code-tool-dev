@@ -21,7 +21,7 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 
 **`--registry-file` optionality on `build-packet`:** When omitted (CCDI-lite mode), deduplication against prior injections is skipped and `--mark-injected` / `--mark-deferred` are no-ops. CCDI-lite has no registry — each invocation builds a fresh packet without coverage history.
 
-**`--skip-build` flag:** When passed with `--mark-deferred`, skips packet construction and only writes deferred state to the registry. This avoids redundant rebuilds when the target-match check already determined the packet is not target-relevant. `--skip-build` is only valid with `--mark-deferred`; ignored otherwise.
+**`--skip-build` flag:** When passed with `--mark-deferred`, skips packet construction and only writes deferred state to the registry. This avoids redundant rebuilds when the target-match check already determined the packet is not target-relevant. `--skip-build` is only valid with `--mark-deferred`; ignored otherwise. When `--skip-build` is passed with `--mark-deferred`, `--results-file` is not required — no packet construction occurs.
 
 **`--coverage-target family|leaf` flag:** Required when `--mark-injected` is passed with `--registry-file`. Determines whether `coverage.overview_injected` is set (when `family` + facet=overview). Omitted in CCDI-lite mode (no registry).
 
@@ -210,7 +210,12 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │                --mode mid_turn \
 │   │                --mark-deferred <topic_key> --deferred-reason target_mismatch \
 │   │                --skip-build
-│   ├─ If candidates AND scout target exists: defer CCDI (scout wins)
+│   ├─ If candidates AND scout target exists:
+│   │   └─ Bash: python3 topic_inventory.py build-packet \
+│   │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │            --mode mid_turn \
+│   │            --mark-deferred <topic_key> --deferred-reason scout_priority \
+│   │            --skip-build
 │   └─ If no candidates: no CCDI this turn
 │
 ├─ [Step 6: send follow-up to Codex with staged CCDI packet prepended]
