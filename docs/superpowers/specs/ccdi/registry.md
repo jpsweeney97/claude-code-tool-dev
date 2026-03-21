@@ -84,8 +84,10 @@ Fields updated at each state transition. Fields not listed are unchanged.
 | Transition | Fields updated |
 |-----------|----------------|
 | `absent → detected` | `first_seen_turn` ← current turn, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if medium, else 0) |
-| Re-detection (topic already in registry, any state) | `last_seen_turn` ← current turn |
-| `[built] → injected` (via `--mark-injected`) | `state` ← `injected`, `last_injected_turn` ← current turn, `last_query_fingerprint` ← normalized fingerprint of query used, `coverage.injected_chunk_ids` ← append chunk IDs from built packet, `coverage.facets_injected` ← append facet, `consecutive_medium_count` ← 0 |
+| Re-detection at medium confidence | `last_seen_turn` ← current turn, `consecutive_medium_count` ← `consecutive_medium_count` + 1 |
+| Re-detection at non-medium confidence (or topic absent) | `last_seen_turn` ← current turn (if present), `consecutive_medium_count` ← 0 |
+| `contradicts_prior` hint resolves to `injected` topic | `coverage.pending_facets` ← append resolved facet (state stays `injected`) |
+| `[built] → injected` (via `--mark-injected`) | `state` ← `injected`, `last_injected_turn` ← current turn, `last_query_fingerprint` ← normalized fingerprint of query used, `coverage.injected_chunk_ids` ← append chunk IDs from built packet, `coverage.facets_injected` ← append facet, `coverage.pending_facets` ← remove served facet (if present), `consecutive_medium_count` ← 0 |
 | `detected → deferred` (via `--mark-deferred`) | `state` ← `deferred`, `deferred_reason` ← reason, `deferred_ttl` ← `injection.deferred_ttl_turns` from config |
 | `[looked_up] → suppressed` | `state` ← `suppressed`, `suppression_reason` ← reason |
 | `suppressed → detected` (re-entry) | `state` ← `detected`, `suppression_reason` ← null, `last_seen_turn` ← current turn |
@@ -195,7 +197,7 @@ Cache is session-local — dies with the conversation. Include `docs_epoch` in c
 | Failure | Detection | Behavior |
 |---------|-----------|----------|
 | Packet staged but send fails | Agent observes send failure | No commit (topic stays `detected`, not `injected`) |
-| Staged packet doesn't match composed follow-up target | Target-match check in [Step 5.5](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue) | Defer CCDI candidate (→ `deferred: target_mismatch`) via `--mark-deferred` |
+| Staged packet doesn't match composed follow-up target | Target-match check in [Step 6](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue) | Defer CCDI candidate (→ `deferred: target_mismatch`) via `--mark-deferred` |
 | Scout takes priority over CCDI candidate | Scout target exists for turn | Defer CCDI candidate (→ `deferred: scout_priority`) |
 | Registry file missing or corrupt | CLI error | Reinitialize empty registry, lose coverage history |
 | Semantic hints file malformed | CLI parse warning | Ignore hints, proceed with classifier-only scheduling |
