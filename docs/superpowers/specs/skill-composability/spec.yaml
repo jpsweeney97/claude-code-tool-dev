@@ -3,8 +3,8 @@ readme: README.md
 
 authorities:
   foundation:
-    description: Composability model, scope boundaries, consumer class definitions, cross-cutting architectural invariants.
-    default_claims: [architecture_rule]
+    description: Composability model, scope boundaries, consumer class definitions, cross-cutting architectural and behavioral invariants (standalone coherence, consumer class semantics).
+    default_claims: [architecture_rule, behavior_contract]
 
   decisions:
     description: Locked design decisions (D1-D5) with alternatives considered and tradeoffs accepted.
@@ -41,9 +41,12 @@ authorities:
 precedence:
   normative_first: true
   claim_precedence:
-    behavior_contract: [routing, pipeline, lineage]
+    behavior_contract: [routing, pipeline, lineage, foundation]
     interface_contract: [capsule-contract, lineage]
-  fallback_authority_order: [foundation, capsule-contract, routing, pipeline, lineage, decisions, delivery-plan, delivery-verification, supporting]
+  # decisions ranked 2nd (after foundation) because locked design decisions constrain
+  # behavior — in any genuine cross-claim conflict, locked decisions override runtime
+  # behavior files.
+  fallback_authority_order: [foundation, decisions, capsule-contract, routing, pipeline, lineage, delivery-plan, delivery-verification, supporting]
   unresolved: ambiguity_finding
   # Cross-family disambiguation: behavior_contract claims govern runtime pipeline
   # state (what happens during processing). interface_contract claims govern the
