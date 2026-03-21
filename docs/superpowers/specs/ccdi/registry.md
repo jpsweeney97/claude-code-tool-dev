@@ -25,6 +25,7 @@ TopicRegistryEntry
 ├── suppressed_docs_epoch: string | null  # docs_epoch at time of suppression; used for re-entry comparison
 ├── deferred_reason: "cooldown" | "scout_priority" | "target_mismatch" | null
 ├── deferred_ttl: number | null       # turns remaining before re-evaluation
+├── coverage_target: "family" | "leaf" # classifier's resolved coverage target; populated at detection time from ClassifierResult
 └── coverage
     ├── overview_injected: boolean
     ├── facets_injected: Facet[]
@@ -99,9 +100,11 @@ Fields updated at each state transition. Fields not listed are unchanged.
 | `absent → detected` (leaf, parent family not injected or not overview-covered) | `coverage.family_context_available` ← false |
 | `detected → deferred` (via `--mark-deferred`) | `state` ← `deferred`, `deferred_reason` ← reason, `deferred_ttl` ← `injection.deferred_ttl_turns` from config |
 | `[looked_up] → suppressed` | `state` ← `suppressed`, `suppression_reason` ← reason, `suppressed_docs_epoch` ← current inventory's `docs_epoch` |
-| `suppressed → detected` (re-entry) | `state` ← `detected`, `suppression_reason` ← null, `suppressed_docs_epoch` ← null, `last_seen_turn` ← current turn |
+| `suppressed → detected` (re-entry, any `suppression_reason`) | `state` ← `detected`, `suppression_reason` ← null, `suppressed_docs_epoch` ← null, `last_seen_turn` ← current turn. This row applies identically for both `weak_results` and `redundant` suppression reasons — the field resets are the same regardless of reason. |
 | `deferred → detected` (TTL expiry + reappearance) | `state` ← `detected`, `deferred_reason` ← null, `deferred_ttl` ← null, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if re-entry turn confidence is medium, else 0) |
-| `deferred → deferred` (TTL=0, topic absent from classifier) | `deferred_ttl` ← `injection.deferred_ttl_turns` from config (reset; state and deferred_reason unchanged) |
+| `deferred → deferred` (TTL=0, topic absent from classifier) | `deferred_ttl` ← `injection.deferred_ttl_turns` from config (reset; state, deferred_reason, and `last_seen_turn` unchanged) |
+
+**`consecutive_medium_count` on send failure:** When a packet is staged (prepare phase) but send fails (commit phase skipped), `consecutive_medium_count` is NOT reset — the `[built] → injected` transition never fires, so the counter retains its pre-failure value. On the next turn, if the topic reappears at medium confidence, the counter increments from the retained value. This means injection may fire again on the next medium-confidence turn (acceptable double-attempt; the topic genuinely qualifies). The counter resets to 0 only via: (a) successful `--mark-injected` commit, (b) topic absent from classifier output, or (c) topic appears at a different confidence level.
 
 **`last_query_fingerprint` normalization:** Lowercased query string with whitespace collapsed. Includes `docs_epoch` if available — same key composition as the [session-local cache](#session-local-cache).
 
@@ -122,7 +125,7 @@ Re-entry conditions are aligned with the `suppression_reason`, not with classifi
 | `suppression_reason` | Re-entry trigger |
 |---------------------|-----------------|
 | `weak_results` | `docs_epoch` differs from `suppressed_docs_epoch` (index updated since suppression — uses null comparison rules below) OR a new query facet is requested for the topic OR an `extends_topic` semantic hint resolves to the suppressed topic (see [Semantic Hints](#semantic-hints)) |
-| `redundant` | Coverage state changes — e.g., an injected facet is later identified as insufficient, or a new leaf variant appears under the same family — OR an `extends_topic` semantic hint resolves to the suppressed topic (a new facet extension means additional content may be needed beyond what was already injected) |
+| `redundant` | Coverage state changes detectable by `dialogue-turn` from classifier output: (a) a new leaf `topic_key` under the same `family_key` as the suppressed topic transitions to `detected` (new leaf variant), or (b) an `extends_topic` semantic hint resolves to the suppressed topic (new facet extension). Path (a) is detected mechanically by `dialogue-turn` when processing classifier output; path (b) requires a semantic hint via `--semantic-hints-file`. The prose example "an injected facet is later identified as insufficient" is only detectable via path (b) — no classifier-only mechanism exists for that case. |
 
 **`docs_epoch` comparison semantics:** `null == null` is not a change (no re-entry). `null → non-null` is a change (re-entry fires). `non-null → null` is a change (re-entry fires). Comparison is string equality on non-null values.
 
@@ -142,7 +145,7 @@ Each turn, after the [classifier](classifier.md) runs on Codex's latest response
 
 1. **Diff** new resolved topics against registry.
 2. **Materially new** = one of:
-   - New high-confidence topic on first appearance (absent from registry, regardless of family coverage — per [classifier.md#injection-thresholds](classifier.md#injection-thresholds))
+   - High-confidence topic not yet in `injected` state — includes first appearance (absent from registry) AND re-detection of a `detected` or `deferred` topic at high confidence (per [classifier.md#injection-thresholds](classifier.md#injection-thresholds))
    - New leaf under an already-covered family
    - Agent provides a `semantic_hint` (see [below](#semantic-hints)) referencing a claim that touches a detected topic
    - Codex contradicts or extends an injected topic (coverage gap)
@@ -150,7 +153,7 @@ Each turn, after the [classifier](classifier.md) runs on Codex's latest response
 4. **Consecutive-turn medium tracking:** For each `detected` topic at medium confidence, increment `consecutive_medium_count`. Reset to 0 if the topic is absent from classifier output or appears at a different confidence level. Injection fires when `consecutive_medium_count` reaches `injection.mid_turn_consecutive_medium_turns` (default: 2). Reset to 0 after injection fires.
 5. **Cooldown:** Max one new docs topic injection per turn (configurable via [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `injection.cooldown_max_new_topics_per_turn`).
 6. **Scout priority:** If context-injection has a scout candidate targeting the same code boundary, defer the CCDI candidate (→ `deferred` state with `scout_priority` reason).
-7. **Target-match check:** After building a packet for a scheduled candidate, verify the packet supports the composed follow-up target. If not target-relevant, defer the topic (→ `deferred` state with `target_mismatch` reason via `--mark-deferred`). A packet is **target-relevant** when at least one of the packet's `topics` appears as a substring (case-insensitive) in the composed follow-up text, OR the packet's primary `facet` matches a concept referenced in the follow-up text (determined by running the classifier on the follow-up text and checking for topic overlap). The **composed follow-up target** is the follow-up question text that `codex-dialogue` has composed for the current turn. See [integration.md#target-match-predicate](integration.md#target-match-predicate) for the CLI interface and agent-side implementation.
+7. **Target-match check (agent-side — not CLI):** After building a packet for a scheduled candidate, the agent verifies the packet supports the composed follow-up target. If not target-relevant, the agent invokes `build-packet --mark-deferred <topic_key> --deferred-reason target_mismatch --skip-build` to record the deferral. The CLI's role is limited to accepting `--mark-deferred`; the target-match determination itself is performed by the agent. A packet is **target-relevant** when at least one of the packet's `topics` (from the `<!-- ccdi-packet -->` metadata comment) appears as a substring (case-insensitive) in the composed follow-up text, OR the classifier run on the follow-up text produces topic overlap. The **composed follow-up target** is the follow-up question text that `codex-dialogue` has composed for the current turn. See [integration.md#target-match-predicate](integration.md#target-match-predicate) for agent-side implementation details.
 8. **Schedule** highest-priority materially new topic for lookup.
 
 ## Semantic Hints
@@ -185,7 +188,7 @@ The CLI classifies `claim_excerpt` through its standard two-stage pipeline to re
 | `prescriptive` | `injected` | No effect — topic already covered |
 | `contradicts_prior` | `injected` | Flag coverage gap — mark topic for re-injection at a new facet (coverage update, not state revert) |
 | `contradicts_prior` | `detected` or `deferred` | Elevate to "materially new" (same as `prescriptive`) |
-| `extends_topic` | `suppressed` | Re-enter as `detected` (new signal overrides prior `weak_results` suppression) |
+| `extends_topic` | `suppressed` | Re-enter as `detected` regardless of `suppression_reason` (new signal overrides prior suppression — applies to both `weak_results` and `redundant`; see [Suppression Re-Entry](#suppression-re-entry)) |
 | `extends_topic` | `detected` or `deferred` | Elevate to "materially new" (same as `prescriptive`) |
 | `extends_topic` | `injected` | Flag for facet expansion — use the facet resolved from `claim_excerpt` classification as the candidate facet. If that facet is already in `facets_injected`, fall back to the first entry in `pending_facets` (if any), then to `default_facet`. Schedule lookup at the selected facet if not yet in `facets_injected`. If all candidate facets (resolved, pending, default) are already in `facets_injected`: discard hint silently, no state change, no scheduling effect. |
 | *(any)* | topic not resolved | Hint ignored — `claim_excerpt` did not match any inventory topic |

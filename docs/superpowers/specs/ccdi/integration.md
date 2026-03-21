@@ -25,7 +25,7 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 
 **`--topic-key <key>` flag:** Required when `--registry-file` is provided. Identifies which topic's registry entry to update for automatic suppression (on empty output), `--mark-injected`, or `--mark-deferred`. Without `--registry-file` (CCDI-lite mode), `--topic-key` is ignored.
 
-**`--facet <facet>` flag:** Required when `--mark-injected` is passed with `--registry-file`. Specifies which facet to append to `coverage.facets_injected` at commit time. The agent passes this value from the candidates JSON (`facet` field) returned by `dialogue-turn`. Without `--mark-injected`, `--facet` is ignored.
+**`--facet <facet>` flag:** Required when `--mark-injected` is passed with `--registry-file`. Specifies which facet to append to `coverage.facets_injected` at commit time. The agent passes this value from the candidates JSON (`facet` field) returned by `dialogue-turn`. Without `--mark-injected`, `--facet` is ignored. **Facet consistency:** The `facet` value at commit time MUST match the facet used during the prepare phase. In mid-turn mode, the prepare `build-packet` output includes a `<!-- ccdi-packet ... facet="..." -->` metadata comment containing the facet actually used for the search. The agent should pass this same value (or the `candidate.facet` from `dialogue-turn` candidates JSON, which is the source of truth) to `--facet` at commit time.
 
 **`--skip-build` flag:** When passed with `--mark-deferred`, skips packet construction and only writes deferred state to the registry. This avoids redundant rebuilds when the target-match check already determined the packet is not target-relevant. `--skip-build` is only valid with `--mark-deferred`; ignored otherwise. When `--skip-build` is passed with `--mark-deferred`, `--results-file` is not required — no packet construction occurs.
 
@@ -146,9 +146,8 @@ User prompt
 │  ├─ Calls search_docs per topic (broad: families + sibling topics)
 │  ├─ Writes search results to /tmp/ccdi_results_<id>.json
 │  ├─ Bash: python3 topic_inventory.py build-packet \
-│  │        --results-file /tmp/ccdi_results_<id>.json --mode initial \
-│  │        --topic-key <key>
-│  │        (NO --mark-injected — seed entries stay in `detected` state)
+│  │        --results-file /tmp/ccdi_results_<id>.json --mode initial
+│  │        (NO --registry-file, NO --mark-injected — pure packet build, no state mutation)
 │  └─ Returns: rendered markdown block + sentinel-wrapped registry seed
 │             + results file path in sentinel block for commit-phase use
 │

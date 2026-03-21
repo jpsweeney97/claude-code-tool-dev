@@ -200,6 +200,10 @@ The replay harness collects these traces and asserts on:
 | injected_chunk_ids populated at commit | `build-packet --mark-injected` with result set containing chunk IDs [X, Y] → verify `coverage.injected_chunk_ids` contains [X, Y] → subsequent `build-packet` call with same results → chunk IDs excluded from output |
 | Injected forward-only invariant | Topic transitions to `injected`, then `dialogue-turn` called with same topic in classifier output → assert state remains `injected` (not overwritten to `detected`); `last_seen_turn` updated but state unchanged |
 | Multiple pending_facets ordering | Two `contradicts_prior` hints add F1 then F2 to `pending_facets` → assert `pending_facets = [F1, F2]`; first injection serves F1 → `pending_facets = [F2]`; second injection serves F2 → `pending_facets = []` |
+| Consecutive-medium reset on confidence change | Medium topic turn 1 (count=1), same topic at HIGH confidence turn 2 → `consecutive_medium_count` resets to 0 (injection does NOT fire via the medium path; may fire via the high-confidence path separately) |
+| Deferred→detected consecutive_medium_count initialization | Topic deferred (TTL=3), TTL expires at turn N, topic reappears at medium confidence → assert `consecutive_medium_count` = 1 (not 0); reappears at high → assert `consecutive_medium_count` = 0 |
+| Suppressed→detected last_seen_turn update | Topic suppressed at turn 2, re-enters as detected at turn 5 (docs_epoch change) → assert `last_seen_turn` = 5 (the re-entry turn, not the original suppression turn) |
+| Suppressed:redundant re-entry via new leaf | Topic A (`family_key: hooks`) suppressed:redundant, then new leaf `hooks.post_tool_use` transitions to `detected` in same family → topic A re-enters as `detected` on the same `dialogue-turn` call |
 
 ### Packet Builder Tests
 
@@ -264,6 +268,8 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | RegistrySeed ↔ TopicRegistryEntry durable fields | Every durable field in TopicRegistryEntry (all except attempt-local states `looked_up`, `built`) is present in RegistrySeed.entries field enumeration — schema-comparison test |
 | RegistrySeed ↔ ClassifierResult coverage_target | `RegistrySeed.entries[].coverage_target` matches `ClassifierResult.resolved_topics[].coverage_target` enum (`"family" \| "leaf"`) — cross-schema consistency test |
 | RegistrySeed ↔ ClassifierResult facet | `RegistrySeed.entries[].facet` matches `ClassifierResult.resolved_topics[].facet` enum (valid `Facet` values) — cross-schema consistency test |
+| RegistrySeed version mismatch + topic_key discard | RegistrySeed with `inventory_snapshot_version` ≠ current `schema_version` AND one entry with valid `topic_key` (present in inventory) AND one with invalid `topic_key` (absent from inventory) → invalid entry discarded, valid entry retained, warning emitted, CLI continues |
+| ccdi_policy_snapshot deferred coverage | `ccdi_policy_snapshot` field shape and boundary contract test must be added when field shape is defined in Phase B. This row is a placeholder — no test is possible until the shape is defined. See [Known Open Items](#known-open-items). |
 
 ## Integration Tests
 
@@ -311,7 +317,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | `add_deny_rule` penalty out-of-bounds → error | `add_deny_rule` with `penalty: 1.5` → non-zero exit with penalty value and valid range (no clamping — see data-model.md penalty range enforcement) |
 | Config override type mismatch → skipped | `config_overrides` with `{"classifier.confidence_high_min_weight": "0.9"}` (string instead of number) → build succeeds, warning emitted, default value used for that key |
 
-**Known untested invariant:** The post-reload hook that triggers `build_inventory.py` when `docs_epoch` changes is a hook configuration, not a CLI behavior. It is not covered by `test_build_inventory.py` unit tests. Verification requires a hook integration test or manual smoke test confirming that `reload_docs` → epoch change → `build_inventory.py` invocation occurs.
+**Known untested invariant:** The post-reload hook that triggers `build_inventory.py` when `docs_epoch` changes is a hook configuration, not a CLI behavior. It is not covered by `test_build_inventory.py` unit tests. **Planned verification:** Add a hook integration test in `tests/test_ccdi_hooks.py` that: (1) sets up a `PostToolUse` hook on `reload_docs`, (2) calls `reload_docs` with a new epoch, (3) asserts `build_inventory.py` was invoked. Until this test exists, the hook trigger is verified via manual smoke test: run `reload_docs` in a live session and confirm `topic_inventory.json` is regenerated.
 
 ## Replay Harness: `tests/test_ccdi_replay.py`
 
@@ -382,10 +388,10 @@ Supported operators: `equals` (deep equality), `contains` (array membership), `l
 4. Run `dialogue-turn --registry-file <registry> --text-file <temp> --source <source> [--semantic-hints-file <hints>]`. If `expected_candidates` is present, assert stdout candidates match.
 5. If candidates are non-empty AND `search_results` are provided for the candidate topic:
    - Write canned `search_results` to a temp file.
-   - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --coverage-target <target>` (NO `--mark-injected` — prepare phase).
-   - If `composed_target` is present: run target-match check against the built packet.
+   - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --coverage-target <target>` (NO `--mark-injected` — prepare phase).
+   - If `composed_target` is present: run target-match check against the built packet (using topics from `<!-- ccdi-packet -->` metadata comment).
 6. If `codex_reply_error` is false (default) and a packet was staged:
-   - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --coverage-target <target> --mark-injected` (commit phase).
+   - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target> --mark-injected` (commit phase).
 7. If `codex_reply_error` is true: skip commit (topic stays `detected`).
 
 After all turns, verify the `assertions` object against the final registry state and accumulated CLI call log.
@@ -424,6 +430,7 @@ After all turns, verify the `assertions` object against the final registry state
 | `suppressed_docs_epoch_written.replay.json` | Topic detected → searched → empty results → `suppressed: weak_results`; assert `final_registry_file_assertions` includes `{"path": "<topic>.suppressed_docs_epoch", "equals": "<fixture-inventory-docs_epoch>"}` verifying the exact epoch value is stored (not merely non-null) |
 | `target_match_classifier_branch.replay.json` | Packet topic absent as substring from `composed_target`, but `classify` on the composed target resolves a topic that overlaps with the packet topic → packet IS target-relevant (NOT deferred). Exercises target-match condition (b) succeeding where condition (a) fails. |
 | `target_match_substring_only.replay.json` | Packet topic present as substring in `composed_target` → packet IS target-relevant via condition (a) alone. Classifier branch (b) is not needed. Isolates condition (a) as a standalone success path. |
+| `target_match_both_fail.replay.json` | Packet topic absent as substring from `composed_target` AND `classify` on composed target resolves no overlapping topic → both conditions fail → `deferred: target_mismatch`. Assert: (1) `classify` was called on `composed_target` (condition (b) was reached), (2) classifier returned no overlapping topic, (3) registry shows `deferred: target_mismatch`. This fixture prevents a short-circuit implementation that skips condition (b) entirely. |
 
 ### Layer 2b: Agent Sequence Tests
 
@@ -435,7 +442,9 @@ Tests that the `codex-dialogue` agent invokes CLI commands in the correct sequen
 
 **Mock interface:** Tests use a tool-call interceptor that records all Bash invocations matching `topic_inventory.py *`. The test asserts on the sequence of recorded commands, their arguments, and their relative ordering. `search_docs` calls are intercepted and return canned results. `codex-reply` calls are intercepted and return success unless the fixture specifies failure.
 
-**Execution model:** The test spawns a `codex-dialogue` agent via Claude Code's headless mode (`claude -p`) with a mock MCP server that intercepts `search_docs` and `codex-reply` tool calls and returns canned results. Bash invocations matching `topic_inventory.py *` are recorded by a wrapper script that logs the command and delegates to the real CLI. After the agent completes (or the turn limit is reached), the test asserts that the recorded tool-call sequence matches the expected pattern. **Implementation note:** The exact interception mechanism (mock MCP server, wrapper script, or SDK-level hook) is an implementation decision — the spec constrains only the fixture format and assertion semantics, not the test harness internals.
+**Execution model:** The test spawns a `codex-dialogue` agent via Claude Code's headless mode (`claude -p`) with a mock MCP server that intercepts `search_docs` and `codex-reply` tool calls and returns canned results. Bash invocations matching `topic_inventory.py *` are recorded by a wrapper script (`scripts/ccdi_cli_recorder.sh`) that logs the full command line to a temp file and delegates to the real CLI. After the agent completes (or the turn limit is reached), the test asserts that the recorded tool-call sequence matches the expected pattern.
+
+**Interception mechanism:** The mock MCP server is configured via a test-specific `.mcp.json` that replaces `claude-code-docs` with a stub server returning canned `search_docs` results from the fixture. The `codex` MCP server is similarly replaced with a stub that records `codex-reply` calls and returns success/failure per fixture. The wrapper script is injected by prepending `scripts/ccdi_cli_recorder.sh` to `$PATH` as a shim named `python3` that intercepts `topic_inventory.py` invocations. **Feasibility note:** This mechanism requires validation during Phase A implementation — if `claude -p` does not support custom `.mcp.json` paths or PATH injection in the test environment, the harness must fall back to SDK-level hooks or a process-level Bash interceptor.
 
 **Fixture format:** Each test case provides:
 - `delegation_envelope`: the envelope passed to `codex-dialogue` (with/without `ccdi_seed`)
