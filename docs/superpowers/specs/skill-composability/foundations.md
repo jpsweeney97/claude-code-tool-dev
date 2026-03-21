@@ -74,7 +74,7 @@ The composition system distributes authority across three layers:
 - Artifact metadata schema — see [lineage.md](lineage.md#artifact-identity)
 - Consumer class definitions — see [Consumer Classes](#consumer-classes) below
 - Routing classification rules and precedence — see [routing-and-materiality.md](routing-and-materiality.md#routing-classification)
-- Material-delta tier semantics — see [routing-and-materiality.md](routing-and-materiality.md#material-delta-gating)
+- Material-delta gating (tier semantics and evaluation flow) — see [routing-and-materiality.md](routing-and-materiality.md#material-delta-gating)
 - Budget semantics — see [routing-and-materiality.md](routing-and-materiality.md#soft-iteration-budget)
 - Staleness semantics — see [lineage.md](lineage.md#staleness-detection)
 - Discovery algorithms — see [lineage.md](lineage.md#discovery-algorithms)
@@ -106,9 +106,4 @@ Contract versioning is a CI/review-time concern, not runtime. Each skill stub in
 
 **Inverted runtime loading:** Unlike the consultation contract (which IS runtime-loaded), the composition contract is NOT. Stubs carry the runtime projection. Contract→stub drift is a silent correctness bug. Detection requires CI tooling (`validate_composition_contract.py`) that is designed but not yet implemented — see [delivery.md](delivery.md#open-items) item #6.
 
-**Interim drift mitigation (until CI enforcement exists):** This protocol is bidirectional — both contract changes and stub changes can introduce drift.
-
-- **Contract → stub:** Any modification to the composition contract's routing, materiality, lineage, or capsule schema sections MUST be accompanied by a manual review of all three participating skill stubs (adversarial-review, next-steps, dialogue) against the updated contract text. The PR description MUST include a stub-impact checklist confirming which stubs were reviewed and whether updates are needed.
-- **Stub → contract:** Any modification to a participating skill stub's composition section (routing, materiality, lineage, or capsule emit/consume logic) MUST be accompanied by verification that the change conforms to the current contract. The PR description MUST confirm the stub change does not diverge from contract intent.
-
-This protocol is a P0 prerequisite in both directions — merging changes without cross-checking recreates the silent correctness bug this section warns about.
+**Interim drift mitigation (until CI enforcement exists):** Contract→stub drift is bidirectional — both contract changes and stub changes can introduce it. See [delivery.md](delivery.md#open-items) item #8 for the interim manual review protocol (PR MUST clauses and stub-impact checklist). This protocol is a P0 prerequisite — merging changes without cross-checking recreates the silent correctness bug this section warns about.
