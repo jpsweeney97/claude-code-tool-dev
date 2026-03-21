@@ -164,16 +164,18 @@ User prompt
 ├─ Registry seed handoff
 │  ├─ /dialogue skill extracts JSON from ccdi-gatherer's sentinel block
 │  ├─ Writes registry seed to /tmp/ccdi_registry_<id>.json
-│  │   (seed entries contain `coverage_target` per entry from classifier)
+│  │   (seed entries contain `coverage_target` and `facet` per entry from classifier)
 │  └─ Seed file is now the live registry file for the rest of the dialogue
 │
 ├─ Initial CCDI COMMIT (after briefing send confirmed)
 │  ├─ If briefing was sent successfully:
-│  │   └─ For each seed entry, read `coverage_target` from the seed file:
+│  │   └─ For each seed entry, read `coverage_target` and `facet` from the seed file:
 │  │       Bash: python3 topic_inventory.py build-packet \
 │  │              --results-file /tmp/ccdi_results_<id>.json \
 │  │              --registry-file /tmp/ccdi_registry_<id>.json \
-│  │              --mode initial --coverage-target <entry.coverage_target> --mark-injected
+│  │              --mode initial --topic-key <entry.topic_key> \
+│  │              --facet <entry.facet> \
+│  │              --coverage-target <entry.coverage_target> --mark-injected
 │  │       (commit mutates the seed file in-place — entries transition to `injected`)
 │  └─ If briefing send failed: no commit (seed entries remain `detected`)
 │
@@ -186,15 +188,16 @@ The `ccdi-gatherer` subagent emits its [registry seed](data-model.md#registrysee
 
 ```
 <!-- ccdi-registry-seed -->
-{"entries": [...], "docs_epoch": "...", "inventory_snapshot_version": "1"}
+{"entries": [...], "docs_epoch": "...", "inventory_snapshot_version": "1", "results_file": "/tmp/ccdi_results_<id>.json"}
 <!-- /ccdi-registry-seed -->
 ```
 
 The `/dialogue` skill:
 
 1. Extracts JSON between the sentinels from the ccdi-gatherer's output.
-2. Writes the seed to a temp file (`/tmp/ccdi_registry_<id>.json`).
-3. Passes the file path as `ccdi_seed: <path>` in the delegation envelope to `codex-dialogue`.
+2. Reads `results_file` from the extracted JSON (the search results path needed for the initial commit).
+3. Writes the seed to a temp file (`/tmp/ccdi_registry_<id>.json`).
+4. Passes the file path as `ccdi_seed: <path>` in the delegation envelope to `codex-dialogue`.
 
 The `codex-dialogue` agent detects the `ccdi_seed` field and uses the file as its initial `--registry-file` for the mid-dialogue CCDI loop. If the field is absent, CCDI mid-dialogue is disabled for the session.
 

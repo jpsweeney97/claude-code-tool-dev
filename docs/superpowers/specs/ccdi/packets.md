@@ -15,6 +15,7 @@ Transforms docs search results into compact, citation-backed content for injecti
 FactPacket
 ├── packet_kind: "initial" | "mid_turn"
 ├── topics: TopicKey[]           # max length: initial_max_topics (initial) or mid_turn_max_topics (mid_turn) from config
+├── facet: Facet                 # primary facet used for the search — the resolved facet from scheduling
 ├── facts: FactItem[]
 │   ├── mode: "paraphrase" | "snippet"
 │   ├── facet: Facet
@@ -22,6 +23,8 @@ FactPacket
 │   └── refs: DocRef[]
 └── token_estimate: number
 ```
+
+The top-level `facet` is the primary facet used when building the packet (from `--facet` flag or the scheduled candidate's resolved facet). Individual `FactItem.facet` may differ when facts span multiple facets within a topic. The top-level `facet` is emitted in the `<!-- ccdi-packet -->` metadata comment in mid-turn rendered output, enabling the agent to evaluate target-match without parsing fact-level details.
 
 ## Verbatim vs Paraphrase
 
@@ -92,12 +95,15 @@ Exact fields:
 Lighter format, prepended to follow-up prompt:
 
 ```markdown
+<!-- ccdi-packet topics="hooks.post_tool_use" facet="schema" -->
 Claude Code docs context:
 - `PostToolUse` runs after a tool completes successfully.
   [ccdocs:hooks#posttooluse]
 - For MCP tools, it can replace tool output via
   `updatedMCPToolOutput`. [ccdocs:hooks#posttooluse]
 ```
+
+The `<!-- ccdi-packet ... -->` comment is a structured metadata line emitted by `build-packet` in mid-turn mode. It carries `topics` (comma-separated topic keys) and `facet` (the resolved facet used for the search). The agent reads this comment to evaluate target-match condition (a) — checking whether any listed topic key appears as a substring in the composed follow-up text. The comment is invisible to Codex (HTML comments are not rendered). In initial mode, topic metadata is already present as the human-readable "Detected topics:" line.
 
 ## Build Process
 

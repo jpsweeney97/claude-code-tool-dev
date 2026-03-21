@@ -70,12 +70,27 @@ Fields `packets_target_relevant`, `packets_surviving_precedence`, and `false_pos
 
 **False-positive labeling protocol:** This kill criterion requires **human review** — it is not mechanically verifiable in CI. The `false_positive_topic_detections` field in the automated diagnostics is always 0 (the emitter has no way to determine false positives). The actual false-positive count is produced through a separate annotation process:
 
-1. During shadow evaluation, the diagnostics emitter writes `topics_detected` arrays to per-dialogue diagnostics files.
+1. During shadow evaluation, the diagnostics emitter writes `topics_detected` arrays to per-dialogue diagnostics files stored in `data/ccdi_shadow/diagnostics/`.
 2. A human labeler reviews a minimum of 100 detected topics across 10+ dialogues. For each topic in `topics_detected`, the labeler checks whether the input text genuinely discusses a Claude Code extension concept. Topics where the input text uses extension terminology in a non-Claude-Code context (e.g., "React hook", "webpack plugin") are false positives.
-3. The labeler records false-positive labels in a separate annotation file (format TBD during Phase B implementation — not part of the diagnostics emitter).
+3. The labeler records labels in a JSONL annotation file at `data/ccdi_shadow/annotations.jsonl`. Each line is a JSON object:
+
+```json
+{"dialogue_id": "<id>", "turn": 1, "topic_key": "hooks.pre_tool_use", "input_excerpt": "...", "label": "true_positive" | "false_positive", "labeler": "<name>", "timestamp": "<ISO>"}
+```
+
 4. `false_positive_rate` = `labeled_false_positives / total_labeled_topics`. The 10% kill threshold requires statistical confidence: label at least 100 topics before evaluating.
 
-Shadow-to-active graduation is a manual gate, not an automated CI check.
+**Graduation protocol:** Shadow-to-active graduation is a manual gate with a concrete approval artifact:
+
+1. **Evaluation:** Compute all three kill criteria (effective_prepare_yield, per-turn latency, false_positive_rate) from diagnostics + annotations across 10+ shadow dialogues.
+2. **Approval artifact:** Write a graduation report to `data/ccdi_shadow/graduation.json`:
+
+```json
+{"status": "approved" | "rejected", "evaluated_dialogues": 12, "labeled_topics": 150, "effective_prepare_yield": 0.65, "avg_latency_ms": 320, "false_positive_rate": 0.04, "approver": "<name>", "timestamp": "<ISO>", "notes": "..."}
+```
+
+3. **Gate:** The `codex-dialogue` agent reads `graduation.json` at dialogue start. If `status` is not `"approved"`, CCDI runs in shadow mode (diagnostics only, no injection). If the file is absent, shadow mode is the default.
+4. **Rejection:** If any kill criterion exceeds its threshold, set `status: "rejected"` with the failing criterion in `notes`. Re-evaluate after tuning.
 
 ## Testing Strategy
 
@@ -248,6 +263,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Inventory → packet builder: schema evolution | Unknown QueryPlan facet → skipped; missing `default_facet` → fallback to `overview` |
 | RegistrySeed ↔ TopicRegistryEntry durable fields | Every durable field in TopicRegistryEntry (all except attempt-local states `looked_up`, `built`) is present in RegistrySeed.entries field enumeration — schema-comparison test |
 | RegistrySeed ↔ ClassifierResult coverage_target | `RegistrySeed.entries[].coverage_target` matches `ClassifierResult.resolved_topics[].coverage_target` enum (`"family" \| "leaf"`) — cross-schema consistency test |
+| RegistrySeed ↔ ClassifierResult facet | `RegistrySeed.entries[].facet` matches `ClassifierResult.resolved_topics[].facet` enum (valid `Facet` values) — cross-schema consistency test |
 
 ## Integration Tests
 
@@ -261,7 +277,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Inventory schema version mismatch | Older inventory → warning, not crash |
 | Inventory stale (`docs_epoch` mismatch) | Load `topic_inventory.json` with `docs_epoch` differing from active `claude-code-docs` server's epoch → diagnostics warning emitted, CCDI continues (non-blocking) |
 | `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`). `classifier_result` must contain `resolved_topics` and `suppressed_candidates` sub-fields per the [ClassifierResult contract](classifier.md#output-structure). `semantic_hints` is always present as a field: `null` when no hints were provided for the turn, a non-empty array when hints exist. Field-absent is NOT valid — always include the key with a null or array value. With `ccdi_debug` absent → no `ccdi_trace` key. |
-| `ccdi_trace` semantic_hints conditional presence | Multi-turn trace: turn 1 has no hints → `ccdi_trace[0].semantic_hints == null` (field present, value null); turn 2 has hints → `ccdi_trace[1].semantic_hints` is a non-empty array. Assert field is always present (never absent from the trace entry). |
+| `ccdi_trace` semantic_hints conditional presence | Multi-turn trace: turn 1 has no hints → `ccdi_trace[0].semantic_hints == null` (field present, value null); turn 2 has hints → `ccdi_trace[1].semantic_hints` is a non-empty array. Assert field is always present (never absent from the trace entry). Additionally: for every trace entry, assert `"semantic_hints" in entry` (key-presence check, independent of value) — this catches serializers that omit null-valued keys. |
 | Sentinel extraction from ccdi-gatherer | Valid sentinel block (matching open/close tags, valid JSON between) → `ccdi_seed` path present in delegation envelope and file contains valid RegistrySeed JSON |
 | Malformed sentinel handling | Missing closing sentinel tag or invalid JSON between sentinels → `/dialogue` proceeds without `ccdi_seed` (graceful degradation to `initial_only` phase) |
 | ccdi-gatherer returns no sentinel | No sentinel block in ccdi-gatherer output → no `ccdi_seed` field in delegation envelope, `phase: initial_only` in diagnostics |

@@ -228,10 +228,18 @@ Schema for the registry seed emitted by `ccdi-gatherer` and consumed by `codex-d
 RegistrySeed
 ├── entries: TopicRegistryEntry[]   # durable-state fields only
 ├── docs_epoch: string | null       # docs_epoch from the inventory at build time
-└── inventory_snapshot_version: string  # schema_version from the active inventory
+├── inventory_snapshot_version: string  # schema_version from the active inventory
+└── results_file: string            # path to search results file for initial commit phase
 ```
 
-**`entries` field:** Each element is a `TopicRegistryEntry` (see [registry.md#entry-structure](registry.md#entry-structure)) containing only durable-state fields (`topic_key`, `family_key`, `state` (durable values only: `detected | injected | suppressed | deferred`), `first_seen_turn`, `last_seen_turn`, `last_injected_turn`, `last_query_fingerprint`, `consecutive_medium_count`, `suppression_reason`, `suppressed_docs_epoch`, `deferred_reason`, `deferred_ttl`, `coverage` — all sub-fields: `overview_injected`, `facets_injected`, `pending_facets`, `family_context_available`, `injected_chunk_ids`), plus `coverage_target: "family" | "leaf"` — the classifier's resolved coverage target for this topic, carried from `ClassifierResult.resolved_topics[].coverage_target` at seed-build time. Required by `build-packet --mark-injected --coverage-target` at commit time. Topics in attempt-local states (`looked_up`, `built`) are not persisted to the seed — these states exist only within a single CLI invocation.
+**`results_file` field:** Absolute path to the search results JSON file written by `ccdi-gatherer` during the pre-dialogue phase (e.g., `/tmp/ccdi_results_<id>.json`). The `/dialogue` skill reads this path from the sentinel block and passes it to the initial CCDI commit's `build-packet --results-file` call. This is a transport field for the handoff — it is not written to the live registry file and is not used after the initial commit completes.
+
+**`entries` field:** Each element is a `TopicRegistryEntry` (see [registry.md#entry-structure](registry.md#entry-structure)) containing only durable-state fields (`topic_key`, `family_key`, `state` (durable values only: `detected | injected | suppressed | deferred`), `first_seen_turn`, `last_seen_turn`, `last_injected_turn`, `last_query_fingerprint`, `consecutive_medium_count`, `suppression_reason`, `suppressed_docs_epoch`, `deferred_reason`, `deferred_ttl`, `coverage` — all sub-fields: `overview_injected`, `facets_injected`, `pending_facets`, `family_context_available`, `injected_chunk_ids`), plus two classifier-carried fields:
+
+- `coverage_target: "family" | "leaf"` — the classifier's resolved coverage target for this topic, carried from `ClassifierResult.resolved_topics[].coverage_target` at seed-build time. Required by `build-packet --mark-injected --coverage-target` at commit time.
+- `facet: Facet` — the classifier's resolved facet for this topic, carried from `ClassifierResult.resolved_topics[].facet` at seed-build time. Required by `build-packet --mark-injected --facet` at commit time.
+
+Topics in attempt-local states (`looked_up`, `built`) are not persisted to the seed — these states exist only within a single CLI invocation.
 
 **State at seed time:** After the [initial CCDI commit](integration.md#data-flow-full-ccdi-dialogue), entries transition to `injected` if the briefing was sent successfully. Before the commit, entries are in `detected` state.
 
