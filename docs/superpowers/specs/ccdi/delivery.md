@@ -220,6 +220,9 @@ The replay harness collects these traces and asserts on:
 | `--skip-build` with `--mark-deferred` skips packet construction | `build-packet --mark-deferred <key> --deferred-reason <r> --skip-build --registry-file <path>` → registry writes deferred state AND stdout is empty (no packet built) |
 | `--skip-build` without `--mark-deferred` is ignored | `build-packet --skip-build --results-file <path> --mode initial` → normal packet construction proceeds (flag silently ignored) |
 | Missing `--coverage-target` with `--mark-injected` → error | `build-packet --mark-injected --registry-file <path> --results-file <path> --mode mid_turn` (without `--coverage-target`) → non-zero exit with descriptive error |
+| Missing `--topic-key` with `--registry-file` → error | `build-packet --registry-file <path> --results-file <path> --mode mid_turn` (without `--topic-key`) → non-zero exit with descriptive error |
+| Missing `--facet` with `--mark-injected` → error | `build-packet --mark-injected --registry-file <path> --results-file <path> --mode mid_turn --topic-key <k> --coverage-target leaf` (without `--facet`) → non-zero exit with descriptive error |
+| Prepare/commit packet idempotency | Run `build-packet` (prepare, no `--mark-injected`) then `build-packet --mark-injected` with same `--results-file` → stdout markdown from commit matches stdout from prepare |
 
 ## Boundary Contract Tests: `test_ccdi_contracts.py`
 
@@ -235,6 +238,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | CLI → agents | Exit codes, stdout JSON contract, stderr behavior, file-path semantics |
 | Semantic hints → CLI | `claim_index`, `hint_type` enum values, `claim_excerpt` length cap, classifier resolution of excerpt |
 | `dump_index_metadata` → `build_inventory.py` | Response shape matches expected fields (`index_version`, `docs_epoch`, `categories[].chunks[].chunk_id`, etc.) — cross-package contract |
+| `dump_index_metadata` → `build_inventory.py`: schema evolution | Response with unknown top-level field → `build_inventory.py` ignores it (exit 0); required chunk field missing → warning, chunk skipped; `index_version` value change → warning emitted |
 | Config → CLI | `ccdi_config.json` schema validated at load; unknown keys warned, missing keys use defaults |
 | Registry seed → delegation envelope | `ccdi_seed` file path valid, seed JSON parses to expected schema |
 | Mid-dialogue CCDI disabled without ccdi_seed | Delegation envelope without `ccdi_seed` field → diagnostics show `phase: initial_only` AND agent tool-call log contains zero invocations of `dialogue-turn` or `build-packet` (Layer 2b test — see [Layer 2b: Agent Sequence Tests](#layer-2b-agent-sequence-tests)) |
@@ -256,8 +260,12 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Malformed search results handled | Missing `chunk_id`, empty content → skip, not crash |
 | Inventory schema version mismatch | Older inventory → warning, not crash |
 | Inventory stale (`docs_epoch` mismatch) | Load `topic_inventory.json` with `docs_epoch` differing from active `claude-code-docs` server's epoch → diagnostics warning emitted, CCDI continues (non-blocking) |
-| `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`). `classifier_result` must contain `resolved_topics` and `suppressed_candidates` sub-fields per the [ClassifierResult contract](classifier.md#output-structure). `semantic_hints` is present only when hints were provided for the turn; `null` otherwise; with `ccdi_debug` absent → no `ccdi_trace` key |
-| `ccdi_trace` semantic_hints conditional presence | Multi-turn trace: turn 1 has no hints → `ccdi_trace[0].semantic_hints == null`; turn 2 has hints → `ccdi_trace[1].semantic_hints` is a non-empty array |
+| `ccdi_debug` gating of trace emission | With `ccdi_debug=true` → `ccdi_trace` key present in agent output AND each trace entry contains all required fields (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`). `classifier_result` must contain `resolved_topics` and `suppressed_candidates` sub-fields per the [ClassifierResult contract](classifier.md#output-structure). `semantic_hints` is always present as a field: `null` when no hints were provided for the turn, a non-empty array when hints exist. Field-absent is NOT valid — always include the key with a null or array value. With `ccdi_debug` absent → no `ccdi_trace` key. |
+| `ccdi_trace` semantic_hints conditional presence | Multi-turn trace: turn 1 has no hints → `ccdi_trace[0].semantic_hints == null` (field present, value null); turn 2 has hints → `ccdi_trace[1].semantic_hints` is a non-empty array. Assert field is always present (never absent from the trace entry). |
+| Sentinel extraction from ccdi-gatherer | Valid sentinel block (matching open/close tags, valid JSON between) → `ccdi_seed` path present in delegation envelope and file contains valid RegistrySeed JSON |
+| Malformed sentinel handling | Missing closing sentinel tag or invalid JSON between sentinels → `/dialogue` proceeds without `ccdi_seed` (graceful degradation to `initial_only` phase) |
+| ccdi-gatherer returns no sentinel | No sentinel block in ccdi-gatherer output → no `ccdi_seed` field in delegation envelope, `phase: initial_only` in diagnostics |
+| Initial CCDI commit skip on briefing-send failure | Briefing send fails → seed entries remain in `detected` state (verify registry file contains `state: "detected"` for all entries, not `state: "injected"`) |
 | Temp file identity per turn | Verify `<id>` in `/tmp/ccdi_*_<id>.*` paths is unique per turn (not per dialogue), preventing cross-turn file collisions in the prepare/commit protocol |
 
 ## Inventory Tests: `test_build_inventory.py`
@@ -385,12 +393,15 @@ After all turns, verify the `assertions` object against the final registry state
 | `hint_coverage_gap.replay.json` | `contradicts_prior` hint on injected topic → facet added to `pending_facets`, scheduled for re-injection at new facet |
 | `hint_re_enters_suppressed.replay.json` | `extends_topic` hint on suppressed topic → re-enters as `detected`, scheduled for lookup |
 | `hint_facet_expansion.replay.json` | `extends_topic` hint on injected topic → facet expansion lookup at a facet not yet in `facets_injected` |
+| `hint_facet_expansion_fallback_pending.replay.json` | `extends_topic` hint on injected topic where resolved facet IS in `facets_injected` but `pending_facets` is non-empty → lookup uses `pending_facets[0]` |
+| `hint_facet_expansion_fallback_default.replay.json` | `extends_topic` hint on injected topic where resolved facet and all `pending_facets` are in `facets_injected` → lookup uses `default_facet` (if not in `facets_injected`); if `default_facet` also exhausted → hint discarded |
+| `empty_build_skips_target_match.replay.json` | `build-packet` returns empty output (weak search results) with `composed_target` present → registry shows `suppressed: weak_results` (NOT `deferred: target_mismatch`); CLI call log contains no `--mark-deferred` invocation |
 | `hint_contradicts_prior_on_deferred.replay.json` | `contradicts_prior` hint on deferred topic → elevated to materially new, scheduled for lookup |
 | `hint_extends_topic_on_deferred.replay.json` | `extends_topic` hint on deferred topic → elevated to materially new, scheduled for lookup |
 | `hint_unknown_topic_ignored.replay.json` | Hint with `claim_excerpt` matching no inventory topic → hint ignored, no state change, no scheduling effect |
 | `hint_contradicts_prior_on_detected.replay.json` | `contradicts_prior` hint on `detected` (non-deferred) topic → elevated to materially new, scheduled for immediate lookup |
 | `cooldown_defers_second_candidate.replay.json` | Turn with two high-confidence topics (A and B) → topic A scheduled and injected, topic B transitions to `deferred: cooldown`; subsequent turn sees topic B re-evaluated |
-| `suppressed_docs_epoch_written.replay.json` | Topic detected → searched → empty results → `suppressed: weak_results`; assert `final_registry_file_assertions` includes `{"path": "<topic>.suppressed_docs_epoch", "not_null": true}` matching the fixture's inventory `docs_epoch` |
+| `suppressed_docs_epoch_written.replay.json` | Topic detected → searched → empty results → `suppressed: weak_results`; assert `final_registry_file_assertions` includes `{"path": "<topic>.suppressed_docs_epoch", "equals": "<fixture-inventory-docs_epoch>"}` verifying the exact epoch value is stored (not merely non-null) |
 | `target_match_classifier_branch.replay.json` | Packet topic absent as substring from `composed_target`, but `classify` on the composed target resolves a topic that overlaps with the packet topic → packet IS target-relevant (NOT deferred). Exercises target-match condition (b) succeeding where condition (a) fails. |
 | `target_match_substring_only.replay.json` | Packet topic present as substring in `composed_target` → packet IS target-relevant via condition (a) alone. Classifier branch (b) is not needed. Isolates condition (a) as a standalone success path. |
 
@@ -404,7 +415,7 @@ Tests that the `codex-dialogue` agent invokes CLI commands in the correct sequen
 
 **Mock interface:** Tests use a tool-call interceptor that records all Bash invocations matching `topic_inventory.py *`. The test asserts on the sequence of recorded commands, their arguments, and their relative ordering. `search_docs` calls are intercepted and return canned results. `codex-reply` calls are intercepted and return success unless the fixture specifies failure.
 
-**Execution model:** The test spawns a `codex-dialogue` agent in a sandboxed environment with intercepted tools. The agent processes canned Codex responses (one per turn) and makes tool calls. The interceptor records all Bash invocations matching `topic_inventory.py *`. After the agent completes (or the turn limit is reached), the test asserts that the recorded tool-call sequence matches the expected pattern.
+**Execution model:** The test spawns a `codex-dialogue` agent via Claude Code's headless mode (`claude -p`) with a mock MCP server that intercepts `search_docs` and `codex-reply` tool calls and returns canned results. Bash invocations matching `topic_inventory.py *` are recorded by a wrapper script that logs the command and delegates to the real CLI. After the agent completes (or the turn limit is reached), the test asserts that the recorded tool-call sequence matches the expected pattern. **Implementation note:** The exact interception mechanism (mock MCP server, wrapper script, or SDK-level hook) is an implementation decision — the spec constrains only the fixture format and assertion semantics, not the test harness internals.
 
 **Fixture format:** Each test case provides:
 - `delegation_envelope`: the envelope passed to `codex-dialogue` (with/without `ccdi_seed`)

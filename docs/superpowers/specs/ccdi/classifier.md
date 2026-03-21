@@ -24,7 +24,7 @@ Matching rules by `match_type`:
 | `token` | Case-insensitive single-word match | `"hook"` |
 | `regex` | Compiled regex pattern (sparingly) | For patterns like `SKILL\.md` |
 
-Each candidate accumulates a score from matched aliases: sum of `alias.weight` values. Evaluation order: exact before phrase before token. Longer, more specific matches take precedence within the same match type. Repeated mentions of the same alias do NOT inflate the score.
+Each candidate accumulates a score from matched aliases. Evaluation order: exact before phrase before token. Within the same match type, longer, more specific matches take precedence and suppress shorter overlapping matches of the same type. Across match types, a higher-priority match on a topic suppresses lower-priority matches on the same topic from contributing to the score — e.g., an exact match for alias X prevents a token match for the same alias X from additionally contributing. The final score is the sum of `alias.weight` values for the surviving (non-suppressed) matches only. Repeated mentions of the same alias do NOT inflate the score.
 
 ### Stage 2: Ambiguity Resolution (Precision-Biased)
 
@@ -43,8 +43,8 @@ Thresholds are configurable via [`ccdi_config.json`](data-model.md#configuration
 
 | Level | Criteria | Config key |
 |-------|----------|-----------|
-| `high` | At least one exact/phrase match with weight ≥ 0.8 | `confidence_high_min_weight` |
-| `medium` | Cumulative score ≥ 0.5 from multiple aliases, or one match with weight 0.5–0.79 | `confidence_medium_min_score`, `confidence_medium_min_single_weight` |
+| `high` | At least one exact/phrase match with weight ≥ 0.8 | `classifier.confidence_high_min_weight` |
+| `medium` | Cumulative score ≥ 0.5 from multiple aliases, or one match with weight 0.5–0.79 | `classifier.confidence_medium_min_score`, `classifier.confidence_medium_min_single_weight` |
 | `low` | Only token matches or generic terms, cumulative score < 0.5 | *(below medium thresholds)* |
 
 ## Output Structure
@@ -72,8 +72,8 @@ Thresholds are configurable via [`ccdi_config.json`](data-model.md#configuration
 
 | Phase | Injection fires when | Config keys |
 |-------|---------------------|------------|
-| Initial (pre-dialogue) | 1 high-confidence topic, OR 2+ medium-confidence in same family | `initial_threshold_high_count`, `initial_threshold_medium_same_family_count` |
-| Mid-dialogue | 1 high-confidence uncovered leaf, OR 1 medium-confidence leaf in 2+ consecutive turns | `mid_turn_consecutive_medium_turns` |
+| Initial (pre-dialogue) | 1 high-confidence topic, OR 2+ medium-confidence in same family | `injection.initial_threshold_high_count`, `injection.initial_threshold_medium_same_family_count` |
+| Mid-dialogue | 1 high-confidence uncovered leaf, OR 1 medium-confidence leaf in 2+ consecutive turns | `injection.mid_turn_consecutive_medium_turns` (evaluated by the registry scheduling layer — see [registry.md#scheduling-rules](registry.md#scheduling-rules)) |
 | `/codex` (CCDI-lite) | Same as initial | *(same keys)* |
 
 Semantic hints (see [registry.md#semantic-hints](registry.md#semantic-hints)) are an additional mid-dialogue injection trigger processed by the scheduling layer, independent of classifier output. The classifier does not process or output semantic hints.

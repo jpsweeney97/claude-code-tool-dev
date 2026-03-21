@@ -15,11 +15,17 @@ All deterministic logic lives in Python, exposed as coarse-grained workflow comm
 |---------|-------|--------|---------|
 | `classify --text-file <path> [--inventory <path>] [--config <path>]` | Text file | `ClassifierResult` JSON (stdout) | Both modes |
 | `dialogue-turn --registry-file <path> --text-file <path> --source codex\|user [--semantic-hints-file <path>] [--config <path>]` | Text file + registry + optional hints | Updated registry file + injection candidates JSON (stdout) | Full CCDI |
-| `build-packet --results-file <path> [--registry-file <path>] --mode initial\|mid_turn [--coverage-target family\|leaf] [--mark-injected] [--mark-deferred <topic_key> --deferred-reason <reason>] [--skip-build] [--config <path>]` | Search results + optional registry | Rendered markdown (stdout); registry updated in-place if `--mark-injected` or `--mark-deferred` | Both modes |
+| `build-packet [--results-file <path>] [--registry-file <path>] --mode initial\|mid_turn [--topic-key <key>] [--facet <facet>] [--coverage-target family\|leaf] [--mark-injected] [--mark-deferred <topic_key> --deferred-reason <reason>] [--skip-build] [--config <path>]` | Search results + optional registry | Rendered markdown (stdout); registry updated in-place if `--mark-injected` or `--mark-deferred` | Both modes |
 
 All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson). If omitted, uses built-in defaults. Registry is a JSON file containing only durable states (see [registry.md](registry.md#durable-vs-attempt-local-states)). Attempt-local states (`looked_up`, `built`) exist within a single CLI invocation and are never written to the file.
 
 **`--registry-file` optionality on `build-packet`:** When omitted (CCDI-lite mode), deduplication against prior injections is skipped and `--mark-injected` / `--mark-deferred` are no-ops. CCDI-lite has no registry — each invocation builds a fresh packet without coverage history.
+
+**`--results-file` conditionality:** Required for packet construction (normal build path). Not required when `--skip-build` is passed with `--mark-deferred` — no packet construction occurs in that path.
+
+**`--topic-key <key>` flag:** Required when `--registry-file` is provided. Identifies which topic's registry entry to update for automatic suppression (on empty output), `--mark-injected`, or `--mark-deferred`. Without `--registry-file` (CCDI-lite mode), `--topic-key` is ignored.
+
+**`--facet <facet>` flag:** Required when `--mark-injected` is passed with `--registry-file`. Specifies which facet to append to `coverage.facets_injected` at commit time. The agent passes this value from the candidates JSON (`facet` field) returned by `dialogue-turn`. Without `--mark-injected`, `--facet` is ignored.
 
 **`--skip-build` flag:** When passed with `--mark-deferred`, skips packet construction and only writes deferred state to the registry. This avoids redundant rebuilds when the target-match check already determined the packet is not target-relevant. `--skip-build` is only valid with `--mark-deferred`; ignored otherwise. When `--skip-build` is passed with `--mark-deferred`, `--results-file` is not required — no packet construction occurs.
 
@@ -138,9 +144,13 @@ User prompt
 │  ├─ tools: mcp__claude-code-docs__search_docs, Read, Bash
 │  ├─ Receives: classified topics + query plans
 │  ├─ Calls search_docs per topic (broad: families + sibling topics)
-│  ├─ Bash: python3 topic_inventory.py build-packet --mode initial
+│  ├─ Writes search results to /tmp/ccdi_results_<id>.json
+│  ├─ Bash: python3 topic_inventory.py build-packet \
+│  │        --results-file /tmp/ccdi_results_<id>.json --mode initial \
+│  │        --topic-key <key>
 │  │        (NO --mark-injected — seed entries stay in `detected` state)
 │  └─ Returns: rendered markdown block + sentinel-wrapped registry seed
+│             + results file path in sentinel block for commit-phase use
 │
 ├─ Briefing assembly
 │  ├─ ## Context
@@ -226,7 +236,8 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   ├─ Bash: python3 topic_inventory.py build-packet \
 │   │   │        --results-file /tmp/ccdi_results_<id>.json \
 │   │   │        --registry-file /tmp/ccdi_registry_<id>.json \
-│   │   │        --mode mid_turn --coverage-target <target>   (NO --mark-injected yet)
+│   │   │        --mode mid_turn --topic-key <candidate.topic_key> \
+│   │   │        --coverage-target <candidate.coverage_target>   (NO --mark-injected yet)
 │   │   ├─ If build-packet returned empty: no packet to stage (automatic suppression already fired); skip target-match
 │   │   ├─ Target-match check: verify staged packet supports the composed follow-up target
 │   │   ├─ If target-relevant: stage for prepending
@@ -252,7 +263,9 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   └─ Bash: python3 topic_inventory.py build-packet \
 │   │            --results-file /tmp/ccdi_results_<id>.json \
 │   │            --registry-file /tmp/ccdi_registry_<id>.json \
-│   │            --mode mid_turn --coverage-target <target> --mark-injected
+│   │            --mode mid_turn --topic-key <candidate.topic_key> \
+│   │            --facet <candidate.facet> \
+│   │            --coverage-target <candidate.coverage_target> --mark-injected
 │   └─ If send failed or packet was not staged: no commit
 │
 └─ Continue dialogue loop

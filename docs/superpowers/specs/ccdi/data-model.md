@@ -80,10 +80,12 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 |-------|------|---------|
 | `id` | string | Rule identifier |
 | `pattern` | string | e.g., `"overview"`, `"settings"` |
-| `match_type` | `"token" \| "phrase" \| "regex"` | How to match |
+| `match_type` | `"token" \| "phrase" \| "regex"` | How to match. `"exact"` is intentionally excluded — deny rules operate on alias text during compilation, where `"token"` covers whole-word denial, `"phrase"` covers multi-word, and `"regex"` covers precise patterns. Use `"token"` for whole-word denial of identifiers. |
 | `action` | `"drop" \| "downrank"` | Eliminate or penalize |
 | `penalty` | number \| null | Discriminated by `action`: when `action: "drop"`, `penalty` MUST be `null`. When `action: "downrank"`, `penalty` MUST be a non-null number (0.0–1.0). Violations are build-time errors — `build_inventory.py` rejects the overlay with non-zero exit. |
 | `reason` | string | Why this term is problematic |
+
+**Penalty range enforcement:** Out-of-bounds `penalty` values (< 0.0 or > 1.0) in `add_deny_rule` overlay operations are build-time errors — `build_inventory.py` fails loudly with the penalty value and valid range. Do NOT clamp silently (unlike `override_weight` which clamps with a warning), because deny rules are curated artifacts where silent modification is misleading.
 
 **Penalty application:** `downrank` reduces the individual alias weight before summing into the topic score. If alias `A` has weight 0.6 and matches denylist rule with penalty 0.35, the effective weight is `0.6 - 0.35 = 0.25`. Negative effective weights are clamped to 0.
 
@@ -233,6 +235,8 @@ RegistrySeed
 
 **In-place mutation:** The `/dialogue` skill writes the seed to a temp file, which is then updated in-place by the commit-phase `build-packet --mark-injected` call at the same path. After commit, entries at that path reflect `injected` state. See [integration.md#registry-seed-handoff](integration.md#registry-seed-handoff) for the full lifecycle.
 
+**Null-field serialization:** All durable-state fields are always serialized in JSON, including those with null values (e.g., `last_query_fingerprint: null`, `deferred_reason: null`). An absent field is treated as missing on load and triggers entry reinitialization per the [resilience principle](foundations.md#resilience-principle). Implementations MUST NOT omit null-valued fields during serialization.
+
 ## Inventory Lifecycle
 
 | Phase | Mechanism | Trigger |
@@ -297,7 +301,7 @@ Keys use dot-separated paths matching the config schema above (e.g., `classifier
 `build_inventory.py` records each applied config override in `overlay_meta.applied_rules[]` with `operation: "override_config"` and `target` set to the config key path.
 
 **Config consumers:** Parameters are referenced by:
-- [classifier.md](classifier.md#confidence-levels) — `classifier.*` keys (confidence thresholds) and `injection.*` keys (injection thresholds)
+- [classifier.md](classifier.md#confidence-levels) — `classifier.*` keys (confidence thresholds) and `injection.*` keys (injection thresholds, including `injection.mid_turn_consecutive_medium_turns` which is documented in classifier.md's injection thresholds table but evaluated by the registry scheduling layer)
 - [registry.md](registry.md#scheduling-rules) — `injection.cooldown_max_new_topics_per_turn`, `injection.deferred_ttl_turns`, and `injection.mid_turn_consecutive_medium_turns`
 - [packets.md](packets.md#token-budgets) — `packets.*` keys (token budgets, quality thresholds)
 
@@ -315,5 +319,6 @@ Changes to config keys require checking all consumer files.
 | `ccdi_config.json` version mismatch (`config_version` differs from CLI's supported version) | CLI version check | Use built-in defaults, log warning (same behavior as corrupt/invalid — version-mismatched config is treated as unreadable) |
 | Inventory stale (`docs_epoch` mismatch) | Diagnostic check | Use stale inventory with diagnostics warning |
 | Version axis mismatch at build time | `build_inventory.py` validation | Fail loudly with version pair and required action |
+| `RegistrySeed.inventory_snapshot_version` differs from current inventory `schema_version` | CLI string comparison at seed load | Log warning. Continue with seed — `topic_key` values are stable across patch versions. Discard entries for `topic_key` values not present in the current inventory and continue. Field is used for traceability and forward-compatibility gating, not behavioral decisions. |
 
 All failure modes degrade to "proceed without CCDI" per the [resilience principle](foundations.md#resilience-principle).

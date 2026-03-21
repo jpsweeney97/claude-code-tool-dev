@@ -42,8 +42,10 @@ precedence:
   normative_first: true
   # NOTE: claim_precedence lists include authorities that may not hold the
   # arbitrated claim in their default_claims. This is intentional:
-  # - `decisions` appears in all chains as a global override (locked decisions
-  #   supersede all other authorities for any claim they address)
+  # - `decisions` appears in all chains as a fallback of last resort — component
+  #   contracts take priority for their own claims; decisions.md is consulted
+  #   only when component contracts are silent or conflicting. Exception:
+  #   decision_record chain, where decisions is first (it owns that claim).
   # - Other authorities appear where they provide implementation-level
   #   elaboration relevant to resolving conflicts in that claim family
   # - `integration` ranks first for interface_contract because it defines the
