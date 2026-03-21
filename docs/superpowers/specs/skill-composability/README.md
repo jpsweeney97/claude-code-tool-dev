@@ -19,9 +19,10 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 | `decisions` | Locked design decisions D1-D5 | `decision_record` |
 | `capsule-contract` | Capsule schemas, sentinels, wire format | `interface_contract` |
 | `pipeline` | Adaptive --plan, adapter pattern, decomposition, tautology filter | `behavior_contract` |
-| `routing` | Routing classification, materiality, validity, guardrails | `behavior_contract`, `enforcement_mechanism` |
+| `routing` | Routing classification, material-delta gating tiers, affected-surface validity matrix, guardrails, thread freshness, feedback persistence | `behavior_contract`, `enforcement_mechanism` |
 | `lineage` | Identity keys, DAG, discovery, staleness | `interface_contract`, `behavior_contract` |
-| `delivery` | Implementation plan, open items, verification strategy | `implementation_plan`, `verification_strategy` |
+| `delivery-plan` | Implementation plan, open items, deferred work | `implementation_plan` |
+| `delivery-verification` | Verification paths, test instruments, deferred verification | `verification_strategy` |
 | `supporting` | Navigation, reference | (none) |
 
 ### Precedence
@@ -29,16 +30,16 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 - Normative files take precedence over non-normative
 - `behavior_contract`: routing > pipeline > lineage
 - `interface_contract`: capsule-contract > lineage
-- Fallback: foundation > capsule-contract > routing > pipeline > lineage > decisions > delivery > supporting
+- Fallback: foundation > capsule-contract > routing > pipeline > lineage > decisions > delivery-plan > delivery-verification > supporting
 
 ### Boundary Rules
 
 | When This Changes | Also Review |
 |-------------------|-------------|
 | capsule-contract | pipeline, routing, lineage |
-| routing | pipeline, lineage, delivery |
-| lineage | capsule-contract, routing, delivery |
-| pipeline | capsule-contract, routing, delivery |
+| routing | pipeline, lineage, delivery-plan |
+| lineage | capsule-contract, routing, delivery-plan |
+| pipeline | capsule-contract, routing, delivery-plan |
 
 ## Reading Order
 
@@ -50,8 +51,8 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 | 4 | [lineage.md](lineage.md) | lineage | Identity keys, artifact IDs, DAG structure, discovery, staleness |
 | 5 | [pipeline-integration.md](pipeline-integration.md) | pipeline | Adapter pattern, two-stage admission, decomposition, tautology filter |
 | 6 | [routing-and-materiality.md](routing-and-materiality.md) | routing | Routing classification, material-delta tiers, validity matrix, guardrails |
-| 7 | [delivery.md](delivery.md) | delivery | Skill text changes, open items |
-| 8 | [verification.md](verification.md) | delivery | Verification paths for normative claims, test instruments, deferred verification |
+| 7 | [delivery.md](delivery.md) | delivery-plan | Skill text changes, open items |
+| 8 | [verification.md](verification.md) | delivery-verification | Verification paths for normative claims, test instruments, deferred verification |
 
 ## Cross-Reference Conventions
 

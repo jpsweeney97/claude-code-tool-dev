@@ -102,6 +102,8 @@ Two edge types connect artifacts:
 | `supersedes` | Same-kind, same-subject artifacts | Version chain within one artifact family |
 | `source_artifacts[]` | Cross-kind artifacts | Provenance graph showing what this run consumed |
 
+**`supersedes` minting rule:** `supersedes` MUST reference the most recent prior artifact of the same `artifact_kind` and `subject_key` visible in conversation context at the time of capsule emission. If multiple prior artifacts exist, take the one with the latest `created_at`. If no prior artifact of the same kind and subject exists, set `supersedes: null`.
+
 Each `source_artifacts[]` entry includes `artifact_id`, `artifact_kind`, and `role` (e.g., `diagnosis`, `plan`).
 
 **Provenance rule:** `source_artifacts[]` records direct edges only — artifacts that this run directly parsed and validated. Transitive provenance is recovered by traversing upstream `source_artifacts[]` references. Dialogue's feedback capsule lists NS (direct consumer) but not AR (transitive — reached via NS's own `source_artifacts[]`).
@@ -114,13 +116,14 @@ Two distinct algorithms serve different purposes within conversation-local scope
 
 Used when a skill wants to consume an upstream capsule:
 
+0. **For `dialogue_feedback` sentinels only:** Before scanning conversation context, check the durable store at `.claude/composition/feedback/` for matching artifacts by `subject_key`. If found, prefer the durable result per the source resolution precedence in [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence). If not found (or durable store unavailable), proceed to step 1.
 1. Reverse-scan available conversation context newest-first for the expected sentinel.
 2. Take the first match only.
 3. Validate the candidate capsule schema.
 4. If invalid, reject and stop — do not backtrack to older capsules. Proceed as if no capsule exists.
 5. If no sentinel found, proceed without structural handoff.
 
-Single-result, no-backtrack algorithm.
+Single-result, no-backtrack algorithm. Step 0 applies only to `dialogue_feedback` consumption; all other capsule types start at step 1.
 
 ### Staleness Discovery
 
@@ -149,7 +152,7 @@ Consuming skills detect staleness and warn the user. Evaluate in priority order 
 
 ## File Persistence
 
-Optional for AR and NS capsules. Mandatory (non-null) for `dialogue_feedback` capsules — MUST point to a durable file in `.claude/composition/feedback/` (see [capsule-contracts.md](capsule-contracts.md#contract-3-dialogue--arns-feedback-capsule) and [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence)).
+Optional for AR and NS capsules. Mandatory (non-null) for `dialogue_feedback` capsules — `record_path` MUST be non-null. See [capsule-contracts.md](capsule-contracts.md#contract-3-dialogue-feedback-capsule) for the normative rule and write-failure semantics, and [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the enforcement rule and write-failure recovery procedure.
 
 When present, `record_path` points to a durable file carrying the same artifact metadata in frontmatter. The file path is a locator, not the identity — `artifact_id` is the identity.
 

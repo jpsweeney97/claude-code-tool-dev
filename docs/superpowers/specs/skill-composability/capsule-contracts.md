@@ -17,7 +17,7 @@ Three capsule contracts define the inter-skill data exchange format. Each contra
 | `<!-- next-steps-dialogue-handoff:v1 -->` | next-steps | dialogue | Strict/deterministic |
 | `<!-- dialogue-feedback-capsule:v1 -->` | dialogue | adversarial-review, next-steps | Advisory/tolerant |
 
-`<!-- dialogue-orchestrated-briefing -->` is a distinct sentinel meaning "/dialogue already assembled the full Codex briefing." The NS handoff sentinel is input to dialogue's pipeline, not a replacement. The NS sentinel never reaches codex-dialogue.
+`<!-- dialogue-orchestrated-briefing -->` is a distinct sentinel meaning "/dialogue already assembled the full Codex briefing." This sentinel is emitted by dialogue for internal pipeline tracking only. No external consumers in v1 — no schema, consumer class, or behavior contract is defined. Documented here to prevent future misuse. The NS handoff sentinel is input to dialogue's pipeline, not a replacement. The NS sentinel never reaches codex-dialogue.
 
 ### Unknown Version Behavior
 
@@ -79,13 +79,13 @@ open_questions:
 
 Give dialogue's `--plan` flag structured task context, dependencies, originating findings, and decision gates — enabling enriched decomposition instead of starting from scratch.
 
-### Consumer Class
+### Consumer Class (Contract 2)
 
 Strict/deterministic. Dialogue rejects an invalid handoff block but continues its normal pipeline (gatherers, briefing assembly, delegation). It does not fall back to a different data source.
 
 **Validity criteria:** A handoff block is invalid if: (1) any required field (`artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `focus_question`, `selected_tasks`) is absent or not well-typed, (2) `artifact_kind` is not `next_steps_plan`, or (3) `selected_tasks` is present but empty. Missing optional fields (`topic_key`, `recommended_posture`, `source_findings`, `source_assumptions`, `source_open_questions`, `out_of_scope`, `decision_gates`) do not invalidate the capsule.
 
-### Emission
+### Emission (Contract 2)
 
 NS emits one handoff block when it suggests `/dialogue`. The block's `selected_tasks[]` list contains the tasks recommended for this dialogue invocation — typically the highest-risk task or recommended first move. One block per NS run, not one block per task.
 
@@ -140,7 +140,7 @@ out_of_scope:
 - **When no AR capsule was consumed:** All three fields are empty arrays.
 - **Reachability guarantee:** These fields close cross-schema reachability gaps where [routing](routing-and-materiality.md#routing-classification) and [materiality](routing-and-materiality.md#material-delta-gating) rules reference AR capsule fields. Deterministic routing and materiality clauses MUST be evaluable from the direct source snapshot (the NS handoff); they MUST NOT read through to transitive upstream capsules. When no NS handoff is consumed (standalone dialogue invocation), this guarantee is vacuously satisfied — there is no transitive upstream chain. Routing and materiality evaluate items against conversation context only.
 
-## Contract 3: Dialogue → AR/NS (Feedback Capsule)
+## Contract 3: Dialogue Feedback Capsule
 
 ### Purpose
 
@@ -169,7 +169,7 @@ source_artifacts:
     artifact_kind: next_steps_plan
     role: plan
 record_path: <path to .claude/composition/feedback/ file — MUST be non-null>
-record_status: <ok | write_failed — optional, omit when ok>
+record_status: <ok | write_failed — optional, omit when ok; MUST be set to write_failed when durable file write fails>
 
 thread_id: <Codex thread ID>
 converged: <true | false>
@@ -182,6 +182,7 @@ resolved:
 unresolved:
   - item_id: U1
     text: <what remains open>
+    hold_reason: <routing_pending | evidence_incomplete | null — set when item was held from ambiguous routing prompt; null or omitted for items unresolved for other reasons>
 emerged:
   - item_id: E1
     text: <new concept or risk that emerged>

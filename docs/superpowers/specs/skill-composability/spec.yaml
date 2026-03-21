@@ -26,9 +26,13 @@ authorities:
     description: Artifact identity system — three identity keys, ID format, DAG structure, discovery algorithms, staleness detection.
     default_claims: [interface_contract, behavior_contract]
 
-  delivery:
-    description: Implementation plan per skill, open items, deferred work, verification strategy.
-    default_claims: [implementation_plan, verification_strategy]
+  delivery-plan:
+    description: Implementation plan per skill, open items, deferred work.
+    default_claims: [implementation_plan]
+
+  delivery-verification:
+    description: Verification paths for normative claims, test instruments, deferred verification.
+    default_claims: [verification_strategy]
 
   supporting:
     description: Navigation, reading order, and reference material.
@@ -39,7 +43,7 @@ precedence:
   claim_precedence:
     behavior_contract: [routing, pipeline, lineage]
     interface_contract: [capsule-contract, lineage]
-  fallback_authority_order: [foundation, capsule-contract, routing, pipeline, lineage, decisions, delivery, supporting]
+  fallback_authority_order: [foundation, capsule-contract, routing, pipeline, lineage, decisions, delivery-plan, delivery-verification, supporting]
   unresolved: ambiguity_finding
   # Cross-family disambiguation: behavior_contract claims govern runtime pipeline
   # state (what happens during processing). interface_contract claims govern the
@@ -47,16 +51,22 @@ precedence:
   # conflict, check whether one governs pre-emission state and the other
   # post-emission format — they may describe different pipeline stages.
 
+# External authorities (not spec files, but positioned in the authority hierarchy):
+# - Composition contract (packages/plugins/cross-model/references/composition-contract.md):
+#     subordinate to this spec, authoritative for inline stub authors at implementation time.
+# - Inline stubs (per participating skill): runtime authority, role-specific subset of contract.
+# See foundations.md#three-layer-delivery-authority for the full hierarchy.
+
 boundary_rules:
   - on_change_to: [capsule-contract]
     review_authorities: [pipeline, routing, lineage]
     reason: Capsule schemas are consumed by pipeline adapters, referenced by routing classification, and carry lineage identity fields.
   - on_change_to: [routing]
-    review_authorities: [pipeline, lineage, delivery]
+    review_authorities: [pipeline, lineage, delivery-plan]
     reason: Routing rules affect pipeline tautology filter design, budget enforcement depends on lineage_root_id, implementation sequence may change.
   - on_change_to: [lineage]
-    review_authorities: [capsule-contract, routing, delivery]
+    review_authorities: [capsule-contract, routing, delivery-plan]
     reason: Identity keys are capsule schema fields, budget tracks by lineage_root_id, implementation depends on identity system.
   - on_change_to: [pipeline]
-    review_authorities: [capsule-contract, routing, delivery]
+    review_authorities: [capsule-contract, routing, delivery-plan]
     reason: Pipeline adapters consume capsule schemas, tautology filter relates to materiality classification, skill text changes need updating.
