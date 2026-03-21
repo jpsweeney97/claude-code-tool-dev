@@ -21,7 +21,7 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 | `pipeline` | Adaptive --plan, adapter pattern, decomposition, tautology filter | `behavior_contract` |
 | `routing` | Routing classification, materiality, validity, guardrails | `behavior_contract`, `enforcement_mechanism` |
 | `lineage` | Identity keys, DAG, discovery, staleness | `interface_contract`, `behavior_contract` |
-| `delivery` | Implementation plan, open items | `implementation_plan` |
+| `delivery` | Implementation plan, open items, verification strategy | `implementation_plan`, `verification_strategy` |
 | `supporting` | Navigation, reference | (none) |
 
 ### Precedence

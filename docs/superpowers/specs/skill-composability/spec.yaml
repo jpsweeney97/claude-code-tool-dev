@@ -28,7 +28,7 @@ authorities:
 
   delivery:
     description: Implementation plan per skill, open items, deferred work, verification strategy.
-    default_claims: [implementation_plan]
+    default_claims: [implementation_plan, verification_strategy]
 
   supporting:
     description: Navigation, reading order, and reference material.
@@ -41,6 +41,11 @@ precedence:
     interface_contract: [capsule-contract, lineage]
   fallback_authority_order: [foundation, capsule-contract, routing, pipeline, lineage, decisions, delivery, supporting]
   unresolved: ambiguity_finding
+  # Cross-family disambiguation: behavior_contract claims govern runtime pipeline
+  # state (what happens during processing). interface_contract claims govern the
+  # emitted wire format (what appears in capsule schemas). When these appear to
+  # conflict, check whether one governs pre-emission state and the other
+  # post-emission format — they may describe different pipeline stages.
 
 boundary_rules:
   - on_change_to: [capsule-contract]
