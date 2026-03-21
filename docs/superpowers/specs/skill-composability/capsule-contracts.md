@@ -17,7 +17,7 @@ Three capsule contracts define the inter-skill data exchange format. Each contra
 | `<!-- next-steps-dialogue-handoff:v1 -->` | next-steps | dialogue | Strict/deterministic |
 | `<!-- dialogue-feedback-capsule:v1 -->` | dialogue | adversarial-review, next-steps | Advisory/tolerant |
 
-`<!-- dialogue-orchestrated-briefing -->` is a distinct sentinel meaning "/dialogue already assembled the full Codex briefing." This sentinel is emitted by dialogue for internal pipeline tracking only. No external consumers in v1 — no schema, consumer class, or behavior contract is defined. Documented here to prevent future misuse. The NS handoff sentinel is input to dialogue's pipeline, not a replacement. The NS sentinel never reaches codex-dialogue.
+`<!-- dialogue-orchestrated-briefing -->` is a distinct sentinel meaning "/dialogue already assembled the full Codex briefing." This sentinel MUST only appear in dialogue's internal pipeline state representation — it MUST NOT appear in dialogue's externalized output (the text emitted to the user and conversation context). No external consumers in v1 — no schema, consumer class, or behavior contract is defined. Documented here to prevent future misuse. The NS handoff sentinel is input to dialogue's pipeline, not a replacement. The NS sentinel never reaches codex-dialogue.
 
 ### Unknown Version Behavior
 
@@ -33,7 +33,7 @@ Give NS stable, machine-referenceable access to AR findings without requiring pr
 
 Advisory/tolerant. NS validates the capsule if present; falls back to prose parsing if absent or invalid.
 
-**Provenance in fallback:** When NS falls back to prose parsing (capsule absent or invalid), the NS handoff MUST omit `source_artifacts` entries for the absent capsule. Do not reference an AR `artifact_id` that was not structurally consumed. This preserves lineage integrity — downstream consumers can trust that `source_artifacts` entries represent structurally validated provenance, not prose-derived references.
+**Provenance in fallback:** When NS falls back to prose parsing (capsule absent, schema-invalid, or unknown-version rejected), the NS handoff MUST omit `source_artifacts` entries for the absent capsule. Do not reference an AR `artifact_id` that was not structurally consumed. This preserves lineage integrity — downstream consumers can trust that `source_artifacts` entries represent structurally validated provenance, not prose-derived references.
 
 ### Emission
 
@@ -87,7 +87,7 @@ Strict/deterministic. Dialogue rejects an invalid handoff block but continues it
 
 ### Emission (Contract 2)
 
-NS emits one handoff block when it suggests `/dialogue`. The block's `selected_tasks[]` list contains the tasks recommended for this dialogue invocation — typically the highest-risk task or recommended first move. One block per NS run, not one block per task.
+NS emits one handoff block when it suggests `/dialogue`. The block's `selected_tasks[]` list contains the tasks recommended for this dialogue invocation — typically the highest-risk task or recommended first move. One block per NS run, not one block per task. NS MUST NOT emit a handoff block with `selected_tasks: []` (an empty list). If no tasks are selected for this dialogue invocation, NS MUST omit the handoff block entirely rather than emitting a block with an empty `selected_tasks[]`.
 
 ### Schema
 
@@ -202,12 +202,23 @@ feedback_candidates:
     materiality_source: rule | model
 ```
 
+### Validity Criteria (Contract 3)
+
+A feedback capsule is invalid if any required field is absent or not well-typed:
+
+- **Required fields:** `artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `thread_id`, `thread_created_at`, `converged`, `turn_count`, `continuation_warranted`, `record_path`, `record_status`
+- **Optional fields:** `topic_key`, `source_artifacts`, `resolved`, `unresolved`, `emerged`, `recommended_posture`, `feedback_candidates`, `supersedes`
+
+When a required field is absent or not well-typed, the capsule is invalid and the advisory/tolerant fallback applies — consumers proceed without structural handoff. This eliminates the need for per-consumer null-handling rules on fields like `thread_created_at` — capsule rejection handles absent required fields upstream.
+
 ### Schema Constraints
 
 - **`material`/`suggested_arc` coherence:** The [affected-surface validity matrix and correction rules](routing-and-materiality.md#affected-surface-validity) (normative authority: routing-and-materiality) are the single source of truth for valid tuples in the emitted wire format. Capsules MUST be emitted in their post-correction state.
+- **`classifier_source` validation:** The emission-time enforcement gate MUST validate `classifier_source ∈ {rule, model}` for every `feedback_candidates[]` entry, parallel to the `(affected_surface, material, suggested_arc)` tuple validation. See [routing-and-materiality.md](routing-and-materiality.md#dimension-independence) for the normative MUST clause.
 - **`record_status` semantics:** See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the normative write-failure recovery procedure, consumer-side contract, and enforcement rules. `record_status` MUST always be present (`ok` or `write_failed`).
 
 ### Design Notes
 
 - `classifier_source` is narrowed to `rule | model` — no `ambiguous` value. Every classification is performed by either a rule or the model.
-- `record_path` MUST be non-null for feedback capsules. See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence).
+- `record_path` MUST be non-null for feedback capsules. See [routing-and-materiality.md#selective-durable-persistence](routing-and-materiality.md#selective-durable-persistence) for the normative enforcement rule, write-failure recovery procedure (including the `record_path`-to-intended-path requirement on failure), and consumer-side contract.
+- The `implements_composition_contract: v1` drift detection marker is a presence signal only — it does not guarantee semantic conformance. Until `validate_composition_contract.py` is implemented ([delivery.md](delivery.md#open-items) item #6), the marker MUST be treated as a necessary but not sufficient conformance indicator.

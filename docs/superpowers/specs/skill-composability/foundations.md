@@ -63,12 +63,12 @@ The composition system distributes authority across three layers:
 | Layer | Owner | Authority | Audience |
 |-------|-------|-----------|----------|
 | **This spec** | Spec files (this directory) | Design authority — canonical definitions of all protocol semantics | Spec authors and reviewers |
-| **Composition contract** | Shared reference document | Runtime projection — must conform to spec definitions; authoritative for inline stub authors at implementation time | Skill authors modifying composition behavior |
+| **Composition contract** | Shared reference document | Implementation-time reference — must conform to spec definitions; authoritative for inline stub authors (NOT runtime-loaded; stubs carry the runtime projection) | Skill authors modifying composition behavior |
 | **Inline stubs** (per skill) | Each participating skill | Runtime authority — role-specific operational subset derived from the contract | Claude during skill execution |
 
 **Relationship between spec and contract:** Within this spec, the normative definitions live in the spec files ([routing-and-materiality.md](routing-and-materiality.md), [lineage.md](lineage.md), [capsule-contracts.md](capsule-contracts.md), etc.). The Composition contract is the runtime delivery artifact that must conform to — not supersede — these spec-file definitions. When the contract diverges from the spec, the spec is authoritative and the contract must be updated.
 
-**Contract carries runtime projection of protocol core:**
+**Contract documents the runtime projection of protocol core (stubs carry it at runtime):**
 
 - Sentinel/version rules and unknown-version handling — see [capsule-contracts.md](capsule-contracts.md#unknown-version-behavior)
 - Artifact metadata schema — see [lineage.md](lineage.md#artifact-identity)

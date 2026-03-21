@@ -36,7 +36,7 @@ The adapter normalizes the validated capsule into a generic `upstream_handoff` p
 | `decomposition_seed` | Can seed decomposition fields (planning_question, assumptions, key_terms, ambiguities) | `true` |
 | `gatherer_seed` | Can seed gatherer search terms with task/finding entities | `true` |
 | `briefing_context` | Can inject source_findings and decision_gates into briefing assembly | `true` |
-| `tautology_filter_applied` | Confirms items passed through the [tautology filter](#three-tier-tautology-filter) during decomposition seeding — required precondition for [materiality evaluation](routing-and-materiality.md#material-delta-gating) | Set to `true` after tautology filter runs successfully during `handoff_enriched` decomposition; `false` otherwise |
+| `tautology_filter_applied` | Confirms items passed through the [tautology filter](#three-tier-tautology-filter) during decomposition seeding — required precondition for [materiality evaluation](routing-and-materiality.md#material-delta-gating) | The NS adapter MUST set this flag to `true` only after all three tautology filter tiers have been evaluated for all decomposition items during `handoff_enriched` mode. If any tier is skipped or fails, the adapter MUST set this flag to `false` (not omit it) — absence is treated identically to `false` by the materiality evaluator, but explicit `false` is preferable for debuggability. A partial-tier implementation (e.g., Tier 1 only) MUST NOT set this flag to `true`. |
 
 The pipeline gates enrichment on what the adapter provides, not what type produced it. A future adapter that provides `gatherer_seed` but not `decomposition_seed` would enrich gatherer prompts without affecting decomposition.
 
