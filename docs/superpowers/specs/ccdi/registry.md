@@ -26,6 +26,7 @@ TopicRegistryEntry
 ├── deferred_reason: "cooldown" | "scout_priority" | "target_mismatch" | null
 ├── deferred_ttl: number | null       # turns remaining before re-evaluation
 ├── coverage_target: "family" | "leaf" # classifier's resolved coverage target; populated at detection time from ClassifierResult
+├── facet: Facet                       # classifier's resolved facet; populated at detection time from ClassifierResult.resolved_topics[].facet
 └── coverage
     ├── overview_injected: boolean
     ├── facets_injected: Facet[]
@@ -85,7 +86,7 @@ Fields updated at each state transition. Fields not listed are unchanged.
 
 | Transition | Fields updated |
 |-----------|----------------|
-| `absent → detected` | `first_seen_turn` ← current turn, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if medium, else 0) |
+| `absent → detected` | `first_seen_turn` ← current turn, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if medium, else 0), `coverage_target` ← from `ClassifierResult.resolved_topics[].coverage_target`, `facet` ← from `ClassifierResult.resolved_topics[].facet` |
 | Re-detection at medium confidence (entry in `detected` or `deferred` state) | `last_seen_turn` ← current turn, `consecutive_medium_count` ← `consecutive_medium_count` + 1 |
 | Re-detection at non-medium confidence (entry in `detected` or `deferred` state) | `last_seen_turn` ← current turn, `consecutive_medium_count` ← 0 |
 | Re-detection (entry in `injected` state) | `last_seen_turn` ← current turn; all other fields unchanged (state remains `injected`) |
@@ -101,7 +102,7 @@ Fields updated at each state transition. Fields not listed are unchanged.
 | `detected → deferred` (via `--mark-deferred`) | `state` ← `deferred`, `deferred_reason` ← reason, `deferred_ttl` ← `injection.deferred_ttl_turns` from config |
 | `[looked_up] → suppressed` | `state` ← `suppressed`, `suppression_reason` ← reason, `suppressed_docs_epoch` ← current inventory's `docs_epoch` |
 | `suppressed → detected` (re-entry, any `suppression_reason`) | `state` ← `detected`, `suppression_reason` ← null, `suppressed_docs_epoch` ← null, `last_seen_turn` ← current turn. This row applies identically for both `weak_results` and `redundant` suppression reasons — the field resets are the same regardless of reason. |
-| `deferred → detected` (TTL expiry + reappearance) | `state` ← `detected`, `deferred_reason` ← null, `deferred_ttl` ← null, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if re-entry turn confidence is medium, else 0) |
+| `deferred → detected` (TTL expiry + reappearance) | `state` ← `detected`, `deferred_reason` ← null, `deferred_ttl` ← null, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if re-entry turn confidence is medium, else 0), `facet` ← from `ClassifierResult.resolved_topics[].facet` (updated to current classifier resolution) |
 | `deferred → deferred` (TTL=0, topic absent from classifier) | `deferred_ttl` ← `injection.deferred_ttl_turns` from config (reset; state, deferred_reason, and `last_seen_turn` unchanged) |
 
 **`consecutive_medium_count` on send failure:** When a packet is staged (prepare phase) but send fails (commit phase skipped), `consecutive_medium_count` is NOT reset — the `[built] → injected` transition never fires, so the counter retains its pre-failure value. On the next turn, if the topic reappears at medium confidence, the counter increments from the retained value. This means injection may fire again on the next medium-confidence turn (acceptable double-attempt; the topic genuinely qualifies). The counter resets to 0 only via: (a) successful `--mark-injected` commit, (b) topic absent from classifier output, or (c) topic appears at a different confidence level.
@@ -186,11 +187,11 @@ The CLI classifies `claim_excerpt` through its standard two-stage pipeline to re
 |------------|---------------------|-------------------|
 | `prescriptive` | `detected` | Elevate to "materially new" — schedule for immediate lookup |
 | `prescriptive` | `injected` | No effect — topic already covered |
-| `contradicts_prior` | `injected` | Flag coverage gap — mark topic for re-injection at a new facet (coverage update, not state revert) |
+| `contradicts_prior` | `injected` | Flag coverage gap — append resolved facet to `coverage.pending_facets`. On subsequent scheduling passes, emit a `pending_facet` candidate via `dialogue-turn` candidates JSON ([integration.md#dialogue-turn-candidates-json-schema](integration.md#dialogue-turn-candidates-json-schema)) with the first pending facet not already in `facets_injected`. Coverage update, not state revert. |
 | `contradicts_prior` | `detected` or `deferred` | Elevate to "materially new" (same as `prescriptive`) |
 | `extends_topic` | `suppressed` | Re-enter as `detected` regardless of `suppression_reason` (new signal overrides prior suppression — applies to both `weak_results` and `redundant`; see [Suppression Re-Entry](#suppression-re-entry)) |
 | `extends_topic` | `detected` or `deferred` | Elevate to "materially new" (same as `prescriptive`) |
-| `extends_topic` | `injected` | Flag for facet expansion — use the facet resolved from `claim_excerpt` classification as the candidate facet. If that facet is already in `facets_injected`, fall back to the first entry in `pending_facets` (if any), then to `default_facet`. Schedule lookup at the selected facet if not yet in `facets_injected`. If all candidate facets (resolved, pending, default) are already in `facets_injected`: discard hint silently, no state change, no scheduling effect. |
+| `extends_topic` | `injected` | Flag for facet expansion — use the facet resolved from `claim_excerpt` classification as the candidate facet. If that facet is already in `facets_injected`, fall back to the first entry in `pending_facets` (if any), then to `default_facet`. Schedule lookup at the selected facet if not yet in `facets_injected`. Emit a `facet_expansion` candidate via `dialogue-turn` candidates JSON ([integration.md#dialogue-turn-candidates-json-schema](integration.md#dialogue-turn-candidates-json-schema)) with the cascade-resolved facet. If all candidate facets (resolved, pending, default) are already in `facets_injected`: discard hint silently, no state change, no scheduling effect, no candidate emitted. |
 | *(any)* | topic not resolved | Hint ignored — `claim_excerpt` did not match any inventory topic |
 
 **Hint facet resolution:** When a semantic hint triggers any scheduling effect (elevation, facet expansion, or re-entry), the CLI classifies `claim_excerpt` through the standard two-stage pipeline to resolve both the topic key and the facet hint from matched aliases. The resolved facet from `claim_excerpt` classification is used as the candidate facet, overriding any facet from prior detection. This applies to all hint types and all topic states — including `extends_topic` on `injected` topics (where the resolved facet is the primary candidate for expansion).
