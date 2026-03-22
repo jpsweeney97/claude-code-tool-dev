@@ -137,7 +137,7 @@ Re-entry conditions are aligned with the `suppression_reason`, not with classifi
 
 **`docs_epoch` comparison semantics:** `null == null` is not a change (no re-entry). `null → non-null` is a change (re-entry fires). `non-null → null` is a change (re-entry fires). Comparison is string equality on non-null values.
 
-See [integration.md#dialogue-turn-registry-side-effects](integration.md) for the `dialogue-turn` implementation of these re-entry checks.
+See [integration.md#dialogue-turn-registry-side-effects](integration.md#dialogue-turn-registry-side-effects) for the `dialogue-turn` implementation of these re-entry checks.
 
 ## Family vs Leaf Coverage
 
