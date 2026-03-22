@@ -47,6 +47,8 @@ Four version axes prevent coupled evolution (three compatibility axes + one inst
 
 `build_inventory.py` validates compatibility between all three axes at merge time. On mismatch: fail loudly with specific version pair and required action. Do NOT silently fall back — overlays are curated artifacts, and silent incompatibility corrupts human-maintained data.
 
+**Validation when `overlay_meta` absent:** When `overlay_meta` is absent, no overlay was applied; version-axis validation for `overlay_schema_version` and `overlay_version` is vacuously satisfied (there is nothing to validate). `merge_semantics_version` is always present at the top level of `CompiledInventory` and is validated against the CLI's supported version at load time regardless of whether an overlay was applied.
+
 ### Schema Evolution Constraint
 
 `CompiledInventory` schema evolution is additive-only: new fields with defaults, never removed or renamed fields. This invariant makes best-effort field mapping safe at load time (see [Failure Modes](#failure-modes)) — consumers can read inventories built under a prior schema version because unknown fields are ignored and missing fields fall back to defaults. All files that consume `CompiledInventory` (classifier.md, registry.md, packets.md) depend on this constraint.
@@ -322,6 +324,8 @@ The post-commit live registry file is the RegistrySeed with `results_file` strip
 
 `results_file` is stripped on load (load-time invariant) and MUST NOT appear in the live file. `docs_epoch` and `inventory_snapshot_version` are retained as traceability fields and are not modified after initial write. The `docs_epoch` used for suppression re-entry comparisons is sourced from the pinned inventory snapshot (via `--inventory-snapshot`), not from the registry file's envelope field.
 
+**`inventory_snapshot_version` write-time contract:** At seed-build time, `inventory_snapshot_version` MUST equal the `CompiledInventory.schema_version` value from the inventory that was successfully loaded. A sentinel block with a blank, null, or absent `inventory_snapshot_version` indicates a build defect. At seed load, if `inventory_snapshot_version` is empty, null, or absent, treat as a version mismatch (log warning, apply best-effort field mapping per [Failure Modes](#failure-modes)).
+
 **Entry-level null-field serialization:** All nullable durable-state fields within each `entries[]` element MUST be serialized as explicit `null` when null — see [Null-field serialization](#registryseed) above. This invariant applies to both entry-level fields (e.g., `last_query_fingerprint: null`, `deferred_reason: null`) and the envelope-level nullable field (`docs_epoch`).
 
 ## Inventory Lifecycle
@@ -397,6 +401,8 @@ Keys use dot-separated paths matching the config schema above (e.g., `classifier
 
 `build_inventory.py` records each applied config override in `overlay_meta.applied_rules[]` with `operation: "override_config"` and `target` set to the config key path. `build_inventory.py` MUST process `config_overrides` using strict JSON parsing that rejects duplicate keys, or detect duplicates after parsing and reject with non-zero exit.
 
+**Processing order:** `rules[]` operations are applied first, then `config_overrides`. These keys modify independent build artifacts (`rules[]` modifies the compiled inventory topics/denylist, `config_overrides` modifies the config output written alongside the inventory) and do not interact within a single build run.
+
 **Config consumers:** Parameters are referenced by:
 - CLI config loader — `config_version` (version mismatch gating; see [Failure Modes](#failure-modes))
 - [classifier.md](classifier.md#confidence-levels) — `classifier.*` keys (confidence thresholds)
@@ -420,6 +426,8 @@ Changes to config keys require checking all consumer files.
 | Inventory stale (`docs_epoch` mismatch) | Diagnostic check | Use stale inventory with diagnostics warning |
 | Version axis mismatch at build time | `build_inventory.py` validation | Fail loudly with version pair and required action |
 | `RegistrySeed.inventory_snapshot_version` differs from current inventory `schema_version` | CLI string comparison at seed load | Version mismatch is a valid load-time state. Log warning and continue — `topic_key` values are stable across patch versions. Field is used for traceability and forward-compatibility gating. See [registry.md#failure-modes](registry.md#failure-modes) for entry-level handling and rewrite-deferral behavior. |
+| `merge_semantics_version` absent in loaded inventory | CLI field validation | Log warning, assume version `"1"` (initial version), proceed with best-effort merge. Consistent with `schema_version` mismatch treatment. |
+| `merge_semantics_version` mismatch at load time | CLI string comparison at startup | Log warning, proceed with best-effort field mapping. Distinct from build-time mismatch (which fails loudly per version-axis validation). |
 | `topic_inventory.json` valid JSON but missing `overlay_meta` field | CLI field validation | Treat as partial inventory: log warning, use empty `applied_rules[]` and omit config overrides, continue CCDI. This is not "corrupt" — the inventory is usable without overlay metadata. |
 | Registry file loaded with `deferred_ttl: 0` (abnormal shutdown during TTL processing) | CLI load-time check | A value of 0 is a valid persisted state indicating TTL expired before transition was written. See [registry.md#failure-modes](registry.md#failure-modes) for recovery behavior (state transition on next `dialogue-turn` call). |
 | Registry file loaded with `results_file` field present | CLI load-time check | `results_file` is a transient field not intended for long-term persistence; its presence at load time indicates an incomplete initial commit. See [registry.md#failure-modes](registry.md#failure-modes) for load-time handling (strip and write-back behavior). |

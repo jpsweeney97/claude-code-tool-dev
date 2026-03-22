@@ -75,6 +75,8 @@ No flag is needed — empty output triggers suppression unconditionally when a r
 
 **Suppression and deferral precedence:** If `build-packet` returns empty output, automatic suppression (either `weak_results` or `redundant`) writes to the registry. In this case, the target-match check has no packet to evaluate — skip the `--mark-deferred` path entirely. The topic is already handled by suppression. The mid-dialogue flow should check for empty output before proceeding to target-match.
 
+**CCDI-lite empty output:** When `--registry-file` is absent and `build-packet` produces empty output, the command MUST exit 0 with empty stdout and no stderr output. The CCDI-lite path has no suppression side-effect — empty output simply means no packet was built.
+
 #### `dialogue-turn` Candidates JSON Schema
 
 The `dialogue-turn` command writes injection candidates to stdout as a JSON array:
@@ -439,6 +441,8 @@ The agent performs this check. When condition (a) fails, the agent MUST invoke `
 
 **Inventory snapshot for condition (b):** The `classify` invocation for condition (b) MUST use the pinned inventory snapshot (`--inventory <ccdi_snapshot_path>`) to ensure topic resolution is consistent with the `dialogue-turn` classification within the same dialogue.
 
+**Flag name enforcement:** `classify` accepts `--inventory` (not `--inventory-snapshot`). Passing `--inventory-snapshot` to `classify` is not a valid flag — implementations MUST reject it with a non-zero exit or ignore it with a warning. See the CLI integration tests in [delivery.md](delivery.md#cli-integration-tests) for the negative test.
+
 **Replay fixture assertion:** The `target_mismatch_deferred.replay.json` fixture provides a `composed_target` field in each trace entry. The harness feeds this to the target-match check logic. The assertion verifies the registry transitions to `deferred: target_mismatch` when the packet topics do not appear in the composed target.
 
 ## Inventory Generation
@@ -515,5 +519,6 @@ New tool added to the `claude-code-docs` MCP server. Returns structured metadata
 | `search_docs` returns empty or errors | Empty results / MCP error | Skip injection for topic, mark `suppressed: weak_results` in [registry](registry.md) |
 | `dialogue-turn` CLI fails mid-dialogue | Non-zero exit | Continue dialogue without mid-turn injection, preserve previous registry |
 | `--inventory-snapshot` absent on full-CCDI call | Missing required flag when `--registry-file` present | Non-zero exit with descriptive error identifying the missing flag |
+| `--inventory-snapshot` absent on `build-packet` with `--registry-file` present | Missing required flag when `--registry-file` present | Non-zero exit with descriptive error identifying the missing flag (symmetric with `dialogue-turn` behavior per footnote ‡) |
 
 All failure modes degrade to "proceed without CCDI" per the [resilience principle](foundations.md#resilience-principle).
