@@ -23,7 +23,7 @@ Three capsule contracts define the inter-skill data exchange format. Each contra
 
 When a consumer encounters a sentinel with an unrecognized version (e.g., `<!-- ar-capsule:v2 -->` when only `v1` is known): reject the capsule block, not the skill session. A version mismatch prevents capsule consumption but does not break the skill invocation. The consumer proceeds as if no capsule exists, applying its consumer class fallback behavior (see [foundations.md](foundations.md#consumer-classes)).
 
-## Contract 1: AR → NS (AR Capsule)
+## Contract 1: AR to NS (AR Capsule)
 
 ### Purpose
 
@@ -73,7 +73,7 @@ open_questions:
 - **`if_wrong` preserves diagnostic mechanism** without crossing into remediation. AR says "if this assumption fails, X breaks" — NS decides what to do about it.
 - **Excludes task decomposition, dependency maps, or sequencing.** These are NS's domain.
 
-## Contract 2: NS → Dialogue (NS Handoff Block)
+## Contract 2: NS to Dialogue (NS Handoff Block)
 
 ### Purpose
 
@@ -83,7 +83,7 @@ Give dialogue's `--plan` flag structured task context, dependencies, originating
 
 Strict/deterministic. Dialogue rejects an invalid handoff block but continues its normal pipeline (gatherers, briefing assembly, delegation). It does not fall back to a different data source.
 
-**Validity criteria:** A handoff block is invalid if: (1) any required field (`artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `focus_question`, `selected_tasks`) is absent or not well-typed, (2) `artifact_kind` is not `next_steps_plan`, or (3) `selected_tasks` is present but empty. Missing optional fields (`topic_key`, `recommended_posture`, `source_findings`, `source_assumptions`, `source_open_questions`, `out_of_scope`, `decision_gates`) do not invalidate the capsule.
+**Validity criteria:** A handoff block is invalid if: (1) any required field (`artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `focus_question`, `selected_tasks`) is absent or not well-typed, (2) `artifact_kind` is not `next_steps_plan`, or (3) `selected_tasks` is present but empty. Missing optional fields (`topic_key`, `recommended_posture`, `source_findings`, `source_assumptions`, `source_open_questions`, `out_of_scope`, `decision_gates`) do not invalidate the capsule. `selected_tasks` validity: MUST be present AND non-empty. Absent `selected_tasks` key = invalid (criterion 1: missing required field). Present but empty `selected_tasks: []` = invalid (criterion 3: explicit validity rule). Both produce the same consumer behavior: rejection + normal pipeline proceeds.
 
 ### Emission (Contract 2)
 
@@ -202,7 +202,7 @@ feedback_candidates:
     materiality_source: rule | model
 ```
 
-The feedback capsule MUST omit `source_artifacts` entries for any upstream capsule (NS handoff) that was not structurally consumed — do not reference an NS `artifact_id` that was not validated via the [two-stage admission](pipeline-integration.md#two-stage-admission) process. Parallel to the [Contract 1 provenance rule](#consumer-class-contract-1). Both provenance rules share the same principle: `source_artifacts` entries represent structurally validated provenance, not prose-derived references (see [Contract 1](#consumer-class-contract-1) for the AR→NS direction).
+The feedback capsule MUST omit `source_artifacts` entries for any upstream capsule (NS handoff) that was not structurally consumed — do not reference an NS `artifact_id` that was not validated via two-stage admission (sentinel detected in conversation context, schema validated against expected format, normalized to `upstream_handoff` pipeline state). See [pipeline-integration.md](pipeline-integration.md#two-stage-admission) for the full admission procedure. Parallel to the [Contract 1 provenance rule](#consumer-class-contract-1). Both provenance rules share the same principle: `source_artifacts` entries represent structurally validated provenance, not prose-derived references (see [Contract 1](#consumer-class-contract-1) for the AR→NS direction).
 
 ### Validity Criteria (Contract 3)
 
@@ -216,8 +216,8 @@ When a required field is absent or not well-typed, the capsule is invalid and th
 ### Schema Constraints
 
 - **`material`/`suggested_arc` coherence:** The [affected-surface validity matrix and correction rules](routing-and-materiality.md#affected-surface-validity) (normative authority: routing-and-materiality) are the single source of truth for valid tuples in the emitted wire format. Capsules MUST be emitted in their post-correction state.
-- **`classifier_source` validation:** The emission-time enforcement gate MUST validate `classifier_source ∈ {rule, model}` for every `feedback_candidates[]` entry, parallel to the `(affected_surface, material, suggested_arc)` tuple validation. See [routing-and-materiality.md](routing-and-materiality.md#dimension-independence) for the normative MUST clause.
-- **`materiality_source` validation:** The emission-time enforcement gate MUST validate `materiality_source ∈ {rule, model}` for every `feedback_candidates[]` entry, parallel to the `classifier_source` validation. See [routing-and-materiality.md](routing-and-materiality.md#affected-surface-validity) for the enforcement-layer MUST clause.
+- `classifier_source` validation: MUST be `rule` or `model` — no other values permitted. Emission-time enforcement gate defined in [routing-and-materiality.md](routing-and-materiality.md#dimension-independence). Invalid values are corrected to `rule` with structured warning (always recoverable, does NOT trigger partial correction failure abort).
+- `materiality_source` validation: MUST be `rule` or `model` — parallel to `classifier_source`. Emission-time enforcement gate defined in [routing-and-materiality.md](routing-and-materiality.md#affected-surface-validity). Same correction and recovery semantics.
 - **`record_status` semantics:** See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the normative write-failure recovery procedure, consumer-side contract, and enforcement rules. `record_status` MUST always be present (`ok` or `write_failed`).
 
 ### Design Notes

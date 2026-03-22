@@ -93,6 +93,16 @@ Examples:
 - `ns:redaction-pipeline:20260318T144215.456`
 - `dialogue:redaction-pipeline:20260318T151033.789`
 
+### Invalid Candidate Rule
+
+Any artifact whose required `created_at` field is unparseable (not valid ISO 8601, missing, or malformed) is invalid for selection, ordering, and supersession. This rule applies uniformly to:
+- **Consumption discovery** (step 0 durable store check and steps 1-5 conversation scan): invalid candidates are excluded from selection. Emit a one-line prose warning naming the excluded file or sentinel. If all candidates are invalid, treat as no match found.
+- **Supersedes minting**: invalid candidates are excluded from predecessor selection. If no valid prior artifact remains after exclusion, resolve to `supersedes: null`.
+
+Ordering key for multi-candidate disambiguation is the in-band capsule `created_at` frontmatter value — never OS filesystem `mtime` or any external timestamp source.
+
+**v1 limitation — single writer assumed:** Concurrent dialogue invocations writing durable files with the same `subject_key` are unsupported. Concurrent writes to the same `subject_key` produce filename collisions (path overwrite via the deterministic path construction rule in [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence)), not consumer-side ambiguity. This is declared unsupported rather than handled.
+
 ## DAG Structure
 
 Two edge types connect artifacts:
@@ -116,7 +126,7 @@ Two distinct algorithms serve different purposes within conversation-local scope
 
 Used when a skill wants to consume an upstream capsule:
 
-0. **For `dialogue_feedback` sentinels only:** Before scanning conversation context, check the durable store at `.claude/composition/feedback/` for matching artifacts by `subject_key`. If found, prefer the durable result per the source resolution precedence in [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence). If not found (or durable store unavailable), proceed to step 1.
+0. **For `dialogue_feedback` sentinels only:** Before scanning conversation context, check the durable store at `.claude/composition/feedback/` for matching artifacts by `subject_key`. When multiple durable files match by `subject_key`, take the one with the latest `created_at` (per artifact ID format precision rules). Candidates failing the [invalid candidate rule](#invalid-candidate-rule) are excluded before disambiguation. If found, prefer the durable result per the source resolution precedence in [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence). If not found (or durable store unavailable), proceed to step 1.
 1. Reverse-scan available conversation context newest-first for the expected sentinel.
 2. Take the first match only.
 3. Validate the candidate capsule schema.
