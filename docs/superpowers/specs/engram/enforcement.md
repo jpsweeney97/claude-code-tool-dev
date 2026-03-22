@@ -67,7 +67,7 @@ This is an honest boundary, not a gap to close: the design provides reliable enf
 `engram_quality` (PostToolUse) validates snapshot content quality for Write and Edit tool calls on snapshot-owned paths.
 
 - **Write:** reads `tool_input.content` from the payload
-- **Edit:** reads the file from disk after the edit completes (post-state validation)
+- **Edit:** reads the file from disk after the edit completes (post-state validation). If the file is missing at readback time (deleted between edit completion and hook execution), emit a warning (`snapshot file not found at post-write readback — quality check skipped`) and return exit code 0. Do not treat as a hook failure.
 
 This is advisory quality lint, not trust enforcement — the small race between write completion and validation readback is acceptable for warnings. See [enforcement boundary constraint](#enforcement-boundary-constraint) for the governing principle and [pre/post-write validation layering](foundations.md#prepost-write-validation-layering) for design rationale. It does **not** detect Bash-mediated writes to protected paths.
 
@@ -81,6 +81,8 @@ This is advisory quality lint, not trust enforcement — the small race between 
 Quality validation paths are separate from [protected-path enforcement](#protected-path-enforcement). Protected paths gate *authorization* (who may write). Quality paths gate *content checks* (what was written). A path can be in both sets. Staging writes (`knowledge_staging/`) are excluded — the Knowledge engine validates content at write time, making post-write quality hooks redundant for staging.
 
 **Hook self-failure:** If `engram_quality` itself fails (unhandled exception, timeout), the failure is logged as `[engram_quality:error]` (distinct from quality warnings at `[engram_quality:warn]`) but does not block the underlying write. The implementation must catch all exceptions in the hook body to prevent hook-level failures from propagating to the tool call result.
+
+Implementation must never return exit code 2 (Block). Even if the quality check detects a severe issue, the response must be exit code 0 with warning text. This is enforced by the [enforcement boundary constraint](#enforcement-boundary-constraint).
 
 ### Enforcement Boundary Constraint
 
@@ -198,6 +200,8 @@ The trust triple is `{hook_injected, hook_request_origin, session_id}` — three
 
 Phase-scoped idempotency is a delivery-period limitation. See [delivery.md §Bridge Cutover](delivery.md#step-1-bridge-cutover) for the authoritative phase schedule and [operations.md §Phase-Scoped Idempotency](operations.md#envelope-invariants) for the operational specification.
 
+`engram_guard` is not deployed until Step 3a. During Steps 1–2, protected-path enforcement and trust injection are not active — the bridge adapter routes through the old ticket engine's existing authorization model.
+
 ## SessionStart Hook
 
 `engram_session`: bounded and idempotent. <500ms startup budget.
@@ -209,6 +213,8 @@ Phase-scoped idempotency is a delivery-period limitation. See [delivery.md §Bri
 | Clean expired chain state (>24h) | Max 20 files | Fail-open |
 | Clean orphan payload files (>24h) | Max 20 files | Fail-open |
 | Verify `.engram-id` exists | 1 read | Warn if missing (diagnostic only — does not create) |
+
+Per-file cleanup that exceeds 5ms is aborted (skip remaining files). This prevents a single slow file from blowing the startup budget.
 
 ### Bootstrap Relationship
 
@@ -250,6 +256,8 @@ ledger:
                                     # Disabling degrades /triage inference —
                                     # see storage-and-indexing.md degradation model.
 ```
+
+**Configuration read semantics:** All configuration values in `.claude/engram.local.md` are read at engine invocation time — no session-level caching. Config changes take effect on the next operation. This applies to both `autonomy.*` and `ledger.*` settings.
 
 ### Staging Inbox Cap
 

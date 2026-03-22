@@ -22,7 +22,7 @@ Engram consolidates three existing plugins — handoff (session state), ticket (
 | **enforcement** | Hooks, trust injection, protected paths, autonomy | `enforcement_mechanism` |
 | **delivery** | Build sequence, migration, testing, rollback | `implementation_plan`, `verification_strategy` |
 | **decisions** | Risks, open questions, deferred decisions | `decision_record` |
-| **supporting** | Overview and reading order | — |
+| **supporting** | Overview, reading order, and reference material | — |
 
 **Precedence (summary — [spec.yaml](spec.yaml) is authoritative):** `operations` > `skill-contract` > `foundation` > `decisions` for `behavior_contract` claims. `data-contract` wins for all `interface_contract` and `persistence_schema` claims. See `spec.yaml` for full precedence and boundary rules.
 

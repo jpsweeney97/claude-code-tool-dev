@@ -29,6 +29,8 @@ class RecordRef:
 
 **Canonical serialization:** `<subsystem>/<record_kind>/<record_id>` (`repo_id` omitted — implicit from context). Used in `LedgerEntry.record_ref`, event vocabulary payloads, idempotency material, and recovery manifests. Implemented as `RecordRef.to_str()` for serialization and `RecordRef.from_str(s, repo_id)` for deserialization (`repo_id` required — not a pure inverse since canonical form omits `repo_id`) in `engram_core/types.py`.
 
+Field constraints for `subsystem` and `record_kind` (allowed value sets) are a [deferred decision](decisions.md#deferred-decisions). Currently accepted as free-form strings; runtime validation may be added in a future version.
+
 ## RecordMeta — Provenance
 
 Eager on write, optional for read.
@@ -65,7 +67,7 @@ class TrustPayload(TypedDict):
     session_id: str            # Claude session UUID, non-empty
 ```
 
-The shared validator `collect_trust_triple_errors()` in `engram_core/` accepts or parses from `TrustPayload` using these canonical field names. A field rename in the hook or engine without updating this type is a compilation error, not a silent divergence.
+The shared validator `collect_trust_triple_errors()` in `engram_core/` accepts or parses from `TrustPayload` using these canonical field names. A field rename in the hook or engine without updating this type is a compilation error, not a silent divergence. `collect_trust_triple_errors()` returns `list[str]` — an empty list on success, or a list of human-readable error strings on validation failure. The caller joins these with `'; '` for the structured error response.
 
 ## Envelope Types
 
@@ -110,6 +112,10 @@ class DistillCandidate:
     content_sha256: Sha256Hex      # content_hash(content) — for dedup
 ```
 
+### Staging File Format
+
+Each `DistillCandidate` is written as a standalone file in the staging inbox. Filename: `YYYY-MM-DD-<content_sha256[:16]>.md` (see [storage layout](storage-and-indexing.md#key-storage-decisions) for the canonical naming convention). The file contains all `DistillCandidate` fields serialized as a `<!-- staging-meta {...} -->` HTML comment (JSON with `sort_keys=True`) followed by the candidate content as markdown. The staging-meta JSON includes all `DistillCandidate` fields plus `source_ref` (the envelope's `source_ref.to_str()`) and `staged_at` (ISO 8601 UTC, used as the `YYYY-MM-DD` prefix source). The `content_sha256`-based filename suffix enables atomic file creation via `O_CREAT | O_EXCL` — identical candidates from concurrent operations coalesce.
+
 ### PromoteEnvelope — Knowledge to CLAUDE.md (Intent Record)
 
 ```python
@@ -145,6 +151,8 @@ class PromoteMeta:
 ```
 
 Field names match the Python dataclass exactly (alphabetically sorted in serialized form). All string values. `promoted_at` uses ISO 8601 UTC.
+
+If a `promote-meta` comment is present but a required field is missing (other than `meta_version` which is handled by [legacy entry rules](#legacy-entries-missing-metaversion)), the Knowledge engine treats the entire promote-meta as corrupt — the entry's promotion status degrades to `unknown` with a per-entry warning in `QueryDiagnostics.warnings`.
 
 ### Promotion Markers in CLAUDE.md
 
@@ -251,7 +259,7 @@ Deterministic JSON serialization for idempotency key computation. Defined in `en
 
 Rules:
 - `json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")`
-- **Rejects `None`** anywhere in the input tree (raises `ValueError`). Callers must omit absent keys before calling — do not pass `None` values and expect silent exclusion.
+- **Rejects `None`** anywhere in the input tree (raises `ValueError`). Callers must omit absent keys before calling — do not pass `None` values and expect silent exclusion. When constructing `DeferEnvelope` idempotency material, if `context` is `None`, omit the key entirely from the material dict. Do not include `"context": None` — `canonical_json_bytes` will reject it.
 - **Rejects `float`** (raises `TypeError`). All Engram idempotency material uses `str`, `int`, `bool`, `dict`, or `list`.
 - NFC Unicode normalization is enforced upstream (at dataclass construction), not inside this function.
 - No external standard referenced (not RFC 8785). This is internal canonicalization for same-codebase determinism, not cross-language interchange.
@@ -272,13 +280,15 @@ The `idempotency_key` in `EnvelopeHeader` is computed as `sha256(canonical_json_
 | `DistillEnvelope` | `{source_ref.to_str(), candidates: sorted([{content_sha256, source_section}, ...], key=lambda c: c["content_sha256"])}` |
 | `PromoteEnvelope` | `{source_ref.to_str(), target_section, content_sha256}` |
 
-**Field inclusion rationale:** `DeferEnvelope.key_file_paths` is included (sorted) because two defers with the same title/problem but different file paths are semantically distinct work items. `DeferEnvelope.context` is intentionally excluded — it is supplementary (same intent regardless of context snippet). All envelopes use `source_ref.to_str()` (full canonical serialization) instead of bare `source_ref.record_id` to prevent theoretical cross-subsystem collision.
+**Field inclusion rationale:** `DeferEnvelope.key_file_paths` is included (sorted) because two defers with the same title/problem but different file paths are semantically distinct work items. `DeferEnvelope.context` is intentionally excluded — it is supplementary (same intent regardless of context snippet) (behavior_contract decision — see [operations.md §Defer](operations.md#defer-context-to-work) for the operational specification of defer dedup semantics). All envelopes use `source_ref.to_str()` (full canonical serialization) instead of bare `source_ref.record_id` to prevent theoretical cross-subsystem collision.
 
 **Construction rule for nullable fields:** When `DeferEnvelope.context` is `None`, omit the `context` key from the material dict entirely. Do not include `{"context": None}` — [`canonical_json_bytes()`](#canonical-json) rejects `None` values with `ValueError`. This applies to all envelope types: omit nullable fields from the material dict when their value is `None`.
 
 [`canonical_json_bytes()`](#canonical-json) produces deterministic byte output. Same material produces the same key — target engine returns existing result without side effects.
 
 The `DistillEnvelope` idempotency material includes per-candidate fingerprints (`content_sha256`, `source_section`) to ensure that re-running extraction with improved logic on the same snapshot produces a distinct key when candidate content changes. `durability` is intentionally excluded from idempotency material — it is advisory classifier metadata, not semantic identity. A classifier improvement (same content, different durability label) should not bypass dedup. Per-candidate content dedup via `content_sha256` already handles duplicate content across classifier runs.
+
+`DistillCandidate.content` is intentionally excluded from the envelope-level idempotency material. Content identity is tracked per-candidate via `content_sha256` (which IS in the material). Including raw content in the envelope key would make idempotency sensitive to whitespace normalization differences, defeating the purpose of content hashing.
 
 ### Dedup — Semantically Identical Content
 
@@ -312,9 +322,9 @@ Entry content...
 ```
 
 **Fields:**
-- **`meta_version`**: Version of the lesson-meta format. Currently `"1.0"`. Entries lacking this field are treated as `legacy` — see [Legacy Entries](#legacy-entries-missing-meta_version). See [Version Evolution Policy](#version-evolution-policy) for compatibility rules.
+- **`meta_version`**: Version of the lesson-meta format. Currently `"1.0"`. Entries lacking this field are treated as `legacy` — see [Legacy Entries](#legacy-entries-missing-metaversion). See [Version Evolution Policy](#version-evolution-policy) for compatibility rules.
 - **`lesson_id`**: UUIDv4 generated at creation. Serves as `RecordRef.record_id` for knowledge entries. Stable across edits (content changes update `content_sha256`, not `lesson_id`).
-- **`content_sha256`**: [`Sha256Hex`](#scalar-types) produced by [`content_hash()`](#hash-producing-functions) on entry content (excluding the `lesson-meta` comment itself). The exact byte range: all text between the blank line following the `lesson-meta` comment and the start of the next `### ` heading (exclusive), after applying `knowledge_normalize`. The heading line itself is included; trailing blank lines before the next heading are excluded. Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
+- **`content_sha256`**: [`Sha256Hex`](#scalar-types) produced by [`content_hash()`](#hash-producing-functions) on entry content (excluding the `lesson-meta` comment itself). The exact byte range: all text between the blank line following the `lesson-meta` comment and the start of the next `### ` heading (exclusive), after applying `knowledge_normalize`. The heading line itself is included; trailing blank lines before the next heading are excluded. For the last entry in the file, the byte range extends to the end of the file (after `knowledge_normalize`). If the file ends without a trailing newline, the normalizer adds one per rule 6. Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
 - **`created_at`**: ISO 8601 UTC timestamp of initial creation (suffix `Z` or `+00:00`).
 - **`producer`**: Which skill created the entry. Informational — does not affect lifecycle.
 
@@ -379,6 +389,8 @@ class LedgerEntry:
 
 **`operation_id` format:** UUIDv4 generated by the orchestrator (e.g., `/save`) at flow start and passed to all sub-engine calls. Engines must use the provided `operation_id` — they must not self-generate one. `None` when not part of an orchestrated flow.
 
+Payload is typed per event — see [Event Vocabulary](#event-vocabulary-v1) for per-event-type field specifications. The `dict` type is intentionally untyped at the dataclass level to allow forward-compatible event types.
+
 ### Event Vocabulary (v1)
 
 | Event Type | Producer | Payload Fields | Purpose |
@@ -387,7 +399,7 @@ class LedgerEntry:
 | `defer_completed` | engine | `{source_ref: str, emitted_count: int}` | Completion evidence for /triage inference |
 | `distill_completed` | engine | `{source_ref: str, emitted_count: int}` | Completion evidence for /triage inference |
 
-In payload dicts, `RecordRef` values are stored as their [canonical serialization string](#recordref--lookup-key) (`RecordRef.to_str()`). Example: `{"ref": "context/snapshot/2026-03-21-abc123"}`.
+In payload dicts, `RecordRef` values are stored as their [canonical serialization string](#recordref-lookup-key) (`RecordRef.to_str()`). Example: `{"ref": "context/snapshot/2026-03-21-abc123"}`.
 
 **Completion events are success-only.** Their presence proves the operation ran to completion. Their absence means "not proven completed" — not "failed." Failure events are [deferred](decisions.md#deferred-decisions) to a future recovery-phase extension.
 
