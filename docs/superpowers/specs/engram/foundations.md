@@ -73,7 +73,7 @@ packages/plugins/engram/
 
 ## Design Principles
 
-Three cross-cutting principles guide implementation decisions across subsystems. The first two are advisory (they have no enforcement mechanism) but inform trade-offs. The third — the Enforcement Boundary Constraint — is a hard invariant enforced structurally by hook registration.
+Three cross-cutting principles guide implementation decisions across subsystems. The first two are architectural guidelines without automated enforcement — compliance is verified by design review, not runtime checks. The third — the Enforcement Boundary Constraint — is a hard invariant enforced structurally by hook registration.
 
 ### Auxiliary State Authority
 
