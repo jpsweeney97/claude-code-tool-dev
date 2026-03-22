@@ -16,7 +16,7 @@ Engram consolidates three existing plugins — handoff (session state), ticket (
 | Authority | Concern | Default Claims |
 |---|---|---|
 | **foundation** | System identity, core invariant, design principles | `architecture_rule` |
-| **data-contract** | Types, storage layout, reader protocol, query API | `interface_contract`, `persistence_schema` |
+| **data-contract** | Core types (RecordRef, RecordMeta, envelopes, lesson-meta), storage layout, NativeReader protocol, query API, and degradation model | `interface_contract`, `persistence_schema` |
 | **operations** | Cross-subsystem flows, save orchestration, failure handling | `behavior_contract` |
 | **skill-contract** | Skill surface, chain protocol, trigger differentiation | `behavior_contract` |
 | **enforcement** | Hooks, trust injection, protected paths, autonomy | `enforcement_mechanism` |

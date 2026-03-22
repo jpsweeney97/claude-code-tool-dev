@@ -42,7 +42,7 @@ engram/                              # Shared root (repo-local, git-tracked)
 
 ## Key Storage Decisions
 
-1. **Learnings remain a single file** (`engram/knowledge/learnings.md`) for MVP. Entries are delimited by `### ` headings and individually addressable via `lesson_id` in [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract) comments. Individual files are a [deferred optimization](decisions.md#deferred-decisions).
+1. **Learnings remain a single file** (`engram/knowledge/learnings.md`) for MVP. Entries are delimited by `### ` headings and individually addressable via `lesson_id` in [lesson-meta](types.md#knowledge-entry-format--lesson-meta-contract) comments. Individual files are a [deferred optimization](decisions.md#deferred-decisions).
 
 2. **Tickets move from `docs/tickets/` to `engram/work/`**. Git history preserved via `git mv`.
 
@@ -58,7 +58,7 @@ engram/                              # Shared root (repo-local, git-tracked)
 | Chain state files | 24h | Private root |
 | Knowledge staging candidates | No TTL (accumulate until curated) | Private root |
 | Work items | Permanent until closed | Shared root |
-| Published knowledge | Permanent (marked with [promote-meta](types.md#promote-meta-promotion-state-record) when graduated) | Shared root |
+| Published knowledge | Permanent (marked with [promote-meta](types.md#promote-meta--promotion-state-record) when graduated) | Shared root |
 | Ledger shards | Append-only, no TTL ([compaction deferred](decisions.md#deferred-decisions)). Sharded per worktree/session. | Private root `ledger/` |
 
 ## Visibility Rule
@@ -96,7 +96,7 @@ class IndexEntry:
 | Work (ticket) | `schema_version` in fenced YAML | `worktree_id` in fenced YAML | `session_id` in fenced YAML | `"shared"` (always shared root) |
 | Knowledge (lesson) | `meta_version` in `lesson-meta` | N/A (shared root, no worktree scope) | N/A | `"shared"` |
 
-When `lesson-meta` is present but `meta_version` is absent, populate `RecordMeta.schema_version` with `"0.0"` (pre-versioned sentinel). See [types.md §Legacy Entries](types.md#legacy-entries-missing-metaversion).
+When `lesson-meta` is present but `meta_version` is absent, populate `RecordMeta.schema_version` with `"0.0"` (pre-versioned sentinel). See [types.md §Legacy Entries](types.md#legacy-entries-missing-meta_version).
 
 Fields marked N/A populate as `None` in `RecordMeta`. The Knowledge reader derives `schema_version` from `lesson-meta.meta_version` (not a separate field). Same-major `lesson-meta` versions (e.g., v1.1 read by a v1.0 reader) are indexed normally — the entry appears in query results and is addressable. Entries with a different major version are skipped with a warning in `QueryDiagnostics.warnings`. See [types.md §Compatibility Rules](types.md#compatibility-rules) for the governing contract.
 
@@ -224,7 +224,7 @@ Every query does a fresh filesystem scan via `reader.scan()` + `reader.read()`. 
 
 ## Ledger
 
-Architecturally optional, operationally default-on. Sharded as `ledger/<worktree_id>/<session_id>.jsonl` in private root. Each line is a [LedgerEntry](types.md#ledgerentry-event-record) JSON object.
+Architecturally optional, operationally default-on. Sharded as `ledger/<worktree_id>/<session_id>.jsonl` in private root. Each line is a [LedgerEntry](types.md#ledgerentry--event-record) JSON object.
 
 **Producers:** Engines and orchestrators append completion events post-commit. The `engram_register` hook appends observational events for Write/Edit tool calls. See [producer classes](types.md#producer-classes) for the distinction and its impact on timeline labels.
 

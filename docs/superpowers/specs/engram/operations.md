@@ -79,8 +79,12 @@ Six operations justify Engram's plugin scope. Three exist today as cross-plugin 
         (3) expected_X: true + no downstream + X_completed      -> zero-output success (satisfied)
             ledger event exists (emitted_count=0)
         (4) expected_X: true + no downstream + no completion    -> "completion not proven"
-            event
-    -> When ledger unavailable (ledger.enabled=false):
+            event (if emitted_count absent from event vocabulary,
+            treat as "completion not proven")
+        Cross-reference: emitted_count field defined in types.md
+            §Event Vocabulary.
+    -> When ledger unavailable (ledger.enabled=false — see
+        storage-and-indexing.md §Degradation Model for authoritative rule):
         Cases (3) and (4) collapse: expected_X true + no downstream
             -> "completion not proven (ledger unavailable)"
         /triage surfaces reason=ledger_disabled qualifier on all
@@ -122,7 +126,7 @@ Three-step state machine with marker-based location and reconciliation recovery.
             Exclude from candidate list. Surface warning: "Lesson <lesson_id> has
             unreadable promote-meta (missing or unrecognized meta_version). Run
             migration before re-promoting." The exclusion occurs before the lesson
-            appears as a selectable candidate. See [legacy entries](types.md#legacy-entries-missing-metaversion).
+            appears as a selectable candidate. See [legacy entries](types.md#legacy-entries-missing-meta_version).
         Branch B (promote-meta exists, promoted_content_sha256 == current content_sha256):
             B1 (target_section unchanged): Reject — already promoted. Return existing details.
             B2 (target_section changed by user request): Manual reconcile. Show old
@@ -171,7 +175,7 @@ Three-step state machine with marker-based location and reconciliation recovery.
 
 **Branch C drift detection:** Before replacing text between markers, Step 1 computes [`drift_hash()`](types.md#hash-producing-functions) on the current text enclosed by markers and compares it against `promote-meta.transformed_text_sha256`. `drift_hash` uses NFC + LF normalization only (stricter than `content_hash`) so that user formatting edits to promoted blocks count as drift. This activates the `transformed_text_sha256` field as a drift sentinel — see [types.md rationale table](types.md#hash-producing-functions) for why `drift_hash` is intentionally stricter than `content_hash`.
 
-**Recovery:** Step 1 validates but does not record durable state — it returns a promotion plan. Step 3 writes [promote-meta](types.md#promote-meta-promotion-state-record) only after the CLAUDE.md write succeeds. If Step 2 fails, no promote-meta exists (Branch A) or stale promote-meta persists (Branch C), so the lesson remains eligible for future `/promote` runs. If Step 3 fails, `/triage` detects the mismatch:
+**Recovery:** Step 1 validates but does not record durable state — it returns a promotion plan. Step 3 writes [promote-meta](types.md#promote-meta--promotion-state-record) only after the CLAUDE.md write succeeds. If Step 2 fails, no promote-meta exists (Branch A) or stale promote-meta persists (Branch C), so the lesson remains eligible for future `/promote` runs. If Step 3 fails, `/triage` detects the mismatch:
 - **Missing promote-meta:** CLAUDE.md has markers + text, no promote-meta at all (Step 3 never ran)
 - **Stale promote-meta:** CLAUDE.md has updated text between markers, promote-meta has old hashes (Step 3 failed on re-promotion)
 
@@ -242,7 +246,6 @@ On completion (success or partial failure), `/save` writes `save_recovery.json` 
 
 ```json
 {
-    "schema_version": "1.0",
     "snapshot_ref": "<RecordRef canonical serialization>",
     "emitted_at": "<ISO 8601>",
     "results": {
@@ -253,7 +256,9 @@ On completion (success or partial failure), `/save` writes `save_recovery.json` 
 }
 ```
 
-The manifest is an [operational aid](foundations.md#auxiliary-state-authority), not authoritative state. Primary records remain authoritative. Overwritten on each `/save` invocation (only the most recent is useful for retry). Not part of the Engram storage contract.
+The manifest is an [operational aid](foundations.md#auxiliary-state-authority), not authoritative state. Primary records remain authoritative. Overwritten on each `/save` invocation (only the most recent is useful for retry). Not part of the Engram storage contract. No `schema_version` — the file is overwritten on every `/save` and classified as operational aid, so no cross-version reader tolerance is needed.
+
+The `idempotency_key` in `EnvelopeHeader` is computed by the caller at envelope construction time (see [types.md §Idempotency](types.md#idempotency--same-operation-retried)). The engine uses the provided key — it does not recompute from fields.
 
 **Retry path:** On partial failure, retry the failed sub-operation standalone with the `snapshot_ref` from the manifest:
 

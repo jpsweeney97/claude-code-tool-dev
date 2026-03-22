@@ -40,6 +40,8 @@ Hook failures are written to a per-session diagnostic file at `~/.claude/engram/
 
 **Read protocol:** `/triage` checks for `<session_id>.diag` files. If present and non-empty, surfaces `"ledger unavailable in session <session_id>"` instead of `"completion not proven"` for that session's operations. See [/triage inference matrix](operations.md#triage-read-work-and-context).
 
+**Schema version:** Each `.diag` JSONL entry includes `schema_version: "1.0"`. If a reader encounters a `.diag` entry with an unrecognized `schema_version`, it should treat the entry as opaque (log but do not interpret fields).
+
 **TTL:** Same as ledger shards — append-only, no TTL. Cleaned up if parent session directory is removed.
 
 ## Protected-Path Enforcement
@@ -95,9 +97,11 @@ Quality validation paths are separate from [protected-path enforcement](#protect
 
 Implementation must never return exit code 2 (Block). Even if the quality check detects a severe issue, the response must be exit code 0 with warning text. This is enforced by the [enforcement boundary constraint](#enforcement-boundary-constraint).
 
+**Edit timing:** For Edit tool calls, the hook reads the final file state from disk at PostToolUse invocation time. Concurrent writes between Edit completion and hook invocation are not detectable — the hook validates whatever is on disk. This is acceptable for advisory warnings.
+
 ### Enforcement Boundary Constraint
 
-See [foundations.md §Enforcement Boundary Constraint](foundations.md#enforcement-boundary-constraint) for the governing architecture rule (authoritative). `engram_quality` uses **Warn** (not Block) as its failure mode in compliance with this constraint.
+See [foundations.md §Enforcement Boundary Constraint](foundations.md#enforcement-boundary-constraint-invariant) for the governing architecture rule (authoritative). `engram_quality` uses **Warn** (not Block) as its failure mode in compliance with this constraint.
 
 ## Trust Injection
 
@@ -226,6 +230,12 @@ Phase-scoped idempotency is a delivery-period limitation. See [delivery.md §Bri
 
 `engram_guard` ships at Step 2a with the `engine_trust_injection` capability only — covering Knowledge engine mutating entrypoints. Step 3a extends the guard with `work_path_enforcement` for Work paths. Step 4a adds `context_direct_write_authorization` for Context direct-write paths. During Steps 0a–1, no guard capabilities are active — the bridge adapter routes through the old ticket engine's existing authorization model.
 
+During Step 3a, `engram_guard` has `engine_trust_injection` and `work_path_enforcement` active but not `context_direct_write_authorization`. Write/Edit to unrecognized paths (including future Context paths) are allowed through — the guard only blocks Write/Edit to currently-protected paths. See [§Guard Decision Algorithm](#guard-decision-algorithm) for the evaluation order that resolves overlapping path classifications.
+
+`engram_register` fires on the exact paths defined in the [protected-path enforcement table](#protected-path-enforcement) and no others. A change to that table automatically applies to both `engram_guard` and `engram_register`.
+
+The staging inbox cap is enforced by the Knowledge engine at entrypoint validation time. With `engram_guard` active from Step 2a, unauthorized callers are rejected before reaching cap enforcement.
+
 ## SessionStart Hook
 
 `engram_session`: bounded and idempotent. <500ms startup budget.
@@ -248,9 +258,9 @@ SessionStart does not create `.engram-id` — it requires a git commit, which is
 
 | Exception | Scope | Rationale |
 |---|---|---|
-| `/promote` Step 2 CLAUDE.md write | Single skill, single target | CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns promotion *state* via [promote-meta](types.md#promote-meta-promotion-state-record). See [permitted exceptions](foundations.md#permitted-exceptions). |
+| `/promote` Step 2 CLAUDE.md write | Single skill, single target | CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns promotion *state* via [promote-meta](types.md#promote-meta--promotion-state-record). See [permitted exceptions](foundations.md#permitted-exceptions). |
 
-No other skill-level write to a protected or externally-owned path is sanctioned. New exceptions require an entry in both this table and foundations.md.
+No other skill-level write to a protected or externally-owned path is sanctioned. This table lists all exceptions defined in [foundations.md §Permitted Exceptions](foundations.md#permitted-exceptions). The canonical source is foundations.md — an exception not present there is not effective, regardless of its presence in this table.
 
 **Sequencing:** The authoritative exception definition lives in [foundations.md §Permitted Exceptions](foundations.md#permitted-exceptions). This table references it for enforcement-level discoverability.
 

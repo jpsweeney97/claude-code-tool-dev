@@ -19,7 +19,7 @@ authority: decisions
 | **Staging accumulation** | Low | `/triage` reports pending. Cumulative [staging inbox cap](enforcement.md#staging-inbox-cap). `/curate` shows queue. See [operations.md §Distill](operations.md#distill-context-to-knowledge-staged) for rejection logic. | Staging directory file count over time. |
 | **NativeReader latency** | Low | Fresh scan at MVP scale is fast. `git log` off hot path. | Query latency on repos with 500+ files. |
 | **Concurrent worktree staging** | Medium | Staging files use content-addressed filenames with `O_CREAT | O_EXCL` atomic creation. Published learnings guarded by `fcntl.flock` on lockfile. Cross-worktree concurrency delegated to git merge. See [write concurrency](types.md#write-concurrency). | Two worktrees distill same snapshot concurrently — duplicate staging files? Same-worktree `/learn` + `/curate` concurrent — lost append? |
-| **Chain protocol limitations** | Low | Three inherited limitations (resume-crash gap, archive-failure poisoning, state-file TTL race). Archive-failure resolved in v1 by archive-before-state-write ordering. See [known limitations](skill-surface.md#chain-protocol-known-limitations). | Session spans >24h, save has no `resumed_from`? |
+| **Chain protocol limitations** | Low | Three inherited limitations (resume-crash gap, archive-failure poisoning, state-file TTL race). Archive-failure mitigated in v1 by archive-before-state-write ordering (new Engram sessions only; legacy chain files may still exhibit this issue). See [known limitations](skill-surface.md#chain-protocol-known-limitations). | Session spans >24h, save has no `resumed_from`? |
 | **Promotion marker loss** | Low | Branch C/B2 degrades to manual reconcile. Promote-meta remains authoritative. See [marker specification](types.md#promotion-markers-in-claudemd). | `/promote` on previously-promoted lesson → manual reconcile instead of automatic replacement? |
 | **Ledger-off triage degradation** | Medium | `/triage` inference [cases (3) and (4) collapse](operations.md#triage-read-work-and-context) when `ledger.enabled=false`. See [degradation model](storage-and-indexing.md#degradation-model). | Disable ledger, run `/save` producing 0 deferred items, `/triage` → "completion not proven (ledger unavailable)"? |
 
@@ -46,7 +46,7 @@ Explicitly not in v1. Each entry records what was deferred and why.
 | Ledger compaction | Append-only grows indefinitely. Add when file size matters. |
 | Cross-user timeline | Session-local only. Multi-user via `git log` is out of scope. |
 | Bounded protected-path drift scan | PostToolUse Bash trigger comparing protected-root manifest before/after Bash execution. Would close the Bash enforcement gap for git-tracked paths. Not achievable without pre/post state comparison mechanism. |
-| RecordRef subsystem/record_kind constraints | Validated at construction time in implementation, not schema-level Literal types. See SP-8. |
+| RecordRef subsystem/record_kind constraints | Validated at construction time in implementation, not schema-level Literal types. See [types.md §RecordRef](types.md#recordref--lookup-key). |
 | Ledger failure taxonomy | Success-only events for v1. Add failure events, phase attribution, and error classification when recovery-phase automation is warranted. |
 | Search relevance ranking | Deterministic `created_at` ordering for v1. Add BM25/TF-IDF when query volume and result set size warrant ranking. |
 | Promotion bounded search | Marker-based location only for v1. Add section-scoped candidate matching if marker loss data shows need. |
