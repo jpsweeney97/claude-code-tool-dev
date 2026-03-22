@@ -40,6 +40,8 @@ Detection is automatic (no manual flags). Injection is source-separated from rep
 | CCDI is premise enrichment, not retargeting | CCDI adds context to the follow-up prompt; it never changes what the agent asks Codex about. Packet content should provide background, not prescriptive directives — repo evidence is always the primary signal for Codex's assessment |
 | Scout evidence beats CCDI evidence | When context-injection has a scout candidate at the same boundary, CCDI yields |
 
+Schema evolution constraint (additive-only): see [data-model.md#schema-evolution-constraint](data-model.md#schema-evolution-constraint) for the authoritative elaboration.
+
 ## CLI/Agent Separation
 
 All deterministic logic lives in Python (`topic_inventory.py`), exposed as coarse-grained workflow commands. Agents invoke via Bash with file-oriented I/O. Agents provide semantic judgment (e.g., semantic hints) and orchestrate deterministic CLI calls (e.g., target-match invocation); the CLI provides deterministic computation (classification, registry state transitions, packet building). This separation ensures reproducibility — the CLI produces identical output for identical inputs regardless of which agent invokes it.

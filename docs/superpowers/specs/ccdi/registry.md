@@ -92,6 +92,8 @@ States in `[brackets]` are attempt-local — they exist only within a single `di
 
 Fields updated at each state transition. Fields not listed are unchanged.
 
+**Evaluation order:** General state-independent rules (e.g., "topic absent from classifier output") are evaluated first each turn, then transition-specific rules apply. When a transition row references a general rule, the general rule has already fired — the transition row listing is informational only.
+
 | Transition | Fields updated |
 |-----------|----------------|
 | `absent → detected` | `first_seen_turn` ← current turn, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if medium AND leaf-kind, else 0) (family-kind topics always initialize `consecutive_medium_count` ← 0 regardless of confidence), `coverage_target` ← from `ClassifierResult.resolved_topics[].coverage_target`, `facet` ← from `ClassifierResult.resolved_topics[].facet` |

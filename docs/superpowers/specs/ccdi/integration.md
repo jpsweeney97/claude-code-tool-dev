@@ -428,7 +428,7 @@ The agent performs this check. When condition (a) fails, the agent MUST invoke `
 1. `classify --text-file <follow-up>` — used by the agent for condition (b) when condition (a) fails.
 2. `build-packet --mark-deferred <topic_key> --deferred-reason target_mismatch --skip-build` — invoked by the agent when neither condition passes.
 
-**Inventory snapshot for condition (b):** The `classify` invocation for condition (b) SHOULD use the pinned inventory snapshot (`--inventory <ccdi_snapshot_path>`) to ensure topic resolution is consistent with the `dialogue-turn` classification within the same dialogue. Using the default on-disk inventory for target-match is acceptable if mid-dialogue inventory refresh is guaranteed not to alter topic taxonomy.
+**Inventory snapshot for condition (b):** The `classify` invocation for condition (b) MUST use the pinned inventory snapshot (`--inventory <ccdi_snapshot_path>`) to ensure topic resolution is consistent with the `dialogue-turn` classification within the same dialogue.
 
 **Replay fixture assertion:** The `target_mismatch_deferred.replay.json` fixture provides a `composed_target` field in each trace entry. The harness feeds this to the target-match check logic. The assertion verifies the registry transitions to `deferred: target_mismatch` when the packet topics do not appear in the composed target.
 

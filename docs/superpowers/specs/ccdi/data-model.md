@@ -15,7 +15,7 @@ A JSON artifact mapping Claude Code extension concepts to aliases, query plans, 
 CompiledInventory
 ├── schema_version: string             # current: "1"
 ├── built_at: ISO timestamp
-├── docs_epoch: string | null          # reload/version marker from claude-code-docs
+├── docs_epoch: string | null          # reload/version marker from claude-code-docs. All nullable fields (`docs_epoch`) MUST be serialized with explicit null when null — never omitted.
 ├── topics: Record<TopicKey, TopicRecord>
 ├── denylist: DenyRule[]
 ├── overlay_meta?: { overlay_version: string, overlay_schema_version: string, applied_rules: AppliedRule[] }  # optional — absent in inventories built without an overlay (see Failure Modes)
@@ -270,7 +270,7 @@ RegistrySeed
 ├── entries: TopicRegistryEntry[]   # durable-state fields only
 ├── docs_epoch: string | null       # docs_epoch from the inventory at build time
 ├── inventory_snapshot_version: string  # schema_version from the active inventory. If the inventory fails to load at seed-build time, `ccdi-gatherer` MUST NOT emit a `<!-- ccdi-registry-seed -->` sentinel block. The sentinel block MUST only be emitted when a valid CompiledInventory was loaded and `inventory_snapshot_version` can be sourced from a real `schema_version` value.
-└── results_file?: string           # path to search results file for initial commit phase; absent when no pre-dialogue search was performed
+└── results_file?: string | null     # transport-only; never persisted in live file; stripped on load. Path to search results file for initial commit phase; absent when no pre-dialogue search was performed
 ```
 
 **`results_file` field:** `results_file` is required in the sentinel RegistrySeed when a pre-dialogue search was performed. If absent (no results generated), the initial CCDI commit phase is skipped — no results to commit. When present, the value is an absolute path to the search results JSON file written by `ccdi-gatherer` during the pre-dialogue phase (e.g., `/tmp/ccdi_results_<id>.json`). The `/dialogue` skill reads this path from the sentinel block and passes it to the initial CCDI commit's `build-packet --results-file` call. This is a transport field for the handoff — it is not written to the live registry file and is not used after the initial commit completes. **Load-time invariant:** Implementations MUST strip `results_file` from the in-memory registry representation at load time (no load-time write-back). The stripped state is persisted to disk on the next normal mutation (per [registry.md#failure-modes](registry.md#failure-modes)), ensuring the field never appears in the live registry file after a successful write. The `/dialogue` skill reads the field from the transport envelope (sentinel seed) before CLI handoff — the boundary between transport and live registry is the key distinction. Stale paths to deleted temp files would cause failures on subsequent loads if the field were not stripped.
@@ -285,13 +285,15 @@ Topics in attempt-local states (`looked_up`, `built`) are not persisted to the s
 
 **State at seed time:** After the [initial CCDI commit](integration.md#data-flow-full-ccdi-dialogue), entries transition to `injected` if the briefing was sent successfully. Before the commit, entries are in `detected` state.
 
+**Initial-mode immutability:** The RegistrySeed is the single source of truth for initial-mode `--facet` values and MUST NOT be mutated between prepare and commit.
+
 **In-place mutation:** The `/dialogue` skill writes the seed to a temp file, which is then updated in-place by the commit-phase `build-packet --mark-injected` call at the same path. After commit, entries at that path reflect `injected` state. See [integration.md#registry-seed-handoff](integration.md#registry-seed-handoff) for the full lifecycle.
 
 **Dialogue scope:** The registry file is dialogue-scoped — a new `/dialogue` session starts from a new RegistrySeed and does not inherit entries from prior dialogues. Durable fields (including `deferred_ttl`) persist only across reloads of the same registry within an ongoing dialogue, including abnormal process interruption. See [registry.md#ttl-lifecycle](registry.md#ttl-lifecycle) for the TTL dialogue-scope clarification.
 
 **Load-time schema note:** `consecutive_medium_count` is always serialized including when 0. Family-kind entries MUST have this field present with value 0 (see [registry.md#failure-modes](registry.md#failure-modes) for load-time validation and recovery).
 
-**Null-field serialization:** All **nullable** durable-state fields are always serialized in JSON including when null (e.g., `last_query_fingerprint: null`, `deferred_reason: null`) — never omitted. Non-nullable fields (`inventory_snapshot_version`) are always present with their concrete values. An absent field is treated as missing on load and triggers entry reinitialization per the [resilience principle](foundations.md#resilience-principle). Implementations MUST NOT omit null-valued fields during serialization. This invariant applies to both entry-level fields within `entries[]` and envelope-level nullable fields (`docs_epoch`) — `docs_epoch: null` MUST be serialized as an explicit null, not omitted.
+**Null-field serialization:** All **nullable** durable-state fields are always serialized in JSON including when null (e.g., `last_query_fingerprint: null`, `deferred_reason: null`, `suppressed_docs_epoch: null`) — never omitted. Non-nullable fields (`inventory_snapshot_version`) are always present with their concrete values. An absent field is treated as missing on load and triggers entry reinitialization per the [resilience principle](foundations.md#resilience-principle). Implementations MUST NOT omit null-valued fields during serialization. This invariant applies to both entry-level fields within `entries[]` and envelope-level nullable fields (`docs_epoch`) — `docs_epoch: null` MUST be serialized as an explicit null, not omitted.
 
 ### Live Registry File Schema
 
@@ -365,7 +367,7 @@ All keys are optional. If `ccdi_config.json` is absent or a key is missing, the 
 
 ### Config Overrides in Overlay
 
-The overlay file may include an optional `config_overrides` object that overrides default values in `ccdi_config.json`. Merge semantics: **scalar replace only** — `scalar` means `string | number | boolean` (no arrays, objects, or null). Config override values must match the type of the target key in `ccdi_config.json`. Type mismatches (e.g., string where number expected) are treated as unknown keys: warned and skipped. Unknown keys are warned and skipped.
+The overlay file may include an optional `config_overrides` object that overrides default values in `ccdi_config.json`. Merge semantics: **scalar replace only** — `scalar` means `string | number | boolean` (no arrays, objects, or null). The scalar-only constraint for config override values applies to `overlay_schema_version: '1'`. Future versions that permit null MUST introduce a new `overlay_schema_version` and specify null semantics explicitly. Config override values must match the type of the target key in `ccdi_config.json`. Type mismatches (e.g., string where number expected) are treated as unknown keys: warned and skipped. Unknown keys are warned and skipped.
 
 ```json
 {
@@ -378,7 +380,7 @@ The overlay file may include an optional `config_overrides` object that override
 
 Keys use dot-separated paths matching the config schema above (e.g., `classifier.confidence_high_min_weight`). A key is "defined in the schema" when the full dot-path resolves to a leaf scalar in the `ccdi_config.json` structure — exact-match only, no prefix matching. Valid namespace but unknown leaf (e.g., `classifier.nonexistent_key`) is treated as unknown: warned and skipped.
 
-`build_inventory.py` records each applied config override in `overlay_meta.applied_rules[]` with `operation: "override_config"` and `target` set to the config key path.
+`build_inventory.py` records each applied config override in `overlay_meta.applied_rules[]` with `operation: "override_config"` and `target` set to the config key path. `build_inventory.py` MUST process `config_overrides` using strict JSON parsing that rejects duplicate keys, or detect duplicates after parsing and reject with non-zero exit.
 
 **Config consumers:** Parameters are referenced by:
 - CLI config loader — `config_version` (version mismatch gating; see [Failure Modes](#failure-modes))

@@ -40,10 +40,12 @@ Graduate from shadow to active when kill criteria are clear across 10+ shadow di
 
 Per-dialogue summary, accumulated across turns and emitted once at dialogue end via the analytics emitter. (**Authority note:** The diagnostics schema is defined here under the `verification_strategy` claim for testing purposes. It is not an `interface_contract` — no external consumer depends on this schema.)
 
+**Active mode example:**
+
 ```json
 {
   "ccdi": {
-    "status": "active | shadow | unavailable | no_topics | error",
+    "status": "active",
     "phase": "initial_only | full",
     "topics_detected": ["hooks.pre_tool_use"],
     "topics_injected": ["hooks.pre_tool_use"],
@@ -53,6 +55,30 @@ Per-dialogue summary, accumulated across turns and emitted once at dialogue end 
     "packets_injected": 2,
     "packets_deferred_scout": 1,
     "total_tokens_injected": 680,
+    "semantic_hints_received": 1,
+    "search_failures": 0,
+    "inventory_epoch": "2026-03-20T...",
+    "config_source": "data/ccdi_config.json | defaults",
+    "per_turn_latency_ms": [312, 287, 345]
+  }
+}
+```
+
+**Shadow mode example** (includes shadow-only fields):
+
+```json
+{
+  "ccdi": {
+    "status": "shadow",
+    "phase": "full",
+    "topics_detected": ["hooks.pre_tool_use"],
+    "topics_injected": [],
+    "topics_deferred": [],
+    "topics_suppressed": [],
+    "packets_prepared": 3,
+    "packets_injected": 0,
+    "packets_deferred_scout": 1,
+    "total_tokens_injected": 0,
     "semantic_hints_received": 1,
     "search_failures": 0,
     "inventory_epoch": "2026-03-20T...",
@@ -103,7 +129,7 @@ shadow_adjusted_yield = packets_surviving_precedence / (packets_prepared - repea
 **False-positive labeling protocol:** This kill criterion requires **human review** — it is not mechanically verifiable in CI. The `false_positive_topic_detections` field in the automated diagnostics is always 0 (the emitter has no way to determine false positives). The actual false-positive count is produced through a separate annotation process:
 
 1. During shadow evaluation, the diagnostics emitter writes `topics_detected` arrays to per-dialogue diagnostics files stored in `data/ccdi_shadow/diagnostics/`.
-2. A human labeler reviews a minimum of 100 detected topics across 10+ dialogues. For each topic in `topics_detected`, the labeler checks whether the input text genuinely discusses a Claude Code extension concept. Topics where the input text uses extension terminology in a non-Claude-Code context (e.g., "React hook", "webpack plugin") are false positives.
+2. A human labeler reviews a minimum of 100 detected topics across 10+ dialogues. This is an operational minimum for feasibility. The statistical confidence of a 10% threshold at N=100 depends on the true false-positive rate — see the graduation protocol for details on when larger samples are recommended. For each topic in `topics_detected`, the labeler checks whether the input text genuinely discusses a Claude Code extension concept. Topics where the input text uses extension terminology in a non-Claude-Code context (e.g., "React hook", "webpack plugin") are false positives.
 3. The labeler records labels in a JSONL annotation file at `data/ccdi_shadow/annotations.jsonl`. Each line is a JSON object:
 
 ```json
@@ -163,7 +189,7 @@ All three flags are required. **Exit codes:** 0 = all checks pass, 1 = one or mo
 
 | Layer | What it tests | How |
 |-------|--------------|-----|
-| **Layer 1: Unit tests** | CLI deterministic logic ([classifier](classifier.md), [registry](registry.md), [packet builder](packets.md)) | Standard pytest, coverage of core data shapes and state transitions. Known gaps: multi-alias score accumulation (mixed match types on same topic), `overview_injected` → `family_context_available` propagation chain. |
+| **Layer 1: Unit tests** | CLI deterministic logic ([classifier](classifier.md), [registry](registry.md), [packet builder](packets.md)) | Standard pytest, coverage of core data shapes and state transitions. Known gaps: multi-alias score accumulation (mixed match types on same topic), `overview_injected` → `family_context_available` propagation chain. Must be closed before Phase B graduation. |
 | **Layer 2a: Replay harness** | CLI pipeline correctness ([prepare/commit](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue) loop, [semantic hints](registry.md#semantic-hints), state transitions) | Structured `ccdi_trace` + assertion on CLI input/output and registry state, not prose |
 | **Layer 2b: Agent sequence tests** | Agent tool-call ordering (codex-dialogue invokes CLI commands in correct sequence) | Live agent invocation with mocked tools |
 | **Layer 3: Shadow mode** | End-to-end quality (false positives, source hierarchy, latency) | Phase B rollout with kill criteria (see [above](#shadow-mode-kill-criteria)) |
@@ -341,7 +367,7 @@ The replay harness collects these traces and asserts on:
 | `classify` file I/O round-trip | Reads text file, returns valid JSON |
 | `dialogue-turn` updates registry file | State persistence across calls |
 | `build-packet --mark-injected` updates registry | Side-effect correctness |
-| `dialogue-turn --source codex` vs `--source user` | Both accepted, same pipeline, no crash. Additionally: same input text + same registry state → `--source codex` and `--source user` produce identical stdout candidates JSON and identical registry mutations (behavioral equivalence baseline for future divergence). **Update protocol:** When source-differentiated behavior is implemented, this test MUST be replaced with source-specific behavioral tests, not deleted. **CI enforcement:** This test SHOULD use a `@pytest.mark.source_equivalence_baseline` mark. A separate meta-test asserts: when source-differentiated registry entries exist (i.e., any code path checks `--source` value), exactly zero tests with the `source_equivalence_baseline` mark exist in the suite. |
+| `dialogue-turn --source codex` vs `--source user` | Both accepted, same pipeline, no crash. Additionally: same input text + same registry state → `--source codex` and `--source user` produce identical stdout candidates JSON and identical registry mutations (behavioral equivalence baseline for future divergence). **Update protocol:** When source-differentiated behavior is implemented, this test MUST be replaced with source-specific behavioral tests, not deleted. **CI enforcement:** This test SHOULD use a `@pytest.mark.source_equivalence_baseline` mark. A separate meta-test asserts: when source-differentiated registry entries exist (i.e., any code path checks `--source` value), exactly zero tests with the `source_equivalence_baseline` mark exist in the suite. **Detection mechanism:** The meta-test uses `ast.parse` to scan `topic_inventory.py` for any conditional branch on `args.source`. If found, assert zero `source_equivalence_baseline`-marked tests. |
 | `build-packet` empty output writes suppressed automatically (weak) | Search returns poor results + `--registry-file` present → `suppressed: weak_results` in registry |
 | `build-packet` empty output writes suppressed automatically (redundant) | Search returns good results but all chunk IDs already in `injected_chunk_ids` + `--registry-file` present → `suppressed: redundant` in registry; verify reason is `redundant` not `weak_results` |
 | `build-packet --mark-deferred` writes deferred state | Deferred topic_key and reason persisted to registry |
@@ -382,7 +408,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Mid-dialogue CCDI disabled without ccdi_seed | Delegation envelope without `ccdi_seed` field → diagnostics show `phase: initial_only` AND agent tool-call log contains zero invocations of `dialogue-turn` or `build-packet` (Layer 2b test — see [Layer 2b: Agent Sequence Tests](#layer-2b-agent-sequence-tests)) |
 | Version axes → overlay merge | `schema_version`, `overlay_schema_version`, `merge_semantics_version` compatibility validated at build time |
 | Inventory → classifier: schema evolution | Unknown TopicRecord field present → ignored (not crash); required Alias field missing → non-zero exit; `schema_version` mismatch at classifier load → warning |
-| `ccdi_policy_snapshot` → delegation envelope (Phase B) | Field present in delegation envelope → `codex-dialogue` agent reads it at dialogue start. Mark as XFAIL until shape is defined in Phase B. See [Known Open Items](#known-open-items). |
+| `ccdi_policy_snapshot` → delegation envelope (Phase B) | A test named `test_ccdi_policy_snapshot_boundary` MUST exist with `@pytest.mark.xfail(reason='Policy snapshot shape not yet defined')` marker. Presence is required; pass is not. Field present in delegation envelope → `codex-dialogue` agent reads it at dialogue start. See [Known Open Items](#known-open-items). |
 | Inventory → registry: schema evolution | Unknown TopicRegistryEntry field in seed → ignored; required field missing → reinitialize empty (resilience principle) |
 | Inventory → packet builder: schema evolution | Unknown QueryPlan facet → skipped; missing `default_facet` → fallback to `overview` |
 | Registry null-field serialization | Write a TopicRegistryEntry in `detected` state (where `last_injected_turn`, `last_query_fingerprint`, `deferred_reason`, `deferred_ttl`, `suppression_reason`, `suppressed_docs_epoch` are all null) to the registry file, read back as raw JSON, and assert each nullable field key is present with a `null` value (not absent). Guards against Python serializers that omit null fields by default (e.g., `exclude_none=True`). Per [data-model.md#registryseed](data-model.md#registryseed) null-field serialization invariant. |
@@ -672,7 +698,7 @@ Exercises behavioral equivalence between `--source codex` and `--source user` in
 | `pending_facet_exempt_from_cooldown.replay.json` | Turn with one high-confidence `new` topic A (consumes cooldown slot) AND one `pending_facet` candidate B on an already-injected topic → assert BOTH candidates are processed in the same turn (A injected, B's `pending_facet` lookup performed). Verifies the cooldown exemption in [registry.md#scheduling-rules](registry.md#scheduling-rules) step 5. `final_registry_file_assertions` MUST include assertions on both topics' post-turn state. `assertions.cli_pipeline_sequence` MUST verify two `build-packet` invocations occurred in the same turn (one per candidate). |
 | `facet_expansion_exempt_from_cooldown.replay.json` | Turn with one high-confidence `new` topic A (consumes cooldown slot) AND one `facet_expansion` candidate B from `extends_topic` hint → assert BOTH candidates are processed in the same turn. Verifies `facet_expansion` cooldown exemption. |
 | `weak_results_reentry_on_epoch_change.replay.json` | Turn 1 → topic A suppressed:weak_results at docs_epoch="A". Turn 2 → inventory snapshot has docs_epoch="B" (via `--inventory-snapshot`), topic A NOT in classifier output → assert topic A re-enters as `detected` (docs_epoch scan fires independent of classifier presence). `final_registry_file_assertions` MUST include: `{"path": "<topic>.last_seen_turn", "equals": 2}` (re-entry turn) and `{"path": "<topic>.consecutive_medium_count", "equals": 0}` (topic absent from classifier → initialized to 0 per field update rules). Verifies the `weak_results` full-registry scan per [integration.md#dialogue-turn-registry-side-effects](integration.md#dialogue-turn-registry-side-effects). |
-| `weak_results_scan_noop_absent.replay.json` | Registry with topic suppressed:weak_results at `docs_epoch="A"`. Inventory snapshot `docs_epoch="A"` (unchanged). Topic absent from classifier output. After `dialogue-turn`: assert registry file is byte-identical (no field updates from the full-scan evaluation — `docs_epoch` unchanged, topic absent, no re-entry condition met). Verifies the `weak_results` full-scan no-op path: scan fires (per spec, every turn for all `suppressed:weak_results` entries) but produces no mutations when epoch is unchanged and topic is absent. |
+| `weak_results_scan_noop_absent.replay.json` | Registry with topic suppressed:weak_results at `docs_epoch="A"`. Inventory snapshot `docs_epoch="A"` (unchanged). Topic absent from classifier output. After `dialogue-turn`: assert registry file is **semantically identical** (JSON-parse both, deep-compare) rather than byte-identical (no field updates from the full-scan evaluation — `docs_epoch` unchanged, topic absent, no re-entry condition met). Byte identity may break if the JSON serializer reorders keys even with no value change. Verifies the `weak_results` full-scan no-op path: scan fires (per spec, every turn for all `suppressed:weak_results` entries) but produces no mutations when epoch is unchanged and topic is absent. |
 
 ### Layer 2b: Agent Sequence Tests
 
