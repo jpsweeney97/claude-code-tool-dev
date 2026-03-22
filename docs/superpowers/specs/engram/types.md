@@ -54,6 +54,19 @@ class RecordMeta:
 - Hashed: `sha256(git_dir_path.encode())[:16]` (first 16 hex chars). Implemented solely in `engram_core/identity.py` via `identity.get_worktree_id()`. All hooks and engines must call this function — never re-derive locally.
 - Context records are isolated per worktree by default
 
+## TrustPayload — Trust Triple Wire Format
+
+Canonical type for the payload file written by `engram_guard` and consumed by subsystem engines. Defined here (data-contract authority) to enforce shared field names across the hook-to-engine boundary. See [trust injection](enforcement.md#trust-injection) for the injection/validation mechanism.
+
+```python
+class TrustPayload(TypedDict):
+    hook_injected: bool        # Must be True — False is rejected by validator
+    hook_request_origin: str   # Non-empty string identifying the request source
+    session_id: str            # Claude session UUID, non-empty
+```
+
+The shared validator `collect_trust_triple_errors()` in `engram_core/` accepts or parses from `TrustPayload` using these canonical field names. A field rename in the hook or engine without updating this type is a compilation error, not a silent divergence.
+
 ## Envelope Types
 
 All cross-subsystem writes use typed envelopes with a common header. See [envelope invariants](operations.md#envelope-invariants) for behavioral rules.
@@ -256,7 +269,7 @@ The `idempotency_key` in `EnvelopeHeader` is computed as `sha256(canonical_json_
 | Envelope | Idempotency Material |
 |---|---|
 | `DeferEnvelope` | `{source_ref.to_str(), title, problem, key_file_paths: sorted(...)}` |
-| `DistillEnvelope` | `{source_ref.to_str(), candidates: sorted([{content_sha256, source_section, durability}, ...], key=lambda c: c["content_sha256"])}` |
+| `DistillEnvelope` | `{source_ref.to_str(), candidates: sorted([{content_sha256, source_section}, ...], key=lambda c: c["content_sha256"])}` |
 | `PromoteEnvelope` | `{source_ref.to_str(), target_section, content_sha256}` |
 
 **Field inclusion rationale:** `DeferEnvelope.key_file_paths` is included (sorted) because two defers with the same title/problem but different file paths are semantically distinct work items. `DeferEnvelope.context` is intentionally excluded — it is supplementary (same intent regardless of context snippet). All envelopes use `source_ref.to_str()` (full canonical serialization) instead of bare `source_ref.record_id` to prevent theoretical cross-subsystem collision.
@@ -265,7 +278,7 @@ The `idempotency_key` in `EnvelopeHeader` is computed as `sha256(canonical_json_
 
 [`canonical_json_bytes()`](#canonical-json) produces deterministic byte output. Same material produces the same key — target engine returns existing result without side effects.
 
-The `DistillEnvelope` idempotency material includes per-candidate fingerprints to ensure that re-running extraction with improved logic on the same snapshot produces a distinct key when candidate content changes.
+The `DistillEnvelope` idempotency material includes per-candidate fingerprints (`content_sha256`, `source_section`) to ensure that re-running extraction with improved logic on the same snapshot produces a distinct key when candidate content changes. `durability` is intentionally excluded from idempotency material — it is advisory classifier metadata, not semantic identity. A classifier improvement (same content, different durability label) should not bypass dedup. Per-candidate content dedup via `content_sha256` already handles duplicate content across classifier runs.
 
 ### Dedup — Semantically Identical Content
 

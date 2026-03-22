@@ -11,8 +11,8 @@ Six operations justify Engram's plugin scope. Three exist today as cross-plugin 
 
 ## Core Rules
 
-- Target subsystem engine validates and writes. Envelopes are requests, not commands. Engine invocations go through [`engram_guard`](enforcement.md#trust-injection) for trust injection before any mutating operation.
-- **Precondition:** Every mutating engine entrypoint must validate the trust triple via `collect_trust_triple_errors()` before making state changes. Operations with missing or incomplete triples are rejected. See [trust injection](enforcement.md#trust-injection).
+- Target subsystem engine validates and writes. Envelopes are requests, not commands. Work and Knowledge engine invocations go through [`engram_guard`](enforcement.md#trust-injection) for trust injection before any mutating operation. Context subsystem writes use Write/Edit tools natively and are [excluded from trust triple validation](enforcement.md#step-2-validation-engine-entrypoint).
+- **Precondition:** Every mutating Work or Knowledge engine entrypoint must validate the trust triple via `collect_trust_triple_errors()` before making state changes. Operations with missing or incomplete triples are rejected. See [trust injection](enforcement.md#trust-injection).
 - Every envelope carries a `source_ref: RecordRef` pinned at creation time. Downstream operations target this ref, never "latest file at path."
 - Every envelope carries an `idempotency_key`. Target engines deduplicate retried operations.
 - `/save` orchestrates cross-subsystem flows but each sub-operation is independently callable and retryable. See [/save orchestration rules](skill-surface.md#save-orchestration-rules).

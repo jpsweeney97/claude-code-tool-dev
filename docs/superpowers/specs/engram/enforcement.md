@@ -52,7 +52,7 @@ Policy-based enforcement covering all currently supported write tools (Write, Ed
 
 Paths canonicalized before matching (resolve symlinks, collapse `..`, normalize to absolute).
 
-**Intentional exclusions:** Snapshot and checkpoint paths (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) are not in this table. Context subsystem writes use Write/Edit tools natively. See [direct-write path authorization](#direct-write-path-authorization) for the enforcement model. Advisory quality checks via [`engram_quality`](#quality-validation) cover content quality.
+**Intentional exclusions:** Snapshot and checkpoint paths (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) are not in this table. Context subsystem writes use Write/Edit tools natively — excluded from both protected-path enforcement and [trust triple validation](#step-2-validation-engine-entrypoint). See [direct-write path authorization](#direct-write-path-authorization) for the enforcement model. Advisory quality checks via [`engram_quality`](#quality-validation) cover content quality.
 
 **Reserved paths:** When content is added to `engram/.engram/` (reserved for future shared metadata), a corresponding path class entry must be added to this table before implementation.
 
@@ -121,7 +121,7 @@ The engine trust injection mechanism uses a payload file as the communication ch
 
 ### Step 1: Injection (PreToolUse)
 
-When `engram_guard` detects an authorized engine invocation, it writes the trust triple to a new [payload file](#payload-file-contract) atomically. The file path is passed to the engine via the Bash command's argument list (matching the proven ticket plugin pattern).
+When `engram_guard` detects an authorized engine invocation, it writes the [TrustPayload](types.md#trustpayload--trust-triple-wire-format) to a new [payload file](#payload-file-contract) atomically. The file path is passed to the engine via the Bash command's argument list (matching the proven ticket plugin pattern).
 
 **Authorized engine invocation pattern:** Engine binaries must be named `engine_<subsystem>.py` and reside in the plugin's scripts directory. `engram_guard` matches the **full path** `<engram_scripts_dir>/engine_*.py` — not just the filename. This prevents false matches on user scripts with `engine_` prefixes outside the plugin directory.
 
@@ -154,16 +154,16 @@ def collect_trust_triple_errors(
 
 **Module location:** `engram_core/trust.py`. Add to [package structure](foundations.md#package-structure).
 
-Every **mutating** entrypoint in each subsystem engine must invoke [`collect_trust_triple_errors()`](#collect_trust_triple_errors-contract) before making state changes. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. See the function contract above for validation rules, error format, and caller obligation. The validator checks: (1) `hook_injected` is present **and equals `True`** (not just non-empty — `False` must be rejected), (2) `hook_request_origin` is present and is a non-empty string, (3) `session_id` is present and is a non-empty string. Missing, incomplete, or invalid triples reject the operation with a structured error. Read-only entrypoints are exempt.
+Every **mutating** entrypoint in Work and Knowledge subsystem engines must invoke [`collect_trust_triple_errors()`](#collect_trust_triple_errors-contract) before making state changes. Trust validation precedes all other processing, including idempotency key lookups and dedup reads — the trust triple is verified as the first operation in any engine entrypoint call. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. See the function contract above for validation rules, error format, and caller obligation. Read-only entrypoints are exempt.
 
 **Mutating entrypoints** are any engine functions that create, update, or delete files in protected paths. Complete enumeration per subsystem:
 - **Work:** ticket creation, ticket update, ticket close
-- **Knowledge:** knowledge publish (both `/learn` direct-publish and `/curate` staged-publish paths), staging write, promote-meta write
+- **Knowledge:** knowledge publish (both `/learn` and `/curate` staged-publish paths), staging write, promote-meta write
 - **Context:** See [direct-write path authorization](#direct-write-path-authorization) (Write/Edit path, not engine trust injection)
 
 All writes from `/learn` route through the Knowledge engine entrypoint — `/learn` does **not** write directly to `learnings.md` via the Write tool. This ensures trust injection covers the `/learn` path.
 
-Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring. delivery.md Step 3a must include a verification step asserting `collect_trust_triple_errors()` is invoked at every documented mutating entrypoint (unit test or static analysis check).
+Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring. delivery.md Step 3a must include a verification step asserting `collect_trust_triple_errors()` is invoked at every documented Work and Knowledge mutating entrypoint (unit test or static analysis check). Context engine scripts must **not** invoke `collect_trust_triple_errors()` — this is verified by a separate negative test.
 
 **Check ordering:** Each mutating entrypoint must check `.engram-id` existence before invoking `collect_trust_triple_errors()`. If `.engram-id` is absent, return the initialization error immediately without trust triple validation. This ensures users see "Engram not initialized" rather than a confusing trust triple rejection.
 
