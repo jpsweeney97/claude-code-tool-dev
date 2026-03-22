@@ -21,7 +21,7 @@ FactPacket
 │   ├── facet: Facet
 │   ├── text: string
 │   └── refs: [DocRef](data-model.md#docref)[]
-└── token_estimate: number
+└── token_estimate: integer   # >= 0
 ```
 
 **FactPacket field types:**

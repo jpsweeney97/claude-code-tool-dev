@@ -16,15 +16,15 @@ TopicRegistryEntry
 ├── topic_key: TopicKey
 ├── family_key: TopicKey
 ├── state: "detected" | "injected" | "suppressed" | "deferred"  # persisted type; runtime may include "looked_up" | "built" (see Durable vs Attempt-Local States)
-├── first_seen_turn: number
-├── last_seen_turn: number
-├── last_injected_turn: number | null
+├── first_seen_turn: integer
+├── last_seen_turn: integer
+├── last_injected_turn: integer | null
 ├── last_query_fingerprint: string | null
-├── consecutive_medium_count: number   # consecutive turns at medium confidence; reset on injection or confidence change
+├── consecutive_medium_count: integer  # consecutive turns at medium confidence; reset on injection or confidence change
 ├── suppression_reason: "weak_results" | "redundant" | null
 ├── suppressed_docs_epoch: string | null  # docs_epoch at time of suppression. Written for all suppression reasons. For `weak_results`, used to determine re-entry when `docs_epoch` changes. For `redundant`, set but not consulted for re-entry — `redundant` re-entry is governed by coverage state changes and semantic hints only.
 ├── deferred_reason: "cooldown" | "scout_priority" | "target_mismatch" | null
-├── deferred_ttl: number | null       # turns remaining before re-evaluation
+├── deferred_ttl: integer | null      # turns remaining before re-evaluation
 ├── coverage_target: "family" | "leaf" # classifier's resolved coverage target; populated at detection time from ClassifierResult
 ├── facet: Facet                       # classifier's resolved facet; populated at detection time from ClassifierResult.resolved_topics[].facet
 └── coverage

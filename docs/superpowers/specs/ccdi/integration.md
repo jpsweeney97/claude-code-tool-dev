@@ -19,7 +19,7 @@ All deterministic logic lives in Python, exposed as coarse-grained workflow comm
 
 †`--facet` is required when `--mark-injected` is passed with `--registry-file`.
 
-‡`--inventory-snapshot` is required when `--registry-file` is present (full-CCDI mode). When absent on a full-CCDI call: non-zero exit with descriptive error. Not required in CCDI-lite mode. Note: `classify` uses `--inventory` (same purpose — path to inventory file) while `dialogue-turn` and `build-packet` use `--inventory-snapshot`. The naming difference is intentional: `--inventory-snapshot` signals the pinned copy; `--inventory` on `classify` is a general override.
+‡`--inventory-snapshot` is required when `--registry-file` is present (full-CCDI mode). When absent on a full-CCDI call: non-zero exit with descriptive error. Not required in CCDI-lite mode. Note: `classify` uses `--inventory` (same purpose — path to inventory file) while `dialogue-turn` and `build-packet` use `--inventory-snapshot`. The naming difference is intentional: `--inventory-snapshot` signals the pinned copy; `--inventory` on `classify` is a general override. `--inventory-snapshot` is required on `dialogue-turn` when `--registry-file` is present. On `build-packet`, `--inventory-snapshot` is optional; when absent, `suppressed_docs_epoch` is recorded as null if the topic is auto-suppressed.
 
 All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson). If omitted, uses built-in defaults. The live registry file has the structure defined in [data-model.md#live-registry-file-schema](data-model.md#live-registry-file-schema) — `TopicRegistryEntry` durable states plus `RegistrySeed` envelope fields (`docs_epoch`, `inventory_snapshot_version`); `results_file` is stripped at initial commit. See [registry.md](registry.md#durable-vs-attempt-local-states) for the durable vs attempt-local distinction. Attempt-local states (`looked_up`, `built`) exist within a single CLI invocation and are never written to the file.
 
@@ -421,6 +421,8 @@ The agent performs this check. When condition (a) fails, the agent MUST invoke `
 **CLI interface:** The target-match check is performed by the agent, not the CLI. The CLI provides two supporting operations:
 1. `classify --text-file <follow-up>` — used by the agent for condition (b) when condition (a) fails.
 2. `build-packet --mark-deferred <topic_key> --deferred-reason target_mismatch --skip-build` — invoked by the agent when neither condition passes.
+
+**Inventory snapshot for condition (b):** The `classify` invocation for condition (b) SHOULD use the pinned inventory snapshot (`--inventory <ccdi_snapshot_path>`) to ensure topic resolution is consistent with the `dialogue-turn` classification within the same dialogue. Using the default on-disk inventory for target-match is acceptable if mid-dialogue inventory refresh is guaranteed not to alter topic taxonomy.
 
 **Replay fixture assertion:** The `target_mismatch_deferred.replay.json` fixture provides a `composed_target` field in each trace entry. The harness feeds this to the target-match check logic. The assertion verifies the registry transitions to `deferred: target_mismatch` when the packet topics do not appear in the composed target.
 

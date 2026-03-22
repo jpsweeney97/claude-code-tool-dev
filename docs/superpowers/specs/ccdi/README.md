@@ -15,17 +15,17 @@ Modular specification for CCDI: automatic detection and injection of Claude Code
 
 9 authorities govern the spec. See [spec.yaml](spec.yaml) for the full manifest including precedence and boundary rules.
 
-| Authority | Claims | Scope |
-|-----------|--------|-------|
-| `foundation` | architecture_rule | Cross-cutting architecture, design principles, resilience principle, scope boundary |
-| `data-model` | persistence_schema, architecture_rule | Topic inventory schema, version axes, overlay merge semantics, config schema, lifecycle |
-| `classifier-contract` | behavior_contract, interface_contract | Two-stage pipeline, confidence levels, injection thresholds |
-| `registry-contract` | behavior_contract, interface_contract | State machine, transitions, scheduling, semantic hints |
-| `packet-contract` | behavior_contract, interface_contract | Fact packets, token budgets, citation format, rendering |
-| `integration` | behavior_contract, interface_contract | CLI interface, data flows, prepare/commit, delegation |
-| `delivery` | implementation_plan, verification_strategy | Rollout, testing, diagnostics |
-| `decisions` | decision_record | Locked design decisions from Codex dialogues |
-| `supporting` | *(none)* | README and reference material |
+| Authority | Claims | Scope | Normative |
+|-----------|--------|-------|-----------|
+| `foundation` | architecture_rule | Cross-cutting architecture, design principles, resilience principle, scope boundary | Yes |
+| `data-model` | persistence_schema, architecture_rule | Topic inventory schema, version axes, overlay merge semantics, config schema, lifecycle | Yes |
+| `classifier-contract` | behavior_contract, interface_contract | Two-stage pipeline, confidence levels, injection thresholds | Yes |
+| `registry-contract` | behavior_contract, interface_contract | State machine, transitions, scheduling, semantic hints | Yes |
+| `packet-contract` | behavior_contract, interface_contract | Fact packets, token budgets, citation format, rendering | Yes |
+| `integration` | behavior_contract, interface_contract | CLI interface, data flows, prepare/commit, delegation | Yes |
+| `delivery` | implementation_plan, verification_strategy | Rollout, testing, diagnostics | Yes |
+| `decisions` | decision_record | Locked design decisions from Codex dialogues | Yes |
+| `supporting` | *(none)* | README and reference material | No |
 
 **Highest-risk review surface:** The classifier-registry boundary — where classifier output drives registry scheduling decisions. Changes to confidence semantics or injection thresholds in [classifier.md](classifier.md) directly affect scheduling behavior in [registry.md](registry.md).
 
