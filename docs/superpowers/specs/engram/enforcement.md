@@ -70,9 +70,7 @@ Quality validation paths are separate from [protected-path enforcement](#protect
 
 ### Enforcement Boundary Constraint
 
-PostToolUse hooks **must not** become enforcement boundaries. The race between write completion and validation readback is acceptable for warnings, not for trust authorization. This is why `engram_quality` uses **Warn** (not Block) as its failure mode.
-
-This constraint applies to all current and future PostToolUse hooks in the Engram system.
+See [foundations.md §Enforcement Boundary Constraint](foundations.md#enforcement-boundary-constraint) for the governing architecture rule. PostToolUse hooks must not become enforcement boundaries — Warn only, never Block.
 
 ## Trust Injection
 

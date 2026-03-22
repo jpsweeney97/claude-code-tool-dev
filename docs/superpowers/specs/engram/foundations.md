@@ -37,6 +37,8 @@ No other skill-level write to a protected or externally-owned path is permitted 
 
 Any feature that makes Engram a second source of truth for data that a subsystem already owns is a design violation.
 
+**IndexEntry corollary:** IndexEntry is discovery-only — no mutation, policy, or lifecycle decisions from IndexEntry alone. Any operation that changes state must open the native file through the subsystem engine. See [IndexEntry contract](storage-and-indexing.md#indexentry).
+
 **Design test:** Could a user get a different answer by querying the subsystem directly vs. querying Engram? If yes, the feature violates the core invariant.
 
 **Runnable tests:** See [delivery.md §Step 0a Required Verification](delivery.md) (VR-1) for structural assertions: NativeReader has no `write()` method, `query.py` contains no filesystem write calls, and cross-reader queries do not modify subsystem directories.
@@ -70,7 +72,7 @@ Three cross-cutting principles guide implementation decisions across subsystems.
 
 ### Auxiliary State Authority
 
-Recovery manifests (`save_recovery.json`, `migration_report.json`) and chain state files (`chain/<worktree_id>-<session_id>`) are operational aids only. Primary records — snapshots, tickets, learnings — remain authoritative. Chain state files are ephemeral coordination artifacts with 24-hour TTL; their loss degrades `resumed_from` lineage tracking but does not invalidate any primary record. See [chain protocol](skill-surface.md#chain-protocol-session-lineage-tracking) for TTL and cleanup rules. Reconciliation metadata ([`promote-meta`](types.md#promote-meta-promotion-state-record)) is authoritative promotion-lifecycle state: its presence/absence gates the [promote state machine](operations.md#promote-knowledge-to-claudemd) (Branch A/B/C).
+Recovery manifests (`save_recovery.json`, `migration_report.json`) and chain state files (`chain/<worktree_id>-<session_id>`) are operational aids only. Primary records — snapshots, tickets, learnings — remain authoritative. Chain state files are ephemeral coordination artifacts with 24-hour TTL; their loss degrades `resumed_from` lineage tracking but does not invalidate any primary record. See [chain protocol](skill-surface.md#chain-protocol-session-lineage-tracking) for TTL and cleanup rules. Reconciliation metadata ([`promote-meta`](types.md#promote-meta-promotion-state-record)) is classified as authoritative promotion-lifecycle state (not auxiliary), because its presence/absence controls the [promote state machine](operations.md#promote-knowledge-to-claudemd).
 
 Manifest failure degrades convenience (retry requires manual `snapshot_ref` lookup) but does not break standalone operations. Use distinct naming for each manifest to prevent shadow-authority confusion.
 
@@ -78,7 +80,9 @@ Manifest failure degrades convenience (retry requires manual `snapshot_ref` look
 
 Pre-write or pre-dispatch validation for hard invariants (trust triples, idempotency keys, promotion state machine). Post-write validation for advisory quality checks only ([`engram_quality`](enforcement.md#quality-validation)).
 
-Design rationale for the write/warn layering: see [enforcement boundary constraint](enforcement.md#enforcement-boundary-constraint).
+#### Enforcement Boundary Constraint
+
+PostToolUse hooks **must not** become enforcement boundaries. The race between write completion and validation readback is acceptable for warnings, not for trust authorization. This is why `engram_quality` uses **Warn** (not Block) as its failure mode. This constraint applies to all current and future PostToolUse hooks in the Engram system.
 
 ### Chain Integrity at Migration Boundaries
 

@@ -37,7 +37,7 @@ Three rules constrain `/save` to prevent [God Skill](decisions.md#named-risks) d
 2. **No hidden behaviors.** Every sub-operation visible in per-step results.
 3. **Independently retryable.** Failed steps retry via standalone skills with explicit `--snapshot-ref` from [recovery manifest](operations.md#recovery-manifest). "Latest" is permitted for discovery UI only, never as the semantic source of a write.
 
-**Structural verification:** `/save` sub-operations **must** call the same public entrypoint functions as their standalone counterparts. Verified by automated delegation test (spy/parity test that asserts `/save` invokes the shared entrypoint) and code review as backstop. See [delivery.md cross-cutting verification](delivery.md#cross-cutting-verification) for test specification.
+**Structural verification:** `/save` sub-operations **must** call the same public entrypoint functions as their standalone counterparts. Verified by automated delegation test — see [cross-cutting verification](delivery.md#cross-cutting-verification) for test specification.
 
 ## Chain Protocol — Session Lineage Tracking
 

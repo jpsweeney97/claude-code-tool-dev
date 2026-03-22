@@ -313,6 +313,8 @@ Two failure modes for `learnings.md`, two mitigations:
 
 **Staging files are not affected** — staging uses content-addressed filenames (`content_sha256`-based) with atomic file creation (`O_CREAT | O_EXCL` via `os.open` or equivalent). Identical candidates from concurrent operations coalesce; non-identical candidates get distinct files.
 
+**CLAUDE.md:** Cross-worktree concurrent promotions are delegated to git merge (same model as `learnings.md` cross-worktree). Interleaved marker insertions from concurrent promotions of different lessons are safe — distinct `lesson_id` values in markers means non-overlapping content regions. Same-worktree concurrent promotion is not expected (single user, single session).
+
 ## Snapshot Orchestration Intent
 
 When `/save` creates a snapshot, it embeds orchestration intent as flat scalar fields in the snapshot frontmatter:
@@ -408,7 +410,9 @@ Five independent version spaces govern Engram's data contracts. Each evolves ind
 
 | Version Space | Read Behavior | Write Behavior |
 |---|---|---|
-| Envelope protocol | **Exact-match.** Target engine rejects envelopes with unrecognized `envelope_version` via `VERSION_UNSUPPORTED` error. No forward compatibility. | Writers emit the version they were built for. |
+| Envelope protocol | **Exact-match.** Target engine rejects envelopes with unrecognized `envelope_version` via `VERSION_UNSUPPORTED` error (see below). No forward compatibility. | Writers emit the version they were built for. |
+
+**`VERSION_UNSUPPORTED` error:** Returned by target engines when `envelope_version` does not match the engine's built-in version. Structure: `{"error_code": "VERSION_UNSUPPORTED", "received_version": "<received>", "expected_version": "<engine_version>"}`. Note: `expected_version` is singular (exact-match — there is only one valid version per engine build).
 | Record provenance | **Same-major tolerance with field preservation.** Readers accept records with the same major version (e.g., a v1.0 reader reads v1.1). Unknown fields must be preserved verbatim on rewrite — see [Field Preservation Requirement](#field-preservation-requirement). Records with a different major version are skipped with a warning via `QueryDiagnostics.warnings`. | Writers emit the version they were built for. |
 | Ledger format | **Same-major tolerance.** Parse `schema_version` as `<major>.<minor>`. Compare `major` as integer. Readers skip entries where `major` differs from the reader's built-in major. Unknown fields are ignored (ledger entries are append-only, never rewritten). | Writers emit the version they were built for. |
 | Knowledge entry metadata | **Entry-level exact-match for interpretation; verbatim preservation for unrelated writes.** When interpreting a `lesson-meta` comment (dedup, promote eligibility), the Knowledge engine requires exact major.minor match. Entries with unrecognized `meta_version` are skipped with a per-entry warning — they do not block operations on other entries in the same file. When appending a new entry, existing entries with unrecognized `meta_version` are preserved verbatim. | Writers emit the version they were built for. |
