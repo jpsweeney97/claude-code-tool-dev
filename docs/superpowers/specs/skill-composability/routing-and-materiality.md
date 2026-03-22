@@ -20,6 +20,8 @@ Classification happens in `/dialogue` (the orchestrator), not in the codex-dialo
 
 **Definition of "upstream" for deterministic routing:** "Upstream" means IDs present in the consumed NS handoff's forwarded fields (`source_findings[]`, `source_assumptions[]`). When no NS handoff was consumed (standalone dialogue invocation), no IDs qualify as upstream references — deterministic routing rules requiring upstream ID matches cannot fire, and classification falls through to the model classification pass. AR capsules visible in conversation context but not ingested via the NS handoff adapter are NOT upstream sources for routing purposes.
 
+**Upstream source boundary:** The deterministic routing pass MUST read upstream IDs exclusively from `upstream_handoff.source_findings[]` and `upstream_handoff.source_assumptions[]`. Direct scanning of conversation context for AR capsules during deterministic routing classification is prohibited — an AR capsule present in conversation context but not forwarded via the NS handoff is invisible to deterministic routing. Items whose AR provenance is only available via conversation-context scanning fall through to the model classification pass, producing `classifier_source: model`.
+
 For items without explicit upstream ID references: constrained LLM classification pass. Output one of `adversarial-review | next-steps | dialogue_continue | ambiguous`, name the affected surface, provide a one-line reason, and record `classifier_source: model`.
 
 ### Dimension Independence
