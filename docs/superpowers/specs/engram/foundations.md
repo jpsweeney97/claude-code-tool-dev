@@ -25,7 +25,7 @@ Each subsystem (Context, Work, Knowledge) remains authoritative for its own reco
 
 ### Permitted Exceptions
 
-CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns promotion *state* (via [promote-meta](types.md#promote-meta-promotion-state-record)); the CLAUDE.md edit is a skill-level bypass of the engine write path. Two operations are permitted on CLAUDE.md:
+CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns promotion *state* (via [promote-meta](types.md#promote-meta--promotion-state-record)); the CLAUDE.md edit is a skill-level bypass of the engine write path. Two operations are permitted on CLAUDE.md:
 
 1. **Content write:** The [/promote](operations.md#promote-knowledge-to-claudemd) Step 2 writes transformed text wrapped in [paired markers](types.md#promotion-markers-in-claudemd). See the [promote state machine](operations.md#promote-knowledge-to-claudemd) for the full behavioral specification (step sequencing, drift detection, branch logic).
 
@@ -77,7 +77,7 @@ Three cross-cutting principles guide implementation decisions across subsystems.
 
 ### Auxiliary State Authority
 
-Recovery manifests (`save_recovery.json`, `migration_report.json`) and chain state files (`chain/<worktree_id>-<session_id>`) are operational aids only. Primary records — snapshots, tickets, learnings — remain authoritative. Chain state files are ephemeral coordination artifacts with 24-hour TTL; their loss degrades `resumed_from` lineage tracking but does not invalidate any primary record. See [chain protocol](skill-surface.md#chain-protocol-session-lineage-tracking) for TTL and cleanup rules. Reconciliation metadata ([`promote-meta`](types.md#promote-meta-promotion-state-record)) is classified as authoritative promotion-lifecycle state (not auxiliary), because its presence/absence controls the [promote state machine](operations.md#promote-knowledge-to-claudemd).
+Recovery manifests (`save_recovery.json`, `migration_report.json`) and chain state files (`chain/<worktree_id>-<session_id>`) are operational aids only. Primary records — snapshots, tickets, learnings — remain authoritative. Chain state files are ephemeral coordination artifacts with 24-hour TTL; their loss degrades `resumed_from` lineage tracking but does not invalidate any primary record. See [chain protocol](skill-surface.md#chain-protocol-session-lineage-tracking) for TTL and cleanup rules. Reconciliation metadata ([`promote-meta`](types.md#promote-meta--promotion-state-record)) is classified as authoritative promotion-lifecycle state (not auxiliary), because its presence/absence controls the [promote state machine](operations.md#promote-knowledge-to-claudemd).
 
 Manifest failure degrades convenience (retry requires manual `snapshot_ref` lookup) but does not break standalone operations. Use distinct naming for each manifest to prevent shadow-authority confusion.
 

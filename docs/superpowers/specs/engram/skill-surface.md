@@ -13,17 +13,17 @@ authority: skill-contract
 |---|---|---|
 | `/save` | Context (orchestrator) | Orchestrates [defer + distill](operations.md#save-as-session-orchestrator). Embeds [orchestration intent](types.md#snapshot-orchestration-intent) in snapshot frontmatter. Per-step results. `--no-defer`, `--no-distill`. |
 | `/load` | Context | Chain protocol uses `repo_id` + `worktree_id`. |
-| `/quicksave` | Context | Lightweight: 5 sections, no defer, no distill. Writes checkpoint directly via Write tool (not through engine Bash) — see [direct-write path authorization](enforcement.md#direct-write-path-authorization). |
-| `/defer` | Context -> Work | [DeferEnvelope](types.md#deferenvelope-context-to-work) + idempotency. Accepts `--snapshot-ref <ref>` for retry (required when called standalone after `/save` failure). |
+| `/quicksave` | Context | Lightweight: 5 sections, no defer, no distill. Writes checkpoint directly via Write tool (not through engine Bash) — see [direct-write path authorization](enforcement.md#direct-write-path-authorization). Checkpoint writes trigger `engram_quality` advisory validation (see [enforcement.md §Quality Validation](enforcement.md#quality-validation)). |
+| `/defer` | Context -> Work | [DeferEnvelope](types.md#deferenvelope--context-to-work) + idempotency. Accepts `--snapshot-ref <ref>` for retry (required when called standalone after `/save` failure). |
 | `/search` | Cross-subsystem | Queries all subsystems via [unified search](operations.md#unified-search). Results grouped by subsystem. |
 | `/ticket` | Work | Unchanged API. Storage at `engram/work/`. |
 | `/triage` | Cross-subsystem | Merged from ticket-triage + handoff triage. Reports staged candidates + orphans. |
-| `/learn` | Knowledge | Invokes the Knowledge engine publish entrypoint to append to `engram/knowledge/learnings.md` with [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract). Routes through `engram_guard` trust injection (not a direct Write tool call). Dedup via `content_sha256` against published entries. |
+| `/learn` | Knowledge | Invokes the Knowledge engine publish entrypoint to append to `engram/knowledge/learnings.md` with [lesson-meta](types.md#knowledge-entry-format--lesson-meta-contract). Routes through `engram_guard` trust injection (not a direct Write tool call). Dedup via `content_sha256` against published entries. |
 | `/distill` | Context -> Knowledge | Writes to staging inbox. Idempotent per snapshot. Accepts `--snapshot-ref <ref>` for retry (required when called standalone after `/save` failure). |
 | `/curate` | Knowledge | **New.** Reviews staged candidates, publishes to `engram/knowledge/`. See [curate mechanics](operations.md#distill-context-to-knowledge-staged). |
 | `/promote` | Knowledge -> CLAUDE.md | [Three-step state machine](operations.md#promote-knowledge-to-claudemd): engine validates promotability, skill writes CLAUDE.md, engine writes promote-meta. |
 | `/timeline` | Cross-subsystem | **New.** [Session reconstruction](operations.md#session-timeline) with ledger-backed/inferred labels. |
-| `engram init` | System | **New.** Bootstrap: generates `.engram-id` (UUIDv4), writes to repo root, stages for commit. Prints exact `git commit` command for user to run. Idempotent — no-ops if `.engram-id` already exists. Supports `--force` to overwrite a malformed `.engram-id` (see [delivery.md VR-15](delivery.md#step-0b-bootstrap-and-identity)). |
+| `engram init` | System | **New.** Bootstrap: generates `.engram-id` (UUIDv4), writes to repo root, stages for commit. Prints exact `git commit` command for user to run. Idempotent — no-ops if `.engram-id` already exists. Supports `--force` to overwrite a malformed `.engram-id` (see [delivery.md VR-0B-1](delivery.md#step-0b-bootstrap-and-identity)). |
 
 **Consolidated:** `/ticket-triage` + handoff `/triage` merged into `/triage`.
 
@@ -79,5 +79,5 @@ Three inherited limitations, carried forward with documentation:
 | `/save` vs `/quicksave` | Full session wrap-up vs. quick checkpoint |
 | `/triage` vs `/ticket list` | Cross-subsystem health dashboard vs. list my tickets |
 | `/search` vs `/ticket query` | Find across everything vs. find ticket by ID prefix |
-| `/distill` vs `/learn` | Bulk extraction from snapshot (staged as `DistillCandidate` files) vs. capture one insight manually (publishes to `learnings.md` via the Knowledge engine entrypoint with [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract); not a direct Write tool call — routes through `engram_guard` trust injection). Both dedup via `content_sha256`. `/learn` applies lesson-meta directly on write; for the distill path, lesson-meta is applied by `/curate` at publication time. |
+| `/distill` vs `/learn` | Bulk extraction from snapshot (staged as `DistillCandidate` files) vs. capture one insight manually (publishes to `learnings.md` via the Knowledge engine entrypoint with [lesson-meta](types.md#knowledge-entry-format--lesson-meta-contract); not a direct Write tool call — routes through `engram_guard` trust injection). Both dedup via `content_sha256`. `/learn` applies lesson-meta directly on write; for the distill path, lesson-meta is applied by `/curate` at publication time. |
 | `/curate` vs `/promote` | Review staged candidates vs. graduate published knowledge to CLAUDE.md |

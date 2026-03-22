@@ -38,9 +38,9 @@ Create plugin, core library, and type contracts. Validate the foundation before 
 | Deliverable | Detail |
 |---|---|
 | Plugin manifest | `packages/plugins/engram/.claude-plugin/plugin.json` |
-| `engram_core/types.py` | [RecordRef, RecordMeta, IndexEntry, QueryResult, envelope types](types.md) (including [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract) contract and per-candidate fingerprints in `DistillEnvelope` [idempotency material](types.md#idempotency-same-operation-retried)) |
+| `engram_core/types.py` | [RecordRef, RecordMeta, IndexEntry, QueryResult, envelope types](types.md) (including [lesson-meta](types.md#knowledge-entry-format--lesson-meta-contract) contract and per-candidate fingerprints in `DistillEnvelope` [idempotency material](types.md#idempotency--same-operation-retried)) |
 | `engram_core/reader_protocol.py` | [NativeReader protocol](storage-and-indexing.md#nativereader-protocol) with `root_type: Literal["shared", "private"]` parameter on `scan()` |
-| `engram_core/query.py` | [Fresh-scan query engine](storage-and-indexing.md#fresh-scan-no-cached-index) |
+| `engram_core/query.py` | [Fresh-scan query engine](storage-and-indexing.md#fresh-scan--no-cached-index) |
 
 **Exit criteria:** All types pass construction and equality tests. Query scans empty directories with correct diagnostics. NativeReader protocol compiles with `root_type` parameter.
 
@@ -59,9 +59,12 @@ Create plugin, core library, and type contracts. Validate the foundation before 
 - Field preservation gate (T1-gate-1, activates at Step 2a): verify that rewriting a `lesson-meta` entry with an unknown field preserves that field verbatim. Deferred from Step 0a because field preservation is only exercised when the Knowledge engine performs its first rewrite-capable operation. Scheduled here for traceability; test fixture created in Step 2a.
 - Mixed-version degradation gate (T1-gate-2, activates at Step 2a): verify that a `lesson-meta` entry with `meta_version: "99.0"` is skipped per-entry (not per-file) with a warning in `QueryDiagnostics.warnings`. Deferred from Step 0a for the same reason. Scheduled here; test fixture created in Step 2a.
 - Deferred gate stubs (VR-0A-9): T1-gate-1 and T1-gate-2 fixture stubs must exist as empty test files with TODO comments citing target behaviors before Step 0a is marked complete. This ensures deferred obligations are tracked structurally. (SY-25)
-- IndexEntry.snippet contract test (VR-0A-10): for each NativeReader (context, work, knowledge), create a fixture file with body exceeding 500 characters. Assert: `IndexEntry.snippet` ≤ 200 characters. Assert: snippet does not end mid-word. (SY-26)
+- IndexEntry.snippet contract test (VR-0A-13): for each NativeReader (context, work, knowledge), create a fixture file with body exceeding 500 characters. Assert: `IndexEntry.snippet` ≤ 200 characters. Assert: snippet does not end mid-word. (SY-26)
 - `since` filter test (VR-0A-11): fixture with 3 entries at different timestamps. `query(since=<cutoff>)` returns only post-cutoff entries. UTC normalization: entry with +05:30 timestamp → `IndexEntry.created_at` is UTC-normalized. (SY-31)
 - RecordRef serialization round-trip (VR-0A-12): for each subsystem, assert `RecordRef.from_str(ref.to_str(), ref.repo_id) == ref`. Edge case: `record_id` containing hyphens. (SY-47)
+- content_sha256 golden-value test (VR-0A-14): Construct a two-entry `learnings.md` fixture with known content. Compute `content_hash()` on the specified byte range. Assert result equals a golden hex value embedded in the test. This locks the byte-range interpretation.
+- Staging filename hash-prefix collision (VR-0A-15): Mock `O_CREAT | O_EXCL` to raise FileExistsError; mock existing file to return different `content_sha256`. Assert: engine writes with `-1` suffix; diagnostic logged; original unchanged.
+- RecordRef construction-time validation (VR-0A-16): `RecordRef(subsystem="invalid")` → assert `ValueError`. Repeat with empty string.
 
 ## Step 0b: Bootstrap and Identity
 
@@ -76,6 +79,7 @@ Create identity resolution and bootstrap command. Depends on 0a types being stab
 **Exit criteria:** Identity works across worktrees. `engram init` is idempotent. [SessionStart](enforcement.md#sessionstart-hook) warns when `.engram-id` missing and points to `engram init`.
 
 #### Required Verification
+- worktree_id truncation uniqueness (VR-0B-2): Two known distinct `git_dir` paths → assert `worktree_id` values differ. Assert format: exactly 16 lowercase hex chars.
 - `engram init` idempotency matrix (VR-0B-1): (a) `.engram-id` absent → creates file with valid UUIDv4, stages for commit; (b) `.engram-id` present with valid UUID → no-op, exits 0, prints "already initialized"; (c) `.engram-id` present with malformed content → error with message instructing manual repair or re-init with `--force`.
 
 ## Step 1: Bridge Cutover
@@ -84,7 +88,7 @@ The only existing cross-subsystem path with trusted writes on both ends. Proves 
 
 | Deliverable | Detail |
 |---|---|
-| [DeferEnvelope](types.md#deferenvelope-context-to-work) with [EnvelopeHeader](types.md#envelopeheader) | New envelope type |
+| [DeferEnvelope](types.md#deferenvelope--context-to-work) with [EnvelopeHeader](types.md#envelopeheader) | New envelope type |
 | Bridge adapter + SourceResolver | Converts `DeferEnvelope` -> old `DeferredWorkEnvelope` JSON -> temp file -> old ticket engine ingest. SourceResolver reads source snapshot frontmatter to recover `session_id` for bridge mapping (see below). |
 | Context reader | Parses handoff `---` frontmatter |
 | Work reader | Parses ticket fenced YAML |
@@ -101,6 +105,8 @@ The old `DeferredWorkEnvelope` requires `source.type`, `source.ref`, and `source
 | `source.type` | `f"engram:{source_ref.subsystem}:{source_ref.record_kind}"` |
 | `source.ref` | Canonical `RecordRef` serialization |
 | `source.session` | `SourceResolver` reads `session_id` from the source snapshot's frontmatter |
+
+When `session_id` is absent from the source snapshot's frontmatter, `SourceResolver` raises with an explicit error referencing the source snapshot path (e.g., `"SourceResolver: session_id missing in frontmatter of {path}"`). Do not silently return an empty string — the downstream bridge adapter requires a non-empty `source.session` field.
 
 The `SourceResolver` is adapter-local scaffolding — it dies with the bridge adapter in [Step 5](#step-5-cleanup). Do not add `session_id` to `EnvelopeHeader` or `RecordRef` to serve this temporary need.
 
@@ -123,6 +129,7 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 #### Required Verification
 - Bridge compatibility test passes (Steps 1-4 as specified)
 - Bridge test additionally verifies old engine accepts converted JSON (VR-1-1): call old ticket engine ingest with bridge output, assert non-error response
+- SourceResolver failure path (VR-1-3): fixture with snapshot missing `session_id` in frontmatter → assert SourceResolver returns empty string (or raises with explicit error referencing source snapshot path).
 - SourceResolver exact-value assertion (VR-1-2): assert `source.type == f"engram:{source_ref.subsystem}:{source_ref.record_kind}"`, `source.ref == source_ref.to_str()`, `source.session == <expected_session_id>` with known fixture. (SY-33)
 
 ## Step 2: Knowledge Cutover
@@ -132,7 +139,7 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 | Deliverable | Detail |
 |---|---|
 | `engram/knowledge/learnings.md` | `git mv docs/learnings/learnings.md` |
-| Knowledge reader, engine | Staging writes, dedup, publication, [promote-meta](types.md#promote-meta-promotion-state-record) |
+| Knowledge reader, engine | Staging writes, dedup, publication, [promote-meta](types.md#promote-meta--promotion-state-record) |
 | Staging inbox | `~/.claude/engram/<repo_id>/knowledge_staging/` |
 | `/learn`, `/distill`, `/curate`, `/promote` | All knowledge skills |
 | `engram_guard` hook (engine trust injection only) | [Engine trust injection](enforcement.md#trust-injection) for Knowledge engine. Write/Edit path authorization deferred to Step 3a. |
@@ -163,7 +170,7 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 |---|---|
 | `engram/work/` | `git mv docs/tickets/*` |
 | Work engine | 4-stage pipeline, trust model, dedup, autonomy — all preserved |
-| `engram_guard` hook (full) | Extends Step 2a hook with [protected-path enforcement](enforcement.md#protected-path-enforcement) + [direct-write path authorization](enforcement.md#direct-write-path-authorization) for Work paths |
+| `engram_guard` hook (full) | Extends Step 2a hook with [`work_path_enforcement`](enforcement.md#protected-path-enforcement) for Work paths |
 | `/ticket`, `/triage` | Work skills |
 | Config | `.claude/engram.local.md` (see [autonomy configuration](enforcement.md#configuration)) |
 | Bridge adapter update | `/defer` switches from bridge adapter (Step 1) to new Work engine |
@@ -180,6 +187,8 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 - Ledger append failure isolation (VR-3A-7): Make shard file read-only (or raise IOError on flock). Run `/defer` end-to-end. Assert: (a) ticket created successfully in `engram/work/`; (b) no exception propagated to caller; (c) `QueryDiagnostics.warnings` on subsequent query notes the ledger gap.
 - Trust injection path matching negative test (VR-3A-8): invoke `engram_guard` with a Bash tool call executing `python3 /tmp/engine_work.py` (valid filename, outside `<engram_scripts_dir>`). Assert: [payload file](enforcement.md#payload-file-contract) is NOT created. Then invoke with `python3 <engram_scripts_dir>/engine_work.py` (correct path). Assert: payload file IS created with valid trust triple fields.
 - Trust triple call-site completeness (VR-3A-9): for each documented mutating entrypoint (Work: ticket creation, ticket update, ticket close; Knowledge: knowledge publish, staging write, promote-meta write), assert via AST scan or instrumented test that [`collect_trust_triple_errors()`](enforcement.md#collect_trust_triple_errors-contract) is called before any filesystem write. Acceptable methods: (a) `ast.parse` + visitor asserting the call appears before `open(..., 'w')` / `os.replace` / `shutil` calls; (b) mock `collect_trust_triple_errors` to raise on first call, invoke entrypoint, assert exception propagated. Context engine scripts must **not** call `collect_trust_triple_errors()` — assert zero matches via grep.
+- knowledge_max_stages validation (VR-3A-11): Set `knowledge_max_stages: 0` and invoke distill → assert rejection with `"knowledge_max_stages must be >= 1"` before any staging I/O. Repeat with `-1`. Test string form `"0"` for type coercion.
+- Config live-reload (VR-3A-12): Run distill with `knowledge_max_stages: 5`; update config to 15 without restart; run second distill → assert new cap applies.
 - `work_dedup_fingerprint` formula contract tests (VR-3A-10): (a) assert formula is `sha256(work_normalize(text) + "|" + ",".join(sorted(paths)))` — compute manually and compare; (b) separator character test: input with `"|"` in problem text → assert correct hash (separator is a literal pipe, not a regex); (c) path sort order: `["b.py", "a.py"]` and `["a.py", "b.py"]` → assert same fingerprint (lexicographic sort); (d) `work_normalize()` applied before hashing: input with trailing whitespace and mixed case → assert fingerprint matches `work_normalize`d version, not raw; (e) 24-hour window: submit two semantically identical problems 25 hours apart → assert no dedup (window expired).
 
 ### Step 3b — Retire
@@ -196,8 +205,8 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 | Deliverable | Detail |
 |---|---|
 | `~/.claude/engram/<repo_id>/` storage | Keyed by `repo_id` + `worktree_id`. See [storage layout](storage-and-indexing.md#dual-root-storage-layout). |
-| Context engine | [Chain protocol](skill-surface.md#chain-protocol-session-lineage-tracking) updated |
-| Hooks | [`engram_quality`](enforcement.md#quality-validation), [`engram_session`](enforcement.md#sessionstart-hook), `engram_register` |
+| Context engine | [Chain protocol](skill-surface.md#chain-protocol--session-lineage-tracking) updated |
+| Hooks | [`engram_quality`](enforcement.md#quality-validation), [`engram_session`](enforcement.md#sessionstart-hook), `engram_register`, [`context_direct_write_authorization`](enforcement.md#direct-write-path-authorization) guard capability |
 | Skills | `/save`, `/load`, `/quicksave`, `/search`, `/timeline` |
 
 **Data migration:** Copy handoffs to new location. Map project name -> `repo_id`.
@@ -241,12 +250,14 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 
 **Cross-step dependency:** Steps 2a and 3a depend on the old handoff format remaining readable (Context reader parses `---` frontmatter from existing handoff files). Do not modify the handoff format until Step 4a is complete.
 
+**Intra-step ordering:** Within Step 4a, hooks are deployed and validated before skills are activated. The `context_direct_write_authorization` guard capability must pass its VR-4A-19 tests before Context skills (`/save`, `/quicksave`, `/load`) are enabled.
+
 **Exit criteria (4a):** Save/load cycle works. Worktree isolation verified. `/save` orchestration with per-step results. `/search` spans all subsystems. `/timeline` reconstructs sessions. All hooks operational. SessionStart <500ms. Chain state migration classifies and filters old state files. All copied handoffs parse successfully through the Context reader. Migration manifest written with no `skipped_corrupt` entries for newly copied files.
 
 #### Required Verification
-- Chain state migration classification (VR-4A-1): parametric fixtures for each class (valid_fresh, stale, dangling, corrupt); assert migrated count = 1
+- Chain state migration classification (VR-4A-1): parametric fixtures for each class (valid_fresh, stale, dangling, corrupt); assert migrated count = 1. Additional case (e): fresh-age-but-dangling fixture (age < 24h, target snapshot absent) → assert NOT migrated, classified as dangling.
 - Migration idempotency (VR-4A-2): run twice, compare manifests. New-source test: after run 1, add two new handoff files to the source directory. Run migration again. Assert: original copied files appear in `skipped_exists`; new files appear in `copied`.
-- SessionStart timing (VR-4A-3): run `engram_session` against fixture with 200 snapshots (realistic 90-day max at 2/day), 20 chain files; assert **median** wall-clock < 500ms over 5 runs. Environment qualifier: local filesystem with reasonable I/O latency. If per-file cleanup exceeds 5ms, abort remaining cleanup with warning rather than blocking. Cap enforcement: 100 expired snapshots → exactly 50 deleted, 50 remain. Run again → 50 more deleted. Environment probe: before asserting <500ms, measure median per-file read latency on a 10-file fixture. If per-file latency exceeds 10ms, mark the timing assertion as skipped/environment with a warning. (SY-34)
+- SessionStart timing (VR-4A-3): Additional archived snapshot TTL test: add (a) 10 archived snapshots in `.archive/` older than 90 days and (b) 3 younger than 90 days. Assert old deleted, young retained, combined cleanup respects 50-file cap. Full test: run `engram_session` against fixture with 200 snapshots (realistic 90-day max at 2/day), 20 chain files; assert **median** wall-clock < 500ms over 5 runs. Environment qualifier: local filesystem with reasonable I/O latency. If per-file cleanup exceeds 5ms, abort remaining cleanup with warning rather than blocking. Cap enforcement: 100 expired snapshots → exactly 50 deleted, 50 remain. Run again → 50 more deleted. Environment probe: before asserting <500ms, measure median per-file read latency on a 10-file fixture. If per-file latency exceeds 10ms, mark the timing assertion as skipped/environment with a warning. (SY-34)
 - /triage promote-meta detection (VR-4A-4): fixture with CLAUDE.md markers + text but no promote-meta → assert mismatch reported; fixture with stale promote-meta → assert stale reported; fixture with CLAUDE.md text but markers deleted → assert manual reconcile surfaced
 - Promote marker lifecycle (VR-4A-5): Branch A inserts markers + text; Branch B1 fixture with promote-meta present, `promoted_content_sha256 == current content_sha256`, `target_section` unchanged → assert rejection with 'already promoted' status and existing promotion details (no CLAUDE.md write, no promote-meta update); Branch C1 locates markers, drift_hash matches → normal replacement with user confirmation; Branch C2 locates markers, drift_hash mismatches (user edited managed block) → drift warning + 2-way diff surfaced before user confirmation; Branch C3 missing markers → manual reconcile; Branch B2 shows old and new target_section plus existing promoted text → user confirms manual placement; Step 3 records updated target_section in promote-meta
 - Snapshot intent fields (VR-4A-6): /save without flags → snapshot has orchestrated_by=save, save_expected_defer=true, save_expected_distill=true; /save --no-defer → save_expected_defer=false; /quicksave → no orchestration fields. String boolean normalization: create a snapshot file with frontmatter containing `save_expected_defer: "true"` (quoted string) → `/triage` interprets as boolean `true`.
@@ -262,6 +273,10 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 - Context status derivation test (VR-4A-16): (a) snapshot in `snapshots/` → `query(status="context:active")` returns it; (b) same file moved to `snapshots/.archive/` → `query(status="context:archived")` returns it, `query(status="context:active")` does not. (SY-29)
 - Ledger multi-producer concurrency test (VR-4A-17): spawn 10 concurrent threads, each appending one `LedgerEntry` to the same shard. Assert: shard has exactly 10 valid JSON lines, no partial lines, lock file absent post-completion. (SY-30)
 - Promote Branch D exclusion test (VR-4A-18): fixture with `promote-meta` having `meta_version: "99.0"`. Run `/promote`. Assert: lesson NOT in selectable candidate list. Assert: warning containing lesson_id and "unreadable promote-meta" surfaced. (SY-32)
+- Context direct-write path authorization (VR-4A-19): (a) Write to `~/.claude/engram/<different_repo_id>/snapshots/test.md` → assert blocked by `engram_guard`; (b) Write to correct repo's `snapshots/test.md` → assert allowed; (c) Write with path traversal (`snapshots/../other_file.md`) → assert blocked after canonicalization.
+- Promote-meta exact-match minor version (VR-4A-21): Fixture with `promote-meta` having `meta_version: "1.1"` (same major, different minor). Run `/promote`. Assert: lesson excluded from candidate list. Assert: warning containing lesson_id.
+- LedgerEntry major-version mismatch skip (VR-4A-22): JSONL shard with three entries — `schema_version: "1.0"`, `"2.0"` (future major), `"1.1"` (same-major minor). Assert: reader returns entries 1 and 3; entry 2 skipped; no exception.
+- Session diagnostic channel integration (VR-4A-20): (a) Force `engram_register` to fail (make shard file unwritable). Assert `.diag` created with JSONL entry containing `hook`, `failure_type`, `ts` fields. (b) Run `/triage` for that session. Assert output surfaces `"ledger unavailable in session <session_id>"`. (c) Assert other sessions unaffected.
 
 ### Step 4b — Retire
 
@@ -278,6 +293,13 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 - Clean old data locations (`docs/tickets/`, `docs/learnings/`)
 - Update CLAUDE.md, references, and documentation
 - Verify no stale references to old plugin paths in skills, hooks, or agents
+
+#### Required Verification
+- VR-5-1: `grep -r "bridge_adapter\|SourceResolver\|DeferredWorkEnvelope" packages/plugins/engram/` returns zero results
+- VR-5-2: Old plugin directories (`packages/plugins/handoff/`, `packages/plugins/ticket/`) absent
+- VR-5-3: `grep -r "handoffs/\|plugins/ticket\|plugins/handoff" .claude/skills/ .claude/hooks/ .claude/agents/` returns zero results
+- VR-5-4: Old data directories (`docs/tickets/`, `docs/learnings/`) absent
+- VR-5-5: All 13 skill smoke tests pass (final progressive gate)
 
 ## Testing Strategy
 
@@ -309,8 +331,18 @@ Triage old tests into three buckets:
 | Invariant | Test | Step |
 |---|---|---|
 | /search grouping ("never interleaved") | Multi-subsystem query, assert contiguous grouping: for each adjacent pair `(entries[i], entries[i+1])` where subsystems differ, assert `entries[i+1].ref.subsystem` does not appear in `entries[0..i-1]` | 4a |
-| All 13 skills functional | Automated smoke test per skill: one happy-path invocation, assert expected observable output. **Progressive:** at each step, all skills activated by or before that step must pass their smoke test. A shared smoke-test runner is invoked at each step's exit gate, parameterized by the set of activated skills. | Progressive (not Step 5 only) |
+| All 13 skills functional | Automated smoke test per skill: one happy-path invocation, assert expected observable output. **Progressive:** at each step, all skills activated by or before that step must pass their smoke test. A shared smoke-test runner is invoked at each step's exit gate, parameterized by the set of activated skills. See progressive activation table below. | Progressive (not Step 5 only) |
 | /save shared-entrypoint delegation | (1) Spy test: mock the shared entrypoint, invoke `/save`, assert mock called exactly once for defer and once for distill with the same arguments as the standalone call. "Same entrypoint" = identical Python function object (by module + qualified name). A wrapper or reimplementation that delegates to a private helper does not satisfy this test. (2) Parity test: run `/save` and standalone `/defer` with fixture snapshot, assert identical `IndexEntry` output (same fields, same RecordRef). (3) Partial-failure parity: `/save` with distill engine disabled → same defer output as standalone `/defer`. | 4a |
+
+**Progressive activation manifest** (canonical runner parameterization):
+
+| After Step | Active Skills |
+|---|---|
+| 0b | `engram init` |
+| 1 | `engram init`, `/defer` |
+| 2a | adds `/learn`, `/distill`, `/curate`, `/promote` |
+| 3a | adds `/ticket`, `/triage` |
+| 4a | adds `/save`, `/load`, `/quicksave`, `/search`, `/timeline` |
 
 **Minimal observable output per skill (SY-28):**
 

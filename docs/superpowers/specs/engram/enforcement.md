@@ -34,9 +34,13 @@ Hook failures are written to a per-session diagnostic file at `~/.claude/engram/
 {"ts": "<ISO 8601 UTC>", "hook": "engram_register", "failure_type": "lock_timeout", "message": "..."}
 ```
 
+**Directory creation:** `engram_register` must create the diagnostic directory path (`ledger/<worktree_id>/`) if absent before writing the `.diag` file. If directory creation itself fails, log to stderr (no triage impact).
+
 **Write semantics:** Append-only, best-effort (diagnostic writes must not fail-closed). No lock required — single producer (the hook that failed).
 
 **Read protocol:** `/triage` checks for `<session_id>.diag` files. If present and non-empty, surfaces `"ledger unavailable in session <session_id>"` instead of `"completion not proven"` for that session's operations. See [/triage inference matrix](operations.md#triage-read-work-and-context).
+
+**Schema version:** Each `.diag` JSONL entry includes `schema_version: "1.0"`. If a reader encounters a `.diag` entry with an unrecognized `schema_version`, it should treat the entry as opaque (log but do not interpret fields).
 
 **TTL:** Same as ledger shards — append-only, no TTL. Cleaned up if parent session directory is removed.
 
@@ -50,7 +54,7 @@ Policy-based enforcement covering all currently supported write tools (Write, Ed
 | `knowledge_published` | `engram/knowledge/**` | Engine entrypoints only |
 | `knowledge_staging` | `~/.claude/engram/<repo_id>/knowledge_staging/**` | Engine entrypoints only |
 
-Paths canonicalized before matching (resolve symlinks, collapse `..`, normalize to absolute).
+Paths canonicalized before matching (resolve symlinks, collapse `..`, normalize to absolute). Path canonicalization and `**` glob matching cover all subdirectories including `.`-prefixed ones (e.g., `.audit/`). The `engram/work/**` path class protects `engram/work/.audit/**` — all audit trail entries are engine-only.
 
 **Intentional exclusions:** Snapshot and checkpoint paths (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) are not in this table. Context subsystem writes use Write/Edit tools natively — excluded from both protected-path enforcement and [trust triple validation](#step-2-validation-engine-entrypoint). See [direct-write path authorization](#direct-write-path-authorization) for the enforcement model. Advisory quality checks via [`engram_quality`](#quality-validation) cover content quality.
 
@@ -78,15 +82,26 @@ This is advisory quality lint, not trust enforcement — the small race between 
 | `snapshot` | `~/.claude/engram/<repo_id>/snapshots/**` | Frontmatter completeness, section count |
 | `checkpoint` | `~/.claude/engram/<repo_id>/checkpoints/**` | Frontmatter completeness |
 
+**Required checkpoint frontmatter fields** (validated by `engram_quality` "Frontmatter completeness" check):
+
+| Field | Type | Source |
+|---|---|---|
+| `session_id` | `str` | From `RecordMeta` |
+| `worktree_id` | `str` | From `RecordMeta` |
+| `timestamp` | `str` | ISO 8601 UTC |
+| `source_skill` | `str` | `"quicksave"` |
+
 Quality validation paths are separate from [protected-path enforcement](#protected-path-enforcement). Protected paths gate *authorization* (who may write). Quality paths gate *content checks* (what was written). A path can be in both sets. Staging writes (`knowledge_staging/`) are excluded — the Knowledge engine validates content at write time, making post-write quality hooks redundant for staging.
 
 **Hook self-failure:** If `engram_quality` itself fails (unhandled exception, timeout), the failure is logged as `[engram_quality:error]` (distinct from quality warnings at `[engram_quality:warn]`) but does not block the underlying write. The implementation must catch all exceptions in the hook body to prevent hook-level failures from propagating to the tool call result.
 
 Implementation must never return exit code 2 (Block). Even if the quality check detects a severe issue, the response must be exit code 0 with warning text. This is enforced by the [enforcement boundary constraint](#enforcement-boundary-constraint).
 
+**Edit timing:** For Edit tool calls, the hook reads the final file state from disk at PostToolUse invocation time. Concurrent writes between Edit completion and hook invocation are not detectable — the hook validates whatever is on disk. This is acceptable for advisory warnings.
+
 ### Enforcement Boundary Constraint
 
-See [foundations.md §Enforcement Boundary Constraint](foundations.md#enforcement-boundary-constraint) for the governing architecture rule (authoritative). `engram_quality` uses **Warn** (not Block) as its failure mode in compliance with this constraint.
+See [foundations.md §Enforcement Boundary Constraint](foundations.md#enforcement-boundary-constraint-invariant) for the governing architecture rule (authoritative). `engram_quality` uses **Warn** (not Block) as its failure mode in compliance with this constraint.
 
 ## Trust Injection
 
@@ -105,7 +120,27 @@ Two enforcement mechanisms share a single `engram_guard` hook, distinguished by 
 |-----------|----------|--------|
 | `engine_trust_injection` | Step 2a | Knowledge engine mutating entrypoints (Bash-mediated) |
 | `engine_trust_injection` (extended) | Step 3a | Work engine mutating entrypoints |
-| `write_path_authorization` | Step 4a | Context direct-write paths (Write/Edit-mediated) |
+| `work_path_enforcement` | Step 3a | Protected-path block for Write/Edit to Work and Knowledge paths |
+| `context_direct_write_authorization` | Step 4a | Direct-write path authorization for Context snapshot/checkpoint paths |
+
+### Guard Decision Algorithm
+
+`engram_guard` evaluates incoming tool calls in this order. Branches are evaluated sequentially; the first match determines the action.
+
+```
+engram_guard decision algorithm:
+  1. If tool_name == Bash AND matches engine_*.py pattern:
+     → Engine trust injection (write TrustPayload, allow)
+  2. If tool_name in {Write, Edit} AND path within Context private root:
+     → Direct-write path authorization (allow + post-write quality)
+  3. If tool_name in {Write, Edit} AND path in protected-path table:
+     → Block with path-class diagnostic
+  4. Otherwise:
+     → Allow unconditionally (engram_guard does not restrict general writes)
+Branches evaluated in this order. Step 2 failing (not Context-owned) routes to step 3.
+```
+
+**Capability gating:** Each branch is only active when its corresponding guard capability has shipped. Branch 1 activates at Step 2a (`engine_trust_injection`). Branch 3 activates at Step 3a (`work_path_enforcement`). Branch 2 activates at Step 4a (`context_direct_write_authorization`). Before a capability ships, its branch is a no-op (falls through to branch 4).
 
 ### Payload File Contract
 
@@ -121,9 +156,13 @@ The engine trust injection mechanism uses a payload file as the communication ch
 | **Cleanup** | Engine deletes after consuming. `engram_session` prunes orphans older than 24h on startup. |
 | **Containment** | `engram_guard` validates the payload file path is within the workspace `.claude/engram-tmp/` directory before writing |
 
+**Containment failure mode:** If the containment check fails (payload path resolves outside `.claude/engram-tmp/`), `engram_guard` blocks the Bash tool call (exit code 2) with diagnostic: `"engram_guard: payload path outside containment boundary: {path}"`. This is a security-critical check and must fail-closed.
+
 ### Step 1: Injection (PreToolUse)
 
 When `engram_guard` detects an authorized engine invocation, it writes the [TrustPayload](types.md#trustpayload--trust-triple-wire-format) to a new [payload file](#payload-file-contract) atomically. The file path is passed to the engine via the Bash command's argument list (matching the proven ticket plugin pattern).
+
+**Atomic write failure mode:** If the atomic write fails (fsync error, disk full, permission denied), `engram_guard` blocks the Bash tool call (exit code 2) with diagnostic: `"engram_guard: payload write failed: {error}"`. Do not allow the engine invocation to proceed with a missing payload — the resulting trust triple rejection produces a misleading error.
 
 **Authorized engine invocation pattern:** Engine binaries must be named `engine_<subsystem>.py` and reside in the plugin's scripts directory. `engram_guard` matches the **full path** `<engram_scripts_dir>/engine_*.py` — not just the filename. This prevents false matches on user scripts with `engine_` prefixes outside the plugin directory.
 
@@ -131,36 +170,16 @@ When `engram_guard` detects an authorized engine invocation, it writes the [Trus
 
 ### Step 2: Validation (Engine Entrypoint)
 
-### collect_trust_triple_errors() Contract
+The `collect_trust_triple_errors()` function contract (signature, validation rules, stable error strings) is specified in [types.md §Trust Validation](types.md#trust-validation--collect_trust_triple_errors) — that is the canonical source. This section specifies the enforcement mandate: every mutating Work or Knowledge engine entrypoint must invoke `collect_trust_triple_errors()` before making state changes.
 
-```python
-# engram_core/trust.py
-def collect_trust_triple_errors(
-    hook_injected: bool,
-    hook_request_origin: str | None,
-    session_id: str | None,
-) -> list[str]:
-    """Validate trust triple fields. Returns empty list on success, error strings on failure."""
-```
-
-**Validation rules (order matters):**
-1. `hook_injected` must be `True` (identity check: `hook_injected is True`). `False`, `None`, or non-bool → error.
-2. `hook_request_origin` must be a non-empty string in `{"user", "agent"}`. `None`, empty string, or unrecognized value → error.
-3. `session_id` must be a non-empty string. `None` or empty string → error.
-
-**Stable error strings:** `"hook_injected: must be True, got {value!r}"`, `"hook_request_origin: must be one of {{'user', 'agent'}}, got {value!r}"`, `"session_id: must be non-empty string, got {value!r}"`.
-
-**Caller obligation:** If the returned list is non-empty, the engine must reject the operation with a structured error containing the error list and return without making state changes. The engine must not catch or suppress errors from this function.
-
-**Origin-matching responsibility:** `collect_trust_triple_errors()` validates that the triple is well-formed. Whether the `hook_request_origin` matches the expected origin for a given entrypoint (e.g., `_user.py` expects `"user"`) is the entrypoint's responsibility — the validator does not enforce route-specific origin rules.
-
-**Module location:** `engram_core/trust.py`. Add to [package structure](foundations.md#package-structure).
-
-Every **mutating** entrypoint in Work and Knowledge subsystem engines must invoke [`collect_trust_triple_errors()`](#collect_trust_triple_errors-contract) before making state changes. Trust validation precedes all other processing, including idempotency key lookups and dedup reads — the trust triple is verified as the first operation in any engine entrypoint call. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. See the function contract above for validation rules, error format, and caller obligation. Read-only entrypoints are exempt.
+Every **mutating** entrypoint in Work and Knowledge subsystem engines must invoke [`collect_trust_triple_errors()`](types.md#trust-validation--collect_trust_triple_errors) before making state changes. Trust validation precedes all other processing, including idempotency key lookups and dedup reads — the trust triple is verified as the first operation in any engine entrypoint call. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. See [types.md §Trust Validation](types.md#trust-validation--collect_trust_triple_errors) for validation rules, error format, and caller obligation. Read-only entrypoints are exempt.
 
 **Mutating entrypoints** are any engine functions that create, update, or delete files in protected paths. Complete enumeration per subsystem:
 - **Work:** ticket creation, ticket update, ticket close
-- **Knowledge:** knowledge publish (both `/learn` and `/curate` staged-publish paths), staging write, promote-meta write
+- **Knowledge:**
+  (a) publish entrypoint — called by both `/learn` and `/curate` staged-publish paths
+  (b) staging write entrypoint — called by `/distill`
+  (c) promote-meta write entrypoint — called by `/promote` Step 3
 - **Context:** See [direct-write path authorization](#direct-write-path-authorization) (Write/Edit path, not engine trust injection)
 
 All writes from `/learn` route through the Knowledge engine entrypoint — `/learn` does **not** write directly to `learnings.md` via the Write tool. This ensures trust injection covers the `/learn` path.
@@ -168,6 +187,15 @@ All writes from `/learn` route through the Knowledge engine entrypoint — `/lea
 Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring. delivery.md Step 3a must include a verification step asserting `collect_trust_triple_errors()` is invoked at every documented Work and Knowledge mutating entrypoint (unit test or static analysis check). Context engine scripts must **not** invoke `collect_trust_triple_errors()` — this is verified by a separate negative test.
 
 **Check ordering:** Each mutating entrypoint must check `.engram-id` existence before invoking `collect_trust_triple_errors()`. If `.engram-id` is absent, return the initialization error immediately without trust triple validation. This ensures users see "Engram not initialized" rather than a confusing trust triple rejection.
+
+### Origin-Matching by Entrypoint
+
+| Entrypoint Category | Expected Origin | Examples |
+|---|---|---|
+| User-initiated commands | `"user"` | ticket create/update/close, promote Step 3 |
+| Agent/engine-initiated operations | `"agent"` | staging write (distill), publish (learn/curate) |
+
+The `_user.py` / `_agent.py` naming convention reflects but does not define the expected origin. This table is the normative source.
 
 ### Step 3: Per-Subsystem Enforcement
 
@@ -182,7 +210,7 @@ Context subsystem writes (`/save`, `/quicksave`, `/load`) use the Write and Edit
 3. **Post-write quality validation** via [`engram_quality`](#quality-validation) checks content quality (frontmatter completeness, section count).
 4. **Provenance is embedded** in the written content (frontmatter `session_id`, `worktree_id`, `orchestrated_by`), validated by `/triage` [anomaly detection](operations.md#triage-read-work-and-context).
 
-This is explicitly **path authorization plus provenance/integrity validation**, not engine trust injection. The `collect_trust_triple_errors()` validator is not invoked for direct-write paths.
+This is explicitly **path authorization plus provenance/integrity validation**, not engine trust injection. The `collect_trust_triple_errors()` validator is not invoked for direct-write paths. Context paths allow Write/Edit from any source. Identity verification is intentionally omitted — `/triage` anomaly detection (not `engram_guard`) is the enforcement layer for Context path integrity. See [§Autonomy Model](#autonomy-model).
 
 ### Trust Triple Scope
 
@@ -200,7 +228,13 @@ The trust triple is `{hook_injected, hook_request_origin, session_id}` — three
 
 Phase-scoped idempotency is a delivery-period limitation. See [delivery.md §Bridge Cutover](delivery.md#step-1-bridge-cutover) for the authoritative phase schedule and [operations.md §Phase-Scoped Idempotency](operations.md#envelope-invariants) for the operational specification.
 
-`engram_guard` is not deployed until Step 3a. During Steps 1–2, protected-path enforcement and trust injection are not active — the bridge adapter routes through the old ticket engine's existing authorization model.
+`engram_guard` ships at Step 2a with the `engine_trust_injection` capability only — covering Knowledge engine mutating entrypoints. Step 3a extends the guard with `work_path_enforcement` for Work paths. Step 4a adds `context_direct_write_authorization` for Context direct-write paths. During Steps 0a–1, no guard capabilities are active — the bridge adapter routes through the old ticket engine's existing authorization model.
+
+During Step 3a, `engram_guard` has `engine_trust_injection` and `work_path_enforcement` active but not `context_direct_write_authorization`. Write/Edit to unrecognized paths (including future Context paths) are allowed through — the guard only blocks Write/Edit to currently-protected paths. See [§Guard Decision Algorithm](#guard-decision-algorithm) for the evaluation order that resolves overlapping path classifications.
+
+`engram_register` fires on the exact paths defined in the [protected-path enforcement table](#protected-path-enforcement) and no others. A change to that table automatically applies to both `engram_guard` and `engram_register`.
+
+The staging inbox cap is enforced by the Knowledge engine at entrypoint validation time. With `engram_guard` active from Step 2a, unauthorized callers are rejected before reaching cap enforcement.
 
 ## SessionStart Hook
 
@@ -208,7 +242,7 @@ Phase-scoped idempotency is a delivery-period limitation. See [delivery.md §Bri
 
 | Operation | Budget | On Failure |
 |---|---|---|
-| Resolve `worktree_id` | 1 call | Fail-closed: `engram_session` returns exit code 0 but stores error state. All subsequent Engram mutating operations fail-closed with: `"Engram: cannot resolve worktree identity — check git repository state. Fix git state or remove engram_session from settings.json to bypass."` Read-only operations degrade gracefully. Session startup is **not** blocked. |
+| Resolve `worktree_id` | 1 call | If `worktree_id` resolution fails, `engram_session` logs a warning to the [session diagnostic channel](#session-diagnostic-channel) (`.diag`). `engram_guard` independently calls `identity.get_worktree_id()` at each invocation — if git state is broken, the hook fails-closed with the specific git error. No error state is stored between hooks. Read-only operations degrade gracefully. Session startup is **not** blocked. |
 | Clean expired snapshots (>90d by filename timestamp) | Max 50 files | Fail-open: retry next session |
 | Clean expired chain state (>24h) | Max 20 files | Fail-open |
 | Clean orphan payload files (>24h) | Max 20 files | Fail-open |
@@ -224,9 +258,9 @@ SessionStart does not create `.engram-id` — it requires a git commit, which is
 
 | Exception | Scope | Rationale |
 |---|---|---|
-| `/promote` Step 2 CLAUDE.md write | Single skill, single target | CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns promotion *state* via [promote-meta](types.md#promote-meta-promotion-state-record). See [permitted exceptions](foundations.md#permitted-exceptions). |
+| `/promote` Step 2 CLAUDE.md write | Single skill, single target | CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns promotion *state* via [promote-meta](types.md#promote-meta--promotion-state-record). See [permitted exceptions](foundations.md#permitted-exceptions). |
 
-No other skill-level write to a protected or externally-owned path is sanctioned. New exceptions require an entry in both this table and foundations.md.
+No other skill-level write to a protected or externally-owned path is sanctioned. This table lists all exceptions defined in [foundations.md §Permitted Exceptions](foundations.md#permitted-exceptions). The canonical source is foundations.md — an exception not present there is not effective, regardless of its presence in this table.
 
 **Sequencing:** The authoritative exception definition lives in [foundations.md §Permitted Exceptions](foundations.md#permitted-exceptions). This table references it for enforcement-level discoverability.
 
