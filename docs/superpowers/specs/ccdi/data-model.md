@@ -51,6 +51,22 @@ Four version axes prevent coupled evolution (three compatibility axes + one inst
 
 `CompiledInventory` schema evolution is additive-only: new fields with defaults, never removed or renamed fields. This invariant makes best-effort field mapping safe at load time (see [Failure Modes](#failure-modes)) — consumers can read inventories built under a prior schema version because unknown fields are ignored and missing fields fall back to defaults. All files that consume `CompiledInventory` (classifier.md, registry.md, packets.md) depend on this constraint.
 
+**Schema Field Defaults:** These defaults are used when loading a registry file serialized under an older schema version. Fields absent in the loaded version are initialized to these values.
+
+| Field | Default when absent |
+|-------|-------------------|
+| `state` | `"detected"` |
+| `last_seen_turn` | `null` |
+| `last_injected_turn` | `null` |
+| `last_query_fingerprint` | `null` |
+| `consecutive_medium_count` | `0` |
+| `deferred_reason` | `null` |
+| `deferred_ttl` | `null` |
+| `suppressed_docs_epoch` | `null` |
+| `coverage.facets_injected` | `[]` |
+| `coverage.injected_chunk_ids` | `[]` |
+| `coverage.pending_facets` | `[]` |
+
 ## TopicRecord
 
 | Field | Type | Purpose |
@@ -103,7 +119,7 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 
 **Penalty range enforcement:** All penalty validation rules are defined in the `DenyRule` discriminated union constraint above — violations (including `penalty: 0`, out-of-range values, and union mismatches) are build-time errors.
 
-**Load-time validation:** When loading a compiled inventory, each DenyRule MUST satisfy its `action`/`penalty` discriminated union: `action: "drop"` requires `penalty: null`; `action: "downrank"` requires non-null `penalty` in (0.0, 1.0]. On violation: skip the offending rule with a warning log entry. Do not fail the entire inventory load. This aligns with the [resilience principle](foundations.md#resilience-principle).
+**Load-time validation:** When loading a compiled inventory, each DenyRule MUST satisfy its `action`/`penalty` discriminated union: `action: "drop"` requires `penalty: null`; `action: "downrank"` requires non-null `penalty` in (0.0, 1.0]. Out-of-range `penalty` values (`penalty ≤ 0.0` or `penalty > 1.0`) for `downrank` rules are treated identically to discriminated-union violations: skip the offending rule with a warning log entry. Do not fail the entire inventory load. This aligns with the [resilience principle](foundations.md#resilience-principle).
 
 **Schema invariant — build-time vs load-time asymmetry:** The compiled inventory (`topic_inventory.json`) may contain DenyRules that were valid under a prior schema version but are invalid under the current schema — load-time validation handles this via warn-and-skip per the resilience principle. Build-time enforcement prevents new invalid rules; load-time tolerance preserves backward compatibility.
 
@@ -173,7 +189,7 @@ Records which overlay operations were applied during inventory build. Stored in 
 |-------|------|---------|
 | `rule_id` | string | Overlay rule identifier (for `override_config`: a synthetic ID formatted as `config-override:<dot.path>`, e.g., `config-override:classifier.confidence_high_min_weight`). **Uniqueness constraint:** Each `rule_id` MUST be unique across all rules in the overlay's `rules[]` array. On duplicate `rule_id`: reject the overlay with non-zero exit and descriptive error identifying the duplicates. |
 | `operation` | `"add_topic" \| "remove_alias" \| "add_deny_rule" \| "override_weight" \| "replace_aliases" \| "replace_refs" \| "replace_queries" \| "override_config"` | What the rule did |
-| `target` | string | Semantics depend on operation: for topic-scoped operations (`add_topic`, `remove_alias`, `override_weight`, `replace_aliases`, `replace_refs`, `replace_queries`), this is a TopicKey (e.g., `"hooks.pre_tool_use"`); for `override_config`, this is a dot-delimited config key path (e.g., `"classifier.confidence_high_min_weight"`). |
+| `target` | string | Semantics depend on operation: for topic-scoped operations (`add_topic`, `remove_alias`, `override_weight`, `replace_aliases`, `replace_refs`, `replace_queries`), this is a TopicKey (e.g., `"hooks.pre_tool_use"`); for `add_deny_rule`, this is the `deny_rule.id` value of the embedded DenyRule; for `override_config`, this is a dot-delimited config key path (e.g., `"classifier.confidence_high_min_weight"`). |
 
 ## Overlay Merge Semantics
 
@@ -185,6 +201,8 @@ Records which overlay operations were applied during inventory build. Stored in 
 - `replace_refs(topic_key, canonical_refs[])`: Atomically replaces the entire `canonical_refs` array. Same unknown-topic behavior.
 - `replace_queries(topic_key, query_plan)`: Atomically replaces the entire `query_plan` object. Same unknown-topic behavior.
 - Generated scaffold builds the bulk. Overlay only fixes ambiguity and adds missing synonyms.
+
+**Post-merge alias validation:** After applying all overlay operations, `build_inventory.py` MUST validate that every TopicRecord has at least one alias. On violation: reject the overlay build with non-zero exit and identify the zero-alias topic(s).
 
 ### Overlay File Format
 
@@ -251,11 +269,11 @@ Schema for the registry seed emitted by `ccdi-gatherer` and consumed by `codex-d
 RegistrySeed
 ├── entries: TopicRegistryEntry[]   # durable-state fields only
 ├── docs_epoch: string | null       # docs_epoch from the inventory at build time
-├── inventory_snapshot_version: string  # schema_version from the active inventory
+├── inventory_snapshot_version: string  # schema_version from the active inventory. If the inventory fails to load at seed-build time, `ccdi-gatherer` MUST NOT emit a `<!-- ccdi-registry-seed -->` sentinel block. The sentinel block MUST only be emitted when a valid CompiledInventory was loaded and `inventory_snapshot_version` can be sourced from a real `schema_version` value.
 └── results_file?: string           # path to search results file for initial commit phase; absent when no pre-dialogue search was performed
 ```
 
-**`results_file` field:** `results_file` is required in the sentinel RegistrySeed when a pre-dialogue search was performed. If absent (no results generated), the initial CCDI commit phase is skipped — no results to commit. When present, the value is an absolute path to the search results JSON file written by `ccdi-gatherer` during the pre-dialogue phase (e.g., `/tmp/ccdi_results_<id>.json`). The `/dialogue` skill reads this path from the sentinel block and passes it to the initial CCDI commit's `build-packet --results-file` call. This is a transport field for the handoff — it is not written to the live registry file and is not used after the initial commit completes. **Load-time invariant:** Implementations MUST strip `results_file` from the in-memory registry representation immediately on CLI registry load. All subsequent writes serialize the stripped state, ensuring the field never persists in the live registry file. The `/dialogue` skill reads the field from the transport envelope (sentinel seed) before CLI handoff — the boundary between transport and live registry is the key distinction. Stale paths to deleted temp files would cause failures on subsequent loads if the field were not stripped.
+**`results_file` field:** `results_file` is required in the sentinel RegistrySeed when a pre-dialogue search was performed. If absent (no results generated), the initial CCDI commit phase is skipped — no results to commit. When present, the value is an absolute path to the search results JSON file written by `ccdi-gatherer` during the pre-dialogue phase (e.g., `/tmp/ccdi_results_<id>.json`). The `/dialogue` skill reads this path from the sentinel block and passes it to the initial CCDI commit's `build-packet --results-file` call. This is a transport field for the handoff — it is not written to the live registry file and is not used after the initial commit completes. **Load-time invariant:** Implementations MUST strip `results_file` from the in-memory registry representation at load time (no load-time write-back). The stripped state is persisted to disk on the next normal mutation (per [registry.md#failure-modes](registry.md#failure-modes)), ensuring the field never appears in the live registry file after a successful write. The `/dialogue` skill reads the field from the transport envelope (sentinel seed) before CLI handoff — the boundary between transport and live registry is the key distinction. Stale paths to deleted temp files would cause failures on subsequent loads if the field were not stripped.
 
 **`entries` field:** Each element contains all durable-state fields from `TopicRegistryEntry` — see [registry.md#durable-vs-attempt-local-states](registry.md#durable-vs-attempt-local-states) for the authoritative field list (all fields except attempt-local states `looked_up` and `built`). This includes all durable-state fields from `TopicRegistryEntry` as defined in [registry.md#durable-vs-attempt-local-states](registry.md#durable-vs-attempt-local-states), including the `coverage` sub-object with all of its sub-fields — all durable, all serialized. **Authority split:** data-model.md (persistence_schema authority) owns the RegistrySeed envelope schema (`entries`, `docs_epoch`, `inventory_snapshot_version`, `results_file`). registry.md (registry-contract authority) owns the `TopicRegistryEntry` field set and durable/attempt-local classification within `entries[]`. When the entry field set changes in registry.md, the RegistrySeed envelope schema here does not need updating — only the entry-level fields change. **Conflict resolution:** For persistence_schema conflicts involving entry-level fields serialized within `entries[]`, registry.md (registry-contract) is authoritative for field semantics and durable/attempt-local classification; data-model.md is authoritative for serialization format and envelope structure. See `spec.yaml` → `claim_precedence` → `persistence_schema` for the full resolution order.
 

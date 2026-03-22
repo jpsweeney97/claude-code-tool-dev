@@ -54,7 +54,7 @@ Both modes are deterministic operations in the CLI — no LLM involvement (see [
 
 ## Token Budgets
 
-All budget values are configurable via [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `packets`. Defaults shown:
+All budget values are configurable via [`ccdi_config.json`](data-model.md#configuration-ccdiconfigjson) → `packets`. Defaults shown:
 
 | Phase | Budget | Max topics | Max facts | Config keys |
 |-------|--------|------------|-----------|------------|

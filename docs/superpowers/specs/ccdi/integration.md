@@ -14,14 +14,16 @@ All deterministic logic lives in Python, exposed as coarse-grained workflow comm
 | Command | Input | Output | Used by |
 |---------|-------|--------|---------|
 | `classify --text-file <path> [--inventory <path>] [--config <path>]` | Text file | `ClassifierResult` JSON (stdout) | Both modes |
-| `dialogue-turn --registry-file <path> --text-file <path> --source codex\|user --inventory-snapshot <path>‡ [--semantic-hints-file <path>] [--config <path>]` | Text file + registry + inventory snapshot + optional hints (hints file schema: see [registry.md#semantic-hints](registry.md#semantic-hints)) | Updated registry file + injection candidates JSON (stdout) | Full CCDI |
+| `dialogue-turn --registry-file <path> --text-file <path> --source codex\|user --inventory-snapshot <path>‡ [--semantic-hints-file <path>] [--config <path>] [--shadow-mode]` | Text file + registry + inventory snapshot + optional hints (hints file schema: see [registry.md#semantic-hints](registry.md#semantic-hints)) | Updated registry file + injection candidates JSON (stdout) | Full CCDI |
 | `build-packet [--results-file <path>] [--registry-file <path>] --mode initial\|mid_turn [--topic-key <key>] [--facet <facet>]† [--coverage-target family\|leaf] [--mark-injected] [--mark-deferred <topic_key> --deferred-reason <reason>] [--skip-build] [--inventory-snapshot <path>] [--config <path>]` | Search results + optional registry + optional inventory snapshot | Rendered markdown (stdout); registry updated in-place if `--mark-injected` or `--mark-deferred` | Both modes |
 
 †`--facet` is required when `--mark-injected` is passed with `--registry-file`.
 
-‡`--inventory-snapshot` is required when `--registry-file` is present (full-CCDI mode). When absent on a full-CCDI call: non-zero exit with descriptive error. Not required in CCDI-lite mode. Note: `classify` uses `--inventory` (same purpose — path to inventory file) while `dialogue-turn` and `build-packet` use `--inventory-snapshot`. The naming difference is intentional: `--inventory-snapshot` signals the pinned copy; `--inventory` on `classify` is a general override. `--inventory-snapshot` is required on `dialogue-turn` when `--registry-file` is present. On `build-packet`, `--inventory-snapshot` is optional; when absent, `suppressed_docs_epoch` is recorded as null if the topic is auto-suppressed.
+‡`--inventory-snapshot` is required when `--registry-file` is present (full-CCDI mode). When absent on a full-CCDI call: non-zero exit with descriptive error. Not required in CCDI-lite mode. Note: `classify` uses `--inventory` (same purpose — path to inventory file) while `dialogue-turn` and `build-packet` use `--inventory-snapshot`. The naming difference is intentional: `--inventory-snapshot` signals the pinned copy; `--inventory` on `classify` is a general override. `--inventory-snapshot` is required on `dialogue-turn` when `--registry-file` is present. On `build-packet`, `--inventory-snapshot` is required when `--registry-file` is present (symmetric with `dialogue-turn` requirement). When `--registry-file` is absent (CCDI-lite), `--inventory-snapshot` is optional.
 
-All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson). If omitted, uses built-in defaults. The live registry file has the structure defined in [data-model.md#live-registry-file-schema](data-model.md#live-registry-file-schema) — `TopicRegistryEntry` durable states plus `RegistrySeed` envelope fields (`docs_epoch`, `inventory_snapshot_version`); `results_file` is stripped at initial commit. See [registry.md](registry.md#durable-vs-attempt-local-states) for the durable vs attempt-local distinction. Attempt-local states (`looked_up`, `built`) exist within a single CLI invocation and are never written to the file.
+**`--shadow-mode` flag:** Suppresses cooldown deferral writes. When set, `candidate_type: 'new'` entries excluded by the per-turn cooldown limit remain in `detected` state (no `deferred: cooldown` write). Passed by `codex-dialogue` when `graduation.json` `status` is not `'approved'`.
+
+All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md#configuration-ccdiconfigjson). If omitted, uses built-in defaults. The live registry file has the structure defined in [data-model.md#live-registry-file-schema](data-model.md#live-registry-file-schema) — `TopicRegistryEntry` durable states plus `RegistrySeed` envelope fields (`docs_epoch`, `inventory_snapshot_version`); `results_file` is stripped at initial commit. See [registry.md](registry.md#durable-vs-attempt-local-states) for the durable vs attempt-local distinction. Attempt-local states (`looked_up`, `built`) exist within a single CLI invocation and are never written to the file.
 
 **`--registry-file` optionality on `build-packet`:** When omitted (CCDI-lite mode), deduplication against prior injections is skipped and `--mark-injected` / `--mark-deferred` are no-ops. CCDI-lite has no registry — each invocation builds a fresh packet without coverage history.
 
@@ -52,7 +54,7 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 
 - Writes new `detected` entries for newly resolved topics (`absent → detected`).
 - Updates `last_seen_turn` for all re-detected entries; increments `consecutive_medium_count` only for **leaf-kind** entries re-detected at medium confidence — family-kind entries leave `consecutive_medium_count` unchanged (per [registry.md#scheduling-rules](registry.md#scheduling-rules) step 4).
-- Resets `consecutive_medium_count` to 0 for entries absent from classifier output.
+- Resets `consecutive_medium_count` to 0 for **non-suppressed** entries absent from classifier output.
 - Decrements `deferred_ttl` by 1 for all entries in `deferred` state.
 - Transitions `deferred → detected` immediately (bypassing TTL) when a topic in `deferred` state is re-detected at high confidence — clears `deferred_reason` and `deferred_ttl`, makes topic eligible for scheduling in the same call (see [registry.md#scheduling-rules](registry.md#scheduling-rules) step 2).
 - Transitions `deferred → detected` when `deferred_ttl` reaches 0 and topic reappears in classifier output. When `deferred_ttl` reaches 0 and the topic is absent from classifier output: topic remains `deferred` with `deferred_ttl` reset to the configured default (`injection.deferred_ttl_turns`), `deferred_reason` unchanged (see [registry.md#field-update-rules](registry.md#field-update-rules), `deferred → deferred` row).
@@ -60,7 +62,7 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 - Emits `facet_expansion` candidates when `extends_topic` hints resolve to `injected` topics with a facet not yet in `facets_injected` (cascade-resolved facet: hint-resolved → `pending_facets[0]` → `default_facet`; see [registry.md#semantic-hints](registry.md#semantic-hints)). Does NOT mutate `coverage.pending_facets` — emits an immediate `facet_expansion` candidate via [registry.md#scheduling-rules](registry.md#scheduling-rules) step 9. (`pending_facets` is only mutated by `contradicts_prior` hints.)
 - Emits `pending_facet` candidates when an `injected` topic has non-empty `pending_facets` (from prior `contradicts_prior` hints) and the first pending facet is not yet in `facets_injected`.
 - For `candidate_type: 'new'` entries excluded by the per-turn cooldown limit ([registry.md#scheduling-rules](registry.md#scheduling-rules) step 5), writes `deferred: cooldown` state to the registry (same field updates as `detected → deferred` per the [Field Update Rules](registry.md#field-update-rules)). These entries do NOT appear in the candidates JSON output — the cooldown deferral is an internal CLI side-effect.
-**Shadow-mode exception:** In shadow mode, the cooldown deferral write is suppressed — `candidate_type:'new'` entries excluded by the per-turn cooldown limit remain in `detected` state. A `shadow_defer_intent` trace entry with `reason: "cooldown"` is emitted instead (see [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization)).
+**Shadow-mode exception:** When `--shadow-mode` is passed, the cooldown deferral write is suppressed — `candidate_type: 'new'` entries excluded by the per-turn cooldown limit remain in `detected` state. A `shadow_defer_intent` trace entry with `reason: "cooldown"` is emitted instead (see [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization)).
 
 ### `build-packet` Automatic Suppression
 
@@ -123,6 +125,9 @@ The following invariants are a subset cross-referenced from [decisions.md#normat
 
 - **Scout pipeline isolation:** `execute_scout` and `process_turn` MUST NOT invoke any `topic_inventory.py` command or `search_docs` for CCDI purposes. CCDI search and context-injection search are separate pipelines.
 - **Config file isolation:** The agent MUST NOT Read files matching `*ccdi_config*`. All configuration is consumed exclusively by CLI tools via `--config` flag.
+- **Sentinel structure invariant:** Registry seed MUST be transmitted as JSON within `<!-- ccdi-registry-seed -->` sentinel tags in `ccdi-gatherer` output, not inline in the delegation envelope. See [§Registry Seed Handoff](#registry-seed-handoff).
+- **Shadow-mode commitment prohibition:** See [§Shadow-mode registry invariant](#shadow-mode-registry-invariant) below.
+- **Scout-beats-CCDI targeting invariant:** When context-injection has a scout candidate for the current turn, CCDI topic injection MUST defer — scout targets take priority per [foundations.md#design-principles](foundations.md#design-principles).
 
 ## Cross-Plugin Dependency
 
@@ -269,7 +274,7 @@ The `/dialogue` skill passes these optional fields to `codex-dialogue`:
 |-------|------|--------|---------|
 | `ccdi_seed` | file path (string) | ccdi-gatherer output | Initial registry file for mid-dialogue CCDI loop. Absent → mid-dialogue CCDI disabled. |
 | `scope_envelope` | object | context-gatherers | Existing field — repo evidence scope. |
-| `ccdi_debug` | boolean \| absent | `/dialogue` skill | When `true`, `codex-dialogue` emits `ccdi_trace` in its output. Absent or `false` → no trace. Testing-only; see [below](#ccdi_trace-output-contract) for the output contract and [delivery.md#debug-gated-ccdi_trace](delivery.md#debug-gated-ccdi_trace) for the trace schema and replay harness. |
+| `ccdi_debug` | boolean \| absent | `/dialogue` skill | When `true`, `codex-dialogue` emits `ccdi_trace` in its output. Absent or `false` → no trace. Testing-only; see [below](#ccditrace-output-contract) for the output contract and [delivery.md#debug-gated-ccditrace](delivery.md#debug-gated-ccditrace) for the trace schema and replay harness. |
 | `ccdi_policy_snapshot`* | TBD | Phase B | *[Phase B — deferred]* Config snapshot for pinning CCDI tuning params during dialogue. Shape undefined — see [delivery.md#known-open-items](delivery.md#known-open-items). Not operative in Phase A. |
 
 \*Deferred to Phase B. Shape undefined — see [delivery.md#known-open-items](delivery.md#known-open-items). Not operative in Phase A.
@@ -343,7 +348,8 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   │        --registry-file /tmp/ccdi_registry_<id>.json \
 │   │   │        --mode mid_turn --topic-key <candidate.topic_key> \
 │   │   │        --facet <candidate.facet> \
-│   │   │        --coverage-target <candidate.coverage_target>   (NO --mark-injected yet; --facet provided for ranking consistency)
+│   │   │        --coverage-target <candidate.coverage_target> \
+│   │   │        --inventory-snapshot <ccdi_snapshot_path>   (NO --mark-injected yet; --facet provided for ranking consistency; --inventory-snapshot required when --registry-file is present — ensures suppressed_docs_epoch is recorded with the current docs_epoch rather than null, preventing spurious re-entry on subsequent dialogue-turn calls)
 │   │   ├─ If build-packet returned empty: no packet to stage (automatic suppression already fired); skip target-match
 │   │   ├─ Target-match check: verify staged packet supports the composed follow-up target
 │   │   ├─ If target-relevant: stage for prepending

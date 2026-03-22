@@ -20,6 +20,8 @@ Phase B enters **shadow mode** first: the [prepare/commit cycle](integration.md#
 
 ### Shadow Mode Gate
 
+> **Normative source:** Gate algorithm is defined in [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate) under `behavior_contract` authority. This section covers only graduation protocol and kill criteria.
+
 The gate condition (what file to read, what field values mean, what default applies when absent) is defined in [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate) under `behavior_contract` authority. This section retains the graduation protocol and kill criteria under `implementation_plan` authority.
 
 ### Shadow Mode Kill Criteria
@@ -82,7 +84,7 @@ To correct for this, shadow mode emits **counterfactual deferral observations** 
 shadow_adjusted_yield = packets_surviving_precedence / (packets_prepared - repeat_detections_from_missing_deferral)
 ```
 
-**`shadow_defer_intent` trace entry:** Emitted when the agent would have called `--mark-deferred` in active mode but is prohibited in shadow mode. Entry schema defined in [integration.md#ccdi_trace-output-contract](integration.md#ccdi_trace-output-contract) under the `shadow_defer_intent` action value. Key fields: `reason` (`"target_mismatch"` or `"cooldown"`), `classify_result_hash` (evidence-freshness marker).
+**`shadow_defer_intent` trace entry:** Emitted when the agent would have called `--mark-deferred` in active mode but is prohibited in shadow mode. Entry schema defined in [integration.md#ccditrace-output-contract](integration.md#ccditrace-output-contract) under the `shadow_defer_intent` action value. Key fields: `reason` (`"target_mismatch"` or `"cooldown"`), `classify_result_hash` (evidence-freshness marker).
 
 **Repeat detection:** A prepare event for `topic_key` T is a repeat detection when ALL of the following hold: (1) T has an unresolved `shadow_defer_intent` from a prior turn, (2) the current turn's `classify_result_hash` for T matches the unresolved intent's hash. All repeated prepares count toward `repeat_detections_from_missing_deferral`, not just the first.
 
@@ -90,9 +92,9 @@ shadow_adjusted_yield = packets_surviving_precedence / (packets_prepared - repea
 
 **Freshness guardrail:** If `classify_result_hash` cannot be freshness-sensitive (i.e., the classify payload for a topic does not change with new input evidence), `shadow_adjusted_yield` MUST NOT gate graduation. In that case, fall back to reporting `shadow_adjusted_yield` as a diagnostic alongside raw `effective_prepare_yield`, and use only the raw yield for kill-criteria evaluation.
 
-**Freshness guardrail test:** A Layer 2b test MUST verify the guardrail fires correctly. Configure a fixture where `classify_result_hash` produces identical hashes for different input texts across two turns (simulating a non-freshness-sensitive hash function). Assert that `validate_graduation.py` reports `shadow_adjusted_yield` as non-authoritative and uses only raw `effective_prepare_yield` for kill-criteria evaluation. Alternatively, a unit test against the `shadow_defer_intent` resolution logic covering the case where `classify_result_hash` is identical across turns despite input change — the intent MUST NOT resolve via condition (a).
+**Freshness guardrail test:** A Layer 2b test MUST verify the guardrail fires correctly. Named fixture: `shadow_freshness_guardrail_non_authoritative.replay.json` — configure classify to produce identical `classify_result_hash` values across turns for a topic with `shadow_defer_intent`. Assert `shadow_adjusted_yield` is not used as a graduation gate (validator emits a warning that freshness guardrail is not satisfied for this topic).
 
-**Diagnostics reporting:** Shadow mode diagnostics MUST report both `effective_prepare_yield` (raw, unadjusted) and `shadow_adjusted_yield` (normalized). Kill-criteria evaluation uses `shadow_adjusted_yield` (subject to the freshness guardrail above). The `shadow_defer_intent` trace entries are counterfactual observations, not committed registry mutations. Entry schema is defined in [integration.md#ccdi_trace-output-contract](integration.md#ccdi_trace-output-contract).
+**Diagnostics reporting:** Shadow mode diagnostics MUST report both `effective_prepare_yield` (raw, unadjusted) and `shadow_adjusted_yield` (normalized). Kill-criteria evaluation uses `shadow_adjusted_yield` (subject to the freshness guardrail above). The `shadow_defer_intent` trace entries are counterfactual observations, not committed registry mutations. Entry schema is defined in [integration.md#ccditrace-output-contract](integration.md#ccditrace-output-contract).
 
 `effective_prepare_yield` = `packets_surviving_precedence / packets_prepared`. `relevant_but_scout_deferred_rate` = `packets_deferred_scout / packets_prepared` (derived from existing schema fields; not emitted directly — compute from the two component values). `false_positive_rate` is NOT derivable from diagnostics fields — it requires annotation data from the labeling protocol below (`labeled_false_positives / total_labeled_topics`). The `false_positive_topic_detections` field in automated diagnostics is always 0 and MUST NOT be used in the formula.
 
@@ -122,7 +124,7 @@ Shadow-to-active graduation is a manual gate with a concrete approval artifact:
 
 4. **Validation:** Before finalizing `graduation.json`, run the graduation-report validator (`scripts/validate_graduation.py`). The validator checks: (a) `labeled_topics` matches actual line count in `data/ccdi_shadow/annotations.jsonl`, (b) `false_positive_rate` matches `labeled_false_positives / total_labeled_topics` computed from annotations, (c) `evaluated_dialogues` matches actual file count in `data/ccdi_shadow/diagnostics/`, (d) `effective_prepare_yield` and `avg_latency_ms` are consistent with per-dialogue diagnostics files. This does not eliminate human judgment but adds a mechanical consistency check.
 
-**Aggregation method:** `avg_latency_ms` is the unweighted mean of ALL `per_turn_latency_ms` entries across ALL diagnostics files (mean-of-all-turns, not mean-of-dialogue-means). For heterogeneous dialogues where per-dialogue mean latencies differ, these formulas produce different values. The validator MUST use mean-of-all-turns.
+**Aggregation method:** `avg_latency_ms` is the unweighted mean of ALL `per_turn_latency_ms` entries across ALL diagnostics files (mean-of-all-turns, not mean-of-dialogue-means). `effective_prepare_yield` is computed as a global ratio: `sum(packets_surviving_precedence across all dialogues) / sum(packets_prepared across all dialogues)`. This is not a per-dialogue mean. For heterogeneous dialogues where per-dialogue mean latencies or per-dialogue yields differ, these formulas produce different values. The validator MUST use mean-of-all-turns for latency and global ratio for yield.
 5. **Gate:** The `codex-dialogue` agent reads `graduation.json` at dialogue start per the [shadow mode gate](#shadow-mode-gate) above. The graduation protocol (this section) governs how the file is produced and approved, and the gate condition that `codex-dialogue` evaluates at startup.
 6. **Rejection:** If any kill criterion exceeds its threshold, set `status: "rejected"` with the failing criterion in `notes`. Re-evaluate after tuning.
 
@@ -151,6 +153,7 @@ All three flags are required. **Exit codes:** 0 = all checks pass, 1 = one or mo
 | Missing diagnostics directory | `data/ccdi_shadow/diagnostics/` does not exist | Exit 1, error reports missing diagnostics directory |
 | Labeled topics below minimum sample size | `graduation.json` with `labeled_topics: 50`, `status: "approved"`, `false_positive_rate: 0.04` | Exit 1, error reports "labeled_topics: 50 is below minimum 100 required for false_positive_rate evaluation" |
 | Floating-point tolerance for false_positive_rate | `annotations.jsonl` yields computed rate 0.0400001 vs declared 0.04 | Exit 0, rates match within floating-point tolerance |
+| Yield arithmetic inconsistent — heterogeneous packets_prepared | Dialogue A has `packets_prepared=10, packets_surviving_precedence=8`, dialogue B has `packets_prepared=2, packets_surviving_precedence=2`. `graduation.json` declares `effective_prepare_yield: 0.9` (per-dialogue mean, not global ratio `10/12 = 0.833`). | Exit 1, error identifies yield discrepancy: computed global ratio 0.833 vs declared 0.9 |
 
 ## Testing Strategy
 
@@ -194,7 +197,7 @@ The `codex-dialogue` agent emits a structured trace when CCDI is active, gated b
 
 Full candidate object schema: see [integration.md#dialogue-turn-candidates-json-schema](integration.md#dialogue-turn-candidates-json-schema).
 
-**Normative output contract:** The complete trace entry schema, required keys, `action` normative values, and key-presence invariant are defined in [integration.md#ccdi_trace-output-contract](integration.md#ccdi_trace-output-contract) under `interface_contract` authority. The JSON example above is illustrative — integration.md is authoritative for the trace schema. The key-presence invariant is validated by `trace_assertions` with `assert_key_present` checks (see replay harness below).
+**Normative output contract:** The complete trace entry schema, required keys, `action` normative values, and key-presence invariant are defined in [integration.md#ccditrace-output-contract](integration.md#ccditrace-output-contract) under `interface_contract` authority. The JSON example above is illustrative — integration.md is authoritative for the trace schema. The key-presence invariant is validated by `trace_assertions` with `assert_key_present` checks (see replay harness below).
 
 The replay harness collects these traces and asserts on:
 
@@ -261,7 +264,7 @@ The replay harness collects these traces and asserts on:
 | Leaf inherits family_context_available | Flag set after family injected |
 | Leaf then family tracked independently | Both have separate coverage |
 | Facet evolution | overview injected, schema still pending → new lookup |
-| Idempotent mark-injected | Same packet twice doesn't corrupt |
+| Idempotent mark-injected | Same packet twice doesn't corrupt. Assert no duplicate entries in `facets_injected` or `injected_chunk_ids` after double-commit. |
 | No commit without send | build-packet without --mark-injected leaves topic in detected |
 | Send failure reverts to detected | When send fails and --mark-injected is skipped, topic remains `detected` (agent-level flow) |
 | Send failure preserves consecutive_medium_count | Medium topic turn 1 (count=1), send fails at turn 2 (count still 1, not reset) → turn 3 same medium topic (count=2) → injection fires. Verifies counter is NOT reset when `[built] → injected` transition does not fire. |
@@ -446,7 +449,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Config override type mismatch → skipped | `config_overrides` with `{"classifier.confidence_high_min_weight": "0.9"}` (string instead of number) → build succeeds, warning emitted, default value used for that key |
 | Scaffold-generated alias weight out-of-range → clamped | `build_inventory.py` scaffold generates alias with weight > 1.0 → clamped to 1.0 with warning; weight < 0.0 → clamped to 0.0 with warning. Per [data-model.md#alias](data-model.md#alias) weight range enforcement. |
 | `add_deny_rule` penalty=1.0 boundary → accepted | `add_deny_rule` with `penalty: 1.0` → exit 0, alias weight reduced by 1.0 (effectively zeroed). Verifies the upper bound of (0.0, 1.0] is inclusive. |
-| Cross-key: `initial_token_budget_min > max` → paired fallback | `ccdi_config.json` with `initial_token_budget_min: 800, initial_token_budget_max: 600` → both keys fall back to built-in defaults as a pair (600, 1000), single warning emitted. Verifies the paired-fallback rule per [data-model.md#configuration-ccdi_configjson](data-model.md#configuration-ccdi_configjson) cross-key validation. |
+| Cross-key: `initial_token_budget_min > max` → paired fallback | `ccdi_config.json` with `initial_token_budget_min: 800, initial_token_budget_max: 600` → both keys fall back to built-in defaults as a pair (600, 1000), single warning emitted. Verifies the paired-fallback rule per [data-model.md#configuration-ccdiconfigjson](data-model.md#configuration-ccdiconfigjson) cross-key validation. |
 | Cross-key: valid min with invalid max → both fall back | `ccdi_config.json` with `initial_token_budget_min: 700, initial_token_budget_max: 600` (min > max) → both keys fall back as a pair, not independently. Verifies the "do not fall back for each key independently" constraint. |
 | `add_topic` alias weight out-of-bounds → clamped | Overlay with `add_topic` operation, `topic_record.aliases[0].weight = 1.5` → build succeeds, compiled alias weight = 1.0, warning emitted. Per [data-model.md#alias](data-model.md#alias) weight range enforcement. |
 | `replace_aliases` alias weight out-of-bounds → clamped | Overlay with `replace_aliases`, alias weight = -0.1 → clamped to 0.0, warning emitted. |
@@ -612,14 +615,14 @@ Exercises behavioral equivalence between `--source codex` and `--source user` in
 | Graduation gate: status rejected → shadow mode | `graduation.json` with `status: "rejected"` → same assertions as above: zero commits, `status: "shadow"` in diagnostics. |
 | Graduation gate: status approved → active mode | `graduation.json` with `status: "approved"` → agent tool-call log contains at least one `build-packet --mark-injected` invocation (when candidates exist); diagnostics show `status: "active"`. |
 | Scout pipeline contains no CCDI CLI calls | In a fixture with both scout candidate and CCDI candidate active, assert that `execute_scout`/`process_turn` tool-call log contains zero `topic_inventory.py` invocations |
-| Agent does not read ccdi_config.json | Assert agent tool-call log contains zero Read invocations on paths matching `*ccdi_config*` or `*topic_inventory.json` during dialogue. **Note:** This is a test-only enforcement — no runtime guard exists. The invariant relies on agent instruction compliance verified via Layer 2b test assertions. |
+| Agent does not read ccdi_config.json | Assert agent tool-call log contains zero Read invocations on paths matching `*ccdi_config*` or `*topic_inventory.json` during dialogue. **Note:** This invariant degrades to test-verified-only in production — no PreToolUse hook blocks agent reads of config files at runtime. The spec acknowledges this gap. If a runtime guard is later added (e.g., a PreToolUse hook matching `*ccdi_config*`), update this note. |
 | Shadow mode: no injected or deferred registry mutations | Delegation envelope with `ccdi_seed`, no `graduation.json` → after dialogue, read the registry file and assert: (a) zero entries in `injected` state, (b) zero entries in `deferred` state, (c) all entries remain in `detected` or `suppressed` state only. Verifies shadow mode does not write `--mark-injected` or `--mark-deferred` to the registry. Automatic suppression (via build-packet empty-output) IS permitted — `suppressed` state reflects failed lookup, not agent commitment. |
 | Shadow mode: zero `--mark-deferred` invocations | Same fixture as graduation gate shadow-mode test → additionally assert agent tool-call log contains zero `build-packet --mark-deferred` invocations. Complements the `--mark-injected` assertion. |
 | Shadow mode: automatic suppression IS written | Delegation envelope with `ccdi_seed`, no `graduation.json`, fixture has a candidate with weak search results → after dialogue, assert registry file contains at least one entry in `suppressed` state with `suppression_reason: "weak_results"`. Completes the three-part shadow-mode registry invariant: injected=prohibited, deferred=prohibited, suppressed=permitted. |
 | Shadow mode: `false_positive_topic_detections` key present | Shadow mode diagnostics JSON → assert `"false_positive_topic_detections" in diagnostics["ccdi"]` (key-presence check). Value verification is deferred to the labeling protocol — the automated emitter always outputs 0 by construction, so a value assertion would be trivially true. |
 | Shadow mode: `shadow_defer_intent` resolves on topic disappearance | Fixture: Turn 2 emits `shadow_defer_intent` for topic T. Turn 3 → T absent from classifier output → assert intent is resolved, `repeat_detections_from_missing_deferral` does NOT increment on turn 3 even if T reappears on a later turn with a new `classify_result_hash`. Verifies resolution condition (b). |
 | Shadow mode: `shadow_defer_intent` resolves on committed state transition | Fixture: Turn 2 emits `shadow_defer_intent` for topic T. Turn 3 → T reaches `suppressed` state (via `build-packet` empty output / automatic suppression). Turn 4 → T reappears in classifier output → assert intent is resolved (suppression would have prevented re-evaluation in active mode), `repeat_detections_from_missing_deferral` does NOT increment. Verifies resolution condition (c). |
-| Shadow mode: `shadow_defer_intent` trace entries emitted | Delegation envelope with `ccdi_seed`, no `graduation.json`, fixture has a candidate that would be deferred for `target_mismatch` or `cooldown` → after dialogue, read `ccdi_trace` from diagnostics and assert at least one entry with `action: "shadow_defer_intent"` is present, with correct `topic_key`, `reason`, and `classify_result_hash` fields. Verifies the diagnostic entry is produced in shadow mode per [integration.md#ccdi_trace-output-contract](integration.md#ccdi_trace-output-contract). |
+| Shadow mode: `shadow_defer_intent` trace entries emitted | Delegation envelope with `ccdi_seed`, no `graduation.json`, fixture has a candidate that would be deferred for `target_mismatch` or `cooldown` → after dialogue, read `ccdi_trace` from diagnostics and assert at least one entry with `action: "shadow_defer_intent"` is present, with correct `topic_key`, `reason`, and `classify_result_hash` fields. Verifies the diagnostic entry is produced in shadow mode per [integration.md#ccditrace-output-contract](integration.md#ccditrace-output-contract). |
 
 **Required fixture scenarios:**
 
