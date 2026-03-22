@@ -54,7 +54,7 @@ Policy-based enforcement covering all currently supported write tools (Write, Ed
 | `knowledge_published` | `engram/knowledge/**` | Engine entrypoints only | Yes |
 | `knowledge_staging` | `~/.claude/engram/<repo_id>/knowledge_staging/**` | Engine entrypoints only | No (Bash-mediated) |
 
-Paths canonicalized before matching: expand `~` (via `os.path.expanduser()` or equivalent), then resolve symlinks, collapse `..`, normalize to absolute (`os.path.realpath()` after expansion). Path canonicalization and `**` glob matching cover all subdirectories including `.`-prefixed ones (e.g., `.audit/`). The `engram/work/**` path class protects `engram/work/.audit/**` — all audit trail entries are engine-only.
+Paths canonicalized before matching: expand `~` (via `os.path.expanduser()` or equivalent), then resolve symlinks, collapse `..`, normalize to absolute (`os.path.realpath()` after expansion). Symlinks in engine script paths are resolved by the same canonicalization — a symlinked `scripts/` directory resolves to its real path before pattern matching. Path canonicalization and `**` glob matching cover all subdirectories including `.`-prefixed ones (e.g., `.audit/`). The `engram/work/**` path class protects `engram/work/.audit/**` — all audit trail entries are engine-only.
 
 **Intentional exclusions:** Snapshot and checkpoint paths (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) are not in this table. The Context paths handled by [branch 2 of the guard decision algorithm](#guard-decision-algorithm) are the authoritative enumeration of Context-owned paths — see [§Direct-Write Path Authorization](#direct-write-path-authorization). Context subsystem writes use Write/Edit tools natively — excluded from both protected-path enforcement and [trust triple validation](#step-2-validation-engine-entrypoint). Advisory quality checks via [`engram_quality`](#quality-validation) cover content quality. `engram_register` does NOT fire for Context snapshot/checkpoint writes — these paths are excluded from this table. Context write events (`snapshot_written`) are emitted by the orchestrator/engine as [ledger events](types.md#event-vocabulary-v1), not by `engram_register`.
 
@@ -71,7 +71,7 @@ This is an honest boundary, not a gap to close: the design provides reliable enf
 `engram_quality` (PostToolUse) validates snapshot content quality for Write and Edit tool calls on snapshot-owned paths.
 
 - **Write:** reads `tool_input.content` from the payload
-- **Edit:** reads the file from disk after the edit completes (post-state validation). If the file is missing at readback time (deleted between edit completion and hook execution), emit a warning (`snapshot file not found at post-write readback — quality check skipped`) and return exit code 0. Do not treat as a hook failure.
+- **Edit:** reads the file from disk after the edit completes (post-state validation). If the file is missing at readback time (deleted between edit completion and hook execution), emit a warning at `[engram_quality:warn]` level: `"snapshot file not found at post-write readback — quality check skipped"` and return exit code 0. Do not treat as a hook failure.
 
 This is advisory quality lint, not trust enforcement — the small race between write completion and validation readback is acceptable for warnings. See [Enforcement Boundary Constraint](foundations.md#enforcement-boundary-constraint-invariant) for the governing principle and [pre/post-write validation layering](foundations.md#prepost-write-validation-layering) for design rationale. It does **not** detect Bash-mediated writes to protected paths.
 
@@ -163,7 +163,7 @@ The engine trust injection mechanism uses a payload file as the communication ch
 |----------|-------|
 | **Directory** | `<repo_root>/.claude/engram-tmp/` (workspace-local, created on first use), where `<repo_root>` is resolved via `git rev-parse --show-toplevel`, not CWD |
 | **Naming** | `<subsystem>-<operation>-<uuid>.json` (e.g., `work-defer-550e8400.json`) |
-| **Schema** | `{"hook_injected": true, "hook_request_origin": "<origin>", "session_id": "<uuid>"}` |
+| **Schema** | `{"hook_injected": true, "hook_request_origin": "<origin>", "session_id": "<uuid>"}`. The `TrustPayload` TypedDict defined in [types.md](types.md#trustpayload--trust-triple-wire-format) is the canonical schema for the JSON payload file. |
 | **Creator** | `engram_guard` creates the file atomically (temp file → `fsync` → `os.replace`) |
 | **Consumer** | Subsystem engine reads the file, validates via `collect_trust_triple_errors()`, then deletes it |
 | **Missing at consumption** | If the payload file path argument is present but the file does not exist at engine startup, the engine must reject with: `"Trust triple missing: payload file not found at {path}"`. Do not proceed with state changes. This handles two root causes uniformly: (a) guard blocked (exit 2) but engine invoked on retry, and (b) partial fsync (file created but incompletely written). |
@@ -181,6 +181,8 @@ When `engram_guard` detects an authorized engine invocation, it writes the [Trus
 **Authorized engine invocation pattern:** Engine binaries must be named `engine_<subsystem>.py` and reside in the plugin's scripts directory. `engram_guard` matches the **full path** `<engram_scripts_dir>/engine_*.py` — not just the filename. This prevents false matches on user scripts with `engine_` prefixes outside the plugin directory. Resolution: `engram_guard` resolves `<engram_scripts_dir>` from the plugin's `scripts/` directory relative to the hook file's own `__file__` path. This is not resolved from the Bash command's working directory.
 
 **Detection failure mode:** If the full-path pattern fails to match a legitimate engine invocation, the trust triple is not injected. The engine then rejects via `collect_trust_triple_errors()` (correct behavior — fail-closed). The diagnostic should indicate `"engine invocation not recognized by engram_guard — verify script path matches <engram_scripts_dir>/engine_<subsystem>.py"`.
+
+**Co-deployment invariant:** The `hooks/` and `scripts/` directories must be deployed together — `engram_guard`'s `__file__`-relative path resolution requires that both reside under the same plugin root. Promoting `engram_guard` without co-promoting engine scripts (or vice versa) will cause pattern match failures for all engine invocations.
 
 ### Step 2: Validation (Engine Entrypoint)
 
@@ -280,7 +282,7 @@ The staging inbox cap is enforced by the Knowledge engine at entrypoint validati
 | Resolve `worktree_id` | 1 call | Log warning to diagnostic channel if `worktree_id` available; otherwise log to stderr only (see [WorktreeID Resolution Failure](#worktreeid-resolution-failure)). Guard re-derives independently. Session not blocked. |
 | Clean expired snapshots (>90d by filename timestamp) | Max 50 files | Fail-open: retry next session |
 | Clean expired chain state (>24h) | Max 20 files | Fail-open |
-| Clean orphan payload files (>24h) | Max 20 files | Fail-open |
+| Clean orphan payload files (>24h) in `<repo_root>/.claude/engram-tmp/` | Max 20 files | Fail-open |
 | Verify `.engram-id` exists | 1 read | Warn if missing (diagnostic only — does not create) |
 
 Per-file cleanup that exceeds 5ms is aborted (skip remaining files). This prevents a single slow file from blowing the startup budget.
@@ -326,7 +328,7 @@ No other skill-level write to a protected or externally-owned path is sanctioned
 ```yaml
 autonomy:
   work_mode: suggest          # suggest | auto_audit
-  work_max_creates: 5
+  work_max_creates: 5         # Per-session automatic creations (resets each session)
   knowledge_max_stages: 10    # Cumulative files in staging inbox, not per-session
 ledger:
   enabled: true               # Default on. Opt-out here.

@@ -67,7 +67,7 @@ The Work subsystem operates in one of two modes, configured via `work_mode` in [
 
 **Edge case: `batch_size > knowledge_max_stages`.** If a single distill batch produces more candidates than the configured cap (e.g., a rich snapshot yields 15 candidates against a cap of 10), the batch is rejected even with 0 files in staging — the cap applies to `count + batch_size`, and `0 + 15 > 10`. The rejection response must include: (1) current `batch_size` and cap values, (2) the exact config change needed (`knowledge_max_stages: N` where N >= batch_size in `.claude/engram.local.md`), (3) instruction to re-run the failed distill with the `snapshot_ref` from the [recovery manifest](#recovery-manifest). This is a deliberate consequence of whole-batch rejection. Partial staging (accepting the first N candidates) is a [deferred decision](decisions.md#deferred-decisions).
 
-**`/curate` mechanics:** Lists staged candidates sorted by `durability` (likely_durable first), then by `created_at`. Shows snippet, source section, and durability classification. The user reviews and selects candidates to publish. `likely_ephemeral` candidates are surfaced with a warning but not filtered — the user decides. On publish, the knowledge engine deduplicates via `content_sha256` against both existing published entries and other staged entries (to remove or skip duplicates in the staging inbox), writes to `engram/knowledge/learnings.md`, and removes the staged file (plus any other staged files with identical `content_sha256`). The dedup check against published entries must occur within the same lock scope as the write (after acquiring `fcntl.flock(LOCK_EX)` on `learnings.md.lock`). This ensures no concurrent `/learn` write can interleave between dedup check and append.
+**`/curate` mechanics:** Lists staged candidates sorted by `durability` (likely_durable first), then by `staged_at` (oldest first). Shows snippet, source section, and durability classification. The user reviews and selects candidates to publish. `likely_ephemeral` candidates are surfaced with a warning but not filtered — the user decides. On publish, the knowledge engine deduplicates via `content_sha256` against both existing published entries and other staged entries (to remove or skip duplicates in the staging inbox), writes to `engram/knowledge/learnings.md`, and removes the staged file (plus any other staged files with identical `content_sha256`). The dedup check against published entries must occur within the same lock scope as the write (after acquiring `fcntl.flock(LOCK_EX)` on `learnings.md.lock`). This ensures no concurrent `/learn` write can interleave between dedup check and append.
 
 ### Triage: Read Work and Context
 
@@ -77,6 +77,8 @@ The Work subsystem operates in one of two modes, configured via `work_mode` in [
     -> query(subsystems=["context"]) -> IndexEntries for snapshots
     -> Open native snapshot files for orchestration intent metadata
     -> For each session being evaluated, check for <session_id>.diag file.
+        (`.diag` non-empty, including all-opaque entries where all entries have
+        unrecognized schema_version — see enforcement.md §Session Diagnostic Channel)
         If present and non-empty: cases (3) and (4) for that session surface
             "ledger unavailable in session <session_id>" rather than
             "zero-output success" or "completion not proven". This is
@@ -138,8 +140,9 @@ Three-step state machine with marker-based location and reconciliation recovery.
         The Branch C1/C2 determination is complete before Step 2 begins.
         The engine returns the branch classification to the skill as part of the promotion plan.
         Branch A (no promote-meta): Eligible. Returns promotion plan with target_section.
-            User sees proposed text and target_section, confirms before write (implicit
-            in lesson selection — the user chose this lesson for promotion).
+            User sees proposed text and target_section, confirms before write. User confirmation
+            is implicit in lesson selection — the user chose this lesson for promotion. No
+            separate approval prompt.
         Branch D (promote-meta present, meta_version unrecognized or missing):
             Exclude from candidate list. Surface warning: "Lesson <lesson_id> has
             unreadable promote-meta (missing or unrecognized meta_version). Run
@@ -281,7 +284,7 @@ On completion (success or partial failure), `/save` writes `save_recovery.json` 
 }
 ```
 
-The manifest is an [operational aid](foundations.md#auxiliary-state-authority), not authoritative state. Primary records remain authoritative. Overwritten on each `/save` invocation (only the most recent is useful for retry). Not part of the Engram storage contract. No `schema_version` — the file is overwritten on every `/save` and classified as operational aid, so no cross-version reader tolerance is needed. (Note: `migration_report.json` includes `schema_version: "1.0"` despite also being an operational aid — it may outlive its creating step and be read by downstream validation tools, unlike `save_recovery.json` which is consumed immediately on retry.)
+The manifest is an [operational aid](foundations.md#auxiliary-state-authority), not authoritative state. Primary records remain authoritative. Overwritten on each `/save` invocation (only the most recent is useful for retry). Not part of the Engram storage contract. The `save_recovery.json` schema does not include a `schema_version` field — recovery manifests are ephemeral operational aids, not versioned contracts. The file is overwritten on every `/save`, so no cross-version reader tolerance is needed. (Note: `migration_report.json` includes `schema_version: "1.0"` despite also being an operational aid — it may outlive its creating step and be read by downstream validation tools, unlike `save_recovery.json` which is consumed immediately on retry.)
 
 The `idempotency_key` in `EnvelopeHeader` is computed by the caller at envelope construction time (see [types.md §Idempotency](types.md#idempotency--same-operation-retried)). The engine uses the provided key — it does not recompute from fields.
 

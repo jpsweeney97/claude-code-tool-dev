@@ -29,6 +29,8 @@ class RecordRef:
 
 **Canonical serialization:** `<subsystem>/<record_kind>/<record_id>` (`repo_id` omitted — implicit from context). Used in `LedgerEntry.record_ref`, event vocabulary payloads, idempotency material, and recovery manifests. Implemented as `RecordRef.to_str()` for serialization and `RecordRef.from_str(s, repo_id)` for deserialization (`repo_id` required — not a pure inverse since canonical form omits `repo_id`) in `engram_core/types.py`.
 
+**Parsing rule for `from_str`:** The canonical form `<subsystem>/<record_kind>/<record_id>` is split on the first two `/` characters. Any `/` characters in `record_id` are preserved verbatim. Example: `"work/ticket/T-2026-03/01"` → `subsystem="work"`, `record_kind="ticket"`, `record_id="T-2026-03/01"`.
+
 Field constraints for `subsystem` and `record_kind` (allowed value sets) are a [deferred decision](decisions.md#deferred-decisions). RecordRef string fields (`repo_id`, `record_id`) are validated at construction time in implementation, not at the schema level. See [decisions.md §Deferred Decisions](decisions.md#deferred-decisions).
 
 ## RecordMeta — Provenance
@@ -147,6 +149,8 @@ Each `DistillCandidate` is written as a standalone file in the staging inbox. Fi
 
 **Content authority rule:** The markdown body (after the `staging-meta` comment) is authoritative for content. The `content` field in the staging-meta JSON is index-only — `/curate` publishes the markdown body, not the JSON `content` field. If `content_sha256` does not match `content_hash(body)` at read time, the staging file is treated as corrupt: `/curate` skips it with a warning in `QueryDiagnostics.warnings`.
 
+**Body identity invariant:** The markdown body (after the staging-meta comment) MUST be byte-identical to `DistillCandidate.content`. The Knowledge engine MUST write the body as the raw content string with no additional normalization. If normalization is required before writing, it must be applied to `DistillCandidate.content` before computing `content_sha256`.
+
 ### PromoteEnvelope — Knowledge to CLAUDE.md (Intent Record)
 
 ```python
@@ -167,7 +171,7 @@ Written by the Knowledge engine after a successful CLAUDE.md write. Stored as a 
 class PromoteMeta:
     meta_version: str             # "1.0" — see Version Evolution Policy
     target_section: str           # Advisory: last requested destination / insertion hint
-    promoted_at: str              # ISO 8601
+    promoted_at: str              # ISO 8601 UTC (suffix Z or +00:00)
     promoted_content_sha256: Sha256Hex  # content_hash(lesson_content) — recomputed at promotion time (see below)
     transformed_text_sha256: Sha256Hex  # drift_hash(text_between_markers) — drift sentinel
     lesson_id: str                # Matches lesson-meta lesson_id — used for marker pair identification

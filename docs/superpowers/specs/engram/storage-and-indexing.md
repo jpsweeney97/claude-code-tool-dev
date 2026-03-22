@@ -33,7 +33,8 @@ engram/                              # Shared root (repo-local, git-tracked)
 │   └── YYYY-MM-DD-<hash>.md
 ├── ledger/                          # Event ledger (default-on, optional)
 │   └── <worktree_id>/
-│       └── <session_id>.jsonl       # Per-session, per-worktree sharding
+│       ├── <session_id>.jsonl       # Per-session, per-worktree sharding
+│       └── <session_id>.diag        # Per-session hook failure diagnostics (JSONL)
 ├── save_recovery.json               # /save recovery manifest (overwritten each invocation)
 └── migration_report.json            # Step 4a migration output (overwritten on re-run)
 ```
@@ -95,6 +96,8 @@ class IndexEntry:
 | Context (snapshot) | `schema_version` in `---` frontmatter | `worktree_id` in `---` frontmatter | `session_id` in `---` frontmatter | `"private"` (always private root) |
 | Work (ticket) | `schema_version` in fenced YAML | `worktree_id` in fenced YAML | `session_id` in fenced YAML | `"shared"` (always shared root) |
 | Knowledge (lesson) | `meta_version` in `lesson-meta` | N/A (shared root, no worktree scope) | N/A | `"shared"` |
+
+Work ticket YAML schema is inherited from the ticket plugin format — field requirements (`schema_version`, `worktree_id`, `session_id`, `status`) are specified in the RecordMeta field mapping table above.
 
 When `lesson-meta` is present but `meta_version` is absent, populate `RecordMeta.schema_version` with `"0.0"` (pre-versioned sentinel). See [types.md §Legacy Entries](types.md#legacy-entries-missing-meta_version).
 
