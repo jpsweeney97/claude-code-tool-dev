@@ -197,7 +197,9 @@ All writes from `/learn` route through the Knowledge engine entrypoint — `/lea
 
 Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring. delivery.md Step 3a must include a verification step asserting `collect_trust_triple_errors()` is invoked at every documented Work and Knowledge mutating entrypoint (unit test or static analysis check). Context engine scripts must **not** invoke `collect_trust_triple_errors()` — this is verified by a separate negative test.
 
-**Check ordering:** Each mutating entrypoint must check `.engram-id` existence before invoking `collect_trust_triple_errors()`. If `.engram-id` is absent, return the initialization error immediately without trust triple validation. This ensures users see "Engram not initialized" rather than a confusing trust triple rejection.
+#### Check Ordering
+
+Each mutating entrypoint must check `.engram-id` existence before invoking `collect_trust_triple_errors()`. If `.engram-id` is absent, return the initialization error immediately without trust triple validation. This ensures users see "Engram not initialized" rather than a confusing trust triple rejection.
 
 ### Origin-Matching by Entrypoint
 
