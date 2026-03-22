@@ -70,7 +70,7 @@ Quality validation paths are separate from [protected-path enforcement](#protect
 
 ### Enforcement Boundary Constraint
 
-See [foundations.md §Enforcement Boundary Constraint](foundations.md#enforcement-boundary-constraint) for the governing architecture rule. PostToolUse hooks must not become enforcement boundaries — Warn only, never Block.
+See [foundations.md §Enforcement Boundary Constraint](foundations.md#enforcement-boundary-constraint) for the governing architecture rule (authoritative). `engram_quality` uses **Warn** (not Block) as its failure mode in compliance with this constraint.
 
 ## Trust Injection
 
@@ -180,7 +180,7 @@ The trust triple is `{hook_injected, hook_request_origin, session_id}` — three
 
 ### Bridge Period Limitations
 
-During Steps 1–3 of the [build sequence](delivery.md), envelope-level idempotency keys are not checked — the old ticket engine's legacy dedup is the active mechanism. Full envelope idempotency enforcement begins at Step 4. See [operations.md §Phase-Scoped Idempotency](operations.md#envelope-invariants) for the operational specification of this temporary limitation.
+Phase-scoped idempotency is a delivery-period limitation. See [delivery.md §Bridge Cutover](delivery.md#step-1-bridge-cutover) for the authoritative phase schedule and [operations.md §Phase-Scoped Idempotency](operations.md#envelope-invariants) for the operational specification.
 
 ## SessionStart Hook
 
