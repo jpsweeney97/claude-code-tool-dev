@@ -62,6 +62,7 @@ Create plugin, core library, and type contracts. Validate the foundation before 
 - IndexEntry.snippet contract test (VR-0A-13): for each NativeReader (context, work, knowledge), create a fixture file with body exceeding 500 characters. Assert: `IndexEntry.snippet` ≤ 200 characters. Assert: snippet does not end mid-word. (SY-26)
 - `since` filter test (VR-0A-11): fixture with 3 entries at different timestamps. `query(since=<cutoff>)` returns only post-cutoff entries. UTC normalization: entry with +05:30 timestamp → `IndexEntry.created_at` is UTC-normalized. (SY-31)
 - RecordRef serialization round-trip (VR-0A-12): for each subsystem, assert `RecordRef.from_str(ref.to_str(), ref.repo_id) == ref`. Edge case: `record_id` containing hyphens. (SY-47)
+- content_sha256 golden-value test (VR-0A-14): Construct a two-entry `learnings.md` fixture with known content. Compute `content_hash()` on the specified byte range. Assert result equals a golden hex value embedded in the test. This locks the byte-range interpretation.
 
 ## Step 0b: Bootstrap and Identity
 
@@ -241,6 +242,8 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 
 **Cross-step dependency:** Steps 2a and 3a depend on the old handoff format remaining readable (Context reader parses `---` frontmatter from existing handoff files). Do not modify the handoff format until Step 4a is complete.
 
+**Intra-step ordering:** Within Step 4a, hooks are deployed and validated before skills are activated. The `context_direct_write_authorization` guard capability must pass its VR-4A-19 tests before Context skills (`/save`, `/quicksave`, `/load`) are enabled.
+
 **Exit criteria (4a):** Save/load cycle works. Worktree isolation verified. `/save` orchestration with per-step results. `/search` spans all subsystems. `/timeline` reconstructs sessions. All hooks operational. SessionStart <500ms. Chain state migration classifies and filters old state files. All copied handoffs parse successfully through the Context reader. Migration manifest written with no `skipped_corrupt` entries for newly copied files.
 
 #### Required Verification
@@ -263,6 +266,7 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 - Ledger multi-producer concurrency test (VR-4A-17): spawn 10 concurrent threads, each appending one `LedgerEntry` to the same shard. Assert: shard has exactly 10 valid JSON lines, no partial lines, lock file absent post-completion. (SY-30)
 - Promote Branch D exclusion test (VR-4A-18): fixture with `promote-meta` having `meta_version: "99.0"`. Run `/promote`. Assert: lesson NOT in selectable candidate list. Assert: warning containing lesson_id and "unreadable promote-meta" surfaced. (SY-32)
 - Context direct-write path authorization (VR-4A-19): (a) Write to `~/.claude/engram/<different_repo_id>/snapshots/test.md` → assert blocked by `engram_guard`; (b) Write to correct repo's `snapshots/test.md` → assert allowed; (c) Write with path traversal (`snapshots/../other_file.md`) → assert blocked after canonicalization.
+- Session diagnostic channel integration (VR-4A-20): (a) Force `engram_register` to fail (make shard file unwritable). Assert `.diag` created with JSONL entry containing `hook`, `failure_type`, `ts` fields. (b) Run `/triage` for that session. Assert output surfaces `"ledger unavailable in session <session_id>"`. (c) Assert other sessions unaffected.
 
 ### Step 4b — Retire
 

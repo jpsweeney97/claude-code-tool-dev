@@ -67,9 +67,34 @@ class TrustPayload(TypedDict):
     session_id: str              # Claude session UUID, non-empty
 ```
 
-The `hook_request_origin` field accepts only `"user"` or `"agent"`. See [enforcement.md §collect_trust_triple_errors() Contract](enforcement.md#collect_trust_triple_errors-contract) for the closed set validation. Adding a new origin value (e.g., `"mcp"`) requires updating the validator.
+The `hook_request_origin` field accepts only `"user"` or `"agent"`. See [§Trust Validation](#trust-validation--collect_trust_triple_errors) below for the closed set validation. Adding a new origin value (e.g., `"mcp"`) requires updating the validator.
 
 The shared validator `collect_trust_triple_errors()` in `engram_core/` accepts or parses from `TrustPayload` using these canonical field names. A field rename in the hook or engine without updating this type is a compilation error, not a silent divergence. `collect_trust_triple_errors()` returns `list[str]` — an empty list on success, or a list of human-readable error strings on validation failure. The caller joins these with `'; '` for the structured error response.
+
+### Trust Validation — collect_trust_triple_errors()
+
+```python
+# engram_core/trust.py
+def collect_trust_triple_errors(
+    hook_injected: bool,
+    hook_request_origin: str | None,
+    session_id: str | None,
+) -> list[str]:
+    """Validate trust triple fields. Returns empty list on success, error strings on failure."""
+```
+
+**Parameter types — `str | None` is intentional:** The validator accepts `None` to provide specific error messages when a hook omits a required field. Callers constructing a well-formed `TrustPayload` always pass `str`. The `None` path catches structural errors in payload file parsing (missing JSON key → `None` after `.get()`).
+
+**Validation rules (order matters):**
+1. `hook_injected` must be `True` (identity check: `hook_injected is True`). `False`, `None`, or non-bool → error.
+2. `hook_request_origin` must be a non-empty string in `{"user", "agent"}`. `None`, empty string, or unrecognized value → error.
+3. `session_id` must be a non-empty string. `None` or empty string → error.
+
+**Stable error strings:** `"hook_injected: must be True, got {value!r}"`, `"hook_request_origin: must be one of {{'user', 'agent'}}, got {value!r}"`, `"session_id: must be non-empty string, got {value!r}"`.
+
+**Caller obligation:** If the returned list is non-empty, the engine must reject the operation with a structured error containing the error list and return without making state changes. The engine must not catch or suppress errors from this function.
+
+**Origin-matching responsibility:** `collect_trust_triple_errors()` validates that the triple is well-formed. Whether the `hook_request_origin` matches the expected origin for a given entrypoint (e.g., `_user.py` expects `"user"`) is the entrypoint's responsibility — the validator does not enforce route-specific origin rules.
 
 ## Envelope Types
 
@@ -116,7 +141,7 @@ class DistillCandidate:
 
 ### Staging File Format
 
-Each `DistillCandidate` is written as a standalone file in the staging inbox. Filename: `YYYY-MM-DD-<content_sha256[:16]>.md` (see [storage layout](storage-and-indexing.md#key-storage-decisions) for the canonical naming convention). The file contains all `DistillCandidate` fields serialized as a `<!-- staging-meta {...} -->` HTML comment (JSON with `sort_keys=True`) followed by the candidate content as markdown. The staging-meta JSON includes all `DistillCandidate` fields plus `source_ref` (the envelope's `source_ref.to_str()`) and `staged_at` (ISO 8601 UTC, used as the `YYYY-MM-DD` prefix source). The `content_sha256`-based filename suffix enables atomic file creation via `O_CREAT | O_EXCL` — identical candidates from concurrent operations coalesce.
+Each `DistillCandidate` is written as a standalone file in the staging inbox. Filename: `YYYY-MM-DD-<content_sha256[:16]>.md` (see [storage layout](storage-and-indexing.md#key-storage-decisions) for the canonical naming convention). The file contains all `DistillCandidate` fields serialized as a `<!-- staging-meta {...} -->` HTML comment (JSON with `sort_keys=True`) followed by the candidate content as markdown. The staging-meta JSON includes all `DistillCandidate` fields (`content`, `durability`, `source_section`, `content_sha256`) plus `source_ref` (the envelope's `source_ref.to_str()`) and `staged_at` (ISO 8601 UTC, used as the `YYYY-MM-DD` prefix source). The `content_sha256`-based filename suffix enables atomic file creation via `O_CREAT | O_EXCL` — identical candidates from concurrent operations coalesce.
 
 ### PromoteEnvelope — Knowledge to CLAUDE.md (Intent Record)
 
@@ -144,7 +169,7 @@ class PromoteMeta:
     lesson_id: str                # Matches lesson-meta lesson_id — used for marker pair identification
 ```
 
-**`meta_version`**: Version of the promote-meta format. Currently `"1.0"`. Entries lacking this field are treated as `legacy`. See [Version Evolution Policy](#version-evolution-policy) for entry-level exact-match semantics and field preservation requirements.
+**`meta_version`**: Version of the promote-meta format. Currently `"1.0"`. Entries lacking this field are treated as pre-versioned entries — see [Legacy Entries](#legacy-entries-missing-metaversion) for discovery, interpretation, and rewrite rules. See [Version Evolution Policy](#version-evolution-policy) for entry-level exact-match semantics and field preservation requirements.
 
 **Serialization:** All fields are required. `promote-meta` (and `lesson-meta`) JSON is serialized with `sort_keys=True`. Stored as an HTML comment in learnings.md immediately after the entry's `lesson-meta` comment:
 
@@ -326,7 +351,7 @@ Entry content...
 **Fields:**
 - **`meta_version`**: Version of the lesson-meta format. Currently `"1.0"`. Entries lacking this field are treated as `legacy` — see [Legacy Entries](#legacy-entries-missing-metaversion). See [Version Evolution Policy](#version-evolution-policy) for compatibility rules.
 - **`lesson_id`**: UUIDv4 generated at creation. Serves as `RecordRef.record_id` for knowledge entries. Stable across edits (content changes update `content_sha256`, not `lesson_id`).
-- **`content_sha256`**: [`Sha256Hex`](#scalar-types) produced by [`content_hash()`](#hash-producing-functions) on entry content (excluding the `lesson-meta` comment itself). The exact byte range: all text between the blank line following the `lesson-meta` comment and the start of the next `### ` heading (exclusive), after applying `knowledge_normalize`. The heading line itself is included; trailing blank lines before the next heading are excluded. For the last entry in the file, the byte range extends to the end of the file (after `knowledge_normalize`). If the file ends without a trailing newline, the normalizer adds one per rule 6. Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
+- **`content_sha256`**: [`Sha256Hex`](#scalar-types) produced by [`content_hash()`](#hash-producing-functions) on entry content (excluding the `lesson-meta` comment itself). The current entry's `### ` heading line is NOT included in the hash input. The byte range starts at the first character after the blank line following the `lesson-meta` comment and ends at (but excludes) the next `### ` heading line. Trailing blank lines before the next heading are excluded. For the last entry in the file, the byte range extends to the end of the file (after `knowledge_normalize`). If the file ends without a trailing newline, the normalizer adds one per rule 6. Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
 - **`created_at`**: ISO 8601 UTC timestamp of initial creation (suffix `Z` or `+00:00`).
 - **`producer`**: Which skill created the entry. Informational — does not affect lifecycle.
 
@@ -457,7 +482,7 @@ Five independent version spaces govern Engram's data contracts. Each evolves ind
 | Record provenance | **Same-major tolerance with field preservation.** Readers accept records with the same major version (e.g., a v1.0 reader reads v1.1). Unknown fields must be preserved verbatim on rewrite — see [Field Preservation Requirement](#field-preservation-requirement). Records with a different major version are skipped with a warning via `QueryDiagnostics.warnings`. | Writers emit the version they were built for. |
 | Ledger format | **Same-major tolerance.** Parse `schema_version` as `<major>.<minor>`. Compare `major` as integer. Readers skip entries where `major` differs from the reader's built-in major. Unknown fields are ignored (ledger entries are append-only, never rewritten). | Writers emit the version they were built for. |
 | Knowledge entry metadata | **Same-major tolerance with field preservation.** The Knowledge engine accepts entries whose `lesson-meta.meta_version` shares the same major version (e.g., a v1.0 engine reads and operates on v1.1 entries). Unknown fields are preserved verbatim on rewrite — see [Field Preservation Requirement](#field-preservation-requirement). Entries with a different major version are skipped with a per-entry warning. This applies to query, addressability, dedup (`content_sha256`), and rewrite operations. Same-major tolerance is safe because minor bumps are constrained by the [Minor Bump Safety Contract](#minor-bump-safety-contract). When appending a new entry, existing entries with unrecognized major version are preserved verbatim. | Writers emit the version they were built for. |
-| Promotion state metadata | **Entry-level exact-match for state-machine interpretation.** Entries with unrecognized `promote-meta.meta_version` (different major or minor) are skipped per-entry for state-machine operations (Branch A/B/C decisions). promote-meta governs the promote state machine — a minor bump could change state-machine semantics (e.g., new branch logic), making same-major tolerance unsafe for interpretation. Unrelated entries are preserved verbatim on rewrite. | Writers emit the version they were built for. |
+| Promotion state metadata | **Entry-level exact-match for state-machine interpretation.** Entries with unrecognized `promote-meta.meta_version` (different major or minor) are skipped per-entry for state-machine operations (Branch A/B/C decisions). promote-meta governs the promote state machine — a minor bump could change state-machine semantics (e.g., new branch logic), making same-major tolerance unsafe for interpretation. Unrelated entries are preserved verbatim on rewrite. Because promote-meta uses exact-match version semantics, a Knowledge engine at v1.0 never attempts to rewrite a promote-meta entry with a different version (Branch D excludes it from all operations). Field preservation does not apply to promote-meta version mismatches — they are fully excluded, not rewritten. | Writers emit the version they were built for. |
 
 **`VERSION_UNSUPPORTED` error:** Returned by target engines when `envelope_version` does not match the engine's built-in version. Structure: `{"error_code": "VERSION_UNSUPPORTED", "received_version": "<received>", "expected_version": "<engine_version>"}`. Note: `expected_version` is singular (exact-match — there is only one valid version per engine build).
 
@@ -468,7 +493,8 @@ Existing `lesson-meta` and `promote-meta` comments written before the `meta_vers
 - **Discovery:** Entries with structured `lesson-meta` but missing `meta_version` remain discoverable via `query()` and addressable by `lesson_id`. They retain their original `record_kind` (not overloaded to `"legacy"` — that label is reserved for entries lacking `lesson-meta` entirely, per the [Knowledge Entry Format](#knowledge-entry-format-lesson-meta-contract)). A per-entry compatibility warning is added to `QueryDiagnostics.warnings`.
 - **Interpretation:** Operations that interpret metadata (dedup via `content_sha256`, promote eligibility via `promote-meta`) skip entries with missing `meta_version` with a per-entry warning. They do not block operations on other entries.
 - **Rewrite:** Rewrite paths (e.g., appending `promote-meta` to an entry) must not touch metadata blocks with missing `meta_version`. To upgrade, the user runs a migration that adds `meta_version: "1.0"` explicitly.
-- **Promote-meta without meta_version:** Promotion status for entries with pre-version `promote-meta` degrades to `unknown` (not interpretable for Branch A/B/C decisions). The lesson itself remains valid.
+- **Promote-meta without meta_version:** Promotion status for entries with pre-version `promote-meta` degrades to `unknown` (not interpretable for Branch A/B/C decisions). The lesson remains valid for query and display. However, promotion eligibility requires interpretable promote-meta — entries with unrecognized or missing `meta_version` are excluded from the promote candidate list per [operations.md §Promote Branch D](operations.md#promote-knowledge-to-claudemd).
+- **`RecordMeta.schema_version`** for these entries is `"0.0"` (pre-versioned sentinel value, distinct from any real version which starts at `"1.0"`).
 
 **Rationale:** Treating missing `meta_version` as implicit `"1.0"` makes the field meaningless for existing entries and prevents distinguishing "written before versioning existed" from "written with v1.0 format."
 
@@ -494,7 +520,7 @@ A minor version bump is safe under same-major tolerance **if and only if** an ol
 - **Unsafe (requires major bump):** Adding a field that changes dedup semantics (e.g., altering `content_sha256` computation). An older reader ignoring the field would compute different dedup results.
 - **Unsafe (requires major bump):** Changing the meaning of an existing field, removing a required field, or changing serialization format.
 
-This contract makes same-major tolerance trustworthy for `lesson-meta` — the Knowledge engine can safely read v1.1 entries because v1.1 can only add fields that v1.0 may ignore without behavioral divergence. `promote-meta` retains exact-match because state-machine interpretation cannot safely ignore new fields (a new branch or state transition would silently fall through to the wrong branch).
+This contract makes same-major tolerance trustworthy for `lesson-meta` — the Knowledge engine can safely read v1.1 entries because v1.1 can only add fields that v1.0 may ignore without behavioral divergence. `promote-meta` retains exact-match because state-machine interpretation cannot safely ignore new fields (a new branch or state transition would silently fall through to the wrong branch). Exact-match is intentional for promote-meta: unlike lesson-meta (where minor bumps add optional metadata), promote-meta minor bumps can change state-machine semantics. Forward-incompatibility is the desired safety property — unknown versions are excluded, not misinterpreted.
 
 ### Field Preservation Requirement
 
