@@ -164,6 +164,7 @@ The engine trust injection mechanism uses a payload file as the communication ch
 | **Schema** | `{"hook_injected": true, "hook_request_origin": "<origin>", "session_id": "<uuid>"}` |
 | **Creator** | `engram_guard` creates the file atomically (temp file → `fsync` → `os.replace`) |
 | **Consumer** | Subsystem engine reads the file, validates via `collect_trust_triple_errors()`, then deletes it |
+| **Missing at consumption** | If the payload file path argument is present but the file does not exist at engine startup, the engine must reject with: `"Trust triple missing: payload file not found at {path}"`. Do not proceed with state changes. This handles two root causes uniformly: (a) guard blocked (exit 2) but engine invoked on retry, and (b) partial fsync (file created but incompletely written). |
 | **Cleanup** | Engine deletes after consuming. `engram_session` prunes orphans older than 24h on startup. |
 | **Containment** | `engram_guard` validates the payload file path is within the workspace `.claude/engram-tmp/` directory before writing |
 
@@ -200,6 +201,8 @@ Read-only queries and index scans are exempt. Each subsystem engine documents it
 #### Check Ordering
 
 Each mutating entrypoint must check `.engram-id` existence before invoking `collect_trust_triple_errors()`. If `.engram-id` is absent, return the initialization error immediately without trust triple validation. This ensures users see "Engram not initialized" rather than a confusing trust triple rejection.
+
+If the payload file is absent or unparseable after the `.engram-id` check succeeds, the engine must reject the operation with: `"trust triple not injected: payload file missing or unreadable at {path}"`. Do not attempt to invoke `collect_trust_triple_errors()` with `None` values as a substitute for a missing payload file.
 
 ### Origin-Matching by Entrypoint
 
