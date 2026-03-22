@@ -20,9 +20,7 @@ Phase B enters **shadow mode** first: the [prepare/commit cycle](integration.md#
 
 ### Graduation Protocol and Kill Criteria
 
-> **Normative source:** The shadow-mode gate algorithm (what file to read, what field values mean, what default applies when absent) is defined in [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate) under `behavior_contract` authority.
-
-The gate condition (what file to read, what field values mean, what default applies when absent) is defined in [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate) under `behavior_contract` authority. This section retains the graduation protocol and kill criteria under `implementation_plan` authority.
+> **Normative source:** The shadow-mode gate algorithm (what file to read, what field values mean, what default applies) is defined in [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate) under `behavior_contract` authority. This section covers the graduation protocol and kill criteria under `implementation_plan` authority — it does not define or restate the gate algorithm.
 
 ### Shadow Mode Kill Criteria
 
@@ -157,7 +155,7 @@ Shadow-to-active graduation is a manual gate with a concrete approval artifact:
 4. **Validation:** Before finalizing `graduation.json`, run the graduation-report validator (`scripts/validate_graduation.py`). The validator checks: (a) `labeled_topics` matches actual line count in `data/ccdi_shadow/annotations.jsonl`, (b) `false_positive_rate` matches `labeled_false_positives / total_labeled_topics` computed from annotations, (c) `evaluated_dialogues` matches actual file count in `data/ccdi_shadow/diagnostics/`, (d) `effective_prepare_yield` and `avg_latency_ms` are consistent with per-dialogue diagnostics files. This does not eliminate human judgment but adds a mechanical consistency check.
 
 **Aggregation method:** `avg_latency_ms` is the unweighted mean of ALL `per_turn_latency_ms` entries across ALL diagnostics files (mean-of-all-turns, not mean-of-dialogue-means). `effective_prepare_yield` is computed as a global ratio: `sum(packets_surviving_precedence across all dialogues) / sum(packets_prepared across all dialogues)`. This is not a per-dialogue mean. For heterogeneous dialogues where per-dialogue mean latencies or per-dialogue yields differ, these formulas produce different values. The validator MUST use mean-of-all-turns for latency and global ratio for yield.
-5. **Gate:** The `codex-dialogue` agent reads `graduation.json` at dialogue start per the [graduation protocol and kill criteria](#graduation-protocol-and-kill-criteria) above. The graduation protocol (this section) governs how the file is produced and approved, and the gate condition that `codex-dialogue` evaluates at startup.
+5. **Gate:** The `codex-dialogue` agent reads `graduation.json` at dialogue start per the [graduation protocol and kill criteria](#graduation-protocol-and-kill-criteria) above. The graduation protocol (this section) governs how the file is produced and approved, per the gate algorithm defined in [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate).
 6. **Rejection:** If any kill criterion exceeds its threshold, set `status: "rejected"` with the failing criterion in `notes`. Re-evaluate after tuning.
 
 #### `validate_graduation.py` CLI Interface
