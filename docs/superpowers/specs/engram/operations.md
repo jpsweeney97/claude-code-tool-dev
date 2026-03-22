@@ -120,6 +120,13 @@ Three-step state machine with marker-based location and reconciliation recovery.
                 via marker search if markers exist). User places block in new section
                 manually. Automated relocation deferred to v1.1 (see
                 [deferred decisions](decisions.md#deferred-decisions)).
+                After the user confirms manual placement in the new section, the skill
+                writes the promoted text wrapped in markers at the user-confirmed location.
+                Step 3 then reads back the text between markers at the new location and
+                computes `transformed_text_sha256` via `drift_hash()`. Step 3 also updates
+                `promote-meta.target_section` to the user-confirmed section. If the skill
+                cannot locate markers at the new location after user confirmation, Step 3
+                rejects the promote-meta write (lesson remains eligible for next `/promote`).
         Branch C (promote-meta exists, promoted_content_sha256 != current content_sha256):
             Stale promotion. Search CLAUDE.md globally for markers with lesson_id.
             C1 (markers found, no drift): drift_hash(current_enclosed_text) ==
@@ -209,6 +216,7 @@ On completion (success or partial failure), `/save` writes `save_recovery.json` 
 
 ```json
 {
+    "schema_version": "1.0",
     "snapshot_ref": "<RecordRef canonical serialization>",
     "emitted_at": "<ISO 8601>",
     "results": {

@@ -15,15 +15,19 @@ Immutable after creation. The universal addressing scheme across all subsystems.
 @dataclass(frozen=True)
 class RecordRef:
     repo_id: str          # UUIDv4, stored in .engram-id at repo root
-    subsystem: str        # "context" | "work" | "knowledge"
+    subsystem: str        # "context" | "work" | "knowledge" — enforced at construction, not schema-level Literal (deferred per decisions.md)
     record_kind: str      # Subsystem-specific: "snapshot", "checkpoint", "ticket", "lesson", etc.
     record_id: str        # Subsystem-native ID (snapshot filename, T-YYYYMMDD-NN, lesson_id)
 
     def to_str(self) -> str: ...    # "<subsystem>/<record_kind>/<record_id>"
-    def from_str(s: str) -> RecordRef: ...  # Inverse of to_str
+    @classmethod
+    def from_str(cls, s: str, repo_id: str) -> RecordRef: ...
+    # Not a pure inverse of to_str — repo_id is required because
+    # canonical serialization omits it. Callers provide the current
+    # repo's repo_id.
 ```
 
-**Canonical serialization:** `<subsystem>/<record_kind>/<record_id>` (`repo_id` omitted — implicit from context). Used in `LedgerEntry.record_ref`, event vocabulary payloads, idempotency material, and recovery manifests. Implemented as `RecordRef.to_str()` / `RecordRef.from_str()` in `engram_core/types.py`.
+**Canonical serialization:** `<subsystem>/<record_kind>/<record_id>` (`repo_id` omitted — implicit from context). Used in `LedgerEntry.record_ref`, event vocabulary payloads, idempotency material, and recovery manifests. Implemented as `RecordRef.to_str()` for serialization and `RecordRef.from_str(s, repo_id)` for deserialization (`repo_id` required — not a pure inverse since canonical form omits `repo_id`) in `engram_core/types.py`.
 
 ## RecordMeta — Provenance
 
@@ -157,6 +161,8 @@ Promoted text here...
 
 **`target_section` is advisory.** It records the last requested destination for the promoted text. It is used as an insertion hint for new promotions (Branch A) and as context in the manual reconcile flow. It is **not** the primary locator — marker search is. If the user moves a managed block to a different section, `target_section` becomes stale; `/promote` updates it on the next successful promotion.
 
+**Uniqueness invariant:** At most one `promote-meta` comment per `lesson_id` may exist in `learnings.md`. On Step 3 write, the Knowledge engine scans for an existing `promote-meta` with matching `lesson_id` and replaces it in-place (not append). If two `promote-meta` comments with the same `lesson_id` are found (corrupted state), treat as Branch D (unreadable promote-meta) and surface a migration warning.
+
 ## Hash Types and Helpers
 
 ### Scalar Types
@@ -255,6 +261,8 @@ The `idempotency_key` in `EnvelopeHeader` is computed as `sha256(canonical_json_
 
 **Field inclusion rationale:** `DeferEnvelope.key_file_paths` is included (sorted) because two defers with the same title/problem but different file paths are semantically distinct work items. `DeferEnvelope.context` is intentionally excluded — it is supplementary (same intent regardless of context snippet). All envelopes use `source_ref.to_str()` (full canonical serialization) instead of bare `source_ref.record_id` to prevent theoretical cross-subsystem collision.
 
+**Construction rule for nullable fields:** When `DeferEnvelope.context` is `None`, omit the `context` key from the material dict entirely. Do not include `{"context": None}` — [`canonical_json_bytes()`](#canonical-json) rejects `None` values with `ValueError`. This applies to all envelope types: omit nullable fields from the material dict when their value is `None`.
+
 [`canonical_json_bytes()`](#canonical-json) produces deterministic byte output. Same material produces the same key — target engine returns existing result without side effects.
 
 The `DistillEnvelope` idempotency material includes per-candidate fingerprints to ensure that re-running extraction with improved logic on the same snapshot produces a distinct key when candidate content changes.
@@ -315,6 +323,8 @@ Two failure modes for `learnings.md`, two mitigations:
 
 **CLAUDE.md:** Cross-worktree concurrent promotions are delegated to git merge (same model as `learnings.md` cross-worktree). Interleaved marker insertions from concurrent promotions of different lessons are safe — distinct `lesson_id` values in markers means non-overlapping content regions. Same-worktree concurrent promotion is not expected (single user, single session).
 
+**Dedup-within-lock:** Both `/learn` and `/curate` publish paths must perform the `content_sha256` dedup check against published entries within the same `fcntl.flock(LOCK_EX)` scope as the write to `learnings.md`. Performing the dedup check before acquiring the lock creates a TOCTOU race between concurrent publish operations.
+
 ## Snapshot Orchestration Intent
 
 When `/save` creates a snapshot, it embeds orchestration intent as flat scalar fields in the snapshot frontmatter:
@@ -354,6 +364,8 @@ class LedgerEntry:
     payload: dict                 # Event-type-specific data
 ```
 
+**`operation_id` format:** UUIDv4 generated by the orchestrator (e.g., `/save`) at flow start and passed to all sub-engine calls. Engines must use the provided `operation_id` — they must not self-generate one. `None` when not part of an orchestrated flow.
+
 ### Event Vocabulary (v1)
 
 | Event Type | Producer | Payload Fields | Purpose |
@@ -365,6 +377,8 @@ class LedgerEntry:
 In payload dicts, `RecordRef` values are stored as their [canonical serialization string](#recordref--lookup-key) (`RecordRef.to_str()`). Example: `{"ref": "context/snapshot/2026-03-21-abc123"}`.
 
 **Completion events are success-only.** Their presence proves the operation ran to completion. Their absence means "not proven completed" — not "failed." Failure events are [deferred](decisions.md#deferred-decisions) to a future recovery-phase extension.
+
+**Excluded from v1:** `/learn`, `/curate`, and `/promote` do not emit completion events. These operations are user-interactive (not orchestrated by `/save`) and their completion is verifiable by examining the resulting artifacts — published entries in `learnings.md` (for `/learn`, `/curate`) and promote-meta + CLAUDE.md markers (for `/promote`). Adding completion events for these operations is a candidate for v2 if `/triage` requires finer-grained completion tracking.
 
 ### Producer Classes
 
@@ -387,6 +401,8 @@ In payload dicts, `RecordRef` values are stored as their [canonical serializatio
 All ledger producers use a shared locked append primitive in `engram_core/`. Advisory lock (`fcntl.flock`) on the shard file. Lock scope: read-append-fsync. Multi-producer integrity replaces the previous "single writer by sharding" assumption (which broke when engines became ledger producers).
 
 **Ledger append failure never invalidates a successful write.** If a `defer_completed` event fails to append after a successful ticket creation, the ticket exists — the ledger gap is a diagnostic degradation, not data loss.
+
+**Timestamp validation:** Producers must emit `LedgerEntry.ts` and `EnvelopeHeader.emitted_at` with UTC offset (`Z` or `+00:00`). Parsers encountering a timestamp without UTC offset should treat it as UTC (not local time) and log a warning.
 
 ## Version Evolution Policy
 
@@ -411,12 +427,12 @@ Five independent version spaces govern Engram's data contracts. Each evolves ind
 | Version Space | Read Behavior | Write Behavior |
 |---|---|---|
 | Envelope protocol | **Exact-match.** Target engine rejects envelopes with unrecognized `envelope_version` via `VERSION_UNSUPPORTED` error (see below). No forward compatibility. | Writers emit the version they were built for. |
-
-**`VERSION_UNSUPPORTED` error:** Returned by target engines when `envelope_version` does not match the engine's built-in version. Structure: `{"error_code": "VERSION_UNSUPPORTED", "received_version": "<received>", "expected_version": "<engine_version>"}`. Note: `expected_version` is singular (exact-match — there is only one valid version per engine build).
 | Record provenance | **Same-major tolerance with field preservation.** Readers accept records with the same major version (e.g., a v1.0 reader reads v1.1). Unknown fields must be preserved verbatim on rewrite — see [Field Preservation Requirement](#field-preservation-requirement). Records with a different major version are skipped with a warning via `QueryDiagnostics.warnings`. | Writers emit the version they were built for. |
 | Ledger format | **Same-major tolerance.** Parse `schema_version` as `<major>.<minor>`. Compare `major` as integer. Readers skip entries where `major` differs from the reader's built-in major. Unknown fields are ignored (ledger entries are append-only, never rewritten). | Writers emit the version they were built for. |
 | Knowledge entry metadata | **Entry-level exact-match for interpretation; verbatim preservation for unrelated writes.** When interpreting a `lesson-meta` comment (dedup, promote eligibility), the Knowledge engine requires exact major.minor match. Entries with unrecognized `meta_version` are skipped with a per-entry warning — they do not block operations on other entries in the same file. When appending a new entry, existing entries with unrecognized `meta_version` are preserved verbatim. | Writers emit the version they were built for. |
 | Promotion state metadata | **Entry-level exact-match.** Same rules as knowledge entry metadata. Entries with unrecognized `promote-meta.meta_version` are skipped per-entry. Unrelated entries are preserved verbatim on rewrite. | Writers emit the version they were built for. |
+
+**`VERSION_UNSUPPORTED` error:** Returned by target engines when `envelope_version` does not match the engine's built-in version. Structure: `{"error_code": "VERSION_UNSUPPORTED", "received_version": "<received>", "expected_version": "<engine_version>"}`. Note: `expected_version` is singular (exact-match — there is only one valid version per engine build).
 
 ### Legacy Entries (Missing meta_version)
 

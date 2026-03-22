@@ -41,7 +41,7 @@ Any feature that makes Engram a second source of truth for data that a subsystem
 
 **Design test:** Could a user get a different answer by querying the subsystem directly vs. querying Engram? If yes, the feature violates the core invariant.
 
-**Runnable tests:** See [delivery.md §Step 0a Required Verification](delivery.md) (VR-1) for structural assertions: NativeReader has no `write()` method, `query.py` contains no filesystem write calls, and cross-reader queries do not modify subsystem directories.
+**Runnable tests:** See [delivery.md §Step 0a Required Verification](delivery.md) (VR-0A-1) for structural assertions: NativeReader has no `write()` method, `query.py` contains no filesystem write calls, and cross-reader queries do not modify subsystem directories.
 
 ## Package Structure
 
@@ -54,6 +54,7 @@ packages/plugins/engram/
 │   ├── types.py              # RecordRef, RecordMeta, contracts
 │   ├── reader_protocol.py    # NativeReader protocol definition only
 │   ├── canonical.py          # Deterministic JSON serialization for idempotency keys
+│   ├── trust.py             # collect_trust_triple_errors() — shared trust validator
 │   └── query.py              # Discovery + query engine
 ├── skills/                   # User-facing skills (13 total, including engram init)
 ├── hooks/                    # PreToolUse/PostToolUse/SessionStart hooks
@@ -68,7 +69,7 @@ packages/plugins/engram/
 
 ## Design Principles
 
-Three cross-cutting principles guide implementation decisions across subsystems. These are not invariants (they have no enforcement mechanism) but inform trade-offs.
+Three cross-cutting principles guide implementation decisions across subsystems. The first two are advisory (they have no enforcement mechanism) but inform trade-offs. The third — the Enforcement Boundary Constraint — is a hard invariant enforced structurally by hook registration.
 
 ### Auxiliary State Authority
 
@@ -80,9 +81,9 @@ Manifest failure degrades convenience (retry requires manual `snapshot_ref` look
 
 Pre-write or pre-dispatch validation for hard invariants (trust triples, idempotency keys, promotion state machine). Post-write validation for advisory quality checks only ([`engram_quality`](enforcement.md#quality-validation)).
 
-#### Enforcement Boundary Constraint
+#### Enforcement Boundary Constraint (Invariant)
 
-PostToolUse hooks **must not** become enforcement boundaries. The race between write completion and validation readback is acceptable for warnings, not for trust authorization. This is why `engram_quality` uses **Warn** (not Block) as its failure mode. This constraint applies to all current and future PostToolUse hooks in the Engram system.
+**Invariant:** PostToolUse hooks **must not** become enforcement boundaries. The race between write completion and validation readback is acceptable for warnings, not for trust authorization. This is why `engram_quality` uses **Warn** (not Block) as its failure mode. This constraint applies to all current and future PostToolUse hooks in the Engram system.
 
 ### Chain Integrity at Migration Boundaries
 
