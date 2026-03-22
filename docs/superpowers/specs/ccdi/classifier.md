@@ -65,10 +65,9 @@ ClassifierResult
 │   │   └── weight: number          # alias weight from TopicRecord.aliases[]
 │   └── reason: string
 │
-│   Note: The `confidence` field in `dialogue-turn` candidates JSON
-│   (see integration.md § dialogue-turn Candidates JSON Schema) extends
-│   this type to include `null` for hint-driven `facet_expansion` and
-│   `pending_facet` candidates, which are not produced by the classifier.
+│   Note: The `dialogue-turn` candidates JSON extends this type — see
+│   [integration.md#dialogue-turn-candidates-json-schema](integration.md#dialogue-turn-candidates-json-schema)
+│   for the full type definition including the `null` extension.
 │
 └── suppressed_candidates[]
     ├── topic_key: TopicKey

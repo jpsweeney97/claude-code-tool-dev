@@ -38,7 +38,7 @@ System design review surfaced 7 findings and 2 tensions; 6-turn dialogue resolve
 | CLI-only typed config file for tuning parameters | Convergence | High |
 | Scout target always beats CCDI targeting | Convergence | High |
 | Four version axes for schema evolution (three compatibility + one instance) | Concession | Medium |
-| Three-layer test strategy with ccdi_trace replay harness | Concession | Medium |
+| Four-layer test strategy with ccdi_trace replay harness (Layer 1: unit, 2a: replay, 2b: agent sequence, 3: shadow) | Concession | Medium |
 | Staged rollout: initial CCDI first, mid-dialogue in shadow mode | Concession | Medium |
 
 ## External Contract Compatibility
