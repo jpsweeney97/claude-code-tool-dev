@@ -59,6 +59,9 @@ precedence:
   # capsule wire format as a consequence of routing enforcement, not as an independent
   # interface contract claim.
 
+  # NOTE: delivery_layers is informational — a convenience summary of the three-layer
+  # authority hierarchy defined normatively in foundations.md §Three-Layer Delivery Authority.
+  # On conflict, foundations.md is authoritative per fallback_authority_order.
 delivery_layers:
   # Three-layer authority hierarchy for composition delivery.
   # Full rationale: foundations.md#three-layer-delivery-authority

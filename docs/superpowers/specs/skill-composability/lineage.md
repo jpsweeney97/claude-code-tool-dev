@@ -166,4 +166,4 @@ Optional for AR capsules (`record_path` may be null or a path to `docs/reviews/`
 
 When present, `record_path` points to a durable file carrying the same artifact metadata in frontmatter. The file path is a locator, not the identity — `artifact_id` is the identity.
 
-NS does not write files today. If `docs/plans/` is added later, use the same `artifact_id` scheme. See [delivery.md](delivery.md#open-items) for pending implementation items.
+NS file persistence is not implemented in v1 (delivery scope — see [delivery.md](delivery.md#open-items)). If added later, use the same `artifact_id` scheme.

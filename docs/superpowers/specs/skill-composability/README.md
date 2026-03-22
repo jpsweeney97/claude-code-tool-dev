@@ -43,6 +43,8 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 | lineage | capsule-contract, routing, delivery-plan |
 | pipeline | capsule-contract, routing, delivery-plan |
 
+Note: `routing` carries the `enforcement_mechanism` claim in addition to `behavior_contract` — changes to routing trigger enforcement review as well as behavioral review.
+
 ## Reading Order
 
 | # | File | Authority | Description |
