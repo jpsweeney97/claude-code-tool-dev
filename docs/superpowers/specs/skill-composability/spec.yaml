@@ -49,9 +49,9 @@ precedence:
     # referenced by all three behavior authorities — contradictions indicate
     # a spec defect, not a precedence override.
     interface_contract: [capsule-contract, lineage]
-  # decisions ranked 2nd (after foundation) because locked design decisions constrain
-  # behavior — in any genuine cross-claim conflict, locked decisions override runtime
-  # behavior files.
+  # decisions ranked 2nd (after foundation) in fallback_authority_order because locked
+  # design decisions constrain behavior. Conflicts are resolved via the fallback path
+  # — decisions does not appear in claim_precedence and cannot override via that route.
   fallback_authority_order: [foundation, decisions, capsule-contract, routing, pipeline, lineage, delivery-plan, delivery-verification, supporting]
   unresolved: ambiguity_finding
   # Cross-family disambiguation: behavior_contract claims govern runtime pipeline

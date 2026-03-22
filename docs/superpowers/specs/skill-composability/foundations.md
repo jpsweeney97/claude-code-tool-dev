@@ -109,3 +109,5 @@ Contract versioning is a CI/review-time concern, not runtime. Each skill stub in
 **Inverted runtime loading:** Unlike the consultation contract (which IS runtime-loaded), the composition contract is NOT. Stubs carry the runtime projection. Contract→stub drift is a silent correctness bug. Detection requires CI tooling (`validate_composition_contract.py`) that is designed but not yet implemented — see [delivery.md](delivery.md#open-items) item #6.
 
 **Interim drift mitigation protocol:** see [delivery.md](delivery.md#open-items) item #8. Contract→stub drift is bidirectional and is a P0 prerequisite check.
+
+The interim drift mitigation protocol ([delivery.md](delivery.md#open-items) item #8) contains load-bearing MUST clauses that enforce this architectural invariant. These MUST clauses carry `architecture_rule` authority by reference — they are enforcement mechanisms for the contract→stub drift detection invariant defined in this section, not independent `implementation_plan` claims. Contradictions between item #8 and this section are spec defects (the architectural invariant governs).
