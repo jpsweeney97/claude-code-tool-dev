@@ -23,6 +23,8 @@ Modular specification for CCDI: automatic detection and injection of Claude Code
 | `registry-contract` | behavior_contract, interface_contract | State machine, transitions, scheduling, semantic hints | Yes |
 | `packet-contract` | behavior_contract, interface_contract | Fact packets, token budgets, citation format, rendering | Yes |
 | `integration` | behavior_contract, interface_contract | CLI interface, data flows, prepare/commit, delegation | Yes |
+
+*Note: §pipeline-isolation-invariants holds elevated `behavior_contract` authority for behavioral invariants cross-referenced from decisions.md. See spec.yaml `elevated_sections`.*
 | `delivery` | implementation_plan, verification_strategy | Rollout, testing, diagnostics | Yes |
 | `decisions` | decision_record | Locked design decisions from Codex dialogues | Yes |
 | `supporting` | *(none)* | README and reference material | No |
