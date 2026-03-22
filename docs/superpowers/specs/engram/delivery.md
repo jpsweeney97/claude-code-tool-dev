@@ -57,6 +57,9 @@ Create plugin, core library, and type contracts. Validate the foundation before 
 - Namespace status filtering rejection (VR-0A-8): `query(status="open")` without `subsystems` raises ValueError; `query(subsystems=["work", "knowledge"], status="open")` raises ValueError; `query(subsystems=["work"], status="open")` succeeds (auto-prefixed to `"work:open"`).
 - Field preservation gate (T1-gate-1, activates at Step 2a): verify that rewriting a `lesson-meta` entry with an unknown field preserves that field verbatim. Deferred from Step 0a because field preservation is only exercised when the Knowledge engine performs its first rewrite-capable operation. Scheduled here for traceability; test fixture created in Step 2a.
 - Mixed-version degradation gate (T1-gate-2, activates at Step 2a): verify that a `lesson-meta` entry with `meta_version: "99.0"` is skipped per-entry (not per-file) with a warning in `QueryDiagnostics.warnings`. Deferred from Step 0a for the same reason. Scheduled here; test fixture created in Step 2a.
+- Deferred gate stubs (VR-0A-9): T1-gate-1 and T1-gate-2 fixture stubs must exist as empty test files with TODO comments citing target behaviors before Step 0a is marked complete. This ensures deferred obligations are tracked structurally. (SY-25)
+- IndexEntry.snippet contract test (VR-0A-10): for each NativeReader (context, work, knowledge), create a fixture file with body exceeding 500 characters. Assert: `IndexEntry.snippet` ≤ 200 characters. Assert: snippet does not end mid-word. (SY-26)
+- `since` filter test (VR-0A-11): fixture with 3 entries at different timestamps. `query(since=<cutoff>)` returns only post-cutoff entries. UTC normalization: entry with +05:30 timestamp → `IndexEntry.created_at` is UTC-normalized. (SY-31)
 
 ## Step 0b: Bootstrap and Identity
 
@@ -118,6 +121,7 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 #### Required Verification
 - Bridge compatibility test passes (Steps 1-4 as specified)
 - Bridge test additionally verifies old engine accepts converted JSON (VR-1-1): call old ticket engine ingest with bridge output, assert non-error response
+- SourceResolver exact-value assertion (VR-1-2): assert `source.type == f"engram:{source_ref.subsystem}:{source_ref.record_kind}"`, `source.ref == source_ref.to_str()`, `source.session == <expected_session_id>` with known fixture. (SY-33)
 
 ## Step 2: Knowledge Cutover
 
@@ -172,6 +176,8 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 - Trust triple partial validation (VR-3A-5): (a) Submit engine payload with `hook_injected=True` only (missing `hook_request_origin` and `session_id`) → assert rejected with structured error; (b) submit with all three present but one empty string → assert rejected; (c) submit with `hook_injected=False` and other two valid → assert rejected; (d) submit with complete valid triple → assert accepted.
 - Compatibility harness pass threshold (VR-3A-6): 100% of ported compatibility-critical fixtures must match on response envelope, on-disk ticket output, and audit side effects. Harness exceptions (intentional behavioral differences, e.g., new dedup logic) capped at 5, each requiring a comment explaining the intentional divergence.
 - Ledger append failure isolation (VR-3A-7): Make shard file read-only (or raise IOError on flock). Run `/defer` end-to-end. Assert: (a) ticket created successfully in `engram/work/`; (b) no exception propagated to caller; (c) `QueryDiagnostics.warnings` on subsequent query notes the ledger gap.
+- Trust injection path matching negative test (VR-3A-8): invoke `engram_guard` with a Bash tool call executing `python3 /tmp/engine_work.py` (valid filename, outside `<engram_scripts_dir>`). Assert: [payload file](enforcement.md#payload-file-contract) is NOT created. Then invoke with `python3 <engram_scripts_dir>/engine_work.py` (correct path). Assert: payload file IS created with valid trust triple fields.
+- Trust triple call-site completeness (VR-3A-9): for each documented mutating entrypoint (Work: ticket creation, ticket update, ticket close; Knowledge: knowledge publish, staging write, promote-meta write), assert via AST scan or instrumented test that [`collect_trust_triple_errors()`](enforcement.md#collect_trust_triple_errors-contract) is called before any filesystem write. Acceptable methods: (a) `ast.parse` + visitor asserting the call appears before `open(..., 'w')` / `os.replace` / `shutil` calls; (b) mock `collect_trust_triple_errors` to raise on first call, invoke entrypoint, assert exception propagated.
 
 ### Step 3b — Retire
 
@@ -236,7 +242,7 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 #### Required Verification
 - Chain state migration classification (VR-4A-1): parametric fixtures for each class (valid_fresh, stale, dangling, corrupt); assert migrated count = 1
 - Migration idempotency (VR-4A-2): run twice, compare manifests. New-source test: after run 1, add two new handoff files to the source directory. Run migration again. Assert: original copied files appear in `skipped_exists`; new files appear in `copied`.
-- SessionStart timing (VR-4A-3): run `engram_session` against fixture with 200 snapshots (realistic 90-day max at 2/day), 20 chain files; assert **median** wall-clock < 500ms over 5 runs. Environment qualifier: local filesystem with reasonable I/O latency. If per-file cleanup exceeds 5ms, abort remaining cleanup with warning rather than blocking. Cap enforcement: 100 expired snapshots → exactly 50 deleted, 50 remain. Run again → 50 more deleted.
+- SessionStart timing (VR-4A-3): run `engram_session` against fixture with 200 snapshots (realistic 90-day max at 2/day), 20 chain files; assert **median** wall-clock < 500ms over 5 runs. Environment qualifier: local filesystem with reasonable I/O latency. If per-file cleanup exceeds 5ms, abort remaining cleanup with warning rather than blocking. Cap enforcement: 100 expired snapshots → exactly 50 deleted, 50 remain. Run again → 50 more deleted. Environment probe: before asserting <500ms, measure median per-file read latency on a 10-file fixture. If per-file latency exceeds 10ms, mark the timing assertion as skipped/environment with a warning. (SY-34)
 - /triage promote-meta detection (VR-4A-4): fixture with CLAUDE.md markers + text but no promote-meta → assert mismatch reported; fixture with stale promote-meta → assert stale reported; fixture with CLAUDE.md text but markers deleted → assert manual reconcile surfaced
 - Promote marker lifecycle (VR-4A-5): Branch A inserts markers + text; Branch B1 fixture with promote-meta present, `promoted_content_sha256 == current content_sha256`, `target_section` unchanged → assert rejection with 'already promoted' status and existing promotion details (no CLAUDE.md write, no promote-meta update); Branch C1 locates markers, drift_hash matches → normal replacement with user confirmation; Branch C2 locates markers, drift_hash mismatches (user edited managed block) → drift warning + 2-way diff surfaced before user confirmation; Branch C3 missing markers → manual reconcile; Branch B2 shows old and new target_section plus existing promoted text → user confirms manual placement; Step 3 records updated target_section in promote-meta
 - Snapshot intent fields (VR-4A-6): /save without flags → snapshot has orchestrated_by=save, save_expected_defer=true, save_expected_distill=true; /save --no-defer → save_expected_defer=false; /quicksave → no orchestration fields. String boolean normalization: create a snapshot file with frontmatter containing `save_expected_defer: "true"` (quoted string) → `/triage` interprets as boolean `true`.
@@ -245,6 +251,13 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 - Triage inference matrix (VR-4A-9): fixture with expected_defer=true + ticket exists → satisfied; expected_defer=false + no ticket → skipped; expected_defer=true + no ticket + defer_completed(emitted_count=0) → zero-output success; expected_defer=true + no ticket + no completion event → completion-not-proven
 - Triage ledger-off inference (VR-4A-10): same fixture as VR-4A-9 but with `ledger.enabled=false`. Assert: cases (3) and (4) both report "completion not proven (ledger unavailable)" — no zero-output-success distinction. Assert: qualifier `reason=ledger_disabled` present on all collapsed cases.
 - Triage provenance anomaly (VR-4A-11): fixture with a ticket in `engram/work/` that has no corresponding `.audit/` entry. Assert: `/triage` reports `provenance_not_established` anomaly for that ticket. Fixture with a snapshot missing `session_id` in frontmatter. Assert: `/triage` reports `provenance_not_established` for that snapshot. Fixture with a knowledge entry in `learnings.md` lacking valid `lesson-meta` (or with `producer` not in `{learn, curate}`). Assert: `/triage` reports `provenance_not_established` for that entry.
+- Context call-site completeness (VR-4A-12): Context write paths do not use `collect_trust_triple_errors()` (they use [direct-write path authorization](enforcement.md#direct-write-path-authorization)). Verify: `grep -r "collect_trust_triple_errors" scripts/context/` returns no matches — Context engine must NOT call the trust validator.
+- Worktree isolation test (VR-4A-13): create two worktrees from the same repo (same `repo_id`, distinct `worktree_id`). Run `/save` in each. Assert: (a) `query(subsystems=["context"])` in worktree A returns no entries from worktree B's `snapshots/` or `chain/` directories; (b) same assertion for worktree B. Assert: both entries have identical `repo_id` but distinct `worktree_id` in `RecordMeta`.
+- engram_quality catch-all exception test (VR-4A-14): monkey-patch the hook's internal validation function to raise `RuntimeError`. Assert: exit code 0, `[engram_quality:error]` log entry present. Verifies the outermost catch-all, not just specific failure paths. (SY-24)
+- /timeline git integration test (VR-4A-15): (a) commit a ticket to the shared root; (b) run `/timeline` for that session; (c) assert output includes at least one entry attributed via `git log` (labeled "inferred"); (d) mock `git log` to raise CalledProcessError — assert `/timeline` returns partial result with degradation warning. (SY-27)
+- Context status derivation test (VR-4A-16): (a) snapshot in `snapshots/` → `query(status="context:active")` returns it; (b) same file moved to `snapshots/.archive/` → `query(status="context:archived")` returns it, `query(status="context:active")` does not. (SY-29)
+- Ledger multi-producer concurrency test (VR-4A-17): spawn 10 concurrent threads, each appending one `LedgerEntry` to the same shard. Assert: shard has exactly 10 valid JSON lines, no partial lines, lock file absent post-completion. (SY-30)
+- Promote Branch D exclusion test (VR-4A-18): fixture with `promote-meta` having `meta_version: "99.0"`. Run `/promote`. Assert: lesson NOT in selectable candidate list. Assert: warning containing lesson_id and "unreadable promote-meta" surfaced. (SY-32)
 
 ### Step 4b — Retire
 
@@ -294,6 +307,24 @@ Triage old tests into three buckets:
 | /search grouping ("never interleaved") | Multi-subsystem query, assert contiguous grouping | 4a |
 | All 13 skills functional | Automated smoke test per skill: one happy-path invocation, assert expected observable output. **Progressive:** at each step, all skills activated by or before that step must pass their smoke test. A shared smoke-test runner is invoked at each step's exit gate, parameterized by the set of activated skills. | Progressive (not Step 5 only) |
 | /save shared-entrypoint delegation | (1) Spy test: mock the shared entrypoint, invoke `/save`, assert mock called exactly once for defer and once for distill with the same arguments as the standalone call. "Same entrypoint" = identical Python function object (by module + qualified name). A wrapper or reimplementation that delegates to a private helper does not satisfy this test. (2) Parity test: run `/save` and standalone `/defer` with fixture snapshot, assert identical `IndexEntry` output (same fields, same RecordRef). (3) Partial-failure parity: `/save` with distill engine disabled → same defer output as standalone `/defer`. | 4a |
+
+**Minimal observable output per skill (SY-28):**
+
+| Skill | Minimal Assertion |
+|-------|-------------------|
+| `engram init` | `.engram-id` created, valid UUIDv4 content, exit code 0 |
+| `/save` | Per-step results dict present, `snapshot` field non-empty |
+| `/quicksave` | Checkpoint file created, frontmatter parseable |
+| `/load` | Snapshot content displayed, chain state updated |
+| `/defer` | Ticket created, `RecordRef` returned |
+| `/distill` | ≥1 staging file created |
+| `/curate` | Published entry in `learnings.md` |
+| `/learn` | Published entry in `learnings.md` with `lesson-meta` |
+| `/promote` | Markers in CLAUDE.md, `promote-meta` in `learnings.md` |
+| `/search` | ≥1 result returned, subsystem label present |
+| `/timeline` | ≥1 entry returned, label present |
+| `/ticket` | Ticket file created in `engram/work/` |
+| `/triage` | Report rendered, no unhandled exceptions |
 
 ### Invariants
 
