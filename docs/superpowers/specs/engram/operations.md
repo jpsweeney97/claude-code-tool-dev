@@ -216,6 +216,7 @@ On completion (success or partial failure), `/save` writes `save_recovery.json` 
 
 ```json
 {
+    "schema_version": "1.0",
     "snapshot_ref": "<RecordRef canonical serialization>",
     "emitted_at": "<ISO 8601>",
     "results": {

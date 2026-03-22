@@ -13,7 +13,7 @@ authority: enforcement
 |---|---|---|---|---|
 | `engram_guard` | PreToolUse (Write, Edit, Bash) | 1st | [Engine trust injection + direct-write path authorization](#trust-injection) | **Block** |
 | `engram_quality` | PostToolUse (Write, Edit) | 2nd | [Snapshot quality checks](#quality-validation) | **Warn** |
-| `engram_register` | PostToolUse (Write, Edit) | 3rd | Ledger append ([hook-class events](types.md#producer-classes)) | **Silent** (best-effort) |
+| `engram_register` | PostToolUse (Write, Edit) on protected paths | 3rd | Ledger append ([hook-class events](types.md#producer-classes)) | **Silent** (best-effort) |
 | `engram_session` | SessionStart | — | [TTL cleanup, worktree_id init](#sessionstart-hook) | See below |
 
 ### Ledger Multi-Producer Note
@@ -42,7 +42,7 @@ Hook failures are written to a per-session diagnostic file at `~/.claude/engram/
 
 ## Protected-Path Enforcement
 
-Policy-based, not tool-specific. Protects subsystem-owned paths from direct mutation regardless of which tool is used.
+Policy-based enforcement covering all currently supported write tools (Write, Edit, Bash). Adding new write-capable platform tools requires updating `engram_guard` hook registration.
 
 | Path Class | Protected Paths | Allowed Mutators |
 |---|---|---|
@@ -165,6 +165,8 @@ All writes from `/learn` route through the Knowledge engine entrypoint — `/lea
 
 Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring. delivery.md Step 3a must include a verification step asserting `collect_trust_triple_errors()` is invoked at every documented mutating entrypoint (unit test or static analysis check).
 
+**Check ordering:** Each mutating entrypoint must check `.engram-id` existence before invoking `collect_trust_triple_errors()`. If `.engram-id` is absent, return the initialization error immediately without trust triple validation. This ensures users see "Engram not initialized" rather than a confusing trust triple rejection.
+
 ### Step 3: Per-Subsystem Enforcement
 
 Each subsystem engine owns its trust boundary. The shared validator lives in `engram_core/` but enforcement is at the engine level — Engram's indexing layer never sees or checks trust triples.
@@ -218,7 +220,9 @@ SessionStart does not create `.engram-id` — it requires a git commit, which is
 |---|---|---|
 | `/promote` Step 2 CLAUDE.md write | Single skill, single target | CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns promotion *state* via [promote-meta](types.md#promote-meta-promotion-state-record). See [permitted exceptions](foundations.md#permitted-exceptions). |
 
-No other skill-level write to a protected or externally-owned path is sanctioned. New exceptions require an entry in both this table and foundations.md. **Sequencing:** foundations.md is the authoritative source for new exceptions — a new exception is effective only when present in foundations.md. This table then references it.
+No other skill-level write to a protected or externally-owned path is sanctioned. New exceptions require an entry in both this table and foundations.md.
+
+**Sequencing:** The authoritative exception definition lives in [foundations.md §Permitted Exceptions](foundations.md#permitted-exceptions). This table references it for enforcement-level discoverability.
 
 ## Autonomy Model
 
@@ -226,7 +230,7 @@ No other skill-level write to a protected or externally-owned path is sanctioned
 |---|---|---|
 | Work | `suggest` / `auto_audit` | Trust boundary: agents propose, users approve |
 | Context | None | Agents save their own session state |
-| Knowledge staging | Staging inbox cap + idempotency | Dedup prevents repeated staging; cumulative cap limits volume |
+| Knowledge staging | `gated` | User reviews via `/curate` before publication. `/distill` auto-stages without user confirmation; `/learn` publishes directly. Staging inbox cap + idempotency bound autonomous volume. |
 
 **Mode definitions:**
 - **`suggest`:** Engine prepares the operation but surfaces it to the user for confirmation before writing. The user sees what will be created and approves or rejects.

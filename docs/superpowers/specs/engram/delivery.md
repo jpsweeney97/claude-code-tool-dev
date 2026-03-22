@@ -60,6 +60,7 @@ Create plugin, core library, and type contracts. Validate the foundation before 
 - Deferred gate stubs (VR-0A-9): T1-gate-1 and T1-gate-2 fixture stubs must exist as empty test files with TODO comments citing target behaviors before Step 0a is marked complete. This ensures deferred obligations are tracked structurally. (SY-25)
 - IndexEntry.snippet contract test (VR-0A-10): for each NativeReader (context, work, knowledge), create a fixture file with body exceeding 500 characters. Assert: `IndexEntry.snippet` ≤ 200 characters. Assert: snippet does not end mid-word. (SY-26)
 - `since` filter test (VR-0A-11): fixture with 3 entries at different timestamps. `query(since=<cutoff>)` returns only post-cutoff entries. UTC normalization: entry with +05:30 timestamp → `IndexEntry.created_at` is UTC-normalized. (SY-31)
+- RecordRef serialization round-trip (VR-0A-12): for each subsystem, assert `RecordRef.from_str(ref.to_str(), ref.repo_id) == ref`. Edge case: `record_id` containing hyphens. (SY-47)
 
 ## Step 0b: Bootstrap and Identity
 
@@ -211,6 +212,7 @@ Only migrate valid fresh state. Do not reimport defects from the old system. See
 
 ```json
 {
+    "schema_version": "1.0",
     "migrated_at": "<ISO 8601>",
     "source_root": "~/.claude/handoffs/<project>/",
     "target_root": "~/.claude/engram/<repo_id>/snapshots/",
@@ -304,7 +306,7 @@ Triage old tests into three buckets:
 
 | Invariant | Test | Step |
 |---|---|---|
-| /search grouping ("never interleaved") | Multi-subsystem query, assert contiguous grouping | 4a |
+| /search grouping ("never interleaved") | Multi-subsystem query, assert contiguous grouping: for each adjacent pair `(entries[i], entries[i+1])` where subsystems differ, assert `entries[i+1].ref.subsystem` does not appear in `entries[0..i-1]` | 4a |
 | All 13 skills functional | Automated smoke test per skill: one happy-path invocation, assert expected observable output. **Progressive:** at each step, all skills activated by or before that step must pass their smoke test. A shared smoke-test runner is invoked at each step's exit gate, parameterized by the set of activated skills. | Progressive (not Step 5 only) |
 | /save shared-entrypoint delegation | (1) Spy test: mock the shared entrypoint, invoke `/save`, assert mock called exactly once for defer and once for distill with the same arguments as the standalone call. "Same entrypoint" = identical Python function object (by module + qualified name). A wrapper or reimplementation that delegates to a private helper does not satisfy this test. (2) Parity test: run `/save` and standalone `/defer` with fixture snapshot, assert identical `IndexEntry` output (same fields, same RecordRef). (3) Partial-failure parity: `/save` with distill engine disabled → same defer output as standalone `/defer`. | 4a |
 
