@@ -20,6 +20,8 @@ Three capsule contracts define the inter-skill data exchange format. Each contra
 
 `<!-- dialogue-orchestrated-briefing -->` is a distinct sentinel meaning "/dialogue already assembled the full Codex briefing." Internal sentinel — no external consumers, no schema. Documented to prevent misuse. This sentinel MUST only appear in dialogue's internal pipeline state representation — it MUST NOT appear in dialogue's externalized output (the text emitted to the user and conversation context). No external consumers in v1 — no schema, consumer class, or behavior contract is defined. The NS handoff sentinel is input to dialogue's pipeline, not a replacement. The NS sentinel never reaches codex-dialogue.
 
+"Internal pipeline state representation" means in-memory variables and transient state within the current skill invocation that are never serialized to conversation context, user messages, or any durable store. "User-visible output" includes all text that would appear as part of the skill's output turn in the conversation, including prose, code blocks, HTML comments, or structured data.
+
 ### Unknown Version Behavior
 
 When a consumer encounters a sentinel with an unrecognized version (e.g., `<!-- ar-capsule:v2 -->` when only `v1` is known): reject the capsule block, not the skill session. A version mismatch prevents capsule consumption but does not break the skill invocation. The consumer proceeds as if no capsule exists, applying its consumer class fallback behavior (see [foundations.md](foundations.md#consumer-classes)).
@@ -35,6 +37,8 @@ Give NS stable, machine-referenceable access to AR findings without requiring pr
 Advisory/tolerant. NS validates the capsule if present; falls back to prose parsing if absent or invalid.
 
 **Provenance in fallback:** When NS falls back to prose parsing (capsule absent, schema-invalid, or unknown-version rejected), the NS handoff MUST omit `source_artifacts` entries for the absent capsule. Do not reference an AR `artifact_id` that was not structurally consumed. This preserves lineage integrity — downstream consumers can trust that `source_artifacts` entries represent structurally validated provenance, not prose-derived references.
+
+**Validity criteria:** An AR capsule is invalid if any required field is absent or not well-typed. Required fields: `artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `findings`. Optional fields: `topic_key`, `supersedes`, `source_artifacts`, `record_path`, `overall_confidence`, `assumptions`, `open_questions`. This parallels the explicit validity criteria in Contracts 2 and 3.
 
 ### Emission (Contract 1)
 
@@ -141,6 +145,8 @@ out_of_scope:
 - **When no AR capsule was consumed:** All three fields are empty arrays.
 - **Reachability guarantee:** These fields close cross-schema reachability gaps where [routing](routing-and-materiality.md#routing-classification) and [materiality](routing-and-materiality.md#material-delta-gating) rules reference AR capsule fields. Deterministic routing and materiality clauses MUST be evaluable from the direct source snapshot (the NS handoff); they MUST NOT read through to transitive upstream capsules. When no NS handoff is consumed (standalone dialogue invocation), this guarantee is vacuously satisfied — there is no transitive upstream chain. Routing and materiality evaluate items against conversation context only.
 
+The selective inclusion criterion (relevance to selected tasks) MUST be construed broadly — when in doubt, include. A missing `finding_id` that later surfaces in an emerged item produces a routing miss (falls through to model classification where deterministic would apply). Err toward over-forwarding rather than under-forwarding.
+
 ## Contract 3: Dialogue Feedback Capsule
 
 ### Purpose
@@ -173,7 +179,7 @@ record_path: <path to .claude/composition/feedback/ file — MUST be non-null>
 record_status: <ok | write_failed — MUST always be present; set to ok on successful write, write_failed when durable file write fails>
 
 thread_id: <Codex thread ID>
-thread_created_at: <ISO 8601, UTC, millisecond precision — when the Codex thread was established; used as the comparison baseline for thread continuation checks (see [routing-and-materiality.md](routing-and-materiality.md#thread-continuation-vs-fresh-start))>
+thread_created_at: <ISO 8601, UTC, millisecond precision — when the Codex thread was established; used as the comparison baseline for thread continuation checks (see [routing-and-materiality.md](routing-and-materiality.md#thread-continuation-vs-fresh-start)). When the Codex API returns a timestamp with precision below milliseconds, apply the same normalization as `created_at` (pad `.000` for second-precision) per [lineage.md §Artifact ID Format](lineage.md#artifact-id-format) precision rule.>
 converged: <true | false>
 turn_count: <int>
 
