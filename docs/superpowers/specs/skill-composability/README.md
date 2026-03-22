@@ -15,7 +15,7 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 
 | Authority | Description | Default Claims |
 |-----------|-------------|----------------|
-| `foundation` | Composability model, scope, consumer classes, cross-cutting invariants | `architecture_rule` |
+| `foundation` | Composability model, scope, consumer classes, cross-cutting invariants | `architecture_rule`, `behavior_contract` |
 | `decisions` | Locked design decisions D1-D5 | `decision_record` |
 | `capsule-contract` | Capsule schemas, sentinels, wire format | `interface_contract` |
 | `pipeline` | Adaptive --plan, adapter pattern, decomposition, tautology filter | `behavior_contract` |
@@ -28,9 +28,9 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 ### Precedence
 
 - Normative files take precedence over non-normative
-- `behavior_contract`: routing > pipeline > lineage
+- `behavior_contract`: routing > pipeline > lineage > foundation
 - `interface_contract`: capsule-contract > lineage
-- Fallback: foundation > capsule-contract > routing > pipeline > lineage > decisions > delivery-plan > delivery-verification > supporting
+- Fallback: foundation > decisions > capsule-contract > routing > pipeline > lineage > delivery-plan > delivery-verification > supporting
 
 ### Boundary Rules
 
