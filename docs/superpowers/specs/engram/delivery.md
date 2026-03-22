@@ -22,7 +22,7 @@ Step 0b: Bootstrap and identity (engram init + .engram-id)
     |
 Step 1: Bridge cutover (defer/ingest)
     |
-Step 2: Knowledge cutover
+Step 2: Knowledge cutover + engram_guard engine_trust_injection capability
     |
 Step 3: Work cutover
     |
@@ -129,6 +129,7 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 | Knowledge reader, engine | Staging writes, dedup, publication, [promote-meta](types.md#promote-meta-promotion-state-record) |
 | Staging inbox | `~/.claude/engram/<repo_id>/knowledge_staging/` |
 | `/learn`, `/distill`, `/curate`, `/promote` | All knowledge skills |
+| `engram_guard` hook (engine trust injection only) | [Engine trust injection](enforcement.md#trust-injection) for Knowledge engine. Write/Edit path authorization deferred to Step 3a. |
 
 **Exit criteria (2a):** Full learn -> distill -> curate -> promote lifecycle. Staging dedup. [Staging inbox cap](enforcement.md#staging-inbox-cap).
 
@@ -156,7 +157,7 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 |---|---|
 | `engram/work/` | `git mv docs/tickets/*` |
 | Work engine | 4-stage pipeline, trust model, dedup, autonomy — all preserved |
-| `engram_guard` hook | [Protected-path enforcement](enforcement.md#protected-path-enforcement) + [trust injection](enforcement.md#trust-injection) |
+| `engram_guard` hook (full) | Extends Step 2a hook with [protected-path enforcement](enforcement.md#protected-path-enforcement) + [direct-write path authorization](enforcement.md#direct-write-path-authorization) for Work paths |
 | `/ticket`, `/triage` | Work skills |
 | Config | `.claude/engram.local.md` (see [autonomy configuration](enforcement.md#configuration)) |
 | Bridge adapter update | `/defer` switches from bridge adapter (Step 1) to new Work engine |

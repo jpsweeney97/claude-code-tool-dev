@@ -13,7 +13,7 @@ authority: skill-contract
 |---|---|---|
 | `/save` | Context (orchestrator) | Orchestrates [defer + distill](operations.md#save-as-session-orchestrator). Embeds [orchestration intent](types.md#snapshot-orchestration-intent) in snapshot frontmatter. Per-step results. `--no-defer`, `--no-distill`. |
 | `/load` | Context | Chain protocol uses `repo_id` + `worktree_id`. |
-| `/quicksave` | Context | Lightweight: 5 sections, no defer, no distill. |
+| `/quicksave` | Context | Lightweight: 5 sections, no defer, no distill. Writes checkpoint directly via Write tool (not through engine Bash) — see [direct-write path authorization](enforcement.md#direct-write-path-authorization). |
 | `/defer` | Context -> Work | [DeferEnvelope](types.md#deferenvelope-context-to-work) + idempotency. Accepts `--snapshot-ref <ref>` for retry (required when called standalone after `/save` failure). |
 | `/search` | Cross-subsystem | Queries all subsystems via [unified search](operations.md#unified-search). Results grouped by subsystem. |
 | `/ticket` | Work | Unchanged API. Storage at `engram/work/`. |

@@ -11,7 +11,7 @@ authority: enforcement
 
 | Hook | Event | Order | Purpose | On Failure |
 |---|---|---|---|---|
-| `engram_guard` | PreToolUse (Write, Edit, Bash) | 1st | [Protected-path enforcement](#protected-path-enforcement) + [trust injection](#trust-injection) | **Block** |
+| `engram_guard` | PreToolUse (Write, Edit, Bash) | 1st | [Engine trust injection + direct-write path authorization](#trust-injection) | **Block** |
 | `engram_quality` | PostToolUse (Write, Edit) | 2nd | [Snapshot quality checks](#quality-validation) | **Warn** |
 | `engram_register` | PostToolUse (Write, Edit) | 3rd | Ledger append ([hook-class events](types.md#producer-classes)) | **Silent** (best-effort) |
 | `engram_session` | SessionStart | — | [TTL cleanup, worktree_id init](#sessionstart-hook) | See below |
@@ -38,7 +38,7 @@ Policy-based, not tool-specific. Protects subsystem-owned paths from direct muta
 
 Paths canonicalized before matching (resolve symlinks, collapse `..`, normalize to absolute).
 
-**Intentional exclusions:** Snapshot and checkpoint paths (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) are not in this table. Context subsystem writes use Write/Edit tools natively (session orchestration) rather than routing through engine Bash invocations, so PreToolUse path blocking would prevent normal operation. Advisory quality checks via [`engram_quality`](#quality-validation) cover these paths instead.
+**Intentional exclusions:** Snapshot and checkpoint paths (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) are not in this table. Context subsystem writes use Write/Edit tools natively. See [direct-write path authorization](#direct-write-path-authorization) for the enforcement model. Advisory quality checks via [`engram_quality`](#quality-validation) cover content quality.
 
 **Reserved paths:** When content is added to `engram/.engram/` (reserved for future shared metadata), a corresponding path class entry must be added to this table before implementation.
 
@@ -74,11 +74,40 @@ See [foundations.md §Enforcement Boundary Constraint](foundations.md#enforcemen
 
 ## Trust Injection
 
-`engram_guard` injects a trust triple into the engine payload for every authorized Bash invocation of a subsystem engine. Three-step mechanism:
+Two enforcement mechanisms share a single `engram_guard` hook, distinguished by `tool_name`:
+
+| Mechanism | Transport | Applies To | How |
+|-----------|-----------|------------|-----|
+| **Engine trust injection** | Bash (`python3 engine_*.py`) | Work, Knowledge | Payload file with trust triple → engine validates via `collect_trust_triple_errors()` |
+| **Direct-write path authorization** | Write, Edit | Context | Path ownership check → embedded provenance in content → post-write quality validation |
+
+**Governing principle:** Uniformity of policy (every mutation is authorized), not uniformity of transport.
+
+**Guard capability rollout:** Each build step lists the `engram_guard` capabilities it requires. No subsystem may activate a mutating route before the guard capabilities required for that route are active.
+
+| Capability | Ships At | Covers |
+|-----------|----------|--------|
+| `engine_trust_injection` | Step 2a | Knowledge engine mutating entrypoints (Bash-mediated) |
+| `engine_trust_injection` (extended) | Step 3a | Work engine mutating entrypoints |
+| `write_path_authorization` | Step 4a | Context direct-write paths (Write/Edit-mediated) |
+
+### Payload File Contract
+
+The engine trust injection mechanism uses a payload file as the communication channel between `engram_guard` (PreToolUse hook) and subsystem engines.
+
+| Property | Value |
+|----------|-------|
+| **Directory** | `.claude/engram-tmp/` (workspace-local, created on first use) |
+| **Naming** | `<subsystem>-<operation>-<uuid>.json` (e.g., `work-defer-550e8400.json`) |
+| **Schema** | `{"hook_injected": true, "hook_request_origin": "<origin>", "session_id": "<uuid>"}` |
+| **Creator** | `engram_guard` creates the file atomically (temp file → `fsync` → `os.replace`) |
+| **Consumer** | Subsystem engine reads the file, validates via `collect_trust_triple_errors()`, then deletes it |
+| **Cleanup** | Engine deletes after consuming. `engram_session` prunes orphans older than 24h on startup. |
+| **Containment** | `engram_guard` validates the payload file path is within the workspace `.claude/engram-tmp/` directory before writing |
 
 ### Step 1: Injection (PreToolUse)
 
-When `engram_guard` detects an authorized engine invocation, it writes `hook_injected=True`, `hook_request_origin`, and `session_id` to the engine's payload file atomically (temp file -> `fsync` -> `os.replace`). Carries forward the ticket plugin's proven trust injection pattern.
+When `engram_guard` detects an authorized engine invocation, it writes the trust triple to a new [payload file](#payload-file-contract) atomically. The file path is passed to the engine via the Bash command's argument list (matching the proven ticket plugin pattern).
 
 **Authorized engine invocation pattern:** Engine binaries must be named `engine_<subsystem>.py` and reside in the plugin's scripts directory. `engram_guard` matches the **full path** `<engram_scripts_dir>/engine_*.py` — not just the filename. This prevents false matches on user scripts with `engine_` prefixes outside the plugin directory.
 
@@ -86,12 +115,37 @@ When `engram_guard` detects an authorized engine invocation, it writes `hook_inj
 
 ### Step 2: Validation (Engine Entrypoint)
 
-Every **mutating** entrypoint in each subsystem engine must invoke a shared trust validator (`collect_trust_triple_errors()`) before making state changes. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. The validator checks: (1) `hook_injected` is present **and equals `True`** (not just non-empty — `False` must be rejected), (2) `hook_request_origin` is present and is a non-empty string, (3) `session_id` is present and is a non-empty string. Missing, incomplete, or invalid triples reject the operation with a structured error. Read-only entrypoints are exempt.
+### collect_trust_triple_errors() Contract
+
+```python
+# engram_core/trust.py
+def collect_trust_triple_errors(
+    hook_injected: bool,
+    hook_request_origin: str | None,
+    session_id: str | None,
+) -> list[str]:
+    """Validate trust triple fields. Returns empty list on success, error strings on failure."""
+```
+
+**Validation rules (order matters):**
+1. `hook_injected` must be `True` (identity check: `hook_injected is True`). `False`, `None`, or non-bool → error.
+2. `hook_request_origin` must be a non-empty string in `{"user", "agent"}`. `None`, empty string, or unrecognized value → error.
+3. `session_id` must be a non-empty string. `None` or empty string → error.
+
+**Stable error strings:** `"hook_injected: must be True, got {value!r}"`, `"hook_request_origin: must be one of {{'user', 'agent'}}, got {value!r}"`, `"session_id: must be non-empty string, got {value!r}"`.
+
+**Caller obligation:** If the returned list is non-empty, the engine must reject the operation with a structured error containing the error list and return without making state changes. The engine must not catch or suppress errors from this function.
+
+**Origin-matching responsibility:** `collect_trust_triple_errors()` validates that the triple is well-formed. Whether the `hook_request_origin` matches the expected origin for a given entrypoint (e.g., `_user.py` expects `"user"`) is the entrypoint's responsibility — the validator does not enforce route-specific origin rules.
+
+**Module location:** `engram_core/trust.py`. Add to [package structure](foundations.md#package-structure).
+
+Every **mutating** entrypoint in each subsystem engine must invoke [`collect_trust_triple_errors()`](#collect_trust_triple_errors-contract) before making state changes. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. See the function contract above for validation rules, error format, and caller obligation. The validator checks: (1) `hook_injected` is present **and equals `True`** (not just non-empty — `False` must be rejected), (2) `hook_request_origin` is present and is a non-empty string, (3) `session_id` is present and is a non-empty string. Missing, incomplete, or invalid triples reject the operation with a structured error. Read-only entrypoints are exempt.
 
 **Mutating entrypoints** are any engine functions that create, update, or delete files in protected paths. Complete enumeration per subsystem:
 - **Work:** ticket creation, ticket update, ticket close
 - **Knowledge:** knowledge publish (both `/learn` direct-publish and `/curate` staged-publish paths), staging write, promote-meta write
-- **Context:** snapshot write, checkpoint write
+- **Context:** See [direct-write path authorization](#direct-write-path-authorization) (Write/Edit path, not engine trust injection)
 
 All writes from `/learn` route through the Knowledge engine entrypoint — `/learn` does **not** write directly to `learnings.md` via the Write tool. This ensures trust injection covers the `/learn` path.
 
@@ -100,6 +154,17 @@ Read-only queries and index scans are exempt. Each subsystem engine documents it
 ### Step 3: Per-Subsystem Enforcement
 
 Each subsystem engine owns its trust boundary. The shared validator lives in `engram_core/` but enforcement is at the engine level — Engram's indexing layer never sees or checks trust triples.
+
+### Direct-Write Path Authorization
+
+Context subsystem writes (`/save`, `/quicksave`, `/load`) use the Write and Edit tools natively — they do not route through engine Bash invocations. When `engram_guard` detects a Write or Edit call to a Context-owned path (snapshots, checkpoints), it performs **path authorization** rather than engine trust injection:
+
+1. **Path ownership check:** Verify the target path is within the Context subsystem's private root (`~/.claude/engram/<repo_id>/snapshots/**` or `checkpoints/**`). Paths outside these directories are not Context-owned.
+2. **Allow the write.** Context paths are intentionally excluded from [protected-path enforcement](#protected-path-enforcement) (they are not engine-managed).
+3. **Post-write quality validation** via [`engram_quality`](#quality-validation) checks content quality (frontmatter completeness, section count).
+4. **Provenance is embedded** in the written content (frontmatter `session_id`, `worktree_id`, `orchestrated_by`), validated by `/triage` [anomaly detection](operations.md#triage-read-work-and-context).
+
+This is explicitly **path authorization plus provenance/integrity validation**, not engine trust injection. The `collect_trust_triple_errors()` validator is not invoked for direct-write paths.
 
 ### Trust Triple Scope
 
@@ -126,6 +191,7 @@ During Steps 1–3 of the [build sequence](delivery.md), envelope-level idempote
 | Resolve `worktree_id` | 1 call | Fail-closed: session needs identity |
 | Clean expired snapshots (>90d by filename timestamp) | Max 50 files | Fail-open: retry next session |
 | Clean expired chain state (>24h) | Max 20 files | Fail-open |
+| Clean orphan payload files (>24h) | Max 20 files | Fail-open |
 | Verify `.engram-id` exists | 1 read | Warn if missing (diagnostic only — does not create) |
 
 ### Bootstrap Relationship
