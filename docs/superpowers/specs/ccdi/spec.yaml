@@ -25,6 +25,10 @@ authorities:
   integration:
     description: CLI tool interface (topic_inventory.py commands), cross-plugin dependency, data flows (CCDI-lite and full CCDI), registry seed handoff, prepare/commit protocol, inventory generation, and dump_index_metadata schema.
     default_claims: [behavior_contract, interface_contract]
+    elevated_sections:
+      - section: "pipeline-isolation-invariants"
+        claim: "behavior_contract"
+        rationale: "Behavioral invariants cross-referenced from decisions.md elevated to outrank decision_record for behavioral claims"
 
   delivery:
     description: Rollout strategy (Phase A/B, shadow mode, kill criteria), testing strategy (four-layer approach, ccdi_trace replay), test matrices, and per-dialogue diagnostics schema.
@@ -40,11 +44,9 @@ authorities:
 
 precedence:
   normative_first: true
-  # NOTE: Section-level claim elevation — a normative file may explicitly claim
-  # authority for a specific section under a claim family outside its default_claims
-  # (section-level claim elevation). See integration.md §pipeline-isolation-invariants
-  # for an example (behavior_contract authority elevated within integration.md despite
-  # integration's default_claims including only behavior_contract via integration authority).
+  # NOTE: Section-level claim elevation — registered via `elevated_sections` on an authority
+  # entry above. See integration.`elevated_sections` for the formal registration of
+  # §pipeline-isolation-invariants claiming behavior_contract authority above decision_record.
   # NOTE: claim_precedence lists include authorities that may not hold the
   # arbitrated claim in their default_claims. This is intentional:
   # - `decisions` appears in all chains as a fallback of last resort — component
