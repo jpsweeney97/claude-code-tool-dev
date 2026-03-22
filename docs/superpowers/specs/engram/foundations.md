@@ -51,6 +51,7 @@ packages/plugins/engram/
 │   ├── identity.py           # repo_id, worktree_id resolution
 │   ├── types.py              # RecordRef, RecordMeta, contracts
 │   ├── reader_protocol.py    # NativeReader protocol definition only
+│   ├── canonical.py          # Deterministic JSON serialization for idempotency keys
 │   └── query.py              # Discovery + query engine
 ├── skills/                   # User-facing skills (13 total, including engram init)
 ├── hooks/                    # PreToolUse/PostToolUse/SessionStart hooks

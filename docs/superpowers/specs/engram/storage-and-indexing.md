@@ -47,7 +47,7 @@ engram/                              # Shared root (repo-local, git-tracked)
 
 3. **Handoffs move from `~/.claude/handoffs/<project>/` to `~/.claude/engram/<repo_id>/`**. Keyed by `repo_id` instead of project directory name — solves rename and worktree identity collisions. Forks that share `.engram-id` share the same private root; see [fork collision risk](decisions.md#named-risks).
 
-4. **Knowledge staging is private** (`knowledge_staging/` in the private root). Staged candidates are not repo-visible until explicitly published via `/curate`.
+4. **Knowledge staging is private** (`knowledge_staging/` in the private root). Staged candidates are not repo-visible until explicitly published via `/curate`. Each `DistillCandidate` gets its own staging file, named `YYYY-MM-DD-<content_sha256[:16]>.md` (first 16 hex chars of the candidate's `content_sha256`). This makes `O_CREAT | O_EXCL` coalescing semantics precise — identical candidates from concurrent operations coalesce to the same filename.
 
 ## TTL and Lifecycle
 
@@ -87,6 +87,16 @@ class IndexEntry:
 
 **Timezone normalization:** All `datetime` fields in `IndexEntry` are UTC-normalized (`datetime.timezone.utc`). NativeReaders **must** parse ISO 8601 timestamps from source formats and convert to UTC-aware datetime before populating `IndexEntry`. This ensures consistent ordering in `/search`, `/timeline`, and `query(since=...)` across subsystems.
 
+**RecordMeta field mapping per subsystem:**
+
+| Subsystem | `schema_version` source | `worktree_id` source | `session_id` source | `visibility` |
+|---|---|---|---|---|
+| Context (snapshot) | `schema_version` in `---` frontmatter | `worktree_id` in `---` frontmatter | `session_id` in `---` frontmatter | `"private"` (always private root) |
+| Work (ticket) | `schema_version` in fenced YAML | `worktree_id` in fenced YAML | `session_id` in fenced YAML | `"shared"` (always shared root) |
+| Knowledge (lesson) | `meta_version` in `lesson-meta` | N/A (shared root, no worktree scope) | N/A | `"shared"` |
+
+Fields marked N/A populate as `None` in `RecordMeta`. The Knowledge reader derives `schema_version` from `lesson-meta.meta_version` (not a separate field).
+
 **Hard rule: No mutation, policy, or lifecycle decisions from `IndexEntry` alone.** IndexEntry is display-only. Any operation that changes state must open the native file through the subsystem engine.
 
 **`snippet` is not `summary`.** It's a preview for display in search results and triage lists. Capped at 200 characters. Reader-extracted (not first-N-chars). Never used for dedup, triage decisions, or workflow logic.
@@ -123,7 +133,7 @@ Readers live with their subsystems:
 ```
 packages/plugins/engram/
 ├── engram_core/
-│   ├── reader_protocol.py    # NativeReader protocol + QueryResult types
+│   ├── reader_protocol.py    # NativeReader protocol definition
 │   └── query.py              # Discovery + query engine
 ├── scripts/
 │   ├── context/
@@ -189,7 +199,7 @@ When `subsystems` is set to a single value, bare status is auto-prefixed as a co
 | `knowledge` | `staged`, `published` |
 | `context` | `active`, `archived` |
 
-Bare values are subsystem-native. The query engine prefixes with `subsystem:` for cross-subsystem filtering.
+Bare values are subsystem-native. The query engine prefixes with `subsystem:` for cross-subsystem filtering. Context status is determined by path structure: snapshots in `snapshots/.archive/` have status `archived`; all others have status `active`. The Context reader uses path-based status derivation (not a frontmatter field).
 
 ### Text Search Semantics
 
