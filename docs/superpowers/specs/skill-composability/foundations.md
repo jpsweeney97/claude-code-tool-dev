@@ -54,7 +54,7 @@ Two consumer classes govern how skills process upstream capsules:
 
 **Unknown sentinel versions:** See [capsule-contracts.md](capsule-contracts.md#unknown-version-behavior) for the normative rule. Summary: reject the capsule block, not the skill session. For advisory/tolerant consumers, this means applying the fallback source listed above. For strict/deterministic consumers, this means proceeding as if no upstream handoff is present (same as the "no sentinel found" case in [pipeline-integration.md](pipeline-integration.md#two-stage-admission)).
 
-**Strict/deterministic baseline mode:** When the handoff is invalid or unknown-version, the pipeline runs in baseline mode — no enriched decomposition, no upstream context injection. This differs from advisory/tolerant in that no alternative source is consulted; the pipeline simply lacks upstream enrichment. The behavioral contract for strict/deterministic consumers is defined in [capsule-contracts.md](capsule-contracts.md#contract-2-ns--dialogue-ns-handoff-block).
+**Strict/deterministic baseline mode:** When the handoff is invalid or unknown-version, the pipeline runs in baseline mode — no enriched decomposition, no upstream context injection. This differs from advisory/tolerant in that no alternative source is consulted; the pipeline simply lacks upstream enrichment. The behavioral contract for strict/deterministic consumers is defined in [capsule-contracts.md](capsule-contracts.md#contract-2-ns-dialogue-ns-handoff-block).
 
 ## Three-Layer Delivery Authority
 
@@ -66,7 +66,7 @@ The composition system distributes authority across three layers:
 | **Composition contract** | Shared reference document | Implementation-time reference — must conform to spec definitions; authoritative for inline stub authors (NOT runtime-loaded; stubs carry the runtime projection) | Skill authors modifying composition behavior |
 | **Inline stubs** (per skill) | Each participating skill | Runtime authority — role-specific operational subset derived from the contract | Claude during skill execution |
 
-See spec.yaml lines 63-67 for the external authority positioning comment (composition contract and inline stubs positioned in the authority hierarchy).
+See the `# External authorities` comment in spec.yaml (lines 66-70) for the external authority positioning (composition contract and inline stubs positioned in the authority hierarchy).
 
 **Relationship between spec and contract:** Within this spec, the normative definitions live in the spec files ([routing-and-materiality.md](routing-and-materiality.md), [lineage.md](lineage.md), [capsule-contracts.md](capsule-contracts.md), etc.). The Composition contract is the runtime delivery artifact that must conform to — not supersede — these spec-file definitions. When the contract diverges from the spec, the spec is authoritative and the contract must be updated.
 
@@ -110,4 +110,4 @@ Contract versioning is a CI/review-time concern, not runtime. Each skill stub in
 
 **Interim drift mitigation protocol:** see [delivery.md](delivery.md#open-items) item #8. Contract→stub drift is bidirectional and is a P0 prerequisite check.
 
-The interim drift mitigation protocol ([delivery.md](delivery.md#open-items) item #8) contains load-bearing MUST clauses that enforce this architectural invariant. These MUST clauses carry `architecture_rule` authority by reference — they are enforcement mechanisms for the contract→stub drift detection invariant defined in this section, not independent `implementation_plan` claims. Contradictions between item #8 and this section are spec defects (the architectural invariant governs).
+The interim drift mitigation protocol ([delivery.md](delivery.md#open-items) item #8) contains MUST clauses that implement this architectural invariant as delivery guidance. Contradictions between item #8 and this section are resolved in favor of this section — the architectural invariant (foundation authority) takes precedence over the interim protocol (delivery-plan authority) per the `fallback_authority_order` in spec.yaml.
