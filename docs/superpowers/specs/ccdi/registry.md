@@ -36,7 +36,7 @@ TopicRegistryEntry
     └── injected_chunk_ids: string[]
 ```
 
-Valid `Facet` values: `overview`, `schema`, `input`, `output`, `control`, `config` (see [data-model.md#queryplan](data-model.md#queryplan)).
+Valid `Facet` values: see [data-model.md#queryplan](data-model.md#queryplan) for the authoritative enum.
 
 **Serialization invariant:** All fields MUST be written to the registry file including null-valued ones — see [data-model.md#registryseed](data-model.md#registryseed) for the normative requirement. An absent field triggers entry reinitialization per the resilience principle. This includes all `coverage.*` sub-fields: `overview_injected`, `facets_injected`, `pending_facets`, `family_context_available`, and `injected_chunk_ids` — all five are durable and MUST be serialized (empty arrays/false values are valid, not omittable).
 

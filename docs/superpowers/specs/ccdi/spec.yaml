@@ -40,6 +40,11 @@ authorities:
 
 precedence:
   normative_first: true
+  # NOTE: Section-level claim elevation — a normative file may explicitly claim
+  # authority for a specific section under a claim family outside its default_claims
+  # (section-level claim elevation). See integration.md §pipeline-isolation-invariants
+  # for an example (behavior_contract authority elevated within integration.md despite
+  # integration's default_claims including only behavior_contract via integration authority).
   # NOTE: claim_precedence lists include authorities that may not hold the
   # arbitrated claim in their default_claims. This is intentional:
   # - `decisions` appears in all chains as a fallback of last resort — component
@@ -59,6 +64,9 @@ precedence:
     decision_record: [decisions, foundation, delivery]
     implementation_plan: [delivery, integration, decisions]
     verification_strategy: [delivery, integration, decisions]
+  # fallback_authority_order applies only when a claim is not covered by any defined
+  # claim_precedence chain. For defined claim families, always use the specific chain
+  # above — this is not a tiebreaker within defined chains.
   fallback_authority_order: [foundation, data-model, classifier-contract, registry-contract, packet-contract, integration, delivery, decisions]
   unresolved: ambiguity_finding
 
@@ -71,7 +79,7 @@ boundary_rules:
     reason: Classifier output structure and confidence semantics drive registry scheduling and integration wiring.
   - on_change_to: [registry-contract]
     review_authorities: [integration, delivery, data-model]
-    reason: Registry state changes and semantic hints schema affect CLI command behavior, argument shapes, test strategy, and RegistrySeed.entries durable-field subset.
+    reason: Registry state changes and semantic hints schema affect CLI command behavior, argument shapes, test strategy, and RegistrySeed.entries durable-field subset. NOTE: changes to RegistrySeed.entries durable-field semantics (which fields are durable vs attempt-local) in registry.md do NOT require data-model.md review — data-model.md owns only the envelope schema (entries, docs_epoch, inventory_snapshot_version, results_file). Only changes to the envelope itself require data-model.md review. NOTE (circular dependency): boundary rules 3 (registry-contract → data-model) and the data-model rule (data-model → registry-contract) create a bidirectional dependency for RegistrySeed.entries — changes to either file require reviewing the other. This is an accepted architectural trade-off of the authority split.
   - on_change_to: [integration]
     review_authorities: [registry-contract, delivery, data-model]
     reason: CLI interface changes (including semantic hint schema) affect registry scheduling logic, test strategy, and dump_index_metadata schema changes affect inventory generation (data-model).

@@ -49,7 +49,7 @@ Thresholds are configurable via [`ccdi_config.json`](data-model.md#configuration
 
 ## Output Structure
 
-Produced by the [`classify` CLI command](integration.md#cli-tool-topicinventorypy) and consumed by the [topic registry](registry.md) for scheduling decisions. Valid `Facet` values: `overview`, `schema`, `input`, `output`, `control`, `config` (defined in [data-model.md#queryplan](data-model.md#queryplan)).
+Produced by the [`classify` CLI command](integration.md#cli-tool-topicinventorypy) and consumed by the [topic registry](registry.md) for scheduling decisions. Valid `Facet` values: see [data-model.md#queryplan](data-model.md#queryplan) for the authoritative enum.
 
 ```
 ClassifierResult
