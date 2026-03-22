@@ -102,6 +102,8 @@ Capsules are for externalized artifacts from explicit skill invocations. The glo
 
 ## Versioning and Drift Detection
 
+**Stub terminology:** "Inline stub" and "composition stub" both refer to the composition-specific block within a skill's SKILL.md. "Skill stub file" or "skill file" refers to the entire SKILL.md. This spec uses "composition stub" as the primary term.
+
 Contract versioning is a CI/review-time concern, not runtime. Each skill stub includes `implements_composition_contract: v1` as a drift detection marker. The marker MUST appear in the skill's composition stub frontmatter or as a top-level key in the composition stub block — not in examples, comments, or disabled sections. The grep-based CI check ([verification.md](verification.md)) MUST verify the marker appears within the active composition stub boundaries. During the interim period before `validate_composition_contract.py` is implemented ([delivery.md](delivery.md#open-items) item #6), the check is file-level only — boundary-scoped verification is an acknowledged gap closed by the validator. Sentinel versioning (`v1` in sentinel comments) handles runtime wire compatibility. Contract version stays out of capsule schemas.
 
 **Contract location:** Contract file: `packages/plugins/cross-model/references/composition-contract.md`. See [delivery.md](delivery.md#skill-text-changes) for the full delivery specification. The contract sits alongside the consultation contract, since all three skills interact through the cross-model dialogue system.
