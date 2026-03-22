@@ -54,7 +54,7 @@ Policy-based enforcement covering all currently supported write tools (Write, Ed
 | `knowledge_published` | `engram/knowledge/**` | Engine entrypoints only |
 | `knowledge_staging` | `~/.claude/engram/<repo_id>/knowledge_staging/**` | Engine entrypoints only |
 
-Paths canonicalized before matching (resolve symlinks, collapse `..`, normalize to absolute). Path canonicalization and `**` glob matching cover all subdirectories including `.`-prefixed ones (e.g., `.audit/`). The `engram/work/**` path class protects `engram/work/.audit/**` — all audit trail entries are engine-only.
+Paths canonicalized before matching: expand `~` (via `os.path.expanduser()` or equivalent), then resolve symlinks, collapse `..`, normalize to absolute (`os.path.realpath()` after expansion). Path canonicalization and `**` glob matching cover all subdirectories including `.`-prefixed ones (e.g., `.audit/`). The `engram/work/**` path class protects `engram/work/.audit/**` — all audit trail entries are engine-only.
 
 **Intentional exclusions:** Snapshot and checkpoint paths (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) are not in this table. The Context paths handled by [branch 2 of the guard decision algorithm](#guard-decision-algorithm) are the authoritative enumeration of Context-owned paths — see [§Direct-Write Path Authorization](#direct-write-path-authorization). Context subsystem writes use Write/Edit tools natively — excluded from both protected-path enforcement and [trust triple validation](#step-2-validation-engine-entrypoint). Advisory quality checks via [`engram_quality`](#quality-validation) cover content quality. `engram_register` does NOT fire for Context snapshot/checkpoint writes — these paths are excluded from this table. Context write events (`snapshot_written`) are emitted by the orchestrator/engine as [ledger events](types.md#event-vocabulary-v1), not by `engram_register`.
 
@@ -237,7 +237,14 @@ The trust triple is `{hook_injected, hook_request_origin, session_id}` — three
 
 `engram_guard` MUST obtain `worktree_id` by calling `identity.get_worktree_id()` at invocation time — same `git rev-parse --git-dir` derivation, but never from any cached session state. `session_id` MUST be obtained from the Claude Code session context. No shared state file or environment variable is required or permitted.
 
-**Future platform fallback:** The shared-state approach (producing hook writes, consuming hook reads) applies only if Claude Code session context becomes unavailable in a future platform change. Until then, recomputation is the sole supported approach. If recomputation fails (e.g., `git rev-parse --git-dir` returns an error), block fail-closed and surface the specific git error.
+**Future platform fallback:** The shared-state approach (producing hook writes, consuming hook reads) applies only if Claude Code session context becomes unavailable in a future platform change. Until then, recomputation is the sole supported approach. If recomputation fails (e.g., `git rev-parse --git-dir` returns an error), the guard enters **degraded mode** for that invocation:
+
+- **Branches 1 and 2** (engine trust injection, direct-write path authorization): These branches require `worktree_id` for trust payload and provenance. Block (exit code 2) with diagnostic: `"engram_guard: worktree_id unavailable — {git_error}. Engine trust injection and direct-write authorization require worktree_id."` This scopes the blocking to Engram-relevant write paths only.
+- **Branch 3** (protected-path enforcement): Evaluate normally — protected-path matching does not depend on `worktree_id`. No degradation.
+- **Branch 4** (allow unconditionally): Evaluate normally — no `worktree_id` dependency. No degradation.
+- **Observability:** Log the git error to stderr. The diagnostic channel path (`ledger/<worktree_id>/<session_id>.diag`) cannot be constructed without `worktree_id`, so stderr is the only available channel — this is structurally correct, not a gap.
+
+This resolves the `engram_session`/`engram_guard` asymmetry: both hooks scope their failure response proportionally to what they need `worktree_id` for. `engram_session` is fail-open because session startup is not blocked by `worktree_id` failure. `engram_guard` blocks only branches 1-2 because only those branches depend on `worktree_id`.
 
 ### Bridge Period Limitations
 
@@ -271,7 +278,7 @@ Per-file cleanup that exceeds 5ms is aborted (skip remaining files). This preven
 
 ### WorktreeID Resolution Failure
 
-If `worktree_id` resolution fails, `engram_session` logs a warning to the [session diagnostic channel](#session-diagnostic-channel) (`.diag`). `engram_guard` independently calls `identity.get_worktree_id()` at each invocation — if git state is broken, the hook fails-closed with the specific git error. No error state is stored between hooks. Read-only operations degrade gracefully. Session startup is **not** blocked.
+If `worktree_id` resolution fails, `engram_session` logs a warning to the [session diagnostic channel](#session-diagnostic-channel) (`.diag`). `engram_guard` independently calls `identity.get_worktree_id()` at each invocation — if git state is broken, the guard enters [degraded mode](#inter-hook-runtime-state): branches 1-2 block with the specific git error; branches 3-4 evaluate normally. No error state is stored between hooks. Read-only operations degrade gracefully. Session startup is **not** blocked.
 
 If `worktree_id` is unavailable, log to stderr only — the diagnostic channel path cannot be constructed without `worktree_id`.
 
