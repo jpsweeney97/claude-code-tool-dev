@@ -305,7 +305,7 @@ Two distinct mechanisms serving different purposes.
 
 ### Idempotency — Same Operation Retried
 
-The `idempotency_key` in `EnvelopeHeader` is computed as `sha256(canonical_json_bytes(idempotency_material)).hexdigest()` where the material is envelope-type-specific:
+The `idempotency_key` in `EnvelopeHeader` is computed as `sha256(canonical_json_bytes(idempotency_material)).hexdigest()` where the material is envelope-type-specific. Enforcement semantics vary by envelope type — see [§Idempotency Enforcement Per Envelope Type](#idempotency-enforcement-per-envelope-type):
 
 | Envelope | Idempotency Material |
 |---|---|
@@ -331,6 +331,16 @@ Uses content fingerprints at the record level:
 
 These mechanisms are independent in purpose and enforcement stage: an idempotent retry (same `idempotency_key`) is caught at the envelope level before dedup is ever checked. A genuinely new operation with coincidentally identical content is caught by dedup, not idempotency.
 
+### Idempotency Enforcement Per Envelope Type
+
+| Envelope | Enforcement | Mechanism | Rationale |
+|---|---|---|---|
+| `DeferEnvelope` | **Enforced** | Engine checks `idempotency_key` against existing tickets | Ticket creation is not content-addressed; envelope-level dedup is the sole protection against retry duplicates |
+| `DistillEnvelope` | **Trace-only** | `idempotency_key` is computed and included in the header but NOT persisted or checked | Per-candidate `content_sha256` dedup via `O_CREAT\|O_EXCL` provides content-addressed dedup. Published dedup uses `content_sha256` in `lesson-meta`. Envelope-level identity adds no correctness guarantee beyond what per-candidate dedup already provides. |
+| `PromoteEnvelope` | **Enforced** | Engine checks `idempotency_key` against `promote-meta` state | Promote is a state-machine transition; re-entry detection is structural (Branch B1 rejection) |
+
+The `idempotency_key` field remains in `EnvelopeHeader` (shared type) for all envelope types. For `DistillEnvelope`, the field serves as a trace/observability aid — it is available in the envelope for logging and debugging but is not persisted to staging-meta and is not checked at any dedup stage.
+
 ### Engine Hash Verification
 
 The Knowledge engine **must** recompute [`content_hash(content)`](#hash-producing-functions) for every `DistillCandidate` and verify it matches the caller-provided `content_sha256`. Reject any candidate where the computed hash does not match. This prevents hash drift from corrupting the dedup invariant. Caller provides the hash (self-describing envelopes); engine verifies (trust-but-verify).
@@ -349,7 +359,7 @@ All published knowledge entries in `engram/knowledge/learnings.md` use a uniform
 
 ```markdown
 ### YYYY-MM-DD Entry title
-<!-- lesson-meta {"meta_version": "1.0", "lesson_id": "<UUIDv4>", "content_sha256": "<hex>", "created_at": "<ISO8601>", "producer": "learn|curate"} -->
+<!-- lesson-meta {"content_sha256": "<hex>", "created_at": "<ISO8601>", "lesson_id": "<UUIDv4>", "meta_version": "1.0", "producer": "learn|curate"} -->
 
 Entry content...
 ```
@@ -425,7 +435,7 @@ class LedgerEntry:
     producer: str                 # "engine" | "orchestrator" | "hook"
     session_id: str               # Claude session UUID
     worktree_id: str              # Derived from git rev-parse --git-dir
-    record_ref: str | None        # RecordRef canonical serialization, if applicable
+    record_ref: str | None        # RecordRef canonical serialization; see Event Vocabulary for per-event-type population rules
     operation_id: str | None      # Groups related events (e.g., all events from one /save)
     payload: dict                 # Event-type-specific data (dict[str, Any] — see Event Vocabulary for per-event-type payload shapes; runtime validation is event-type-specific)
 ```
@@ -436,11 +446,11 @@ Payload is typed per event — see [Event Vocabulary](#event-vocabulary-v1) for 
 
 ### Event Vocabulary (v1)
 
-| Event Type | Producer | Payload Fields | Purpose |
-|---|---|---|---|
-| `snapshot_written` | orchestrator | `{ref: str, orchestrated_by: str}` | Timeline fidelity — records snapshot creation. `orchestrated_by` values: `"save"`, `"quicksave"`, `"load"`. See [operations.md §Snapshot Event Emission](operations.md#snapshot-event-emission) for per-producer emit conditions. |
-| `defer_completed` | engine | `{source_ref: str, emitted_count: int}` | Completion evidence for /triage inference |
-| `distill_completed` | engine | `{source_ref: str, emitted_count: int}` | Completion evidence for /triage inference |
+| Event Type | Producer | Payload Fields | `record_ref` | Purpose |
+|---|---|---|---|---|
+| `snapshot_written` | orchestrator | `{ref: str, orchestrated_by: str}` | `payload.ref` | Timeline fidelity — records snapshot creation. `orchestrated_by` values: `"save"`, `"quicksave"`, `"load"`. See [operations.md §Snapshot Event Emission](operations.md#snapshot-event-emission) for per-producer emit conditions. |
+| `defer_completed` | engine | `{source_ref: str, emitted_count: int}` | `null` | Completion evidence for /triage inference |
+| `distill_completed` | engine | `{source_ref: str, emitted_count: int}` | `null` | Completion evidence for /triage inference |
 
 The `emitted_count` field is **required** in `defer_completed` and `distill_completed` payloads. A value of `0` means the operation completed with zero outputs (zero-output success — [triage case 3](operations.md#triage-read-work-and-context)). A missing `emitted_count` key is a producer bug — triage treats it as "completion not proven" (case 4). Producers must always emit `emitted_count`, including when the count is zero.
 

@@ -54,12 +54,12 @@ The Work subsystem operates in one of two modes, configured via `work_mode` in [
     -> Distill engine extracts candidates (parse -> subsections -> classify durability -> dedup)
     -> DistillEnvelope per candidate batch (with idempotency_key)
     -> Knowledge engine writes to staging inbox (private, not repo-visible)
-    -> Duplicate check: idempotency_key against staged + published entries
-    -> If duplicate: skip
-    -> If new: creates staged candidate
+    -> Per-candidate dedup: content_sha256 against staged + published entries
+    -> If match: skip that candidate
+    -> If new: creates staged candidate (atomic via O_CREAT|O_EXCL)
 ```
 
-**Distill dedup sequence:** (1) Envelope-level: check `idempotency_key` against existing staged/published envelopes. If match, return existing result. (2) Per-candidate: check each `DistillCandidate.content_sha256` against existing staged/published files. If match, skip that candidate. Within a single batch, candidates with identical `content_sha256` are deduplicated (only one written).
+**Distill dedup:** Per-candidate `content_sha256` dedup via atomic `O_CREAT | O_EXCL` staging file creation. Identical candidates from concurrent operations coalesce at the filesystem level. Within a single batch, candidates with identical `content_sha256` are deduplicated (only one written). The `DistillEnvelope.idempotency_key` is not persisted or checked for distill operations — see [types.md §Idempotency Enforcement Per Envelope Type](types.md#idempotency-enforcement-per-envelope-type).
 
 **Trust boundary: staged != published.** Distill writes to a private staging area (`knowledge_staging/`), not to `engram/knowledge/`. Staged candidates are reviewed before publication via `/curate`.
 
