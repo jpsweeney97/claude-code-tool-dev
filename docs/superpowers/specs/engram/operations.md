@@ -88,8 +88,9 @@ The Work subsystem operates in one of two modes, configured via `work_mode` in [
         (3) expected_X: true + no downstream + X_completed      -> zero-output success (satisfied)
             ledger event exists (emitted_count=0)
         (4) expected_X: true + no downstream + no completion    -> "completion not proven"
-            event (if emitted_count absent from event vocabulary,
-            treat as "completion not proven")
+            event (if the completion event is present but `emitted_count` key is absent
+            from the payload dict, treat as "completion not proven" — this is a
+            producer bug, distinct from case where the event itself is absent)
         Cross-reference: emitted_count field defined in types.md
             §Event Vocabulary.
     -> When ledger unavailable (ledger.enabled=false — see

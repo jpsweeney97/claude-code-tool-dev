@@ -206,6 +206,8 @@ Each mutating entrypoint must check `.engram-id` existence before invoking `coll
 
 If the payload file is absent or unparseable after the `.engram-id` check succeeds, the engine must reject the operation with: `"trust triple not injected: payload file missing or unreadable at {path}"`. Do not attempt to invoke `collect_trust_triple_errors()` with `None` values as a substitute for a missing payload file.
 
+**Payload field access:** Engine code must access `TrustPayload` fields via `.get()` (dict-style) rather than direct attribute access. This ensures `None` values from missing fields are captured by `collect_trust_triple_errors()` validation rather than raising `KeyError`. Example: `payload.get("hook_injected")` not `payload["hook_injected"]`.
+
 ### Origin-Matching by Entrypoint
 
 | Entrypoint Category | Expected Origin | Examples |
@@ -216,6 +218,8 @@ If the payload file is absent or unparseable after the `.engram-id` check succee
 `/learn` and `/curate` are user-initiated skills that route through the Knowledge engine publish path — they use `"user"` origin despite calling the same engine entrypoint as `/distill`'s staging write. The origin is determined by the calling skill, not the engine entrypoint. `/distill` is the only Knowledge operation that uses `"agent"` origin (it extracts candidates without user interaction).
 
 The `_user.py` / `_agent.py` naming convention reflects but does not define the expected origin. This table is the enforcement-level reference for origin-matching. The [interface_contract](types.md#trustpayload--trust-triple-wire-format) definition of `hook_request_origin` values is in types.md.
+
+**Enforcement mechanism:** Origin-matching has no shared runtime validator. `collect_trust_triple_errors()` validates structural correctness (`hook_request_origin` is a valid string in `{"user", "agent"}`) but does not enforce per-entrypoint origin rules. Each entrypoint is responsible for checking that the origin value matches its expected category (see table above). VR-3A-14 verifies this convention via AST scan or instrumented test. A shared helper `validate_origin_match(expected, actual)` is recommended but not mandated — the enforcement is per-entrypoint by design.
 
 ### Step 3: Per-Subsystem Enforcement
 
@@ -273,7 +277,7 @@ The staging inbox cap is enforced by the Knowledge engine at entrypoint validati
 
 | Operation | Budget | On Failure |
 |---|---|---|
-| Resolve `worktree_id` | 1 call | Log warning to diagnostic channel (if `worktree_id` available); guard re-derives independently; session not blocked. See [WorktreeID Resolution Failure](#worktreeid-resolution-failure) below. |
+| Resolve `worktree_id` | 1 call | Log warning to diagnostic channel if `worktree_id` available; otherwise log to stderr only (see [WorktreeID Resolution Failure](#worktreeid-resolution-failure)). Guard re-derives independently. Session not blocked. |
 | Clean expired snapshots (>90d by filename timestamp) | Max 50 files | Fail-open: retry next session |
 | Clean expired chain state (>24h) | Max 20 files | Fail-open |
 | Clean orphan payload files (>24h) | Max 20 files | Fail-open |
@@ -286,6 +290,8 @@ Per-file cleanup that exceeds 5ms is aborted (skip remaining files). This preven
 If `worktree_id` resolution fails, `engram_session` logs a warning to the [session diagnostic channel](#session-diagnostic-channel) (`.diag`). `engram_guard` independently calls `identity.get_worktree_id()` at each invocation — if git state is broken, the guard enters [degraded mode](#inter-hook-runtime-state): branches 1-2 block with the specific git error; branches 3-4 evaluate normally. No error state is stored between hooks. Read-only operations degrade gracefully. Session startup is **not** blocked.
 
 If `worktree_id` is unavailable, log to stderr only — the diagnostic channel path cannot be constructed without `worktree_id`.
+
+If `worktree_id` is unavailable and `engram_register` fails in the same session, `/triage` cannot distinguish this from a legitimate "completion not proven" outcome — it reports "completion not proven" rather than "ledger unavailable." This is an accepted limitation of the double-failure path, consistent with the [diagnostic channel directory creation failure](#session-diagnostic-channel) limitation.
 
 ### Bootstrap Relationship
 
