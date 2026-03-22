@@ -59,7 +59,22 @@ precedence:
   # capsule wire format as a consequence of routing enforcement, not as an independent
   # interface contract claim.
 
-# External authority positioning: see foundations.md#three-layer-delivery-authority
+delivery_layers:
+  # Three-layer authority hierarchy for composition delivery.
+  # Full rationale: foundations.md#three-layer-delivery-authority
+  - layer: 1
+    name: spec_files
+    description: Normative spec authority files defined in the authorities block above.
+    precedence: highest
+  - layer: 2
+    name: composition_contract
+    description: Runtime projection of spec invariants for inter-skill composition.
+    precedence: below spec_files
+  - layer: 3
+    name: inline_stubs
+    description: Composition-specific blocks within each participating skill's SKILL.md.
+    precedence: lowest
+  precedence_order: [spec_files, composition_contract, inline_stubs]
 
 boundary_rules:
   - on_change_to: [capsule-contract]

@@ -16,8 +16,9 @@ Three capsule contracts define the inter-skill data exchange format. Each contra
 | `<!-- ar-capsule:v1 -->` | adversarial-review | next-steps | Advisory/tolerant |
 | `<!-- next-steps-dialogue-handoff:v1 -->` | next-steps | dialogue | Strict/deterministic |
 | `<!-- dialogue-feedback-capsule:v1 -->` | dialogue | adversarial-review, next-steps | Advisory/tolerant |
+| `<!-- dialogue-orchestrated-briefing -->` | dialogue (internal) | none (v1) | N/A (internal only) |
 
-`<!-- dialogue-orchestrated-briefing -->` is a distinct sentinel meaning "/dialogue already assembled the full Codex briefing." This sentinel MUST only appear in dialogue's internal pipeline state representation — it MUST NOT appear in dialogue's externalized output (the text emitted to the user and conversation context). No external consumers in v1 — no schema, consumer class, or behavior contract is defined. Documented here to prevent future misuse. The NS handoff sentinel is input to dialogue's pipeline, not a replacement. The NS sentinel never reaches codex-dialogue.
+`<!-- dialogue-orchestrated-briefing -->` is a distinct sentinel meaning "/dialogue already assembled the full Codex briefing." Internal sentinel — no external consumers, no schema. Documented to prevent misuse. This sentinel MUST only appear in dialogue's internal pipeline state representation — it MUST NOT appear in dialogue's externalized output (the text emitted to the user and conversation context). No external consumers in v1 — no schema, consumer class, or behavior contract is defined. The NS handoff sentinel is input to dialogue's pipeline, not a replacement. The NS sentinel never reaches codex-dialogue.
 
 ### Unknown Version Behavior
 
@@ -215,9 +216,9 @@ When a required field is absent or not well-typed, the capsule is invalid and th
 
 ### Schema Constraints
 
-- **`material`/`suggested_arc` coherence:** The [affected-surface validity matrix and correction rules](routing-and-materiality.md#affected-surface-validity) (normative authority: routing-and-materiality) are the single source of truth for valid tuples in the emitted wire format. Capsules MUST be emitted in their post-correction state.
-- `classifier_source` validation: MUST be `rule` or `model` — no other values permitted. Emission-time enforcement gate defined in [routing-and-materiality.md](routing-and-materiality.md#dimension-independence). Invalid values are corrected to `rule` with structured warning (always recoverable, does NOT trigger partial correction failure abort).
-- `materiality_source` validation: MUST be `rule` or `model` — parallel to `classifier_source`. Emission-time enforcement gate defined in [routing-and-materiality.md](routing-and-materiality.md#affected-surface-validity). Same correction and recovery semantics.
+- **`material`/`suggested_arc` coherence:** The [affected-surface validity matrix and correction rules](routing-and-materiality.md#affected-surface-validity) (normative authority: routing-and-materiality) are the single source of truth for valid tuples in the emitted wire format. Capsules are emitted in post-correction state per [routing-and-materiality.md §Affected-Surface Validity](routing-and-materiality.md#affected-surface-validity) (normative enforcement authority).
+- `classifier_source` validation: MUST be `rule` or `model` — no other values permitted. Emission-time enforcement gate defined in [routing-and-materiality.md §Affected-Surface Validity](routing-and-materiality.md#affected-surface-validity). Invalid values are corrected to `rule` with structured warning (always recoverable, does NOT trigger partial correction failure abort).
+- `materiality_source` validation: MUST be `rule` or `model` — parallel to `classifier_source`. Emission-time enforcement gate defined in [routing-and-materiality.md §Affected-Surface Validity](routing-and-materiality.md#affected-surface-validity). Same correction and recovery semantics.
 - **`record_status` semantics:** See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the normative write-failure recovery procedure, consumer-side contract, and enforcement rules. `record_status` MUST always be present (`ok` or `write_failed`).
 
 ### Design Notes

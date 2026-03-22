@@ -162,7 +162,7 @@ Consuming skills detect staleness and warn the user. Evaluate in priority order 
 
 ## File Persistence
 
-Optional for AR capsules (`record_path` may be null or a path to `docs/reviews/`). Always null for NS in v1 — NS does not write files today (see [delivery.md](delivery.md#open-items)). Mandatory (non-null) for `dialogue_feedback` capsules — `record_path` MUST be non-null. See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the normative enforcement rule, write-failure recovery procedure, and consumer-side contract. The schema definition (including the non-null field annotation) is in [capsule-contracts.md](capsule-contracts.md#contract-3-dialogue-feedback-capsule).
+Optional for AR capsules (`record_path` may be null or a path to `docs/reviews/`). Always null for NS in v1 — NS does not write files today (see [delivery.md](delivery.md#open-items)). For `dialogue_feedback` capsules, `record_path` is mandatory (non-null) per [routing-and-materiality.md §Selective Durable Persistence](routing-and-materiality.md#selective-durable-persistence). See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the normative enforcement rule, write-failure recovery procedure, and consumer-side contract. The schema definition (including the non-null field annotation) is in [capsule-contracts.md](capsule-contracts.md#contract-3-dialogue-feedback-capsule).
 
 When present, `record_path` points to a durable file carrying the same artifact metadata in frontmatter. The file path is a locator, not the identity — `artifact_id` is the identity.
 
