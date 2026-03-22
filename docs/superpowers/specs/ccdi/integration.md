@@ -282,7 +282,9 @@ The `/dialogue` skill passes these optional fields to `codex-dialogue`:
 ### `ccdi_trace` Output Contract
 
 When `ccdi_debug: true` is set in the delegation envelope, `codex-dialogue` MUST emit a `ccdi_trace` key in its output containing an array of per-turn trace entries. Each trace entry MUST include all of the following keys regardless of value: `turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`. `semantic_hints` MUST be `null` when no hints exist (not absent from the entry).
+**`shadow_suppressed` field:** Each per-turn trace entry includes a `shadow_suppressed: boolean` field (9th field, not counted in the 8-key invariant for backward compatibility). Value is `true` when the trace entry describes an action whose registry mutation was suppressed by `--shadow-mode` (currently only `skip_cooldown`); `false` otherwise. This field disambiguates whether the registry mutation described by the `action` value actually occurred.
 **Exception for diagnostic entries:** `shadow_defer_intent` trace entries are counterfactual observations, not turn-loop observations. They are exempt from the 8-key requirement and use a reduced schema: `turn`, `action`, `topic_key`, `reason`, `classify_result_hash`. See [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization) for the entry schema and semantics.
+**Type discrimination:** The `ccdi_trace` array contains two structurally different entry types: per-turn entries (8+ keys) and `shadow_defer_intent` entries (5 keys). Trace consumers MUST filter entries by `action` value before applying key-presence requirements. The 8-key invariant applies only to entries where `action != "shadow_defer_intent"`. Code iterating the trace array MUST NOT assume all entries have the same structure.
 
 **`action` normative values:**
 
@@ -297,7 +299,7 @@ When `ccdi_debug: true` is set in the delegation envelope, `codex-dialogue` MUST
 | `inject` | Topic injected (`--mark-injected` committed) |
 | `defer` | Topic deferred (`--mark-deferred` committed) |
 | `suppress` | Topic suppressed (build-packet returned empty) |
-| `skip_cooldown` | Topic deferred due to per-turn cooldown (`deferred: cooldown` state written by `dialogue-turn` in active mode). In shadow mode, `skip_cooldown` is emitted even though the `deferred: cooldown` registry write is suppressed (per the shadow-mode exception on line 62). The `skip_cooldown` trace entry records the active-mode action; a separate `shadow_defer_intent` entry with `reason: "cooldown"` is emitted to the counterfactual log per [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization). |
+| `skip_cooldown` | Topic deferred due to per-turn cooldown. In active mode: `deferred: cooldown` state written by `dialogue-turn`, `shadow_suppressed: false`. In shadow mode: registry write suppressed by `--shadow-mode` flag, `shadow_suppressed: true`, and a separate `shadow_defer_intent` entry with `reason: "cooldown"` is emitted per [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization). Consumers MUST check `shadow_suppressed` to determine whether the registry mutation actually occurred. |
 | `skip_scout` | Topic deferred due to scout priority. In active mode, `skip_scout` is emitted (not `defer`) even though `--mark-deferred` is committed — the scout reason takes priority over the generic defer action. In shadow mode, `skip_scout` indicates the intended deferral that was not committed. |
 | `shadow_defer_intent` | Shadow mode counterfactual deferral: agent would have called `--mark-deferred` in active mode but is prohibited in shadow mode. Emitted as a diagnostic-only trace entry — see [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization). |
 
@@ -308,6 +310,7 @@ When `ccdi_debug: true` is set in the delegation envelope, `codex-dialogue` MUST
 ```
 
 Fields: `turn` (integer — the turn number), `action` (always `"shadow_defer_intent"`), `topic_key` (string — the topic that would have been deferred), `reason` (`"target_mismatch"` or `"cooldown"` — the deferral reason that would have been written), `classify_result_hash` (string — hash of the classify result payload for evidence-freshness tracking). See [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization) for repeat-detection semantics and intent resolution.
+**`classify_result_hash` computation:** Hash of the classifier result for topic T. The hash MUST include `confidence`, `facet`, and `matched_aliases` (not just `topic_key`) — same `topic_key` with different `matched_aliases` MUST produce different hashes. Same classify payload MUST produce the same hash (stability invariant). See [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization) for collision requirements and repeat-detection semantics.
 
 This follows the existing delegation envelope pattern (parallel to `scope_envelope`). The registry seed is NOT embedded in the briefing text — it is a separate envelope field. The consultation contract §6 does not need modification: `ccdi_seed` is an optional additive field, not a change to the existing envelope schema.
 
@@ -407,7 +410,13 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 └─ Continue dialogue loop
 ```
 
-**Shadow-mode registry invariant:** In shadow mode, the only permitted registry mutations are automatic suppressions written by `build-packet` empty output (`suppressed: weak_results` or `suppressed: redundant`). All three other mutation types are prohibited: (1) agent-driven `--mark-injected` (Step 7.5), (2) agent-driven `--mark-deferred` (Step 5.5), and (3) `dialogue-turn` cooldown deferral writes (Step 5.5, line 62). The prepare cycle runs to measure yield and latency for diagnostics, but the registry reflects only classifier-driven state. Deferral state is recorded in diagnostics only. This prevents shadow-mode registry pollution from corrupting graduation kill-criteria metrics. See [decisions.md#normative-decision-constraints](decisions.md#normative-decision-constraints).
+**Shadow-mode registry invariant:** In shadow mode, the only permitted registry mutations are automatic suppressions written by `build-packet` empty output (`suppressed: weak_results` or `suppressed: redundant`). All other mutation types are prohibited, enforced at two distinct layers:
+
+**CLI-enforced (via `--shadow-mode` flag):** `dialogue-turn` cooldown deferral writes (Step 5.5, line 62) are suppressed when the `--shadow-mode` flag is passed. The CLI itself prevents the `deferred: cooldown` state write — no agent logic is involved. `candidate_type: 'new'` entries excluded by the cooldown limit remain in `detected` state.
+
+**Agent-enforced (via agent abstention):** The agent MUST NOT call `--mark-injected` (Step 7.5) or `--mark-deferred` (Step 5.5) in shadow mode. These are agent-initiated CLI calls, not CLI-internal behavior — the prohibition requires the agent to not invoke these commands.
+
+The prepare cycle runs to measure yield and latency for diagnostics, but the registry reflects only classifier-driven state. Deferral state is recorded in diagnostics only. This prevents shadow-mode registry pollution from corrupting graduation kill-criteria metrics. See [decisions.md#normative-decision-constraints](decisions.md#normative-decision-constraints).
 
 **Key invariant:** `--mark-injected` is called only after the packet-containing prompt has been confirmed sent to Codex. This applies to both paths: the initial injection commit (after briefing send in `/dialogue`) and the mid-dialogue commit (Step 7.5 after follow-up send in `codex-dialogue`). This prevents the registry from recording injection for packets that were staged but never delivered (e.g., if the briefing or follow-up prompt failed).
 
