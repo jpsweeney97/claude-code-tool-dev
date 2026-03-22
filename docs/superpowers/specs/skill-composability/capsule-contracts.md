@@ -216,8 +216,8 @@ When a required field is absent or not well-typed, the capsule is invalid and th
 ### Schema Constraints
 
 - **`material`/`suggested_arc` coherence:** The [affected-surface validity matrix and correction rules](routing-and-materiality.md#affected-surface-validity) (normative authority: routing-and-materiality) are the single source of truth for valid tuples in the emitted wire format. Capsules MUST be emitted in their post-correction state.
-- **`classifier_source` validation:** The emission-time enforcement gate MUST validate `classifier_source ∈ {rule, model}` for every `feedback_candidates[]` entry, parallel to the `(affected_surface, material, suggested_arc)` tuple validation. See [routing-and-materiality.md](routing-and-materiality.md#dimension-independence) for the normative MUST clause.
-- **`materiality_source` validation:** The emission-time enforcement gate MUST validate `materiality_source ∈ {rule, model}` for every `feedback_candidates[]` entry, parallel to the `classifier_source` validation. See [routing-and-materiality.md](routing-and-materiality.md#affected-surface-validity) for the enforcement-layer MUST clause.
+- `classifier_source` validation: MUST be `rule` or `model` — no other values permitted. Emission-time enforcement gate defined in [routing-and-materiality.md](routing-and-materiality.md#dimension-independence). Invalid values are corrected to `rule` with structured warning (always recoverable, does NOT trigger partial correction failure abort).
+- `materiality_source` validation: MUST be `rule` or `model` — parallel to `classifier_source`. Emission-time enforcement gate defined in [routing-and-materiality.md](routing-and-materiality.md#affected-surface-validity). Same correction and recovery semantics.
 - **`record_status` semantics:** See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the normative write-failure recovery procedure, consumer-side contract, and enforcement rules. `record_status` MUST always be present (`ok` or `write_failed`).
 
 ### Design Notes

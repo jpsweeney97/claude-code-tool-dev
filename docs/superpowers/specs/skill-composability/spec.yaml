@@ -42,12 +42,8 @@ precedence:
   normative_first: true
   claim_precedence:
     behavior_contract: [routing, pipeline, lineage, foundation]
-    # Foundation's behavior_contract claims define cross-cutting invariants
-    # (consumer classes, capsule externalization) that downstream authorities
-    # must not contradict. Foundation ranks last in precedence for conflict
-    # resolution, but its behavioral invariants are architectural constraints
-    # referenced by all three behavior authorities — contradictions indicate
-    # a spec defect, not a precedence override.
+    # Conflict resolution: fallback_authority_order determines which authority
+    # wins when claims overlap. This is mechanical, not a defect signal.
     interface_contract: [capsule-contract, lineage]
   # decisions ranked 2nd (after foundation) in fallback_authority_order because locked
   # design decisions constrain behavior. Conflicts are resolved via the fallback path
@@ -57,17 +53,13 @@ precedence:
   # constraints that interface contracts must respect. decisions does not hold
   # interface_contract claims, so claim_precedence never applies — only fallback.
   unresolved: ambiguity_finding
-  # Cross-family disambiguation: behavior_contract claims govern runtime pipeline
-  # state (what happens during processing). interface_contract claims govern the
-  # emitted wire format (what appears in capsule schemas). When these appear to
-  # conflict, check whether one governs pre-emission state and the other
-  # post-emission format — they may describe different pipeline stages.
+  # Cross-family disambiguation: routing authority (enforcement_mechanism) governs
+  # both pipeline state and wire-format correctness for entries passing through the
+  # correction pipeline. The emission-time gate in routing-and-materiality.md constrains
+  # capsule wire format as a consequence of routing enforcement, not as an independent
+  # interface contract claim.
 
-# External authorities (not spec files, but positioned in the authority hierarchy):
-# - Composition contract (packages/plugins/cross-model/references/composition-contract.md):
-#     subordinate to this spec, authoritative for inline stub authors at implementation time.
-# - Inline stubs (per participating skill): runtime authority, role-specific subset of contract.
-# See foundations.md#three-layer-delivery-authority for the full hierarchy.
+# External authority positioning: see foundations.md#three-layer-delivery-authority
 
 boundary_rules:
   - on_change_to: [capsule-contract]
