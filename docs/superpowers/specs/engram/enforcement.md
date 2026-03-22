@@ -18,10 +18,13 @@ authority: enforcement
 
 ### Ledger Multi-Producer Note
 
-`engram_register` fires on Write and Edit tool calls to protected paths. It does **not** observe engine Bash invocations (`python3 engine_*.py`). Engine-authored ledger events ([`defer_completed`](types.md#event-vocabulary-v1), [`distill_completed`](types.md#event-vocabulary-v1)) are appended by engines post-commit, not by hooks. This separation means:
+`engram_register` fires on Write and Edit tool calls to protected paths. It does **not** observe engine Bash invocations (`python3 engine_*.py`). Staging writes (`knowledge_staging/`) are engine-initiated and not observable by this hook — staging events, if needed for the ledger, must be emitted by the engine as producer-class events. Engine-authored ledger events ([`defer_completed`](types.md#event-vocabulary-v1), [`distill_completed`](types.md#event-vocabulary-v1)) are appended by engines post-commit, not by hooks. This separation means:
 - Hook events and engine events have distinct observation scopes — no dedup concern between producer classes
 - The "ledger-backed" timeline label applies only to engine/orchestrator events, not hook events
 - All producers use the shared locked append primitive defined in [types.md](types.md#write-semantics)
+- Step 3 promote-meta failures are only detectable via `/triage` (engine Bash writes are not observable by `engram_register`)
+
+**`engram_register` failure modes:** (1) Lock timeout → log warning, do not block. (2) Permission denied → log error, do not block. (3) Disk full → log error, do not block. All failures are written to the session diagnostic channel. `/triage` surfaces "ledger unavailable in session X" (rather than "completion not proven") when the ledger producer has recorded failures in the diagnostic channel.
 
 ## Protected-Path Enforcement
 
@@ -34,6 +37,10 @@ Policy-based, not tool-specific. Protects subsystem-owned paths from direct muta
 | `knowledge_staging` | `~/.claude/engram/<repo_id>/knowledge_staging/**` | Engine entrypoints only |
 
 Paths canonicalized before matching (resolve symlinks, collapse `..`, normalize to absolute).
+
+**Intentional exclusions:** Snapshot and checkpoint paths (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) are not in this table. Context subsystem writes use Write/Edit tools natively (session orchestration) rather than routing through engine Bash invocations, so PreToolUse path blocking would prevent normal operation. Advisory quality checks via [`engram_quality`](#quality-validation) cover these paths instead.
+
+**Reserved paths:** When content is added to `engram/.engram/` (reserved for future shared metadata), a corresponding path class entry must be added to this table before implementation.
 
 ### Enforcement Scope (Bounded Guarantee)
 
@@ -57,7 +64,9 @@ This is advisory quality lint, not trust enforcement — the small race between 
 | `snapshot` | `~/.claude/engram/<repo_id>/snapshots/**` | Frontmatter completeness, section count |
 | `checkpoint` | `~/.claude/engram/<repo_id>/checkpoints/**` | Frontmatter completeness |
 
-Quality validation paths are separate from [protected-path enforcement](#protected-path-enforcement). Protected paths gate *authorization* (who may write). Quality paths gate *content checks* (what was written). A path can be in both sets.
+Quality validation paths are separate from [protected-path enforcement](#protected-path-enforcement). Protected paths gate *authorization* (who may write). Quality paths gate *content checks* (what was written). A path can be in both sets. Staging writes (`knowledge_staging/`) are excluded — the Knowledge engine validates content at write time, making post-write quality hooks redundant for staging.
+
+**Hook self-failure:** If `engram_quality` itself fails (unhandled exception, timeout), the failure is logged as `[engram_quality:error]` (distinct from quality warnings at `[engram_quality:warn]`) but does not block the underlying write. The implementation must catch all exceptions in the hook body to prevent hook-level failures from propagating to the tool call result.
 
 ### Enforcement Boundary Constraint
 
@@ -71,7 +80,11 @@ This constraint applies to all current and future PostToolUse hooks in the Engra
 
 ### Step 1: Injection (PreToolUse)
 
-When `engram_guard` detects an authorized engine invocation pattern (`python3 engine_*.py`), it writes `hook_injected=True`, `hook_request_origin`, and `session_id` to the engine's payload file atomically (temp file -> `fsync` -> `os.replace`). Carries forward the ticket plugin's proven trust injection pattern.
+When `engram_guard` detects an authorized engine invocation, it writes `hook_injected=True`, `hook_request_origin`, and `session_id` to the engine's payload file atomically (temp file -> `fsync` -> `os.replace`). Carries forward the ticket plugin's proven trust injection pattern.
+
+**Authorized engine invocation pattern:** Engine binaries must be named `engine_<subsystem>.py` and reside in the plugin's scripts directory. `engram_guard` matches the **full path** `<engram_scripts_dir>/engine_*.py` — not just the filename. This prevents false matches on user scripts with `engine_` prefixes outside the plugin directory.
+
+**Detection failure mode:** If the full-path pattern fails to match a legitimate engine invocation, the trust triple is not injected. The engine then rejects via `collect_trust_triple_errors()` (correct behavior — fail-closed). The diagnostic should indicate `"engine invocation not recognized by engram_guard — verify script path matches <engram_scripts_dir>/engine_<subsystem>.py"`.
 
 ### Step 2: Validation (Engine Entrypoint)
 
@@ -84,7 +97,7 @@ Every **mutating** entrypoint in each subsystem engine must invoke a shared trus
 
 All writes from `/learn` route through the Knowledge engine entrypoint — `/learn` does **not** write directly to `learnings.md` via the Write tool. This ensures trust injection covers the `/learn` path.
 
-Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring.
+Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring. delivery.md Step 3a must include a verification step asserting `collect_trust_triple_errors()` is invoked at every documented mutating entrypoint (unit test or static analysis check).
 
 ### Step 3: Per-Subsystem Enforcement
 
@@ -98,9 +111,13 @@ The trust triple is `{hook_injected, hook_request_origin, session_id}` — three
 
 `engram_session` (SessionStart) resolves `worktree_id` and `session_id` at session start. `engram_guard` (PreToolUse) requires these values for trust injection.
 
-**Preferred approach:** `engram_guard` recomputes `worktree_id` independently via the same `git rev-parse --git-dir` derivation. `session_id` is available from the Claude Code session context. No shared state file or environment variable is required.
+`engram_guard` MUST recompute `worktree_id` independently via `identity.get_worktree_id()` (same `git rev-parse --git-dir` derivation). `session_id` MUST be obtained from the Claude Code session context. No shared state file or environment variable is required or permitted.
 
-**If shared state is unavoidable:** The producing hook (`engram_session`) writes; the consuming hook (`engram_guard`) reads. Define: (1) storage mechanism (env var, temp file), (2) data format, (3) lifetime (session-scoped), (4) failure behavior (guard blocks all mutations if state is missing — fail-closed).
+**Future platform fallback:** The shared-state approach (producing hook writes, consuming hook reads) applies only if Claude Code session context becomes unavailable in a future platform change. Until then, recomputation is the sole supported approach. If recomputation fails (e.g., `git rev-parse --git-dir` returns an error), block fail-closed and surface the specific git error.
+
+### Bridge Period Limitations
+
+During Steps 1–3 of the [build sequence](delivery.md), envelope-level idempotency keys are not checked — the old ticket engine's legacy dedup is the active mechanism. Full envelope idempotency enforcement begins at Step 4. See [operations.md §Phase-Scoped Idempotency](operations.md#envelope-invariants) for the operational specification of this temporary limitation.
 
 ## SessionStart Hook
 
@@ -123,7 +140,7 @@ SessionStart does not create `.engram-id` — it requires a git commit, which is
 |---|---|---|
 | `/promote` Step 2 CLAUDE.md write | Single skill, single target | CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns promotion *state* via [promote-meta](types.md#promote-meta-promotion-state-record). See [permitted exceptions](foundations.md#permitted-exceptions). |
 
-No other skill-level write to a protected or externally-owned path is sanctioned. New exceptions require an entry in both this table and foundations.md.
+No other skill-level write to a protected or externally-owned path is sanctioned. New exceptions require an entry in both this table and foundations.md. **Sequencing:** foundations.md is the authoritative source for new exceptions — a new exception is effective only when present in foundations.md. This table then references it.
 
 ## Autonomy Model
 
@@ -154,8 +171,6 @@ ledger:
 
 ### Staging Inbox Cap
 
-The Knowledge engine checks the cumulative count of files in `knowledge_staging/` **before** writing new staged candidates. If `count + batch_size > knowledge_max_stages`, the entire batch is rejected (whole-batch reject for determinism — no partial staging). The rejection response includes current count, cap, and a suggestion to run `/curate` to clear the inbox.
+The staging inbox cap is configured via `knowledge_max_stages` in `.claude/engram.local.md`. Values less than 1 are invalid; the engine rejects the configuration at parse time with `"knowledge_max_stages must be >= 1"`.
 
-Scope is cumulative (total files in directory), not per-session. This matches the stated risk ([staging accumulation](decisions.md#named-risks)), not per-session agent autonomy. The engine reads `knowledge_max_stages` from `.claude/engram.local.md` at invocation time — no caching.
-
-**Edge case: `batch_size > knowledge_max_stages`.** If a single distill batch produces more candidates than the configured cap (e.g., a rich snapshot yields 15 candidates against a cap of 10), the batch is rejected even with 0 files in staging — the cap applies to `count + batch_size`, and `0 + 15 > 10`. The rejection response must include a diagnostic: `"Batch size (N) exceeds staging cap (M). Increase knowledge_max_stages to at least N in .claude/engram.local.md."` This is a deliberate consequence of whole-batch rejection. Partial staging (accepting the first N candidates) is a [deferred decision](decisions.md#deferred-decisions).
+The cap enforces whole-batch rejection for determinism. See [operations.md §Distill](operations.md#distill-context-to-knowledge-staged) for the behavioral specification (rejection logic, formula, error message format, edge cases, and recovery path).

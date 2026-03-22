@@ -25,11 +25,11 @@ Each subsystem (Context, Work, Knowledge) remains authoritative for its own reco
 
 ### Permitted Exceptions
 
-CLAUDE.md is an external sink, not an Engram-managed record. Two operations are permitted on CLAUDE.md:
+CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns promotion *state* (via [promote-meta](types.md#promote-meta-promotion-state-record)); the CLAUDE.md edit is a skill-level bypass of the engine write path. Two operations are permitted on CLAUDE.md:
 
-1. **Content write:** The [/promote](operations.md#promote-knowledge-to-claudemd) Step 2 writes transformed text wrapped in [paired markers](types.md#promotion-markers-in-claudemd). The Knowledge engine owns promotion *state* (via [promote-meta](types.md#promote-meta-promotion-state-record)); the CLAUDE.md edit is a skill-level operation that bypasses the engine write path.
+1. **Content write:** The [/promote](operations.md#promote-knowledge-to-claudemd) Step 2 writes transformed text wrapped in [paired markers](types.md#promotion-markers-in-claudemd). See the [promote state machine](operations.md#promote-knowledge-to-claudemd) for the full behavioral specification (step sequencing, drift detection, branch logic).
 
-2. **Marker management:** Markers (`<!-- engram:lesson:start/end:<lesson_id> -->`) are locator hints embedded in CLAUDE.md for re-promotion and relocation. They broaden the ownership posture (Engram places content in CLAUDE.md) without shifting authority (promote-meta remains the source of truth). Marker deletion by the user degrades automation (manual reconcile), not system state. Step 1 also reads the text enclosed by markers to compute [`drift_hash()`](types.md#hash-producing-functions) for [Branch C drift detection](operations.md#promote-knowledge-to-claudemd) — a read-only operation on CLAUDE.md content.
+2. **Marker management:** Markers (`<!-- engram:lesson:start/end:<lesson_id> -->`) are locator hints for re-promotion and relocation. They broaden the ownership posture (Engram places content in CLAUDE.md) without shifting authority (promote-meta remains the source of truth). Marker deletion by the user degrades automation (manual reconcile), not system state.
 
 No other skill-level write to a protected or externally-owned path is permitted without an explicit clause in this section.
 
