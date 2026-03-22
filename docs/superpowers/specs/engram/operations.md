@@ -18,6 +18,13 @@ Six operations justify Engram's plugin scope. Three migrate and improve existing
 - `/save` orchestrates cross-subsystem flows but each sub-operation is independently callable and retryable. See [/save orchestration rules](skill-surface.md#save-orchestration-rules).
 - No reactive pipelines. No cross-subsystem transactions.
 
+### Work Mode Definitions
+
+The Work subsystem operates in one of two modes, configured via `work_mode` in [`.claude/engram.local.md`](enforcement.md#configuration):
+
+- **`suggest`:** Engine prepares the operation but surfaces it to the user for confirmation before writing. The user sees what will be created and approves or rejects. If the user abandons the session without confirming, the proposed operation is discarded — no write is performed. The `suggest` flow is entirely in-session; there is no queued state to persist.
+- **`auto_audit`:** Engine creates the work item automatically. The item is marked for user review at next `/triage`. `work_max_creates` limits cumulative automatic creations per session. Trust injection still applies — `engram_guard` validates the trust triple regardless of mode. Cap enforcement (`work_max_creates`) is the engine's responsibility, not the guard's — `engram_guard` is mode-agnostic.
+
 ## Existing Operations (Migrate and Improve)
 
 ### Defer: Context to Work
@@ -47,12 +54,12 @@ Six operations justify Engram's plugin scope. Three migrate and improve existing
     -> Distill engine extracts candidates (parse -> subsections -> classify durability -> dedup)
     -> DistillEnvelope per candidate batch (with idempotency_key)
     -> Knowledge engine writes to staging inbox (private, not repo-visible)
-    -> Duplicate check: idempotency_key against staged + published entries
-    -> If duplicate: skip
-    -> If new: creates staged candidate
+    -> Per-candidate dedup: content_sha256 against staged + published entries
+    -> If match: skip that candidate
+    -> If new: creates staged candidate (atomic via O_CREAT|O_EXCL)
 ```
 
-**Distill dedup sequence:** (1) Envelope-level: check `idempotency_key` against existing staged/published envelopes. If match, return existing result. (2) Per-candidate: check each `DistillCandidate.content_sha256` against existing staged/published files. If match, skip that candidate. Within a single batch, candidates with identical `content_sha256` are deduplicated (only one written).
+**Distill dedup:** Per-candidate `content_sha256` dedup via atomic `O_CREAT | O_EXCL` staging file creation. Identical candidates from concurrent operations coalesce at the filesystem level. Within a single batch, candidates with identical `content_sha256` are deduplicated (only one written). The `DistillEnvelope.idempotency_key` is not persisted or checked for distill operations — see [types.md §Idempotency Enforcement Per Envelope Type](types.md#idempotency-enforcement-per-envelope-type).
 
 **Trust boundary: staged != published.** Distill writes to a private staging area (`knowledge_staging/`), not to `engram/knowledge/`. Staged candidates are reviewed before publication via `/curate`.
 
@@ -60,7 +67,7 @@ Six operations justify Engram's plugin scope. Three migrate and improve existing
 
 **Edge case: `batch_size > knowledge_max_stages`.** If a single distill batch produces more candidates than the configured cap (e.g., a rich snapshot yields 15 candidates against a cap of 10), the batch is rejected even with 0 files in staging — the cap applies to `count + batch_size`, and `0 + 15 > 10`. The rejection response must include: (1) current `batch_size` and cap values, (2) the exact config change needed (`knowledge_max_stages: N` where N >= batch_size in `.claude/engram.local.md`), (3) instruction to re-run the failed distill with the `snapshot_ref` from the [recovery manifest](#recovery-manifest). This is a deliberate consequence of whole-batch rejection. Partial staging (accepting the first N candidates) is a [deferred decision](decisions.md#deferred-decisions).
 
-**`/curate` mechanics:** Lists staged candidates sorted by `durability` (likely_durable first), then by `created_at`. Shows snippet, source section, and durability classification. The user reviews and selects candidates to publish. `likely_ephemeral` candidates are surfaced with a warning but not filtered — the user decides. On publish, the knowledge engine deduplicates via `content_sha256` against both existing published entries and other staged entries (to remove or skip duplicates in the staging inbox), writes to `engram/knowledge/learnings.md`, and removes the staged file (plus any other staged files with identical `content_sha256`). The dedup check against published entries must occur within the same lock scope as the write (after acquiring `fcntl.flock(LOCK_EX)` on `learnings.md.lock`). This ensures no concurrent `/learn` write can interleave between dedup check and append.
+**`/curate` mechanics:** Lists staged candidates sorted by `durability` (likely_durable first), then by `staged_at` (oldest first). Shows snippet, source section, and durability classification. The user reviews and selects candidates to publish. `likely_ephemeral` candidates are surfaced with a warning but not filtered — the user decides. On publish, the knowledge engine deduplicates via `content_sha256` against both existing published entries and other staged entries (to remove or skip duplicates in the staging inbox), writes to `engram/knowledge/learnings.md`, and removes the staged file (plus any other staged files with identical `content_sha256`). The dedup check against published entries must occur within the same lock scope as the write (after acquiring `fcntl.flock(LOCK_EX)` on `learnings.md.lock`). This ensures no concurrent `/learn` write can interleave between dedup check and append.
 
 ### Triage: Read Work and Context
 
@@ -70,6 +77,8 @@ Six operations justify Engram's plugin scope. Three migrate and improve existing
     -> query(subsystems=["context"]) -> IndexEntries for snapshots
     -> Open native snapshot files for orchestration intent metadata
     -> For each session being evaluated, check for <session_id>.diag file.
+        (`.diag` non-empty, including all-opaque entries where all entries have
+        unrecognized schema_version — see enforcement.md §Session Diagnostic Channel)
         If present and non-empty: cases (3) and (4) for that session surface
             "ledger unavailable in session <session_id>" rather than
             "zero-output success" or "completion not proven". This is
@@ -81,8 +90,9 @@ Six operations justify Engram's plugin scope. Three migrate and improve existing
         (3) expected_X: true + no downstream + X_completed      -> zero-output success (satisfied)
             ledger event exists (emitted_count=0)
         (4) expected_X: true + no downstream + no completion    -> "completion not proven"
-            event (if emitted_count absent from event vocabulary,
-            treat as "completion not proven")
+            event (if the completion event is present but `emitted_count` key is absent
+            from the payload dict, treat as "completion not proven" — this is a
+            producer bug, distinct from case where the event itself is absent)
         Cross-reference: emitted_count field defined in types.md
             §Event Vocabulary.
     -> When ledger unavailable (ledger.enabled=false — see
@@ -126,9 +136,13 @@ Three-step state machine with marker-based location and reconciliation recovery.
     -> Rank by maturity signals (age, breadth, reuse evidence) — advisory ordering only
     -> User selects
     -> Step 1 (engine): Knowledge engine validates promotability via state machine:
+        Step 1 reads CLAUDE.md to perform marker search and drift detection.
+        The Branch C1/C2 determination is complete before Step 2 begins.
+        The engine returns the branch classification to the skill as part of the promotion plan.
         Branch A (no promote-meta): Eligible. Returns promotion plan with target_section.
-            User sees proposed text and target_section, confirms before write (implicit
-            in lesson selection — the user chose this lesson for promotion).
+            User sees proposed text and target_section, confirms before write. User confirmation
+            is implicit in lesson selection — the user chose this lesson for promotion. No
+            separate approval prompt.
         Branch D (promote-meta present, meta_version unrecognized or missing):
             Exclude from candidate list. Surface warning: "Lesson <lesson_id> has
             unreadable promote-meta (missing or unrecognized meta_version). Run
@@ -136,7 +150,12 @@ Three-step state machine with marker-based location and reconciliation recovery.
             appears as a selectable candidate. See [legacy entries](types.md#legacy-entries-missing-meta_version).
         Branch B (promote-meta exists, promoted_content_sha256 == current content_sha256):
             B1 (target_section unchanged): Reject — already promoted. Return existing details.
-            B2 (target_section changed by user request): Manual reconcile. Show old
+            B2 (target_section mismatch — promote-meta.target_section differs from
+                detected marker location via global marker search): Manual reconcile.
+                On re-entry after a prior B2 Step 3 failure, this mismatch is detected
+                structurally (promote-meta has old target_section, markers at new location)
+                without requiring an active user request.
+                Show old
                 target_section, new target_section, and existing promoted text (located
                 via marker search if markers exist). User places block in new section
                 manually. Automated relocation deferred to v1.1 (see
@@ -265,7 +284,7 @@ On completion (success or partial failure), `/save` writes `save_recovery.json` 
 }
 ```
 
-The manifest is an [operational aid](foundations.md#auxiliary-state-authority), not authoritative state. Primary records remain authoritative. Overwritten on each `/save` invocation (only the most recent is useful for retry). Not part of the Engram storage contract. No `schema_version` — the file is overwritten on every `/save` and classified as operational aid, so no cross-version reader tolerance is needed. (Note: `migration_report.json` includes `schema_version: "1.0"` despite also being an operational aid — it may outlive its creating step and be read by downstream validation tools, unlike `save_recovery.json` which is consumed immediately on retry.)
+The manifest is an [operational aid](foundations.md#auxiliary-state-authority), not authoritative state. Primary records remain authoritative. Overwritten on each `/save` invocation (only the most recent is useful for retry). Not part of the Engram storage contract. The `save_recovery.json` schema does not include a `schema_version` field — recovery manifests are ephemeral operational aids, not versioned contracts. The file is overwritten on every `/save`, so no cross-version reader tolerance is needed. (Note: `migration_report.json` includes `schema_version: "1.0"` despite also being an operational aid — it may outlive its creating step and be read by downstream validation tools, unlike `save_recovery.json` which is consumed immediately on retry.)
 
 The `idempotency_key` in `EnvelopeHeader` is computed by the caller at envelope construction time (see [types.md §Idempotency](types.md#idempotency--same-operation-retried)). The engine uses the provided key — it does not recompute from fields.
 

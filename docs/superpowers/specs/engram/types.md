@@ -29,6 +29,8 @@ class RecordRef:
 
 **Canonical serialization:** `<subsystem>/<record_kind>/<record_id>` (`repo_id` omitted — implicit from context). Used in `LedgerEntry.record_ref`, event vocabulary payloads, idempotency material, and recovery manifests. Implemented as `RecordRef.to_str()` for serialization and `RecordRef.from_str(s, repo_id)` for deserialization (`repo_id` required — not a pure inverse since canonical form omits `repo_id`) in `engram_core/types.py`.
 
+**Parsing rule for `from_str`:** The canonical form `<subsystem>/<record_kind>/<record_id>` is split on the first two `/` characters. Any `/` characters in `record_id` are preserved verbatim. Example: `"work/ticket/T-2026-03/01"` → `subsystem="work"`, `record_kind="ticket"`, `record_id="T-2026-03/01"`.
+
 Field constraints for `subsystem` and `record_kind` (allowed value sets) are a [deferred decision](decisions.md#deferred-decisions). RecordRef string fields (`repo_id`, `record_id`) are validated at construction time in implementation, not at the schema level. See [decisions.md §Deferred Decisions](decisions.md#deferred-decisions).
 
 ## RecordMeta — Provenance
@@ -147,6 +149,8 @@ Each `DistillCandidate` is written as a standalone file in the staging inbox. Fi
 
 **Content authority rule:** The markdown body (after the `staging-meta` comment) is authoritative for content. The `content` field in the staging-meta JSON is index-only — `/curate` publishes the markdown body, not the JSON `content` field. If `content_sha256` does not match `content_hash(body)` at read time, the staging file is treated as corrupt: `/curate` skips it with a warning in `QueryDiagnostics.warnings`.
 
+**Body identity invariant:** The markdown body (after the staging-meta comment) MUST be byte-identical to `DistillCandidate.content`. The Knowledge engine MUST write the body as the raw content string with no additional normalization. If normalization is required before writing, it must be applied to `DistillCandidate.content` before computing `content_sha256`.
+
 ### PromoteEnvelope — Knowledge to CLAUDE.md (Intent Record)
 
 ```python
@@ -167,7 +171,7 @@ Written by the Knowledge engine after a successful CLAUDE.md write. Stored as a 
 class PromoteMeta:
     meta_version: str             # "1.0" — see Version Evolution Policy
     target_section: str           # Advisory: last requested destination / insertion hint
-    promoted_at: str              # ISO 8601
+    promoted_at: str              # ISO 8601 UTC (suffix Z or +00:00)
     promoted_content_sha256: Sha256Hex  # content_hash(lesson_content) — recomputed at promotion time (see below)
     transformed_text_sha256: Sha256Hex  # drift_hash(text_between_markers) — drift sentinel
     lesson_id: str                # Matches lesson-meta lesson_id — used for marker pair identification
@@ -305,7 +309,7 @@ Two distinct mechanisms serving different purposes.
 
 ### Idempotency — Same Operation Retried
 
-The `idempotency_key` in `EnvelopeHeader` is computed as `sha256(canonical_json_bytes(idempotency_material)).hexdigest()` where the material is envelope-type-specific:
+The `idempotency_key` in `EnvelopeHeader` is computed as `sha256(canonical_json_bytes(idempotency_material)).hexdigest()` where the material is envelope-type-specific. Enforcement semantics vary by envelope type — see [§Idempotency Enforcement Per Envelope Type](#idempotency-enforcement-per-envelope-type):
 
 | Envelope | Idempotency Material |
 |---|---|
@@ -331,6 +335,16 @@ Uses content fingerprints at the record level:
 
 These mechanisms are independent in purpose and enforcement stage: an idempotent retry (same `idempotency_key`) is caught at the envelope level before dedup is ever checked. A genuinely new operation with coincidentally identical content is caught by dedup, not idempotency.
 
+### Idempotency Enforcement Per Envelope Type
+
+| Envelope | Enforcement | Mechanism | Rationale |
+|---|---|---|---|
+| `DeferEnvelope` | **Enforced** | Engine checks `idempotency_key` against existing tickets | Ticket creation is not content-addressed; envelope-level dedup is the sole protection against retry duplicates |
+| `DistillEnvelope` | **Trace-only** | `idempotency_key` is computed and included in the header but NOT persisted or checked | Per-candidate `content_sha256` dedup via `O_CREAT\|O_EXCL` provides content-addressed dedup. Published dedup uses `content_sha256` in `lesson-meta`. Envelope-level identity adds no correctness guarantee beyond what per-candidate dedup already provides. |
+| `PromoteEnvelope` | **Enforced** | Engine checks `idempotency_key` against `promote-meta` state | Promote is a state-machine transition; re-entry detection is structural (Branch B1 rejection) |
+
+The `idempotency_key` field remains in `EnvelopeHeader` (shared type) for all envelope types. For `DistillEnvelope`, the field serves as a trace/observability aid — it is available in the envelope for logging and debugging but is not persisted to staging-meta and is not checked at any dedup stage.
+
 ### Engine Hash Verification
 
 The Knowledge engine **must** recompute [`content_hash(content)`](#hash-producing-functions) for every `DistillCandidate` and verify it matches the caller-provided `content_sha256`. Reject any candidate where the computed hash does not match. This prevents hash drift from corrupting the dedup invariant. Caller provides the hash (self-describing envelopes); engine verifies (trust-but-verify).
@@ -349,7 +363,7 @@ All published knowledge entries in `engram/knowledge/learnings.md` use a uniform
 
 ```markdown
 ### YYYY-MM-DD Entry title
-<!-- lesson-meta {"meta_version": "1.0", "lesson_id": "<UUIDv4>", "content_sha256": "<hex>", "created_at": "<ISO8601>", "producer": "learn|curate"} -->
+<!-- lesson-meta {"content_sha256": "<hex>", "created_at": "<ISO8601>", "lesson_id": "<UUIDv4>", "meta_version": "1.0", "producer": "learn|curate"} -->
 
 Entry content...
 ```
@@ -425,7 +439,7 @@ class LedgerEntry:
     producer: str                 # "engine" | "orchestrator" | "hook"
     session_id: str               # Claude session UUID
     worktree_id: str              # Derived from git rev-parse --git-dir
-    record_ref: str | None        # RecordRef canonical serialization, if applicable
+    record_ref: str | None        # RecordRef canonical serialization; see Event Vocabulary for per-event-type population rules
     operation_id: str | None      # Groups related events (e.g., all events from one /save)
     payload: dict                 # Event-type-specific data (dict[str, Any] — see Event Vocabulary for per-event-type payload shapes; runtime validation is event-type-specific)
 ```
@@ -436,11 +450,11 @@ Payload is typed per event — see [Event Vocabulary](#event-vocabulary-v1) for 
 
 ### Event Vocabulary (v1)
 
-| Event Type | Producer | Payload Fields | Purpose |
-|---|---|---|---|
-| `snapshot_written` | orchestrator | `{ref: str, orchestrated_by: str}` | Timeline fidelity — records snapshot creation. `orchestrated_by` values: `"save"`, `"quicksave"`, `"load"`. See [operations.md §Snapshot Event Emission](operations.md#snapshot-event-emission) for per-producer emit conditions. |
-| `defer_completed` | engine | `{source_ref: str, emitted_count: int}` | Completion evidence for /triage inference |
-| `distill_completed` | engine | `{source_ref: str, emitted_count: int}` | Completion evidence for /triage inference |
+| Event Type | Producer | Payload Fields | `record_ref` | Purpose |
+|---|---|---|---|---|
+| `snapshot_written` | orchestrator | `{ref: str, orchestrated_by: str}` | `payload.ref` | Timeline fidelity — records snapshot creation. `orchestrated_by` values: `"save"`, `"quicksave"`, `"load"`. See [operations.md §Snapshot Event Emission](operations.md#snapshot-event-emission) for per-producer emit conditions. |
+| `defer_completed` | engine | `{source_ref: str, emitted_count: int}` | `null` | Completion evidence for /triage inference |
+| `distill_completed` | engine | `{source_ref: str, emitted_count: int}` | `null` | Completion evidence for /triage inference |
 
 The `emitted_count` field is **required** in `defer_completed` and `distill_completed` payloads. A value of `0` means the operation completed with zero outputs (zero-output success — [triage case 3](operations.md#triage-read-work-and-context)). A missing `emitted_count` key is a producer bug — triage treats it as "completion not proven" (case 4). Producers must always emit `emitted_count`, including when the count is zero.
 
