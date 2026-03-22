@@ -33,6 +33,10 @@ CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engin
 
 No other skill-level write to a protected or externally-owned path is permitted without an explicit clause in this section.
 
+#### Adding New Exceptions
+
+foundations.md (this file) is the authoritative source for enforcement exceptions. A new exception is effective only when present in this section — the [enforcement.md exceptions table](enforcement.md#enforcement-exceptions) then references it. This sequencing ensures architecture_rule authority governs exception creation (per spec.yaml `claim_precedence`), preventing enforcement.md from unilaterally expanding its own exception set.
+
 ### Shadow Authority Anti-Pattern
 
 Any feature that makes Engram a second source of truth for data that a subsystem already owns is a design violation.

@@ -28,9 +28,13 @@ Six operations justify Engram's plugin scope. Three exist today as cross-plugin 
     -> Skill extracts deferred items
     -> DeferEnvelope per item (with idempotency_key)
     -> Work engine ingests via 4-stage pipeline
-    -> Duplicate check: idempotency_key against existing tickets
-    -> If duplicate: returns existing ticket_ref (no new ticket)
-    -> If new: creates ticket, returns ticket_ref
+    -> Duplicate check (two-stage):
+        (1) Envelope-level: check idempotency_key against existing tickets
+            -> If match: returns existing ticket_ref (same retry)
+        (2) Content-level: check work_dedup_fingerprint(problem, key_file_paths)
+            against tickets created within the past 24 hours
+            -> If match: returns existing ticket_ref (semantically identical)
+    -> If no match at either stage: creates ticket, returns ticket_ref
 ```
 
 ### Distill: Context to Knowledge (Staged)
@@ -147,7 +151,11 @@ Three-step state machine with marker-based location and reconciliation recovery.
     -> Step 3 (engine): Knowledge engine recomputes transformed_text_sha256 via
         drift_hash() on the exact post-write text between markers (see
         [Promote Hash Verification](types.md#promote-hash-verification)), then writes/updates promote-meta.
-        For Branch B2: also updates promote-meta.target_section to the user-confirmed section.
+        For Branch B2: after user confirms placement and skill wraps in markers (end of Step 2),
+            the engine retrieves the text between the newly-placed markers, recomputes
+            drift_hash(), and writes promote-meta with updated target_section set to the
+            user-confirmed section. This occurs within the same /promote invocation — Step 3
+            is not deferred to a future run.
         If post-write text is unavailable, rejects the write (lesson remains eligible).
 ```
 
@@ -209,6 +217,18 @@ Three-step state machine with marker-based location and reconciliation recovery.
             distill: {status: "ok", staged: 3, skipped: 0} | {status: "skipped"},
         }
 ```
+
+### Snapshot Event Emission
+
+Each snapshot producer emits a [`snapshot_written`](types.md#event-vocabulary-v1) ledger event after successful write:
+
+| Producer | `orchestrated_by` value | When |
+|----------|------------------------|------|
+| `/save` | `"save"` | After snapshot write succeeds (before defer/distill sub-operations) |
+| `/quicksave` | `"quicksave"` | After snapshot write succeeds |
+| `/load` (archive path) | `"load"` | After archive write succeeds |
+
+All three producers emit the event. The `orchestrated_by` value distinguishes them in `/timeline` and `/triage`. This is the authoritative specification for `snapshot_written` emission — see [types.md event vocabulary](types.md#event-vocabulary-v1) for the payload schema.
 
 ### Recovery Manifest
 

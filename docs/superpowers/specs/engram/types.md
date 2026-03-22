@@ -383,7 +383,7 @@ class LedgerEntry:
 
 | Event Type | Producer | Payload Fields | Purpose |
 |---|---|---|---|
-| `snapshot_written` | orchestrator | `{ref: str, orchestrated_by: str}` | Timeline fidelity — records snapshot creation |
+| `snapshot_written` | orchestrator | `{ref: str, orchestrated_by: str}` | Timeline fidelity — records snapshot creation. `orchestrated_by` values: `"save"`, `"quicksave"`, `"load"`. See [operations.md §Snapshot Event Emission](operations.md#snapshot-event-emission) for per-producer emit conditions. |
 | `defer_completed` | engine | `{source_ref: str, emitted_count: int}` | Completion evidence for /triage inference |
 | `distill_completed` | engine | `{source_ref: str, emitted_count: int}` | Completion evidence for /triage inference |
 
@@ -442,8 +442,8 @@ Five independent version spaces govern Engram's data contracts. Each evolves ind
 | Envelope protocol | **Exact-match.** Target engine rejects envelopes with unrecognized `envelope_version` via `VERSION_UNSUPPORTED` error (see below). No forward compatibility. | Writers emit the version they were built for. |
 | Record provenance | **Same-major tolerance with field preservation.** Readers accept records with the same major version (e.g., a v1.0 reader reads v1.1). Unknown fields must be preserved verbatim on rewrite — see [Field Preservation Requirement](#field-preservation-requirement). Records with a different major version are skipped with a warning via `QueryDiagnostics.warnings`. | Writers emit the version they were built for. |
 | Ledger format | **Same-major tolerance.** Parse `schema_version` as `<major>.<minor>`. Compare `major` as integer. Readers skip entries where `major` differs from the reader's built-in major. Unknown fields are ignored (ledger entries are append-only, never rewritten). | Writers emit the version they were built for. |
-| Knowledge entry metadata | **Entry-level exact-match for interpretation; verbatim preservation for unrelated writes.** When interpreting a `lesson-meta` comment (dedup, promote eligibility), the Knowledge engine requires exact major.minor match. Entries with unrecognized `meta_version` are skipped with a per-entry warning — they do not block operations on other entries in the same file. When appending a new entry, existing entries with unrecognized `meta_version` are preserved verbatim. | Writers emit the version they were built for. |
-| Promotion state metadata | **Entry-level exact-match.** Same rules as knowledge entry metadata. Entries with unrecognized `promote-meta.meta_version` are skipped per-entry. Unrelated entries are preserved verbatim on rewrite. | Writers emit the version they were built for. |
+| Knowledge entry metadata | **Same-major tolerance with field preservation.** The Knowledge engine accepts entries whose `lesson-meta.meta_version` shares the same major version (e.g., a v1.0 engine reads and operates on v1.1 entries). Unknown fields are preserved verbatim on rewrite — see [Field Preservation Requirement](#field-preservation-requirement). Entries with a different major version are skipped with a per-entry warning. This applies to query, addressability, dedup (`content_sha256`), and rewrite operations. Same-major tolerance is safe because minor bumps are constrained by the [Minor Bump Safety Contract](#minor-bump-safety-contract). When appending a new entry, existing entries with unrecognized major version are preserved verbatim. | Writers emit the version they were built for. |
+| Promotion state metadata | **Entry-level exact-match for state-machine interpretation.** Entries with unrecognized `promote-meta.meta_version` (different major or minor) are skipped per-entry for state-machine operations (Branch A/B/C decisions). promote-meta governs the promote state machine — a minor bump could change state-machine semantics (e.g., new branch logic), making same-major tolerance unsafe for interpretation. Unrelated entries are preserved verbatim on rewrite. | Writers emit the version they were built for. |
 
 **`VERSION_UNSUPPORTED` error:** Returned by target engines when `envelope_version` does not match the engine's built-in version. Structure: `{"error_code": "VERSION_UNSUPPORTED", "received_version": "<received>", "expected_version": "<engine_version>"}`. Note: `expected_version` is singular (exact-match — there is only one valid version per engine build).
 
@@ -467,9 +467,20 @@ Mixed-version `learnings.md` files degrade per entry, never per file. A single e
 | Change Type | Version Impact | Examples |
 |---|---|---|
 | **Major** (breaking) | Increment major, reset minor to 0 | Removing or renaming a required field, changing field semantics, changing serialization format |
-| **Minor** (additive) | Increment minor | Adding an optional field, adding a new enum value to an existing field |
+| **Minor** (additive) | Increment minor | Adding an optional field that older readers may safely ignore without changing the result of any operation they support. Adding a new enum value to an existing field only if older readers skip (not misinterpret) the value. |
 
 No patch version. Documentation-only changes do not affect version numbers.
+
+### Minor Bump Safety Contract
+
+A minor version bump is safe under same-major tolerance **if and only if** an older reader ignoring the new field produces identical results for every operation it supports. This constrains what minor bumps can introduce:
+
+- **Safe:** Adding an optional advisory field (e.g., `source_url`) that no existing operation reads. An older reader ignores it; all operations produce the same outcome.
+- **Safe:** Adding a new enum value to a field that older readers skip with a per-entry warning (e.g., new `durability` classification). The older reader's operations on other entries are unaffected.
+- **Unsafe (requires major bump):** Adding a field that changes dedup semantics (e.g., altering `content_sha256` computation). An older reader ignoring the field would compute different dedup results.
+- **Unsafe (requires major bump):** Changing the meaning of an existing field, removing a required field, or changing serialization format.
+
+This contract makes same-major tolerance trustworthy for `lesson-meta` — the Knowledge engine can safely read v1.1 entries because v1.1 can only add fields that v1.0 may ignore without behavioral divergence. `promote-meta` retains exact-match because state-machine interpretation cannot safely ignore new fields (a new branch or state transition would silently fall through to the wrong branch).
 
 ### Field Preservation Requirement
 
