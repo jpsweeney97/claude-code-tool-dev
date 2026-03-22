@@ -54,7 +54,7 @@ Two consumer classes govern how skills process upstream capsules:
 
 **Unknown sentinel versions:** See [capsule-contracts.md](capsule-contracts.md#unknown-version-behavior) for the normative rule. Summary: reject the capsule block, not the skill session. For advisory/tolerant consumers, this means applying the fallback source listed above. For strict/deterministic consumers, this means proceeding as if no upstream handoff is present (same as the "no sentinel found" case in [pipeline-integration.md](pipeline-integration.md#two-stage-admission)).
 
-**Strict/deterministic baseline mode:** When the handoff is invalid or unknown-version, the pipeline runs in baseline mode — no enriched decomposition, no upstream context injection. This differs from advisory/tolerant in that no alternative source is consulted; the pipeline simply lacks upstream enrichment. The behavioral contract for strict/deterministic consumers is defined in [capsule-contracts.md](capsule-contracts.md#contract-2-ns-dialogue-ns-handoff-block).
+**Strict/deterministic baseline mode:** When the handoff is invalid or unknown-version, the pipeline runs in baseline mode — no enriched decomposition, no upstream context injection. This differs from advisory/tolerant in that no alternative source is consulted; the pipeline simply lacks upstream enrichment. The behavioral contract for strict/deterministic consumers is defined in [capsule-contracts.md](capsule-contracts.md#contract-2-ns-to-dialogue-ns-handoff-block).
 
 ## Three-Layer Delivery Authority
 

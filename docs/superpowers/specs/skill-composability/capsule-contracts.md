@@ -23,7 +23,7 @@ Three capsule contracts define the inter-skill data exchange format. Each contra
 
 When a consumer encounters a sentinel with an unrecognized version (e.g., `<!-- ar-capsule:v2 -->` when only `v1` is known): reject the capsule block, not the skill session. A version mismatch prevents capsule consumption but does not break the skill invocation. The consumer proceeds as if no capsule exists, applying its consumer class fallback behavior (see [foundations.md](foundations.md#consumer-classes)).
 
-## Contract 1: AR → NS (AR Capsule)
+## Contract 1: AR to NS (AR Capsule)
 
 ### Purpose
 
@@ -73,7 +73,7 @@ open_questions:
 - **`if_wrong` preserves diagnostic mechanism** without crossing into remediation. AR says "if this assumption fails, X breaks" — NS decides what to do about it.
 - **Excludes task decomposition, dependency maps, or sequencing.** These are NS's domain.
 
-## Contract 2: NS → Dialogue (NS Handoff Block)
+## Contract 2: NS to Dialogue (NS Handoff Block)
 
 ### Purpose
 
@@ -83,7 +83,7 @@ Give dialogue's `--plan` flag structured task context, dependencies, originating
 
 Strict/deterministic. Dialogue rejects an invalid handoff block but continues its normal pipeline (gatherers, briefing assembly, delegation). It does not fall back to a different data source.
 
-**Validity criteria:** A handoff block is invalid if: (1) any required field (`artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `focus_question`, `selected_tasks`) is absent or not well-typed, (2) `artifact_kind` is not `next_steps_plan`, or (3) `selected_tasks` is present but empty. Missing optional fields (`topic_key`, `recommended_posture`, `source_findings`, `source_assumptions`, `source_open_questions`, `out_of_scope`, `decision_gates`) do not invalidate the capsule.
+**Validity criteria:** A handoff block is invalid if: (1) any required field (`artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `focus_question`, `selected_tasks`) is absent or not well-typed, (2) `artifact_kind` is not `next_steps_plan`, or (3) `selected_tasks` is present but empty. Missing optional fields (`topic_key`, `recommended_posture`, `source_findings`, `source_assumptions`, `source_open_questions`, `out_of_scope`, `decision_gates`) do not invalidate the capsule. `selected_tasks` validity: MUST be present AND non-empty. Absent `selected_tasks` key = invalid (criterion 1: missing required field). Present but empty `selected_tasks: []` = invalid (criterion 3: explicit validity rule). Both produce the same consumer behavior: rejection + normal pipeline proceeds.
 
 ### Emission (Contract 2)
 
