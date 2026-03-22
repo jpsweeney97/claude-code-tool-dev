@@ -82,7 +82,7 @@ Thresholds are configurable via [`ccdi_config.json`](data-model.md#configuration
 | Phase | Injection fires when | Config keys |
 |-------|---------------------|------------|
 | Initial (pre-dialogue) | 1 high-confidence topic, OR 2+ medium-confidence in same family | `injection.initial_threshold_high_count`, `injection.initial_threshold_medium_same_family_count` |
-| Mid-dialogue | 1 high-confidence topic not yet in `injected` state (i.e., `detected` or `deferred` — absent-from-registry topics also qualify on first appearance), OR 1 medium-confidence leaf in 2+ consecutive turns (governed by the registry scheduling layer — see [registry.md#scheduling-rules](registry.md#scheduling-rules) step 4; config key: `injection.mid_turn_consecutive_medium_turns`) | *(see registry.md)* |
+| Mid-dialogue | 1 high-confidence topic not yet in `injected` state (i.e., `detected` or `deferred` — absent-from-registry topics also qualify on first appearance), OR medium-confidence leaf topic in classifier output with injection governed by registry scheduling (see [registry.md#scheduling-rules](registry.md#scheduling-rules) step 4 for consecutive-turn threshold) | *(see registry.md)* |
 | `/codex` (CCDI-lite) | Same as initial | *(same keys)* |
 
 Semantic hints (see [registry.md#semantic-hints](registry.md#semantic-hints)) are an additional mid-dialogue injection trigger processed by the scheduling layer, independent of classifier output. The classifier does not process or output semantic hints.
