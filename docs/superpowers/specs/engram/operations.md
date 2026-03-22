@@ -78,8 +78,11 @@ Six operations justify Engram's plugin scope. Three exist today as cross-plugin 
     -> Report promote-meta mismatches (missing or stale)
     -> Anomaly detection (provenance_not_established):
         Work: tickets in engram/work/ with no corresponding .audit/ entry
-        Context/Knowledge: records with malformed or missing native
-            provenance fields (e.g., missing session_id in snapshot frontmatter)
+        Context: snapshots missing session_id in frontmatter (required for
+            RecordMeta population and timeline attribution)
+        Knowledge: entries in learnings.md lacking valid lesson-meta, or
+            with producer field not in {learn, curate}. This detects
+            unauthorized Bash writes that bypass engram_guard trust injection.
         Note: trust triples are transient (hook-to-engine input, not persisted
             in RecordMeta), so generic trust-triple detection is not possible.
             Detection is subsystem-specific using native artifacts.
@@ -101,6 +104,11 @@ Three-step state machine with marker-based location and reconciliation recovery.
     -> User selects
     -> Step 1 (engine): Knowledge engine validates promotability via state machine:
         Branch A (no promote-meta): Eligible. Returns promotion plan with target_section.
+        Branch D (promote-meta present, meta_version unrecognized or missing):
+            Exclude from candidate list. Surface warning: "Lesson <lesson_id> has
+            unreadable promote-meta (missing or unrecognized meta_version). Run
+            migration before re-promoting." The exclusion occurs before the lesson
+            appears as a selectable candidate. See [legacy entries](types.md#legacy-entries-missing-meta_version).
         Branch B (promote-meta exists, promoted_content_sha256 == current content_sha256):
             B1 (target_section unchanged): Reject — already promoted. Return existing details.
             B2 (target_section changed by user request): Manual reconcile. Show old
@@ -226,7 +234,7 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority), 
 | `/save` partial success | Per-step results show which failed. Recovery manifest written. | Retry failed steps standalone with `--snapshot-ref` from manifest. |
 | Crash after envelope write | Envelope emitted but downstream record not created. `defer_completed` ledger event may exist. | `/triage` infers from `source_ref` scan + ledger events. User retries; idempotency key prevents duplicates. |
 | Crash before envelope write | Snapshot has `save_expected_defer: true` but no downstream record and no `defer_completed` ledger event | `/triage` reports "completion not proven" for expected sub-operations. User retries via standalone `/defer --snapshot-ref`. |
-| Promote Step 2 failure (Branch A/C1/C2) | CLAUDE.md unchanged, no promote-meta written | Lesson remains eligible for next `/promote` run |
+| Promote Step 2 failure (Branch A/B2/C1/C2/C3) | CLAUDE.md unchanged, no promote-meta written (or stale promote-meta persists for re-promotion branches) | Lesson remains eligible for next `/promote` run |
 | Promote Step 2 user declines (C2 drift) | User sees diff of their edits vs new text, chooses "skip" | Lesson remains eligible; user edits preserved in CLAUDE.md |
 | Promote Step 2 B2 manual reconcile | User shown old and new target_section; existing promoted text shown if markers locatable | User places block in new section; Step 3 records result |
 | Promote Step 2 manual reconcile (C3 — markers missing) | User shown old target_section, content diff | User places text manually; Step 3 records result |

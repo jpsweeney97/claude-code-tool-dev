@@ -37,7 +37,9 @@ No other skill-level write to a protected or externally-owned path is permitted 
 
 Any feature that makes Engram a second source of truth for data that a subsystem already owns is a design violation.
 
-**Test:** Could a user get a different answer by querying the subsystem directly vs. querying Engram? If yes, the feature violates the core invariant.
+**Design test:** Could a user get a different answer by querying the subsystem directly vs. querying Engram? If yes, the feature violates the core invariant.
+
+**Runnable tests:** See [delivery.md §Step 0a Required Verification](delivery.md) (VR-1) for structural assertions: NativeReader has no `write()` method, `query.py` contains no filesystem write calls, and cross-reader queries do not modify subsystem directories.
 
 ## Package Structure
 

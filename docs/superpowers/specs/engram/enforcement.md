@@ -75,9 +75,16 @@ When `engram_guard` detects an authorized engine invocation pattern (`python3 en
 
 ### Step 2: Validation (Engine Entrypoint)
 
-Every **mutating** entrypoint in each subsystem engine must invoke a shared trust validator (`collect_trust_triple_errors()`) before making state changes. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. The validator checks that all three fields are present and non-empty. Missing or incomplete triples reject the operation. Read-only entrypoints are exempt.
+Every **mutating** entrypoint in each subsystem engine must invoke a shared trust validator (`collect_trust_triple_errors()`) before making state changes. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. The validator checks: (1) `hook_injected` is present **and equals `True`** (not just non-empty — `False` must be rejected), (2) `hook_request_origin` is present and is a non-empty string, (3) `session_id` is present and is a non-empty string. Missing, incomplete, or invalid triples reject the operation with a structured error. Read-only entrypoints are exempt.
 
-**Mutating entrypoints** are any engine functions that create, update, or delete files in protected paths. At minimum: ticket creation/update, knowledge publish, staging write, snapshot write. Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring.
+**Mutating entrypoints** are any engine functions that create, update, or delete files in protected paths. Complete enumeration per subsystem:
+- **Work:** ticket creation, ticket update, ticket close
+- **Knowledge:** knowledge publish (both `/learn` direct-publish and `/curate` staged-publish paths), staging write, promote-meta write
+- **Context:** snapshot write, checkpoint write
+
+All writes from `/learn` route through the Knowledge engine entrypoint — `/learn` does **not** write directly to `learnings.md` via the Write tool. This ensures trust injection covers the `/learn` path.
+
+Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring.
 
 ### Step 3: Per-Subsystem Enforcement
 

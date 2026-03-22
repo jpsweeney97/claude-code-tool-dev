@@ -18,7 +18,7 @@ authority: skill-contract
 | `/search` | Cross-subsystem | Queries all subsystems via [unified search](operations.md#unified-search). Results grouped by subsystem. |
 | `/ticket` | Work | Unchanged API. Storage at `engram/work/`. |
 | `/triage` | Cross-subsystem | Merged from ticket-triage + handoff triage. Reports staged candidates + orphans. |
-| `/learn` | Knowledge | Appends to `engram/knowledge/learnings.md` with [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract). Dedup via `content_sha256` against published entries. |
+| `/learn` | Knowledge | Invokes the Knowledge engine publish entrypoint to append to `engram/knowledge/learnings.md` with [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract). Routes through `engram_guard` trust injection (not a direct Write tool call). Dedup via `content_sha256` against published entries. |
 | `/distill` | Context -> Knowledge | Writes to staging inbox. Idempotent per snapshot. Accepts `--snapshot-ref <ref>` for retry (required when called standalone after `/save` failure). |
 | `/curate` | Knowledge | **New.** Reviews staged candidates, publishes to `engram/knowledge/`. See [curate mechanics](operations.md#distill-context-to-knowledge-staged). |
 | `/promote` | Knowledge -> CLAUDE.md | [Three-step state machine](operations.md#promote-knowledge-to-claudemd): engine validates promotability, skill writes CLAUDE.md, engine writes promote-meta. |
@@ -79,5 +79,5 @@ Three inherited limitations, carried forward with documentation:
 | `/save` vs `/quicksave` | Full session wrap-up vs. quick checkpoint |
 | `/triage` vs `/ticket list` | Cross-subsystem health dashboard vs. list my tickets |
 | `/search` vs `/ticket query` | Find across everything vs. find ticket by ID prefix |
-| `/distill` vs `/learn` | Bulk extraction from snapshot (staged as `DistillCandidate` files) vs. capture one insight manually (direct publish to `learnings.md` with [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract)). Both dedup via `content_sha256`. Lesson-meta is applied by `/curate` when staged candidates are published. |
+| `/distill` vs `/learn` | Bulk extraction from snapshot (staged as `DistillCandidate` files) vs. capture one insight manually (direct publish to `learnings.md` with [lesson-meta](types.md#knowledge-entry-format-lesson-meta-contract)). Both dedup via `content_sha256`. `/learn` applies lesson-meta directly on write; for the distill path, lesson-meta is applied by `/curate` at publication time. |
 | `/curate` vs `/promote` | Review staged candidates vs. graduate published knowledge to CLAUDE.md |
