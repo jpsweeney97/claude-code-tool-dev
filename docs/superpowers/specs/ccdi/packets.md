@@ -123,9 +123,9 @@ The `<!-- ccdi-packet ... -->` comment is a structured metadata line emitted by 
 4. For each top result: decide paraphrase vs snippet based on content type.
 5. Assemble into `FactPacket`, check against token budget.
 6. If under quality threshold or budget exceeded with nothing useful: return empty (skip injection). Suppression reason depends on *why* the output is empty — see [Failure Modes](#failure-modes).
-7. Render to markdown format appropriate to the phase.
+7. Render to markdown format appropriate to the phase. Render order within each topic chunk: citations first, then summary, then verbatim snippets.
 
-**Shadow mode constraint:** In shadow mode (Phase B rollout — see [delivery.md#shadow-mode-kill-criteria](delivery.md#shadow-mode-kill-criteria)), the rendered markdown is staged for diagnostics but NOT prepended to the follow-up prompt. The build process runs identically in both modes — shadow mode suppresses delivery, not construction. See [delivery.md#shadow-mode-gate](delivery.md#shadow-mode-gate) for the gate condition.
+**Shadow mode:** In shadow mode, the build process runs identically but rendered output is staged for diagnostics only — not delivered to Codex. See [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate) for the gate condition and [integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue) for the behavioral contract governing shadow-mode delivery suppression.
 
 ## Failure Modes
 
