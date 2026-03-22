@@ -479,7 +479,7 @@ Supported operators: `equals` (deep equality), `contains` (array membership), `l
    - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target>` (NO `--mark-injected` — prepare phase; `--facet` provided for ranking consistency).
    - If `composed_target` is present: run target-match check against the built packet (using topics from `<!-- ccdi-packet -->` metadata comment):
      - (a) Check whether the packet topic is a substring of `composed_target`.
-     - (b) If condition (a) fails, invoke `classify --text-file <composed_target_tempfile>` and check whether any resolved topic overlaps with packet topics. This is condition (b) — see [registry.md#scheduling-rules](registry.md#scheduling-rules) step 7.
+     - (b) If condition (a) fails, invoke `classify --text-file <composed_target_tempfile>` and check whether any resolved topic overlaps with packet topics. This is condition (b) — see [registry.md#scheduling-rules](registry.md#scheduling-rules) step 10.
      - If both (a) and (b) fail, run `build-packet --mark-deferred <topic_key> --deferred-reason target_mismatch --skip-build --registry-file <registry>`.
 6. If `codex_reply_error` is false (default) and a packet was staged:
    - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target> --mark-injected` (commit phase).
