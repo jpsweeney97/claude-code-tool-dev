@@ -40,7 +40,7 @@ Detection is automatic (no manual flags). Injection is source-separated from rep
 | CCDI is premise enrichment, not retargeting | CCDI adds context to the follow-up prompt; it never changes what the agent asks Codex about. Packet content should provide background, not prescriptive directives — repo evidence is always the primary signal for Codex's assessment |
 | Scout evidence beats CCDI evidence | When context-injection has a scout candidate at the same boundary, CCDI yields |
 
-Schema evolution constraint (additive-only): see [data-model.md#schema-evolution-constraint](data-model.md#schema-evolution-constraint) for the authoritative elaboration.
+Schema evolution constraint (additive-only): see [data-model.md#schema-evolution-constraint](data-model.md#schema-evolution-constraint) for the authoritative elaboration under `persistence_schema` authority.
 
 ## CLI/Agent Separation
 

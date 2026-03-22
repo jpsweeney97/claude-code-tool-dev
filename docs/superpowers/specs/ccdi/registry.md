@@ -24,6 +24,7 @@ TopicRegistryEntry
 ├── suppression_reason: "weak_results" | "redundant" | null
 ├── suppressed_docs_epoch: string | null  # docs_epoch at time of suppression. Written for all suppression reasons. For `weak_results`, used to determine re-entry when `docs_epoch` changes. For `redundant`, set but not consulted for re-entry — `redundant` re-entry is governed by coverage state changes and semantic hints only.
 ├── deferred_reason: "cooldown" | "scout_priority" | "target_mismatch" | null
+│   # Trace action mapping: the corresponding `ccdi_trace` `action` values use different names: `"skip_scout"` for `"scout_priority"`, `"skip_cooldown"` for `"cooldown"`, `"defer"` for `"target_mismatch"`. See [integration.md#ccditrace-output-contract](integration.md#ccditrace-output-contract).
 ├── deferred_ttl: integer | null      # turns remaining before re-evaluation
 ├── coverage_target: "family" | "leaf" # classifier's resolved coverage target; populated at detection time from ClassifierResult
 ├── facet: Facet                       # classifier's resolved facet; populated at detection time from ClassifierResult.resolved_topics[].facet
@@ -35,7 +36,7 @@ TopicRegistryEntry
     └── injected_chunk_ids: string[]
 ```
 
-Valid `Facet` values: `overview`, `schema`, `input`, `output`, `control`, `config` (see [data-model.md#queryplan](data-model.md#queryplan)).
+Valid `Facet` values: see [data-model.md#queryplan](data-model.md#queryplan) for the authoritative enum.
 
 **Serialization invariant:** All fields MUST be written to the registry file including null-valued ones — see [data-model.md#registryseed](data-model.md#registryseed) for the normative requirement. An absent field triggers entry reinitialization per the resilience principle. This includes all `coverage.*` sub-fields: `overview_injected`, `facets_injected`, `pending_facets`, `family_context_available`, and `injected_chunk_ids` — all five are durable and MUST be serialized (empty arrays/false values are valid, not omittable).
 
@@ -102,6 +103,8 @@ Fields updated at each state transition. Fields not listed are unchanged.
 | Re-detection (entry in `injected` state) | `last_seen_turn` ← current turn; all other fields unchanged (state remains `injected`) |
 | Re-detection (entry in `suppressed` state) | No field update — re-entry is governed by [Suppression Re-Entry](#suppression-re-entry) conditions, not by re-detection alone |
 | Topic absent from classifier output (entry exists, any durable state **except `suppressed`**) | `consecutive_medium_count` ← 0. (Suppressed entries are governed exclusively by their re-entry conditions — see [Suppression Re-Entry](#suppression-re-entry). When no re-entry condition is met, no field update occurs for suppressed entries regardless of classifier presence or absence.) |
+
+**Applicability to `deferred` entries:** The general `consecutive_medium_count ← 0` rule applies to `deferred` entries at any TTL value when the topic is absent from classifier output, not only at TTL=0. A `deferred` entry absent from classifier output at TTL > 0 has its `consecutive_medium_count` reset to 0 by this general rule before any transition-specific rules fire.
 | `contradicts_prior` hint resolves to `injected` topic | `coverage.pending_facets` ← append resolved facet (state stays `injected`) |
 | `contradicts_prior`, `prescriptive`, or `extends_topic` hint resolves to `detected` or `deferred` topic | No field update — scheduling effect only (elevated to materially new for immediate lookup) |
 | `prescriptive`, `contradicts_prior`, or `extends_topic` hint resolves to `suppressed` topic | Re-enter as `detected` — same field updates as `suppressed → detected` re-entry row below: `state` ← `detected`, `suppression_reason` ← null, `suppressed_docs_epoch` ← null, `last_seen_turn` ← current turn. See [Suppression Re-Entry](#suppression-re-entry) and [Semantic Hints](#semantic-hints) scheduling table. |
@@ -146,6 +149,8 @@ Re-entry conditions are aligned with the `suppression_reason`, not with classifi
 | `redundant` | Coverage state changes detectable by `dialogue-turn` from classifier output: (a) a new leaf `topic_key` under the same `family_key` as the suppressed topic transitions to `detected` (new leaf variant), or (b) any semantic hint (`extends_topic`, `prescriptive`, or `contradicts_prior`) resolves to the suppressed topic (new signal overrides prior suppression). Path (a) is detected mechanically by `dialogue-turn` when processing classifier output; path (b) requires a semantic hint via `--semantic-hints-file`. The prose example "an injected facet is later identified as insufficient" is only detectable via path (b) — no classifier-only mechanism exists for that case. |
 
 **`docs_epoch` comparison semantics:** `null == null` is not a change (no re-entry). `null → non-null` is a change (re-entry fires). `non-null → null` is a change (re-entry fires). Comparison is string equality on non-null values.
+
+**Re-entry guard invariant:** The `docs_epoch` re-entry scan MUST be gated on `suppression_reason == "weak_results"`. A `redundant`-suppressed entry MUST NOT re-enter due to `docs_epoch` change regardless of whether `suppressed_docs_epoch` differs from the current epoch. Implementations iterating suppressed entries for `docs_epoch` re-entry MUST filter by `suppression_reason` before comparing epoch values.
 
 See [integration.md#dialogue-turn-registry-side-effects](integration.md#dialogue-turn-registry-side-effects) for the `dialogue-turn` implementation of these re-entry checks.
 
