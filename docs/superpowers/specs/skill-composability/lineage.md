@@ -102,7 +102,7 @@ Two edge types connect artifacts:
 | `supersedes` | Same-kind, same-subject artifacts | Version chain within one artifact family |
 | `source_artifacts[]` | Cross-kind artifacts | Provenance graph showing what this run consumed |
 
-**`supersedes` minting rule:** `supersedes` MUST reference the most recent prior artifact of the same `artifact_kind` and `subject_key` visible in conversation context at the time of capsule emission. If multiple prior artifacts exist, take the one with the latest `created_at`. If no prior artifact of the same kind and subject exists, set `supersedes: null`.
+**`supersedes` minting rule:** `supersedes` MUST reference the most recent prior artifact of the same `artifact_kind` and `subject_key` visible in conversation context at the time of capsule emission. For `dialogue_feedback` artifacts, also check the durable store at `.claude/composition/feedback/` (per the step-0 durable store check in [consumption discovery](#consumption-discovery)) before determining `supersedes` — the most recent prior artifact across both conversation context and the durable store is the correct supersession target. If multiple prior artifacts exist, take the one with the latest `created_at`. If no prior artifact of the same kind and subject exists, set `supersedes: null`.
 
 Each `source_artifacts[]` entry includes `artifact_id`, `artifact_kind`, and `role` (e.g., `diagnosis`, `plan`).
 

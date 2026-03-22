@@ -42,6 +42,12 @@ precedence:
   normative_first: true
   claim_precedence:
     behavior_contract: [routing, pipeline, lineage, foundation]
+    # Foundation's behavior_contract claims define cross-cutting invariants
+    # (consumer classes, capsule externalization) that downstream authorities
+    # must not contradict. Foundation ranks last in precedence for conflict
+    # resolution, but its behavioral invariants are architectural constraints
+    # referenced by all three behavior authorities — contradictions indicate
+    # a spec defect, not a precedence override.
     interface_contract: [capsule-contract, lineage]
   # decisions ranked 2nd (after foundation) because locked design decisions constrain
   # behavior — in any genuine cross-claim conflict, locked decisions override runtime

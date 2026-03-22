@@ -66,13 +66,15 @@ The composition system distributes authority across three layers:
 | **Composition contract** | Shared reference document | Implementation-time reference — must conform to spec definitions; authoritative for inline stub authors (NOT runtime-loaded; stubs carry the runtime projection) | Skill authors modifying composition behavior |
 | **Inline stubs** (per skill) | Each participating skill | Runtime authority — role-specific operational subset derived from the contract | Claude during skill execution |
 
+See spec.yaml lines 57-61 for the external authority positioning comment (composition contract and inline stubs positioned in the authority hierarchy).
+
 **Relationship between spec and contract:** Within this spec, the normative definitions live in the spec files ([routing-and-materiality.md](routing-and-materiality.md), [lineage.md](lineage.md), [capsule-contracts.md](capsule-contracts.md), etc.). The Composition contract is the runtime delivery artifact that must conform to — not supersede — these spec-file definitions. When the contract diverges from the spec, the spec is authoritative and the contract must be updated.
 
 **Contract documents the runtime projection of protocol core (stubs carry it at runtime):**
 
 - Sentinel/version rules and unknown-version handling — see [capsule-contracts.md](capsule-contracts.md#unknown-version-behavior)
 - Artifact metadata schema — see [lineage.md](lineage.md#artifact-identity)
-- Consumer class definitions — see [Consumer Classes](#consumer-classes) below
+- Consumer class definitions — see [Consumer Classes](#consumer-classes) above
 - Routing classification rules and precedence — see [routing-and-materiality.md](routing-and-materiality.md#routing-classification)
 - Material-delta gating (tier semantics and evaluation flow) — see [routing-and-materiality.md](routing-and-materiality.md#material-delta-gating)
 - Budget semantics — see [routing-and-materiality.md](routing-and-materiality.md#soft-iteration-budget)
@@ -100,10 +102,10 @@ Capsules are for externalized artifacts from explicit skill invocations. The glo
 
 ## Versioning and Drift Detection
 
-Contract versioning is a CI/review-time concern, not runtime. Each skill stub includes `implements_composition_contract: v1` as a drift detection marker. Sentinel versioning (`v1` in sentinel comments) handles runtime wire compatibility. Contract version stays out of capsule schemas.
+Contract versioning is a CI/review-time concern, not runtime. Each skill stub includes `implements_composition_contract: v1` as a drift detection marker. The marker MUST appear in the skill's composition stub frontmatter or as a top-level key in the composition stub block — not in examples, comments, or disabled sections. The grep-based CI check ([verification.md](verification.md)) MUST verify the marker appears within the active composition stub boundaries. Sentinel versioning (`v1` in sentinel comments) handles runtime wire compatibility. Contract version stays out of capsule schemas.
 
-**Contract location:** See [delivery.md](delivery.md#skill-text-changes) for the contract file path. The contract sits alongside the consultation contract, since all three skills interact through the cross-model dialogue system.
+**Contract location:** Contract file: `packages/plugins/cross-model/references/composition-contract.md`. See [delivery.md](delivery.md#skill-text-changes) for the full delivery specification. The contract sits alongside the consultation contract, since all three skills interact through the cross-model dialogue system.
 
 **Inverted runtime loading:** Unlike the consultation contract (which IS runtime-loaded), the composition contract is NOT. Stubs carry the runtime projection. Contract→stub drift is a silent correctness bug. Detection requires CI tooling (`validate_composition_contract.py`) that is designed but not yet implemented — see [delivery.md](delivery.md#open-items) item #6.
 
-**Interim drift mitigation (until CI enforcement exists):** Contract→stub drift is bidirectional — both contract changes and stub changes can introduce it. See [delivery.md](delivery.md#open-items) item #8 for the interim manual review protocol (PR MUST clauses and stub-impact checklist). This protocol is a P0 prerequisite — merging changes without cross-checking recreates the silent correctness bug this section warns about.
+**Interim drift mitigation protocol:** see [delivery.md](delivery.md#open-items) item #8. Contract→stub drift is bidirectional and is a P0 prerequisite check.

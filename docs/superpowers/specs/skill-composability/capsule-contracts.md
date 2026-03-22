@@ -29,13 +29,13 @@ When a consumer encounters a sentinel with an unrecognized version (e.g., `<!-- 
 
 Give NS stable, machine-referenceable access to AR findings without requiring prose parsing. Preserves AR's principle of separating diagnosis from remediation.
 
-### Consumer Class
+### Consumer Class (Contract 1)
 
 Advisory/tolerant. NS validates the capsule if present; falls back to prose parsing if absent or invalid.
 
 **Provenance in fallback:** When NS falls back to prose parsing (capsule absent, schema-invalid, or unknown-version rejected), the NS handoff MUST omit `source_artifacts` entries for the absent capsule. Do not reference an AR `artifact_id` that was not structurally consumed. This preserves lineage integrity — downstream consumers can trust that `source_artifacts` entries represent structurally validated provenance, not prose-derived references.
 
-### Emission
+### Emission (Contract 1)
 
 AR appends the capsule after its prose output (after the Confidence Check section). The capsule is always emitted — it costs nothing to produce and NS can ignore it.
 
@@ -107,7 +107,7 @@ record_path: null
 
 focus_question: <what this dialogue should resolve>
 recommended_posture: <adversarial | collaborative | exploratory | evaluative | comparative>
-selected_tasks:
+selected_tasks:  # MUST NOT be empty — present but empty [] is invalid per validity criterion (3)
   - task_id: T2
     task: <task description>
     why_now: <why this task is recommended for dialogue>
@@ -189,7 +189,7 @@ emerged:
     text: <new concept or risk that emerged>
 
 continuation_warranted: <true | false>
-recommended_posture: <posture or null>
+recommended_posture: <adversarial | collaborative | exploratory | evaluative | comparative | null>  # same enum as NS handoff schema
 
 feedback_candidates:
   - item_id: E1
@@ -201,6 +201,8 @@ feedback_candidates:
     classifier_source: rule | model
     materiality_source: rule | model
 ```
+
+The feedback capsule MUST omit `source_artifacts` entries for any upstream capsule (NS handoff) that was not structurally consumed — do not reference an NS `artifact_id` that was not validated via the [two-stage admission](pipeline-integration.md#two-stage-admission) process. Parallel to the [Contract 1 provenance rule](#consumer-class-contract-1).
 
 ### Validity Criteria (Contract 3)
 
@@ -215,6 +217,7 @@ When a required field is absent or not well-typed, the capsule is invalid and th
 
 - **`material`/`suggested_arc` coherence:** The [affected-surface validity matrix and correction rules](routing-and-materiality.md#affected-surface-validity) (normative authority: routing-and-materiality) are the single source of truth for valid tuples in the emitted wire format. Capsules MUST be emitted in their post-correction state.
 - **`classifier_source` validation:** The emission-time enforcement gate MUST validate `classifier_source ∈ {rule, model}` for every `feedback_candidates[]` entry, parallel to the `(affected_surface, material, suggested_arc)` tuple validation. See [routing-and-materiality.md](routing-and-materiality.md#dimension-independence) for the normative MUST clause.
+- **`materiality_source` validation:** The emission-time enforcement gate MUST validate `materiality_source ∈ {rule, model}` for every `feedback_candidates[]` entry, parallel to the `classifier_source` validation. See [routing-and-materiality.md](routing-and-materiality.md#affected-surface-validity) for the enforcement-layer MUST clause.
 - **`record_status` semantics:** See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the normative write-failure recovery procedure, consumer-side contract, and enforcement rules. `record_status` MUST always be present (`ok` or `write_failed`).
 
 ### Design Notes
