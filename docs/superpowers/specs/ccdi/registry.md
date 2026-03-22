@@ -7,7 +7,7 @@ authority: registry-contract
 
 # CCDI Topic Registry
 
-Per-conversation state machine tracking topic lifecycle. Prevents redundant injection and enables "materially new" detection. Used only in Full CCDI mode (not CCDI-lite). Registry state is read and written by the [`dialogue-turn` and `build-packet` CLI commands](integration.md#cli-tool-topic_inventorypy).
+Per-conversation state machine tracking topic lifecycle. Prevents redundant injection and enables "materially new" detection. Used only in Full CCDI mode (not CCDI-lite). Registry state is read and written by the [`dialogue-turn` and `build-packet` CLI commands](integration.md#cli-tool-topicinventorypy).
 
 ## Entry Structure
 
@@ -20,7 +20,7 @@ TopicRegistryEntry
 ├── last_seen_turn: integer
 ├── last_injected_turn: integer | null
 ├── last_query_fingerprint: string | null
-├── consecutive_medium_count: integer  # consecutive turns at medium confidence; reset on injection or confidence change
+├── consecutive_medium_count: integer  # consecutive turns at medium confidence; reset on injection or confidence change. Initialization on re-entry to detected state: 1 when re-entering from classifier output at medium confidence AND leaf-kind; 0 otherwise (including family-kind, absent-from-classifier, and non-medium confidence cases). See field update rules for `suppressed → detected` and `deferred → detected` rows.
 ├── suppression_reason: "weak_results" | "redundant" | null
 ├── suppressed_docs_epoch: string | null  # docs_epoch at time of suppression. Written for all suppression reasons. For `weak_results`, used to determine re-entry when `docs_epoch` changes. For `redundant`, set but not consulted for re-entry — `redundant` re-entry is governed by coverage state changes and semantic hints only.
 ├── deferred_reason: "cooldown" | "scout_priority" | "target_mismatch" | null
@@ -30,7 +30,7 @@ TopicRegistryEntry
 └── coverage
     ├── overview_injected: boolean
     ├── facets_injected: Facet[]
-    ├── pending_facets: Facet[]        # facets flagged for re-injection by contradicts_prior hint
+    ├── pending_facets: Facet[]        # facets flagged for re-injection by contradicts_prior hint. Ordered FIFO queue: facets are appended on `contradicts_prior` hint and consumed from index 0 by scheduling step 8. Implementations MUST serialize `pending_facets` in insertion order and MUST NOT sort or reorder this field.
     ├── family_context_available: boolean
     └── injected_chunk_ids: string[]
 ```
@@ -84,11 +84,15 @@ States in `[brackets]` are attempt-local — they exist only within a single `di
 
 **Forward-only for `injected`:** Once injected, stays injected. If coverage is later insufficient, update `coverage` fields or create a new leaf entry — do not move backwards.
 
+**Hint-driven `deferred` elevation:** Semantic hints that elevate a `deferred` topic to "materially new" trigger an implicit `deferred → detected` transition before the lookup path. See [Semantic Hints](#semantic-hints) scheduling table for the per-hint-type details.
+
 **`deferred` vs `suppressed`:** These are semantically distinct. `suppressed` means "we looked and found nothing useful" — the evidence is weak. `deferred` means "this is a valid candidate that lost to higher priority" — the evidence may be strong but timing was wrong. Deferred reasons: `cooldown` (turn budget exhausted), `scout_priority` (scout evidence took precedence — defers BEFORE search, so no search cost incurred), `target_mismatch` (packet doesn't support the composed follow-up target — defers AFTER search+build, so search cost was already spent; cached results are available on re-evaluation). This asymmetry in deferral timing means `scout_priority` re-evaluation always requires a fresh search, while `target_mismatch` re-evaluation can leverage cached packets. Deferred topics get automatic re-evaluation via TTL; suppressed topics require new signal.
 
 ### Field Update Rules
 
 Fields updated at each state transition. Fields not listed are unchanged.
+
+**Evaluation order:** General state-independent rules (e.g., "topic absent from classifier output") are evaluated first each turn, then transition-specific rules apply. When a transition row references a general rule, the general rule has already fired — the transition row listing is informational only.
 
 | Transition | Fields updated |
 |-----------|----------------|
@@ -97,17 +101,17 @@ Fields updated at each state transition. Fields not listed are unchanged.
 | Re-detection at non-medium confidence (entry in `detected` or `deferred` state) | `last_seen_turn` ← current turn, `consecutive_medium_count` ← 0 |
 | Re-detection (entry in `injected` state) | `last_seen_turn` ← current turn; all other fields unchanged (state remains `injected`) |
 | Re-detection (entry in `suppressed` state) | No field update — re-entry is governed by [Suppression Re-Entry](#suppression-re-entry) conditions, not by re-detection alone |
-| Topic absent from classifier output (entry exists, any durable state) | `consecutive_medium_count` ← 0 |
+| Topic absent from classifier output (entry exists, any durable state **except `suppressed`**) | `consecutive_medium_count` ← 0. (Suppressed entries are governed exclusively by their re-entry conditions — see [Suppression Re-Entry](#suppression-re-entry). When no re-entry condition is met, no field update occurs for suppressed entries regardless of classifier presence or absence.) |
 | `contradicts_prior` hint resolves to `injected` topic | `coverage.pending_facets` ← append resolved facet (state stays `injected`) |
 | `contradicts_prior`, `prescriptive`, or `extends_topic` hint resolves to `detected` or `deferred` topic | No field update — scheduling effect only (elevated to materially new for immediate lookup) |
 | `prescriptive`, `contradicts_prior`, or `extends_topic` hint resolves to `suppressed` topic | Re-enter as `detected` — same field updates as `suppressed → detected` re-entry row below: `state` ← `detected`, `suppression_reason` ← null, `suppressed_docs_epoch` ← null, `last_seen_turn` ← current turn. See [Suppression Re-Entry](#suppression-re-entry) and [Semantic Hints](#semantic-hints) scheduling table. |
 | `extends_topic` hint resolves to `injected` topic | No field update — `facet_expansion` candidate emitted immediately this turn via [scheduling step 9](#scheduling-rules). `pending_facets` is only mutated by `contradicts_prior` hints (see row above). State stays `injected`. |
-| `[built] → injected` (via `--mark-injected`) | `state` ← `injected`, `last_injected_turn` ← current turn, `last_query_fingerprint` ← normalized fingerprint of query used, `coverage.injected_chunk_ids` ← append chunk IDs from built packet, `coverage.facets_injected` ← append facet, `coverage.pending_facets` ← remove served facet (if present), `consecutive_medium_count` ← 0 |
+| `[built] → injected` (via `--mark-injected`) | `state` ← `injected`, `last_injected_turn` ← current turn, `last_query_fingerprint` ← normalized fingerprint of query used, `coverage.injected_chunk_ids` ← append chunk IDs from built packet (skip if chunk ID already present — array is a set; implementations MUST enforce uniqueness on append), `coverage.facets_injected` ← append facet (skip if facet already present — array is a set; implementations MUST enforce uniqueness on append), `coverage.pending_facets` ← remove served facet (if present), `consecutive_medium_count` ← 0, `deferred_reason` ← null, `deferred_ttl` ← null (clear any stale deferral context from prior state) |
 | `[built] → injected` (coverage_target=family, facet=overview) | Additionally: `coverage.overview_injected` ← true |
 | `absent → detected` (leaf, parent family has `coverage.overview_injected = true`) | Additionally: `coverage.family_context_available` ← true |
 | `absent → detected` (leaf, parent family not injected or not overview-covered) | `coverage.family_context_available` ← false |
 | `detected → deferred` (via `--mark-deferred`) | `state` ← `deferred`, `deferred_reason` ← reason, `deferred_ttl` ← `injection.deferred_ttl_turns` from config |
-| `[looked_up] → suppressed` | `state` ← `suppressed`, `suppression_reason` ← reason, `suppressed_docs_epoch` ← current pinned inventory snapshot's `docs_epoch` (from `--inventory-snapshot`, see [integration.md#cli-tool-topic_inventorypy](integration.md#cli-tool-topic_inventorypy)) |
+| `[looked_up] → suppressed` | `state` ← `suppressed`, `suppression_reason` ← reason, `suppressed_docs_epoch` ← current pinned inventory snapshot's `docs_epoch` (from `--inventory-snapshot`, see [integration.md#cli-tool-topicinventorypy](integration.md#cli-tool-topicinventorypy)) |
 | `suppressed → detected` (re-entry, topic in classifier output) | `state` ← `detected`, `suppression_reason` ← null, `suppressed_docs_epoch` ← null, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if re-entry turn confidence is medium AND leaf-kind, else 0) (consistent with `absent → detected` and `deferred → detected` initialization), `coverage_target` ← from `ClassifierResult.resolved_topics[].coverage_target`, `facet` ← from `ClassifierResult.resolved_topics[].facet` (refreshed from current classifier output, consistent with `deferred → detected`). This row applies identically for both `weak_results` and `redundant` suppression reasons — the field resets are the same regardless of reason. |
 | `suppressed → detected` (re-entry, `docs_epoch`-triggered or hint-triggered, topic absent from classifier) | `state` ← `detected`, `suppression_reason` ← null, `suppressed_docs_epoch` ← null, `last_seen_turn` ← current turn, `consecutive_medium_count` ← 0 (topic absent from classifier — no confidence to evaluate). Retain prior values for `coverage_target` and `facet` — only `state`, `suppression_reason`, `suppressed_docs_epoch`, `last_seen_turn`, and `consecutive_medium_count` are reset. This row applies identically for both `weak_results` and `redundant` suppression reasons. |
 | `deferred → detected` (TTL expiry + reappearance) | `state` ← `detected`, `deferred_reason` ← null, `deferred_ttl` ← null, `last_seen_turn` ← current turn, `consecutive_medium_count` ← (1 if re-entry turn confidence is medium AND leaf-kind, else 0) (family-kind topics always initialize to 0, consistent with `absent → detected`), `coverage_target` ← from `ClassifierResult.resolved_topics[].coverage_target`, `facet` ← from `ClassifierResult.resolved_topics[].facet` (both updated to current classifier resolution) |
@@ -118,11 +122,11 @@ Fields updated at each state transition. Fields not listed are unchanged.
 
 **`consecutive_medium_count` on send failure:** When a packet is staged (prepare phase) but send fails (commit phase skipped), `consecutive_medium_count` is NOT reset — the `[built] → injected` transition never fires, so the counter retains its pre-failure value. On the next turn, if the topic reappears at medium confidence, the counter increments from the retained value. This means injection may fire again on the next medium-confidence turn (acceptable double-attempt; the topic genuinely qualifies). The counter resets to 0 only via: (a) successful `--mark-injected` commit, (b) topic absent from classifier output, or (c) topic appears at a different confidence level.
 
-**`last_query_fingerprint` normalization:** Lowercased query string with whitespace collapsed. Includes `docs_epoch` if available — same key composition as the [session-local cache](#session-local-cache).
+**`last_query_fingerprint` normalization:** Lowercased query string with whitespace collapsed. Always includes `docs_epoch` as a component, even when null. Fingerprint format: `normalize(query) + '|' + str(docs_epoch)` where null becomes the literal string `'null'`. When `--inventory-snapshot` is absent on a CLI call, `docs_epoch` is treated as null for fingerprint composition. Same key composition as the [session-local cache](#session-local-cache).
 
 ### TTL Lifecycle
 
-When a topic transitions to `deferred`, set `deferred_ttl` to the value of [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `injection.deferred_ttl_turns` (default: 3).
+When a topic transitions to `deferred`, set `deferred_ttl` to the value of [`ccdi_config.json`](data-model.md#configuration-ccdiconfigjson) → `injection.deferred_ttl_turns` (default: 3).
 
 **Decrement rule:** Each `dialogue-turn` invocation decrements `deferred_ttl` by 1 for all entries in `deferred` state, regardless of whether the topic appears in the current classifier output.
 
@@ -167,13 +171,13 @@ Each turn, after the [classifier](classifier.md) runs on Codex's latest response
    - Codex contradicts or extends an injected topic (coverage gap)
 3. **Facet resolution for lookup:** When scheduling a topic for lookup, use the facet from the classifier's resolved output. If the scheduled facet is not present in the topic's `QueryPlan.facets` (or maps to an empty `QuerySpec[]` array), fall back to `default_facet`. If `default_facet` is also absent (or empty), transition to `suppressed: weak_results` — no valid query is available, which is functionally equivalent to a search returning no results. This prevents an infinite scheduling loop where the topic is re-selected every turn without progressing.
 4. **Consecutive-turn medium tracking:** For each `detected` **leaf-kind** topic at medium confidence, increment `consecutive_medium_count`. Family-kind topics at medium confidence are tracked in the registry but do not participate in consecutive-medium injection — only high-confidence detection or a semantic hint can trigger family injection. Reset to 0 if the topic is absent from classifier output or appears at a different confidence level. Injection fires when `consecutive_medium_count` reaches `injection.mid_turn_consecutive_medium_turns` (default: 2). Reset to 0 after injection fires.
-5. **Cooldown:** Max one new docs topic injection per turn (configurable via [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `injection.cooldown_max_new_topics_per_turn`). This limit applies only to `candidate_type: "new"` candidates. `pending_facet` and `facet_expansion` candidates are exempt from the per-turn cooldown — they may be processed in the same turn as a `new` candidate.
+5. **Cooldown:** Max one new docs topic injection per turn (configurable via [`ccdi_config.json`](data-model.md#configuration-ccdiconfigjson) → `injection.cooldown_max_new_topics_per_turn`). This limit applies only to `candidate_type: "new"` candidates. `pending_facet` and `facet_expansion` candidates are exempt from the per-turn cooldown — they may be processed in the same turn as a `new` candidate.
 6. **Scout priority:** If context-injection has a scout candidate for the current turn, defer the CCDI candidate (→ `deferred` state with `scout_priority` reason).
 7. **Schedule** highest-priority materially new topic for lookup. **Priority ordering among candidates:** (1) `confidence` descending (`high` before `medium`; `null` for hint-driven candidates sorts after `medium` — see note below), (2) `first_seen_turn` ascending (earlier-detected topics first), (3) `topic_key` lexicographic ascending (deterministic tiebreaker). This ordering ensures identical scheduling decisions for identical inputs regardless of implementation, per the CLI determinism principle in [foundations.md#cliagent-separation](foundations.md#cliagent-separation).
 8. **`pending_facet` candidate emission:** For each `injected` topic with non-empty `pending_facets` (populated by prior `contradicts_prior` hints — `extends_topic` does NOT write to `pending_facets`), emit a `pending_facet` candidate at the first pending facet not already in `facets_injected`. The candidate's `coverage_target` is sourced from the persisted `TopicRegistryEntry.coverage_target` (the topic is already `injected`). This check runs on every `dialogue-turn` call, independent of classifier output.
 9. **`facet_expansion` candidate emission:** When an `extends_topic` hint resolves to an `injected` topic at a facet not yet in `facets_injected`, emit a `facet_expansion` candidate at the cascade-resolved facet (hint-resolved → `pending_facets[0]` → `default_facet`). The candidate's `coverage_target` is sourced from the persisted `TopicRegistryEntry.coverage_target`. If all candidate facets are already in `facets_injected`, discard the hint silently — no candidate emitted, no state change.
 
-**Steps 1–9 run in the CLI via `dialogue-turn`.** Step 10 runs agent-side after `build-packet` returns.
+**Steps 1–5 and 7–9 run in the CLI via `dialogue-turn`.** Step 6 (scout priority) and Step 10 (target-match) run agent-side — the CLI has no scout awareness and no target-match input. See [integration.md#mid-dialogue-phase](integration.md#mid-dialogue-phase) for the agent-side flow.
 
 10. **Target-match check (agent-side):** After building a packet for a scheduled candidate, the agent verifies the packet supports the composed follow-up target. If the check fails, the topic transitions to `deferred` with `target_mismatch` reason. See [integration.md#target-match-predicate](integration.md#target-match-predicate) for the two-condition algorithm (substring check + optional classifier fallback), the definition of "target-relevant," and the CLI interface (`--mark-deferred`, `--skip-build`).
 
@@ -211,7 +215,7 @@ The CLI classifies `claim_excerpt` through its standard two-stage pipeline to re
 
 | `hint_type` | Resolved topic state | Scheduling effect |
 |------------|---------------------|-------------------|
-| `prescriptive` | `detected` or `deferred` | Elevate to "materially new" — schedule for immediate lookup |
+| `prescriptive` | `detected` or `deferred` | Elevate to "materially new" — schedule for immediate lookup. When elevating a `deferred` topic: the topic transitions to `detected` first (applying `deferred → detected` field update rules — clears `deferred_reason`, `deferred_ttl`), then enters the lookup path from `detected`. |
 | `prescriptive` | `injected` | No effect — topic already covered. **Replay fixture assertion:** `final_registry_file_assertions` MUST verify `pending_facets` array is unchanged from initial state and no injection or deferral mutations occur. |
 | `prescriptive` | `suppressed` | Re-enter as `detected` (new agent signal overrides prior suppression — applies to both `weak_results` and `redundant`, same re-entry as `extends_topic`/`suppressed`). Rationale: a prescriptive claim from Codex is strong evidence the topic is relevant, regardless of prior weak search results. |
 | `contradicts_prior` | `injected` | Flag coverage gap — append resolved facet to `coverage.pending_facets`. On subsequent scheduling passes, emit a `pending_facet` candidate via `dialogue-turn` candidates JSON ([integration.md#dialogue-turn-candidates-json-schema](integration.md#dialogue-turn-candidates-json-schema)) with the first pending facet not already in `facets_injected`. Coverage update, not state revert. |
@@ -234,7 +238,7 @@ The CLI classifies `claim_excerpt` through its standard two-stage pipeline to re
 | Packet cache | `(topic_key, facet)` | built fact packet | Avoid re-building identical packets |
 | Negative cache | normalized query fingerprint | `weak` flag | Don't re-search queries that returned noise |
 
-Cache is session-local — dies with the conversation. Include `docs_epoch` in cache keys if available.
+Cache is session-local — dies with the conversation. Always include `docs_epoch` in cache keys (even when null — null becomes the literal string `'null'` in the key, matching the fingerprint format above).
 
 ## Failure Modes
 

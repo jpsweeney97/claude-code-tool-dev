@@ -19,7 +19,7 @@ Matching rules by `match_type`:
 
 | Match type | Behavior | Example |
 |------------|----------|---------|
-| `exact` | Case-sensitive substring match | `"PreToolUse"` matches verbatim |
+| `exact` | Case-sensitive substring match **at word boundaries** (the matched text must not be preceded or followed by a word character `[a-zA-Z0-9_]`). The word-boundary constraint prevents short aliases from spuriously matching inside longer identifiers. | `"PreToolUse"` matches verbatim but not inside `"SomePreToolUseHandler"` |
 | `phrase` | Case-insensitive multi-word match | `"pre tool use"` |
 | `token` | Case-insensitive single-word match | `"hook"` |
 | `regex` | Compiled regex pattern (sparingly) | For patterns like `SKILL\.md` |
@@ -39,7 +39,7 @@ Four deterministic rules:
 
 ## Confidence Levels
 
-Thresholds are configurable via [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `classifier`. Defaults shown:
+Thresholds are configurable via [`ccdi_config.json`](data-model.md#configuration-ccdiconfigjson) → `classifier`. Defaults shown:
 
 | Level | Criteria | Config key |
 |-------|----------|-----------|
@@ -49,7 +49,7 @@ Thresholds are configurable via [`ccdi_config.json`](data-model.md#configuration
 
 ## Output Structure
 
-Produced by the [`classify` CLI command](integration.md#cli-tool-topic_inventorypy) and consumed by the [topic registry](registry.md) for scheduling decisions. Valid `Facet` values: `overview`, `schema`, `input`, `output`, `control`, `config` (defined in [data-model.md#queryplan](data-model.md#queryplan)).
+Produced by the [`classify` CLI command](integration.md#cli-tool-topicinventorypy) and consumed by the [topic registry](registry.md) for scheduling decisions. Valid `Facet` values: `overview`, `schema`, `input`, `output`, `control`, `config` (defined in [data-model.md#queryplan](data-model.md#queryplan)).
 
 ```
 ClassifierResult
@@ -76,7 +76,7 @@ ClassifierResult
 
 ## Injection Thresholds
 
-Thresholds are configurable via [`ccdi_config.json`](data-model.md#configuration-ccdi_configjson) → `injection`. Defaults shown:
+Thresholds are configurable via [`ccdi_config.json`](data-model.md#configuration-ccdiconfigjson) → `injection`. Defaults shown:
 
 | Phase | Injection fires when | Config keys |
 |-------|---------------------|------------|

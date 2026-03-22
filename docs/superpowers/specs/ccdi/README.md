@@ -17,7 +17,7 @@ Modular specification for CCDI: automatic detection and injection of Claude Code
 
 | Authority | Claims | Scope | Normative |
 |-----------|--------|-------|-----------|
-| `foundation` | architecture_rule | Cross-cutting architecture, design principles, resilience principle, scope boundary | Yes |
+| `foundation` | architecture_rule | Cross-cutting architecture, design principles, resilience principle, topic hierarchy, component inventory, scope boundary | Yes |
 | `data-model` | persistence_schema, architecture_rule | Topic inventory schema, version axes, overlay merge semantics, config schema, lifecycle | Yes |
 | `classifier-contract` | behavior_contract, interface_contract | Two-stage pipeline, confidence levels, injection thresholds | Yes |
 | `registry-contract` | behavior_contract, interface_contract | State machine, transitions, scheduling, semantic hints | Yes |
