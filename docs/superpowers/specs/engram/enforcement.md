@@ -309,9 +309,9 @@ No other skill-level write to a protected or externally-owned path is sanctioned
 | Context | None | Agents save their own session state |
 | Knowledge staging | `gated` | User reviews via `/curate` before publication. `/distill` auto-stages without user confirmation; `/learn` publishes directly. Staging inbox cap + idempotency bound autonomous volume. |
 
-**Mode definitions** (behavioral semantics — these are `behavior_contract`-class claims placed here for co-location with the configuration contract; for precedence purposes, [operations.md](operations.md) has not been amended to incorporate them):
-- **`suggest`:** Engine prepares the operation but surfaces it to the user for confirmation before writing. The user sees what will be created and approves or rejects. If the user abandons the session without confirming, the proposed operation is discarded — no write is performed. The `suggest` flow is entirely in-session; there is no queued state to persist.
-- **`auto_audit`:** Engine creates the work item automatically. The item is marked for user review at next `/triage`. `work_max_creates` limits cumulative automatic creations per session. Trust injection still applies — `engram_guard` validates the trust triple regardless of mode. Cap enforcement (`work_max_creates`) is the engine's responsibility, not the guard's — `engram_guard` is mode-agnostic.
+**Mode definitions:** See [operations.md §Work Mode Definitions](operations.md#work-mode-definitions) for behavioral semantics (`behavior_contract` authority). This section retains the configuration schema and enforcement-level caps (`enforcement_mechanism` authority).
+
+**Behavioral characterizations in the table above** (rationale column entries like "agents propose, users approve" and "auto-stages without user confirmation") are summaries of the authoritative specifications in [operations.md](operations.md). If the table rationale conflicts with operations.md, operations.md prevails.
 
 ### Configuration
 

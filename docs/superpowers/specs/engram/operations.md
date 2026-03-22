@@ -18,6 +18,13 @@ Six operations justify Engram's plugin scope. Three migrate and improve existing
 - `/save` orchestrates cross-subsystem flows but each sub-operation is independently callable and retryable. See [/save orchestration rules](skill-surface.md#save-orchestration-rules).
 - No reactive pipelines. No cross-subsystem transactions.
 
+### Work Mode Definitions
+
+The Work subsystem operates in one of two modes, configured via `work_mode` in [`.claude/engram.local.md`](enforcement.md#configuration):
+
+- **`suggest`:** Engine prepares the operation but surfaces it to the user for confirmation before writing. The user sees what will be created and approves or rejects. If the user abandons the session without confirming, the proposed operation is discarded — no write is performed. The `suggest` flow is entirely in-session; there is no queued state to persist.
+- **`auto_audit`:** Engine creates the work item automatically. The item is marked for user review at next `/triage`. `work_max_creates` limits cumulative automatic creations per session. Trust injection still applies — `engram_guard` validates the trust triple regardless of mode. Cap enforcement (`work_max_creates`) is the engine's responsibility, not the guard's — `engram_guard` is mode-agnostic.
+
 ## Existing Operations (Migrate and Improve)
 
 ### Defer: Context to Work
