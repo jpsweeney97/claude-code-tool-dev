@@ -133,6 +133,9 @@ Three-step state machine with marker-based location and reconciliation recovery.
     -> Rank by maturity signals (age, breadth, reuse evidence) — advisory ordering only
     -> User selects
     -> Step 1 (engine): Knowledge engine validates promotability via state machine:
+        Step 1 reads CLAUDE.md to perform marker search and drift detection.
+        The Branch C1/C2 determination is complete before Step 2 begins.
+        The engine returns the branch classification to the skill as part of the promotion plan.
         Branch A (no promote-meta): Eligible. Returns promotion plan with target_section.
             User sees proposed text and target_section, confirms before write (implicit
             in lesson selection — the user chose this lesson for promotion).
@@ -143,7 +146,12 @@ Three-step state machine with marker-based location and reconciliation recovery.
             appears as a selectable candidate. See [legacy entries](types.md#legacy-entries-missing-meta_version).
         Branch B (promote-meta exists, promoted_content_sha256 == current content_sha256):
             B1 (target_section unchanged): Reject — already promoted. Return existing details.
-            B2 (target_section changed by user request): Manual reconcile. Show old
+            B2 (target_section mismatch — promote-meta.target_section differs from
+                detected marker location via global marker search): Manual reconcile.
+                On re-entry after a prior B2 Step 3 failure, this mismatch is detected
+                structurally (promote-meta has old target_section, markers at new location)
+                without requiring an active user request.
+                Show old
                 target_section, new target_section, and existing promoted text (located
                 via marker search if markers exist). User places block in new section
                 manually. Automated relocation deferred to v1.1 (see
