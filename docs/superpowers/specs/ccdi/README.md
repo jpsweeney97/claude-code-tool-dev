@@ -25,7 +25,7 @@ Modular specification for CCDI: automatic detection and injection of Claude Code
 | `integration` | behavior_contract, interface_contract | CLI interface, data flows, prepare/commit, delegation |
 | `delivery` | implementation_plan, verification_strategy | Rollout, testing, diagnostics |
 | `decisions` | decision_record | Locked design decisions from Codex dialogues |
-| `supporting` | *(none)* | README |
+| `supporting` | *(none)* | README and reference material |
 
 **Highest-risk review surface:** The classifier-registry boundary — where classifier output drives registry scheduling decisions. Changes to confidence semantics or injection thresholds in [classifier.md](classifier.md) directly affect scheduling behavior in [registry.md](registry.md).
 

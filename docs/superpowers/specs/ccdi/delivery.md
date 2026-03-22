@@ -156,23 +156,7 @@ The `codex-dialogue` agent emits a structured trace when CCDI is active, gated b
 
 Full candidate object schema: see [integration.md#dialogue-turn-candidates-json-schema](integration.md#dialogue-turn-candidates-json-schema).
 
-**`action` normative values:**
-
-| Value | Meaning |
-|-------|---------|
-| `none` | No CCDI action this turn (no candidates or all filtered) |
-| `classify` | Classifier pipeline executed |
-| `schedule` | Topic scheduled for lookup |
-| `search` | Search query executed |
-| `build_packet` | Packet construction attempted |
-| `prepare` | Packet staged for injection (prepare phase) |
-| `inject` | Topic injected (`--mark-injected` committed) |
-| `defer` | Topic deferred (`--mark-deferred` committed) |
-| `suppress` | Topic suppressed (build-packet returned empty) |
-| `skip_cooldown` | Topic skipped due to per-turn cooldown |
-| `skip_scout` | Topic deferred due to scout priority |
-
-**Trace entry key-presence invariant:** Every trace entry MUST include all keys (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`) regardless of value. `semantic_hints` is `null` when no hints exist (not absent). This invariant is validated by `trace_assertions` with `assert_key_present` checks.
+**Normative output contract:** The `action` normative values and trace entry key-presence invariant are defined in [integration.md#ccdi_trace-output-contract](integration.md#ccdi_trace-output-contract) under `interface_contract` authority. The key-presence invariant is validated by `trace_assertions` with `assert_key_present` checks (see replay harness below).
 
 The replay harness collects these traces and asserts on:
 
@@ -361,7 +345,6 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | RegistrySeed `results_file` present on load | Load a registry file containing a `results_file` field → field stripped from in-memory representation, warning logged. Per [data-model.md#failure-modes](data-model.md#failure-modes). |
 | Registry null-field serialization includes envelope fields | Write RegistrySeed with `docs_epoch: null` to temp file. Read back as raw JSON and assert `docs_epoch` key is present with `null` value (not absent). Per [data-model.md#registryseed](data-model.md#registryseed) envelope null-field invariant. |
 | RegistrySeed ↔ TopicRegistryEntry durable fields includes coverage sub-fields | Schema-comparison test must enumerate all 5 `coverage.*` sub-fields (`overview_injected`, `facets_injected`, `pending_facets`, `family_context_available`, `injected_chunk_ids`) as durable. |
-<!-- ccdi_policy_snapshot boundary test: moved to Known Open Items per review finding VR-11 — placeholder row removed from test table to avoid implied-coverage illusion. Test will be added when field shape is defined in Phase B. -->
 
 ## Integration Tests
 
@@ -432,7 +415,7 @@ Tests the PostToolUse hook that triggers `build_inventory.py` on `docs_epoch` ch
 | Hook skips non-epoch changes | Mock PostToolUse event without `docs_epoch` change | `build_inventory.py` not invoked |
 | Hook handles build failure | Mock PostToolUse + `build_inventory.py` exits non-zero | Hook logs warning, does not block tool use |
 
-**Runner:** pytest with subprocess fixture (same pattern as CLI integration tests).
+**Runner:** pytest with subprocess fixture (same pattern as CLI integration tests). The subprocess fixture delivers the PostToolUse hook payload as JSON on stdin, matching Claude Code's hook invocation contract. The test constructs a `tool_response` JSON object with the relevant fields (including `docs_epoch` when simulating an epoch change), writes it to the subprocess's stdin, and asserts on the subprocess's exit code and stdout/stderr output.
 **Phase:** A prerequisite — must pass before shadow mode activation. The hook trigger is part of the normative [inventory lifecycle](data-model.md#inventory-lifecycle) and cannot rely on manual verification alone.
 
 ## Replay Harness: `tests/test_ccdi_replay.py`
@@ -570,7 +553,7 @@ Exercises behavioral equivalence between `--source codex` and `--source user` in
 | Shadow mode: no injected or deferred registry mutations | Delegation envelope with `ccdi_seed`, no `graduation.json` → after dialogue, read the registry file and assert: (a) zero entries in `injected` state, (b) zero entries in `deferred` state, (c) all entries remain in `detected` or `suppressed` state only. Verifies shadow mode does not write `--mark-injected` or `--mark-deferred` to the registry. Automatic suppression (via build-packet empty-output) IS permitted — `suppressed` state reflects failed lookup, not agent commitment. |
 | Shadow mode: zero `--mark-deferred` invocations | Same fixture as graduation gate shadow-mode test → additionally assert agent tool-call log contains zero `build-packet --mark-deferred` invocations. Complements the `--mark-injected` assertion. |
 | Shadow mode: automatic suppression IS written | Delegation envelope with `ccdi_seed`, no `graduation.json`, fixture has a candidate with weak search results → after dialogue, assert registry file contains at least one entry in `suppressed` state with `suppression_reason: "weak_results"`. Completes the three-part shadow-mode registry invariant: injected=prohibited, deferred=prohibited, suppressed=permitted. |
-| Shadow mode: `false_positive_topic_detections` always 0 | Shadow mode diagnostics JSON → assert `false_positive_topic_detections == 0`. No ground truth available in shadow mode; field reserved for Phase B active-mode validation. |
+| Shadow mode: `false_positive_topic_detections` key present | Shadow mode diagnostics JSON → assert `"false_positive_topic_detections" in diagnostics["ccdi"]` (key-presence check). Value verification is deferred to the labeling protocol — the automated emitter always outputs 0 by construction, so a value assertion would be trivially true. |
 
 **Required fixture scenarios:**
 

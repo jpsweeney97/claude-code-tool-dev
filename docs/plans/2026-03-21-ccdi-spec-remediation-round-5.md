@@ -269,11 +269,12 @@ Fix: Add CLI integration test: `deferred_ttl_turns=5` config, topic deferred (TT
 
 ---
 
-## Task 6 — P2 Findings Batch
+## Task 6 — P2 Findings Batch ✅ COMPLETE
 
 **Finding count:** 21 P2
-**Files:** various (packets.md, data-model.md, registry.md, integration.md, decisions.md, foundations.md, delivery.md)
+**Files:** various (packets.md, data-model.md, registry.md, integration.md, decisions.md, foundations.md, delivery.md, README.md)
 **Depends on:** Task 4 (some P2s touch same files and sections as T4 edits)
+**Status:** All 21 P2 findings remediated across 8 files
 
 ### Authority & Metadata (5)
 

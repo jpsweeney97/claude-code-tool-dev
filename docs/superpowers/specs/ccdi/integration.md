@@ -267,10 +267,30 @@ The `/dialogue` skill passes these optional fields to `codex-dialogue`:
 |-------|------|--------|---------|
 | `ccdi_seed` | file path (string) | ccdi-gatherer output | Initial registry file for mid-dialogue CCDI loop. Absent → mid-dialogue CCDI disabled. |
 | `scope_envelope` | object | context-gatherers | Existing field — repo evidence scope. |
-| `ccdi_debug` | boolean \| absent | `/dialogue` skill | When `true`, `codex-dialogue` emits `ccdi_trace` in its output. Absent or `false` → no trace. Testing-only; see [delivery.md#debug-gated-ccdi_trace](delivery.md#debug-gated-ccdi_trace) for trace schema. |
+| `ccdi_debug` | boolean \| absent | `/dialogue` skill | When `true`, `codex-dialogue` emits `ccdi_trace` in its output. Absent or `false` → no trace. Testing-only; see [below](#ccdi_trace-output-contract) for the output contract and [delivery.md#debug-gated-ccdi_trace](delivery.md#debug-gated-ccdi_trace) for the trace schema and replay harness. |
 | `ccdi_policy_snapshot`* | TBD | Phase B | *[Phase B — deferred]* Config snapshot for pinning CCDI tuning params during dialogue. Shape undefined — see [delivery.md#known-open-items](delivery.md#known-open-items). Not operative in Phase A. |
 
 \*Deferred to Phase B. Shape undefined — see [delivery.md#known-open-items](delivery.md#known-open-items). Not operative in Phase A.
+
+### `ccdi_trace` Output Contract
+
+When `ccdi_debug: true` is set in the delegation envelope, `codex-dialogue` MUST emit a `ccdi_trace` key in its output containing an array of per-turn trace entries. Each trace entry MUST include all of the following keys regardless of value: `turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`. `semantic_hints` MUST be `null` when no hints exist (not absent from the entry).
+
+**`action` normative values:**
+
+| Value | Meaning |
+|-------|---------|
+| `none` | No CCDI action this turn (no candidates or all filtered) |
+| `classify` | Classifier pipeline executed |
+| `schedule` | Topic scheduled for lookup |
+| `search` | Search query executed |
+| `build_packet` | Packet construction attempted |
+| `prepare` | Packet staged for injection (prepare phase) |
+| `inject` | Topic injected (`--mark-injected` committed) |
+| `defer` | Topic deferred (`--mark-deferred` committed) |
+| `suppress` | Topic suppressed (build-packet returned empty) |
+| `skip_cooldown` | Topic skipped due to per-turn cooldown |
+| `skip_scout` | Topic deferred due to scout priority |
 
 This follows the existing delegation envelope pattern (parallel to `scope_envelope`). The registry seed is NOT embedded in the briefing text — it is a separate envelope field. The consultation contract §6 does not need modification: `ccdi_seed` is an optional additive field, not a change to the existing envelope schema.
 
