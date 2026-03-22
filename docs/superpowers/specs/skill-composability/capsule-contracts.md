@@ -231,4 +231,4 @@ When a required field is absent or not well-typed, the capsule is invalid and th
 
 - `classifier_source` is narrowed to `rule | model` — no `ambiguous` value. Every classification is performed by either a rule or the model.
 - `record_path` MUST be non-null for feedback capsules. See [routing-and-materiality.md#selective-durable-persistence](routing-and-materiality.md#selective-durable-persistence) for the normative enforcement rule, write-failure recovery procedure (including the `record_path`-to-intended-path requirement on failure), and consumer-side contract.
-- The `implements_composition_contract: v1` drift detection marker is a presence signal only — it does not guarantee semantic conformance. Until `validate_composition_contract.py` is implemented ([delivery.md](delivery.md#open-items) item #6), the marker MUST be treated as a necessary but not sufficient conformance indicator.
+- The `implements_composition_contract: v1` marker is a presence signal only — see [foundations.md §Versioning and Drift Detection](foundations.md#versioning-and-drift-detection) for the normative conformance semantics and the necessary-but-not-sufficient interpretation.
