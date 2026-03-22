@@ -20,10 +20,14 @@ class RecordRef:
     record_id: str        # Subsystem-native ID (snapshot filename, T-YYYYMMDD-NN, lesson_id)
 
     def to_str(self) -> str: ...    # "<subsystem>/<record_kind>/<record_id>"
-    def from_str(s: str) -> RecordRef: ...  # Inverse of to_str
+    @classmethod
+    def from_str(cls, s: str, repo_id: str) -> RecordRef: ...
+    # Not a pure inverse of to_str — repo_id is required because
+    # canonical serialization omits it. Callers provide the current
+    # repo's repo_id.
 ```
 
-**Canonical serialization:** `<subsystem>/<record_kind>/<record_id>` (`repo_id` omitted — implicit from context). Used in `LedgerEntry.record_ref`, event vocabulary payloads, idempotency material, and recovery manifests. Implemented as `RecordRef.to_str()` / `RecordRef.from_str()` in `engram_core/types.py`.
+**Canonical serialization:** `<subsystem>/<record_kind>/<record_id>` (`repo_id` omitted — implicit from context). Used in `LedgerEntry.record_ref`, event vocabulary payloads, idempotency material, and recovery manifests. Implemented as `RecordRef.to_str()` for serialization and `RecordRef.from_str(s, repo_id)` for deserialization (`repo_id` required — not a pure inverse since canonical form omits `repo_id`) in `engram_core/types.py`.
 
 ## RecordMeta — Provenance
 
@@ -157,6 +161,8 @@ Promoted text here...
 
 **`target_section` is advisory.** It records the last requested destination for the promoted text. It is used as an insertion hint for new promotions (Branch A) and as context in the manual reconcile flow. It is **not** the primary locator — marker search is. If the user moves a managed block to a different section, `target_section` becomes stale; `/promote` updates it on the next successful promotion.
 
+**Uniqueness invariant:** At most one `promote-meta` comment per `lesson_id` may exist in `learnings.md`. On Step 3 write, the Knowledge engine scans for an existing `promote-meta` with matching `lesson_id` and replaces it in-place (not append). If two `promote-meta` comments with the same `lesson_id` are found (corrupted state), treat as Branch D (unreadable promote-meta) and surface a migration warning.
+
 ## Hash Types and Helpers
 
 ### Scalar Types
@@ -255,6 +261,8 @@ The `idempotency_key` in `EnvelopeHeader` is computed as `sha256(canonical_json_
 
 **Field inclusion rationale:** `DeferEnvelope.key_file_paths` is included (sorted) because two defers with the same title/problem but different file paths are semantically distinct work items. `DeferEnvelope.context` is intentionally excluded — it is supplementary (same intent regardless of context snippet). All envelopes use `source_ref.to_str()` (full canonical serialization) instead of bare `source_ref.record_id` to prevent theoretical cross-subsystem collision.
 
+**Construction rule for nullable fields:** When `DeferEnvelope.context` is `None`, omit the `context` key from the material dict entirely. Do not include `{"context": None}` — [`canonical_json_bytes()`](#canonical-json) rejects `None` values with `ValueError`. This applies to all envelope types: omit nullable fields from the material dict when their value is `None`.
+
 [`canonical_json_bytes()`](#canonical-json) produces deterministic byte output. Same material produces the same key — target engine returns existing result without side effects.
 
 The `DistillEnvelope` idempotency material includes per-candidate fingerprints to ensure that re-running extraction with improved logic on the same snapshot produces a distinct key when candidate content changes.
@@ -315,6 +323,8 @@ Two failure modes for `learnings.md`, two mitigations:
 
 **CLAUDE.md:** Cross-worktree concurrent promotions are delegated to git merge (same model as `learnings.md` cross-worktree). Interleaved marker insertions from concurrent promotions of different lessons are safe — distinct `lesson_id` values in markers means non-overlapping content regions. Same-worktree concurrent promotion is not expected (single user, single session).
 
+**Dedup-within-lock:** Both `/learn` and `/curate` publish paths must perform the `content_sha256` dedup check against published entries within the same `fcntl.flock(LOCK_EX)` scope as the write to `learnings.md`. Performing the dedup check before acquiring the lock creates a TOCTOU race between concurrent publish operations.
+
 ## Snapshot Orchestration Intent
 
 When `/save` creates a snapshot, it embeds orchestration intent as flat scalar fields in the snapshot frontmatter:
@@ -365,6 +375,8 @@ class LedgerEntry:
 In payload dicts, `RecordRef` values are stored as their [canonical serialization string](#recordref--lookup-key) (`RecordRef.to_str()`). Example: `{"ref": "context/snapshot/2026-03-21-abc123"}`.
 
 **Completion events are success-only.** Their presence proves the operation ran to completion. Their absence means "not proven completed" — not "failed." Failure events are [deferred](decisions.md#deferred-decisions) to a future recovery-phase extension.
+
+**Excluded from v1:** `/learn`, `/curate`, and `/promote` do not emit completion events. These operations are user-interactive (not orchestrated by `/save`) and their completion is verifiable by examining the resulting artifacts — published entries in `learnings.md` (for `/learn`, `/curate`) and promote-meta + CLAUDE.md markers (for `/promote`). Adding completion events for these operations is a candidate for v2 if `/triage` requires finer-grained completion tracking.
 
 ### Producer Classes
 

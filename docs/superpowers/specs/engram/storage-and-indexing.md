@@ -24,7 +24,8 @@ engram/                              # Shared root (repo-local, git-tracked)
 
 ~/.claude/engram/<repo_id>/          # Private root (user-home, not git-tracked)
 ├── snapshots/                       # Full session handoffs
-│   └── YYYY-MM-DD_HH-MM_<slug>.md
+│   ├── YYYY-MM-DD_HH-MM_<slug>.md
+│   └── .archive/                    # Archived snapshots (moved by /load chain protocol)
 ├── checkpoints/                     # Lightweight quicksaves
 │   └── YYYY-MM-DD_HH-MM_checkpoint-<slug>.md
 ├── chain/                           # Session lineage state files (24h TTL)
@@ -47,13 +48,13 @@ engram/                              # Shared root (repo-local, git-tracked)
 
 3. **Handoffs move from `~/.claude/handoffs/<project>/` to `~/.claude/engram/<repo_id>/`**. Keyed by `repo_id` instead of project directory name — solves rename and worktree identity collisions. Forks that share `.engram-id` share the same private root; see [fork collision risk](decisions.md#named-risks).
 
-4. **Knowledge staging is private** (`knowledge_staging/` in the private root). Staged candidates are not repo-visible until explicitly published via `/curate`. Each `DistillCandidate` gets its own staging file, named `YYYY-MM-DD-<content_sha256[:16]>.md` (first 16 hex chars of the candidate's `content_sha256`). This makes `O_CREAT | O_EXCL` coalescing semantics precise — identical candidates from concurrent operations coalesce to the same filename.
+4. **Knowledge staging is private** (`knowledge_staging/` in the private root). Staged candidates are not repo-visible until explicitly published via `/curate`. Each `DistillCandidate` gets its own staging file, named `YYYY-MM-DD-<content_sha256[:16]>.md` (first 16 hex chars of the candidate's `content_sha256`). This makes `O_CREAT | O_EXCL` coalescing semantics precise — identical candidates from concurrent operations coalesce to the same filename. When `O_CREAT | O_EXCL` fails (file already exists), the engine compares the full `content_sha256` of the existing staging file with the new candidate's `content_sha256`. If they match, this is a genuine duplicate — coalesce (no action). If they differ, this is a hash-prefix collision — write the new candidate with a disambiguating suffix (`-1`, `-2`, etc.) and log a diagnostic. Collision probability with 16 hex chars (64-bit space) is negligible for expected staging volumes (<1000 candidates).
 
 ## TTL and Lifecycle
 
 | Artifact | TTL | Location |
 |---|---|---|
-| Snapshots/checkpoints | 90-day TTL from creation (filename timestamp). [SessionStart](enforcement.md#sessionstart-hook) deletes files older than 90 days. No intermediate "archive" tier. | Private root |
+| Snapshots/checkpoints | 90-day TTL from creation (filename timestamp). [SessionStart](enforcement.md#sessionstart-hook) deletes files older than 90 days. Archived snapshots (`.archive/`) follow the same 90-day TTL. | Private root |
 | Chain state files | 24h | Private root |
 | Knowledge staging candidates | No TTL (accumulate until curated) | Private root |
 | Work items | Permanent until closed | Shared root |

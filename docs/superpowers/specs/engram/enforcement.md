@@ -24,7 +24,21 @@ authority: enforcement
 - All producers use the shared locked append primitive defined in [types.md](types.md#write-semantics)
 - Step 3 promote-meta failures are only detectable via `/triage` (engine Bash writes are not observable by `engram_register`)
 
-**`engram_register` failure modes:** (1) Lock timeout → log warning, do not block. (2) Permission denied → log error, do not block. (3) Disk full → log error, do not block. All failures are written to the session diagnostic channel. `/triage` surfaces "ledger unavailable in session X" (rather than "completion not proven") when the ledger producer has recorded failures in the diagnostic channel.
+**`engram_register` failure modes:** (1) Lock timeout → log warning, do not block. (2) Permission denied → log error, do not block. (3) Disk full → log error, do not block. All failures are written to the [session diagnostic channel](#session-diagnostic-channel). See that section for the `/triage` read protocol.
+
+### Session Diagnostic Channel
+
+Hook failures are written to a per-session diagnostic file at `~/.claude/engram/<repo_id>/ledger/<worktree_id>/<session_id>.diag`. Format: one JSON object per line (same JSONL as ledger shards).
+
+```json
+{"ts": "<ISO 8601 UTC>", "hook": "engram_register", "failure_type": "lock_timeout", "message": "..."}
+```
+
+**Write semantics:** Append-only, best-effort (diagnostic writes must not fail-closed). No lock required — single producer (the hook that failed).
+
+**Read protocol:** `/triage` checks for `<session_id>.diag` files. If present and non-empty, surfaces `"ledger unavailable in session <session_id>"` instead of `"completion not proven"` for that session's operations. See [/triage inference matrix](operations.md#triage-read-work-and-context).
+
+**TTL:** Same as ledger shards — append-only, no TTL. Cleaned up if parent session directory is removed.
 
 ## Protected-Path Enforcement
 
@@ -174,7 +188,7 @@ The trust triple is `{hook_injected, hook_request_origin, session_id}` — three
 
 `engram_session` (SessionStart) resolves `worktree_id` and `session_id` at session start. `engram_guard` (PreToolUse) requires these values for trust injection.
 
-`engram_guard` MUST recompute `worktree_id` independently via `identity.get_worktree_id()` (same `git rev-parse --git-dir` derivation). `session_id` MUST be obtained from the Claude Code session context. No shared state file or environment variable is required or permitted.
+`engram_guard` MUST obtain `worktree_id` by calling `identity.get_worktree_id()` at invocation time — same `git rev-parse --git-dir` derivation, but never from any cached session state. `session_id` MUST be obtained from the Claude Code session context. No shared state file or environment variable is required or permitted.
 
 **Future platform fallback:** The shared-state approach (producing hook writes, consuming hook reads) applies only if Claude Code session context becomes unavailable in a future platform change. Until then, recomputation is the sole supported approach. If recomputation fails (e.g., `git rev-parse --git-dir` returns an error), block fail-closed and surface the specific git error.
 
@@ -188,7 +202,7 @@ Phase-scoped idempotency is a delivery-period limitation. See [delivery.md §Bri
 
 | Operation | Budget | On Failure |
 |---|---|---|
-| Resolve `worktree_id` | 1 call | Fail-closed: session needs identity |
+| Resolve `worktree_id` | 1 call | Fail-closed: `engram_session` returns exit code 0 but stores error state. All subsequent Engram mutating operations fail-closed with: `"Engram: cannot resolve worktree identity — check git repository state. Fix git state or remove engram_session from settings.json to bypass."` Read-only operations degrade gracefully. Session startup is **not** blocked. |
 | Clean expired snapshots (>90d by filename timestamp) | Max 50 files | Fail-open: retry next session |
 | Clean expired chain state (>24h) | Max 20 files | Fail-open |
 | Clean orphan payload files (>24h) | Max 20 files | Fail-open |
