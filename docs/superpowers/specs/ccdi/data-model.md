@@ -263,7 +263,7 @@ RegistrySeed
 
 Topics in attempt-local states (`looked_up`, `built`) are not persisted to the seed — these states exist only within a single CLI invocation.
 
-**Seed-build initialization:** At seed-build time, durable-state fields are initialized per the `absent → detected` field update rule in [registry.md#field-update-rules](registry.md#field-update-rules). See the seed-build initialization note in that section for the specific `consecutive_medium_count` baseline rule.
+**Seed-build initialization:** At seed-build time, durable-state fields are initialized per the `absent → detected` field update rule in [registry.md#field-update-rules](registry.md#field-update-rules). See the seed-build initialization note in that section for the specific `consecutive_medium_count` baseline rule (which requires both medium confidence AND leaf-kind for initialization to 1).
 
 **State at seed time:** After the [initial CCDI commit](integration.md#data-flow-full-ccdi-dialogue), entries transition to `injected` if the briefing was sent successfully. Before the commit, entries are in `detected` state.
 

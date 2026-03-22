@@ -82,14 +82,7 @@ To correct for this, shadow mode emits **counterfactual deferral observations** 
 shadow_adjusted_yield = packets_surviving_precedence / (packets_prepared - repeat_detections_from_missing_deferral)
 ```
 
-**`shadow_defer_intent` trace entry:** Emitted when the agent would have called `--mark-deferred` in active mode but is prohibited in shadow mode:
-
-```json
-{"turn": 3, "action": "shadow_defer_intent", "topic_key": "hooks.pre_tool_use", "reason": "target_mismatch", "classify_result_hash": "a7f3..."}
-```
-
-- `reason`: `"target_mismatch"` or `"cooldown"` — the deferral reason that would have been written
-- `classify_result_hash`: hash of the classify result payload for this topic on this turn, used as an evidence-freshness marker
+**`shadow_defer_intent` trace entry:** Emitted when the agent would have called `--mark-deferred` in active mode but is prohibited in shadow mode. Entry schema defined in [integration.md#ccdi_trace-output-contract](integration.md#ccdi_trace-output-contract) under the `shadow_defer_intent` action value. Key fields: `reason` (`"target_mismatch"` or `"cooldown"`), `classify_result_hash` (evidence-freshness marker).
 
 **Repeat detection:** A prepare event for `topic_key` T is a repeat detection when ALL of the following hold: (1) T has an unresolved `shadow_defer_intent` from a prior turn, (2) the current turn's `classify_result_hash` for T matches the unresolved intent's hash. All repeated prepares count toward `repeat_detections_from_missing_deferral`, not just the first.
 
@@ -97,7 +90,9 @@ shadow_adjusted_yield = packets_surviving_precedence / (packets_prepared - repea
 
 **Freshness guardrail:** If `classify_result_hash` cannot be freshness-sensitive (i.e., the classify payload for a topic does not change with new input evidence), `shadow_adjusted_yield` MUST NOT gate graduation. In that case, fall back to reporting `shadow_adjusted_yield` as a diagnostic alongside raw `effective_prepare_yield`, and use only the raw yield for kill-criteria evaluation.
 
-**Diagnostics reporting:** Shadow mode diagnostics MUST report both `effective_prepare_yield` (raw, unadjusted) and `shadow_adjusted_yield` (normalized). Kill-criteria evaluation uses `shadow_adjusted_yield` (subject to the freshness guardrail above). The `shadow_defer_intent` trace entries stay within `delivery.md` diagnostics authority — they are counterfactual observations, not committed registry mutations.
+**Freshness guardrail test:** A Layer 2b test MUST verify the guardrail fires correctly. Configure a fixture where `classify_result_hash` produces identical hashes for different input texts across two turns (simulating a non-freshness-sensitive hash function). Assert that `validate_graduation.py` reports `shadow_adjusted_yield` as non-authoritative and uses only raw `effective_prepare_yield` for kill-criteria evaluation. Alternatively, a unit test against the `shadow_defer_intent` resolution logic covering the case where `classify_result_hash` is identical across turns despite input change — the intent MUST NOT resolve via condition (a).
+
+**Diagnostics reporting:** Shadow mode diagnostics MUST report both `effective_prepare_yield` (raw, unadjusted) and `shadow_adjusted_yield` (normalized). Kill-criteria evaluation uses `shadow_adjusted_yield` (subject to the freshness guardrail above). The `shadow_defer_intent` trace entries are counterfactual observations, not committed registry mutations. Entry schema is defined in [integration.md#ccdi_trace-output-contract](integration.md#ccdi_trace-output-contract).
 
 `effective_prepare_yield` = `packets_surviving_precedence / packets_prepared`. `relevant_but_scout_deferred_rate` = `packets_deferred_scout / packets_prepared` (derived from existing schema fields; not emitted directly — compute from the two component values). `false_positive_rate` is NOT derivable from diagnostics fields — it requires annotation data from the labeling protocol below (`labeled_false_positives / total_labeled_topics`). The `false_positive_topic_detections` field in automated diagnostics is always 0 and MUST NOT be used in the formula.
 
@@ -113,7 +108,9 @@ shadow_adjusted_yield = packets_surviving_precedence / (packets_prepared - repea
 
 4. `false_positive_rate` = `labeled_false_positives / total_labeled_topics`. The 10% kill threshold requires statistical confidence: label at least 100 topics before evaluating.
 
-**Graduation protocol:** Shadow-to-active graduation is a manual gate with a concrete approval artifact:
+### Graduation Protocol
+
+Shadow-to-active graduation is a manual gate with a concrete approval artifact:
 
 1. **Preflight:** Verify that `uv run pytest tests/test_ccdi_agent_sequence.py` passes all 3 baseline behavioral tests (classify ordering, skip-when-no-candidates, --mark-injected-after-codex-reply). Layer 2b coverage is a prerequisite for Phase B graduation — do not evaluate kill criteria until this gate passes.
 2. **Evaluation:** Compute all three kill criteria (effective_prepare_yield, per-turn latency, false_positive_rate) from diagnostics + annotations across 10+ shadow dialogues.
@@ -666,7 +663,7 @@ Tests that the `codex-dialogue` agent invokes CLI commands in the correct sequen
 
 This fallback uses only documented Claude Code extension APIs (hooks, `additionalContext`, exit codes) and does not require PATH injection or custom `.mcp.json` paths.
 
-**Phase A feasibility gate:** Validate the primary mechanism during Phase A implementation. If the primary mechanism works, use it (simpler, fewer moving parts). If not, implement the fallback. This gate must be resolved before Phase B (mid-dialogue CCDI), since Layer 2b coverage of prepare/commit ordering is a prerequisite for Phase B graduation. **Done when:** One mechanism is implemented and the 3 behavioral agent sequence tests (classify ordering, skip-when-no-candidates, --mark-injected-after-codex-reply) pass. Graduation gate tests (file absent, rejected, approved) are Phase B prerequisites.
+**Phase A feasibility gate:** Validate the primary mechanism during Phase A implementation. If the primary mechanism works, use it (simpler, fewer moving parts). If not, implement the fallback. This gate must be resolved before Phase B (mid-dialogue CCDI), since Layer 2b coverage of prepare/commit ordering is a prerequisite for Phase B graduation. **Done when:** One mechanism is implemented, `test_layer2b_mechanism_selection` passes (asserts the chosen mechanism is one of {primary, fallback} via a fixture constant, and verifies the shim identity test passes — argv[0] ≠ python3), and the 3 behavioral agent sequence tests (classify ordering, skip-when-no-candidates, --mark-injected-after-codex-reply) pass. Graduation gate tests (file absent, rejected, approved) are Phase B prerequisites.
 
 **Interception completeness test:** Before running behavioral tests, verify the chosen interception mechanism captures all CLI invocations: run a known fixture with exactly N expected `topic_inventory.py` invocations, assert captured invocation count equals N. This guards against silent miss-counting.
 
