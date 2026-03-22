@@ -18,7 +18,7 @@ CompiledInventory
 ├── docs_epoch: string | null          # reload/version marker from claude-code-docs
 ├── topics: Record<TopicKey, TopicRecord>
 ├── denylist: DenyRule[]
-├── overlay_meta: { overlay_version: string, overlay_schema_version: string, applied_rules: AppliedRule[] }
+├── overlay_meta?: { overlay_version: string, overlay_schema_version: string, applied_rules: AppliedRule[] }  # optional — absent in inventories built without an overlay (see Failure Modes)
 └── merge_semantics_version: string    # current: "1"; version of the overlay merge algorithm
 ```
 
@@ -46,6 +46,10 @@ Four version axes prevent coupled evolution (three compatibility axes + one inst
 `overlay_version` is an **instance version** (which edit of the overlay file), not a **compatibility axis** (whether the overlay format is readable). It is monotonically incremented by the overlay curator on each manual edit. `build_inventory.py` records it in `overlay_meta` for traceability but does not validate compatibility — that is the job of `overlay_schema_version`.
 
 `build_inventory.py` validates compatibility between all three axes at merge time. On mismatch: fail loudly with specific version pair and required action. Do NOT silently fall back — overlays are curated artifacts, and silent incompatibility corrupts human-maintained data.
+
+### Schema Evolution Constraint
+
+`CompiledInventory` schema evolution is additive-only: new fields with defaults, never removed or renamed fields. This invariant makes best-effort field mapping safe at load time (see [Failure Modes](#failure-modes)) — consumers can read inventories built under a prior schema version because unknown fields are ignored and missing fields fall back to defaults. All files that consume `CompiledInventory` (classifier.md, registry.md, packets.md) depend on this constraint.
 
 ## TopicRecord
 
@@ -167,7 +171,7 @@ Records which overlay operations were applied during inventory build. Stored in 
 
 | Field | Type | Purpose |
 |-------|------|---------|
-| `rule_id` | string | Overlay rule identifier (for `override_config`: a synthetic ID formatted as `config-override:<dot.path>`, e.g., `config-override:classifier.confidence_high_min_weight`) |
+| `rule_id` | string | Overlay rule identifier (for `override_config`: a synthetic ID formatted as `config-override:<dot.path>`, e.g., `config-override:classifier.confidence_high_min_weight`). **Uniqueness constraint:** Each `rule_id` MUST be unique across all rules in the overlay's `rules[]` array. On duplicate `rule_id`: reject the overlay with non-zero exit and descriptive error identifying the duplicates. |
 | `operation` | `"add_topic" \| "remove_alias" \| "add_deny_rule" \| "override_weight" \| "replace_aliases" \| "replace_refs" \| "replace_queries" \| "override_config"` | What the rule did |
 | `target` | string | Semantics depend on operation: for topic-scoped operations (`add_topic`, `remove_alias`, `override_weight`, `replace_aliases`, `replace_refs`, `replace_queries`), this is a TopicKey (e.g., `"hooks.pre_tool_use"`); for `override_config`, this is a dot-delimited config key path (e.g., `"classifier.confidence_high_min_weight"`). |
 
@@ -228,7 +232,7 @@ The overlay file (`topic_overlay.json`) is a JSON object with these root keys:
 
 | Operation | Required fields | Optional fields |
 |-----------|----------------|-----------------|
-| `add_topic` | `rule_id`, `operation`, `topic_key`, `topic_record` (MUST include all TopicRecord fields: `topic_key`, `family_key`, `kind`, `canonical_label`, `category_hint`, `parent_topic`, `aliases` (non-empty), `query_plan` (MUST include `default_facet` — a QueryPlan without `default_facet` makes the topic unsearchable), `canonical_refs`) | — |
+| `add_topic` | `rule_id`, `operation`, `topic_key`, `topic_record` (MUST include all TopicRecord fields: `topic_key`, `family_key`, `kind`, `canonical_label`, `category_hint`, `parent_topic`, `aliases` (non-empty), `query_plan` (MUST include `default_facet` — a QueryPlan without `default_facet` makes the topic unsearchable), `canonical_refs`). On violation (empty `aliases` array): reject the overlay rule with descriptive error. On violation (`query_plan` missing `default_facet`): reject the overlay rule with descriptive error. | — |
 | `remove_alias` | `rule_id`, `operation`, `topic_key`, `alias_text` | — |
 | `add_deny_rule` | `rule_id`, `operation`, `deny_rule` (DenyRule object — the embedded `deny_rule.id` is the DenyRule's identity in the compiled denylist; `rule_id` is the overlay rule's identity in `applied_rules[]`. These are independent identifiers — `rule_id` tracks provenance, `deny_rule.id` is the operational identifier used by the classifier. **Uniqueness constraint:** `deny_rule.id` MUST be unique across all `add_deny_rule` operations in the overlay. On duplicate `deny_rule.id`: reject the overlay with non-zero exit and descriptive error identifying both rules.) | — |
 | `override_weight` | `rule_id`, `operation`, `topic_key`, `alias_text`, `weight` (0.0–1.0; out-of-bounds values are clamped with warning) | — |
@@ -283,6 +287,8 @@ The post-commit live registry file is the RegistrySeed with `results_file` strip
 
 `results_file` is stripped on load (load-time invariant) and MUST NOT appear in the live file. `docs_epoch` and `inventory_snapshot_version` are retained as traceability fields and are not modified after initial write. The `docs_epoch` used for suppression re-entry comparisons is sourced from the pinned inventory snapshot (via `--inventory-snapshot`), not from the registry file's envelope field.
 
+**Entry-level null-field serialization:** All nullable durable-state fields within each `entries[]` element MUST be serialized as explicit `null` when null — see [Null-field serialization](#registryseed) above. This invariant applies to both entry-level fields (e.g., `last_query_fingerprint: null`, `deferred_reason: null`) and the envelope-level nullable field (`docs_epoch`).
+
 ## Inventory Lifecycle
 
 | Phase | Mechanism | Trigger |
@@ -329,11 +335,13 @@ Tuning parameters live in a separate config file consumed only by the CLI tool. 
 }
 ```
 
-`config_version` current supported value: `"1"`. The CLI rejects files with an unrecognized `config_version` (see [Failure Modes](#failure-modes)).
+`config_version` current supported value: `"1"`. The CLI treats files with an unrecognized `config_version` as unreadable — falls back to built-in defaults and logs a warning (see [Failure Modes](#failure-modes)).
 
 All keys are optional. If `ccdi_config.json` is absent or a key is missing, the built-in defaults shown above apply. Type for each key is inferred from its default value (numeric keys are `number`; `string` keys are `string`). Config key values MUST NOT be `null` — a key present with a `null` value is treated as invalid (same as out-of-range): use the built-in default for that key and emit a warning.
 
 **Semantic range constraints:** Weight/score thresholds (`confidence_high_min_weight`, `confidence_medium_min_score`, `confidence_medium_min_single_weight`, `quality_min_result_score`) MUST be in `[0.0, 1.0]`. Count/turn thresholds (`initial_threshold_high_count`, `initial_threshold_medium_same_family_count`, `mid_turn_consecutive_medium_turns`, `cooldown_max_new_topics_per_turn`, `deferred_ttl_turns`, `initial_max_topics`, `initial_max_facts`, `mid_turn_max_topics`, `mid_turn_max_facts`, `quality_min_useful_facts`) MUST be positive integers. Token budgets (`*_token_budget_min`, `*_token_budget_max`) MUST be positive integers with `min ≤ max`. Out-of-range values are treated as invalid: the CLI uses the built-in default for that key and emits a warning.
+
+**Config consumer scope:** `initial_threshold_high_count` and `initial_threshold_medium_same_family_count` configure threshold evaluation in the CLI `classify` command only. The agent-side pre-dispatch gate (in `/codex` and `/dialogue` flows) uses a fixed heuristic with hardcoded defaults matching the built-in values shown above. When these keys are overridden via `ccdi_config.json` or overlay `config_overrides`, agent-side gate and CLI threshold outcomes MAY diverge — this divergence is intentional (see [decisions.md#normative-decision-constraints](decisions.md#normative-decision-constraints)).
 
 **Cross-key validation:** After per-key validation, if `token_budget_min > token_budget_max` for either the initial or mid-turn pair, fall back to defaults for **both** keys in the pair as a unit and log a warning. Do not fall back for each key independently — independent fallback can itself produce `min > max` when only one key was invalid (e.g., valid custom `min` paired with default `max` that is lower). No other cross-key constraints are defined — keys outside the token-budget pairs are validated independently per the semantic range constraints above.
 

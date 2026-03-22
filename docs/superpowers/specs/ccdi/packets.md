@@ -36,7 +36,7 @@ FactPacket
 
 The top-level `facet` is the primary facet used when building the packet (from `--facet` flag or the scheduled candidate's resolved facet). Individual `FactItem.facet` may differ when facts span multiple facets within a topic. The top-level `facet` is emitted in the `<!-- ccdi-packet -->` metadata comment in mid-turn rendered output, enabling the agent to evaluate target-match without parsing fact-level details.
 
-## Verbatim vs Paraphrase (mode: `snippet` | `paraphrase`)
+## Verbatim vs Paraphrase
 
 | Content type | Mode | Rationale |
 |-------------|------|-----------|

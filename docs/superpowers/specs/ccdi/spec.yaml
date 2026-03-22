@@ -27,7 +27,7 @@ authorities:
     default_claims: [behavior_contract, interface_contract]
 
   delivery:
-    description: Rollout strategy (Phase A/B, shadow mode, kill criteria), testing strategy (three-layer approach, ccdi_trace replay), test matrices, and per-dialogue diagnostics schema.
+    description: Rollout strategy (Phase A/B, shadow mode, kill criteria), testing strategy (four-layer approach, ccdi_trace replay), test matrices, and per-dialogue diagnostics schema.
     default_claims: [implementation_plan, verification_strategy]
 
   decisions:
@@ -75,3 +75,6 @@ boundary_rules:
   - on_change_to: [integration]
     review_authorities: [registry-contract, delivery, data-model]
     reason: CLI interface changes (including semantic hint schema) affect registry scheduling logic, test strategy, and dump_index_metadata schema changes affect inventory generation (data-model).
+  - on_change_to: [delivery]
+    review_authorities: [integration]
+    reason: graduation.json status enum changes affect the shadow mode gate algorithm in integration.md.
