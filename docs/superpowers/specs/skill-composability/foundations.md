@@ -66,7 +66,7 @@ The composition system distributes authority across three layers:
 | **Composition contract** | Shared reference document | Implementation-time reference — must conform to spec definitions; authoritative for inline stub authors (NOT runtime-loaded; stubs carry the runtime projection) | Skill authors modifying composition behavior |
 | **Inline stubs** (per skill) | Each participating skill | Runtime authority — role-specific operational subset derived from the contract | Claude during skill execution |
 
-See spec.yaml lines 57-61 for the external authority positioning comment (composition contract and inline stubs positioned in the authority hierarchy).
+See spec.yaml lines 63-67 for the external authority positioning comment (composition contract and inline stubs positioned in the authority hierarchy).
 
 **Relationship between spec and contract:** Within this spec, the normative definitions live in the spec files ([routing-and-materiality.md](routing-and-materiality.md), [lineage.md](lineage.md), [capsule-contracts.md](capsule-contracts.md), etc.). The Composition contract is the runtime delivery artifact that must conform to — not supersede — these spec-file definitions. When the contract diverges from the spec, the spec is authoritative and the contract must be updated.
 

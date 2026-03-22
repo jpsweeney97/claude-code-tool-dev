@@ -53,6 +53,9 @@ precedence:
   # design decisions constrain behavior. Conflicts are resolved via the fallback path
   # — decisions does not appear in claim_precedence and cannot override via that route.
   fallback_authority_order: [foundation, decisions, capsule-contract, routing, pipeline, lineage, delivery-plan, delivery-verification, supporting]
+  # decisions above capsule-contract in fallback: decisions (D1-D5) define structural
+  # constraints that interface contracts must respect. decisions does not hold
+  # interface_contract claims, so claim_precedence never applies — only fallback.
   unresolved: ambiguity_finding
   # Cross-family disambiguation: behavior_contract claims govern runtime pipeline
   # state (what happens during processing). interface_contract claims govern the
