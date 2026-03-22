@@ -62,10 +62,12 @@ Canonical type for the payload file written by `engram_guard` and consumed by su
 
 ```python
 class TrustPayload(TypedDict):
-    hook_injected: bool        # Must be True — False is rejected by validator
-    hook_request_origin: str   # Non-empty string identifying the request source
-    session_id: str            # Claude session UUID, non-empty
+    hook_injected: bool          # Must be True
+    hook_request_origin: str     # Must be "user" | "agent" — validated by collect_trust_triple_errors()
+    session_id: str              # Claude session UUID, non-empty
 ```
+
+The `hook_request_origin` field accepts only `"user"` or `"agent"`. See [enforcement.md §collect_trust_triple_errors() Contract](enforcement.md#collect_trust_triple_errors-contract) for the closed set validation. Adding a new origin value (e.g., `"mcp"`) requires updating the validator.
 
 The shared validator `collect_trust_triple_errors()` in `engram_core/` accepts or parses from `TrustPayload` using these canonical field names. A field rename in the hook or engine without updating this type is a compilation error, not a silent divergence. `collect_trust_triple_errors()` returns `list[str]` — an empty list on success, or a list of human-readable error strings on validation failure. The caller joins these with `'; '` for the structured error response.
 

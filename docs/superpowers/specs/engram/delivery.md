@@ -59,7 +59,7 @@ Create plugin, core library, and type contracts. Validate the foundation before 
 - Field preservation gate (T1-gate-1, activates at Step 2a): verify that rewriting a `lesson-meta` entry with an unknown field preserves that field verbatim. Deferred from Step 0a because field preservation is only exercised when the Knowledge engine performs its first rewrite-capable operation. Scheduled here for traceability; test fixture created in Step 2a.
 - Mixed-version degradation gate (T1-gate-2, activates at Step 2a): verify that a `lesson-meta` entry with `meta_version: "99.0"` is skipped per-entry (not per-file) with a warning in `QueryDiagnostics.warnings`. Deferred from Step 0a for the same reason. Scheduled here; test fixture created in Step 2a.
 - Deferred gate stubs (VR-0A-9): T1-gate-1 and T1-gate-2 fixture stubs must exist as empty test files with TODO comments citing target behaviors before Step 0a is marked complete. This ensures deferred obligations are tracked structurally. (SY-25)
-- IndexEntry.snippet contract test (VR-0A-10): for each NativeReader (context, work, knowledge), create a fixture file with body exceeding 500 characters. Assert: `IndexEntry.snippet` ≤ 200 characters. Assert: snippet does not end mid-word. (SY-26)
+- IndexEntry.snippet contract test (VR-0A-13): for each NativeReader (context, work, knowledge), create a fixture file with body exceeding 500 characters. Assert: `IndexEntry.snippet` ≤ 200 characters. Assert: snippet does not end mid-word. (SY-26)
 - `since` filter test (VR-0A-11): fixture with 3 entries at different timestamps. `query(since=<cutoff>)` returns only post-cutoff entries. UTC normalization: entry with +05:30 timestamp → `IndexEntry.created_at` is UTC-normalized. (SY-31)
 - RecordRef serialization round-trip (VR-0A-12): for each subsystem, assert `RecordRef.from_str(ref.to_str(), ref.repo_id) == ref`. Edge case: `record_id` containing hyphens. (SY-47)
 
@@ -163,7 +163,7 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 |---|---|
 | `engram/work/` | `git mv docs/tickets/*` |
 | Work engine | 4-stage pipeline, trust model, dedup, autonomy — all preserved |
-| `engram_guard` hook (full) | Extends Step 2a hook with [protected-path enforcement](enforcement.md#protected-path-enforcement) + [direct-write path authorization](enforcement.md#direct-write-path-authorization) for Work paths |
+| `engram_guard` hook (full) | Extends Step 2a hook with [`work_path_enforcement`](enforcement.md#protected-path-enforcement) for Work paths |
 | `/ticket`, `/triage` | Work skills |
 | Config | `.claude/engram.local.md` (see [autonomy configuration](enforcement.md#configuration)) |
 | Bridge adapter update | `/defer` switches from bridge adapter (Step 1) to new Work engine |
@@ -197,7 +197,7 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 |---|---|
 | `~/.claude/engram/<repo_id>/` storage | Keyed by `repo_id` + `worktree_id`. See [storage layout](storage-and-indexing.md#dual-root-storage-layout). |
 | Context engine | [Chain protocol](skill-surface.md#chain-protocol-session-lineage-tracking) updated |
-| Hooks | [`engram_quality`](enforcement.md#quality-validation), [`engram_session`](enforcement.md#sessionstart-hook), `engram_register` |
+| Hooks | [`engram_quality`](enforcement.md#quality-validation), [`engram_session`](enforcement.md#sessionstart-hook), `engram_register`, [`context_direct_write_authorization`](enforcement.md#direct-write-path-authorization) guard capability |
 | Skills | `/save`, `/load`, `/quicksave`, `/search`, `/timeline` |
 
 **Data migration:** Copy handoffs to new location. Map project name -> `repo_id`.
@@ -262,6 +262,7 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 - Context status derivation test (VR-4A-16): (a) snapshot in `snapshots/` → `query(status="context:active")` returns it; (b) same file moved to `snapshots/.archive/` → `query(status="context:archived")` returns it, `query(status="context:active")` does not. (SY-29)
 - Ledger multi-producer concurrency test (VR-4A-17): spawn 10 concurrent threads, each appending one `LedgerEntry` to the same shard. Assert: shard has exactly 10 valid JSON lines, no partial lines, lock file absent post-completion. (SY-30)
 - Promote Branch D exclusion test (VR-4A-18): fixture with `promote-meta` having `meta_version: "99.0"`. Run `/promote`. Assert: lesson NOT in selectable candidate list. Assert: warning containing lesson_id and "unreadable promote-meta" surfaced. (SY-32)
+- Context direct-write path authorization (VR-4A-19): (a) Write to `~/.claude/engram/<different_repo_id>/snapshots/test.md` → assert blocked by `engram_guard`; (b) Write to correct repo's `snapshots/test.md` → assert allowed; (c) Write with path traversal (`snapshots/../other_file.md`) → assert blocked after canonicalization.
 
 ### Step 4b — Retire
 
@@ -278,6 +279,13 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 - Clean old data locations (`docs/tickets/`, `docs/learnings/`)
 - Update CLAUDE.md, references, and documentation
 - Verify no stale references to old plugin paths in skills, hooks, or agents
+
+#### Required Verification
+- VR-5-1: `grep -r "bridge_adapter\|SourceResolver\|DeferredWorkEnvelope" packages/plugins/engram/` returns zero results
+- VR-5-2: Old plugin directories (`packages/plugins/handoff/`, `packages/plugins/ticket/`) absent
+- VR-5-3: `grep -r "handoffs/\|plugins/ticket\|plugins/handoff" .claude/skills/ .claude/hooks/ .claude/agents/` returns zero results
+- VR-5-4: Old data directories (`docs/tickets/`, `docs/learnings/`) absent
+- VR-5-5: All 13 skill smoke tests pass (final progressive gate)
 
 ## Testing Strategy
 

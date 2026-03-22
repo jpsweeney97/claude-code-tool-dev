@@ -105,7 +105,27 @@ Two enforcement mechanisms share a single `engram_guard` hook, distinguished by 
 |-----------|----------|--------|
 | `engine_trust_injection` | Step 2a | Knowledge engine mutating entrypoints (Bash-mediated) |
 | `engine_trust_injection` (extended) | Step 3a | Work engine mutating entrypoints |
-| `write_path_authorization` | Step 4a | Context direct-write paths (Write/Edit-mediated) |
+| `work_path_enforcement` | Step 3a | Protected-path block for Write/Edit to Work and Knowledge paths |
+| `context_direct_write_authorization` | Step 4a | Direct-write path authorization for Context snapshot/checkpoint paths |
+
+### Guard Decision Algorithm
+
+`engram_guard` evaluates incoming tool calls in this order. Branches are evaluated sequentially; the first match determines the action.
+
+```
+engram_guard decision algorithm:
+  1. If tool_name == Bash AND matches engine_*.py pattern:
+     → Engine trust injection (write TrustPayload, allow)
+  2. If tool_name in {Write, Edit} AND path within Context private root:
+     → Direct-write path authorization (allow + post-write quality)
+  3. If tool_name in {Write, Edit} AND path in protected-path table:
+     → Block with path-class diagnostic
+  4. Otherwise:
+     → Allow unconditionally (engram_guard does not restrict general writes)
+Branches evaluated in this order. Step 2 failing (not Context-owned) routes to step 3.
+```
+
+**Capability gating:** Each branch is only active when its corresponding guard capability has shipped. Branch 1 activates at Step 2a (`engine_trust_injection`). Branch 3 activates at Step 3a (`work_path_enforcement`). Branch 2 activates at Step 4a (`context_direct_write_authorization`). Before a capability ships, its branch is a no-op (falls through to branch 4).
 
 ### Payload File Contract
 
@@ -121,9 +141,13 @@ The engine trust injection mechanism uses a payload file as the communication ch
 | **Cleanup** | Engine deletes after consuming. `engram_session` prunes orphans older than 24h on startup. |
 | **Containment** | `engram_guard` validates the payload file path is within the workspace `.claude/engram-tmp/` directory before writing |
 
+**Containment failure mode:** If the containment check fails (payload path resolves outside `.claude/engram-tmp/`), `engram_guard` blocks the Bash tool call (exit code 2) with diagnostic: `"engram_guard: payload path outside containment boundary: {path}"`. This is a security-critical check and must fail-closed.
+
 ### Step 1: Injection (PreToolUse)
 
 When `engram_guard` detects an authorized engine invocation, it writes the [TrustPayload](types.md#trustpayload--trust-triple-wire-format) to a new [payload file](#payload-file-contract) atomically. The file path is passed to the engine via the Bash command's argument list (matching the proven ticket plugin pattern).
+
+**Atomic write failure mode:** If the atomic write fails (fsync error, disk full, permission denied), `engram_guard` blocks the Bash tool call (exit code 2) with diagnostic: `"engram_guard: payload write failed: {error}"`. Do not allow the engine invocation to proceed with a missing payload — the resulting trust triple rejection produces a misleading error.
 
 **Authorized engine invocation pattern:** Engine binaries must be named `engine_<subsystem>.py` and reside in the plugin's scripts directory. `engram_guard` matches the **full path** `<engram_scripts_dir>/engine_*.py` — not just the filename. This prevents false matches on user scripts with `engine_` prefixes outside the plugin directory.
 
@@ -142,6 +166,8 @@ def collect_trust_triple_errors(
 ) -> list[str]:
     """Validate trust triple fields. Returns empty list on success, error strings on failure."""
 ```
+
+**Parameter types — `str | None` is intentional:** The validator accepts `None` to provide specific error messages when a hook omits a required field. Callers constructing a well-formed `TrustPayload` always pass `str`. The `None` path catches structural errors in payload file parsing (missing JSON key → `None` after `.get()`).
 
 **Validation rules (order matters):**
 1. `hook_injected` must be `True` (identity check: `hook_injected is True`). `False`, `None`, or non-bool → error.
@@ -200,7 +226,7 @@ The trust triple is `{hook_injected, hook_request_origin, session_id}` — three
 
 Phase-scoped idempotency is a delivery-period limitation. See [delivery.md §Bridge Cutover](delivery.md#step-1-bridge-cutover) for the authoritative phase schedule and [operations.md §Phase-Scoped Idempotency](operations.md#envelope-invariants) for the operational specification.
 
-`engram_guard` is not deployed until Step 3a. During Steps 1–2, protected-path enforcement and trust injection are not active — the bridge adapter routes through the old ticket engine's existing authorization model.
+`engram_guard` ships at Step 2a with the `engine_trust_injection` capability only — covering Knowledge engine mutating entrypoints. Step 3a extends the guard with `work_path_enforcement` for Work paths. Step 4a adds `context_direct_write_authorization` for Context direct-write paths. During Steps 0a–1, no guard capabilities are active — the bridge adapter routes through the old ticket engine's existing authorization model.
 
 ## SessionStart Hook
 

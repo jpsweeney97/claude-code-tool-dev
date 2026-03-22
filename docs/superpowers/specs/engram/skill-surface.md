@@ -23,7 +23,7 @@ authority: skill-contract
 | `/curate` | Knowledge | **New.** Reviews staged candidates, publishes to `engram/knowledge/`. See [curate mechanics](operations.md#distill-context-to-knowledge-staged). |
 | `/promote` | Knowledge -> CLAUDE.md | [Three-step state machine](operations.md#promote-knowledge-to-claudemd): engine validates promotability, skill writes CLAUDE.md, engine writes promote-meta. |
 | `/timeline` | Cross-subsystem | **New.** [Session reconstruction](operations.md#session-timeline) with ledger-backed/inferred labels. |
-| `engram init` | System | **New.** Bootstrap: generates `.engram-id` (UUIDv4), writes to repo root, stages for commit. Prints exact `git commit` command for user to run. Idempotent — no-ops if `.engram-id` already exists. Supports `--force` to overwrite a malformed `.engram-id` (see [delivery.md VR-15](delivery.md#step-0b-bootstrap-and-identity)). |
+| `engram init` | System | **New.** Bootstrap: generates `.engram-id` (UUIDv4), writes to repo root, stages for commit. Prints exact `git commit` command for user to run. Idempotent — no-ops if `.engram-id` already exists. Supports `--force` to overwrite a malformed `.engram-id` (see [delivery.md VR-0B-1](delivery.md#step-0b-bootstrap-and-identity)). |
 
 **Consolidated:** `/ticket-triage` + handoff `/triage` merged into `/triage`.
 
