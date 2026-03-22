@@ -107,7 +107,7 @@ All cross-subsystem writes use typed envelopes with a common header. See [envelo
 class EnvelopeHeader:
     envelope_version: str          # "1.0" — target rejects unknown versions explicitly
     source_ref: RecordRef          # Pinned at creation. Never "latest."
-    idempotency_key: Sha256Hex     # sha256(canonical_json_bytes(material)) — see Hash Types and Helpers
+    idempotency_key: Sha256Hex     # sha256(canonical_json_bytes(material)) — Sha256Hex (bare hex, no sha256: prefix); see Hash Types and Helpers
     emitted_at: str                # ISO 8601 UTC (suffix Z or +00:00)
 ```
 
@@ -141,7 +141,11 @@ class DistillCandidate:
 
 ### Staging File Format
 
-Each `DistillCandidate` is written as a standalone file in the staging inbox. Filename: `YYYY-MM-DD-<content_sha256[:16]>.md` (see [storage layout](storage-and-indexing.md#key-storage-decisions) for the canonical naming convention). The file contains all `DistillCandidate` fields serialized as a `<!-- staging-meta {...} -->` HTML comment (JSON with `sort_keys=True`) followed by the candidate content as markdown. The staging-meta JSON includes all `DistillCandidate` fields (`content`, `durability`, `source_section`, `content_sha256`) plus `source_ref` (the envelope's `source_ref.to_str()`) and `staged_at` (ISO 8601 UTC, used as the `YYYY-MM-DD` prefix source). The `content_sha256`-based filename suffix enables atomic file creation via `O_CREAT | O_EXCL` — identical candidates from concurrent operations coalesce.
+Each `DistillCandidate` is written as a standalone file in the staging inbox. Filename: `YYYY-MM-DD-<content_sha256[:16]>.md` (see [storage layout](storage-and-indexing.md#key-storage-decisions) for the canonical naming convention). The file contains all `DistillCandidate` fields serialized as a `<!-- staging-meta {...} -->` HTML comment (JSON with `sort_keys=True`) followed by the candidate content as markdown. The on-disk staging-meta format extends `DistillCandidate` with two engine-set fields not present in the in-memory dataclass:
+- **`source_ref`** (`str`): The envelope's `source_ref.to_str()`. Set by the Knowledge engine at write time.
+- **`staged_at`** (`str`): ISO 8601 UTC timestamp of when the engine wrote the staging file (not envelope creation time). Used as the `YYYY-MM-DD` filename prefix source. The staging-meta JSON includes all `DistillCandidate` fields (`content`, `durability`, `source_section`, `content_sha256`) plus `source_ref` (the envelope's `source_ref.to_str()`) and `staged_at` (ISO 8601 UTC, used as the `YYYY-MM-DD` prefix source). The `content_sha256`-based filename suffix enables atomic file creation via `O_CREAT | O_EXCL` — identical candidates from concurrent operations coalesce.
+
+**Content authority rule:** The markdown body (after the `staging-meta` comment) is authoritative for content. The `content` field in the staging-meta JSON is index-only — `/curate` publishes the markdown body, not the JSON `content` field. If `content_sha256` does not match `content_hash(body)` at read time, the staging file is treated as corrupt: `/curate` skips it with a warning in `QueryDiagnostics.warnings`.
 
 ### PromoteEnvelope — Knowledge to CLAUDE.md (Intent Record)
 
@@ -164,7 +168,7 @@ class PromoteMeta:
     meta_version: str             # "1.0" — see Version Evolution Policy
     target_section: str           # Advisory: last requested destination / insertion hint
     promoted_at: str              # ISO 8601
-    promoted_content_sha256: Sha256Hex  # content_hash(lesson_content) at promotion time
+    promoted_content_sha256: Sha256Hex  # content_hash(lesson_content) — recomputed at promotion time (see below)
     transformed_text_sha256: Sha256Hex  # drift_hash(text_between_markers) — drift sentinel
     lesson_id: str                # Matches lesson-meta lesson_id — used for marker pair identification
 ```
@@ -180,6 +184,8 @@ class PromoteMeta:
 Field names match the Python dataclass exactly (alphabetically sorted in serialized form). All string values. `promoted_at` uses ISO 8601 UTC.
 
 If a `promote-meta` comment is present but a required field is missing (other than `meta_version` which is handled by [legacy entry rules](#legacy-entries-missing-meta_version)), the Knowledge engine treats the entire promote-meta as corrupt — the entry's promotion status degrades to `unknown` with a per-entry warning in `QueryDiagnostics.warnings`.
+
+**`promoted_content_sha256` recomputation:** In Step 3, the Knowledge engine MUST recompute `content_hash(lesson_content)` from the current lesson body and use that value for `promoted_content_sha256`. If the result differs from `PromoteEnvelope.content_sha256` (i.e., the lesson was edited between Step 1 and Step 3), the engine surfaces a warning but proceeds — the envelope hash records intent at invocation time; the promote-meta hash records what was actually promoted. This divergence is expected when users edit lessons between `/promote` invocation and confirmation.
 
 ### Promotion Markers in CLAUDE.md
 
@@ -209,7 +215,7 @@ Promoted text here...
 
 **`target_section` is advisory.** It records the last requested destination for the promoted text. It is used as an insertion hint for new promotions (Branch A) and as context in the manual reconcile flow. It is **not** the primary locator — marker search is. If the user moves a managed block to a different section, `target_section` becomes stale; `/promote` updates it on the next successful promotion.
 
-**Uniqueness invariant:** At most one `promote-meta` comment per `lesson_id` may exist in `learnings.md`. On Step 3 write, the Knowledge engine scans for an existing `promote-meta` with matching `lesson_id` and replaces it in-place (not append). If two `promote-meta` comments with the same `lesson_id` are found (corrupted state), treat as Branch D (unreadable promote-meta) and surface a migration warning.
+**Uniqueness invariant:** At most one `promote-meta` comment per `lesson_id` may exist in `learnings.md`. On Step 3 write, the Knowledge engine scans for an existing `promote-meta` with matching `lesson_id` and replaces it in-place (not append). The scan-and-replace operation MUST hold `fcntl.flock(LOCK_EX)` on `learnings.md.lock` for its entire duration (same lock as the publish path) to preserve the uniqueness invariant against concurrent `/promote` invocations. If two `promote-meta` comments with the same `lesson_id` are found (corrupted state), treat as Branch D (unreadable promote-meta) and surface a migration warning.
 
 ## Hash Types and Helpers
 
@@ -351,7 +357,7 @@ Entry content...
 **Fields:**
 - **`meta_version`**: Version of the lesson-meta format. Currently `"1.0"`. Entries lacking this field are treated as `legacy` — see [Legacy Entries](#legacy-entries-missing-meta_version). See [Version Evolution Policy](#version-evolution-policy) for compatibility rules.
 - **`lesson_id`**: UUIDv4 generated at creation. Serves as `RecordRef.record_id` for knowledge entries. Stable across edits (content changes update `content_sha256`, not `lesson_id`).
-- **`content_sha256`**: [`Sha256Hex`](#scalar-types) produced by [`content_hash()`](#hash-producing-functions) on entry content (excluding the `lesson-meta` comment itself). The current entry's `### ` heading line is NOT included in the hash input. The byte range starts at the first character after the blank line following the `lesson-meta` comment and ends at (but excludes) the next `### ` heading line. Trailing blank lines before the next heading are excluded. For the last entry in the file, the byte range extends to the end of the file (after `knowledge_normalize`). If the file ends without a trailing newline, the normalizer adds one per rule 6. Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
+- **`content_sha256`**: [`Sha256Hex`](#scalar-types) produced by [`content_hash()`](#hash-producing-functions) on entry content (excluding the `lesson-meta` comment itself). The current entry's `### ` heading line is NOT included in the hash input. The byte range starts at the first character after the blank line following the `lesson-meta` comment and ends at (but excludes) the next `### ` heading line. Trailing blank lines before the next heading are excluded. For the last entry in the file, the byte range extends to the end of the file (after `knowledge_normalize`). If the file ends without a trailing newline, the normalizer adds one per rule 6. **Blank line absent:** If the blank line between the `lesson-meta` comment and content is absent (comment's closing `-->` immediately followed by content on the next line), the byte range starts at the character immediately after the first newline following the `-->`. The entry is malformed but parseable with this fallback. Log a per-entry warning in `QueryDiagnostics.warnings`. Producers MUST always emit the blank line. Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
 - **`created_at`**: ISO 8601 UTC timestamp of initial creation (suffix `Z` or `+00:00`).
 - **`producer`**: Which skill created the entry. Informational — does not affect lifecycle.
 
@@ -382,13 +388,21 @@ The ledger event `snapshot_written` also contains an `orchestrated_by` payload f
 When `/save` creates a snapshot, it embeds orchestration intent as flat scalar fields in the snapshot frontmatter:
 
 ```yaml
+schema_version: "1.0"
+session_id: "<Claude session UUID>"
+worktree_id: "<git worktree identifier>"
 orchestrated_by: save
 save_expected_defer: true
 save_expected_distill: true
 ```
 
-**Fields:**
-- **`orchestrated_by`**: `"save"` when created by `/save` orchestrator. Absent when created by `/quicksave` or standalone `/load`. Presence indicates the snapshot was part of an orchestrated flow with expected sub-operations.
+**Required fields** (present in all snapshots and checkpoints):
+- **`schema_version`**: `"1.0"` — the [record provenance version space](types.md#version-spaces). Required for `RecordMeta` population via the [field mapping table](storage-and-indexing.md#recordmeta-field-mapping-per-subsystem). Absence is a quality validation failure.
+- **`session_id`**: Claude session UUID. Required for provenance tracking and `/triage` anomaly detection.
+- **`worktree_id`**: Git worktree identifier. Required for worktree-scoped queries and provenance.
+
+**Orchestration intent fields** (present in snapshot frontmatter only when `orchestrated_by` is present — absent from `/quicksave` and standalone `/load` frontmatter; the `snapshot_written` [ledger event payload](operations.md#snapshot-event-emission) always contains `orchestrated_by` regardless):
+- **`orchestrated_by`**: `"save"` when created by `/save` orchestrator. Absent from frontmatter when created by `/quicksave` or standalone `/load`. Presence in frontmatter indicates the snapshot was part of an orchestrated flow with expected sub-operations.
 - **`save_expected_defer`**: `true` if `/save` was invoked without `--no-defer`. `false` if `--no-defer` was passed. Absent when `orchestrated_by` is absent.
 - **`save_expected_distill`**: `true` if `/save` was invoked without `--no-distill`. `false` if `--no-distill` was passed. Absent when `orchestrated_by` is absent.
 
@@ -418,7 +432,7 @@ class LedgerEntry:
 
 **`operation_id` format:** UUIDv4 generated by the orchestrator (e.g., `/save`) at flow start and passed to all sub-engine calls. Engines must use the provided `operation_id` — they must not self-generate one. `None` when not part of an orchestrated flow.
 
-Payload is typed per event — see [Event Vocabulary](#event-vocabulary-v1) for per-event-type field specifications. The `dict` type is intentionally untyped at the dataclass level to allow forward-compatible event types.
+Payload is typed per event — see [Event Vocabulary](#event-vocabulary-v1) for per-event-type field specifications. The `dict` type is intentionally untyped at the dataclass level to allow forward-compatible event types. Producers must validate payload shape against the event vocabulary before appending. Readers encountering a payload with missing required fields must skip the entry with a warning (not raise). The shared locked append primitive does not enforce payload schema — shape validation is the producer's responsibility.
 
 ### Event Vocabulary (v1)
 
@@ -427,6 +441,8 @@ Payload is typed per event — see [Event Vocabulary](#event-vocabulary-v1) for 
 | `snapshot_written` | orchestrator | `{ref: str, orchestrated_by: str}` | Timeline fidelity — records snapshot creation. `orchestrated_by` values: `"save"`, `"quicksave"`, `"load"`. See [operations.md §Snapshot Event Emission](operations.md#snapshot-event-emission) for per-producer emit conditions. |
 | `defer_completed` | engine | `{source_ref: str, emitted_count: int}` | Completion evidence for /triage inference |
 | `distill_completed` | engine | `{source_ref: str, emitted_count: int}` | Completion evidence for /triage inference |
+
+The `emitted_count` field is **required** in `defer_completed` and `distill_completed` payloads. A value of `0` means the operation completed with zero outputs (zero-output success — [triage case 3](operations.md#triage-read-work-and-context)). A missing `emitted_count` key is a producer bug — triage treats it as "completion not proven" (case 4). Producers must always emit `emitted_count`, including when the count is zero.
 
 In payload dicts, `RecordRef` values are stored as their [canonical serialization string](#recordref--lookup-key) (`RecordRef.to_str()`). Example: `{"ref": "context/snapshot/2026-03-21-abc123"}`.
 
@@ -514,6 +530,8 @@ Mixed-version `learnings.md` files degrade per entry, never per file. A single e
 No patch version. Documentation-only changes do not affect version numbers.
 
 ### Minor Bump Safety Contract
+
+**Scope:** This contract governs same-major tolerance for all version spaces EXCEPT `promote-meta`, which uses exact-match semantics — see the [Compatibility Rules](#compatibility-rules) table. Any addition to promote-meta requires coordinated engine and data migration.
 
 A minor version bump is safe under same-major tolerance **if and only if** an older reader ignoring the new field produces identical results for every operation it supports. This constrains what minor bumps can introduce:
 

@@ -7,12 +7,12 @@ authority: operations
 
 # Cross-Subsystem Operations
 
-Six operations justify Engram's plugin scope. Three exist today as cross-plugin calls; three are new capabilities. All cross-subsystem writes use [typed envelope contracts](types.md#envelope-types) with idempotent retry semantics.
+Six operations justify Engram's plugin scope. Three migrate and improve existing cross-plugin behaviors (Defer and Distill write flows; Triage query behavior); three are new Engram-only capabilities. All cross-subsystem writes use [typed envelope contracts](types.md#envelope-types) with idempotent retry semantics.
 
 ## Core Rules
 
 - Target subsystem engine validates and writes. Envelopes are requests, not commands. Work and Knowledge engine invocations go through [`engram_guard`](enforcement.md#trust-injection) for trust injection before any mutating operation. Context subsystem writes use Write/Edit tools natively and are [excluded from trust triple validation](enforcement.md#step-2-validation-engine-entrypoint).
-- **Precondition:** Before trust triple validation, each engine entrypoint must verify `.engram-id` exists in the Engram root; if absent, return the initialization error immediately without invoking `collect_trust_triple_errors()`. Every mutating Work or Knowledge engine entrypoint must then validate the trust triple via `collect_trust_triple_errors()` before making state changes. Operations with missing or incomplete triples are rejected. See [trust injection](enforcement.md#trust-injection).
+- **Precondition:** Every mutating Work or Knowledge engine entrypoint must validate the trust triple via `collect_trust_triple_errors()` before making state changes. Operations with missing or incomplete triples are rejected. See [enforcement.md §Check ordering](enforcement.md#check-ordering) for the `.engram-id` existence check that precedes trust triple validation, and [enforcement.md §Trust Injection](enforcement.md#trust-injection) for the full enforcement mandate.
 - Every envelope carries a `source_ref: RecordRef` pinned at creation time. Downstream operations target this ref, never "latest file at path."
 - Every envelope carries an `idempotency_key`. Target engines deduplicate retried operations.
 - `/save` orchestrates cross-subsystem flows but each sub-operation is independently callable and retryable. See [/save orchestration rules](skill-surface.md#save-orchestration-rules).
@@ -37,6 +37,8 @@ Six operations justify Engram's plugin scope. Three exist today as cross-plugin 
     -> If no match at either stage: creates ticket, returns ticket_ref
 ```
 
+**Dedup scope:** The `DeferEnvelope.context` field is excluded from idempotency material because two defer operations with the same title, problem, and key_file_paths represent the same semantic intent regardless of any contextual snippet provided. See [types.md §Idempotency](types.md#idempotency--same-operation-retried) for the full material specification.
+
 ### Distill: Context to Knowledge (Staged)
 
 ```
@@ -58,7 +60,7 @@ Six operations justify Engram's plugin scope. Three exist today as cross-plugin 
 
 **Edge case: `batch_size > knowledge_max_stages`.** If a single distill batch produces more candidates than the configured cap (e.g., a rich snapshot yields 15 candidates against a cap of 10), the batch is rejected even with 0 files in staging — the cap applies to `count + batch_size`, and `0 + 15 > 10`. The rejection response must include: (1) current `batch_size` and cap values, (2) the exact config change needed (`knowledge_max_stages: N` where N >= batch_size in `.claude/engram.local.md`), (3) instruction to re-run the failed distill with the `snapshot_ref` from the [recovery manifest](#recovery-manifest). This is a deliberate consequence of whole-batch rejection. Partial staging (accepting the first N candidates) is a [deferred decision](decisions.md#deferred-decisions).
 
-**`/curate` mechanics:** Lists staged candidates sorted by `durability` (likely_durable first), then by `created_at`. Shows snippet, source section, and durability classification. The user reviews and selects candidates to publish. `likely_ephemeral` candidates are surfaced with a warning but not filtered — the user decides. On publish, the knowledge engine deduplicates via `content_sha256` against existing published entries, writes to `engram/knowledge/learnings.md`, and removes the staged file. The dedup check against published entries must occur within the same lock scope as the write (after acquiring `fcntl.flock(LOCK_EX)` on `learnings.md.lock`). This ensures no concurrent `/learn` write can interleave between dedup check and append.
+**`/curate` mechanics:** Lists staged candidates sorted by `durability` (likely_durable first), then by `created_at`. Shows snippet, source section, and durability classification. The user reviews and selects candidates to publish. `likely_ephemeral` candidates are surfaced with a warning but not filtered — the user decides. On publish, the knowledge engine deduplicates via `content_sha256` against both existing published entries and other staged entries (to remove or skip duplicates in the staging inbox), writes to `engram/knowledge/learnings.md`, and removes the staged file (plus any other staged files with identical `content_sha256`). The dedup check against published entries must occur within the same lock scope as the write (after acquiring `fcntl.flock(LOCK_EX)` on `learnings.md.lock`). This ensures no concurrent `/learn` write can interleave between dedup check and append.
 
 ### Triage: Read Work and Context
 
@@ -93,14 +95,17 @@ Six operations justify Engram's plugin scope. Three exist today as cross-plugin 
             production-grade /triage completion inference.
     -> Cross-reference: orphaned items, stale tickets, blocked chains
     -> Report pending staged knowledge candidates
-    -> Report promote-meta mismatches (missing or stale)
+    -> Report promote-meta mismatches (missing, stale, or unreadable/Branch D)
     -> Anomaly detection (provenance_not_established):
         Work: tickets in engram/work/ with no corresponding .audit/ entry
         Context: snapshots missing session_id in frontmatter (required for
             RecordMeta population and timeline attribution)
         Knowledge: entries in learnings.md lacking valid lesson-meta, or
             with producer field not in {learn, curate}. This detects
-            unauthorized Bash writes that bypass engram_guard trust injection.
+            unauthorized Bash writes that lack valid lesson-meta or use
+            invalid producer values — it does not detect adversarial Bash
+            writes that forge valid lesson-meta. See decisions.md §Named
+            Risks (Bash enforcement gap) for the bounded-guarantee context.
         Note: trust triples are transient (hook-to-engine input, not persisted
             in RecordMeta), so generic trust-triple detection is not possible.
             Detection is subsystem-specific using native artifacts.
@@ -122,6 +127,8 @@ Three-step state machine with marker-based location and reconciliation recovery.
     -> User selects
     -> Step 1 (engine): Knowledge engine validates promotability via state machine:
         Branch A (no promote-meta): Eligible. Returns promotion plan with target_section.
+            User sees proposed text and target_section, confirms before write (implicit
+            in lesson selection — the user chose this lesson for promotion).
         Branch D (promote-meta present, meta_version unrecognized or missing):
             Exclude from candidate list. Surface warning: "Lesson <lesson_id> has
             unreadable promote-meta (missing or unrecognized meta_version). Run
@@ -194,7 +201,9 @@ Three-step state machine with marker-based location and reconciliation recovery.
 /timeline [session_id]
     -> query(session_id=<id>) -> all IndexEntries from that session
     -> git log --since=<session_start> for shared-root changes
-    -> Merge and sort chronologically
+    -> Merge and sort chronologically (ledger ts strings parsed to
+        datetime.timezone.utc before sort; malformed ts → place at epoch
+        with per-entry warning, not dropped)
     -> Events labeled as "ledger-backed" or "inferred"
     -> Causal links resolved by scanning target records' source_ref fields (O(n), scoped by session_id)
     -> Legacy artifacts lacking session_id appear under "unattributed" group
@@ -256,7 +265,7 @@ On completion (success or partial failure), `/save` writes `save_recovery.json` 
 }
 ```
 
-The manifest is an [operational aid](foundations.md#auxiliary-state-authority), not authoritative state. Primary records remain authoritative. Overwritten on each `/save` invocation (only the most recent is useful for retry). Not part of the Engram storage contract. No `schema_version` — the file is overwritten on every `/save` and classified as operational aid, so no cross-version reader tolerance is needed.
+The manifest is an [operational aid](foundations.md#auxiliary-state-authority), not authoritative state. Primary records remain authoritative. Overwritten on each `/save` invocation (only the most recent is useful for retry). Not part of the Engram storage contract. No `schema_version` — the file is overwritten on every `/save` and classified as operational aid, so no cross-version reader tolerance is needed. (Note: `migration_report.json` includes `schema_version: "1.0"` despite also being an operational aid — it may outlive its creating step and be read by downstream validation tools, unlike `save_recovery.json` which is consumed immediately on retry.)
 
 The `idempotency_key` in `EnvelopeHeader` is computed by the caller at envelope construction time (see [types.md §Idempotency](types.md#idempotency--same-operation-retried)). The engine uses the provided key — it does not recompute from fields.
 
@@ -281,5 +290,6 @@ The `idempotency_key` in `EnvelopeHeader` is computed by the caller at envelope 
 | Promote Step 2 user declines (C2 drift) | User sees diff of their edits vs new text, chooses "skip" | Lesson remains eligible; user edits preserved in CLAUDE.md |
 | Promote Step 2 B2 manual reconcile | User shown old and new target_section; existing promoted text shown if markers locatable | User places block in new section; Step 3 records result |
 | Promote Step 2 manual reconcile (C3 — markers missing) | User shown old target_section, content diff | User places text manually; Step 3 records result |
-| Promote Step 3 failure | CLAUDE.md written but promote-meta absent | `/triage` detects mismatch; surfaces for user resolution |
+| Promote Step 3 failure (Branch A/C) | CLAUDE.md written but promote-meta absent or stale | `/triage` detects mismatch; next `/promote` re-enters the same branch. Lesson remains eligible. |
+| Promote Step 3 failure (Branch B2) | CLAUDE.md has new markers + text at user-confirmed section, but promote-meta has old `target_section` | `/triage` detects `target_section` mismatch (markers at new section, promote-meta at old). Next `/promote` re-enters Branch B2 if promote-meta `target_section` differs from marker location. |
 | Legacy artifact lacks session_id | Appears in timeline as "unattributed" | Not silently omitted |
