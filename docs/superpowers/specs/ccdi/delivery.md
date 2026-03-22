@@ -108,9 +108,19 @@ Fields `packets_target_relevant`, `packets_surviving_precedence`, and `false_pos
 5. **Gate:** The `codex-dialogue` agent reads `graduation.json` at dialogue start per the [shadow mode gate](#shadow-mode-gate) above. The graduation protocol (this section) governs how the file is produced and approved, and the gate condition that `codex-dialogue` evaluates at startup.
 6. **Rejection:** If any kill criterion exceeds its threshold, set `status: "rejected"` with the failing criterion in `notes`. Re-evaluate after tuning.
 
+#### `test_validate_graduation.py`
+
+| Test | Input | Expected |
+|------|-------|----------|
+| Valid graduation report | Shadow registry + active inventory with matching topics | Exit 0, report lists all matched topics |
+| Missing topic in inventory | Shadow registry entry referencing topic absent from active inventory | Exit 1, error identifies missing topic |
+| Coverage threshold unmet | Shadow topic with coverage below configured minimum | Exit 1, error reports coverage gap |
+| TTL consistency check | Shadow entry with deferred_ttl inconsistent with active config | Exit 1, error identifies TTL mismatch |
+| Empty shadow registry | No shadow entries to graduate | Exit 0, report states "no candidates" |
+
 ## Testing Strategy
 
-### Three-Layer Approach
+### Three-Layer Approach (Layer 2 has two sub-layers)
 
 | Layer | What it tests | How |
 |-------|--------------|-----|
@@ -149,6 +159,22 @@ The `codex-dialogue` agent emits a structured trace when CCDI is active, gated b
 ```
 
 Full candidate object schema: see [integration.md#dialogue-turn-candidates-json-schema](integration.md#dialogue-turn-candidates-json-schema).
+
+**`action` normative values:**
+
+| Value | Meaning |
+|-------|---------|
+| `none` | No CCDI action this turn (no candidates or all filtered) |
+| `classify` | Classifier pipeline executed |
+| `schedule` | Topic scheduled for lookup |
+| `search` | Search query executed |
+| `build_packet` | Packet construction attempted |
+| `prepare` | Packet staged for injection (prepare phase) |
+| `inject` | Topic injected (`--mark-injected` committed) |
+| `defer` | Topic deferred (`--mark-deferred` committed) |
+| `suppress` | Topic suppressed (build-packet returned empty) |
+| `skip_cooldown` | Topic skipped due to per-turn cooldown |
+| `skip_scout` | Topic deferred due to scout priority |
 
 **Trace entry key-presence invariant:** Every trace entry MUST include all keys (`turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`) regardless of value. `semantic_hints` is `null` when no hints exist (not absent). This invariant is validated by `trace_assertions` with `assert_key_present` checks.
 
@@ -259,6 +285,8 @@ The replay harness collects these traces and asserts on:
 | Both-facets-absent → suppressed | Topic scheduled for lookup. Scheduled facet absent from `QueryPlan.facets` AND `default_facet` also absent → topic transitions to `suppressed: weak_results`, not left in `detected`. Per [registry.md#scheduling-rules](registry.md#scheduling-rules) step 3. |
 | Empty QuerySpec[] treated as absent | Topic's `QueryPlan.facets` has scheduled facet key present but mapped to empty array `[]` → treated as absent, falls back to `default_facet`. Per [registry.md#scheduling-rules](registry.md#scheduling-rules) step 3. |
 | Family-kind consecutive_medium_count load-time validation | Load registry with family-kind entry having `consecutive_medium_count: 3` → value reset to 0, warning logged. Per [data-model.md#registryseed](data-model.md#registryseed) load-time validation. |
+| deferred_ttl:0 at load, topic present in classifier | Load registry with deferred entry (TTL=0), run dialogue-turn with topic in classifier output → entry transitions to `detected`, TTL field reset |
+| deferred_ttl:0 at load, topic absent from classifier | Load registry with deferred entry (TTL=0), run dialogue-turn without topic in classifier output → entry remains `deferred`, TTL reset to configured default |
 
 ### Packet Builder Tests
 
@@ -277,6 +305,7 @@ The replay harness collects these traces and asserts on:
 | Mid-turn topics cardinality enforced | Mid-turn with 2 topics in result set → output contains only 1 topic per `mid_turn_max_topics` config |
 | Mid-turn snippet cardinality enforced | Build mid-turn packet from result set where 3 results each warrant `snippet` mode → output contains at most 1 `snippet`-mode fact and ≥ 1 `paraphrase`-mode facts; `mode: "snippet"` count in `facts[]` is ≤ 1 (per [packets.md#verbatim-vs-paraphrase](packets.md#verbatim-vs-paraphrase) "at most one snippet per mid-turn packet") |
 | No resolvable topic keys → empty output | Search results exist but no topic keys resolve (e.g., all results filtered by denylist) → `build-packet` returns empty output or non-zero exit. Verifies the `topics: []` invariant (packets.md: "`topics` MUST NOT be empty") is enforced at build time. |
+| Chunk-ordering deterministic | Same input (topic, facet, search results) run twice → assert identical chunk sequence in both outputs. Order: citations first, then summary, then verbatim snippets (per [packets.md#build-process](packets.md#build-process)). |
 
 ### CLI Integration Tests
 
@@ -298,7 +327,7 @@ The replay harness collects these traces and asserts on:
 | Missing `--coverage-target` with `--mark-injected` → error | `build-packet --mark-injected --registry-file <path> --results-file <path> --mode mid_turn` (without `--coverage-target`) → non-zero exit with descriptive error |
 | Missing `--topic-key` with `--registry-file` → error | `build-packet --registry-file <path> --results-file <path> --mode mid_turn` (without `--topic-key`) → non-zero exit with descriptive error |
 | Missing `--facet` with `--mark-injected` → error | `build-packet --mark-injected --registry-file <path> --results-file <path> --mode mid_turn --topic-key <k> --coverage-target leaf` (without `--facet`) → non-zero exit with descriptive error |
-| Facet mismatch at commit time (mid-turn) | Run `build-packet --mode mid_turn --facet schema` (prepare), then `build-packet --mode mid_turn --mark-injected --facet overview` with same `--results-file` → assert either non-zero exit with facet mismatch error, or document that the commit-phase facet is used regardless and add a regression test for that behavior |
+| Facet mismatch at commit time (mid-turn) | Run `build-packet --mode mid_turn --facet schema` (prepare), then `build-packet --mode mid_turn --mark-injected --facet overview` with same `--results-file` → assert non-zero exit with descriptive error including both facet values. The prepare-phase facet is authoritative; commit-phase callers MUST provide the matching value. |
 | Prepare/commit packet idempotency (mid-turn) | Run `build-packet --mode mid_turn` (prepare, no `--mark-injected`) then `build-packet --mode mid_turn --mark-injected` with same `--results-file` → stdout markdown from commit matches stdout from prepare |
 | Prepare/commit packet idempotency (initial) | Run `build-packet --mode initial --results-file <multi-topic-results>` (prepare, no registry). Then for each topic: run `build-packet --mode initial --results-file <same> --registry-file <reg> --topic-key <k> --facet <f> --coverage-target <t> --mark-injected` → verify per-topic commit stdout matches corresponding topic section from initial prepare stdout, AND `coverage.injected_chunk_ids` matches chunk IDs in rendered packet |
 
@@ -359,7 +388,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | CCDI-lite: low-confidence detection → no injection, no state written | All resolved topics are low-confidence in CCDI-lite mode → `build-packet` is not invoked, no registry file created or modified |
 | Initial threshold not met (Full CCDI) | All resolved topics are low-confidence → ccdi-gatherer not dispatched, no `### Claude Code Extension Reference` section in briefing |
 | Initial threshold not met (CCDI-lite) | Low-confidence only → no `build-packet` invoked, briefing proceeds without CCDI content |
-| Inventory pinning across mid-dialogue reload | Start dialogue with inventory V1. Replace `topic_inventory.json` on disk with V2 (different topic set). Run `dialogue-turn` → assert classifier uses V1 topics (pinned snapshot), not V2. Verifies dialogue-start pinning per [data-model.md#inventory-lifecycle](data-model.md#inventory-lifecycle). |
+| Inventory pinning across mid-dialogue reload | Start dialogue with inventory V1 using `--inventory-snapshot <path-to-V1>`. Replace `topic_inventory.json` on disk with V2 (different topic set). Run `dialogue-turn` → assert classifier uses V1 topics (pinned snapshot), not V2. Verifies dialogue-start pinning per [data-model.md#inventory-lifecycle](data-model.md#inventory-lifecycle). **Pinning mechanism:** The `--inventory-snapshot` flag on CLI commands accepts a path to a compiled inventory file. When provided, the CLI uses this file instead of the default inventory location, ignoring any on-disk changes during the session. |
 | Shadow mode diagnostics fields present | Run dialogue in shadow mode → diagnostics JSON contains `packets_target_relevant`, `packets_surviving_precedence`, `false_positive_topic_detections` fields. |
 | Active mode diagnostics fields absent | Run dialogue in active mode → diagnostics JSON does NOT contain `packets_target_relevant`, `packets_surviving_precedence`, `false_positive_topic_detections` fields. Per [delivery.md#diagnostics](#diagnostics): present only when `status: "shadow"`. |
 | Suppressed re-detection no-op (CLI file-level) | Registry file with suppressed topic at turn N. Run `dialogue-turn` with the topic in classifier output but no re-entry trigger → assert registry FILE is unchanged (byte-identical or `last_seen_turn` unchanged at minimum). Covers the file I/O contract, not just the in-memory state machine. Companion to the unit-level "Suppressed re-detection no-op" test. |
@@ -394,7 +423,18 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | Scaffold-generated alias weight out-of-range → clamped | `build_inventory.py` scaffold generates alias with weight > 1.0 → clamped to 1.0 with warning; weight < 0.0 → clamped to 0.0 with warning. Per [data-model.md#alias](data-model.md#alias) weight range enforcement. |
 | `add_deny_rule` penalty=1.0 boundary → accepted | `add_deny_rule` with `penalty: 1.0` → exit 0, alias weight reduced by 1.0 (effectively zeroed). Verifies the upper bound of (0.0, 1.0] is inclusive. |
 
-**Required hook integration test:** The post-reload hook that triggers `build_inventory.py` when `docs_epoch` changes MUST be covered by `tests/test_ccdi_hooks.py`. The test: (1) sets up a `PostToolUse` hook on `reload_docs`, (2) calls `reload_docs` with a new epoch, (3) asserts `build_inventory.py` was invoked with the updated epoch. This test is a Phase A prerequisite — the hook trigger is part of the normative [inventory lifecycle](data-model.md#inventory-lifecycle) and cannot rely on manual verification alone.
+#### `test_ccdi_hooks.py`
+
+Tests the PostToolUse hook that triggers `build_inventory.py` on `docs_epoch` change.
+
+| Test | Setup | Expected |
+|------|-------|----------|
+| Hook fires on docs_epoch change | Mock PostToolUse event with `docs_epoch` field change | `build_inventory.py` invoked with updated epoch |
+| Hook skips non-epoch changes | Mock PostToolUse event without `docs_epoch` change | `build_inventory.py` not invoked |
+| Hook handles build failure | Mock PostToolUse + `build_inventory.py` exits non-zero | Hook logs warning, does not block tool use |
+
+**Runner:** pytest with subprocess fixture (same pattern as CLI integration tests).
+**Phase:** A prerequisite — must pass before shadow mode activation. The hook trigger is part of the normative [inventory lifecycle](data-model.md#inventory-lifecycle) and cannot rely on manual verification alone.
 
 ## Replay Harness: `tests/test_ccdi_replay.py`
 
@@ -479,7 +519,7 @@ Supported operators: `equals` (deep equality), `contains` (array membership), `l
    - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target>` (NO `--mark-injected` — prepare phase; `--facet` provided for ranking consistency).
    - If `composed_target` is present: run target-match check against the built packet (using topics from `<!-- ccdi-packet -->` metadata comment):
      - (a) Check whether the packet topic is a substring of `composed_target`.
-     - (b) If condition (a) fails, invoke `classify --text-file <composed_target_tempfile>` and check whether any resolved topic overlaps with packet topics. This is condition (b) — see [registry.md#scheduling-rules](registry.md#scheduling-rules) step 7.
+     - (b) If condition (a) fails, invoke `classify --text-file <composed_target_tempfile>` and check whether any resolved topic overlaps with packet topics. This is condition (b) — see [registry.md#scheduling-rules](registry.md#scheduling-rules) step 10.
      - If both (a) and (b) fail, run `build-packet --mark-deferred <topic_key> --deferred-reason target_mismatch --skip-build --registry-file <registry>`.
 6. If `codex_reply_error` is false (default) and a packet was staged:
    - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target> --mark-injected` (commit phase).
@@ -488,6 +528,33 @@ Supported operators: `equals` (deep equality), `contains` (array membership), `l
 After all turns, verify the `assertions` object against the final registry state and accumulated CLI call log.
 
 `search_docs` and `codex-reply` are NOT invoked — search results are canned from fixture data; `codex-reply` success/failure is controlled by `codex_reply_error`. This model tests the deterministic CLI pipeline end-to-end without requiring a live Codex connection or LLM invocation.
+
+#### `seed_medium_baseline.replay.json`
+
+Exercises seed-build initialization of `consecutive_medium_count` across the JSON → RegistrySeed → first `dialogue-turn` boundary.
+
+- **Initial state:** Registry file with one leaf topic in `detected` state, `consecutive_medium_count: 2` (pre-existing from prior session).
+- **Classifier output:** Same topic at medium confidence.
+- **Expected:** `consecutive_medium_count` increments to 3 (seed correctly preserves the counter across serialization boundary).
+
+#### `multi_pending_facets.replay.json`
+
+Exercises `pending_facets` array ordering across a multi-turn pipeline.
+
+- **Initial state:** Registry with one injected topic having `pending_facets: ["security", "performance"]` (two pending facets).
+- **Turn 1:** `dialogue-turn` emits `pending_facet` candidate for "security." Agent processes it. Commit marks "security" as resolved.
+- **Turn 2:** `dialogue-turn` emits `pending_facet` candidate for "performance."
+- **Expected:** After Turn 1, `pending_facets: ["performance"]` (FIFO order preserved). After Turn 2, `pending_facets: []`.
+- **Serialization check:** Registry file written after Turn 1 must preserve array ordering when reloaded.
+
+#### `source_equivalence.replay.json`
+
+Exercises behavioral equivalence between `--source codex` and `--source user` invocations of `dialogue-turn`.
+
+- **Setup:** Identical registry state and classifier output.
+- **Run 1:** `dialogue-turn --source codex` — record candidates and trace.
+- **Run 2:** `dialogue-turn --source user` — record candidates and trace.
+- **Expected:** Identical candidate lists, identical scheduling decisions. The `--source` flag affects only trace metadata, not behavioral output.
 
 **Scope limitation:** The replay harness verifies CLI pipeline correctness (Layer 2a). It does NOT verify that the `codex-dialogue` agent invokes CLI commands in the correct sequence — that requires a live agent invocation with mocked tools (Layer 2b). Layer 2b is a separate integration test category:
 
@@ -501,8 +568,9 @@ After all turns, verify the `assertions` object against the final registry state
 | Graduation gate: status approved → active mode | `graduation.json` with `status: "approved"` → agent tool-call log contains at least one `build-packet --mark-injected` invocation (when candidates exist); diagnostics show `status: "active"`. |
 | Scout pipeline contains no CCDI CLI calls | In a fixture with both scout candidate and CCDI candidate active, assert that `execute_scout`/`process_turn` tool-call log contains zero `topic_inventory.py` invocations |
 | Agent does not read ccdi_config.json | Assert agent tool-call log contains zero Read invocations on paths matching `*ccdi_config*` or `*topic_inventory.json` during dialogue. **Note:** This is a test-only enforcement — no runtime guard exists. The invariant relies on agent instruction compliance verified via Layer 2b test assertions. |
-| Shadow mode: zero registry mutations | Delegation envelope with `ccdi_seed`, no `graduation.json` → after dialogue, read the registry file and assert: (a) zero entries in `injected` state, (b) zero entries in `deferred` state, (c) all entries remain in `detected` or `suppressed` state only. Verifies shadow mode does not write `--mark-injected` or `--mark-deferred` to the registry. |
+| Shadow mode: no injected or deferred registry mutations | Delegation envelope with `ccdi_seed`, no `graduation.json` → after dialogue, read the registry file and assert: (a) zero entries in `injected` state, (b) zero entries in `deferred` state, (c) all entries remain in `detected` or `suppressed` state only. Verifies shadow mode does not write `--mark-injected` or `--mark-deferred` to the registry. Automatic suppression (via build-packet empty-output) IS permitted — `suppressed` state reflects failed lookup, not agent commitment. |
 | Shadow mode: zero `--mark-deferred` invocations | Same fixture as graduation gate shadow-mode test → additionally assert agent tool-call log contains zero `build-packet --mark-deferred` invocations. Complements the `--mark-injected` assertion. |
+| Shadow mode: `false_positive_topic_detections` always 0 | Shadow mode diagnostics JSON → assert `false_positive_topic_detections == 0`. No ground truth available in shadow mode; field reserved for Phase B active-mode validation. |
 
 **Required fixture scenarios:**
 

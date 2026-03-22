@@ -32,7 +32,7 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 - **During packet construction:** When provided, directs facet-based ranking in [packets.md build process step 3](packets.md#build-process). When absent (initial mode without `--mark-injected`), the CLI derives the ranking facet per-topic from `ClassifierResult.resolved_topics[].facet` (see [packets.md](packets.md#build-process) for fallback rules).
 - **At commit time (`--mark-injected`):** Required when `--mark-injected` is passed with `--registry-file`. Specifies which facet to append to `coverage.facets_injected`.
 
-**Facet consistency (mid-turn mode):** In mid-turn mode, the `facet` value at commit time MUST match the facet used during the prepare phase. The prepare `build-packet` output includes a `<!-- ccdi-packet ... facet="..." -->` metadata comment containing the facet actually used for the search. The agent passes `candidate.facet` from `dialogue-turn` candidates JSON (the source of truth for both calls) to `--facet` at both prepare and commit time.
+**Facet consistency (mid-turn mode):** In mid-turn mode, the `facet` value at commit time MUST match the facet used during the prepare phase. On mismatch: non-zero exit with descriptive error including both facet values. The prepare-phase facet is authoritative; commit-phase callers MUST provide the matching value. The prepare `build-packet` output includes a `<!-- ccdi-packet ... facet="..." -->` metadata comment containing the facet actually used for the search. The agent passes `candidate.facet` from `dialogue-turn` candidates JSON (the source of truth for both calls) to `--facet` at both prepare and commit time.
 
 **Facet in initial mode:** The ccdi-gatherer's prepare call omits `--facet` because initial packets cover multiple topics, each with its own classifier-resolved facet. The commit call passes `--facet <entry.facet>` per-topic from the seed file, which records the classifier's resolved facet at seed-build time. Consistency is maintained because both the prepare-phase ranking facet (derived per-topic from the classifier result) and the commit-phase `--facet` (from `RegistrySeed.entries[].facet`) originate from the same source: `ClassifierResult.resolved_topics[].facet`. The commit-phase facet is sourced solely from the `RegistrySeed` entry's `facet` field (populated from `ClassifierResult.resolved_topics[].facet` at seed creation). No cross-check mechanism exists in initial mode — the `RegistrySeed` entry is the ground truth for the commit phase.
 
@@ -42,18 +42,22 @@ All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md
 
 **`--mark-injected` registry side-effects:** When `--mark-injected` is passed with `--registry-file`, the following fields are updated per the [Field Update Rules](registry.md#field-update-rules): `state` → `injected`, `last_injected_turn`, `last_query_fingerprint`, `coverage.injected_chunk_ids` (appended from built packet's chunk IDs), `coverage.facets_injected` (appended), `coverage.pending_facets` (served facet removed if present), `consecutive_medium_count` ← 0. When `--coverage-target family` and `facet=overview`: additionally `coverage.overview_injected` ← true. Additionally, strips `results_file` from the registry file if present (per [data-model.md#registryseed](data-model.md#registryseed) — `results_file` is a transport-only field that MUST NOT persist after initial commit).
 
-**`dialogue-turn` registry side-effects:** `dialogue-turn` performs the following registry mutations (per the [Field Update Rules](registry.md#field-update-rules)):
+### `dialogue-turn` Registry Side-Effects
+
+`dialogue-turn` performs the following registry mutations (per the [Field Update Rules](registry.md#field-update-rules)):
 
 - Writes new `detected` entries for newly resolved topics (`absent → detected`).
-- Updates `last_seen_turn` and `consecutive_medium_count` for existing entries on re-detection.
+- Updates `last_seen_turn` for all re-detected entries; increments `consecutive_medium_count` only for **leaf-kind** entries re-detected at medium confidence — family-kind entries leave `consecutive_medium_count` unchanged (per [registry.md#scheduling-rules](registry.md#scheduling-rules) step 4).
 - Resets `consecutive_medium_count` to 0 for entries absent from classifier output.
 - Decrements `deferred_ttl` by 1 for all entries in `deferred` state.
-- Transitions `deferred → detected` when `deferred_ttl` reaches 0 and topic reappears in classifier output; resets `deferred_ttl` to config value when topic is absent at TTL=0.
+- Transitions `deferred → detected` when `deferred_ttl` reaches 0 and topic reappears in classifier output. When `deferred_ttl` reaches 0 and the topic is absent from classifier output: topic remains `deferred` with `deferred_ttl` reset to the configured default (`injection.deferred_ttl_turns`), `deferred_reason` unchanged (see [registry.md#field-update-rules](registry.md#field-update-rules), `deferred → deferred` row).
 - For entries in `suppressed` state that appear in classifier output: re-entry condition check is performed first (per [registry.md#suppression-re-entry](registry.md#suppression-re-entry)). If a re-entry condition is met, transitions to `detected` per the field update rules — conditions by reason: (`weak_results`) `docs_epoch` change or any semantic hint resolving to the suppressed topic; (`redundant`) new leaf in same family, or any semantic hint resolving to the suppressed topic. If no re-entry condition is met, NO field update occurs — `last_seen_turn` is NOT updated and `consecutive_medium_count` is NOT modified. Re-entry condition check precedes all field update decisions for suppressed entries.
-- Emits `facet_expansion` candidates when `extends_topic` hints resolve to `injected` topics with a facet not yet in `facets_injected` (cascade-resolved facet: hint-resolved → `pending_facets[0]` → `default_facet`; see [registry.md#semantic-hints](registry.md#semantic-hints)). Does NOT mutate `coverage.pending_facets` — emits an immediate `facet_expansion` candidate via [registry.md#scheduling-rules](registry.md#scheduling-rules) step 10. (`pending_facets` is only mutated by `contradicts_prior` hints.)
+- Emits `facet_expansion` candidates when `extends_topic` hints resolve to `injected` topics with a facet not yet in `facets_injected` (cascade-resolved facet: hint-resolved → `pending_facets[0]` → `default_facet`; see [registry.md#semantic-hints](registry.md#semantic-hints)). Does NOT mutate `coverage.pending_facets` — emits an immediate `facet_expansion` candidate via [registry.md#scheduling-rules](registry.md#scheduling-rules) step 9. (`pending_facets` is only mutated by `contradicts_prior` hints.)
 - Emits `pending_facet` candidates when an `injected` topic has non-empty `pending_facets` (from prior `contradicts_prior` hints) and the first pending facet is not yet in `facets_injected`.
 
-**`build-packet` automatic suppression:** When `--registry-file` is provided and `build-packet` returns empty output, it automatically writes a suppression state to the registry for the candidate topic. The suppression reason depends on *why* the output is empty:
+### `build-packet` Automatic Suppression
+
+When `--registry-file` is provided and `build-packet` returns empty output, it automatically writes a suppression state to the registry for the candidate topic. The suppression reason depends on *why* the output is empty:
 
 - `weak_results` — search returned poor results (below quality threshold) or `search_docs` returned empty/error. The search signal is weak.
 - `redundant` — search returned useful results but all `chunk_id` values were filtered by deduplication against `injected_chunk_ids`. The topic is already covered.
@@ -315,6 +319,16 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   │            --skip-build
 │   │   └─ If shadow mode: no registry mutation (diagnostics record the intended deferral)
 │   └─ If no candidates: no CCDI this turn
+│
+│   **Multi-candidate turns:** When `dialogue-turn` emits multiple candidates:
+│   - Process candidates in scheduling priority order (highest priority first).
+│   - The per-turn cooldown (registry.md scheduling step 5) applies only to
+│     `candidate_type: "new"` entries. `pending_facet` and `facet_expansion`
+│     candidates are exempt from the cooldown and may be processed in the same
+│     turn as a `new` candidate.
+│   - If multiple candidates remain after cooldown filtering, process all in
+│     sequence within the same turn. Each candidate gets its own search →
+│     build-packet → target-match cycle.
 │
 ├─ [Step 6: send follow-up to Codex]
 │   ├─ If active mode AND packet staged: prepend packet to follow-up before sending

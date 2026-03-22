@@ -57,7 +57,7 @@ Four version axes prevent coupled evolution (three compatibility axes + one inst
 | `canonical_label` | string | Display name, e.g., `"PreToolUse"` |
 | `category_hint` | string | Maps to `claude-code-docs` category filter |
 | `parent_topic` | TopicKey \| null | null for families |
-| `aliases` | Alias[] | All terms that refer to this topic |
+| `aliases` | Alias[] (minimum 1) | All terms that refer to this topic. Every topic must have at least one searchable alias — a topic with zero aliases is not classifiable. |
 | `query_plan` | QueryPlan | Pre-computed search queries per facet |
 | `canonical_refs` | DocRef[] | Known chunk IDs for diagnostics/packet building. MAY be empty (scaffold-generated topics with no known chunks); empty array is valid and does not prevent classification or scheduling — only packet building uses this field. |
 
@@ -98,6 +98,8 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 | `reason` | string | Why this term is problematic |
 
 **Penalty range enforcement:** All penalty validation rules are defined in the `DenyRule` discriminated union constraint above — violations (including `penalty: 0`, out-of-range values, and union mismatches) are build-time errors.
+
+**Load-time validation:** When loading a compiled inventory, each DenyRule MUST satisfy its `action`/`penalty` discriminated union: `action: "drop"` requires `penalty: null`; `action: "downrank"` requires non-null `penalty` in (0.0, 1.0]. On violation: skip the offending rule with a warning log entry. Do not fail the entire inventory load. This aligns with the [resilience principle](foundations.md#resilience-principle).
 
 **Penalty application:** `downrank` reduces the individual alias weight before summing into the topic score. If alias `A` has weight 0.6 and matches denylist rule with penalty 0.35, the effective weight is `0.6 - 0.35 = 0.25`. Negative effective weights are clamped to 0.
 
@@ -165,7 +167,7 @@ Records which overlay operations were applied during inventory build. Stored in 
 |-------|------|---------|
 | `rule_id` | string | Overlay rule identifier (for `override_config`: a synthetic ID formatted as `config-override:<dot.path>`, e.g., `config-override:classifier.confidence_high_min_weight`) |
 | `operation` | `"add_topic" \| "remove_alias" \| "add_deny_rule" \| "override_weight" \| "replace_aliases" \| "replace_refs" \| "replace_queries" \| "override_config"` | What the rule did |
-| `target` | string | TopicKey or alias text affected; for `override_config`, the dot-separated config key path (e.g., `classifier.confidence_high_min_weight`) |
+| `target` | string | Semantics depend on operation: for topic-scoped operations (`add_topic`, `remove_alias`, `override_weight`, `replace_aliases`, `replace_refs`, `replace_queries`), this is a TopicKey (e.g., `"hooks.pre_tool_use"`); for `override_config`, this is a dot-delimited config key path (e.g., `"classifier.confidence_high_min_weight"`). |
 
 ## Overlay Merge Semantics
 
@@ -224,13 +226,13 @@ The overlay file (`topic_overlay.json`) is a JSON object with these root keys:
 
 | Operation | Required fields | Optional fields |
 |-----------|----------------|-----------------|
-| `add_topic` | `rule_id`, `operation`, `topic_key`, `topic_record` (MUST include all TopicRecord fields: `topic_key`, `family_key`, `kind`, `canonical_label`, `category_hint`, `parent_topic`, `aliases` (non-empty), `query_plan`, `canonical_refs`) | — |
+| `add_topic` | `rule_id`, `operation`, `topic_key`, `topic_record` (MUST include all TopicRecord fields: `topic_key`, `family_key`, `kind`, `canonical_label`, `category_hint`, `parent_topic`, `aliases` (non-empty), `query_plan` (MUST include `default_facet` — a QueryPlan without `default_facet` makes the topic unsearchable), `canonical_refs`) | — |
 | `remove_alias` | `rule_id`, `operation`, `topic_key`, `alias_text` | — |
 | `add_deny_rule` | `rule_id`, `operation`, `deny_rule` (DenyRule object — the embedded `deny_rule.id` is the DenyRule's identity in the compiled denylist; `rule_id` is the overlay rule's identity in `applied_rules[]`. These are independent identifiers — `rule_id` tracks provenance, `deny_rule.id` is the operational identifier used by the classifier.) | — |
 | `override_weight` | `rule_id`, `operation`, `topic_key`, `alias_text`, `weight` (0.0–1.0; out-of-bounds values are clamped with warning) | — |
 | `replace_aliases` | `rule_id`, `operation`, `topic_key`, `aliases` (Alias[]) | — |
 | `replace_refs` | `rule_id`, `operation`, `topic_key`, `canonical_refs` (DocRef[]) | — |
-| `replace_queries` | `rule_id`, `operation`, `topic_key`, `query_plan` (QueryPlan) | — |
+| `replace_queries` | `rule_id`, `operation`, `topic_key`, `query_plan` (QueryPlan — MUST include `default_facet`; a QueryPlan without `default_facet` makes the topic unsearchable. On violation: reject the overlay rule with descriptive error.) | — |
 | `override_config` | Expressed via `config_overrides` root key, not as a rule entry | — |
 
 `override_config` is not expressed as an `OverlayRule`. It uses the separate `config_overrides` root key. `build_inventory.py` records each applied config override as an `AppliedRule` with `operation: "override_config"` — see [Config Overrides in Overlay](#config-overrides-in-overlay).
@@ -261,9 +263,9 @@ Topics in attempt-local states (`looked_up`, `built`) are not persisted to the s
 
 **In-place mutation:** The `/dialogue` skill writes the seed to a temp file, which is then updated in-place by the commit-phase `build-packet --mark-injected` call at the same path. After commit, entries at that path reflect `injected` state. See [integration.md#registry-seed-handoff](integration.md#registry-seed-handoff) for the full lifecycle.
 
-**Load-time validation:** When loading a registry file, the CLI MUST validate that family-kind entries have `consecutive_medium_count == 0`. A non-zero value on a family-kind entry indicates data corruption (family-kind topics never participate in consecutive-medium tracking per [registry.md#scheduling-rules](registry.md#scheduling-rules) step 4). On violation: reset to 0 and log warning.
+**Load-time schema note:** `consecutive_medium_count` is always serialized including when 0. Family-kind entries MUST have this field present with value 0 (see [registry.md#failure-modes](registry.md#failure-modes) for load-time validation and recovery).
 
-**Null-field serialization:** All durable-state fields are always serialized in JSON, including those with null values (e.g., `last_query_fingerprint: null`, `deferred_reason: null`). An absent field is treated as missing on load and triggers entry reinitialization per the [resilience principle](foundations.md#resilience-principle). Implementations MUST NOT omit null-valued fields during serialization. This invariant applies to both entry-level fields within `entries[]` and envelope-level fields (`docs_epoch`, `inventory_snapshot_version`) — `docs_epoch: null` MUST be serialized as an explicit null, not omitted.
+**Null-field serialization:** All **nullable** durable-state fields are always serialized in JSON including when null (e.g., `last_query_fingerprint: null`, `deferred_reason: null`) — never omitted. Non-nullable fields (`inventory_snapshot_version`, `schema_version`) are always present with their concrete values. An absent field is treated as missing on load and triggers entry reinitialization per the [resilience principle](foundations.md#resilience-principle). Implementations MUST NOT omit null-valued fields during serialization. This invariant applies to both entry-level fields within `entries[]` and envelope-level nullable fields (`docs_epoch`) — `docs_epoch: null` MUST be serialized as an explicit null, not omitted.
 
 ### Live Registry File Schema
 
@@ -323,9 +325,13 @@ Tuning parameters live in a separate config file consumed only by the CLI tool. 
 }
 ```
 
+`config_version` current supported value: `"1"`. The CLI rejects files with an unrecognized `config_version` (see [Failure Modes](#failure-modes)).
+
 All keys are optional. If `ccdi_config.json` is absent or a key is missing, the built-in defaults shown above apply. Type for each key is inferred from its default value (numeric keys are `number`; `string` keys are `string`).
 
 **Semantic range constraints:** Weight/score thresholds (`confidence_high_min_weight`, `confidence_medium_min_score`, `confidence_medium_min_single_weight`, `quality_min_result_score`) MUST be in `[0.0, 1.0]`. Count/turn thresholds (`initial_threshold_high_count`, `initial_threshold_medium_same_family_count`, `mid_turn_consecutive_medium_turns`, `cooldown_max_new_topics_per_turn`, `deferred_ttl_turns`, `initial_max_topics`, `initial_max_facts`, `mid_turn_max_topics`, `mid_turn_max_facts`, `quality_min_useful_facts`) MUST be positive integers. Token budgets (`*_token_budget_min`, `*_token_budget_max`) MUST be positive integers with `min ≤ max`. Out-of-range values are treated as invalid: the CLI uses the built-in default for that key and emits a warning.
+
+**Cross-key validation:** After per-key validation, if `token_budget_min > token_budget_max` for either the initial or mid-turn pair, fall back to defaults for **both** keys in the pair as a unit and log a warning. Do not fall back for each key independently — independent fallback can itself produce `min > max` when only one key was invalid (e.g., valid custom `min` paired with default `max` that is lower).
 
 ### Config Overrides in Overlay
 
@@ -363,11 +369,12 @@ Changes to config keys require checking all consumer files.
 | `ccdi_config.json` missing | CLI fallback | Use built-in defaults, log info |
 | `ccdi_config.json` corrupt or invalid | CLI parse error | Use built-in defaults, log warning |
 | `ccdi_config.json` version mismatch (`config_version` differs from CLI's supported version) | CLI version check | Use built-in defaults, log warning (same behavior as corrupt/invalid — version-mismatched config is treated as unreadable) |
+| `CompiledInventory.schema_version` does not match CLI's expected version | CLI string comparison at startup | Log warning and proceed with best-effort field mapping. Fields absent in the loaded version use schema defaults. Fields present but unrecognized are preserved on write-back. Fail-open: stale inventory is better than no inventory. |
 | Inventory stale (`docs_epoch` mismatch) | Diagnostic check | Use stale inventory with diagnostics warning |
 | Version axis mismatch at build time | `build_inventory.py` validation | Fail loudly with version pair and required action |
-| `RegistrySeed.inventory_snapshot_version` differs from current inventory `schema_version` | CLI string comparison at seed load | Log warning. Continue with seed — `topic_key` values are stable across patch versions. Discard entries for `topic_key` values not present in the current inventory and continue. Discarded entries are removed in-memory only — the registry file is NOT rewritten at load time due to version mismatch. Rewriting is deferred to the next normal `--mark-injected` or `--mark-deferred` mutation, at which point the file reflects only the retained entries. Field is used for traceability and forward-compatibility gating, not behavioral decisions. |
+| `RegistrySeed.inventory_snapshot_version` differs from current inventory `schema_version` | CLI string comparison at seed load | Version mismatch is a valid load-time state. Log warning and continue — `topic_key` values are stable across patch versions. Field is used for traceability and forward-compatibility gating. See [registry.md#failure-modes](registry.md#failure-modes) for entry-level handling and rewrite-deferral behavior. |
 | `topic_inventory.json` valid JSON but missing `overlay_meta` field | CLI field validation | Treat as partial inventory: log warning, use empty `applied_rules[]` and omit config overrides, continue CCDI. This is not "corrupt" — the inventory is usable without overlay metadata. |
-| Registry file loaded with `deferred_ttl: 0` (abnormal shutdown during TTL processing) | CLI load-time check | Treat as TTL-expired: apply the `deferred → detected` or `deferred → deferred` transition rule on the next `dialogue-turn` call, depending on whether the topic appears in classifier output. A persisted `deferred_ttl: 0` is a valid intermediate state — it means the TTL expired but the transition was not completed before the prior session ended. |
-| Registry file loaded with `results_file` field present | CLI load-time check | Strip `results_file` from the in-memory representation and log warning. The field is a transport-only artifact from the initial handoff and MUST NOT persist — its presence indicates an incomplete initial commit. The stripped state is written back on the next normal mutation. |
+| Registry file loaded with `deferred_ttl: 0` (abnormal shutdown during TTL processing) | CLI load-time check | A value of 0 is a valid persisted state indicating TTL expired before transition was written. See [registry.md#failure-modes](registry.md#failure-modes) for recovery behavior (state transition on next `dialogue-turn` call). |
+| Registry file loaded with `results_file` field present | CLI load-time check | `results_file` is a transient field not intended for long-term persistence; its presence at load time indicates an incomplete initial commit. See [registry.md#failure-modes](registry.md#failure-modes) for load-time handling (strip and write-back behavior). |
 
 All failure modes degrade gracefully — consultations are never blocked per the [resilience principle](foundations.md#resilience-principle). Degradation ranges from session-level CCDI disable (inventory missing) to continued operation with built-in defaults or stale data — see individual rows above.
