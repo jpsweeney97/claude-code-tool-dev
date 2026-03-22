@@ -48,11 +48,11 @@ Hook failures are written to a per-session diagnostic file at `~/.claude/engram/
 
 Policy-based enforcement covering all currently supported write tools (Write, Edit, Bash). Adding new write-capable platform tools requires updating `engram_guard` hook registration.
 
-| Path Class | Protected Paths | Allowed Mutators |
-|---|---|---|
-| `work` | `engram/work/**` | Engine entrypoints only |
-| `knowledge_published` | `engram/knowledge/**` | Engine entrypoints only |
-| `knowledge_staging` | `~/.claude/engram/<repo_id>/knowledge_staging/**` | Engine entrypoints only |
+| Path Class | Protected Paths | Allowed Mutators | Register Fires? |
+|---|---|---|---|
+| `work` | `engram/work/**` | Engine entrypoints only | Yes |
+| `knowledge_published` | `engram/knowledge/**` | Engine entrypoints only | Yes |
+| `knowledge_staging` | `~/.claude/engram/<repo_id>/knowledge_staging/**` | Engine entrypoints only | No (Bash-mediated) |
 
 Paths canonicalized before matching: expand `~` (via `os.path.expanduser()` or equivalent), then resolve symlinks, collapse `..`, normalize to absolute (`os.path.realpath()` after expansion). Path canonicalization and `**` glob matching cover all subdirectories including `.`-prefixed ones (e.g., `.audit/`). The `engram/work/**` path class protects `engram/work/.audit/**` — all audit trail entries are engine-only.
 
@@ -152,6 +152,8 @@ No diagnostic is emitted when Step 2 fails — silent fall-through to Step 3 is 
 ```
 
 **Capability gating:** Each branch is only active when its corresponding guard capability has shipped. Branch 1 activates at Step 2a (`engine_trust_injection`). Branch 3 activates at Step 3a (`work_path_enforcement`). Branch 2 activates at Step 4a (`context_direct_write_authorization`). Before a capability ships, its branch is a no-op (falls through to branch 4).
+
+**Inactive capability behavior:** When a capability is inactive, its branch is skipped (no-op) — execution continues to the next branch as if the match did not occur. No diagnostic is emitted for inactive-capability skips. This is a silent allow, consistent with the "falls through to branch 4" behavior documented in the rollout table above.
 
 ### Payload File Contract
 
