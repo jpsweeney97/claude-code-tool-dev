@@ -393,7 +393,7 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 ├─ [Step 6: send follow-up to Codex]
 │   ├─ If active mode AND packet staged: prepend packet to follow-up before sending
 │   └─ If shadow mode: send follow-up without packet (diagnostics record the staged packet)
-│       See [delivery.md#shadow-mode-gate](delivery.md#shadow-mode-gate) for the gate
+│       See [delivery.md#graduation-protocol-and-kill-criteria](delivery.md#graduation-protocol-and-kill-criteria) for the gate
 │       definition, graduation.json schema, and kill criteria.
 │
 ├─ Step 7.5: CCDI COMMIT (after send confirmed)

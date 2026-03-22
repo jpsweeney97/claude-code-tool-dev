@@ -18,9 +18,9 @@ Ship in two phases to isolate risk:
 
 Phase B enters **shadow mode** first: the [prepare/commit cycle](integration.md#mid-dialogue-phase-per-turn-in-codex-dialogue) runs and emits diagnostics but does NOT inject packets into the follow-up prompt.
 
-### Shadow Mode Gate
+### Graduation Protocol and Kill Criteria
 
-> **Normative source:** Gate algorithm is defined in [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate) under `behavior_contract` authority. This section covers only graduation protocol and kill criteria.
+> **Normative source:** The shadow-mode gate algorithm (what file to read, what field values mean, what default applies when absent) is defined in [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate) under `behavior_contract` authority.
 
 The gate condition (what file to read, what field values mean, what default applies when absent) is defined in [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate) under `behavior_contract` authority. This section retains the graduation protocol and kill criteria under `implementation_plan` authority.
 
@@ -38,7 +38,7 @@ Graduate from shadow to active when kill criteria are clear across 10+ shadow di
 
 ## Diagnostics
 
-Per-dialogue summary, accumulated across turns and emitted once at dialogue end via the analytics emitter. (**Authority note:** The diagnostics schema is defined here under the `verification_strategy` claim for testing purposes. It is not an `interface_contract` — no external consumer depends on this schema.)
+Per-dialogue summary, accumulated across turns and emitted once at dialogue end via the analytics emitter. (**Authority note:** The diagnostics schema is defined here under the `verification_strategy` claim. It is not an `interface_contract` for production consumers, but field presence is contractual for test fixtures — Layer 2b tests assert on the presence and absence of shadow-mode-specific fields (`packets_target_relevant`, `packets_surviving_precedence`, `false_positive_topic_detections`). Changes to this schema's field set require updating the corresponding test assertions.)
 
 **Active mode example:**
 
@@ -153,7 +153,7 @@ Shadow-to-active graduation is a manual gate with a concrete approval artifact:
 4. **Validation:** Before finalizing `graduation.json`, run the graduation-report validator (`scripts/validate_graduation.py`). The validator checks: (a) `labeled_topics` matches actual line count in `data/ccdi_shadow/annotations.jsonl`, (b) `false_positive_rate` matches `labeled_false_positives / total_labeled_topics` computed from annotations, (c) `evaluated_dialogues` matches actual file count in `data/ccdi_shadow/diagnostics/`, (d) `effective_prepare_yield` and `avg_latency_ms` are consistent with per-dialogue diagnostics files. This does not eliminate human judgment but adds a mechanical consistency check.
 
 **Aggregation method:** `avg_latency_ms` is the unweighted mean of ALL `per_turn_latency_ms` entries across ALL diagnostics files (mean-of-all-turns, not mean-of-dialogue-means). `effective_prepare_yield` is computed as a global ratio: `sum(packets_surviving_precedence across all dialogues) / sum(packets_prepared across all dialogues)`. This is not a per-dialogue mean. For heterogeneous dialogues where per-dialogue mean latencies or per-dialogue yields differ, these formulas produce different values. The validator MUST use mean-of-all-turns for latency and global ratio for yield.
-5. **Gate:** The `codex-dialogue` agent reads `graduation.json` at dialogue start per the [shadow mode gate](#shadow-mode-gate) above. The graduation protocol (this section) governs how the file is produced and approved, and the gate condition that `codex-dialogue` evaluates at startup.
+5. **Gate:** The `codex-dialogue` agent reads `graduation.json` at dialogue start per the [graduation protocol and kill criteria](#graduation-protocol-and-kill-criteria) above. The graduation protocol (this section) governs how the file is produced and approved, and the gate condition that `codex-dialogue` evaluates at startup.
 6. **Rejection:** If any kill criterion exceeds its threshold, set `status: "rejected"` with the failing criterion in `notes`. Re-evaluate after tuning.
 
 #### `validate_graduation.py` CLI Interface
@@ -198,6 +198,8 @@ All three flags are required. **Exit codes:** 0 = all checks pass, 1 = one or mo
 
 The `codex-dialogue` agent emits a structured trace when CCDI is active, gated by a `ccdi_debug` flag in the delegation envelope:
 
+**Normative output contract:** The complete trace entry schema, required keys, `action` normative values, and key-presence invariant are defined in [integration.md#ccditrace-output-contract](integration.md#ccditrace-output-contract) under `interface_contract` authority. The JSON example below is illustrative — integration.md is authoritative for the trace schema. The key-presence invariant is validated by `trace_assertions` with `assert_key_present` checks (see replay harness below).
+
 ```json
 [
   {
@@ -224,8 +226,6 @@ The `codex-dialogue` agent emits a structured trace when CCDI is active, gated b
 ```
 
 Full candidate object schema: see [integration.md#dialogue-turn-candidates-json-schema](integration.md#dialogue-turn-candidates-json-schema).
-
-**Normative output contract:** The complete trace entry schema, required keys, `action` normative values, and key-presence invariant are defined in [integration.md#ccditrace-output-contract](integration.md#ccditrace-output-contract) under `interface_contract` authority. The JSON example above is illustrative — integration.md is authoritative for the trace schema. The key-presence invariant is validated by `trace_assertions` with `assert_key_present` checks (see replay harness below).
 
 The replay harness collects these traces and asserts on:
 
@@ -601,11 +601,11 @@ After all turns, verify the `assertions` object against the final registry state
 
 #### `seed_medium_baseline.replay.json`
 
-Exercises seed-build initialization of `consecutive_medium_count` across the JSON → RegistrySeed → first `dialogue-turn` boundary.
+Exercises counter persistence across the JSON → RegistrySeed → `dialogue-turn` serialization boundary.
 
-- **Initial state:** Registry file with one leaf topic in `detected` state, `consecutive_medium_count: 2` (pre-existing from prior session).
+- **Initial state:** Registry file with one leaf topic in `detected` state, `consecutive_medium_count: 2` (pre-existing counter from prior turns).
 - **Classifier output:** Same topic at medium confidence.
-- **Expected:** `consecutive_medium_count` increments to 3 (seed correctly preserves the counter across serialization boundary). Retitle `seed_medium_baseline` description to "Exercises counter persistence across serialization boundary" (not "seed-build initialization").
+- **Expected:** `consecutive_medium_count` increments to 3 (seed correctly preserves the counter across serialization boundary).
 
 #### `seed_medium_fresh_init.replay.json`
 
@@ -644,7 +644,7 @@ Exercises behavioral equivalence between `--source codex` and `--source user` in
 | Agent invokes classify before dialogue-turn | Tool-call ordering in codex-dialogue |
 | Agent skips build-packet when no candidates | Conditional tool invocation |
 | Agent calls --mark-injected only after successful codex-reply | Prepare/commit ordering |
-| Graduation gate: file absent → shadow mode | Delegation envelope with `ccdi_seed` but no `graduation.json` → agent tool-call log contains zero `build-packet --mark-injected` invocations; diagnostics show `status: "shadow"`. Per [delivery.md#shadow-mode-gate](delivery.md#shadow-mode-gate). |
+| Graduation gate: file absent → shadow mode | Delegation envelope with `ccdi_seed` but no `graduation.json` → agent tool-call log contains zero `build-packet --mark-injected` invocations; diagnostics show `status: "shadow"`. Per [delivery.md#graduation-protocol-and-kill-criteria](delivery.md#graduation-protocol-and-kill-criteria). |
 | Graduation gate: status rejected → shadow mode | `graduation.json` with `status: "rejected"` → same assertions as above: zero commits, `status: "shadow"` in diagnostics. |
 | Graduation gate: status approved → active mode | `graduation.json` with `status: "approved"` → agent tool-call log contains at least one `build-packet --mark-injected` invocation (when candidates exist); diagnostics show `status: "active"`. |
 | Scout pipeline contains no CCDI CLI calls | In a fixture with both scout candidate and CCDI candidate active, assert that `execute_scout`/`process_turn` tool-call log contains zero `topic_inventory.py` invocations |
