@@ -19,11 +19,13 @@ Reviewer (not author) MUST independently verify the helper function list is comp
 
 PR checklist item: "Confirmed: NS adapter sets `tautology_filter_applied` in `upstream_handoff` capability flags. Key presence verified (not just value correctness). Absence is a gate failure requiring remediation before merge."
 
-The co-review gate MUST also verify the NS adapter sets `decomposition_seed: true` only when `--plan` was active AND decomposition seeding actually ran — per pipeline-integration.md §Two-Stage Admission Stage B. A false `decomposition_seed` causes Step 0 case (c) abort with no recovery path. PR checklist item: "Confirmed: NS adapter's `decomposition_seed` assignment is conditional on `--plan` being active. Verified by tracing the adapter code path."
+The co-review gate MUST also verify the NS adapter sets `decomposition_seed: true` only when `--plan` was active AND decomposition seeding actually ran — per pipeline-integration.md §Two-Stage Admission Stage B. A false `decomposition_seed` causes Step 0 case (c) abort with no recovery path. PR checklist item: "Confirmed: `decomposition_seed: true` is only reachable when `--plan` was active AND decomposition seeding actually ran. Verified by enumerating ALL code paths that assign or initialize `decomposition_seed` (not only the adapter's primary path — include default initializers, copy-construction, merge operations, and conditional branches), and confirming none set it to `true` outside the conditional gate."
 
-The co-review gate enforcement surface covers ALL adapter exit paths, including Stage A rejection (where `upstream_handoff` is never initialized). When Stage A rejects a capsule, the adapter exits before `upstream_handoff` is constructed — `tautology_filter_applied` key-presence cannot be checked on an object that does not exist. PR checklist item: "Confirmed: adapter exit paths are exhaustively enumerated — including schema-validation-failure paths where `upstream_handoff` is never initialized. For rejection paths: verified no capability flags leak into pipeline state."
+The co-review gate MUST additionally verify that the behavioral test for `decomposition_seed: true` when `--plan` not active (verification.md §Routing and Materiality Verification, NS adapter row) exists in the test suite and passes. Test file presence is a merge-blocking requirement — per verification.md, this is a P0 merge gate prerequisite.
 
-The co-review gate MUST verify that `supersedes` is always present (not omitted) in emitted capsules, per the emitter-side MUST in lineage.md §DAG Structure. Consumer-side tolerance (treating absent `supersedes` as null) does NOT relax the emitter obligation — the consumer compatibility exception is defensive, not normative.
+The co-review gate enforcement surface covers ALL adapter exit paths, including Stage A rejection (where `upstream_handoff` is never initialized). When Stage A rejects a capsule, the adapter exits before `upstream_handoff` is constructed — `tautology_filter_applied` key-presence cannot be checked on an object that does not exist. PR checklist item: "Confirmed: adapter exit paths are exhaustively enumerated — including schema-validation-failure paths where `upstream_handoff` is never initialized. For rejection paths: verified `decomposition_seed`, `gatherer_seed`, `briefing_context`, and `tautology_filter_applied` are all absent from pipeline state — `upstream_handoff` is never initialized, so no capability flag key exists in any state object. Verified by tracing the Stage A rejection branch to confirm it exits before any capability flag assignment."
+
+The co-review gate MUST verify that `supersedes` is always present (not omitted) in emitted capsules, per the emitter-side MUST in [capsule-contracts.md §Validity Criteria (Contract 3)](capsule-contracts.md#validity-criteria-contract-3) (field-presence obligation) and the minting rule in [lineage.md §DAG Structure](lineage.md#dag-structure) (value-assignment rule). Consumer-side tolerance (treating absent `supersedes` as null) does NOT relax the emitter obligation — the consumer compatibility exception is defensive, not normative.
 
 ## Helper Function Tracking
 
@@ -37,7 +39,7 @@ Any function called from the feedback capsule assembly path MUST be tracked in a
 
 ## Constrained Field Literal-Assignment Assertion
 
-Validates: routing-and-materiality.md §Dimension Independence (literal-assignment convention)
+Validates: routing-and-materiality.md §Dimension Independence (literal-assignment convention for `classifier_source` and `materiality_source`) + routing-and-materiality.md §Ambiguous Item Behavior + §Affected-Surface Validity (literal-assignment convention for `hold_reason`)
 
 PRs introducing helper functions that assign `classifier_source`, `materiality_source`, or `hold_reason` MUST use literal values only (e.g., `classifier_source = "rule"`, not `classifier_source = src`). PR checklist item: "Confirmed: all assignments to `classifier_source`, `materiality_source`, and `hold_reason` in the feedback capsule assembly path use literal string values from the permitted set — no variable-mediated assignments."
 
@@ -73,11 +75,19 @@ Validates: routing-and-materiality.md §Thread Continuation vs Fresh Start (time
 
 PR checklist item: "Confirmed: thread continuation vs. fresh start comparison uses parsed numeric timestamps (millisecond precision), not string comparison. Verified by reviewing the comparison code path for `created_at` vs `thread_created_at`."
 
+**Regression gate:** PRs touching thread-continuation comparison logic MUST confirm scenarios (7) and (8) from [verification.md §Routing and Materiality Verification](verification.md#routing-and-materiality-verification) pass. These are permanent regression tests, not one-time validation steps.
+
 ## `budget_override_pending` Initialization Check
 
 Validates: routing-and-materiality.md §Budget Enforcement Mechanics (initialization invariant)
 
 PR checklist item: "Confirmed: `budget_override_pending` is explicitly initialized to `false` at dialogue stub entry for each `lineage_root_id` — not left to default-falsy behavior. A new skill invocation always starts with a clean override state. Verified by reviewing the initialization code path at stub entry point — initialization is per-invocation, not session-persistent."
+
+## Budget Override Context-Compression Recovery Gate
+
+Validates: [routing-and-materiality.md §Budget Enforcement Mechanics](routing-and-materiality.md#budget-enforcement-mechanics) (override context-compression recovery)
+
+**[Activates when budget override code is authored]** PR checklist item: "Confirmed: stub contains a branch detecting absent prior 'continue' message after budget exhaustion and context compression. That branch emits re-confirmation text containing 'context compression' and instructs the user to say 'continue' to allow one more hop. Verified by tracing the override state evaluation code path."
 
 ## `dialogue-orchestrated-briefing` Sentinel Suppression Check
 
@@ -104,6 +114,8 @@ Validates: routing-and-materiality.md §Material-Delta Gating Step 0 case (c) + 
 
 The reinvocation test (verification.md) is a **corroborating regression check** — absence of capability-flag-dependent behavior is evidence of teardown, not standalone proof. The governance gate (structural reviewer trace) is the primary enforcement layer.
 
+**Teardown semantics:** All four capability flags are set by the NS adapter at Stage B ([pipeline-integration.md §Two-Stage Admission](pipeline-integration.md#two-stage-admission) Stage B) — they are present when Step 0 runs. Teardown means: set the flag to `false` (or remove the key) regardless of whether the pipeline reached the stage where the flag is semantically consumed. A "torn down" flag MUST evaluate as `false` in any downstream check. Teardown is not a no-op — it clears flags that were initialized at Stage B but whose pipeline stage has not yet been reached.
+
 ## Step 0 Flag Read Source Verification
 
 Validates: routing-and-materiality.md §Material-Delta Gating Step 0 (case c/d boundary)
@@ -124,8 +136,8 @@ Validates: routing-and-materiality.md §Ambiguous Item Behavior (assignment prec
 
 PR checklist requires reviewer to confirm:
 
-1. "Confirmed: exactly one authoritative write point for `hold_reason` exists — the routing stage sets `hold_reason: routing_pending` for held ambiguous items. No other code path assigns a non-null `hold_reason` value."
-2. "Confirmed: later stages (capsule assembly, emission-time gate) can only propagate or omit `hold_reason` — they MUST NOT clear, replace, or default over an existing `routing_pending` value."
+1. "Confirmed: `hold_reason: routing_pending` is set for all held ambiguous items before capsule emission — verified that no held ambiguous item reaches `unresolved[]` without `hold_reason: routing_pending`, regardless of which stage (routing or capsule assembly) set it. If set at the routing stage, capsule assembly MUST NOT overwrite it. No code path sets `hold_reason` to any value other than `routing_pending` or `null`."
+2. "Confirmed: if `hold_reason: routing_pending` is set at the routing stage, capsule assembly and emission-time gate MUST NOT clear, replace, or default over the existing value. If `hold_reason` is set only at capsule assembly time, no routing-stage write exists for that item. Verified by tracing all write sites for `hold_reason`."
 3. "Confirmed: `hold_reason` assignments are only present in code paths that write to `unresolved[]`, not to `feedback_candidates[]`. Verified by reviewing all code paths that populate `feedback_candidates[]` — none contain `hold_reason` field assignments."
 
 **Accepted v1 limitation:** Stage differentiation (whether `hold_reason` was set at routing time vs capsule assembly time) cannot be proven mechanically without a new observable trace field. This governance gate is the sole enforcement for provenance claims. The behavioral test in verification.md asserts the final emitted value, not assignment timing.
@@ -134,7 +146,7 @@ PR checklist requires reviewer to confirm:
 
 ## `source_artifacts` Provenance Review
 
-Validates: capsule-contracts.md §Consumer Class (Contract 1) + §Contract 3 (provenance rule)
+Validates: [capsule-contracts.md §Consumer Class (Contract 1)](capsule-contracts.md#consumer-class-contract-1) + [capsule-contracts.md §Contract 3 (provenance rule)](capsule-contracts.md#contract-3-dialogue-feedback-capsule)
 
 PR checklist item: "Confirmed: when Stage A rejects a capsule (invalid schema), the dialogue feedback capsule emitted in that invocation omits `source_artifacts` entries for the rejected upstream artifact. Verified by tracing the rejection branch — `source_artifacts[]` is populated only from successfully consumed upstream artifacts, never from rejected capsules."
 
@@ -150,8 +162,26 @@ Validates: routing-and-materiality.md §Affected-Surface Validity (partial corre
 
 **[Activates when correction pipeline code is authored]** PR checklist item: "Confirmed: when rule 5 fires (partial correction failure), capsule assembly aborts and all 7 post-abort assertions hold: (1) no feedback capsule sentinel emitted, (2) no capsule body emitted, (3) no durable file written, (4) structured warning with entry index and unexpected state values emitted, (5) no hop suggestion text in prose output, (6) no `dialogue-orchestrated-briefing` sentinel in output, (7) all `upstream_handoff` capability flags torn down. Verified by tracing the abort code path."
 
+## Abort-Path Independent Test Fixtures Gate
+
+Validates: [verification.md §Capsule Contract Verification](verification.md#capsule-contract-verification) (partial correction failure row — "Independent test mandate" clause)
+
+**[Activates when dialogue stub abort-path code is authored]** PR checklist item: "Confirmed: two separate test fixtures exist — one for Step 0 case (c) abort path and one for partial correction failure abort path. No single shared fixture exercises both paths. Each fixture independently verifies all 7 post-abort assertions for its respective abort path. Verified by reviewing test file structure — two independent fixture functions/blocks, each with a complete assertion set."
+
 ## Correction Rule Sequential Ordering Gate
 
 Validates: routing-and-materiality.md §Affected-Surface Validity (correction rule ordering)
 
-**[Activates when correction pipeline code is authored]** PR checklist item: "Confirmed: correction rules are evaluated as a sequential if-else chain in listed order (1→2→3→4→5). An entry matching rule 1 does NOT proceed to rule 2 evaluation. Verified by structural inspection — the correction code path is a sequential short-circuit chain, not independent parallel checks."
+**[Activates when correction pipeline code is authored]** PR checklist item: "Confirmed: correction rules are evaluated as a sequential if-else chain in listed order (1→2→3→4→5). An entry matching rule 1 does NOT proceed to rule 2 evaluation. Verified by structural inspection — the correction code path is a sequential short-circuit chain, not independent parallel checks. Additionally confirmed: a valid tuple (e.g., `diagnosis/true/adversarial-review`) traverses the correction pipeline without reaching rule 5's defensive fallback. Verified by tracing the valid tuple through the if-else chain — the chain exits at the valid-tuple pass-through condition before rule 5 branch."
+
+## Emission-Time Validation Step Ordering Gate
+
+Validates: [routing-and-materiality.md §Affected-Surface Validity](routing-and-materiality.md#affected-surface-validity) (processing order steps 2-4)
+
+**[Activates when emission-time validation code is authored]** PR checklist item: "Confirmed: emission-time validation steps are evaluated in order: (2) `classifier_source`, (3) `materiality_source`, (4) `hold_reason`. A structured warning from step 2 appears before step 3's warning in the diagnostic log path. Verified by structural inspection — the validation code path is a sequential chain with step 2 preceding step 3, step 3 preceding step 4."
+
+## Lineage Key Propagation Regression Gate
+
+Validates: [lineage.md §Key Propagation](lineage.md#key-propagation) (`lineage_root_id` immutability)
+
+**[Active for any PR touching key propagation or capsule minting logic]** PR checklist item: "Confirmed: `lineage_root_id` immutability regression test passes — multi-hop chain test asserting `lineage_root_id` string equality across all hops re-executed and passing."
