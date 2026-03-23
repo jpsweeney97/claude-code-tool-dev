@@ -150,6 +150,8 @@ When a topic transitions to `deferred`, set `deferred_ttl` to the value of [`ccd
 - If the topic also appears in the current `dialogue-turn` classifier output → transition to `detected` (re-eligible for scheduling).
 - If the topic does NOT appear in the current classifier output → reset `deferred_ttl` to `deferred_ttl_turns` and remain `deferred`. The topic needs both TTL expiry and classifier re-detection to re-enter the pipeline.
 
+**Load-time ordering for `deferred_ttl: 0`:** When loading a registry file containing a `deferred_ttl: 0` entry, the `dialogue-turn` implementation MUST apply the transition rule (above: `deferred → detected` or `deferred → deferred` reset depending on classifier output) BEFORE the standard per-turn decrement step. Do NOT decrement a `deferred_ttl` that is already `0` at load time — decrementing first would produce `-1`, which is not a valid state and would prevent the transition rule from firing correctly.
+
 **Dialogue scope:** The registry file is dialogue-scoped. `deferred_ttl` persists only across reloads of the same registry within an ongoing dialogue, including abnormal process interruption (see [failure modes](#failure-modes) for the `deferred_ttl: 0` load-time recovery). A new `/dialogue` session starts from a new RegistrySeed and does not inherit deferred entries from prior dialogues. Implementations MUST NOT reset `deferred_ttl` at session load time — only the per-turn decrement rule applies.
 
 ### Suppression Re-Entry
