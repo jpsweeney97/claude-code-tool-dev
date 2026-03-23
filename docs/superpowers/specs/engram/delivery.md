@@ -151,6 +151,8 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 
 **Co-deployment validation:** The promote script must verify that both `hooks/` and `scripts/` directories are present in the deployed plugin root. If either is missing, abort with diagnostic. See [co-deployment invariant](enforcement.md#step-1-injection-pretooluse).
 
+Guard capabilities for this step: see [enforcement.md §Guard Capability Rollout](enforcement.md#guard-capability-rollout) (authoritative).
+
 **Exit criteria (2a):** Full learn -> distill -> curate -> promote lifecycle. Staging dedup. [Staging inbox cap](enforcement.md#staging-inbox-cap).
 
 #### Required Verification
@@ -197,6 +199,8 @@ This test runs in CI across Steps 1–3. If type changes break the bridge, this 
 | `/ticket`, `/triage` | Work skills |
 | Config | `.claude/engram.local.md` (see [autonomy configuration](enforcement.md#configuration)) |
 | Bridge adapter update | `/defer` switches from bridge adapter (Step 1) to new Work engine |
+
+Guard capabilities for this step: see [enforcement.md §Guard Capability Rollout](enforcement.md#guard-capability-rollout) (authoritative).
 
 **Intra-step ordering:** Within Step 3a, `engram_guard` with `work_path_enforcement` capability must pass protected-path enforcement tests (including VR-3A-8 trust injection path matching negative test) before the Work engine and `/ticket`, `/triage` skills are enabled. The guard must be deployed and validated first (per [Guard Capability Rollout](enforcement.md#guard-capability-rollout)).
 
@@ -293,6 +297,8 @@ The manifest is an [operational aid](foundations.md#auxiliary-state-authority). 
 2. `engram_quality` catch-all exception test (VR-4A-14) must pass before `/save`, `/quicksave`, `/load` are enabled
 3. `engram_register` ledger append test (VR-4A-20) must pass before any protected-path write skill is enabled
 4. `context_direct_write_authorization` guard capability must pass VR-4A-19 tests before Context skills (`/save`, `/quicksave`, `/load`) are enabled
+
+Guard capabilities for this step: see [enforcement.md §Guard Capability Rollout](enforcement.md#guard-capability-rollout) (authoritative).
 
 **Exit criteria (4a):** Save/load cycle works. Worktree isolation verified. `/save` orchestration with per-step results. `/search` spans all subsystems. `/timeline` reconstructs sessions. All hooks operational. SessionStart <500ms. Chain state migration classifies and filters old state files. All copied handoffs parse successfully through the Context reader. Migration manifest written with no `skipped_corrupt` entries for newly copied files.
 

@@ -150,7 +150,7 @@ Each build step lists the `engram_guard` capabilities it requires. No subsystem 
 | `work_path_enforcement` | Step 3a | Protected-path block for Write/Edit to Work and Knowledge paths |
 | `context_direct_write_authorization` | Step 4a | Direct-write path authorization for Context snapshot/checkpoint paths |
 
-The 'Ships At' column mirrors delivery.md §Build Sequence for convenience. delivery.md is the `implementation_plan` authority — if the two diverge, delivery.md is authoritative.
+This table is the canonical source for guard capability activation (`enforcement_mechanism` authority). delivery.md §Build Sequence references this table for the implementation schedule — if the two diverge, this table is authoritative for which capabilities are active at each step.
 
 ### Guard Decision Algorithm
 
