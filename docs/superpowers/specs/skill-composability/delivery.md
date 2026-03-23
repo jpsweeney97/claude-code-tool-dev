@@ -23,7 +23,7 @@ Governance gates in [governance.md](../skill-composability/governance.md) become
 | Artifact | Gates Activated |
 |----------|----------------|
 | Composition contract (`composition-contract.md`) | Contract Marker Verification, `topic_key` Scope Guard |
-| Composition stubs (AR, NS, dialogue) | Stub Composition Co-Review, Helper Function Tracking, Constrained Field Literal-Assignment, `budget_override_pending` Initialization |
+| Composition stubs (AR, NS, dialogue) | Stub Composition Co-Review, Helper Function Tracking, Constrained Field Literal-Assignment, `budget_override_pending` Initialization, `hold_reason` Assignment and Placement Review |
 | Dialogue consumer stub (durable store behavior) | Consumer Durable Store Check Ordering, `upstream_handoff` Abort Teardown Check |
 | `COMPOSITION_HELPERS.md` | Helper Function Tracking (diffing requirement) |
 

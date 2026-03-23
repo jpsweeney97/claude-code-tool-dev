@@ -23,6 +23,8 @@ The co-review gate MUST also verify the NS adapter sets `decomposition_seed: tru
 
 The co-review gate enforcement surface covers ALL adapter exit paths, including Stage A rejection (where `upstream_handoff` is never initialized). When Stage A rejects a capsule, the adapter exits before `upstream_handoff` is constructed — `tautology_filter_applied` key-presence cannot be checked on an object that does not exist. PR checklist item: "Confirmed: adapter exit paths are exhaustively enumerated — including schema-validation-failure paths where `upstream_handoff` is never initialized. For rejection paths: verified no capability flags leak into pipeline state."
 
+The co-review gate MUST verify that `supersedes` is always present (not omitted) in emitted capsules, per the emitter-side MUST in lineage.md §DAG Structure. Consumer-side tolerance (treating absent `supersedes` as null) does NOT relax the emitter obligation — the consumer compatibility exception is defensive, not normative.
+
 ## Helper Function Tracking
 
 Validates: routing-and-materiality.md §No Auto-Chaining (enforcement basis)
@@ -113,3 +115,17 @@ Validates: routing-and-materiality.md §Selective Durable Persistence (check ord
 PR checklist item: "Confirmed: consumer-side durable store lookup checks fields in order (1) `record_path` nullity, (2) file existence at `record_path`, (3) `record_status` field presence, (4) `record_status` value, (5) file content integrity. Step 3 precedes any file I/O. Verified by tracing the consumer code path as a sequential short-circuit chain."
 
 Cross-reference: routing-and-materiality.md §Check ordering defines the normative 5-step sequence. Consumer-side case (3) behavioral test (absent `record_status` with file existing at path) is the specific ordering verification test per verification.md.
+
+## `hold_reason` Assignment and Placement Review
+
+Validates: routing-and-materiality.md §Ambiguous Item Behavior (assignment precedence) + §Affected-Surface Validity (emission-time gate, list-membership constraint)
+
+PR checklist requires reviewer to confirm:
+
+1. "Confirmed: exactly one authoritative write point for `hold_reason` exists — the routing stage sets `hold_reason: routing_pending` for held ambiguous items. No other code path assigns a non-null `hold_reason` value."
+2. "Confirmed: later stages (capsule assembly, emission-time gate) can only propagate or omit `hold_reason` — they MUST NOT clear, replace, or default over an existing `routing_pending` value."
+3. "Confirmed: `hold_reason` assignments are only present in code paths that write to `unresolved[]`, not to `feedback_candidates[]`. Verified by reviewing all code paths that populate `feedback_candidates[]` — none contain `hold_reason` field assignments."
+
+**Accepted v1 limitation:** Stage differentiation (whether `hold_reason` was set at routing time vs capsule assembly time) cannot be proven mechanically without a new observable trace field. This governance gate is the sole enforcement for provenance claims. The behavioral test in verification.md asserts the final emitted value, not assignment timing.
+
+**Validator scope extension:** When `validate_composition_contract.py` is implemented (delivery.md item #6), add structural checks for: `hold_reason` at correct emitted path (`unresolved[]` only), never in `feedback_candidates[]`, value from allowed set `{routing_pending, null}`.
