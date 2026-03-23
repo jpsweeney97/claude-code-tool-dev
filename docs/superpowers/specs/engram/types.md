@@ -483,8 +483,11 @@ Payload is typed per event — see [Event Vocabulary](#event-vocabulary-v1) for 
 | `snapshot_written` | orchestrator | `{ref: str, orchestrated_by: str}` | `payload.ref` | Timeline fidelity — records snapshot creation. `orchestrated_by` values: `"save"`, `"quicksave"`, `"load"`. See [operations.md §Snapshot Event Emission](operations.md#snapshot-event-emission) for per-producer emit conditions. |
 | `defer_completed` | engine | `{source_ref: str, emitted_count: int}` | `null` | Completion evidence for /triage inference |
 | `distill_completed` | engine | `{source_ref: str, emitted_count: int}` | `null` | Completion evidence for /triage inference |
+| `write_observed` | hook | `{path: str, tool_name: str, path_class: str}` | `null` | Protected-path write observation. `engram_register` fires on Write/Edit to paths in the protected-path table where "Register Fires? = Yes". `path_class` matches the path class name from enforcement.md §Protected-Path Enforcement. |
 
 **Per-event-type `record_ref` population rule:** For `snapshot_written`, `record_ref` must be non-null (`= payload.ref`). Producers must assert non-null before appending; skip the append with a diagnostic warning if `payload.ref` is unavailable. Readers processing `snapshot_written` with `record_ref = None` must skip the entry with a warning in `QueryDiagnostics.warnings`.
+
+For `write_observed`, `record_ref` is `null` — hook events observe file paths, not Engram records. Producers must not attempt to construct a `RecordRef` from the file path. The `path` field in the payload serves as the human-readable locator.
 
 The `emitted_count` field is **required** in `defer_completed` and `distill_completed` payloads. A value of `0` means the operation completed with zero outputs (zero-output success — [triage case 3](operations.md#triage-read-work-and-context)). A missing `emitted_count` key is a producer bug — triage treats it as "completion not proven" (case 4). Producers must always emit `emitted_count`, including when the count is zero. Engines must emit `defer_completed` / `distill_completed` even when `emitted_count` is 0 — a zero-output operation is a successful completion and must be recorded. Omitting the event makes `/triage` report "completion not proven" for a successful operation.
 
