@@ -38,7 +38,7 @@ Advisory/tolerant. NS validates the capsule if present; falls back to prose pars
 
 **Provenance in fallback:** When NS falls back to prose parsing (capsule absent, schema-invalid, or unknown-version rejected), the NS handoff MUST omit `source_artifacts` entries for the absent capsule. Do not reference an AR `artifact_id` that was not structurally consumed. This preserves lineage integrity — downstream consumers can trust that `source_artifacts` entries represent structurally validated provenance, not prose-derived references.
 
-**Validity criteria:** An AR capsule is invalid if any required field is absent or not well-typed. Required fields: `artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `findings`. Optional fields: `topic_key`, `supersedes`, `source_artifacts`, `record_path`, `overall_confidence`, `assumptions`, `open_questions`. This parallels the explicit validity criteria in Contracts 2 and 3.
+**Validity criteria:** An AR capsule is invalid if any required field is absent or not well-typed. Required fields: `artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `review_target`, `findings`. `review_target` is basis data for `subject_key` derivation (see [lineage.md](lineage.md#basis-fields)) — without it, the capsule cannot mint a stable lineage key. Optional fields: `topic_key`, `supersedes`, `source_artifacts`, `record_path`, `overall_confidence`, `assumptions`, `open_questions`. This parallels the explicit validity criteria in Contracts 2 and 3.
 
 **Optional field absence:** Optional fields that are absent or null do NOT make the capsule invalid. Only required field absence or type violations trigger invalidity.
 
@@ -80,6 +80,8 @@ open_questions:
 - **`if_wrong` preserves diagnostic mechanism** without crossing into remediation. AR says "if this assumption fails, X breaks" — NS decides what to do about it.
 - **Excludes task decomposition, dependency maps, or sequencing.** These are NS's domain.
 
+**AR `record_path` write-failure:** Out of scope for v1. `record_path` for AR capsules is optional best-effort metadata (`null` or a path to `docs/reviews/`). `null` is permitted to mean either "no write attempted" or "durable write not available." No `record_status` field is defined for AR capsules — the write-failure recovery contract (including `record_status: write_failed`) applies only to Contract 3 (dialogue feedback capsules) per [routing-and-materiality.md §Selective Durable Persistence](routing-and-materiality.md#selective-durable-persistence).
+
 ## Contract 2: NS to Dialogue (NS Handoff Block)
 
 ### Purpose
@@ -90,7 +92,7 @@ Give dialogue's `--plan` flag structured task context, dependencies, originating
 
 Strict/deterministic. Dialogue rejects an invalid handoff block but continues its normal pipeline (gatherers, briefing assembly, delegation). It does not fall back to a different data source.
 
-**Validity criteria:** A handoff block is invalid if: (1) any required field (`artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `focus_question`, `selected_tasks`) is absent or not well-typed, (2) `artifact_kind` is not `next_steps_plan`, or (3) `selected_tasks` is present but empty. Missing optional fields (`topic_key`, `recommended_posture`, `source_findings`, `source_assumptions`, `source_open_questions`, `out_of_scope`, `decision_gates`) do not invalidate the capsule. `selected_tasks` validity: MUST be present AND non-empty. Absent `selected_tasks` key = invalid (criterion 1: missing required field). Present but empty `selected_tasks: []` = invalid (criterion 3: explicit validity rule). Both produce the same consumer behavior: rejection + normal pipeline proceeds.
+**Validity criteria:** A handoff block is invalid if: (1) any required field (`artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `focus_question`, `selected_tasks`) is absent or not well-typed, (2) `artifact_kind` is not `next_steps_plan`, or (3) `selected_tasks` is present but empty. Missing optional fields (`topic_key`, `recommended_posture`, `source_findings`, `source_assumptions`, `source_open_questions`, `out_of_scope`, `decision_gates`, `supersedes`) do not invalidate the capsule. `selected_tasks` validity: MUST be present AND non-empty. Absent `selected_tasks` key = invalid (criterion 1: missing required field). Present but empty `selected_tasks: []` = invalid (criterion 3: explicit validity rule). Both produce the same consumer behavior: rejection + normal pipeline proceeds.
 
 ### Emission (Contract 2)
 
@@ -157,7 +159,7 @@ Enable iterative refinement by giving AR and NS structured access to dialogue ou
 
 ### Consumer Class (Contract 3)
 
-Advisory/tolerant. AR and NS validate the feedback capsule if present; fall back to conversation context if absent or invalid.
+Advisory/tolerant. AR and NS validate the feedback capsule if present; fall back to conversation context if absent or invalid. When falling back, the consumer MUST emit a one-line prose diagnostic per [foundations.md](foundations.md#consumer-classes).
 
 ### Emission (Contract 3)
 
@@ -223,6 +225,8 @@ A feedback capsule is invalid if any required field is absent or not well-typed:
 When a required field is absent or not well-typed, the capsule is invalid and the advisory/tolerant fallback applies — consumers proceed without structural handoff. This eliminates the need for per-consumer null-handling rules on fields like `thread_created_at` — capsule rejection handles absent required fields upstream.
 
 **Optional field absence:** Optional fields that are absent or null do NOT make the capsule invalid. Only required field absence or type violations trigger invalidity.
+
+**`supersedes` field compatibility (all three contracts):** Emitters MUST include `supersedes` in every capsule and set it to either the prior `artifact_id` of the same kind and subject, or `null` (per the minting rule in [lineage.md §DAG Structure](lineage.md#dag-structure)). Consumers MUST treat an absent `supersedes` key as equivalent to `supersedes: null` for v1 validity — absent `supersedes` does NOT make the capsule invalid. This is a narrow field-specific compatibility exception for `supersedes` only, not a broad reclassification of "optional" semantics. Governance and conformance tooling SHOULD still flag `supersedes` omission as an emitter defect (the minting rule is a MUST).
 
 ### Schema Constraints
 
