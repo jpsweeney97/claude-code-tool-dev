@@ -21,7 +21,7 @@ All deterministic logic lives in Python, exposed as coarse-grained workflow comm
 
 ‡`--inventory-snapshot` is required when `--registry-file` is present (full-CCDI mode). When absent on a full-CCDI call: non-zero exit with descriptive error. Not required in CCDI-lite mode. Note: `classify` uses `--inventory` (same purpose — path to inventory file) while `dialogue-turn` and `build-packet` use `--inventory-snapshot`. The naming difference is intentional: `--inventory-snapshot` signals the pinned copy; `--inventory` on `classify` is a general override. `--inventory-snapshot` is required on `dialogue-turn` when `--registry-file` is present. On `build-packet`, `--inventory-snapshot` is required when `--registry-file` is present (symmetric with `dialogue-turn` requirement). When `--registry-file` is absent (CCDI-lite), `--inventory-snapshot` is optional.
 
-**`--shadow-mode` flag:** Suppresses cooldown deferral writes. When set, `candidate_type: 'new'` entries excluded by the per-turn cooldown limit remain in `detected` state (no `deferred: cooldown` write). Passed by `codex-dialogue` when `graduation.json` `status` is not `'approved'`.
+**`--shadow-mode` flag:** Suppresses cooldown deferral writes. When set, `candidate_type: 'new'` entries excluded by the per-turn cooldown limit remain in `detected` state (no `deferred: cooldown` write). Passed by `codex-dialogue` when `graduation.json` `status` is not `'approved'`. The flag name `--shadow-mode` MUST match the flag name accepted by the CLI tool — see the [`topic_inventory.py` CLI table](#cli-tool-topic_inventorypy) above. Implementations MUST NOT use `--shadow_mode` (underscore) or any other variant.
 
 All commands accept `--config <path>` to load [`ccdi_config.json`](data-model.md#configuration-ccdiconfigjson). If omitted, uses built-in defaults. The live registry file has the structure defined in [data-model.md#live-registry-file-schema](data-model.md#live-registry-file-schema) — `TopicRegistryEntry` durable states plus `RegistrySeed` envelope fields (`docs_epoch`, `inventory_snapshot_version`); `results_file` is stripped at initial commit. See [registry.md](registry.md#durable-vs-attempt-local-states) for the durable vs attempt-local distinction. Attempt-local states (`looked_up`, `built`) exist within a single CLI invocation and are never written to the file.
 
@@ -103,7 +103,7 @@ The `dialogue-turn` command writes injection candidates to stdout as a JSON arra
 |-------|------|-------------|
 | `topic_key` | `string` | Hierarchical topic key |
 | `family_key` | `string` | Parent family key |
-| `facet` | `Facet` | Resolved facet for this candidate |
+| `facet` | `Facet` | Resolved facet for this candidate (see [data-model.md#queryplan](data-model.md#queryplan) for valid values) |
 | `confidence` | `"high" \| "medium" \| null` | `null` for `facet_expansion` and `pending_facet` candidates which bypass confidence thresholds. Low-confidence topics are tracked in the registry but excluded from injection candidates (see [classifier.md#injection-thresholds](classifier.md#injection-thresholds)). |
 | `coverage_target` | `"family" \| "leaf"` | For `candidate_type: "new"`: sourced from `ClassifierResult.resolved_topics[].coverage_target`. For `facet_expansion` and `pending_facet`: sourced from persisted `TopicRegistryEntry.coverage_target`. |
 | `candidate_type` | `"new" \| "facet_expansion" \| "pending_facet"` | How the candidate was scheduled (see table below) |
@@ -243,10 +243,21 @@ User prompt
 │  │              --facet <entry.facet> \
 │  │              --coverage-target <entry.coverage_target> --mark-injected
 │  │       (commit mutates the seed file in-place — entries transition to `injected`)
-│  │       If a per-topic build-packet --mark-injected exits non-zero, log the error
-│  │       and continue with remaining entries — partial commit is acceptable
-│  │       (uncommitted topics remain `detected` and are candidates for re-injection
-│  │       in mid-dialogue turns)
+│  │       Per-topic postconditions (three outcomes):
+│  │       1. Exit non-zero: log error, continue with remaining entries — topic
+│  │          remains uncommitted (`detected`) and is a candidate for mid-dialogue
+│  │          re-injection.
+│  │       2. Exit 0 with empty stdout: automatic suppression fired — topic is
+│  │          now `suppressed`. Do not log error; this is expected when results
+│  │          fall below quality threshold. Continue with remaining entries.
+│  │       3. Exit 0 with non-empty stdout: commit succeeded — topic is now
+│  │          `injected`.
+│  │
+│  │       NOTE (CE-8 / D1): This initial commit is NOT subject to the shadow-mode
+│  │       gate. Phase A (initial injection) is always active regardless of
+│  │       `graduation.json` status. The shadow-mode gate governs only Phase B
+│  │       mid-dialogue mutations in `codex-dialogue`. See delivery.md Phase A/B
+│  │       risk boundary.
 │  └─ If briefing send failed: no commit (seed entries remain `detected`)
 │
 ├─ Pass ccdi_seed envelope field to codex-dialogue delegation
@@ -278,6 +289,7 @@ The `/dialogue` skill passes these optional fields to `codex-dialogue`:
 | Field | Type | Source | Purpose |
 |-------|------|--------|---------|
 | `ccdi_seed` | file path (string) | ccdi-gatherer output | Initial registry file for mid-dialogue CCDI loop. Absent → mid-dialogue CCDI disabled. |
+| `ccdi_inventory_snapshot` | file path (string) | ccdi-gatherer output | Pinned inventory snapshot for `--inventory-snapshot` on all `build-packet` CLI calls. Required when `ccdi_seed` is present. |
 | `scope_envelope` | object | context-gatherers | Existing field — repo evidence scope. |
 | `ccdi_debug` | boolean \| absent | `/dialogue` skill | When `true`, `codex-dialogue` emits `ccdi_trace` in its output. Absent or `false` → no trace. Testing-only; see [below](#ccditrace-output-contract) for the output contract and [delivery.md#debug-gated-ccditrace](delivery.md#debug-gated-ccditrace) for the trace schema and replay harness. |
 | `ccdi_policy_snapshot`* | TBD | Phase B | *[Phase B — deferred]* Config snapshot for pinning CCDI tuning params during dialogue. Shape undefined — see [delivery.md#known-open-items](delivery.md#known-open-items). Not operative in Phase A. |
@@ -287,7 +299,7 @@ The `/dialogue` skill passes these optional fields to `codex-dialogue`:
 ### `ccdi_trace` Output Contract
 
 When `ccdi_debug: true` is set in the delegation envelope, `codex-dialogue` MUST emit a `ccdi_trace` key in its output containing an array of per-turn trace entries. Each trace entry MUST include all of the following keys regardless of value: `turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`. `semantic_hints` MUST be `null` when no hints exist (not absent from the entry).
-**`shadow_suppressed` field:** Each per-turn trace entry includes a `shadow_suppressed: boolean` field (9th field, not counted in the 8-key invariant for backward compatibility). Value is `true` when the trace entry describes an action whose registry mutation was suppressed by `--shadow-mode` (currently only `skip_cooldown`); `false` otherwise. This field disambiguates whether the registry mutation described by the `action` value actually occurred.
+**`shadow_suppressed` field:** Each per-turn trace entry includes a `shadow_suppressed: boolean` field (9th field, not counted in the 8-key invariant for backward compatibility). Value is `true` when the trace entry describes an action whose registry mutation was suppressed by shadow mode — currently `skip_cooldown` (CLI-enforced via `--shadow-mode` flag) and `skip_scout` (agent-enforced abstention from `--mark-deferred scout_priority`); `false` otherwise. This field disambiguates whether the registry mutation described by the `action` value actually occurred.
 **Exception for diagnostic entries:** `shadow_defer_intent` trace entries are counterfactual observations, not turn-loop observations. They are exempt from the 8-key requirement and use a reduced schema: `turn`, `action`, `topic_key`, `reason`, `classify_result_hash`. See [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization) for the entry schema and semantics.
 **Type discrimination:** The `ccdi_trace` array contains two structurally different entry types: per-turn entries (8+ keys) and `shadow_defer_intent` entries (5 keys). Trace consumers MUST filter entries by `action` value before applying key-presence requirements. The 8-key invariant applies only to entries where `action != "shadow_defer_intent"`. Code iterating the trace array MUST NOT assume all entries have the same structure.
 
@@ -302,10 +314,10 @@ When `ccdi_debug: true` is set in the delegation envelope, `codex-dialogue` MUST
 | `build_packet` | Packet construction attempted | None |
 | `prepare` | Packet staged for injection (prepare phase) | None |
 | `inject` | Topic injected (`--mark-injected` committed) | Yes — active mode only; prohibited in shadow mode |
-| `defer` | Topic deferred (`--mark-deferred` committed) | Yes — active mode only; prohibited in shadow mode |
+| `defer` | Topic deferred (`--mark-deferred` committed). Corresponds to `deferred_reason: "target_mismatch"` — see [registry.md#entry-structure](registry.md#entry-structure). | Yes — active mode only; prohibited in shadow mode |
 | `suppress` | Topic suppressed (build-packet returned empty) | Yes — automatic suppression, both active and shadow modes |
 | `skip_cooldown` | Topic deferred due to per-turn cooldown. In active mode: `deferred: cooldown` state written by `dialogue-turn`, `shadow_suppressed: false`. In shadow mode: registry write suppressed by `--shadow-mode` flag, `shadow_suppressed: true`, and a separate `shadow_defer_intent` entry with `reason: "cooldown"` is emitted per [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization). Consumers MUST check `shadow_suppressed` to determine whether the registry mutation actually occurred. | Yes (active) / No (shadow — `shadow_suppressed: true`) |
-| `skip_scout` | Topic deferred due to scout priority. In active mode, `skip_scout` is emitted (not `defer`) even though `--mark-deferred` is committed — the scout reason takes priority over the generic defer action. In shadow mode, `skip_scout` indicates the intended deferral that was not committed. | Yes via `--mark-deferred` (active) / No (shadow — prohibited) |
+| `skip_scout` | Topic deferred due to scout priority (deferred_reason: `"scout_priority"` — see [registry.md#entry-structure](registry.md#entry-structure)). In active mode, `skip_scout` is emitted (not `defer`) even though `--mark-deferred` is committed — the scout reason takes priority over the generic defer action. In shadow mode, `skip_scout` has `shadow_suppressed: true` — the `--mark-deferred scout_priority` call that would have occurred in active mode is not made. | Yes via `--mark-deferred` (active) / No (shadow — `shadow_suppressed: true`) |
 | `shadow_defer_intent` | Shadow mode counterfactual deferral: agent would have called `--mark-deferred` in active mode but is prohibited in shadow mode. Emitted as a diagnostic-only trace entry — see [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization). | N/A — diagnostic entry, no registry operation |
 
 **`shadow_defer_intent` entry schema:** Unlike per-turn trace entries (which use the 8-key structure above), `shadow_defer_intent` entries use a diagnostic-only schema:
@@ -316,6 +328,8 @@ When `ccdi_debug: true` is set in the delegation envelope, `codex-dialogue` MUST
 
 Fields: `turn` (integer — the turn number), `action` (always `"shadow_defer_intent"`), `topic_key` (string — the topic that would have been deferred), `reason` (`"target_mismatch"` or `"cooldown"` — the deferral reason that would have been written), `classify_result_hash` (string — hash of the classify result payload for evidence-freshness tracking). See [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization) for repeat-detection semantics and intent resolution.
 **`classify_result_hash` computation:** Hash of the classifier result for topic T. The hash MUST include `confidence`, `facet`, and `matched_aliases` (not just `topic_key`) — same `topic_key` with different `matched_aliases` MUST produce different hashes. Same classify payload MUST produce the same hash (stability invariant). See [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization) for collision requirements and repeat-detection semantics.
+
+**Scope note:** `shadow_defer_intent` is scoped to deferrals that participate in shadow yield normalization (`cooldown`, `target_mismatch`). Scout-priority is represented by `skip_scout` with `shadow_suppressed: true` and by `packets_deferred_scout` in diagnostics; it does not emit `shadow_defer_intent` under the current normalization model because scout-priority defers before search/build and does not inflate `packets_prepared`.
 
 This follows the existing delegation envelope pattern (parallel to `scope_envelope`). The registry seed is NOT embedded in the briefing text — it is a separate envelope field. The consultation contract §6 does not need modification: `ccdi_seed` is an optional additive field, not a change to the existing envelope schema.
 
@@ -369,7 +383,12 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │       │            --mode mid_turn \
 │   │       │            --mark-deferred <topic_key> --deferred-reason target_mismatch \
 │   │       │            --skip-build
-│   │       └─ If shadow mode: no registry mutation (diagnostics record the intended deferral)
+│   │       └─ If shadow mode: Bash: python3 topic_inventory.py build-packet \
+│   │                    --registry-file /tmp/ccdi_registry_<id>.json \
+│   │                    --mode mid_turn \
+│   │                    --mark-deferred <topic_key> --deferred-reason target_mismatch \
+│   │                    --shadow-mode --skip-build
+│   │            (--shadow-mode makes --mark-deferred a no-op; diagnostics record the intent)
 │   ├─ If candidates AND scout target exists:
 │   │   (Scout target detection is agent-side: the codex-dialogue agent determines whether
 │   │    execute_scout produced a scout candidate for the current turn from the scope_envelope
@@ -382,7 +401,12 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   │            --mode mid_turn \
 │   │   │            --mark-deferred <topic_key> --deferred-reason scout_priority \
 │   │   │            --skip-build
-│   │   └─ If shadow mode: no registry mutation (diagnostics record the intended deferral)
+│   │   └─ If shadow mode: Bash: python3 topic_inventory.py build-packet \
+│   │                --registry-file /tmp/ccdi_registry_<id>.json \
+│   │                --mode mid_turn \
+│   │                --mark-deferred <topic_key> --deferred-reason scout_priority \
+│   │                --shadow-mode --skip-build
+│   │        (--shadow-mode makes --mark-deferred a no-op; diagnostics record the intent)
 │   └─ If no candidates: no CCDI this turn
 │
 │   **Multi-candidate turns:** When `dialogue-turn` emits multiple candidates:
@@ -421,7 +445,7 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 
 **Agent-enforced (via agent abstention):** The agent MUST NOT call `--mark-injected` (Step 7.5) or `--mark-deferred` (Step 5.5) in shadow mode. These are agent-initiated CLI calls, not CLI-internal behavior — the prohibition requires the agent to not invoke these commands.
 
-**CLI backstop for `build-packet`:** `build-packet` accepts `--shadow-mode`. When passed, `--mark-deferred` is a no-op: the command logs the intended deferral reason and topic key to stderr but does NOT write to the registry file. Exit code is 0 (success). This converts the agent-abstention requirement for scout-priority and target-mismatch deferrals into a CLI-level guard, preventing shadow-mode registry corruption from agent implementation bugs. The `codex-dialogue` agent SHOULD pass `--shadow-mode` to `build-packet` whenever `graduation.json` status is not `"approved"`. **Layer 2b test:** Verify that `build-packet --shadow-mode --mark-deferred scout_priority` produces exit 0 with zero registry mutations and a stderr log entry.
+**CLI backstop for `build-packet`:** `build-packet` accepts `--shadow-mode`. When passed, `--mark-deferred` is a no-op: the command logs the intended deferral reason and topic key to stderr but does NOT write to the registry file. Exit code is 0 (success). This converts the agent-abstention requirement for scout-priority and target-mismatch deferrals into a CLI-level guard, preventing shadow-mode registry corruption from agent implementation bugs. The `codex-dialogue` agent MUST pass `--shadow-mode` to `build-packet` whenever `graduation.json` status is not `"approved"`. **Layer 2b test:** Verify that `build-packet --shadow-mode --mark-deferred scout_priority` produces exit 0 with zero registry mutations and a stderr log entry.
 
 **Suppression failure in shadow mode:** When `build-packet` empty output occurs in shadow mode and the automatic suppression registry write fails (e.g., due to disk I/O error), the topic remains in `detected` state and will be re-evaluated on the next turn. This is acceptable degradation per the [resilience principle](foundations.md#resilience-principle) — shadow mode is diagnostic, and a missed suppression does not affect graduation metrics (suppression counts are not part of the kill criteria).
 
