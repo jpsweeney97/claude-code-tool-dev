@@ -32,6 +32,8 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 - `behavior_contract`: routing > pipeline > lineage > foundation
 - `interface_contract`: capsule-contract > lineage
 - Fallback: foundation > decisions > capsule-contract > routing > pipeline > lineage > governance > delivery-plan > delivery-verification > supporting
+- `decision_record`: decisions (sole holder)
+- `review_gate`: governance (sole holder)
 
 **`decisions` conflict resolution:** The `decisions` authority uses the `fallback_authority_order` path for conflict resolution (ranked 2nd, after `foundation`). It does not appear in `claim_precedence` and cannot override via the claim-specific route. See `spec.yaml` for the full precedence rules.
 

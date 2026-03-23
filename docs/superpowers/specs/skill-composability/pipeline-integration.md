@@ -29,6 +29,8 @@ Future upstream skills register new sentinels and adapters here. The pipeline be
 
 ### Stage B — Normalize to `upstream_handoff` (generic)
 
+**Authority note:** Stage B sets enforcement preconditions (capability flags) under pipeline authority. The enforcement actions that depend on these preconditions are defined in routing-and-materiality.md (routing authority) and governance.md (governance authority).
+
 The adapter normalizes the validated capsule into a generic `upstream_handoff` pipeline state with capability flags:
 
 | Capability Flag | Meaning | NS Adapter Sets |

@@ -40,6 +40,8 @@ Advisory/tolerant. NS validates the capsule if present; falls back to prose pars
 
 **Validity criteria:** An AR capsule is invalid if any required field is absent or not well-typed. Required fields: `artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `findings`. Optional fields: `topic_key`, `supersedes`, `source_artifacts`, `record_path`, `overall_confidence`, `assumptions`, `open_questions`. This parallels the explicit validity criteria in Contracts 2 and 3.
 
+**Optional field absence:** Optional fields that are absent or null do NOT make the capsule invalid. Only required field absence or type violations trigger invalidity.
+
 ### Emission (Contract 1)
 
 AR appends the capsule after its prose output (after the Confidence Check section). The capsule is always emitted — it costs nothing to produce and NS can ignore it.
@@ -219,6 +221,8 @@ A feedback capsule is invalid if any required field is absent or not well-typed:
 - **Optional fields:** `topic_key`, `source_artifacts`, `resolved`, `unresolved`, `emerged`, `recommended_posture`, `feedback_candidates`, `supersedes`
 
 When a required field is absent or not well-typed, the capsule is invalid and the advisory/tolerant fallback applies — consumers proceed without structural handoff. This eliminates the need for per-consumer null-handling rules on fields like `thread_created_at` — capsule rejection handles absent required fields upstream.
+
+**Optional field absence:** Optional fields that are absent or null do NOT make the capsule invalid. Only required field absence or type violations trigger invalidity.
 
 ### Schema Constraints
 
