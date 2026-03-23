@@ -103,6 +103,18 @@ When `lesson-meta` is present but `meta_version` is absent, populate `RecordMeta
 
 Fields marked N/A populate as `None` in `RecordMeta`. The Knowledge reader derives `schema_version` from `lesson-meta.meta_version` (not a separate field). Same-major `lesson-meta` versions (e.g., v1.1 read by a v1.0 reader) are indexed normally — the entry appears in query results and is addressable. Entries with a different major version are skipped with a warning in `QueryDiagnostics.warnings`. See [types.md §Compatibility Rules](types.md#compatibility-rules) for the governing contract.
 
+**Staged entry IndexEntry population** (for entries from `knowledge_staging/`):
+
+| Field | Source |
+|---|---|
+| `title` | First line of markdown body (after staging-meta comment) |
+| `snippet` | Body first 200 chars (from markdown body, not JSON `content` field) |
+| `status` | `"staged"` unconditionally |
+| `tags` | Empty list |
+| `schema_version` | `"staged"` (sentinel — not a real version; distinguishes from published entries) |
+| `worktree_id` | `None` (private root, single-worktree by design) |
+| `session_id` | `None` |
+
 **Hard rule: No mutation, policy, or lifecycle decisions from `IndexEntry` alone.** IndexEntry is display-only. Any operation that changes state must open the native file through the subsystem engine.
 
 **`snippet` is not `summary`.** It's a preview for display in search results and triage lists. Capped at 200 characters. Reader-extracted (not first-N-chars). Never used for dedup, triage decisions, or workflow logic.
