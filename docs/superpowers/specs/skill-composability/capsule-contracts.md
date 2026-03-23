@@ -26,6 +26,12 @@ Three capsule contracts define the inter-skill data exchange format. Each contra
 
 When a consumer encounters a sentinel with an unrecognized version (e.g., `<!-- ar-capsule:v2 -->` when only `v1` is known): reject the capsule block, not the skill session. A version mismatch prevents capsule consumption but does not break the skill invocation. The consumer proceeds as if no capsule exists, applying its consumer class fallback behavior (see [foundations.md](foundations.md#consumer-classes)).
 
+## Shared Validity Rules
+
+**`supersedes` field compatibility (all three contracts):** Emitters MUST include `supersedes` in every capsule and set it to either the prior `artifact_id` of the same kind and subject, or `null` (per the minting rule in [lineage.md §DAG Structure](lineage.md#dag-structure)). Consumers MUST treat an absent `supersedes` key as equivalent to `supersedes: null` for v1 validity — absent `supersedes` does NOT make the capsule invalid. This is a narrow field-specific compatibility exception for `supersedes` only, not a broad reclassification of "optional" semantics. Governance and conformance tooling SHOULD still flag `supersedes` omission as an emitter defect (the minting rule is a MUST).
+
+**Optional field absence (all three contracts):** Optional fields that are absent or null do NOT make the capsule invalid. Only required field absence or type violations trigger invalidity.
+
 ## Contract 1: AR to NS (AR Capsule)
 
 ### Purpose
@@ -34,13 +40,13 @@ Give NS stable, machine-referenceable access to AR findings without requiring pr
 
 ### Consumer Class (Contract 1)
 
-Advisory/tolerant. NS validates the capsule if present; falls back to prose parsing if absent or invalid.
+Advisory/tolerant. NS validates the capsule if present; falls back to prose parsing if absent or invalid. When falling back, NS MUST emit a one-line prose diagnostic (per [foundations.md §Consumer Classes](foundations.md#consumer-classes)).
 
 **Provenance in fallback:** When NS falls back to prose parsing (capsule absent, schema-invalid, or unknown-version rejected), the NS handoff MUST omit `source_artifacts` entries for the absent capsule. Do not reference an AR `artifact_id` that was not structurally consumed. This preserves lineage integrity — downstream consumers can trust that `source_artifacts` entries represent structurally validated provenance, not prose-derived references.
 
 **Validity criteria:** An AR capsule is invalid if any required field is absent or not well-typed. Required fields: `artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `review_target`, `findings`. `review_target` is basis data for `subject_key` derivation (see [lineage.md](lineage.md#basis-fields)) — without it, the capsule cannot mint a stable lineage key. Optional fields: `topic_key`, `supersedes`, `source_artifacts`, `record_path`, `overall_confidence`, `assumptions`, `open_questions`. This parallels the explicit validity criteria in Contracts 2 and 3.
 
-**Optional field absence:** Optional fields that are absent or null do NOT make the capsule invalid. Only required field absence or type violations trigger invalidity.
+See [Shared Validity Rules](#shared-validity-rules) for the optional field absence rule.
 
 ### Emission (Contract 1)
 
@@ -112,7 +118,7 @@ source_artifacts:
   - artifact_id: <AR artifact_id if AR capsule was consumed, omit entry if not>
     artifact_kind: adversarial_review
     role: diagnosis
-record_path: null
+record_path: null  # Optional — always null in v1 (NS does not write files). Omitting this field does not invalidate the capsule.
 
 focus_question: <what this dialogue should resolve>
 recommended_posture: <adversarial | collaborative | exploratory | evaluative | comparative>
@@ -224,9 +230,11 @@ A feedback capsule is invalid if any required field is absent or not well-typed:
 
 When a required field is absent or not well-typed, the capsule is invalid and the advisory/tolerant fallback applies — consumers proceed without structural handoff. This eliminates the need for per-consumer null-handling rules on fields like `thread_created_at` — capsule rejection handles absent required fields upstream.
 
-**Optional field absence:** Optional fields that are absent or null do NOT make the capsule invalid. Only required field absence or type violations trigger invalidity.
+**`thread_created_at` precision tolerance:** A value without milliseconds (e.g., `2026-03-18T14:30:52Z`) is well-typed for validity purposes — precision normalization is an emitter obligation (see schema annotation), not a consumer-side rejection criterion.
 
-**`supersedes` field compatibility (all three contracts):** Emitters MUST include `supersedes` in every capsule and set it to either the prior `artifact_id` of the same kind and subject, or `null` (per the minting rule in [lineage.md §DAG Structure](lineage.md#dag-structure)). Consumers MUST treat an absent `supersedes` key as equivalent to `supersedes: null` for v1 validity — absent `supersedes` does NOT make the capsule invalid. This is a narrow field-specific compatibility exception for `supersedes` only, not a broad reclassification of "optional" semantics. Governance and conformance tooling SHOULD still flag `supersedes` omission as an emitter defect (the minting rule is a MUST).
+See [Shared Validity Rules](#shared-validity-rules) for the optional field absence rule.
+
+See [Shared Validity Rules](#shared-validity-rules) for the `supersedes` field compatibility rule that applies to all three contracts.
 
 ### Schema Constraints
 
@@ -234,6 +242,7 @@ When a required field is absent or not well-typed, the capsule is invalid and th
 - `classifier_source` validation: MUST be `rule` or `model` — no other values permitted. Emission-time enforcement gate defined in [routing-and-materiality.md §Affected-Surface Validity](routing-and-materiality.md#affected-surface-validity). Invalid values are corrected to `rule` with structured warning (always recoverable, does NOT trigger partial correction failure abort).
 - `materiality_source` validation: MUST be `rule` or `model` — parallel to `classifier_source`. Emission-time enforcement gate defined in [routing-and-materiality.md §Affected-Surface Validity](routing-and-materiality.md#affected-surface-validity). Same correction and recovery semantics.
 - **`record_status` semantics:** See [routing-and-materiality.md](routing-and-materiality.md#selective-durable-persistence) for the normative write-failure recovery procedure, consumer-side contract, and enforcement rules. `record_status` MUST always be present (`ok` or `write_failed`).
+- **`hold_reason` value constraint:** `hold_reason` MUST be `routing_pending` or `null`/omitted. The normative constraint and emission-time validation gate are defined in [routing-and-materiality.md §Ambiguous Item Behavior](routing-and-materiality.md#ambiguous-item-behavior) and [§Affected-Surface Validity](routing-and-materiality.md#affected-surface-validity).
 
 ### Design Notes
 
