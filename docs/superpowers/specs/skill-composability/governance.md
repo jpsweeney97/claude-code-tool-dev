@@ -53,6 +53,12 @@ Validates: routing-and-materiality.md §Selective Durable Persistence (path cons
 
 PR checklist item: "Confirmed: `record_path` (absolute filesystem path) is assigned to a local variable before the correction pipeline gate runs. The error handler reads from this pre-computed variable, not from re-derived path logic. Verified by tracing the error handler code path from write-failure branch to `record_path` reference."
 
+## `record_path` Null-Prevention Review
+
+Validates: capsule-contracts.md §Schema Constraints (`record_path` non-null requirement)
+
+PR checklist item: "Confirmed: no null or uninitialized state is reachable for `record_path` from any emission path. Verified by tracing all code paths from capsule assembly entry to `record_path` assignment — including exception paths before write attempt (path construction failure). The path variable is assigned before any operation that could throw."
+
 ## Thread Freshness Numeric Comparison Check
 
 Validates: routing-and-materiality.md §Thread Continuation vs Fresh Start (timestamp comparison rule)
