@@ -150,10 +150,15 @@ Three-step state machine with marker-based location and reconciliation recovery.
             is implicit in lesson selection — the user chose this lesson for promotion. No
             separate approval prompt.
             **Branch A invariants:** (1) `transformed_text` MUST be a faithful rendering of the selected lesson, differing only by required promotion markers — no content transformation beyond marker wrapping. (2) `target_section` is advisory; if the user later moves the promoted block to a different section, relocation is handled by Branch B2 on subsequent `/promote`.
-        Branch D (promote-meta present, meta_version unrecognized or missing):
-            Exclude from candidate list. Surface warning: "Lesson <lesson_id> has
-            unreadable promote-meta (missing or unrecognized meta_version). Run
-            migration before re-promoting." The exclusion occurs before the lesson
+        Branch D (promote-meta present, AND any of: meta_version unrecognized or missing, OR promote-meta.lesson_id does not match the immediately preceding lesson-meta.lesson_id):
+            Exclude from candidate list. Surface warning per cause:
+            - Missing/unrecognized meta_version: "Lesson <lesson_id> has
+              unreadable promote-meta (missing or unrecognized meta_version). Run
+              migration before re-promoting."
+            - lesson_id mismatch: "Lesson <lesson_id> has corrupt promote-meta
+              (lesson_id mismatch with lesson-meta). Run migration before
+              re-promoting."
+            The exclusion occurs before the lesson
             appears as a selectable candidate. See [legacy entries](types.md#legacy-entries-missing-meta-version).
         Branch B (promote-meta exists, promoted_content_sha256 == current content_sha256):
             B1 (target_section unchanged): Reject — already promoted. Return: `{"status": "already_promoted", "lesson_id": "<id>", "promoted_at": "<ISO8601>", "target_section": "<section>", "promoted_content_sha256": "<hex>"}`.

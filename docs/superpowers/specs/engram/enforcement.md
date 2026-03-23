@@ -172,7 +172,7 @@ engram_guard decision algorithm:
   4. Otherwise:
      → Allow unconditionally (engram_guard does not restrict general writes)
 Branches evaluated in this order. Step 2 failing the Context-ownership check (path not within Context private root) silently falls through — execution continues to step 3 (protected-path check) or step 4 (allow unconditionally).
-No diagnostic is emitted when Step 2 fails — silent fall-through to Step 3 is correct behavior for general writes. Context path authorization failure is surfaced indirectly by /triage anomaly detection (snapshot missing session_id), not by the guard.
+No path-authorization diagnostic is emitted when Step 2 fails the Context-ownership check — silent fall-through to Step 3 is correct behavior for general writes. Git identity errors (from `identity.get_worktree_id()`) are always logged to stderr regardless of branch 2 outcome — these are infrastructure diagnostics, not path-authorization diagnostics. Context path authorization failure is surfaced indirectly by /triage anomaly detection (snapshot missing session_id), not by the guard.
 ```
 
 **Capability gating:** Each branch is only active when its corresponding guard capability has shipped. Branch 1 activates in two phases: Step 2a (`engine_trust_injection`) covers Knowledge engine paths; Step 3a (`engine_trust_injection_work`) extends coverage to Work engine paths. Branch 3 activates at Step 3a (`work_path_enforcement`). Branch 2 activates at Step 4a (`context_direct_write_authorization`). Before a capability ships, its branch is a no-op (falls through to branch 4).
@@ -293,7 +293,7 @@ Although `worktree_id` is not part of the trust triple payload, the guard requir
 
 - **Branches 1 and 2** (engine trust injection, direct-write path authorization): Within each branch, the capability-active check executes first. If the capability is inactive, the branch is a no-op regardless of degraded-mode state — no blocking, no diagnostic. If the capability is active and the required resource (e.g., `worktree_id`) is unavailable, block (exit code 2) with branch-specific diagnostic:
   - Branch 1: `"engram_guard degraded: worktree_id unavailable — {error}. Engine trust injection blocked."`
-  - Branch 2: `"engram_guard degraded: worktree_id unavailable — {error}. Direct-write path authorization blocked."`
+  - Branch 2 (only when `context_direct_write_authorization` capability is active): `"engram_guard degraded: worktree_id unavailable — {error}. Direct-write path authorization blocked."` When `context_direct_write_authorization` is inactive, branch 2 is a no-op regardless of degraded-mode state — no blocking, no diagnostic.
 - **Branch 3** (protected-path enforcement): Evaluate normally — protected-path matching does not depend on `worktree_id`. No degradation.
 - **Branch 4** (allow unconditionally): Evaluate normally — no `worktree_id` dependency. No degradation.
 - **Observability:** Log the git error to stderr. The diagnostic channel path (`ledger/<worktree_id>/<session_id>.diag`) cannot be constructed without `worktree_id`, so stderr is the only available channel — this is structurally correct, not a gap.
