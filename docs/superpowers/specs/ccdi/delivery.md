@@ -632,7 +632,7 @@ Supported operators: `equals` (deep equality), `contains` (array membership), `l
 1. Write `input_text` to a temp file.
 2. Run `classify --text-file <temp>` via subprocess. If `expected_classifier_result` is present, assert the stdout matches.
 3. Write `semantic_hints` (if non-null) to a temp file.
-4. Run `dialogue-turn --registry-file <registry> --text-file <temp> --source <source> [--semantic-hints-file <hints>]`. If `expected_candidates` is present, assert stdout candidates match.
+4. Run `dialogue-turn --registry-file <registry> --inventory-snapshot <pinned_snapshot_path> --text-file <temp> --source <source> [--semantic-hints-file <hints>]`. If `expected_candidates` is present, assert stdout candidates match.
 5. For each candidate in the candidates array (in scheduling priority order): if `search_results` are provided for the candidate's topic:
    - Write canned `search_results` to a temp file.
    - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target>` (NO `--mark-injected` — prepare phase; `--facet` provided for ranking consistency).
@@ -641,7 +641,7 @@ Supported operators: `equals` (deep equality), `contains` (array membership), `l
      - (b) If condition (a) fails, invoke `classify --text-file <composed_target_tempfile> --inventory <pinned_snapshot_path>` and check whether any resolved topic overlaps with packet topics. This is condition (b) — see [registry.md#scheduling-rules](registry.md#scheduling-rules) step 10.
      - If both (a) and (b) fail, run `build-packet --mark-deferred <topic_key> --deferred-reason target_mismatch --skip-build --registry-file <registry>`.
 6. If `codex_reply_error` is false (default) and a packet was staged:
-   - Run `build-packet --results-file <results> --registry-file <registry> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target> --mark-injected` (commit phase).
+   - Run `build-packet --results-file <results> --registry-file <registry> --inventory-snapshot <pinned_snapshot_path> --mode mid_turn --topic-key <candidate.topic_key> --facet <candidate.facet> --coverage-target <target> --mark-injected` (commit phase).
    Repeat steps 5–7 for each remaining candidate in the array.
 7. If `codex_reply_error` is true: skip commit (topic stays `detected`).
 

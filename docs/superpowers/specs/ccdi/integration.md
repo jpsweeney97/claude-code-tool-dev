@@ -323,7 +323,7 @@ When `ccdi_debug: true` is set in the delegation envelope, `codex-dialogue` MUST
 | `defer` | Topic deferred (`--mark-deferred` committed). Corresponds to `deferred_reason: "target_mismatch"` — see [registry.md#entry-structure](registry.md#entry-structure). | Yes — active mode only; prohibited in shadow mode |
 | `suppress` | Topic suppressed (build-packet returned empty) | Yes — automatic suppression, both active and shadow modes |
 | `skip_cooldown` | Topic deferred due to per-turn cooldown. In active mode: `deferred: cooldown` state written by `dialogue-turn`, `shadow_suppressed: false`. In shadow mode: registry write suppressed by `--shadow-mode` flag, `shadow_suppressed: true`, and a separate `shadow_defer_intent` entry with `reason: "cooldown"` is emitted per [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization). Consumers MUST check `shadow_suppressed` to determine whether the registry mutation actually occurred. | Yes (active) / No (shadow — `shadow_suppressed: true`) |
-| `skip_scout` | Topic deferred due to scout priority (deferred_reason: `"scout_priority"` — see [registry.md#entry-structure](registry.md#entry-structure)). In active mode, `skip_scout` is emitted (not `defer`) even though `--mark-deferred` is committed — the scout reason takes priority over the generic defer action. In shadow mode, `skip_scout` has `shadow_suppressed: true` — the `--mark-deferred scout_priority` call that would have occurred in active mode is not made. | Yes via `--mark-deferred` (active) / No (shadow — `shadow_suppressed: true`) |
+| `skip_scout` | Topic deferred due to scout priority (deferred_reason: `"scout_priority"` — see [registry.md#entry-structure](registry.md#entry-structure)). In active mode, `skip_scout` is emitted (not `defer`) even though `--mark-deferred` is committed — the scout reason takes priority over the generic defer action. In shadow mode, `skip_scout` has `shadow_suppressed: true` — the `--mark-deferred scout_priority` call IS made with `--shadow-mode` appended; the CLI backstop makes `--mark-deferred` a no-op and the registry write is suppressed. | Yes via `--mark-deferred` (active) / No (shadow — `shadow_suppressed: true`) |
 | `shadow_defer_intent` | Shadow mode counterfactual deferral: agent would have called `--mark-deferred` in active mode but is prohibited in shadow mode. Emitted as a diagnostic-only trace entry — see [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization). | N/A — diagnostic entry, no registry operation |
 
 **`shadow_defer_intent` entry schema:** Unlike per-turn trace entries (which use the 8-key structure above), `shadow_defer_intent` entries use a diagnostic-only schema:
@@ -363,10 +363,19 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 ├─ Step 5.5: CCDI PREPARE (after composition, before send)
 │   ├─ Write Codex's latest response to /tmp/ccdi_turn_<id>.txt
 │   ├─ Optionally write semantic hints to /tmp/ccdi_hints_<id>.json
-│   ├─ Bash: python3 topic_inventory.py dialogue-turn \
-│   │        --registry-file /tmp/ccdi_registry_<id>.json \
-│   │        --text-file /tmp/ccdi_turn_<id>.txt --source codex \
-│   │        [--semantic-hints-file /tmp/ccdi_hints_<id>.json]
+│   ├─ If active mode:
+│   │   └─ Bash: python3 topic_inventory.py dialogue-turn \
+│   │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │            --inventory-snapshot <ccdi_snapshot_path> \
+│   │            --text-file /tmp/ccdi_turn_<id>.txt --source codex \
+│   │            [--semantic-hints-file /tmp/ccdi_hints_<id>.json]
+│   ├─ If shadow mode:
+│   │   └─ Bash: python3 topic_inventory.py dialogue-turn \
+│   │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │            --inventory-snapshot <ccdi_snapshot_path> \
+│   │            --text-file /tmp/ccdi_turn_<id>.txt --source codex \
+│   │            --shadow-mode \
+│   │            [--semantic-hints-file /tmp/ccdi_hints_<id>.json]
 │   ├─ Read candidates from stdout
 │   ├─ If candidates AND no scout target for this turn:
 │   │   ├─ search_docs for the scheduled candidate's query plan
@@ -386,11 +395,13 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │       │   └─ Bash: python3 topic_inventory.py build-packet \
 │   │       │            --results-file /tmp/ccdi_results_<id>.json \
 │   │       │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │       │            --inventory-snapshot <ccdi_snapshot_path> \
 │   │       │            --mode mid_turn \
 │   │       │            --mark-deferred <topic_key> --deferred-reason target_mismatch \
 │   │       │            --skip-build
 │   │       └─ If shadow mode: Bash: python3 topic_inventory.py build-packet \
 │   │                    --registry-file /tmp/ccdi_registry_<id>.json \
+│   │                    --inventory-snapshot <ccdi_snapshot_path> \
 │   │                    --mode mid_turn \
 │   │                    --mark-deferred <topic_key> --deferred-reason target_mismatch \
 │   │                    --shadow-mode --skip-build
@@ -404,11 +415,13 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   ├─ If active mode:
 │   │   │   └─ Bash: python3 topic_inventory.py build-packet \
 │   │   │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │   │            --inventory-snapshot <ccdi_snapshot_path> \
 │   │   │            --mode mid_turn \
 │   │   │            --mark-deferred <topic_key> --deferred-reason scout_priority \
 │   │   │            --skip-build
 │   │   └─ If shadow mode: Bash: python3 topic_inventory.py build-packet \
 │   │                --registry-file /tmp/ccdi_registry_<id>.json \
+│   │                --inventory-snapshot <ccdi_snapshot_path> \
 │   │                --mode mid_turn \
 │   │                --mark-deferred <topic_key> --deferred-reason scout_priority \
 │   │                --shadow-mode --skip-build
@@ -436,6 +449,7 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   └─ Bash: python3 topic_inventory.py build-packet \
 │   │            --results-file /tmp/ccdi_results_<id>.json \
 │   │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │            --inventory-snapshot <ccdi_snapshot_path> \
 │   │            --mode mid_turn --topic-key <candidate.topic_key> \
 │   │            --facet <candidate.facet> \
 │   │            --coverage-target <candidate.coverage_target> --mark-injected
