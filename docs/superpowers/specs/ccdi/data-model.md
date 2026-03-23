@@ -84,7 +84,7 @@ Four version axes prevent coupled evolution (three compatibility axes + one inst
 | `first_seen_turn` | `0` |
 | `family_key` | derived from `topic_key` (family prefix) |
 | `kind` | `"leaf"` |
-| `coverage_target` | `"leaf"` |
+| `coverage_target` | derived from `kind`: `"family"` when `kind == "family"`, `"leaf"` when `kind == "leaf"` or `kind` absent. Mirrors the `family_key` derivation pattern. |
 | `facet` | `"overview"` |
 
 *\* Schema-migration fallback only — runtime initialization uses `1` for medium-confidence leaf-kind entries. See "Defaults vs initialization" below.*
@@ -92,6 +92,8 @@ Four version axes prevent coupled evolution (three compatibility axes + one inst
 **Defaults vs initialization:** The defaults above are load-time schema-evolution fallbacks only — they apply when a field is absent from a serialized registry entry loaded under an older schema version. For new entry initialization at runtime (`absent → detected`), see [registry.md#field-update-rules](registry.md#field-update-rules). In particular, `consecutive_medium_count` initializes to `1` (not `0`) for medium-confidence leaf-kind entries at detection time. The schema default `0` is a safe fallback for old entries missing the field; it does not govern runtime initialization.
 
 **Known migration imprecision:** When `consecutive_medium_count` is absent from a serialized entry (migrated from a prior schema version) and the entry is in `detected` state with `last_seen_turn > 0`, the default `0` may under-count — the entry may have been mid-streak at medium confidence. The scheduler will require one additional medium-confidence turn to reach the injection threshold (2 instead of 1). This is accepted as safe-but-imprecise: the topic is not lost, only delayed by one turn. The alternative (load-time heuristic using `last_seen_turn > 0` to infer streak state) adds schema-migration complexity for a single-turn delay.
+
+**Family-kind migration:** The default `0` is correct for both family-kind and leaf-kind entries. Family-kind entries always have `consecutive_medium_count` = 0 at runtime (per [registry.md#scheduling-rules](registry.md#scheduling-rules) step 4), so the migration default produces the correct value. Leaf-kind entries may have been mid-streak — see "Known migration imprecision" above.
 
 These defaults ensure safe load-time migration for entries serialized before these fields were added. `family_key` default is derived by extracting the family prefix from `topic_key` (e.g., `hooks` from `hooks.pre_tool_use`).
 
@@ -152,6 +154,8 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 **Build-time penalty validation:** During overlay build (`build_inventory.py`): all penalty validation rules are defined in the `DenyRule` discriminated union constraint above — violations (including `penalty: 0`, out-of-range values, and union mismatches) are build-time errors.
 
 **Load-time validation:** When loading a compiled inventory, each DenyRule MUST satisfy its `action`/`penalty` discriminated union: `action: "drop"` requires `penalty: null`; `action: "downrank"` requires non-null `penalty` in (0.0, 1.0]. Out-of-range `penalty` values (`penalty ≤ 0.0` or `penalty > 1.0`) for `downrank` rules are treated identically to discriminated-union violations: skip the offending rule with a warning log entry. Do not fail the entire inventory load. This aligns with the [resilience principle](foundations.md#resilience-principle).
+
+**Warning differentiation (recommended):** Union violations (e.g., `drop` + non-null penalty) indicate structural data corruption and should log at WARNING level with a "schema corruption" prefix. Range violations (e.g., `penalty: -0.5`) may be legitimate prior-schema artifacts and should log at INFO level with a "backward-compat skip" prefix. Both result in the same behavior (rule skipped), but the differentiation aids operational monitoring.
 
 **`penalty: 0` at load time:** A DenyRule with `penalty: 0` is a build-time error (see validation above). If one reaches load time (e.g., from a prior schema version), it falls under the `penalty ≤ 0.0` range check and is skipped with a warning — the rule is not applied, and the topic retains its full alias weight. To disable a deny rule without removing it, overlays should use `action: "drop"` with `penalty: null` rather than setting `penalty` to 0.
 
@@ -352,7 +356,7 @@ The post-commit live registry file is the RegistrySeed with `results_file` strip
 | Field | Type | Description |
 |-------|------|-------------|
 | `entries` | `TopicRegistryEntry[]` | Array of topic entries in durable states (see [registry.md#durable-vs-attempt-local-states](registry.md#durable-vs-attempt-local-states)) |
-| `docs_epoch` | `string \| null` | Hash of the indexed document set at seed creation time; retained for traceability only. This field is NOT read by the CLI at suppression time — `suppressed_docs_epoch` is sourced from the pinned inventory snapshot (via `--inventory-snapshot`), not from this envelope field. See [registry.md#field-update-rules](registry.md#field-update-rules). |
+| `docs_epoch` | `string \| null` | Hash of the indexed document set at seed creation time; retained for traceability only (MUST be serialized per the [null-field serialization invariant](#registryseed) — present in live file even when null). This field is NOT read by the CLI at suppression time — `suppressed_docs_epoch` is sourced from the pinned inventory snapshot (via `--inventory-snapshot`), not from this envelope field. See [registry.md#field-update-rules](registry.md#field-update-rules). |
 | `inventory_snapshot_version` | `string` | `CompiledInventory.schema_version` captured at seed creation; used for version-mismatch gating at seed load |
 
 `results_file` and `inventory_snapshot_path` are stripped on load (load-time invariant) and MUST NOT appear in the live file. `docs_epoch` and `inventory_snapshot_version` are retained as traceability fields and are not modified after initial write. The `docs_epoch` used for suppression re-entry comparisons is sourced from the pinned inventory snapshot (via `--inventory-snapshot`), not from the registry file's envelope field.
@@ -420,6 +424,8 @@ All keys are optional. If `ccdi_config.json` is absent or a key is missing, the 
 **Config consumer scope:** `initial_threshold_high_count` and `initial_threshold_medium_same_family_count` configure threshold evaluation in the CLI `classify` command only. The agent-side pre-dispatch gate (in `/codex` and `/dialogue` flows) uses a fixed heuristic with hardcoded defaults matching the built-in values shown above. When these keys are overridden via `ccdi_config.json` or overlay `config_overrides`, agent-side gate and CLI threshold outcomes MAY diverge — this divergence is intentional (see [decisions.md#normative-decision-constraints](decisions.md#normative-decision-constraints)).
 
 **Cross-key validation:** After per-key validation, if `token_budget_min > token_budget_max` for either the initial or mid-turn pair, fall back to defaults for **both** keys in the pair as a unit and log a warning. Do not fall back for each key independently — independent fallback can itself produce `min > max` when only one key was invalid (e.g., valid custom `min` paired with default `max` that is lower). No other cross-key constraints are defined — keys outside the token-budget pairs are validated independently per the semantic range constraints above.
+
+**Evaluation order:** The cross-key check runs on the effective values after per-key validation has applied fallbacks — not on the raw config file values. If per-key validation replaced one key with its default and the resulting pair violates `min ≤ max`, the cross-key check fires on the effective (post-fallback) values and replaces both with defaults.
 
 ### Config Overrides in Overlay
 
