@@ -151,6 +151,8 @@ Each `DistillCandidate` is written as a standalone file in the staging inbox. Fi
 
 **Body identity invariant:** The markdown body (after the staging-meta comment) MUST be byte-identical to `DistillCandidate.content`. The Knowledge engine MUST write the body as the raw content string with no additional normalization. If normalization is required before writing, it must be applied to `DistillCandidate.content` before computing `content_sha256`.
 
+The JSON `content` field is not integrity-checked separately. Only the body + `content_sha256` pair matters for correctness. If `content_hash(body) == content_sha256` but `json_content != body`, the body is authoritative. `/curate` logs a per-entry warning in `QueryDiagnostics.warnings` (not corrupt-skip) for this divergence.
+
 ### PromoteEnvelope — Knowledge to CLAUDE.md (Intent Record)
 
 ```python
@@ -255,6 +257,7 @@ Two normalization families serve different content types. Using the wrong normal
 8. No lowercasing
 9. No punctuation removal
 10. Fence-aware: content inside fenced code blocks (backtick or tilde) is subject only to rules 1–2 (NFC + LF). Rules 3–6 do not apply inside fences.
+11. Ensure the document ends with exactly one `\n`.
 
 **Fence detection (CommonMark-aligned):**
 - Opening fence: 3+ identical characters (`` ` `` or `~`), preceded by 0–3 spaces of indentation
@@ -343,7 +346,7 @@ These mechanisms are independent in purpose and enforcement stage: an idempotent
 |---|---|---|---|
 | `DeferEnvelope` | **Enforced** | Engine checks `idempotency_key` against existing tickets | Ticket creation is not content-addressed; envelope-level dedup is the sole protection against retry duplicates |
 | `DistillEnvelope` | **Trace-only** | `idempotency_key` is computed and included in the header but NOT persisted or checked | Per-candidate `content_sha256` dedup via `O_CREAT\|O_EXCL` provides content-addressed dedup. Published dedup uses `content_sha256` in `lesson-meta`. Envelope-level identity adds no correctness guarantee beyond what per-candidate dedup already provides. |
-| `PromoteEnvelope` | **Enforced** | Engine checks `idempotency_key` against `promote-meta` state | Promote is a state-machine transition; re-entry detection is structural (Branch B1 rejection) |
+| `PromoteEnvelope` | **Enforced** | State-machine re-entry detection via content-hash comparison (implemented by Branch B1: `promoted_content_sha256 == current content_sha256`). The `idempotency_key` is computed and present in `EnvelopeHeader` but is not compared against `promote-meta`. | Promote is a state-machine transition; re-entry detection is structural (Branch B1 rejection) |
 
 The `idempotency_key` field remains in `EnvelopeHeader` (shared type) for all envelope types. For `DistillEnvelope`, the field serves as a trace/observability aid — it is available in the envelope for logging and debugging but is not persisted to staging-meta and is not checked at any dedup stage. The engine MUST NOT check `idempotency_key` for `DistillEnvelope` dedup — doing so would incorrectly deduplicate re-extractions with improved logic. This is an active prohibition, not just the absence of a check.
 
@@ -373,7 +376,7 @@ Entry content...
 **Fields:**
 - **`meta_version`**: Version of the lesson-meta format. Currently `"1.0"`. Entries lacking this field are treated as `legacy` — see [Legacy Entries](#legacy-entries-missing-meta-version). See [Version Evolution Policy](#version-evolution-policy) for compatibility rules.
 - **`lesson_id`**: UUIDv4 generated at creation. Serves as `RecordRef.record_id` for knowledge entries. Stable across edits (content changes update `content_sha256`, not `lesson_id`).
-- **`content_sha256`**: [`Sha256Hex`](#scalar-types) produced by [`content_hash()`](#hash-producing-functions) on entry content (excluding the `lesson-meta` comment itself). The current entry's `### ` heading line is NOT included in the hash input. The byte range starts at the first character after the blank line following the `lesson-meta` comment and ends at (but excludes) the next `### ` heading line. Trailing blank lines before the next heading are excluded. For the last entry in the file, the byte range extends to the end of the file (after `knowledge_normalize`). If the file ends without a trailing newline, the normalizer adds one per rule 6. **Blank line absent:** If the blank line between the `lesson-meta` comment and content is absent (comment's closing `-->` immediately followed by content on the next line), the byte range starts at the character immediately after the first newline following the `-->`. The entry is malformed but parseable with this fallback. Log a per-entry warning in `QueryDiagnostics.warnings`. Producers MUST always emit the blank line. Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
+- **`content_sha256`**: [`Sha256Hex`](#scalar-types) produced by [`content_hash()`](#hash-producing-functions) on entry content (excluding the `lesson-meta` comment itself). The current entry's `### ` heading line is NOT included in the hash input. The byte range starts at the first character after the blank line following the `lesson-meta` comment and ends at (but excludes) the next `### ` heading line. Trailing blank lines before the next heading are excluded. For the last entry in the file, the byte range extends to the end of the file (after `knowledge_normalize`). If the file ends without a trailing newline, the normalizer adds one per rule 11. **Blank line absent:** If the blank line between the `lesson-meta` comment and content is absent (comment's closing `-->` immediately followed by content on the next line), the byte range starts at the character immediately after the first newline following the `-->`. The entry is malformed but parseable with this fallback. Log a per-entry warning in `QueryDiagnostics.warnings`. Producers MUST always emit the blank line. Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
 - **`created_at`**: ISO 8601 UTC timestamp of initial creation (suffix `Z` or `+00:00`).
 - **`producer`**: Which skill created the entry. Informational — does not affect lifecycle.
 
@@ -475,6 +478,8 @@ Payload is typed per event — see [Event Vocabulary](#event-vocabulary-v1) for 
 | `defer_completed` | engine | `{source_ref: str, emitted_count: int}` | `null` | Completion evidence for /triage inference |
 | `distill_completed` | engine | `{source_ref: str, emitted_count: int}` | `null` | Completion evidence for /triage inference |
 
+**Per-event-type `record_ref` population rule:** For `snapshot_written`, `record_ref` must be non-null (`= payload.ref`). Producers must assert non-null before appending; skip the append with a diagnostic warning if `payload.ref` is unavailable. Readers processing `snapshot_written` with `record_ref = None` must skip the entry with a warning in `QueryDiagnostics.warnings`.
+
 The `emitted_count` field is **required** in `defer_completed` and `distill_completed` payloads. A value of `0` means the operation completed with zero outputs (zero-output success — [triage case 3](operations.md#triage-read-work-and-context)). A missing `emitted_count` key is a producer bug — triage treats it as "completion not proven" (case 4). Producers must always emit `emitted_count`, including when the count is zero. Engines must emit `defer_completed` / `distill_completed` even when `emitted_count` is 0 — a zero-output operation is a successful completion and must be recorded. Omitting the event makes `/triage` report "completion not proven" for a successful operation.
 
 In payload dicts, `RecordRef` values are stored as their [canonical serialization string](#recordref--lookup-key) (`RecordRef.to_str()`). Example: `{"ref": "context/snapshot/2026-03-21-abc123"}`.
@@ -503,7 +508,7 @@ In payload dicts, `RecordRef` values are stored as their [canonical serializatio
 
 All ledger producers use a shared locked append primitive in `engram_core/`. Advisory lock (`fcntl.flock`) on the shard file. Lock scope: read-append-fsync. Multi-producer integrity replaces the previous "single writer by sharding" assumption (which broke when engines became ledger producers).
 
-**Ledger append failure never invalidates a successful write.** If a `defer_completed` event fails to append after a successful ticket creation, the ticket exists — the ledger gap is a diagnostic degradation, not data loss. **Engine/orchestrator append failure modes:** Lock timeout (5 seconds) → log warning, do not propagate to caller. Disk full / permission denied → log error, do not propagate. Failed appends are observable via `diagnostics.warnings` on the next query. These mirror the `engram_register` failure modes in [enforcement.md](enforcement.md#hooks).
+**Ledger append failure never invalidates a successful write.** If a `defer_completed` event fails to append after a successful ticket creation, the ticket exists — the ledger gap is a diagnostic degradation, not data loss. The `append_event()` function is a single best-effort append attempt. Callers do not retry. **Engine/orchestrator append failure modes:** Lock timeout (5 seconds) → log warning, do not propagate to caller. Disk full / permission denied → log error, do not propagate. Failed appends are observable via `diagnostics.warnings` on the next query. These mirror the `engram_register` failure modes in [enforcement.md](enforcement.md#hooks).
 
 **Timestamp validation:** All timestamp fields across the spec are written in ISO 8601 UTC format (suffix `Z` or `+00:00`). Readers encountering non-UTC timestamps should normalize to UTC. Producers must emit `LedgerEntry.ts` and `EnvelopeHeader.emitted_at` with UTC offset. Parsers encountering a timestamp without UTC offset should treat it as UTC (not local time) and log a warning.
 
@@ -523,6 +528,8 @@ class AuditEntry(TypedDict):
 ```
 
 **Serialization:** UTF-8 JSONL, compact, `sort_keys=True`, one object per line, newline-terminated.
+
+**`schema_version` writer/reader split:** The `Literal["1.0"]` annotation governs the write-time contract: writers MUST emit the version they were built for. Readers MUST apply same-major tolerance per the Version Evolution Policy — entries with `schema_version` matching the current major version (e.g., `"1.1"`) are accepted; entries with a different major version (e.g., `"2.0"`) are skipped with a warning. The Python type annotation constrains writers, not readers.
 
 **Write semantics:** Append-only. An AuditEntry is written after a successful effective mutation (ticket created, updated, or closed). No `.audit/` entry on duplicate idempotent retry — the idempotency check prevents the effective mutation, so no audit entry is warranted.
 
