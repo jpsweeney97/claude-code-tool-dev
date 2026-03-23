@@ -16,6 +16,16 @@ authority: delivery-plan
 | **dialogue** | Add two-stage admission (Stage A: sentinel detection + validation, Stage B: normalize to `upstream_handoff`). Add `handoff_enriched` decomposition mode. Thread `upstream_handoff` through Steps 2-3 via capability flags. Add feedback capsule emission after synthesis. Add routing classification + materiality evaluation. Composition stub (large — routing, materiality, budget, discovery, consume/emit, fallback). |
 | **Shared contract** | New file: composition contract at `packages/plugins/cross-model/references/composition-contract.md` — structure and size estimated — to be finalized when authored (item #6). See [foundations.md §Three-Layer Delivery Authority](foundations.md#three-layer-delivery-authority) for required content areas. |
 
+### Governance Gate Activation Checklist
+
+Governance gates in [governance.md](../skill-composability/governance.md) become active when their referenced artifacts are first created. When authoring any of the following, the PR MUST confirm the corresponding governance gates are applied:
+
+| Artifact | Gates Activated |
+|----------|----------------|
+| Composition contract (`composition-contract.md`) | Contract Marker Verification, `topic_key` Scope Guard |
+| Composition stubs (AR, NS, dialogue) | Stub Composition Co-Review, Helper Function Tracking, Constrained Field Literal-Assignment, `budget_override_pending` Initialization |
+| `COMPOSITION_HELPERS.md` | Helper Function Tracking (diffing requirement) |
+
 ### AR Skill Text Addition
 
 Add after the Confidence Check section:
@@ -52,4 +62,4 @@ The dialogue skill receives the most extensive changes. Insert additions at thes
 | 8 | Interim drift mitigation protocol | Active (interim, retired when item #6 passes CI covering all 9 acceptance criteria in [verification.md](verification.md#validator-acceptance-criteria-validate_composition_contractpy)) | Bidirectional manual review protocol (until item #6 CI enforcement exists). **Contract → stub:** Any modification to the composition contract's routing, materiality, lineage, or capsule schema sections MUST be accompanied by a manual review of all three participating skill stubs (adversarial-review, next-steps, dialogue) against the updated contract text. The PR description MUST include a stub-impact checklist confirming which stubs were reviewed and whether updates are needed. **Stub → contract:** Any modification to a participating skill stub's composition section MUST be accompanied by verification that the change conforms to the current contract. The PR description MUST confirm the stub change does not diverge from contract intent. See [foundations.md](foundations.md#versioning-and-drift-detection) for the architectural invariant this protocol protects. PR review gate procedures are defined in [governance.md](governance.md). |
 | 9 | `--profile` (multi-phase posture profiles) | Deferred from v1 | When implemented, would sit between `--posture` and `upstream_handoff` in the [posture precedence](pipeline-integration.md#posture-precedence) chain. Not defined in v1 — posture precedence is `--posture > upstream_handoff > default collaborative`. |
 
-**Note on enforcement coverage gap:** The helper-mediated indirect delegation detection gap (see [routing-and-materiality.md](routing-and-materiality.md#no-auto-chaining) enforcement coverage note) has no closure timeline in v1. The gap is documented and mitigated by the co-review gate in [governance.md](governance.md#stub-composition-co-review-gate); deeper static analysis is deferred to `validate_composition_contract.py` (item #6).
+**Note on enforcement coverage gap:** The helper-mediated indirect delegation detection gap (see [routing-and-materiality.md](routing-and-materiality.md#no-auto-chaining) enforcement coverage note) has no closure timeline in v1. The gap is documented and mitigated by the co-review gate in [governance.md](governance.md#stub-composition-co-review-gate); deeper static analysis is deferred to `validate_composition_contract.py` (item #6). `validate_composition_contract.py` acceptance criteria MUST include (item #6 scope): behavioral test for helper functions listed in `COMPOSITION_HELPERS.md` — verify no listed function delegates to another skill via model output or helper delegation chains.

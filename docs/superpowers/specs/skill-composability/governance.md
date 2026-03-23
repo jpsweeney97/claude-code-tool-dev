@@ -58,3 +58,9 @@ PR checklist item: "Confirmed: `record_path` (absolute filesystem path) is assig
 Validates: routing-and-materiality.md §Thread Continuation vs Fresh Start (timestamp comparison rule)
 
 PR checklist item: "Confirmed: thread continuation vs. fresh start comparison uses parsed numeric timestamps (millisecond precision), not string comparison. Verified by reviewing the comparison code path for `created_at` vs `thread_created_at`."
+
+## `budget_override_pending` Initialization Check
+
+Validates: routing-and-materiality.md §Budget Enforcement Mechanics (initialization invariant)
+
+PR checklist item: "Confirmed: `budget_override_pending` is explicitly initialized to `false` at dialogue stub entry — not left to default-falsy behavior. Verified by reviewing the initialization code path at stub entry point."
