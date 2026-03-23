@@ -91,11 +91,25 @@ class IndexEntry:
 
 ### RecordMeta Field Mapping per Subsystem
 
-| Subsystem | `schema_version` source | `worktree_id` source | `session_id` source | `visibility` |
-|---|---|---|---|---|
-| Context (snapshot) | `schema_version` in `---` frontmatter | `worktree_id` in `---` frontmatter | `session_id` in `---` frontmatter | `"private"` (always private root) |
-| Work (ticket) | `schema_version` in fenced YAML | `worktree_id` in fenced YAML | `session_id` in fenced YAML | `"shared"` (always shared root) |
-| Knowledge (lesson) | `meta_version` in `lesson-meta` | N/A (shared root, no worktree scope) | N/A | `"shared"` |
+| Subsystem | `schema_version` source | `worktree_id` source | `session_id` source | `visibility` | `updated_at` source |
+|---|---|---|---|---|---|
+| Context (snapshot) | `schema_version` in `---` frontmatter | `worktree_id` in `---` frontmatter | `session_id` in `---` frontmatter | `"private"` (always private root) | `os.stat(native_path).st_mtime` as UTC datetime. `None` if stat fails. |
+| Work (ticket) | `schema_version` in fenced YAML | `worktree_id` in fenced YAML | `session_id` in fenced YAML | `"shared"` (always shared root) | `os.stat(native_path).st_mtime` as UTC datetime. `None` if stat fails. |
+| Knowledge (lesson) | `meta_version` in `lesson-meta` | N/A (shared root, no worktree scope) | N/A | `"shared"` | `os.stat(native_path).st_mtime` as UTC datetime. `None` if stat fails. |
+
+### Work Ticket YAML Schema
+
+Canonical field table for the fenced-YAML block in Work ticket files (`engram/work/T-YYYYMMDD-NN-<slug>.md`):
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `ticket_id` | `str` | **Required** | Canonical ticket ID (e.g., `T-20260322-01`). Maps to `RecordRef.record_id`. |
+| `status` | `str` | **Required** | One of: `open`, `in_progress`, `closed`, `blocked`. Maps to `IndexEntry.status`. |
+| `worktree_id` | `str` | **Required** | Source worktree. Maps to `RecordMeta.worktree_id`. |
+| `created_at` | `str` | **Required** | ISO 8601 UTC creation timestamp. Maps to `IndexEntry.created_at`. |
+| `updated_at` | `str` | Optional | ISO 8601 UTC last modification timestamp. Maps to `IndexEntry.updated_at`. |
+| `source_ref` | `str` | Optional | `RecordRef` canonical serialization of the originating record. |
+| `tags` | `list[str]` | Optional | Subsystem-native tags. Maps to `IndexEntry.tags`. Default: `[]`. |
 
 Work ticket YAML schema is inherited from the ticket plugin format — field requirements (`schema_version`, `worktree_id`, `session_id`, `status`) are specified in the RecordMeta field mapping table above.
 

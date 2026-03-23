@@ -22,8 +22,12 @@ Six operations justify Engram's plugin scope. Three migrate and improve existing
 
 The Work subsystem operates in one of two modes, configured via `work_mode` in [`.claude/engram.local.md`](enforcement.md#configuration):
 
-- **`suggest`:** Engine prepares the operation but surfaces it to the user for confirmation before writing. The user sees what will be created and approves or rejects. If the user abandons the session without confirming, the proposed operation is discarded — no write is performed. The `suggest` flow is entirely in-session; there is no queued state to persist.
+- **`suggest`:** Engine prepares the operation but surfaces it to the user for confirmation before writing. The user sees what will be created and approves or rejects. If the user abandons the session without confirming, the proposed operation is discarded — no write is performed. The `suggest` flow is entirely in-session; there is no queued state to persist. Trust injection applies — `engram_guard` validates the trust triple on the engine invocation regardless of mode. In suggest mode, abandonment prevents the target artifact write; the guard/engine plumbing still performs transient private-root writes.
 - **`auto_audit`:** Engine creates the work item automatically. The item is marked for user review at next `/triage`. `work_max_creates` limits cumulative automatic creations per session. Trust injection still applies — `engram_guard` validates the trust triple regardless of mode. Cap enforcement (`work_max_creates`) is the engine's responsibility, not the guard's — `engram_guard` is mode-agnostic.
+
+**Context subsystem autonomy:** No autonomy gate. Agents save their own session state — snapshots and checkpoints are agent-authored artifacts, not user-reviewed outputs.
+
+**Knowledge staging autonomy:** `/distill` auto-stages candidates without user confirmation; `/learn` publishes directly via the Knowledge engine. Staged candidates require user review via `/curate` before publication. Staging inbox cap (`knowledge_max_stages`) and content-addressed idempotency bound autonomous volume. See [enforcement.md §Autonomy Model](enforcement.md#autonomy-model) for configuration schema and enforcement caps.
 
 ## Existing Operations (Migrate and Improve)
 
@@ -240,6 +244,8 @@ Three-step state machine with marker-based location and reconciliation recovery.
 
 ## /save as Session Orchestrator
 
+`/save` must invoke the same public entrypoint function as `/defer` and `/distill` respectively — it is a thin orchestrator, not a reimplementation.
+
 ```
 /save [title] [--no-defer] [--no-distill]
     -> Context engine writes snapshot with orchestration intent fields:
@@ -268,6 +274,8 @@ Each snapshot producer emits a [`snapshot_written`](types.md#event-vocabulary-v1
 | `/load` (archive path) | `"load"` | After archive write succeeds |
 
 All three producers emit the event. The `orchestrated_by` value distinguishes them in `/timeline` and `/triage`. This is the authoritative specification for `snapshot_written` emission — see [types.md event vocabulary](types.md#event-vocabulary-v1) for the payload schema.
+
+Skills that write via the Write tool (not engine Bash) emit ledger events by calling `engram_core.ledger.append_event()` after the Write tool call succeeds. This is an orchestrator-produced event, not a new mutating entrypoint. Failure to append does not invalidate the write — emit a warning in `QueryDiagnostics.warnings`.
 
 ### Recovery Manifest
 
