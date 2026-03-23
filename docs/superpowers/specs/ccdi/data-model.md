@@ -15,7 +15,7 @@ A JSON artifact mapping Claude Code extension concepts to aliases, query plans, 
 CompiledInventory
 ├── schema_version: string             # current: "1"
 ├── built_at: ISO timestamp
-├── docs_epoch: string | null          # reload/version marker from claude-code-docs. All nullable fields (`docs_epoch`) MUST be serialized with explicit null when null — never omitted.
+├── docs_epoch: string | null          # reload/version marker from claude-code-docs. All nullable fields (`docs_epoch`) MUST be serialized with explicit null when null — never omitted (see [Null-field serialization](#registryseed) for the null-serialization invariant).
 ├── topics: Record<TopicKey, TopicRecord>
 ├── denylist: DenyRule[]
 ├── overlay_meta?: { overlay_version: string, overlay_schema_version: string, applied_rules: AppliedRule[] }  # optional — absent in inventories built without an overlay (see Failure Modes)
@@ -49,11 +49,17 @@ Four version axes prevent coupled evolution (three compatibility axes + one inst
 
 **Validation when `overlay_meta` absent:** When `overlay_meta` is absent, no overlay was applied; version-axis validation for `overlay_schema_version` and `overlay_version` is vacuously satisfied (there is nothing to validate). `merge_semantics_version` is always present at the top level of `CompiledInventory` and is validated against the CLI's supported version at load time regardless of whether an overlay was applied.
 
+**Build/load asymmetry:** `merge_semantics_version` is written by `build_inventory.py` at build time but consumed by the CLI at load time. The version semantics for build-time vs load-time are defined in the build pipeline, not in this specification — see the build/load lifecycle in the overlay merge semantics section.
+
+**Schema evolution note:** `merge_semantics_version` is "always present" in inventories built by the current `build_inventory.py`. For inventories built by older versions that predate this field, the failure mode is: inventory load continues with default merge semantics (version 1 behavior). This is not a load-time error — it is a graceful degradation consistent with the schema evolution constraint.
+
 ### Schema Evolution Constraint
 
 `CompiledInventory` schema evolution is additive-only: new fields with defaults, never removed or renamed fields. This invariant makes best-effort field mapping safe at load time (see [Failure Modes](#failure-modes)) — consumers can read inventories built under a prior schema version because unknown fields are ignored and missing fields fall back to defaults. All files that consume `CompiledInventory` (classifier.md, registry.md, packets.md) depend on this constraint.
 
 **Registry Entry Schema Field Defaults:** These defaults are used when loading a registry file serialized under an older schema version. Fields absent in the loaded `TopicRegistryEntry` are initialized to these values. Although placed here under the Schema Evolution Constraint (which governs both inventory and registry schemas), these defaults apply specifically to `TopicRegistryEntry` fields within the live registry file — not to `CompiledInventory` fields. See [registry.md#entry-structure](registry.md#entry-structure) for the authoritative field definitions.
+
+**Authority split note:** Field *definitions* (names, types, behavioral rules) are owned by [registry.md#entry-structure](registry.md#entry-structure) under `registry-contract` authority. This table owns only the *serialization defaults* for schema evolution under `data-model` (`persistence_schema`) authority.
 
 | Field | Default when absent |
 |-------|-------------------|
@@ -61,7 +67,7 @@ Four version axes prevent coupled evolution (three compatibility axes + one inst
 | `last_seen_turn` | `null` |
 | `last_injected_turn` | `null` |
 | `last_query_fingerprint` | `null` |
-| `consecutive_medium_count` | `0` |
+| `consecutive_medium_count` | `0`* |
 | `deferred_reason` | `null` |
 | `deferred_ttl` | `null` |
 | `suppressed_docs_epoch` | `null` |
@@ -69,13 +75,15 @@ Four version axes prevent coupled evolution (three compatibility axes + one inst
 | `coverage.facets_injected` | `[]` |
 | `coverage.injected_chunk_ids` | `[]` |
 | `coverage.pending_facets` | `[]` |
+| `coverage.overview_injected` | `false` |
+| `coverage.family_context_available` | `false` |
 | `first_seen_turn` | `0` |
 | `family_key` | derived from `topic_key` (family prefix) |
 | `kind` | `"leaf"` |
 | `coverage_target` | `"leaf"` |
 | `facet` | `"overview"` |
-| `coverage.overview_injected` | `false` |
-| `coverage.family_context_available` | `false` |
+
+*\* Schema-migration fallback only — runtime initialization uses `1` for medium-confidence leaf-kind entries. See "Defaults vs initialization" below.*
 
 **Defaults vs initialization:** The defaults above are load-time schema-evolution fallbacks only — they apply when a field is absent from a serialized registry entry loaded under an older schema version. For new entry initialization at runtime (`absent → detected`), see [registry.md#field-update-rules](registry.md#field-update-rules). In particular, `consecutive_medium_count` initializes to `1` (not `0`) for medium-confidence leaf-kind entries at detection time. The schema default `0` is a safe fallback for old entries missing the field; it does not govern runtime initialization.
 
@@ -138,6 +146,8 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 **Build-time penalty validation:** During overlay build (`build_inventory.py`): all penalty validation rules are defined in the `DenyRule` discriminated union constraint above — violations (including `penalty: 0`, out-of-range values, and union mismatches) are build-time errors.
 
 **Load-time validation:** When loading a compiled inventory, each DenyRule MUST satisfy its `action`/`penalty` discriminated union: `action: "drop"` requires `penalty: null`; `action: "downrank"` requires non-null `penalty` in (0.0, 1.0]. Out-of-range `penalty` values (`penalty ≤ 0.0` or `penalty > 1.0`) for `downrank` rules are treated identically to discriminated-union violations: skip the offending rule with a warning log entry. Do not fail the entire inventory load. This aligns with the [resilience principle](foundations.md#resilience-principle).
+
+**`penalty: 0` at load time:** A DenyRule with `penalty: 0` is a build-time error (see validation above). If one reaches load time (e.g., from a prior schema version), it falls under the `penalty ≤ 0.0` range check and is skipped with a warning — the rule is not applied, and the topic retains its full alias weight. To disable a deny rule without removing it, overlays should use `action: "drop"` with `penalty: null` rather than setting `penalty` to 0.
 
 **Schema invariant — build-time vs load-time asymmetry:** The compiled inventory (`topic_inventory.json`) may contain DenyRules that were valid under a prior schema version but are invalid under the current schema — load-time validation handles this via warn-and-skip per the resilience principle. Build-time enforcement prevents new invalid rules; load-time tolerance preserves backward compatibility.
 
@@ -207,7 +217,7 @@ Records which overlay operations were applied during inventory build. Stored in 
 |-------|------|---------|
 | `rule_id` | string | Overlay rule identifier (for `override_config`: a synthetic ID formatted as `config-override:<dot.path>`, e.g., `config-override:classifier.confidence_high_min_weight`). **Uniqueness constraint:** Each `rule_id` MUST be unique across all rules in the overlay's `rules[]` array. On duplicate `rule_id`: reject the overlay with non-zero exit and descriptive error identifying the duplicates. |
 | `operation` | `"add_topic" \| "remove_alias" \| "add_deny_rule" \| "override_weight" \| "replace_aliases" \| "replace_refs" \| "replace_queries" \| "override_config"` | What the rule did |
-| `target` | string | `target: string` — semantics depend on `operation`:<br>- **Topic-scoped operations** (`add_topic`, `override_weight`, `replace_aliases`): `target` is a `TopicKey` (e.g., `"hooks.pre_tool_use"`).<br>- **`add_deny_rule`**: `target` is the `deny_rule.id` (e.g., `"deny_stale_hooks"`).<br>- **`override_config`**: `target` is a dot-delimited config key path matching a leaf scalar in `ccdi_config.json` (e.g., `"classifier.confidence_high_min_weight"`). Only leaf scalars are valid targets — nested objects are not directly addressable. |
+| `target` | string | `target: string` — semantics depend on `operation`:<br>- **Topic-scoped operations** (`add_topic`, `override_weight`, `replace_aliases`, `remove_alias`, `replace_refs`, `replace_queries`): `target` is a `TopicKey` (e.g., `"hooks.pre_tool_use"`).<br>- **`add_deny_rule`**: `target` is the `deny_rule.id` (e.g., `"deny_stale_hooks"`).<br>- **`override_config`**: `target` is a dot-delimited config key path matching a leaf scalar in `ccdi_config.json` (e.g., `"classifier.confidence_high_min_weight"`). Only leaf scalars are valid targets — nested objects are not directly addressable. |
 
 ## Overlay Merge Semantics
 
@@ -295,6 +305,8 @@ RegistrySeed
 
 **`entries` field:** Each element contains all durable-state fields from `TopicRegistryEntry` — see [registry.md#durable-vs-attempt-local-states](registry.md#durable-vs-attempt-local-states) for the authoritative field list (all fields except attempt-local states `looked_up` and `built`). This includes all durable-state fields from `TopicRegistryEntry` as defined in [registry.md#durable-vs-attempt-local-states](registry.md#durable-vs-attempt-local-states), including the `coverage` sub-object — see [registry.md#durable-vs-attempt-local-states](registry.md#durable-vs-attempt-local-states) for the authoritative durable/attempt-local classification of all coverage sub-fields. **Authority split:** data-model.md (persistence_schema authority) owns the RegistrySeed envelope schema (`entries`, `docs_epoch`, `inventory_snapshot_version`, `results_file`). registry.md (registry-contract authority) owns the `TopicRegistryEntry` field set and durable/attempt-local classification within `entries[]`. When the entry field set changes in registry.md, the RegistrySeed envelope schema here does not need updating — only the entry-level fields change. **Conflict resolution:** For `behavior_contract` and `interface_contract` claims about entry-level field semantics (which fields are durable vs attempt-local, what values mean), registry.md is authoritative. For `persistence_schema` claims about serialization format and envelope structure, data-model.md is authoritative per `spec.yaml` → `claim_precedence` → `persistence_schema`. For a complete enumeration of durable fields serialized within `entries[]`, implementers MUST read [registry.md#durable-vs-attempt-local-states](registry.md#durable-vs-attempt-local-states). `data-model.md` owns the envelope fields only.
 
+**Authority delegation:** The entry-level field set within `entries[]` is defined authoritatively by [registry.md#entry-structure](registry.md#entry-structure), not by this file. Changes to entry fields in registry.md do not require updates to data-model.md unless they affect the envelope schema (the four top-level fields: `entries`, `docs_epoch`, `inventory_snapshot_version`, `results_file`).
+
 `coverage_target` and `facet` are standard durable fields in `TopicRegistryEntry`, populated at `absent → detected` from `ClassifierResult.resolved_topics[]` (see [registry.md#field-update-rules](registry.md#field-update-rules)). They are required at commit time by `build-packet --mark-injected --coverage-target` and `--facet` respectively.
 
 Topics in attempt-local states (`looked_up`, `built`) are not persisted to the seed — these states exist only within a single CLI invocation.
@@ -311,7 +323,7 @@ Topics in attempt-local states (`looked_up`, `built`) are not persisted to the s
 
 **Null-field serialization:** All **nullable** durable-state fields are always serialized in JSON including when null (e.g., `last_injected_turn: null`, `last_query_fingerprint: null`, `suppression_reason: null`, `suppressed_docs_epoch: null`, `deferred_reason: null`, `deferred_ttl: null`) — never omitted. Non-nullable fields (`inventory_snapshot_version`) are always present with their concrete values. An absent field is treated as missing on load and triggers entry reinitialization per the [resilience principle](foundations.md#resilience-principle). Implementations MUST NOT omit null-valued fields during serialization. This invariant applies to both entry-level fields within `entries[]` and envelope-level nullable fields (`docs_epoch`) — `docs_epoch: null` MUST be serialized as an explicit null, not omitted.
 
-**Non-nullable always-present fields:** In addition to the nullable fields above, all non-nullable fields in `TopicRegistryEntry` MUST always be present in serialized JSON — absent keys are not valid. This includes `consecutive_medium_count` (integer, always serialized including when `0` — family-kind entries MUST have value `0`), and all `coverage.*` sub-fields: `overview_injected` (boolean), `facets_injected` (array), `pending_facets` (array), `family_context_available` (boolean), `injected_chunk_ids` (array). Empty arrays and `false` values are valid and MUST NOT be omitted. See [registry.md#entry-structure](registry.md#entry-structure) for the authoritative field list.
+**Non-nullable always-present fields:** In addition to the nullable fields above, all non-nullable fields in `TopicRegistryEntry` MUST always be present in serialized JSON — absent keys are not valid. This includes `kind` (string, always `"leaf"` or `"family"`), `coverage_target` (string, always `"leaf"` or `"family"`), `facet` (Facet enum), `consecutive_medium_count` (integer, always serialized including when `0` — family-kind entries MUST have value `0`), and all `coverage.*` sub-fields: `overview_injected` (boolean), `facets_injected` (array), `pending_facets` (array), `family_context_available` (boolean), `injected_chunk_ids` (array). Empty arrays and `false` values are valid and MUST NOT be omitted. See [registry.md#entry-structure](registry.md#entry-structure) for the authoritative field list.
 
 **Array ordering constraint:** `coverage.pending_facets` MUST be serialized in insertion order (FIFO). JSON serializers MUST NOT sort or reorder this array. The ordering semantics are defined in [registry.md#entry-structure](registry.md#entry-structure); this constraint surfaces the behavioral invariant at the persistence layer.
 
@@ -331,7 +343,9 @@ The post-commit live registry file is the RegistrySeed with `results_file` strip
 
 **`inventory_snapshot_version` write-time contract:** At seed-build time, `inventory_snapshot_version` MUST equal the `CompiledInventory.schema_version` value from the inventory that was successfully loaded. A sentinel block with a blank, null, or absent `inventory_snapshot_version` indicates a build defect. At seed load, if `inventory_snapshot_version` is empty, null, or absent, treat as a version mismatch (log warning, apply best-effort field mapping per [Failure Modes](#failure-modes)).
 
-**Entry-level null-field serialization:** All nullable durable-state fields within each `entries[]` element MUST be serialized as explicit `null` when null — see [Null-field serialization](#registryseed) above. This invariant applies to both entry-level fields (e.g., `last_query_fingerprint: null`, `deferred_reason: null`) and the envelope-level nullable field (`docs_epoch`).
+**Immutability:** `inventory_snapshot_version` is set at seed creation and MUST NOT change during the dialogue. The CLI uses it for version-mismatch gating at seed load — a changed value would invalidate the mismatch check. See `build_inventory.py` for the source of the version value.
+
+**Entry-level null-field serialization:** All nullable durable-state fields within each `entries[]` element MUST be serialized as explicit `null` when null — see [Null-field serialization](#registryseed) for the null-serialization invariant. This invariant applies to both entry-level fields (e.g., `last_query_fingerprint: null`, `deferred_reason: null`) and the envelope-level nullable field (`docs_epoch`).
 
 ## Inventory Lifecycle
 
@@ -403,6 +417,8 @@ The overlay file may include an optional `config_overrides` object that override
 ```
 
 Keys use dot-separated paths matching the config schema above (e.g., `classifier.confidence_high_min_weight`). A key is "defined in the schema" when the full dot-path resolves to a leaf scalar in the `ccdi_config.json` structure — exact-match only, no prefix matching. Valid namespace but unknown leaf (e.g., `classifier.nonexistent_key`) is treated as unknown: warned and skipped.
+
+**Boolean values:** Config override values include `boolean` as a valid scalar type (`true`/`false`). While no current config key is boolean-typed, the schema permits it for forward compatibility. Boolean values are serialized as JSON `true`/`false`, not as strings.
 
 `build_inventory.py` records each applied config override in `overlay_meta.applied_rules[]` with `operation: "override_config"` and `target` set to the config key path. `build_inventory.py` MUST process `config_overrides` using strict JSON parsing that rejects duplicate keys, or detect duplicates after parsing and reject with non-zero exit.
 
