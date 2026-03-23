@@ -21,7 +21,7 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 | `pipeline` | Adaptive --plan, adapter pattern, decomposition, tautology filter | `behavior_contract` |
 | `routing` | Routing classification, material-delta gating tiers, affected-surface validity matrix, guardrails, thread freshness, feedback persistence | `behavior_contract`, `enforcement_mechanism` |
 | `lineage` | Identity keys, DAG, discovery, staleness | `interface_contract`, `behavior_contract` |
-| `governance` | PR review gate procedures — derivative enforcement citing normative clauses | `review_gate` |
+| `governance` | PR review gate procedures — derivative enforcement citing normative clauses | `enforcement_mechanism` |
 | `delivery-plan` | Implementation plan, open items, deferred work | `implementation_plan` |
 | `delivery-verification` | Verification paths, test instruments, deferred verification | `verification_strategy` |
 | `supporting` | Navigation, reference | (none) |
@@ -33,7 +33,7 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 - `interface_contract`: capsule-contract > lineage
 - Fallback: foundation > decisions > capsule-contract > routing > pipeline > lineage > governance > delivery-plan > delivery-verification > supporting
 - `decision_record`: decisions (sole holder)
-- `review_gate`: governance (sole holder)
+- `enforcement_mechanism`: routing > governance
 
 **`decisions` conflict resolution:** The `decisions` authority uses the `fallback_authority_order` path for conflict resolution (ranked 2nd, after `foundation`). It does not appear in `claim_precedence` and cannot override via the claim-specific route. See `spec.yaml` for the full precedence rules.
 
