@@ -21,6 +21,7 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 | `pipeline` | Adaptive --plan, adapter pattern, decomposition, tautology filter | `behavior_contract` |
 | `routing` | Routing classification, material-delta gating tiers, affected-surface validity matrix, guardrails, thread freshness, feedback persistence | `behavior_contract`, `enforcement_mechanism` |
 | `lineage` | Identity keys, DAG, discovery, staleness | `interface_contract`, `behavior_contract` |
+| `governance` | PR review gate procedures — derivative enforcement citing normative clauses | `review_gate` |
 | `delivery-plan` | Implementation plan, open items, deferred work | `implementation_plan` |
 | `delivery-verification` | Verification paths, test instruments, deferred verification | `verification_strategy` |
 | `supporting` | Navigation, reference | (none) |
@@ -30,7 +31,9 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 - Normative files take precedence over non-normative
 - `behavior_contract`: routing > pipeline > lineage > foundation
 - `interface_contract`: capsule-contract > lineage
-- Fallback: foundation > decisions > capsule-contract > routing > pipeline > lineage > delivery-plan > delivery-verification > supporting
+- Fallback: foundation > decisions > capsule-contract > routing > pipeline > lineage > governance > delivery-plan > delivery-verification > supporting
+- `decision_record`: decisions (sole holder)
+- `review_gate`: governance (sole holder)
 
 **`decisions` conflict resolution:** The `decisions` authority uses the `fallback_authority_order` path for conflict resolution (ranked 2nd, after `foundation`). It does not appear in `claim_precedence` and cannot override via the claim-specific route. See `spec.yaml` for the full precedence rules.
 
@@ -42,6 +45,8 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 | routing | pipeline, lineage, delivery-plan |
 | lineage | capsule-contract, routing, delivery-plan |
 | pipeline | capsule-contract, routing, delivery-plan |
+| governance | routing, foundation, lineage |
+| routing, foundation, lineage | governance |
 
 Note: `routing` carries the `enforcement_mechanism` claim in addition to `behavior_contract` — changes to routing trigger enforcement review as well as behavioral review.
 
@@ -55,8 +60,9 @@ Note: `routing` carries the `enforcement_mechanism` claim in addition to `behavi
 | 4 | [lineage.md](lineage.md) | lineage | Identity keys, artifact IDs, DAG structure, discovery, staleness |
 | 5 | [pipeline-integration.md](pipeline-integration.md) | pipeline | Adapter pattern, two-stage admission, decomposition, tautology filter |
 | 6 | [routing-and-materiality.md](routing-and-materiality.md) | routing | Routing classification, material-delta tiers, validity matrix, guardrails |
-| 7 | [delivery.md](delivery.md) | delivery-plan | Skill text changes, open items |
-| 8 | [verification.md](verification.md) | delivery-verification | Verification paths for normative claims, test instruments, deferred verification |
+| 7 | [governance.md](governance.md) | governance | PR review gate procedures |
+| 8 | [delivery.md](delivery.md) | delivery-plan | Skill text changes, open items |
+| 9 | [verification.md](verification.md) | delivery-verification | Verification paths for normative claims, test instruments, deferred verification |
 
 ## Cross-Reference Conventions
 

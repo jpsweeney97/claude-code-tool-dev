@@ -63,10 +63,10 @@ The composition system distributes authority across three layers:
 | Layer | Owner | Authority | Audience |
 |-------|-------|-----------|----------|
 | **This spec** | Spec files (this directory) | Design authority — canonical definitions of all protocol semantics | Spec authors and reviewers |
-| **Composition contract** | Shared reference document | Implementation-time reference — must conform to spec definitions; authoritative for inline stub authors (NOT runtime-loaded; stubs carry the runtime projection) | Skill authors modifying composition behavior |
-| **Inline stubs** (per skill) | Each participating skill | Runtime authority — role-specific operational subset derived from the contract | Claude during skill execution |
+| **Composition contract** | Shared reference document | Implementation-time reference — must conform to spec definitions; authoritative for composition stub authors (also called 'inline stub' in earlier drafts) (NOT runtime-loaded; stubs carry the runtime projection) | Skill authors modifying composition behavior |
+| **Composition stubs** (per skill) | Each participating skill | Runtime authority — role-specific operational subset derived from the contract | Claude during skill execution |
 
-**External authority positioning:** The composition contract (`packages/plugins/cross-model/references/composition-contract.md`) sits between the spec (layer 1, highest) and inline stubs (layer 3, lowest) in the authority hierarchy. It is NOT runtime-loaded (stubs carry the runtime projection); it is authoritative for inline stub authors at implementation time. It inherits authority from spec modules via explicit delegation — it cannot introduce normative claims not traceable to a spec module. Inline stubs are the default runtime layer — they operate without the composition contract and without this spec in context.
+**External authority positioning:** The composition contract (`packages/plugins/cross-model/references/composition-contract.md`) sits between the spec (layer 1, highest) and composition stubs (layer 3, lowest) in the authority hierarchy. It is NOT runtime-loaded (stubs carry the runtime projection); it is authoritative for composition stub authors at implementation time. It inherits authority from spec modules via explicit delegation — it cannot introduce normative claims not traceable to a spec module. Composition stubs are the default runtime layer — they operate without the composition contract and without this spec in context.
 
 **Relationship between spec and contract:** Within this spec, the normative definitions live in the spec files ([routing-and-materiality.md](routing-and-materiality.md), [lineage.md](lineage.md), [capsule-contracts.md](capsule-contracts.md), etc.). The Composition contract is the runtime delivery artifact that must conform to — not supersede — these spec-file definitions. When the contract diverges from the spec, the spec is authoritative and the contract must be updated.
 
@@ -92,7 +92,7 @@ The composition system distributes authority across three layers:
 
 Stub sizes are asymmetric by design — dialogue's stub is largest (routing, materiality, budget, discovery), AR and NS stubs are smaller (consume/emit with fallback).
 
-Every skill MUST function correctly with only its inline stub. The contract is additive context — skill authors consult it when modifying composition behavior, but Claude does not require it at runtime.
+Every skill MUST function correctly with only its composition stub. The contract is additive context — skill authors consult it when modifying composition behavior, but Claude does not require it at runtime.
 
 ## Capsule Externalization Rule
 
@@ -110,6 +110,4 @@ Contract versioning is a CI/review-time concern, not runtime. Each skill stub in
 
 **Inverted runtime loading:** Unlike the consultation contract (which IS runtime-loaded), the composition contract is NOT. Stubs carry the runtime projection. Contract→stub drift is a silent correctness bug. Detection requires CI tooling (`validate_composition_contract.py`) that is designed but not yet implemented — see [delivery.md](delivery.md#open-items) item #6.
 
-**Interim drift mitigation protocol:** see [delivery.md](delivery.md#open-items) item #8. Contract→stub drift is bidirectional and is a P0 prerequisite check.
-
-The interim drift mitigation protocol ([delivery.md](delivery.md#open-items) item #8) contains MUST clauses that implement this architectural invariant as delivery guidance.
+**Interim drift mitigation protocol:** The bidirectional review protocol for contract→stub drift is described in [delivery.md](delivery.md#open-items) item #8 (scheduling) with PR review gates defined in [governance.md](governance.md) (review procedures). Contract→stub drift is bidirectional and is a P0 prerequisite check.
