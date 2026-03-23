@@ -278,6 +278,8 @@ The `ccdi-gatherer` subagent emits its [registry seed](data-model.md#registrysee
 <!-- /ccdi-registry-seed -->
 ```
 
+**Sentinel emission precondition:** `ccdi-gatherer` MUST NOT emit the `<!-- ccdi-registry-seed -->` sentinel block if the inventory failed to load at seed-build time. The sentinel MUST be emitted only when a valid `CompiledInventory` was loaded and `inventory_snapshot_version` can be sourced from a non-blank, non-null `schema_version` value. When the inventory fails to load or when `schema_version` is blank, null, or absent in the loaded inventory, the gatherer suppresses sentinel emission entirely — the `/dialogue` skill proceeds without `ccdi_seed` in the delegation envelope (Phase A initial injection is disabled for this session).
+
 The `/dialogue` skill:
 
 1. Extracts JSON between the sentinels from the ccdi-gatherer's output.
@@ -350,6 +352,8 @@ At dialogue start, `codex-dialogue` determines whether CCDI runs in active or sh
 3. If `status` is any other value (including `"rejected"`), run in **shadow mode**: the full CCDI PREPARE cycle runs and diagnostics accumulate, but packets are NOT prepended to follow-up prompts. `packets_injected` stays 0.
 
 This gate determines only whether packets are delivered to Codex. In both modes, the prepare cycle runs identically — shadow mode observes what CCDI *would have* injected for kill-criteria evaluation (see [delivery.md#shadow-mode-kill-criteria](delivery.md#shadow-mode-kill-criteria)). The `status` enum values are defined in [delivery.md#graduation-protocol](delivery.md#graduation-protocol). The gate evaluates `status == "approved"` and treats all other values as shadow mode — this semantics is intentionally permissive of enum expansion.
+
+**Phase A carve-out:** This gate governs Phase B mid-dialogue mutations in `codex-dialogue` only. Phase A initial injection (pre-delegation, in `/dialogue`) is unconditional and not subject to this gate — initial CCDI commits fire regardless of `graduation.json` status. See the `NOTE (CE-8 / D1)` in the [data flow](#data-flow-full-ccdi-dialogue) for the inline confirmation.
 
 ### Mid-Dialogue Phase (Per Turn in `codex-dialogue`)
 
