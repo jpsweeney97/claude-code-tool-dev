@@ -343,7 +343,7 @@ These mechanisms are independent in purpose and enforcement stage: an idempotent
 |---|---|---|---|
 | `DeferEnvelope` | **Enforced** | Engine checks `idempotency_key` against existing tickets | Ticket creation is not content-addressed; envelope-level dedup is the sole protection against retry duplicates |
 | `DistillEnvelope` | **Trace-only** | `idempotency_key` is computed and included in the header but NOT persisted or checked | Per-candidate `content_sha256` dedup via `O_CREAT\|O_EXCL` provides content-addressed dedup. Published dedup uses `content_sha256` in `lesson-meta`. Envelope-level identity adds no correctness guarantee beyond what per-candidate dedup already provides. |
-| `PromoteEnvelope` | **Enforced** | Engine checks `idempotency_key` against `promote-meta` state | Promote is a state-machine transition; re-entry detection is structural (Branch B1 rejection) |
+| `PromoteEnvelope` | **Enforced** | State-machine re-entry detection via content-hash comparison (implemented by Branch B1: `promoted_content_sha256 == current content_sha256`). The `idempotency_key` is computed and present in `EnvelopeHeader` but is not compared against `promote-meta`. | Promote is a state-machine transition; re-entry detection is structural (Branch B1 rejection) |
 
 The `idempotency_key` field remains in `EnvelopeHeader` (shared type) for all envelope types. For `DistillEnvelope`, the field serves as a trace/observability aid — it is available in the envelope for logging and debugging but is not persisted to staging-meta and is not checked at any dedup stage. The engine MUST NOT check `idempotency_key` for `DistillEnvelope` dedup — doing so would incorrectly deduplicate re-extractions with improved logic. This is an active prohibition, not just the absence of a check.
 
@@ -523,6 +523,8 @@ class AuditEntry(TypedDict):
 ```
 
 **Serialization:** UTF-8 JSONL, compact, `sort_keys=True`, one object per line, newline-terminated.
+
+**`schema_version` writer/reader split:** The `Literal["1.0"]` annotation governs the write-time contract: writers MUST emit the version they were built for. Readers MUST apply same-major tolerance per the Version Evolution Policy — entries with `schema_version` matching the current major version (e.g., `"1.1"`) are accepted; entries with a different major version (e.g., `"2.0"`) are skipped with a warning. The Python type annotation constrains writers, not readers.
 
 **Write semantics:** Append-only. An AuditEntry is written after a successful effective mutation (ticket created, updated, or closed). No `.audit/` entry on duplicate idempotent retry — the idempotency check prevents the effective mutation, so no audit entry is warranted.
 

@@ -269,7 +269,7 @@ Although `worktree_id` is not part of the trust triple payload, the guard requir
 
 **Future platform fallback:** The shared-state approach (producing hook writes, consuming hook reads) applies only if Claude Code session context becomes unavailable in a future platform change. Until then, recomputation is the sole supported approach. If recomputation fails (e.g., `git rev-parse --git-dir` returns an error), the guard enters **degraded mode** for that invocation:
 
-- **Branches 1 and 2** (engine trust injection, direct-write path authorization): These branches require `worktree_id` for trust payload and provenance. Block (exit code 2) with diagnostic: `"engram_guard: worktree_id unavailable — {git_error}. Engine trust injection and direct-write authorization require worktree_id."` This scopes the blocking to Engram-relevant write paths only.
+- **Branches 1 and 2** (engine trust injection, direct-write path authorization): Within each branch, the capability-active check executes first. If the capability is inactive, the branch is a no-op regardless of degraded-mode state — no blocking, no diagnostic. If the capability is active and the required resource (e.g., `worktree_id`) is unavailable, block (exit code 2) with diagnostic: `"engram_guard: worktree_id unavailable — {git_error}. Engine trust injection and direct-write authorization require worktree_id."`
 - **Branch 3** (protected-path enforcement): Evaluate normally — protected-path matching does not depend on `worktree_id`. No degradation.
 - **Branch 4** (allow unconditionally): Evaluate normally — no `worktree_id` dependency. No degradation.
 - **Observability:** Log the git error to stderr. The diagnostic channel path (`ledger/<worktree_id>/<session_id>.diag`) cannot be constructed without `worktree_id`, so stderr is the only available channel — this is structurally correct, not a gap.
@@ -282,7 +282,9 @@ This resolves the `engram_session`/`engram_guard` asymmetry: both hooks scope th
 
 Phase-scoped idempotency is a delivery-period limitation. For the delivery step context of the bridge period, see [delivery.md §Bridge Cutover](delivery.md#step-1-bridge-cutover). The guard capability activation schedule in the [rollout table above](#guard-capability-rollout) is the authoritative enforcement specification. See [operations.md §Phase-Scoped Idempotency](operations.md#envelope-invariants) for the operational specification.
 
-`engram_guard` ships at Step 2a with the `engine_trust_injection` capability only — covering Knowledge engine mutating entrypoints. Step 3a extends the guard with `work_path_enforcement` for Work paths. Step 4a adds `context_direct_write_authorization` for Context direct-write paths. During Steps 0a–1, no guard capabilities are active — the bridge adapter routes through the old ticket engine's existing authorization model.
+`engram_guard` ships at Step 2a with the `engine_trust_injection` capability only — covering Knowledge engine mutating entrypoints. Step 3a extends the guard with `work_path_enforcement` for Write/Edit blocking on both Work and Knowledge protected paths. Step 4a adds `context_direct_write_authorization` for Context direct-write paths. During Steps 0a–1, no guard capabilities are active — the bridge adapter routes through the old ticket engine's existing authorization model.
+
+During Steps 2a–3a, Write/Edit to Knowledge protected paths is not blocked by branch 3 — only engine-Bash invocations are covered by `engine_trust_injection`. Direct Write/Edit to `engram/knowledge/**` is allowed unconditionally via branch 4 (allow). This gap is accepted because Knowledge skills in this window use the Bash engine path exclusively.
 
 During Step 3a, `engram_guard` has `engine_trust_injection` and `work_path_enforcement` active but not `context_direct_write_authorization`. Write/Edit to unrecognized paths (including future Context paths) are allowed through — the guard only blocks Write/Edit to currently-protected paths. See [§Guard Decision Algorithm](#guard-decision-algorithm) for the evaluation order that resolves overlapping path classifications.
 
@@ -325,6 +327,7 @@ SessionStart does not create `.engram-id` — it requires a git commit, which is
 | Exception | Scope | Rationale |
 |---|---|---|
 | `/promote` Step 2 CLAUDE.md write | Single skill, single target | CLAUDE.md is an external sink, not an Engram-managed record. The Knowledge engine owns promotion *state* via [promote-meta](types.md#promote-meta--promotion-state-record). See [permitted exceptions](foundations.md#permitted-exceptions). |
+| CLAUDE.md marker insertion/deletion | Single skill (`/promote`), markers only | Locator hints for re-promotion. Authority: foundations.md §Permitted Exceptions. Marker deletion by user degrades automation, not system state. |
 
 No other skill-level write to a protected or externally-owned path is sanctioned. This table lists all exceptions defined in [foundations.md §Permitted Exceptions](foundations.md#permitted-exceptions). The canonical source is foundations.md — an exception not present there is not effective, regardless of its presence in this table.
 
