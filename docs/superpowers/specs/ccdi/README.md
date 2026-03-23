@@ -29,7 +29,7 @@ Modular specification for CCDI: automatic detection and injection of Claude Code
 | `decisions` | decision_record | Locked design decisions from Codex dialogues | Yes |
 | `supporting` | *(none)* | README and reference material | No |
 
-*Note: §pipeline-isolation-invariants-subset in integration.md holds elevated `behavior_contract` authority for behavioral invariants cross-referenced from decisions.md. See spec.yaml `elevated_sections`.*
+*Note: §pipeline-isolation-invariants-subset in integration.md contains behavioral invariants whose provenance is traced to decisions.md. The `elevated_sections` registration in spec.yaml is a cross-reference pointer, not an authority elevation — `claim_precedence` already ranks integration above decisions for `behavior_contract`.*
 
 **Highest-risk review surface:** The classifier-registry boundary — where classifier output drives registry scheduling decisions. Changes to confidence semantics or injection thresholds in [classifier.md](classifier.md) directly affect scheduling behavior in [registry.md](registry.md).
 

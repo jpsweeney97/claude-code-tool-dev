@@ -12,6 +12,10 @@ authorities:
     # NOTE: data-model.md's architecture_rule claim covers persistence-layer elaboration
     # of architectural principles owned by foundations.md, not independent architectural
     # authority. For cross-cutting architecture decisions, foundations.md governs.
+    # SCOPE CONSTRAINT: data-model.md's position in claim_precedence.architecture_rule
+    # ([foundation, data-model, decisions]) enables it to resolve architecture disputes
+    # ahead of decisions, but only for persistence-layer elaboration. Architectural claims
+    # in data-model.md that are not traceable to foundations.md are underdetermined.
 
   classifier-contract:
     description: Two-stage classifier pipeline (candidate generation, ambiguity resolution), confidence levels, injection thresholds, and classifier output structure.
@@ -31,12 +35,7 @@ authorities:
     elevated_sections:
       - section: "pipeline-isolation-invariants-subset"
         claim: "behavior_contract"
-        rationale: "Behavioral invariants cross-referenced from decisions.md elevated to outrank decision_record for behavioral claims"
-        # NOTE: This elevation is normative. While claim_precedence already ranks
-        # integration above decisions for behavior_contract, the explicit elevation
-        # here provides direct visibility: these invariants are cross-referenced
-        # from decisions.md and registering the authority relationship at this site
-        # avoids requiring chain traversal to determine which file governs them.
+        rationale: "Cross-reference pointer: these invariants originate from decisions.md. This registration provides direct visibility of the provenance relationship; it does not change authority resolution — claim_precedence already ranks integration above decisions for behavior_contract."
 
   delivery:
     description: Rollout strategy (Phase A/B, shadow mode, kill criteria), testing strategy (four-layer approach, ccdi_trace replay), test matrices, and per-dialogue diagnostics schema.

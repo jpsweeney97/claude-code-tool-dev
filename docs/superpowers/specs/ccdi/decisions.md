@@ -49,7 +49,7 @@ System design review surfaced 7 findings and 2 tensions; 6-turn dialogue resolve
 
 ## Normative Decision Constraints
 
-The following locked decisions have implementation implications. Each is stated as a testable invariant. Per `spec.yaml` claim_precedence, component contracts (classifier-contract, registry-contract, packet-contract, integration) outrank decisions for `behavior_contract` and `interface_contract` claims. The invariants below are authoritative only when component contracts are silent — when a component contract specifies the same behavior, the component contract is the normative source and these rows serve as cross-references.
+The following locked decisions have implementation implications. Each is stated as a testable invariant. Per `spec.yaml` claim_precedence, component contracts outrank decisions for `behavior_contract` and `interface_contract` claims. **These rows are cross-references to the authoritative sources in component contracts, not independent normative claims.** When a component contract specifies the behavior (which it does for all rows below), the component contract is the sole normative source. This table provides traceability from design decisions to their implementation locations — it does not carry independent behavioral authority.
 
 | Decision | Invariant | Test Reference |
 |----------|-----------|----------------|
