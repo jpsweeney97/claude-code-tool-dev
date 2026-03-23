@@ -158,7 +158,7 @@ class CCDIConfigLoader:
         # Build effective values per section
         effective: dict[str, dict[str, Any]] = {}
         for section, defaults in BUILTIN_DEFAULTS.items():
-            raw_section = raw.get(section, {})
+            raw_section = raw.get(section) or {}
             effective[section] = {}
             for key, default_val in defaults.items():
                 raw_val = raw_section.get(key)

@@ -11,6 +11,7 @@ Import pattern:
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from datetime import datetime, timezone
 from typing import Any
@@ -117,11 +118,38 @@ def generate_scaffold(metadata: dict[str, Any]) -> CompiledInventory:
             canonical_refs=[],
         )
 
-        # Leaf topics for each heading
-        for heading in cat.get("headings", []):
-            slug: str = heading["slug"]
+        # Leaf topics from chunks — dump_index_metadata returns per-chunk
+        # metadata with headings, code_literals, config_keys, distinctive_terms.
+        # Group by heading to produce leaf topics.
+        seen_headings: dict[str, dict[str, Any]] = {}  # slug → accumulated data
+        for chunk in cat.get("chunks", []):
+            chunk_headings = chunk.get("headings", [])
+            # Use the most specific (last) heading as the leaf topic
+            if not chunk_headings:
+                continue
+            heading_text = chunk_headings[-1]
+            slug = re.sub(r"[^a-z0-9]+", "_", heading_text.lower()).strip("_")
+            if slug not in seen_headings:
+                seen_headings[slug] = {
+                    "text": heading_text,
+                    "code_literals": set(),
+                    "config_keys": set(),
+                    "distinctive_terms": set(),
+                    "chunk_ids": [],
+                    "source_file": chunk.get("source_file", ""),
+                }
+            h = seen_headings[slug]
+            for lit in chunk.get("code_literals", []):
+                h["code_literals"].add(lit)
+            for ck in chunk.get("config_keys", []):
+                h["config_keys"].add(ck)
+            for term in chunk.get("distinctive_terms", []):
+                h["distinctive_terms"].add(term)
+            h["chunk_ids"].append(chunk.get("chunk_id", ""))
+
+        for slug, heading in seen_headings.items():
             topic_key = f"{cat_name}.{slug}"
-            heading_text: str = heading["text"]
+            heading_text = heading["text"]
 
             leaf_aliases: list[Alias] = [
                 Alias(
@@ -133,12 +161,7 @@ def generate_scaffold(metadata: dict[str, Any]) -> CompiledInventory:
             ]
 
             # code_literals → exact alias
-            seen_literals: set[str] = set()
-            for lit in heading.get("code_literals", []):
-                if lit in seen_literals:
-                    continue
-                seen_literals.add(lit)
-                # Distinctive: longer or mixed-case = 0.9, short common = 0.5
+            for lit in sorted(heading["code_literals"]):
                 weight = 0.9 if (len(lit) > 3 or any(c.isupper() for c in lit)) else 0.5
                 leaf_aliases.append(
                     Alias(
@@ -147,7 +170,7 @@ def generate_scaffold(metadata: dict[str, Any]) -> CompiledInventory:
                 )
 
             # config_keys → exact alias with facet_hint="config"
-            for ck in heading.get("config_keys", []):
+            for ck in sorted(heading["config_keys"]):
                 leaf_aliases.append(
                     Alias(
                         text=ck,
@@ -159,7 +182,7 @@ def generate_scaffold(metadata: dict[str, Any]) -> CompiledInventory:
                 )
 
             # distinctive_terms → phrase if multi-word, else token
-            for term in heading.get("distinctive_terms", []):
+            for term in sorted(heading["distinctive_terms"]):
                 if " " in term:
                     leaf_aliases.append(
                         Alias(
@@ -188,6 +211,13 @@ def generate_scaffold(metadata: dict[str, Any]) -> CompiledInventory:
                 },
             )
 
+            # Build canonical_refs from chunk IDs
+            refs = [
+                DocRef(chunk_id=cid, category=cat_name, source_file=heading["source_file"])
+                for cid in heading["chunk_ids"]
+                if cid
+            ]
+
             topics[topic_key] = TopicRecord(
                 topic_key=topic_key,
                 family_key=cat_name,
@@ -197,13 +227,13 @@ def generate_scaffold(metadata: dict[str, Any]) -> CompiledInventory:
                 parent_topic=cat_name,
                 aliases=leaf_aliases,
                 query_plan=leaf_qp,
-                canonical_refs=[],
+                canonical_refs=refs,
             )
 
     return CompiledInventory(
         schema_version=_SCHEMA_VERSION,
         built_at=datetime.now(timezone.utc).isoformat(),
-        docs_epoch=None,
+        docs_epoch=metadata.get("docs_epoch"),
         topics=topics,
         denylist=[],
         overlay_meta=None,

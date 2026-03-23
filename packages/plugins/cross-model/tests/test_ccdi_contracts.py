@@ -424,10 +424,12 @@ class TestDumpIndexMetadataBoundary:
                 {
                     "name": "hooks",
                     "aliases": ["hook system"],
-                    "headings": [
+                    "chunk_count": 1,
+                    "chunks": [
                         {
-                            "slug": "pre-tool-use",
-                            "text": "PreToolUse Hooks",
+                            "chunk_id": "hooks#pretooluse",
+                            "source_file": "https://code.claude.com/docs/en/hooks",
+                            "headings": ["Hooks", "PreToolUse Hooks"],
                             "code_literals": ["PreToolUse"],
                             "config_keys": [],
                             "distinctive_terms": ["pre-tool"],
@@ -438,9 +440,9 @@ class TestDumpIndexMetadataBoundary:
         }
         inv = generate_scaffold(metadata)
         assert "hooks" in inv.topics
-        assert "hooks.pre-tool-use" in inv.topics
+        assert "hooks.pretooluse_hooks" in inv.topics
         assert inv.topics["hooks"].kind == "family"
-        assert inv.topics["hooks.pre-tool-use"].kind == "leaf"
+        assert inv.topics["hooks.pretooluse_hooks"].kind == "leaf"
 
     def test_scaffold_missing_optional_fields(self) -> None:
         """Unknown fields ignored; missing optional fields use defaults."""

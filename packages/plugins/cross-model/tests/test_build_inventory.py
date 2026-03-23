@@ -32,23 +32,25 @@ from scripts.ccdi.types import (
 # ---------------------------------------------------------------------------
 
 SAMPLE_METADATA: dict[str, Any] = {
+    "docs_epoch": "test-epoch-abc",
     "categories": [
         {
             "name": "hooks",
-            "heading_count": 2,
-            "chunk_count": 10,
             "aliases": ["hook", "git-hooks"],
-            "headings": [
+            "chunk_count": 2,
+            "chunks": [
                 {
-                    "text": "PreToolUse Hooks",
-                    "slug": "pretooluse-hooks",
+                    "chunk_id": "hooks#pretooluse",
+                    "source_file": "https://code.claude.com/docs/en/hooks",
+                    "headings": ["Hooks", "PreToolUse Hooks"],
                     "code_literals": ["PreToolUse"],
                     "config_keys": ["hookTimeout"],
                     "distinctive_terms": ["guard pattern", "block"],
                 },
                 {
-                    "text": "PostToolUse Hooks",
-                    "slug": "posttooluse-hooks",
+                    "chunk_id": "hooks#posttooluse",
+                    "source_file": "https://code.claude.com/docs/en/hooks",
+                    "headings": ["Hooks", "PostToolUse Hooks"],
                     "code_literals": ["PostToolUse", "tool_response"],
                     "config_keys": [],
                     "distinctive_terms": ["analytics"],
@@ -57,13 +59,13 @@ SAMPLE_METADATA: dict[str, Any] = {
         },
         {
             "name": "permissions",
-            "heading_count": 1,
-            "chunk_count": 5,
             "aliases": ["perms"],
-            "headings": [
+            "chunk_count": 1,
+            "chunks": [
                 {
-                    "text": "Tool Permissions",
-                    "slug": "tool-permissions",
+                    "chunk_id": "permissions#tool-permissions",
+                    "source_file": "https://code.claude.com/docs/en/permissions",
+                    "headings": ["Permissions", "Tool Permissions"],
                     "code_literals": [],
                     "config_keys": ["allowedTools"],
                     "distinctive_terms": ["allow list"],
@@ -124,9 +126,9 @@ class TestScaffoldGeneration:
         assert "hooks" in inv.topics
         assert "permissions" in inv.topics
         # Leaf topics for headings
-        assert "hooks.pretooluse-hooks" in inv.topics
-        assert "hooks.posttooluse-hooks" in inv.topics
-        assert "permissions.tool-permissions" in inv.topics
+        assert "hooks.pretooluse_hooks" in inv.topics
+        assert "hooks.posttooluse_hooks" in inv.topics
+        assert "permissions.tool_permissions" in inv.topics
 
         # Family topic properties
         hooks_family = inv.topics["hooks"]
@@ -136,7 +138,7 @@ class TestScaffoldGeneration:
         assert len(hooks_family.aliases) > 0
 
         # Leaf topic properties
-        leaf = inv.topics["hooks.pretooluse-hooks"]
+        leaf = inv.topics["hooks.pretooluse_hooks"]
         assert leaf.kind == "leaf"
         assert leaf.family_key == "hooks"
         assert leaf.parent_topic == "hooks"
@@ -148,7 +150,7 @@ class TestScaffoldGeneration:
 
     def test_scaffold_code_literal_aliases(self) -> None:
         inv = generate_scaffold(SAMPLE_METADATA)
-        leaf = inv.topics["hooks.pretooluse-hooks"]
+        leaf = inv.topics["hooks.pretooluse_hooks"]
         alias_texts = [a.text for a in leaf.aliases]
         assert "PreToolUse" in alias_texts
         pre = next(a for a in leaf.aliases if a.text == "PreToolUse")
@@ -157,7 +159,7 @@ class TestScaffoldGeneration:
 
     def test_scaffold_config_key_aliases(self) -> None:
         inv = generate_scaffold(SAMPLE_METADATA)
-        leaf = inv.topics["hooks.pretooluse-hooks"]
+        leaf = inv.topics["hooks.pretooluse_hooks"]
         alias_texts = [a.text for a in leaf.aliases]
         assert "hookTimeout" in alias_texts
         ht = next(a for a in leaf.aliases if a.text == "hookTimeout")
@@ -166,7 +168,7 @@ class TestScaffoldGeneration:
 
     def test_scaffold_distinctive_term_aliases(self) -> None:
         inv = generate_scaffold(SAMPLE_METADATA)
-        leaf = inv.topics["hooks.pretooluse-hooks"]
+        leaf = inv.topics["hooks.pretooluse_hooks"]
         alias_texts = [a.text for a in leaf.aliases]
         # multi-word → phrase alias
         assert "guard pattern" in alias_texts

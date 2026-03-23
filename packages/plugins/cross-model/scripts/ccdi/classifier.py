@@ -93,34 +93,51 @@ def _normalize_text(text: str) -> str:
 
 def _build_deny_map(
     denylist: list[DenyRule],
-) -> dict[str, tuple[str, float | None]]:
-    """Build a lookup from lowercased pattern → (action, penalty).
+) -> tuple[dict[str, tuple[str, float | None]], list[tuple[re.Pattern[str], str, float | None]]]:
+    """Build deny lookups: exact map for token/phrase + compiled patterns for regex.
 
-    Only handles token and phrase deny rules. Regex deny rules would need
-    separate handling (not needed for current inventory).
+    Returns (exact_map, regex_rules) where:
+    - exact_map: lowercased pattern → (action, penalty) for token/phrase
+    - regex_rules: compiled regex patterns with (action, penalty) for regex
     """
-    deny_map: dict[str, tuple[str, float | None]] = {}
+    exact_map: dict[str, tuple[str, float | None]] = {}
+    regex_rules: list[tuple[re.Pattern[str], str, float | None]] = []
     for rule in denylist:
         if rule.match_type in ("token", "phrase"):
-            deny_map[rule.pattern.lower()] = (rule.action, rule.penalty)
-    return deny_map
+            exact_map[rule.pattern.lower()] = (rule.action, rule.penalty)
+        elif rule.match_type == "regex":
+            try:
+                regex_rules.append((re.compile(rule.pattern, re.IGNORECASE), rule.action, rule.penalty))
+            except re.error:
+                logger.warning("Invalid regex deny pattern %r; skipping", rule.pattern)
+    return exact_map, regex_rules
 
 
 def _apply_deny(
     alias: Alias,
     deny_map: dict[str, tuple[str, float | None]],
+    regex_rules: list[tuple[re.Pattern[str], str, float | None]] | None = None,
 ) -> float:
     """Apply denylist to an alias, returning effective weight.
 
     Returns 0.0 if the alias is dropped.
     """
     key = alias.text.lower()
+    # Check exact map (token/phrase rules)
     if key in deny_map:
         action, penalty = deny_map[key]
         if action == "drop":
             return 0.0
         if action == "downrank" and penalty is not None:
             return max(0.0, alias.weight - penalty)
+    # Check regex rules
+    if regex_rules:
+        for pattern, action, penalty in regex_rules:
+            if pattern.search(alias.text):
+                if action == "drop":
+                    return 0.0
+                if action == "downrank" and penalty is not None:
+                    return max(0.0, alias.weight - penalty)
     return alias.weight
 
 
@@ -211,6 +228,7 @@ def _generate_candidates(
     text: str,
     inventory: CompiledInventory,
     deny_map: dict[str, tuple[str, float | None]],
+    regex_rules: list[tuple[re.Pattern[str], str, float | None]] | None = None,
 ) -> dict[str, _Candidate]:
     """Stage 1: Generate candidates by scanning all aliases.
 
@@ -262,7 +280,7 @@ def _generate_candidates(
                     continue
 
                 # Apply denylist
-                effective_weight = _apply_deny(alias, deny_map)
+                effective_weight = _apply_deny(alias, deny_map, regex_rules)
                 if effective_weight <= 0.0:
                     continue
 
@@ -631,8 +649,8 @@ def classify(
     if not normalized:
         return ClassifierResult(resolved_topics=[], suppressed_candidates=[])
 
-    deny_map = _build_deny_map(inventory.denylist)
-    candidates = _generate_candidates(normalized, inventory, deny_map)
+    deny_map, regex_rules = _build_deny_map(inventory.denylist)
+    candidates = _generate_candidates(normalized, inventory, deny_map, regex_rules)
 
     if not candidates:
         return ClassifierResult(resolved_topics=[], suppressed_candidates=[])
