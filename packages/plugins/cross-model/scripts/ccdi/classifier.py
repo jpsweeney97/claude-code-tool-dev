@@ -151,7 +151,6 @@ def _find_exact_match(
         if not preceded_by_word and not followed_by_word:
             return (idx, end)
         start = idx + 1
-    return None
 
 
 def _find_phrase_match(
@@ -328,7 +327,7 @@ def _generate_candidates(
         if surviving_matches:
             score = sum(m.effective_weight for m in surviving_matches)
             # Determine facet hint from generic terms present
-            facet_hint = _extract_facet_hint(text, deny_map)
+            facet_hint = _extract_facet_hint(text)
             candidates[topic_key] = _Candidate(
                 topic_key=topic_key,
                 topic=topic,
@@ -346,9 +345,7 @@ def _spans_overlap(a: tuple[int, int], b: tuple[int, int]) -> bool:
     return a[0] < b[1] and b[0] < a[1]
 
 
-def _extract_facet_hint(
-    text: str, deny_map: dict[str, tuple[str, float | None]]
-) -> str | None:
+def _extract_facet_hint(text: str) -> str | None:
     """Extract facet hint from generic terms in the text.
 
     Generic terms like 'schema', 'config' shift the facet rather than
@@ -484,7 +481,7 @@ def _resolve_candidates(
         # Create a synthetic family candidate
         family_topic = None
         # Try to find the family topic in the inventory
-        for tk, t in candidates.items():
+        for _tk, t in candidates.items():
             if t.topic.topic_key == family_key and t.topic.kind == "family":
                 family_topic = t.topic
                 break
