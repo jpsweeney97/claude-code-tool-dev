@@ -98,6 +98,24 @@ def collect_trust_triple_errors(
 
 **Origin-matching responsibility:** `collect_trust_triple_errors()` validates that the triple is well-formed. Whether the `hook_request_origin` matches the expected origin for a given entrypoint (e.g., `_user.py` expects `"user"`) is the entrypoint's responsibility — the validator does not enforce route-specific origin rules.
 
+### Origin-Matching Validation
+
+```python
+# engram_core/trust.py
+def validate_origin_match(expected: str, actual: str) -> None:
+    """Verify hook_request_origin matches the entrypoint's expected origin.
+    Raises ValueError on mismatch. Called after collect_trust_triple_errors() succeeds."""
+```
+
+**Precondition:** `actual` has already passed `collect_trust_triple_errors()` validation (non-empty, in `{"user", "agent"}`). This function does NOT re-validate the value set — it only checks the entrypoint-specific match.
+
+**Behavior:** If `expected != actual`, raise `ValueError` with the stable error message:
+`"hook_request_origin: expected {expected!r} for this entrypoint, got {actual!r}"`
+
+**Stable error string:** `"hook_request_origin: expected {expected!r} for this entrypoint, got {actual!r}"` — this is a distinct error from `collect_trust_triple_errors()`'s structural validation error (`"hook_request_origin: must be one of {'user', 'agent'}, got {value!r}"`). The two errors cover different failure modes: structural (invalid value) vs. route-specific (valid value, wrong entrypoint).
+
+**Caller obligation:** Each mutating Work or Knowledge engine entrypoint must call `validate_origin_match(expected, actual)` after `collect_trust_triple_errors()` succeeds. On `ValueError`, the entrypoint must reject before any side effects and surface the error message in the structured response.
+
 ## Envelope Types
 
 All cross-subsystem writes use typed envelopes with a common header. See [envelope invariants](operations.md#envelope-invariants) for behavioral rules.
@@ -163,7 +181,7 @@ class PromoteEnvelope:
     header: EnvelopeHeader
     target_section: str            # Advisory: insertion hint for CLAUDE.md section
     transformed_text: str          # Prescriptive prose, ready to insert
-    content_sha256: Sha256Hex      # content_hash(lesson_content) at envelope creation time — see §Knowledge Entry Format for byte-range definition. Must equal lesson-meta.content_sha256 if no edit occurred between publication and promotion.
+    content_sha256: Sha256Hex      # content_hash(lesson_content) at envelope creation time — see §Knowledge Entry Format for byte-range definition. Must equal lesson-meta.content_sha256 if no edit occurred between publication and promotion. The `/promote` Step 1 engine MUST apply the same byte-range extraction logic and `knowledge_normalize` normalization as `lesson-meta.content_sha256` — extract content from the live `learnings.md` file at Step 1 invocation time, not from a cached or precomputed value.
 ```
 
 ## promote-meta — Promotion State Record
@@ -483,8 +501,11 @@ Payload is typed per event — see [Event Vocabulary](#event-vocabulary-v1) for 
 | `snapshot_written` | orchestrator | `{ref: str, orchestrated_by: str}` | `payload.ref` | Timeline fidelity — records snapshot creation. `orchestrated_by` values: `"save"`, `"quicksave"`, `"load"`. See [operations.md §Snapshot Event Emission](operations.md#snapshot-event-emission) for per-producer emit conditions. |
 | `defer_completed` | engine | `{source_ref: str, emitted_count: int}` | `null` | Completion evidence for /triage inference |
 | `distill_completed` | engine | `{source_ref: str, emitted_count: int}` | `null` | Completion evidence for /triage inference |
+| `write_observed` | hook | `{path: str, tool_name: str, path_class: str}` | `null` | Protected-path write observation. `engram_register` fires on Write/Edit to paths in the protected-path table where "Register Fires? = Yes". `path_class` matches the path class name from enforcement.md §Protected-Path Enforcement. |
 
 **Per-event-type `record_ref` population rule:** For `snapshot_written`, `record_ref` must be non-null (`= payload.ref`). Producers must assert non-null before appending; skip the append with a diagnostic warning if `payload.ref` is unavailable. Readers processing `snapshot_written` with `record_ref = None` must skip the entry with a warning in `QueryDiagnostics.warnings`.
+
+For `write_observed`, `record_ref` is `null` — hook events observe file paths, not Engram records. Producers must not attempt to construct a `RecordRef` from the file path. The `path` field in the payload serves as the human-readable locator.
 
 The `emitted_count` field is **required** in `defer_completed` and `distill_completed` payloads. A value of `0` means the operation completed with zero outputs (zero-output success — [triage case 3](operations.md#triage-read-work-and-context)). A missing `emitted_count` key is a producer bug — triage treats it as "completion not proven" (case 4). Producers must always emit `emitted_count`, including when the count is zero. Engines must emit `defer_completed` / `distill_completed` even when `emitted_count` is 0 — a zero-output operation is a successful completion and must be recorded. Omitting the event makes `/triage` report "completion not proven" for a successful operation.
 
@@ -514,7 +535,7 @@ In payload dicts, `RecordRef` values are stored as their [canonical serializatio
 
 ### Write Semantics
 
-All ledger producers use a shared locked append primitive in `engram_core/`. Advisory lock (`fcntl.flock`) on the shard file. Lock scope: read-append-fsync. Multi-producer integrity replaces the previous "single writer by sharding" assumption (which broke when engines became ledger producers).
+All ledger producers use a shared locked append primitive in `engram_core/`. Advisory lock (`fcntl.flock`) on the shard file. Lock scope: read-append-fsync. Lock timeout: 5 seconds. On timeout: log warning, do not propagate to caller. This matches the `learnings.md.lock` timeout (§Write Concurrency) and the `engram_register` failure mode documented in enforcement.md. Multi-producer integrity replaces the previous "single writer by sharding" assumption (which broke when engines became ledger producers).
 
 **Ledger append failure never invalidates a successful write.** If a `defer_completed` event fails to append after a successful ticket creation, the ticket exists — the ledger gap is a diagnostic degradation, not data loss. The `append_event()` function is a single best-effort append attempt. Callers do not retry. **Engine/orchestrator append failure modes:** Lock timeout (5 seconds) → log warning, do not propagate to caller. Disk full / permission denied → log error, do not propagate. Failed appends are observable via `diagnostics.warnings` on the next query. These mirror the `engram_register` failure modes in [enforcement.md](enforcement.md#hooks).
 
@@ -526,7 +547,7 @@ Each line in a work audit file (`engram/work/.audit/<session_id>.jsonl`) records
 
 ```python
 class AuditEntry(TypedDict):
-    schema_version: Literal["1.0"]
+    schema_version: Literal["1.1"]
     timestamp: str              # ISO 8601 UTC
     operation: str              # "create" | "update" | "close"
     ticket_ref: str             # RecordRef canonical serialization
@@ -538,9 +559,9 @@ class AuditEntry(TypedDict):
 
 **Serialization:** UTF-8 JSONL, compact, `sort_keys=True`, one object per line, newline-terminated.
 
-**`schema_version` writer/reader split:** The `Literal["1.0"]` annotation governs the write-time contract: writers MUST emit the version they were built for. Readers MUST apply same-major tolerance per the Version Evolution Policy — entries with `schema_version` matching the current major version (e.g., `"1.1"`) are accepted; entries with a different major version (e.g., `"2.0"`) are skipped with a warning. The Python type annotation constrains writers, not readers.
+**`schema_version` writer/reader split:** The `Literal["1.1"]` annotation governs the write-time contract: writers MUST emit the version they were built for. Readers MUST apply same-major tolerance per the Version Evolution Policy — entries with `schema_version` matching the current major version (e.g., `"1.1"`) are accepted; entries with a different major version (e.g., `"2.0"`) are skipped with a warning. The Python type annotation constrains writers, not readers.
 
-The `auto_created` field was added in minor version `1.1`. Same-major readers encountering entries without `auto_created` MUST treat them as `auto_created: True` (conservative — counts toward cap). Writers at version `1.1`+ MUST emit `auto_created`.
+The `auto_created` field is present from the initial version (`1.1`). No `1.0` AuditEntry format was ever shipped. The defensive read rule is retained for robustness: same-major readers encountering entries without `auto_created` MUST treat them as `auto_created: True` (conservative — counts toward cap). This handles corrupt or hand-edited entries, not a version transition.
 
 **Write semantics:** Append-only. An AuditEntry is written after a successful effective mutation (ticket created, updated, or closed). No `.audit/` entry on duplicate idempotent retry — the idempotency check prevents the effective mutation, so no audit entry is warranted.
 

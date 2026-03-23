@@ -12,7 +12,7 @@ Six operations justify Engram's plugin scope. Three migrate and improve existing
 ## Core Rules
 
 - Target subsystem engine validates and writes. Envelopes are requests, not commands. Work and Knowledge engine invocations go through [`engram_guard`](enforcement.md#trust-injection) for trust injection before any mutating operation. Context subsystem writes use Write/Edit tools natively and are [excluded from trust triple validation](enforcement.md#step-2-validation-engine-entrypoint).
-- **Precondition:** Every mutating Work or Knowledge engine entrypoint must validate the trust triple via `collect_trust_triple_errors()` before making state changes. Operations with missing or incomplete triples are rejected. See [enforcement.md §Check ordering](enforcement.md#check-ordering) for the `.engram-id` existence check that precedes trust triple validation, and [enforcement.md §Trust Injection](enforcement.md#trust-injection) for the full enforcement mandate.
+- **Precondition:** All mutating Work and Knowledge engine entrypoints require trust triple validation before making state changes. Operations with missing or incomplete triples are rejected. The enforcement mandate (which validator to call, check ordering, per-entrypoint origin matching) is specified in [enforcement.md §Trust Injection](enforcement.md#trust-injection) — the authoritative source for `enforcement_mechanism` claims.
 - Every envelope carries a `source_ref: RecordRef` pinned at creation time. Downstream operations target this ref, never "latest file at path."
 - Every envelope carries an `idempotency_key`. Target engines deduplicate retried operations.
 - `/save` orchestrates cross-subsystem flows but each sub-operation is independently callable and retryable. See [/save orchestration rules](skill-surface.md#save-orchestration-rules).
@@ -27,7 +27,7 @@ The Work subsystem operates in one of two modes, configured via `work_mode` in [
 
 **Context subsystem autonomy:** No autonomy gate. Agents save their own session state — snapshots and checkpoints are agent-authored artifacts, not user-reviewed outputs.
 
-**gated:** Knowledge staging requires explicit user confirmation before staging-meta is written. The Knowledge engine presents candidates and waits for approval. Used for the Knowledge staging inbox. `gated` mode is independent of Work modes (`suggest`, `auto_audit`).
+**gated:** Staged Knowledge candidates require explicit user review via `/curate` before publication to `learnings.md`. The staging write itself (`/distill`) is automatic — no user confirmation is required to write staging-meta. The gate is at publication, not at staging. `gated` mode is independent of Work modes (`suggest`, `auto_audit`).
 
 **Knowledge staging autonomy:** `/distill` auto-stages candidates without user confirmation; `/learn` publishes directly via the Knowledge engine. Staged candidates require user review via `/curate` before publication. Staging inbox cap (`knowledge_max_stages`) and content-addressed idempotency bound autonomous volume. See [enforcement.md §Autonomy Model](enforcement.md#autonomy-model) for configuration schema and enforcement caps.
 
@@ -69,7 +69,7 @@ The Work subsystem operates in one of two modes, configured via `work_mode` in [
 
 **Trust boundary: staged != published.** Distill writes to a private staging area (`knowledge_staging/`), not to `engram/knowledge/`. Staged candidates are reviewed before publication via `/curate`.
 
-**Staging inbox cap.** The Knowledge engine checks the cumulative count of files in `knowledge_staging/` **before** writing new staged candidates. If `count + batch_size > knowledge_max_stages`, the entire batch is rejected (whole-batch reject for determinism — no partial staging). The rejection response includes current count, cap, and a suggestion to run `/curate` to clear the inbox. Scope is cumulative (total files in directory), not per-session. This matches the stated risk ([staging accumulation](decisions.md#named-risks)), not per-session agent autonomy. The engine reads `knowledge_max_stages` from `.claude/engram.local.md` at invocation time — no caching. The cap check is non-atomic (TOCTOU): cross-worktree concurrent distills can briefly overshoot the cap. This is acceptable — the cap is a soft limit protecting against accumulation, not a hard quota.
+**Staging inbox cap.** Cap enforcement (rejection formula, error message, edge cases) is specified in [enforcement.md §Staging Inbox Cap](enforcement.md#staging-inbox-cap) (`enforcement_mechanism` authority). The cap is cumulative (total files in directory), non-atomic (TOCTOU acceptable), and whole-batch (no partial staging). See [decisions.md §Deferred Decisions](decisions.md#deferred-decisions) for partial staging deferral.
 
 **Edge case: `batch_size > knowledge_max_stages`.** If a single distill batch produces more candidates than the configured cap (e.g., a rich snapshot yields 15 candidates against a cap of 10), the batch is rejected even with 0 files in staging — the cap applies to `count + batch_size`, and `0 + 15 > 10`. The rejection response must include: (1) current `batch_size` and cap values, (2) the exact config change needed (`knowledge_max_stages: N` where N >= batch_size in `.claude/engram.local.md`), (3) instruction to re-run the failed distill with the `snapshot_ref` from the [recovery manifest](#recovery-manifest). This is a deliberate consequence of whole-batch rejection. Partial staging (accepting the first N candidates) is a [deferred decision](decisions.md#deferred-decisions).
 
@@ -242,7 +242,7 @@ Three-step state machine with marker-based location and reconciliation recovery.
 - Unknown `envelope_version` produces explicit `VERSION_UNSUPPORTED` error with expected version (singular — exact-match, no forward compatibility)
 - Idempotent: same `idempotency_key` produces same result, no side effects on retry
 
-**Phase-scoped idempotency (migration):** During the bridge period ([Step 1](delivery.md#step-1-bridge-cutover) through [Step 3](delivery.md#step-3-work-cutover)), the old ticket engine's legacy dedup is the active mechanism — envelope-level idempotency keys are not checked. Full envelope idempotency activates when the new Work engine replaces the bridge. This limitation is delivery-owned; see [bridge cutover](delivery.md#step-1-bridge-cutover) for migration-period semantics.
+**Phase-scoped idempotency (migration):** During the bridge period, envelope-level idempotency keys are not checked — the old ticket engine's legacy dedup is the active mechanism. See [delivery.md §Bridge Cutover](delivery.md#step-1-bridge-cutover) for the authoritative bridge-period specification (`implementation_plan` authority).
 
 ## /save as Session Orchestrator
 
@@ -275,7 +275,7 @@ Each snapshot producer emits a [`snapshot_written`](types.md#event-vocabulary-v1
 | `/quicksave` | `"quicksave"` | After snapshot write succeeds |
 | `/load` (archive path) | `"load"` | After archive write succeeds |
 
-All three producers emit the event. The `orchestrated_by` value distinguishes them in `/timeline` and `/triage`. This is the authoritative specification for `snapshot_written` emission — see [types.md event vocabulary](types.md#event-vocabulary-v1) for the payload schema.
+All three producers emit the event. The `orchestrated_by` value distinguishes them in `/timeline` and `/triage`. See [types.md §Event Vocabulary](types.md#event-vocabulary-v1) for the authoritative `snapshot_written` schema and emission rules (`interface_contract` authority).
 
 Skills that write via the Write tool (not engine Bash) emit ledger events by calling `engram_core.ledger.append_event()` after the Write tool call succeeds. This is an orchestrator-produced event, not a new mutating entrypoint. Failure to append does not invalidate the write — emit a warning in `QueryDiagnostics.warnings`.
 

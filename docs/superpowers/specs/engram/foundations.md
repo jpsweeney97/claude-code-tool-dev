@@ -35,7 +35,7 @@ No other skill-level write to a protected or externally-owned path is permitted 
 
 #### Adding New Exceptions
 
-foundations.md (this file) is the authoritative source for enforcement exceptions. A new exception is effective only when present in this section — the [enforcement.md exceptions table](enforcement.md#enforcement-exceptions) then references it. This sequencing ensures architecture_rule authority governs exception creation (per spec.yaml `claim_precedence`), preventing enforcement.md from unilaterally expanding its own exception set.
+foundations.md (this file) is the authoritative source for enforcement exceptions. A new exception is effective only when present in this section — the [enforcement.md exceptions table](enforcement.md#enforcement-exceptions) then references it. This sequencing ensures foundation authority governs exception creation — foundation is second in the enforcement_mechanism precedence chain (per spec.yaml claim_precedence: `[enforcement, foundation, operations, decisions]`). enforcement.md owns enforcement mechanisms but cannot unilaterally expand the set of exceptions those mechanisms must accommodate.
 
 ### Shadow Authority Anti-Pattern
 
@@ -58,7 +58,7 @@ packages/plugins/engram/
 │   ├── types.py              # RecordRef, RecordMeta, contracts
 │   ├── reader_protocol.py    # NativeReader protocol definition only
 │   ├── canonical.py          # Deterministic JSON serialization for idempotency keys
-│   ├── trust.py             # collect_trust_triple_errors() — shared trust validator
+│   ├── trust.py             # collect_trust_triple_errors() + validate_origin_match() — shared trust validators
 │   └── query.py              # Discovery + query engine
 ├── skills/                   # User-facing skills (13 total, including engram init)
 ├── hooks/                    # PreToolUse/PostToolUse/SessionStart hooks

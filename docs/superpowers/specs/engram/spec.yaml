@@ -40,7 +40,7 @@ precedence:
     behavior_contract: [operations, skill-contract, foundation, decisions]
     interface_contract: [data-contract, operations, decisions]
     persistence_schema: [data-contract, decisions]
-    enforcement_mechanism: [enforcement, operations, decisions]
+    enforcement_mechanism: [enforcement, foundation, operations, decisions]
     architecture_rule: [foundation, decisions]
     implementation_plan: [delivery, decisions]
     verification_strategy: [delivery, decisions]

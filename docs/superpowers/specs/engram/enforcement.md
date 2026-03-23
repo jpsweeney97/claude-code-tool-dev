@@ -146,11 +146,11 @@ Each build step lists the `engram_guard` capabilities it requires. No subsystem 
 | Capability | Ships At | Covers |
 |-----------|----------|--------|
 | `engine_trust_injection` | Step 2a | Knowledge engine mutating entrypoints (Bash-mediated) |
-| `engine_trust_injection` (extended) | Step 3a | Work engine mutating entrypoints |
+| `engine_trust_injection_work` | Step 3a | Work engine mutating entrypoints |
 | `work_path_enforcement` | Step 3a | Protected-path block for Write/Edit to Work and Knowledge paths |
 | `context_direct_write_authorization` | Step 4a | Direct-write path authorization for Context snapshot/checkpoint paths |
 
-The 'Ships At' column mirrors delivery.md §Build Sequence for convenience. delivery.md is the `implementation_plan` authority — if the two diverge, delivery.md is authoritative.
+This table is the canonical source for guard capability activation (`enforcement_mechanism` authority). delivery.md §Build Sequence references this table for the implementation schedule — if the two diverge, this table is authoritative for which capabilities are active at each step.
 
 ### Guard Decision Algorithm
 
@@ -160,7 +160,10 @@ The 'Ships At' column mirrors delivery.md §Build Sequence for convenience. deli
 engram_guard decision algorithm:
   1. If tool_name == Bash AND matches engine_*.py pattern:
      → Verify the Bash target matches an existing engine script file.
-       If the file does not exist: skip trust injection (fall through to branch 3/4).
+       If the file does not exist: block (exit code 2) with diagnostic:
+         "engram_guard: engine script not found at {resolved_path} —
+          invocation blocked. Expected scripts: {comma-separated list of
+          existing engine_*.py files in engram_scripts_dir}."
        If the file exists: Engine trust injection (write TrustPayload, allow)
   2. If tool_name in {Write, Edit} AND path within Context private root:
      → Direct-write path authorization (allow + post-write quality)
@@ -172,7 +175,7 @@ Branches evaluated in this order. Step 2 failing the Context-ownership check (pa
 No diagnostic is emitted when Step 2 fails — silent fall-through to Step 3 is correct behavior for general writes. Context path authorization failure is surfaced indirectly by /triage anomaly detection (snapshot missing session_id), not by the guard.
 ```
 
-**Capability gating:** Each branch is only active when its corresponding guard capability has shipped. Branch 1 activates at Step 2a (`engine_trust_injection`). Branch 3 activates at Step 3a (`work_path_enforcement`). Branch 2 activates at Step 4a (`context_direct_write_authorization`). Before a capability ships, its branch is a no-op (falls through to branch 4).
+**Capability gating:** Each branch is only active when its corresponding guard capability has shipped. Branch 1 activates in two phases: Step 2a (`engine_trust_injection`) covers Knowledge engine paths; Step 3a (`engine_trust_injection_work`) extends coverage to Work engine paths. Branch 3 activates at Step 3a (`work_path_enforcement`). Branch 2 activates at Step 4a (`context_direct_write_authorization`). Before a capability ships, its branch is a no-op (falls through to branch 4).
 
 **Inactive capability behavior:** When a capability is inactive, its branch is skipped (no-op) — execution continues to the next branch as if the match did not occur. No diagnostic is emitted for inactive-capability skips. This is a silent allow, consistent with the "falls through to branch 4" behavior documented in the rollout table above. Even when a capability is inactive, if `identity.get_worktree_id()` returns an error, the guard MUST log the git error to stderr. Diagnostic emission is independent of capability activation. This ensures git state problems are surfaced during the capability-inactive delivery period.
 
@@ -248,7 +251,7 @@ If the payload file is absent or unparseable after the `.engram-id` check succee
 
 The `_user.py` / `_agent.py` naming convention reflects but does not define the expected origin. This table is the enforcement-level reference for origin-matching. The [interface_contract](types.md#trustpayload--trust-triple-wire-format) definition of `hook_request_origin` values is in types.md.
 
-**Enforcement mechanism:** Origin-matching has no shared runtime validator. `collect_trust_triple_errors()` validates structural correctness (`hook_request_origin` is a valid string in `{"user", "agent"}`) but does not enforce per-entrypoint origin rules. Each entrypoint is responsible for checking that the origin value matches its expected category (see table above).
+**Enforcement mechanism:** Origin-matching uses `validate_origin_match(expected, actual)` defined in [types.md §Origin-Matching Validation](types.md#origin-matching-validation) as the shared enforcement primitive. `collect_trust_triple_errors()` validates structural correctness (`hook_request_origin` is a valid string in `{"user", "agent"}`) but does not enforce per-entrypoint origin rules — `validate_origin_match()` does.
 
 **Per-entrypoint rejection contract:** When origin mismatch is detected, the entrypoint must:
 1. Reject before any side effects (no state changes).
@@ -271,6 +274,8 @@ Context subsystem writes (`/save`, `/quicksave`, `/load`) use the Write and Edit
 4. **Provenance is embedded** in the written content (frontmatter `schema_version`, `session_id`, `worktree_id`, `timestamp`), validated by `/triage` [anomaly detection](operations.md#triage-read-work-and-context). `orchestrated_by` is included when applicable (per [types.md §Snapshot Orchestration Intent](types.md#snapshot-orchestration-intent)).
 
 This is explicitly **path authorization plus provenance/integrity validation**, not engine trust injection. The `collect_trust_triple_errors()` validator is not invoked for direct-write paths. Context paths allow Write/Edit from any source. Identity verification is intentionally omitted — `/triage` anomaly detection (not `engram_guard`) is the enforcement layer for Context path integrity. See [decisions.md §Named Risks](decisions.md#named-risks) (Context any-source write authorization) for the accepted gap and rationale. See [§Autonomy Model](#autonomy-model).
+
+**Naming note:** Branch 2 performs path recognition (is this a Context-owned path?) with unconditional allow, not an authorization check. The "authorization" label is retained for continuity but the enforcement model is: recognize → allow → post-write quality → triage anomaly detection. See [decisions.md §Named Risks](decisions.md#named-risks) (Context any-source write authorization) for the accepted gap.
 
 ### Trust Triple Scope
 
@@ -310,7 +315,7 @@ Phase-scoped idempotency is a delivery-period limitation. For the delivery step 
 
 During Steps 2a–3a, Write/Edit to Knowledge protected paths is not blocked by branch 3 — only engine-Bash invocations are covered by `engine_trust_injection`. Direct Write/Edit to `engram/knowledge/**` is allowed unconditionally via branch 4 (allow). This gap is accepted because Knowledge skills in this window use the Bash engine path exclusively.
 
-During Step 3a, `engram_guard` has `engine_trust_injection` and `work_path_enforcement` active but not `context_direct_write_authorization`. Write/Edit to unrecognized paths (including future Context paths) are allowed through — the guard only blocks Write/Edit to currently-protected paths. See [§Guard Decision Algorithm](#guard-decision-algorithm) for the evaluation order that resolves overlapping path classifications.
+During Step 3a, `engram_guard` has `engine_trust_injection`, `engine_trust_injection_work`, and `work_path_enforcement` active but not `context_direct_write_authorization`. Write/Edit to unrecognized paths (including future Context paths) are allowed through — the guard only blocks Write/Edit to currently-protected paths. See [§Guard Decision Algorithm](#guard-decision-algorithm) for the evaluation order that resolves overlapping path classifications.
 
 **Path disjointness:** The Context private root (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) is path-disjoint from the protected-path table by construction (private home root vs. repo-local paths). No Write/Edit to a Context path can hit branch 3 (protected-path block) during Step 3a. This is a structural invariant maintained by the [dual-root storage layout](storage-and-indexing.md#dual-root-storage-layout), not runtime enforcement.
 
@@ -396,4 +401,8 @@ ledger:
 
 ### Staging Inbox Cap
 
-The staging inbox cap is configured via `knowledge_max_stages` in `.claude/engram.local.md`. Values less than 1 are invalid; the engine rejects the configuration at parse time with `"knowledge_max_stages must be >= 1"`. The same validation applies to `work_max_creates`: values less than 1 are invalid, rejected at parse time with `"work_max_creates must be >= 1"`. This section owns the configuration schema and validation contract (`enforcement_mechanism`). The behavioral specification (rejection logic, formula, error message format, edge cases, and recovery path) is in [operations.md §Distill](operations.md#distill-context-to-knowledge-staged) (`behavior_contract`).
+The staging inbox cap is configured via `knowledge_max_stages` in `.claude/engram.local.md`. Values less than 1 are invalid; the engine rejects the configuration at parse time with `"knowledge_max_stages must be >= 1"`. The same validation applies to `work_max_creates`: values less than 1 are invalid, rejected at parse time with `"work_max_creates must be >= 1"`. This section owns the configuration schema, validation contract, and cap enforcement behavioral specification (`enforcement_mechanism` authority).
+
+**Cap enforcement formula:** The Knowledge engine checks the cumulative count of files in `knowledge_staging/` before writing new staged candidates. If `count + batch_size > knowledge_max_stages`, the entire batch is rejected (whole-batch reject for determinism — no partial staging). The rejection response includes current count, cap, and a suggestion to run `/curate` to clear the inbox.
+
+**Edge case — `batch_size > knowledge_max_stages`:** If a single distill batch exceeds the configured cap, the batch is rejected even with 0 files in staging. The rejection response must include: (1) current `batch_size` and cap values, (2) the exact config change needed, (3) instruction to re-run with the `snapshot_ref` from the recovery manifest.
