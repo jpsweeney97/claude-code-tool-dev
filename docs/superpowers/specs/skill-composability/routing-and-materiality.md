@@ -32,7 +32,7 @@ For items without explicit upstream ID references: constrained LLM classificatio
 - `suggested_arc` describes the routing *outcome* (where the item should go)
 - `ambiguous` is a valid outcome but not a valid method — every classification is performed by either a rule or the model. `classifier_source` MUST be `rule` or `model`. `ambiguous` is never a valid `classifier_source` value and MUST NOT appear in the emitted capsule. If an implementation produces `classifier_source: ambiguous`, treat as unexpected state, correct to `classifier_source: rule`, and emit a structured warning
 
-**Code review convention:** Variables carrying `classifier_source` or `materiality_source` values MUST be assigned only from the literal set `{'rule', 'model'}`. Helper functions that produce these values MUST be included in the PR's helper-function co-review list (see [delivery.md](delivery.md#open-items) item #8 auto-chaining co-review gate). This convention reduces the variable-indirection gap until `validate_composition_contract.py` provides static analysis.
+**Code review convention:** Variables carrying `classifier_source` or `materiality_source` values MUST be assigned only from the literal set `{'rule', 'model'}`. Helper functions that produce these values MUST be included in the PR's helper-function co-review list (see [governance.md](governance.md#stub-composition-co-review-gate)). This convention reduces the variable-indirection gap until `validate_composition_contract.py` provides static analysis.
 
 ### Ambiguous Item Behavior
 
@@ -191,7 +191,7 @@ Skills suggest the next arc; the user confirms. No skill auto-invokes another.
 
 **Capsule-level prohibition:** Feedback capsule fields (`continuation_warranted`, `feedback_candidates[].suggested_arc`) are informational signals to the user. Skill stubs MUST NOT use `continuation_warranted` or `suggested_arc` fields to programmatically trigger another skill invocation by any means — including direct invocation patterns, conditional branches leading to invocation (regardless of whether user-facing text is emitted), or indirect delegation chains through helper functions. These fields inform the hop suggestion text presented to the user only, not an automatic dispatch.
 
-Helper-mediated indirect delegation chains are a known coverage gap in the interim grep-based enforcement. See [delivery.md](delivery.md#open-items) item #8 for the co-review gate that addresses this gap. This is a known coverage gap
+Helper-mediated indirect delegation chains are a known coverage gap in the interim grep-based enforcement. See [governance.md](governance.md#stub-composition-co-review-gate) for the co-review gate that addresses this gap. This is a known coverage gap
 
 ### Material-Delta Gating (Guardrail)
 

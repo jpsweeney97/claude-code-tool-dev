@@ -26,6 +26,10 @@ authorities:
     description: Artifact identity system — three identity keys, ID format, DAG structure, discovery algorithms, staleness detection.
     default_claims: [interface_contract, behavior_contract]
 
+  governance:
+    description: PR review gate procedures — derivative enforcement that cites normative clauses from semantic owner files.
+    default_claims: [review_gate]
+
   delivery-plan:
     description: Implementation plan per skill, open items, deferred work.
     default_claims: [implementation_plan]
@@ -45,10 +49,11 @@ precedence:
     # Conflict resolution: fallback_authority_order determines which authority
     # wins when claims overlap. This is mechanical, not a defect signal.
     interface_contract: [capsule-contract, lineage]
+    review_gate: [governance]
   # decisions ranked 2nd (after foundation) in fallback_authority_order because locked
   # design decisions constrain behavior. Conflicts are resolved via the fallback path
   # — decisions does not appear in claim_precedence and cannot override via that route.
-  fallback_authority_order: [foundation, decisions, capsule-contract, routing, pipeline, lineage, delivery-plan, delivery-verification, supporting]
+  fallback_authority_order: [foundation, decisions, capsule-contract, routing, pipeline, lineage, governance, delivery-plan, delivery-verification, supporting]
   # decisions above capsule-contract in fallback: decisions (D1-D5) define structural
   # constraints that interface contracts must respect. decisions does not hold
   # interface_contract claims, so claim_precedence never applies — only fallback.
@@ -92,3 +97,9 @@ boundary_rules:
   - on_change_to: [pipeline]
     review_authorities: [capsule-contract, routing, delivery-plan]
     reason: Pipeline adapters consume capsule schemas, tautology filter relates to materiality classification, skill text changes need updating.
+  - on_change_to: [governance]
+    review_authorities: [routing, foundation, lineage]
+    reason: Governance gates cite normative clauses from semantic owners — changes must be reviewed to prevent governance from re-specifying runtime behavior.
+  - on_change_to: [routing, foundation, lineage]
+    review_authorities: [governance]
+    reason: Changes to normative clauses may invalidate or require updates to governance gate procedures that cite them.
