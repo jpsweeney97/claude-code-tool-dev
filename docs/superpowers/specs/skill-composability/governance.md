@@ -203,3 +203,35 @@ Validates: [routing-and-materiality.md §Affected-Surface Validity](routing-and-
 Validates: [lineage.md §Key Propagation](lineage.md#key-propagation) (`lineage_root_id` immutability)
 
 **[Active for any PR touching key propagation or capsule minting logic]** PR checklist item: "Confirmed: `lineage_root_id` immutability regression test passes — multi-hop chain test asserting `lineage_root_id` string equality across all hops re-executed and passing."
+
+## Contract-Stub Bidirectional Review Gate
+
+Validates: foundations.md §Versioning and Drift Detection (drift detection invariant)
+
+**Contract → stub:** Any modification to the composition contract's routing, materiality, lineage, or capsule schema sections MUST be accompanied by a manual review of all three participating skill stubs (adversarial-review, next-steps, dialogue) against the updated contract text. The PR description MUST include a stub-impact checklist confirming which stubs were reviewed and whether updates are needed.
+
+**Stub → contract:** Any modification to a participating skill stub's composition section MUST be accompanied by verification that the change conforms to the current contract. The PR description MUST confirm the stub change does not diverge from contract intent.
+
+## Gate Activation Conditions
+
+Governance gates become active when their referenced artifacts are first created. When authoring any of the following, the PR MUST confirm the corresponding governance gates are applied:
+
+| Artifact | Gates Activated |
+|----------|----------------|
+| Composition contract (`composition-contract.md`) | Contract Marker Verification, `topic_key` Scope Guard (extend grep scope to contract file) |
+| Composition stubs (AR, NS, dialogue) | Stub Composition Co-Review, Helper Function Tracking, Constrained Field Literal-Assignment, `budget_override_pending` Initialization, `hold_reason` Assignment and Placement Review |
+| Dialogue consumer stub (durable store behavior) | Consumer Durable Store Check Ordering, `upstream_handoff` Abort Teardown Check, Abort-Path Independent Test Fixtures Gate (two separate fixtures — one per abort path, no shared fixture — see governance.md §Abort-Path Independent Test Fixtures Gate) |
+| Dialogue correction pipeline code (correction rules 1-5) | Abort-Path Independent Test Fixtures Gate (partial correction failure path fixture) |
+| Dialogue composition stub (Stage A/B admission) | `tautology_filter_applied` key-presence grep-based CI check |
+| NS composition stub | Stub Composition Co-Review, `decomposition_seed` false-flag behavioral test (verification.md NS adapter row — P0 merge gate prerequisite) |
+| `COMPOSITION_HELPERS.md` | Helper Function Tracking (diffing requirement) |
+
+## Promotion Gate
+
+Validates: delivery.md §Open Items (P0 blockers #6 and #7)
+
+Composition system MUST NOT be promoted to production (`~/.claude/`) while either P0 blocker is open:
+- Item #6: `validate_composition_contract.py` (CI enforcement of contract drift)
+- Item #7: Materiality validation harness
+
+Both must pass before promotion is authorized.
