@@ -321,3 +321,4 @@ The `idempotency_key` in `EnvelopeHeader` is computed by the caller at envelope 
 | Promote Step 3 failure (Branch A/C) | CLAUDE.md written but promote-meta absent or stale | `/triage` detects mismatch; next `/promote` re-enters the same branch. Lesson remains eligible. |
 | Promote Step 3 failure (Branch B2) | CLAUDE.md has new markers + text at user-confirmed section, but promote-meta has old `target_section` | `/triage` detects `target_section` mismatch (markers at new section, promote-meta at old). Next `/promote` re-enters Branch B2 if promote-meta `target_section` differs from marker location. |
 | Legacy artifact lacks session_id | Appears in timeline as "unattributed" | Not silently omitted |
+| Plugin co-deployment violation | Promote script aborts with diagnostic | Verify both `hooks/` and `scripts/` exist before retrying promote |

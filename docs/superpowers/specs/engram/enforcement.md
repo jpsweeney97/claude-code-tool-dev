@@ -150,7 +150,9 @@ Each build step lists the `engram_guard` capabilities it requires. No subsystem 
 ```
 engram_guard decision algorithm:
   1. If tool_name == Bash AND matches engine_*.py pattern:
-     → Engine trust injection (write TrustPayload, allow)
+     → Verify the Bash target matches an existing engine script file.
+       If the file does not exist: skip trust injection (fall through to branch 3/4).
+       If the file exists: Engine trust injection (write TrustPayload, allow)
   2. If tool_name in {Write, Edit} AND path within Context private root:
      → Direct-write path authorization (allow + post-write quality)
   3. If tool_name in {Write, Edit} AND path in protected-path table:
@@ -297,6 +299,10 @@ During Step 3a, `engram_guard` has `engine_trust_injection` and `work_path_enfor
 **Path disjointness:** The Context private root (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) is path-disjoint from the protected-path table by construction (private home root vs. repo-local paths). No Write/Edit to a Context path can hit branch 3 (protected-path block) during Step 3a. This is a structural invariant maintained by the [dual-root storage layout](storage-and-indexing.md#dual-root-storage-layout), not runtime enforcement.
 
 **Accepted gap — Context path authorization deferred to Step 4a:** During Steps 3a–4a, branch 2 (`context_direct_write_authorization`) is inactive and branch 3 does not cover Context paths (path-disjoint). Write/Edit to Context snapshot/checkpoint paths is allowed unconditionally via branch 4 (allow). The [governing principle](#trust-injection) of "uniformity of policy (every mutation is authorized)" is intentionally deferred for Context paths until Step 4a. This is an accepted trade-off: Context paths do not exist as write targets until Step 4a activates Context skills, so the window has no practical exposure. See [decisions.md §Named Risks](decisions.md#named-risks).
+
+**Accepted gap — `engram_quality` intra-step ordering at Step 4a:** Both `engram_quality` and `context_direct_write_authorization` ship at Step 4a. The [intra-step ordering requirement](delivery.md#step-4a-context-subsystem) validates `engram_quality` (VR-4A-14) before `context_direct_write_authorization` (VR-4A-19), with Context skills enabled only after both pass. During this intra-step validation window, `engram_quality` is deployed and firing but `context_direct_write_authorization` is not yet validated — quality feedback is advisory. This has zero practical exposure because no Context skills are enabled during validation.
+
+**Accepted gap — staging writes not blocked during bridge period (Steps 2a–3a):** Between Step 2a and Step 3a, a Bash-bypassing write to `engram/knowledge/staging/` is not blocked by branch 3 (inactive). The staging file passes integrity checks (`content_sha256`) but lacks a trust triple. Detection occurs at `/curate` time when `trust_triple_present: false` is flagged. This is the accepted enforcement boundary for the bridge period.
 
 `engram_register` fires on the exact paths defined in the [protected-path enforcement table](#protected-path-enforcement) and no others, for Write/Edit-observable paths only. `knowledge_staging` entries in the protected-path table are observable by `engram_guard` (for blocking unauthorized Write/Edit) but NOT by `engram_register` (because staging writes are Bash-mediated engine invocations, not Write/Edit tool calls). A change to the protected-path table automatically applies to both `engram_guard` and `engram_register` for their respective observation scopes.
 
