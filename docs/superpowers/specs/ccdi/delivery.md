@@ -173,6 +173,8 @@ scripts/validate_graduation.py \
 
 All three flags are required. **Exit codes:** 0 = all checks pass, 1 = one or more checks fail. **Output:** On success, prints `"OK"` to stdout. On failure, prints each failing check on a separate line to stderr with computed vs declared values (e.g., `"labeled_topics: expected 150, got 100"`). Stdout is empty on failure.
 
+**Freshness guardrail exit code:** When the freshness guardrail fires (classify_result_hash cannot be freshness-sensitive), the validator exits with code 0 and emits a warning to stderr. This is consistent with the "fall back to raw yield" language — the guardrail degrades the metric, it does not block graduation.
+
 #### `test_validate_graduation.py`
 
 | Test | Input | Expected |
@@ -271,6 +273,7 @@ The replay harness collects these traces and asserts on:
 | Evaluation order: exact beats token | Input matching both an exact alias (weight 0.6) and a token alias (weight 0.9) on the same topic → exact match evaluated first; final score reflects evaluation-order semantics (exact-before-token precedence), not pure weight sum |
 | Evaluation order: longer phrase wins within type | Two phrase aliases of different lengths matching overlapping substrings → longer, more specific phrase takes precedence; shorter phrase does not additionally contribute to score |
 | Phrase suppresses token on same topic (cross-type) | Input matches both a phrase alias (weight 0.6) and a token alias (weight 0.4) for the same topic → final score is 0.6 only (token contribution excluded). Verifies cross-type suppression per [classifier.md#two-stage-pipeline](classifier.md#two-stage-pipeline). |
+| Exact match word-boundary negative | Input: `"SomePreToolUseHandler"` (exact match candidate `PreToolUse` embedded in a longer word) → `resolved_topics` is empty. Verifies the MUST NOT constraint: exact matches must not be preceded or followed by a word character. |
 
 ### Registry Tests
 
@@ -449,6 +452,7 @@ Tests that verify field names, enum values, and schema shapes agree across compo
 | graduation.json status enum consistency | delivery.md `graduation.json` schema `status` field uses enum values that exist in integration.md shadow-mode gate algorithm | Assert: every `status` value in the graduation.json schema example is handled by the shadow-mode gate conditional in integration.md |
 | `results_file` write-time exclusion | Write a RegistrySeed with `results_file` field present. Load via registry loader. Assert `results_file` is stripped from the live registry (not just at load-time — verify the written file after initial commit does NOT contain `results_file`). `test_ccdi_contracts.py` — verifies write-time stripping, not just load-time |
 | `ccdi_inventory_snapshot` absent with `ccdi_seed` present | Delegation envelope contains `ccdi_seed: <path>` but no `ccdi_inventory_snapshot` field → `codex-dialogue` treats as degraded: CCDI mid-dialogue disabled for the session (same as `ccdi_seed` absent). Agent MUST log a warning (atomic-pair invariant violated). |
+| `ccdi_seed` inline JSON rejection | Delegation envelope contains `ccdi_seed` value that is a JSON object (not a file path) → `codex-dialogue` treats `ccdi_seed` as absent (CCDI mid-dialogue disabled). Agent MUST NOT attempt to use the inline JSON as a registry file. |
 
 **`xfail` convention:** All `xfail` markers in this spec MUST use `strict=True` to prevent silent test passes when the expected failure is fixed. An `xfail(strict=True)` test that unexpectedly passes is flagged as `XPASS` (failure), prompting removal of the marker.
 
@@ -561,12 +565,15 @@ Structured replay harness for Layer 2a (CLI pipeline correctness) testing. Repla
   ],
   "assertions": {
     "cli_pipeline_sequence": ["classify", "dialogue-turn", "build-packet", "build-packet --mark-injected"],
+    "cli_calls_absent": [],
     "final_registry_state": {"hooks.pre_tool_use": "injected"},
     "deferred_topics": [],
     "packets_injected_count": 1
   }
 }
 ```
+
+**`cli_calls_absent` field:** Array of CLI call substrings that MUST NOT appear in the harness's cli_call_log for the fixture to pass. Example: `["build-packet --mark-deferred"]` asserts that no deferred-write call was made. An empty array means no negative assertions. This is the inverse of `cli_pipeline_sequence` (which asserts presence).
 
 **Turn fields:**
 
@@ -681,6 +688,7 @@ Exercises behavioral equivalence between `--source codex` and `--source user` in
 | Graduation gate: file absent → shadow mode | Delegation envelope with `ccdi_seed` but no `graduation.json` → agent tool-call log contains zero `build-packet --mark-injected` invocations; diagnostics show `status: "shadow"`. Per [delivery.md#graduation-protocol-and-kill-criteria](delivery.md#graduation-protocol-and-kill-criteria). |
 | Graduation gate: status rejected → shadow mode | `graduation.json` with `status: "rejected"` → same assertions as above: zero commits, `status: "shadow"` in diagnostics. |
 | Graduation gate: status approved → active mode | `graduation.json` with `status: "approved"` → agent tool-call log contains at least one `build-packet --mark-injected` invocation (when candidates exist); diagnostics show `status: "active"`. |
+| Graduation gate: Phase A unconditional | `graduation.json` with `status: "rejected"` → initial CCDI commit phase still fires: agent tool-call log for the `/dialogue` skill (pre-delegation) contains `build-packet --mark-injected` invocations for seed entries. Phase A is always active regardless of graduation status. |
 | Scout pipeline contains no CCDI CLI calls | In a fixture with both scout candidate and CCDI candidate active, assert that `execute_scout`/`process_turn` tool-call log contains zero `topic_inventory.py` invocations |
 | Agent does not read ccdi_config.json | Assert agent tool-call log contains zero Read invocations on paths matching `*ccdi_config*` or `*topic_inventory.json` during dialogue. **Known open item:** Config file isolation runtime enforcement is currently test-verified-only. Add a PreToolUse hook blocking Read on `*ccdi_config*` patterns when Phase B is active AND shadow evaluation confirms the invariant is load-bearing. |
 | Cooldown config divergence | Agent uses hardcoded cooldown default (2 turns). Overlay sets `config_overrides.scheduler.cooldown_turns: 5`. Assert: agent behavior uses hardcoded value (2), NOT overlay value (5). CLI respects overlay value for its own scheduling. Verifies pipeline isolation — agent config is independent of CLI config. |
@@ -728,7 +736,7 @@ Exercises behavioral equivalence between `--source codex` and `--source user` in
 | `hint_contradicts_prior_on_suppressed.replay.json` | Topic suppressed:redundant. Turn 2 → `contradicts_prior` hint resolves to suppressed topic → re-enters as `detected`, scheduled for lookup. Same field assertions as prescriptive/suppressed. |
 | `suppressed_redundant_no_reentry_on_epoch_change.replay.json` | Turn 1 → topic A suppressed:redundant at docs_epoch="A". Turn 2 → inventory refreshed (docs_epoch="B"), topic A in classifier output → assert state stays `suppressed`, `suppression_reason` stays `redundant`. `docs_epoch` change triggers re-entry only for `weak_results`, not `redundant`. |
 | `redundant_reentry_via_new_leaf.replay.json` | Turn 1 → family topic A injected, leaf topic B under same family suppressed:redundant. Turn 2 → new leaf topic C under same family detected → assert topic B transitions to `detected` via path (a) of the redundant re-entry condition. `final_registry_file_assertions` MUST verify: `{"path": "B.state", "equals": "detected"}`, `{"path": "B.suppression_reason", "equals": null}`. Verifies [registry.md#suppression-re-entry](registry.md#suppression-re-entry) redundant re-entry path (a). |
-| `deferred_ttl_countdown_resets.replay.json` | Configure `deferred_ttl_turns=3`. Turn 1 → topic B deferred (TTL=3). Turns 2-3 → topic B absent (TTL decrements to 2, then 1). Turn 4 → topic B absent at TTL=0 → verify TTL resets to 3, state stays `deferred`, `last_seen_turn` unchanged. Turn 5 → topic B reappears → verify transition to `detected`. `final_registry_file_assertions` MUST include: `{"path": "<topic>.consecutive_medium_count", "equals": 0}` at a turn where topic B is in `deferred` state and absent from classifier output (verifying the general "topic absent from classifier output → `consecutive_medium_count` ← 0" rule applies during `deferred → deferred` transitions). |
+| `deferred_ttl_countdown_resets.replay.json` | Configure `deferred_ttl_turns=3`. Turn 1 → topic B deferred (TTL=3). Turns 2-3 → topic B absent (TTL decrements to 2, then 1). Turn 4 → topic B absent at TTL=0 → verify TTL resets to 3, state stays `deferred`, `last_seen_turn` unchanged. Turn 5 → topic B reappears → verify transition to `detected`. `final_registry_file_assertions` MUST include: `{"path": "<topic>.consecutive_medium_count", "equals": 0}` at a turn where topic B is in `deferred` state and absent from classifier output (verifying the general "topic absent from classifier output → `consecutive_medium_count` ← 0" rule applies during `deferred → deferred` transitions), `{"path": "<topic>.deferred_ttl", "equals": 3}` (verifying TTL reset to initial value at TTL=0). |
 | `high_confidence_bypasses_deferred_ttl_ttl1.replay.json` | Configure `deferred_ttl_turns=2`. Turn 1 → topic D deferred:target_mismatch (TTL=2). Turn 2 → TTL decrements to 1; same topic D re-detected at high confidence in the same `dialogue-turn` call → assert topic D transitions to `detected` with `deferred_reason: null`, `deferred_ttl: null` (bypass fires, NOT the `deferred → deferred` TTL-reset path at TTL=0). This exercises the TTL=1 edge case where decrement and bypass interact in the same turn. |
 | `high_confidence_bypasses_deferred_ttl.replay.json` | Configure `deferred_ttl_turns=3`. Turn 1 → topic C deferred:target_mismatch (TTL=3). Turn 2 → same topic C re-detected at high confidence (TTL still 2 after decrement) → assert topic C transitions immediately to `detected` with `deferred_reason: null`, `deferred_ttl: null`, eligible for scheduling in the same turn. `final_registry_file_assertions` MUST verify: `{"path": "C.state", "equals": "detected"}`, `{"path": "C.deferred_reason", "equals": null}`, `{"path": "C.deferred_ttl", "equals": null}`. `trace_assertions` MUST include an entry for topic C showing it was scheduled (not deferred) on turn 2. Verifies [registry.md#scheduling-rules](registry.md#scheduling-rules) step 2 high-confidence TTL-bypass. |
 | `target_mismatch_then_ttl_then_cache.replay.json` | Turn 1 → weak results → suppressed. Turn 2 → re-enters via hint → searched → deferred:target_mismatch. Turn 3 → TTL expires, reappears → assert whether re-search fires (cache key includes docs_epoch) or negative cache prevents it, and assert the documented behavior. Covers the three-step interaction between suppression, deferral, and cache. |
