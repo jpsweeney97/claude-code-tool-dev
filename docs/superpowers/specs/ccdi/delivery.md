@@ -32,6 +32,8 @@ Phase B enters **shadow mode** first: the [prepare/commit cycle](integration.md#
 
 Secondary diagnostic (not a hard kill): `relevant_but_scout_deferred_rate` = `packets_deferred_scout / packets_prepared`. High values indicate healthy scout precedence, not CCDI failure.
 
+**Scope note:** Kill criteria are evaluated on Phase B mid-dialogue activity only. Phase A initial injection is unconditional (see [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate)) and is not captured in these diagnostics metrics. `topics_injected` and `packets_injected` counters in shadow-mode diagnostics reflect Phase B activity only — Phase A state is in the seed file.
+
 Graduate from shadow to active when kill criteria are clear across 10+ shadow dialogues.
 
 ## Diagnostics
@@ -158,7 +160,7 @@ Shadow-to-active graduation is a manual gate with a concrete approval artifact:
 
 **`shadow_adjusted_yield` field:** Required when `status: "approved"` and shadow dialogues were conducted. Omit only when the freshness guardrail fired (see [Shadow Mode Denominator Normalization](#shadow-mode-denominator-normalization)) — in that case, only `effective_prepare_yield` is used for kill-criteria evaluation.
 
-**Status enum:** Valid `status` values are `"approved"` and `"rejected"`. The validator tool (`validate_graduation.py`) MUST reject unknown status values. The runtime gate ([integration.md §Shadow Mode Gate](integration.md#shadow-mode-gate)) is intentionally permissive of enum expansion — its catch-all `else → shadow mode` handles forward compatibility but does not imply the enum is open for new values. Per `spec.yaml` claim_precedence, integration.md is authoritative for the runtime gate behavior.
+**Status enum:** Valid `status` values are defined in [integration.md#shadow-mode-gate](integration.md#shadow-mode-gate) (normative source under `behavior_contract` authority). The validator tool (`validate_graduation.py`) MUST reject unknown status values — see integration.md for the enum definition and the reconciliation between closed-validator and permissive-gate semantics. Per `spec.yaml` claim_precedence, integration.md is authoritative for the runtime gate behavior.
 
 4. **Validation:** Before finalizing `graduation.json`, run the graduation-report validator (`scripts/validate_graduation.py`). The validator checks: (a) `labeled_topics` matches actual line count in `data/ccdi_shadow/annotations.jsonl`, (b) `false_positive_rate` matches `labeled_false_positives / total_labeled_topics` computed from annotations, (c) `evaluated_dialogues` matches actual file count in `data/ccdi_shadow/diagnostics/`, (d) `effective_prepare_yield` and `avg_latency_ms` are consistent with per-dialogue diagnostics files. This does not eliminate human judgment but adds a mechanical consistency check.
 

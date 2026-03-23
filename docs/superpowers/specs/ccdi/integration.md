@@ -366,6 +366,8 @@ This gate determines only whether packets are delivered to Codex. In both modes,
 
 **Phase A carve-out:** This gate governs Phase B mid-dialogue mutations in `codex-dialogue` only. Phase A initial injection (pre-delegation, in `/dialogue`) is unconditional and not subject to this gate — initial CCDI commits fire regardless of `graduation.json` status. See the `NOTE (CE-8 / D1)` in the [data flow](#data-flow-full-ccdi-dialogue) for the inline confirmation.
 
+**`status` enum (normative source):** Valid values are `"approved"` and `"rejected"`. This enum is closed for validator purposes (see [delivery.md#graduation-protocol](delivery.md#graduation-protocol) — validator MUST reject unknown values) but the runtime gate is intentionally permissive via its catch-all `else → shadow mode`. These are consistent: the validator ensures approved `graduation.json` files contain only recognized values; the gate's permissiveness handles unexpected file corruption or forward migration scenarios at runtime. When extending the enum, add the value here AND update the validator in delivery.md.
+
 ### Mid-Dialogue Phase (Per Turn in `codex-dialogue`)
 
 CCDI integrates into the existing turn loop as a **prepare/commit** protocol — not a single monolithic step. This prevents registering injection for packets that were built but never sent.
