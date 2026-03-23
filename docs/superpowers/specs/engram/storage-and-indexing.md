@@ -106,6 +106,8 @@ Canonical field table for the fenced-YAML block in Work ticket files (`engram/wo
 | `ticket_id` | `str` | **Required** | Canonical ticket ID (e.g., `T-20260322-01`). Maps to `RecordRef.record_id`. |
 | `status` | `str` | **Required** | One of: `open`, `in_progress`, `closed`, `blocked`. Maps to `IndexEntry.status`. |
 | `worktree_id` | `str` | **Required** | Source worktree. Maps to `RecordMeta.worktree_id`. |
+| `session_id` | `str` | **Required** | Claude session UUID. Maps to `RecordMeta.session_id`. |
+| `schema_version` | `str` | **Required** | Record provenance version (e.g., `"1.0"`). Maps to `RecordMeta.schema_version`. |
 | `created_at` | `str` | **Required** | ISO 8601 UTC creation timestamp. Maps to `IndexEntry.created_at`. |
 | `updated_at` | `str` | Optional | ISO 8601 UTC last modification timestamp. Maps to `IndexEntry.updated_at`. |
 | `source_ref` | `str` | Optional | `RecordRef` canonical serialization of the originating record. |

@@ -27,6 +27,8 @@ The Work subsystem operates in one of two modes, configured via `work_mode` in [
 
 **Context subsystem autonomy:** No autonomy gate. Agents save their own session state — snapshots and checkpoints are agent-authored artifacts, not user-reviewed outputs.
 
+**gated:** Knowledge staging requires explicit user confirmation before staging-meta is written. The Knowledge engine presents candidates and waits for approval. Used for the Knowledge staging inbox. `gated` mode is independent of Work modes (`suggest`, `auto_audit`).
+
 **Knowledge staging autonomy:** `/distill` auto-stages candidates without user confirmation; `/learn` publishes directly via the Knowledge engine. Staged candidates require user review via `/curate` before publication. Staging inbox cap (`knowledge_max_stages`) and content-addressed idempotency bound autonomous volume. See [enforcement.md §Autonomy Model](enforcement.md#autonomy-model) for configuration schema and enforcement caps.
 
 ## Existing Operations (Migrate and Improve)

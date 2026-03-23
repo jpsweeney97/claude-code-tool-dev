@@ -59,10 +59,11 @@ Policy-based enforcement covering all currently supported write tools (Write, Ed
 | `work` | `engram/work/**` | Engine entrypoints only | Yes |
 | `knowledge_published` | `engram/knowledge/**` | Engine entrypoints only | Yes |
 | `knowledge_staging` | `~/.claude/engram/<repo_id>/knowledge_staging/**` | Engine entrypoints only | No (Bash-mediated) |
+| `context_private` | `~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**` | Direct-write path authorization (branch 2) | No (branch 2 — register excluded by design) |
 
 Paths canonicalized before matching: expand `~` (via `os.path.expanduser()` or equivalent), then resolve symlinks, collapse `..`, normalize to absolute (`os.path.realpath()` after expansion). Symlinks in engine script paths are resolved by the same canonicalization — a symlinked `scripts/` directory resolves to its real path before pattern matching. Path canonicalization and `**` glob matching cover all subdirectories including `.`-prefixed ones (e.g., `.audit/`). The `engram/work/**` path class protects `engram/work/.audit/**` — all audit trail entries are engine-only.
 
-**Intentional exclusions:** Snapshot and checkpoint paths (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) are not in this table. The Context paths handled by [branch 2 of the guard decision algorithm](#guard-decision-algorithm) are the authoritative enumeration of Context-owned paths — see [§Direct-Write Path Authorization](#direct-write-path-authorization). Context subsystem writes use Write/Edit tools natively — excluded from both protected-path enforcement and [trust triple validation](#step-2-validation-engine-entrypoint). Advisory quality checks via [`engram_quality`](#quality-validation) cover content quality. `engram_register` does NOT fire for Context snapshot/checkpoint writes — these paths are excluded from this table. Context write events (`snapshot_written`) are emitted by the orchestrator/engine as [ledger events](types.md#event-vocabulary-v1), not by `engram_register`.
+**Context path entry:** Snapshot and checkpoint paths (`~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**`) appear in this table as the `context_private` class. The Context paths handled by [branch 2 of the guard decision algorithm](#guard-decision-algorithm) are the authoritative enumeration of Context-owned paths — see [§Direct-Write Path Authorization](#direct-write-path-authorization). Context subsystem writes use Write/Edit tools natively — excluded from [trust triple validation](#step-2-validation-engine-entrypoint). Advisory quality checks via [`engram_quality`](#quality-validation) cover content quality. `engram_register` does NOT fire for Context snapshot/checkpoint writes (see `context_private` row: "Register Fires? No"). Context write events (`snapshot_written`) are emitted by the orchestrator/engine as [ledger events](types.md#event-vocabulary-v1), not by `engram_register`.
 
 **Reserved paths:** When content is added to `engram/.engram/` (reserved for future shared metadata), a corresponding path class entry must be added to this table before implementation.
 
@@ -143,6 +144,8 @@ Each build step lists the `engram_guard` capabilities it requires. No subsystem 
 | `work_path_enforcement` | Step 3a | Protected-path block for Write/Edit to Work and Knowledge paths |
 | `context_direct_write_authorization` | Step 4a | Direct-write path authorization for Context snapshot/checkpoint paths |
 
+The 'Ships At' column mirrors delivery.md §Build Sequence for convenience. delivery.md is the `implementation_plan` authority — if the two diverge, delivery.md is authoritative.
+
 ### Guard Decision Algorithm
 
 `engram_guard` evaluates incoming tool calls in this order. Branches are evaluated sequentially; the first match determines the action.
@@ -159,7 +162,7 @@ engram_guard decision algorithm:
      → Block with path-class diagnostic
   4. Otherwise:
      → Allow unconditionally (engram_guard does not restrict general writes)
-Branches evaluated in this order. Step 2 failing (not Context-owned) routes to step 3.
+Branches evaluated in this order. Step 2 failing the Context-ownership check (path not within Context private root) silently falls through — execution continues to step 3 (protected-path check) or step 4 (allow unconditionally).
 No diagnostic is emitted when Step 2 fails — silent fall-through to Step 3 is correct behavior for general writes. Context path authorization failure is surfaced indirectly by /triage anomaly detection (snapshot missing session_id), not by the guard.
 ```
 
@@ -244,7 +247,7 @@ The `_user.py` / `_agent.py` naming convention reflects but does not define the 
 2. Return failure with the stable error message: `"hook_request_origin: expected {expected!r} for this entrypoint, got {actual!r}"`.
 3. Surface the error in the structured response — the normalized message must be present.
 
-Each entrypoint should use the shared helper function `validate_origin_match(expected, actual)` that raises or returns an error on mismatch. This converts the per-entrypoint self-enforcement pattern into a shared enforcement primitive with a single test surface. VR-3A-14 verifies the rejection contract across all 6 mutating entrypoints to catch contract drift.
+Each entrypoint MUST use the shared helper function `validate_origin_match(expected, actual)`. Inline reimplementation of origin-matching logic is prohibited — the shared helper is the single enforcement primitive. This converts the per-entrypoint self-enforcement pattern into a shared enforcement primitive with a single test surface. VR-3A-14 verifies the rejection contract across all 6 mutating entrypoints to catch contract drift.
 
 ### Step 3: Per-Subsystem Enforcement
 
@@ -257,7 +260,7 @@ Context subsystem writes (`/save`, `/quicksave`, `/load`) use the Write and Edit
 1. **Path ownership check:** Verify the target path is within the Context subsystem's private root (`~/.claude/engram/<repo_id>/snapshots/**` or `checkpoints/**`). Paths outside these directories are not Context-owned.
 2. **Allow the write.** Context paths are intentionally excluded from [protected-path enforcement](#protected-path-enforcement) (they are not engine-managed).
 3. **Post-write quality validation** via [`engram_quality`](#quality-validation) checks content quality (frontmatter completeness).
-4. **Provenance is embedded** in the written content (frontmatter `schema_version`, `session_id`, `worktree_id`, `orchestrated_by`), validated by `/triage` [anomaly detection](operations.md#triage-read-work-and-context). See [types.md §Snapshot Orchestration Intent](types.md#snapshot-orchestration-intent) for required and optional frontmatter fields.
+4. **Provenance is embedded** in the written content (frontmatter `schema_version`, `session_id`, `worktree_id`, `timestamp`), validated by `/triage` [anomaly detection](operations.md#triage-read-work-and-context). `orchestrated_by` is included when applicable (per [types.md §Snapshot Orchestration Intent](types.md#snapshot-orchestration-intent)).
 
 This is explicitly **path authorization plus provenance/integrity validation**, not engine trust injection. The `collect_trust_triple_errors()` validator is not invoked for direct-write paths. Context paths allow Write/Edit from any source. Identity verification is intentionally omitted — `/triage` anomaly detection (not `engram_guard`) is the enforcement layer for Context path integrity. See [decisions.md §Named Risks](decisions.md#named-risks) (Context any-source write authorization) for the accepted gap and rationale. See [§Autonomy Model](#autonomy-model).
 
@@ -302,7 +305,7 @@ During Step 3a, `engram_guard` has `engine_trust_injection` and `work_path_enfor
 
 **Accepted gap — `engram_quality` intra-step ordering at Step 4a:** Both `engram_quality` and `context_direct_write_authorization` ship at Step 4a. The [intra-step ordering requirement](delivery.md#step-4a-context-subsystem) validates `engram_quality` (VR-4A-14) before `context_direct_write_authorization` (VR-4A-19), with Context skills enabled only after both pass. During this intra-step validation window, `engram_quality` is deployed and firing but `context_direct_write_authorization` is not yet validated — quality feedback is advisory. This has zero practical exposure because no Context skills are enabled during validation.
 
-**Accepted gap — staging writes not blocked during bridge period (Steps 2a–3a):** Between Step 2a and Step 3a, a Bash-bypassing write to `engram/knowledge/staging/` is not blocked by branch 3 (inactive). The staging file passes integrity checks (`content_sha256`) but lacks a trust triple. Detection occurs at `/curate` time when `trust_triple_present: false` is flagged. This is the accepted enforcement boundary for the bridge period.
+**Accepted gap — staging writes not blocked during bridge period (Steps 2a–3a):** Between Step 2a and Step 3a, a Bash-bypassing write to `~/.claude/engram/<repo_id>/knowledge_staging/` is not blocked by branch 3 (inactive). The staging file passes integrity checks (`content_sha256`) but lacks a trust triple. Detection occurs at `/curate` time when `trust_triple_present: false` is flagged. This is the accepted enforcement boundary for the bridge period.
 
 `engram_register` fires on the exact paths defined in the [protected-path enforcement table](#protected-path-enforcement) and no others, for Write/Edit-observable paths only. `knowledge_staging` entries in the protected-path table are observable by `engram_guard` (for blocking unauthorized Write/Edit) but NOT by `engram_register` (because staging writes are Bash-mediated engine invocations, not Write/Edit tool calls). A change to the protected-path table automatically applies to both `engram_guard` and `engram_register` for their respective observation scopes.
 
@@ -353,11 +356,9 @@ No other skill-level write to a protected or externally-owned path is sanctioned
 
 | Subsystem | Model | Rationale |
 |---|---|---|
-| Work | `suggest` / `auto_audit` | User-approval required (`suggest`); automated with audit trail (`auto_audit`) |
-| Context | None | No autonomy gate — agent-owned session state |
-| Knowledge staging | `gated` | User-gated publication via `/curate`; staging cap bounds autonomous volume |
-
-**Mode definitions:** See [operations.md §Work Mode Definitions](operations.md#work-mode-definitions) for behavioral semantics (`behavior_contract` authority). This section retains the configuration schema and enforcement-level caps (`enforcement_mechanism` authority).
+| Work | `suggest` / `auto_audit` | See operations.md §Work Mode Definitions |
+| Context | None | See operations.md §Work Mode Definitions |
+| Knowledge staging | `gated` | See operations.md §Work Mode Definitions |
 
 ### Configuration
 
