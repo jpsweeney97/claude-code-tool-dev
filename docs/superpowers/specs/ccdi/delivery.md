@@ -186,7 +186,7 @@ All three flags are required. **Exit codes:** 0 = all checks pass, 1 = one or mo
 | Yield arithmetic inconsistent — heterogeneous packets_prepared | Dialogue A has `packets_prepared=10, packets_surviving_precedence=8`, dialogue B has `packets_prepared=2, packets_surviving_precedence=2`. `graduation.json` declares `effective_prepare_yield: 0.9` (per-dialogue mean, not global ratio `10/12 = 0.833`). | Exit 1, error identifies yield discrepancy: computed global ratio 0.833 vs declared 0.9 |
 | Rejected status with absent or empty `notes` field | `graduation.json` with `status: 'rejected'`, `notes: ''` | Exit 1, error reports 'notes field required and must be non-empty when status is rejected' |
 | Approved status with yield below threshold | `graduation.json` with `status: "approved"`, `effective_prepare_yield: 0.30` (below 40% threshold) | Exit 1, error reports "effective_prepare_yield 0.30 is below minimum threshold 0.40 for approved status" |
-| Approved status with latency above threshold | `graduation.json` with `status: "approved"`, `p95_prepare_latency_ms: 600` (above 500ms threshold) | Exit 1, error reports latency above threshold |
+| Approved status with latency above threshold | `graduation.json` with `status: "approved"`, `avg_latency_ms: 600` (above 500ms threshold) | Exit 1, error reports latency above threshold |
 | Approved status with false positive rate above threshold | `graduation.json` with `status: "approved"`, `false_positive_rate: 0.15` (above 10% threshold) | Exit 1, error reports false positive rate above threshold |
 
 ## Testing Strategy
