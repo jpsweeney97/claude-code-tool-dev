@@ -10,7 +10,7 @@ Import pattern:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -410,10 +410,25 @@ class RegistrySeed:
                 )
 
         entries = [TopicRegistryEntry.from_dict(e) for e in data.get("entries", [])]
+
+        # inventory_snapshot_version: null/empty/absent → version mismatch warning.
+        # Full version-mismatch handling (topic_key discard, best-effort mapping)
+        # is in registry.py load_registry() (Task 6).
+        raw_isv = data.get("inventory_snapshot_version")
+        if raw_isv is None or raw_isv == "":
+            logger.warning(
+                "RegistrySeed: inventory_snapshot_version is %s — treating as "
+                "version mismatch (build defect per data-model.md)",
+                "absent" if raw_isv is None else "empty",
+            )
+            isv = "1"  # best-effort default
+        else:
+            isv = raw_isv
+
         return cls(
             entries=entries,
             docs_epoch=data.get("docs_epoch"),
-            inventory_snapshot_version=data.get("inventory_snapshot_version", "1"),
+            inventory_snapshot_version=isv,
             results_file=None,
             inventory_snapshot_path=None,
         )
