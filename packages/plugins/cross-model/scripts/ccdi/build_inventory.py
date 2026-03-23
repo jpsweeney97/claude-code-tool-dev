@@ -57,10 +57,6 @@ _VALID_OPERATIONS = {
 # ---------------------------------------------------------------------------
 
 
-class _BuildError(Exception):
-    """Internal: raised to trigger sys.exit in build_inventory."""
-
-
 def _fail(msg: str) -> None:
     """Log error and exit non-zero."""
     logger.error(msg)

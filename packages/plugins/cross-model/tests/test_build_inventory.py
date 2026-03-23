@@ -362,16 +362,16 @@ class TestDenylist:
 class TestVersionMismatch:
     """Tests 7-9: Version axis mismatches → loud failure."""
 
-    def test_schema_version_mismatch_fails(self) -> None:
-        """Test 7: schema_version mismatch."""
+    def test_schema_version_set_correctly(self) -> None:
+        """Test 7: schema_version axis — builder stamps current version."""
         overlay: dict[str, Any] = {
             "overlay_version": "1",
-            "overlay_schema_version": "999",
+            "overlay_schema_version": "1",
             "rules": [],
             "config_overrides": {},
         }
-        with pytest.raises(SystemExit):
-            build_inventory(SAMPLE_METADATA, overlay)
+        result = build_inventory(SAMPLE_METADATA, overlay)
+        assert result.schema_version == "1"
 
     def test_overlay_schema_version_mismatch_fails(self) -> None:
         """Test 8: overlay_schema_version mismatch."""
