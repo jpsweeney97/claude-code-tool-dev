@@ -22,6 +22,8 @@ CompiledInventory
 └── merge_semantics_version: string    # current: "1"; version of the overlay merge algorithm
 ```
 
+**Null-serialization:** When `docs_epoch` is null, it MUST be serialized as explicit `null` in JSON — never omitted. See [§RegistrySeed Null-field serialization](#registryseed) for the general invariant.
+
 ### OverlayMeta
 
 | Field | Type | Purpose |
@@ -90,6 +92,8 @@ Four version axes prevent coupled evolution (three compatibility axes + one inst
 **Known migration imprecision:** When `consecutive_medium_count` is absent from a serialized entry (migrated from a prior schema version) and the entry is in `detected` state with `last_seen_turn > 0`, the default `0` may under-count — the entry may have been mid-streak at medium confidence. The scheduler will require one additional medium-confidence turn to reach the injection threshold (2 instead of 1). This is accepted as safe-but-imprecise: the topic is not lost, only delayed by one turn. The alternative (load-time heuristic using `last_seen_turn > 0` to infer streak state) adds schema-migration complexity for a single-turn delay.
 
 These defaults ensure safe load-time migration for entries serialized before these fields were added. `family_key` default is derived by extracting the family prefix from `topic_key` (e.g., `hooks` from `hooks.pre_tool_use`).
+
+**Entry-level defaults update protocol:** When registry.md adds a new field to `TopicRegistryEntry` (under `registry-contract` authority), the data-model.md defaults table MUST be updated concurrently to include the new field's schema default value. This is the entry-level complement to the envelope-level boundary rule in spec.yaml.
 
 ## TopicRecord
 
@@ -297,10 +301,13 @@ Schema for the registry seed emitted by `ccdi-gatherer` and consumed by `codex-d
 RegistrySeed
 ├── entries: TopicRegistryEntry[]   # durable-state fields only
 ├── docs_epoch: string | null       # docs_epoch from inventory at build time; null-serialization rule: see §Null-field serialization below
+                                    # WARNING: docs_epoch is retained for traceability only. NOT read by CLI at suppression time — suppressed_docs_epoch is sourced from the pinned inventory snapshot (via --inventory-snapshot). See §Live Registry File Schema.
 ├── inventory_snapshot_version: string  # schema_version from the active inventory. If the inventory fails to load at seed-build time, `ccdi-gatherer` MUST NOT emit a `<!-- ccdi-registry-seed -->` sentinel block. The sentinel block MUST only be emitted when a valid CompiledInventory was loaded and `inventory_snapshot_version` can be sourced from a real `schema_version` value.
 ├── results_file?: string | null     # transport-only; never persisted in live file; stripped on load. Path to search results file for initial commit phase; absent when no pre-dialogue search was performed
 └── inventory_snapshot_path?: string | null  # transport-only; never persisted in live file; stripped on load. Path to pinned inventory snapshot file for --inventory-snapshot on all build-packet CLI calls; absent when ccdi-gatherer did not load a valid inventory
 ```
+
+*(Informative — behavioral authority: [integration.md](integration.md). Restated here for implementer convenience.)*
 
 **`results_file` field:** `results_file` is required in the sentinel RegistrySeed when a pre-dialogue search was performed. If absent (no results generated), the initial CCDI commit phase is skipped — no results to commit. When present, the value is an absolute path to the search results JSON file written by `ccdi-gatherer` during the pre-dialogue phase (e.g., `/tmp/ccdi_results_<id>.json`). The `/dialogue` skill reads this path from the sentinel block and passes it to the initial CCDI commit's `build-packet --results-file` call. This is a transport field for the handoff — it is not written to the live registry file and is not used after the initial commit completes. **Load-time invariant:** Implementations MUST strip `results_file` from the in-memory registry representation at load time (no load-time write-back). The stripped state is persisted to disk on the next normal mutation, ensuring the field never appears in the live registry file after a successful write. **Definition:** A "normal mutation" is any CLI operation that successfully writes the registry file to disk: `dialogue-turn` state updates, `--mark-injected` commits, `--mark-deferred` writes, or automatic suppression writes from `build-packet` empty output. Read-only operations (e.g., `classify`) are not mutations. See [registry.md#failure-modes](registry.md#failure-modes) for load-time handling. The `/dialogue` skill reads the field from the transport envelope (sentinel seed) before CLI handoff — the boundary between transport and live registry is the key distinction. Stale paths to deleted temp files would cause failures on subsequent loads if the field were not stripped.
 
@@ -332,6 +339,8 @@ Topics in attempt-local states (`looked_up`, `built`) are not persisted to the s
 
 ### Live Registry File Schema
 
+*(Informative — behavioral authority: [integration.md](integration.md). Restated here for implementer convenience.)*
+
 The post-commit live registry file is the RegistrySeed with `results_file` stripped at initial commit. Structure:
 
 | Field | Type | Description |
@@ -340,7 +349,11 @@ The post-commit live registry file is the RegistrySeed with `results_file` strip
 | `docs_epoch` | `string \| null` | Hash of the indexed document set at seed creation time; retained for traceability only. This field is NOT read by the CLI at suppression time — `suppressed_docs_epoch` is sourced from the pinned inventory snapshot (via `--inventory-snapshot`), not from this envelope field. See [registry.md#field-update-rules](registry.md#field-update-rules). |
 | `inventory_snapshot_version` | `string` | `CompiledInventory.schema_version` captured at seed creation; used for version-mismatch gating at seed load |
 
+*(Informative — behavioral authority: [integration.md](integration.md). Restated here for implementer convenience.)*
+
 `results_file` and `inventory_snapshot_path` are stripped on load (load-time invariant) and MUST NOT appear in the live file. `docs_epoch` and `inventory_snapshot_version` are retained as traceability fields and are not modified after initial write. The `docs_epoch` used for suppression re-entry comparisons is sourced from the pinned inventory snapshot (via `--inventory-snapshot`), not from the registry file's envelope field.
+
+*(Informative — behavioral authority: [integration.md](integration.md). Restated here for implementer convenience.)*
 
 **Write-time invariant:** Implementations MUST NOT write `results_file` or `inventory_snapshot_path` to the registry file at any point during the write path. The serializer MUST exclude both transport-only fields from the output JSON when writing the live registry file. **Transport-only field allowlist (closed):** Only `results_file` and `inventory_snapshot_path` are transport-only fields. New transport-only fields require updating this allowlist, the load-time stripping logic, and the write-time exclusion logic. Stripping at load time (line 289) is a recovery mechanism for files written by a prior version or interrupted process — not the primary enforcement point. Defense-in-depth: both write-time exclusion and load-time stripping MUST be implemented.
 
