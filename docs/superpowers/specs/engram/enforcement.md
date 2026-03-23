@@ -107,7 +107,7 @@ Orchestration intent fields (`orchestrated_by`, `save_expected_defer`, `save_exp
 
 **Hook self-failure:** If `engram_quality` itself fails (unhandled exception, timeout), the failure is logged as `[engram_quality:error]` (distinct from quality warnings at `[engram_quality:warn]`) but does not block the underlying write. The implementation must catch all exceptions in the hook body to prevent hook-level failures from propagating to the tool call result.
 
-Implementation must never return exit code 2 (Block). Even if the quality check detects a severe issue, the response must be exit code 0 with warning text. This is enforced by the [Enforcement Boundary Constraint](foundations.md#enforcement-boundary-constraint-invariant).
+Per the [Enforcement Boundary Constraint](foundations.md#enforcement-boundary-constraint-invariant), exit code 2 is prohibited here. Even if the quality check detects a severe issue, the response must be exit code 0 with warning text.
 
 **Edit timing:** For Edit tool calls, the hook reads the final file state from disk at PostToolUse invocation time. Concurrent writes between Edit completion and hook invocation are not detectable — the hook validates whatever is on disk. This is acceptable for advisory warnings.
 
@@ -189,6 +189,8 @@ When `engram_guard` detects an authorized engine invocation, it writes the [Trus
 ### Step 2: Validation (Engine Entrypoint)
 
 The `collect_trust_triple_errors()` function contract (signature, validation rules, stable error strings) is specified in [types.md §Trust Validation](types.md#trust-validation) — that is the canonical source. This section specifies the enforcement mandate: every mutating Work or Knowledge engine entrypoint must invoke `collect_trust_triple_errors()` before making state changes.
+
+Error strings from `collect_trust_triple_errors()` must be joined with `'; '` in the rejection response — see [types.md §TrustPayload](types.md#trustpayload--trust-triple-wire-format) for the stable error string formats.
 
 Every **mutating** entrypoint in Work and Knowledge subsystem engines must invoke [`collect_trust_triple_errors()`](types.md#trust-validation) before making state changes. Trust validation is verified after the `.engram-id` existence check (see [check ordering below](#check-ordering)), before all other processing including idempotency key lookups and dedup reads. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. See [types.md §Trust Validation](types.md#trust-validation) for validation rules, error format, and caller obligation. Read-only entrypoints are exempt.
 
