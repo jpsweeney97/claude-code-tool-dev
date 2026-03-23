@@ -48,7 +48,7 @@ Hook failures are written to a per-session diagnostic file at `~/.claude/engram/
 
 **Schema version:** Each `.diag` JSONL entry includes `schema_version: "1.0"`. If a reader encounters a `.diag` entry with an unrecognized `schema_version`, it should treat the entry as opaque (log but do not interpret fields). If all entries in a `.diag` file have unrecognized `schema_version` (all treated as opaque), `/triage` still surfaces `"ledger unavailable in session <session_id>"` — the conservative approach. A non-empty `.diag` file implies at least one hook failure occurred, even if the entries are not interpretable by the current reader.
 
-**TTL:** Same as ledger shards — append-only, no TTL. Cleaned up if parent session directory is removed.
+**TTL:** Cleaned up by `engram_session` at SessionStart (>90 days, max 20 per session).
 
 ## Protected-Path Enforcement
 
@@ -61,7 +61,9 @@ Policy-based enforcement covering all currently supported write tools (Write, Ed
 | `knowledge_staging` | `~/.claude/engram/<repo_id>/knowledge_staging/**` | Engine entrypoints only | No (Bash-mediated) |
 | `context_private` | `~/.claude/engram/<repo_id>/snapshots/**`, `checkpoints/**` | Direct-write path authorization (branch 2) | No (branch 2 — register excluded by design) |
 
-Paths canonicalized before matching: expand `~` (via `os.path.expanduser()` or equivalent), then resolve symlinks, collapse `..`, normalize to absolute (`os.path.realpath()` after expansion). Symlinks in engine script paths are resolved by the same canonicalization — a symlinked `scripts/` directory resolves to its real path before pattern matching. Path canonicalization and `**` glob matching cover all subdirectories including `.`-prefixed ones (e.g., `.audit/`). The `engram/work/**` path class protects `engram/work/.audit/**` — all audit trail entries are engine-only.
+**Structural exclusions:** Rows marked "Register Fires? No" are by-design exclusions, not gaps. `knowledge_staging` writes are Bash-mediated engine invocations — routing them through Write/Edit tools to obtain ledger coverage would bypass trust injection. `context_private` writes are authorized via branch 2 — `engram_register` observes Write/Edit tool calls but branch 2 paths are authorized, not audited.
+
+**Canonicalization order** (both steps required, in this order): (1) `os.path.expanduser()` — expand `~` to the user's home directory, (2) `os.path.realpath()` — resolve symlinks, collapse `..`, normalize to absolute. Calling `realpath` before `expanduser` is incorrect — `realpath` does not resolve `~`, causing all home-relative paths to fail canonicalization silently (no error, wrong branch taken). Symlinks in engine script paths are resolved by the same canonicalization — a symlinked `scripts/` directory resolves to its real path before pattern matching. Path canonicalization and `**` glob matching cover all subdirectories including `.`-prefixed ones (e.g., `.audit/`). The `engram/work/**` path class protects `engram/work/.audit/**` — all audit trail entries are engine-only.
 
 All `~` paths resolve against the invoking process's home directory (`os.path.expanduser()`). Cross-user invocation (where a different user's Claude session accesses Engram data owned by another user) is unsupported and out of scope for this spec.
 
@@ -150,7 +152,7 @@ Each build step lists the `engram_guard` capabilities it requires. No subsystem 
 | `work_path_enforcement` | Step 3a | Protected-path block for Write/Edit to Work and Knowledge paths |
 | `context_direct_write_authorization` | Step 4a | Direct-write path authorization for Context snapshot/checkpoint paths |
 
-This table is the canonical source for guard capability activation (`enforcement_mechanism` authority). delivery.md §Build Sequence references this table for the implementation schedule — if the two diverge, this table is authoritative for which capabilities are active at each step.
+This table is the canonical source for guard capability behavioral contracts (`enforcement_mechanism` authority). delivery.md §Build Sequence owns the activation schedule (`implementation_plan` authority) — which step activates each capability. delivery.md §Build Sequence references this table for the implementation schedule — if the two diverge, this table is authoritative for which capabilities are active at each step.
 
 ### Guard Decision Algorithm
 
@@ -168,11 +170,12 @@ engram_guard decision algorithm:
   2. If tool_name in {Write, Edit} AND path within Context private root:
      → Direct-write path authorization (allow + post-write quality)
   3. If tool_name in {Write, Edit} AND path in protected-path table:
-     → Block with path-class diagnostic
+     → Block (exit code 2) with diagnostic:
+       `"engram_guard: write to protected path {canonical_path} blocked. Path class: {path_class}. Use engine entrypoints for {path_class} writes."`
   4. Otherwise:
      → Allow unconditionally (engram_guard does not restrict general writes)
 Branches evaluated in this order. Step 2 failing the Context-ownership check (path not within Context private root) silently falls through — execution continues to step 3 (protected-path check) or step 4 (allow unconditionally).
-No diagnostic is emitted when Step 2 fails — silent fall-through to Step 3 is correct behavior for general writes. Context path authorization failure is surfaced indirectly by /triage anomaly detection (snapshot missing session_id), not by the guard.
+No path-authorization diagnostic is emitted when Step 2 fails the Context-ownership check — silent fall-through to Step 3 is correct behavior for general writes. Git identity errors (from `identity.get_worktree_id()`) are always logged to stderr regardless of branch 2 outcome — these are infrastructure diagnostics, not path-authorization diagnostics. Context path authorization failure is surfaced indirectly by /triage anomaly detection (snapshot missing session_id), not by the guard.
 ```
 
 **Capability gating:** Each branch is only active when its corresponding guard capability has shipped. Branch 1 activates in two phases: Step 2a (`engine_trust_injection`) covers Knowledge engine paths; Step 3a (`engine_trust_injection_work`) extends coverage to Work engine paths. Branch 3 activates at Step 3a (`work_path_enforcement`). Branch 2 activates at Step 4a (`context_direct_write_authorization`). Before a capability ships, its branch is a no-op (falls through to branch 4).
@@ -191,6 +194,8 @@ The engine trust injection mechanism uses a payload file as the communication ch
 | **Creator** | `engram_guard` creates the file atomically (temp file → `fsync` → `os.replace`) |
 | **Consumer** | Subsystem engine reads the file, validates via `collect_trust_triple_errors()`, then deletes it |
 | **Missing at consumption** | If the payload file path argument is present but the file does not exist at engine startup, the engine must reject with: `"Trust triple missing: payload file not found at {path}"`. Do not proceed with state changes. This handles two root causes uniformly: (a) guard blocked (exit 2) but engine invoked on retry, and (b) partial fsync (file created but incompletely written). |
+
+The uniform error message is acceptable for user-facing output. The engine should also log distinguishing context to stderr: whether the path was never present (guard-blocked retry) vs. present but zero-bytes/corrupt (partial fsync), so operators can distinguish failure modes in logs.
 | **Cleanup** | Engine deletes after consuming. `engram_session` prunes orphans older than 24h on startup. |
 | **Containment** | `engram_guard` validates the payload file path is within the workspace `.claude/engram-tmp/` directory before writing. The containment check validates the path `engram_guard` itself constructs (catching internal implementation bugs such as path traversal in path construction), not external injection. The check is scoped to Branch 1 — only engine Bash invocations trigger containment validation. |
 
@@ -230,13 +235,21 @@ Every **mutating** entrypoint in Work and Knowledge subsystem engines must invok
 
 All writes from `/learn` route through the Knowledge engine entrypoint — `/learn` does **not** write directly to `learnings.md` via the Write tool. This ensures trust injection covers the `/learn` path.
 
-Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring. delivery.md Step 3a must include a verification step asserting `collect_trust_triple_errors()` is invoked at every documented Work and Knowledge mutating entrypoint (unit test or static analysis check). Context engine scripts must **not** invoke `collect_trust_triple_errors()` — this is verified by a separate negative test.
+Read-only queries and index scans are exempt. Each subsystem engine documents its mutating entrypoints in its module docstring. delivery.md must include verification steps asserting `collect_trust_triple_errors()` is invoked at every documented mutating entrypoint: Knowledge entrypoints at Step 2a (VR-2A-NEW-1), Work entrypoints at Step 3a (VR-3A-9) (unit test or static analysis check). Context engine scripts must **not** invoke `collect_trust_triple_errors()` — this is verified by a separate negative test.
 
 #### Check Ordering
 
-Each mutating entrypoint must check `.engram-id` existence before invoking `collect_trust_triple_errors()`. If `.engram-id` is absent, return the initialization error immediately without trust triple validation. This ensures users see "Engram not initialized" rather than a confusing trust triple rejection.
+Each mutating Work and Knowledge engine entrypoint must execute checks in this order. A failure at any step short-circuits — do not proceed to later steps.
 
-If the payload file is absent or unparseable after the `.engram-id` check succeeds, the engine must reject the operation with: `"trust triple not injected: payload file missing or unreadable at {path}"`. Do not attempt to invoke `collect_trust_triple_errors()` with `None` values as a substitute for a missing payload file.
+| Order | Check | On Failure |
+|-------|-------|-----------|
+| 1 | `.engram-id` existence | Return `"Engram not initialized: run 'engram init' to bootstrap."` |
+| 2 | Payload containment (defense-in-depth) | Reject: `"Trust triple rejected: payload path outside containment boundary: {path}"` |
+| 3 | Payload file existence and readability | Reject: `"trust triple not injected: payload file missing or unreadable at {path}"` |
+| 4 | Trust triple validation (`collect_trust_triple_errors()`) | Reject with joined error strings |
+| 5 | Origin matching (`validate_origin_match()`) | Reject: `"hook_request_origin: expected {expected!r} for this entrypoint, got {actual!r}"` |
+
+Step 1 precedes step 2 so users see "Engram not initialized" rather than a confusing containment error. Steps 2–3 validate payload delivery. Steps 4–5 validate payload content. Context engine scripts must **not** invoke any of steps 2–5 — they use [direct-write path authorization](#direct-write-path-authorization).
 
 **Payload field access:** Engine code must access `TrustPayload` fields via `.get()` (dict-style) rather than direct attribute access. This ensures `None` values from missing fields are captured by `collect_trust_triple_errors()` validation rather than raising `KeyError`. Example: `payload.get("hook_injected")` not `payload["hook_injected"]`.
 
@@ -248,6 +261,8 @@ If the payload file is absent or unparseable after the `.engram-id` check succee
 | Agent/engine-initiated operations | `"agent"` | staging write (`/distill`) |
 
 `/learn` and `/curate` are user-initiated skills that route through the Knowledge engine publish path — they use `"user"` origin despite calling the same engine entrypoint as `/distill`'s staging write. The origin is determined by the calling skill, not the engine entrypoint. `/distill` is the only Knowledge operation that uses `"agent"` origin (it extracts candidates without user interaction).
+
+**Explicit call sites:** The Knowledge engine publish entrypoint (shared by `/learn` and `/curate`) must call `validate_origin_match("user", actual)`. The staging write entrypoint (`/distill`) must call `validate_origin_match("agent", actual)`. The promote-meta write entrypoint must call `validate_origin_match("user", actual)`.
 
 The `_user.py` / `_agent.py` naming convention reflects but does not define the expected origin. This table is the enforcement-level reference for origin-matching. The [interface_contract](types.md#trustpayload--trust-triple-wire-format) definition of `hook_request_origin` values is in types.md.
 
@@ -293,7 +308,7 @@ Although `worktree_id` is not part of the trust triple payload, the guard requir
 
 - **Branches 1 and 2** (engine trust injection, direct-write path authorization): Within each branch, the capability-active check executes first. If the capability is inactive, the branch is a no-op regardless of degraded-mode state — no blocking, no diagnostic. If the capability is active and the required resource (e.g., `worktree_id`) is unavailable, block (exit code 2) with branch-specific diagnostic:
   - Branch 1: `"engram_guard degraded: worktree_id unavailable — {error}. Engine trust injection blocked."`
-  - Branch 2: `"engram_guard degraded: worktree_id unavailable — {error}. Direct-write path authorization blocked."`
+  - Branch 2 (only when `context_direct_write_authorization` capability is active): `"engram_guard degraded: worktree_id unavailable — {error}. Direct-write path authorization blocked."` When `context_direct_write_authorization` is inactive, branch 2 is a no-op regardless of degraded-mode state — no blocking, no diagnostic.
 - **Branch 3** (protected-path enforcement): Evaluate normally — protected-path matching does not depend on `worktree_id`. No degradation.
 - **Branch 4** (allow unconditionally): Evaluate normally — no `worktree_id` dependency. No degradation.
 - **Observability:** Log the git error to stderr. The diagnostic channel path (`ledger/<worktree_id>/<session_id>.diag`) cannot be constructed without `worktree_id`, so stderr is the only available channel — this is structurally correct, not a gap.
@@ -321,7 +336,7 @@ During Step 3a, `engram_guard` has `engine_trust_injection`, `engine_trust_injec
 
 **Accepted gap — Context path authorization deferred to Step 4a:** During Steps 3a–4a, branch 2 (`context_direct_write_authorization`) is inactive and branch 3 does not cover Context paths (path-disjoint). Write/Edit to Context snapshot/checkpoint paths is allowed unconditionally via branch 4 (allow). The [governing principle](#trust-injection) of "uniformity of policy (every mutation is authorized)" is intentionally deferred for Context paths until Step 4a. This is an accepted trade-off: Context paths do not exist as write targets until Step 4a activates Context skills, so the window has no practical exposure. See [decisions.md §Named Risks](decisions.md#named-risks).
 
-**Accepted gap — `engram_quality` intra-step ordering at Step 4a:** Both `engram_quality` and `context_direct_write_authorization` ship at Step 4a. The [intra-step ordering requirement](delivery.md#step-4a-context-subsystem) validates `engram_quality` (VR-4A-14) before `context_direct_write_authorization` (VR-4A-19), with Context skills enabled only after both pass. During this intra-step validation window, `engram_quality` is deployed and firing but `context_direct_write_authorization` is not yet validated — quality feedback is advisory. This has zero practical exposure because no Context skills are enabled during validation.
+**Accepted gap — `engram_quality` intra-step ordering at Step 4a:** Both `engram_quality` and `context_direct_write_authorization` ship at Step 4a. The [intra-step ordering requirement](delivery.md#step-4a--activate) validates `engram_quality` (VR-4A-14) before `context_direct_write_authorization` (VR-4A-19), with Context skills enabled only after both pass. During this intra-step validation window, `engram_quality` is deployed and firing but `context_direct_write_authorization` is not yet validated — quality feedback is advisory. This has zero practical exposure because no Context skills are enabled during validation.
 
 **Accepted gap — staging writes not blocked during bridge period (Steps 2a–3a):** Between Step 2a and Step 3a, a Bash-bypassing write to `~/.claude/engram/<repo_id>/knowledge_staging/` is not blocked by branch 3 (inactive). The staging file passes integrity checks (`content_sha256`) but lacks a trust triple. Detection occurs at `/curate` time when `trust_triple_present: false` is flagged. This is the accepted enforcement boundary for the bridge period.
 
@@ -341,6 +356,10 @@ The staging inbox cap is enforced by the Knowledge engine at entrypoint validati
 | Clean expired snapshots (>90d by filename timestamp) | Max 50 files | Fail-open: retry next session |
 | Clean expired chain state (>24h) | Max 20 files | Fail-open |
 | Clean orphan payload files (>24h) in `<repo_root>/.claude/engram-tmp/` | Max 20 files | Fail-open |
+| Clean old `.diag` files (>90d) in `ledger/<worktree_id>/` | Max 20 files | Fail-open |
+
+When orphan payload count at cleanup time exceeds 20, log: `"engram_session: orphan payload accumulation detected ({count} files, cleaned 20). Check for recurring engine crashes."` This surfaces the accumulation pattern without blocking session start.
+
 | Verify `.engram-id` exists | 1 read | Warn if missing (diagnostic channel if worktree_id available; otherwise stderr — see [WorktreeID Resolution Failure](#worktreeid-resolution-failure)). Does not create. |
 
 Per-file cleanup that exceeds 5ms is aborted (skip remaining files). This prevents a single slow file from blowing the startup budget.
@@ -367,6 +386,8 @@ SessionStart does not create `.engram-id` — it requires a git commit, which is
 | CLAUDE.md marker insertion/deletion | Single skill (`/promote`), markers only | See [permitted exceptions](foundations.md#permitted-exceptions). |
 
 No other skill-level write to a protected or externally-owned path is sanctioned. This table lists all exceptions defined in [foundations.md §Permitted Exceptions](foundations.md#permitted-exceptions). The canonical source is foundations.md — an exception not present there is not effective, regardless of its presence in this table.
+
+To add a new exception: update [foundations.md §Permitted Exceptions](foundations.md#permitted-exceptions) first, then add a reference row to this table. See [foundations.md §Adding New Exceptions](foundations.md#adding-new-exceptions) for the sequencing rule.
 
 **Sequencing:** The authoritative exception definition lives in [foundations.md §Permitted Exceptions](foundations.md#permitted-exceptions). This table references it for enforcement-level discoverability.
 
@@ -397,11 +418,15 @@ ledger:
 
 **Counter mechanism:** The Work engine counts `auto_created: True` entries in `.audit/<session_id>.jsonl` at each invocation to enforce `work_max_creates`. No transient counter or session-scoped state file is required. Reset is implicit — a new session has a new `session_id` with no audit entries. TOCTOU between count and create is a soft limit, consistent with the staging inbox cap model.
 
+When the counter includes entries with missing `auto_created` fields (treated as `True` per [VR-3A-24](delivery.md#step-3a-activate)), log: `"engram: {count} audit entries with missing auto_created field counted toward cap. Inspect .audit/<session_id>.jsonl for corruption."` This makes corrupt-entry cap consumption visible.
+
 **Configuration read semantics:** All configuration values in `.claude/engram.local.md` are read at engine invocation time — no session-level caching. Config changes take effect on the next operation. This applies to both `autonomy.*` and `ledger.*` settings.
 
 ### Staging Inbox Cap
 
 The staging inbox cap is configured via `knowledge_max_stages` in `.claude/engram.local.md`. Values less than 1 are invalid; the engine rejects the configuration at parse time with `"knowledge_max_stages must be >= 1"`. The same validation applies to `work_max_creates`: values less than 1 are invalid, rejected at parse time with `"work_max_creates must be >= 1"`. This section owns the configuration schema, validation contract, and cap enforcement behavioral specification (`enforcement_mechanism` authority).
+
+No upper bound is enforced in v1 — operators are trusted to configure sensibly. See [decisions.md §Deferred Decisions](decisions.md#deferred-decisions).
 
 **Cap enforcement formula:** The Knowledge engine checks the cumulative count of files in `knowledge_staging/` before writing new staged candidates. If `count + batch_size > knowledge_max_stages`, the entire batch is rejected (whole-batch reject for determinism — no partial staging). The rejection response includes current count, cap, and a suggestion to run `/curate` to clear the inbox.
 

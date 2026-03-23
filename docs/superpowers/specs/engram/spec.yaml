@@ -41,6 +41,9 @@ precedence:
     interface_contract: [data-contract, operations, decisions]
     persistence_schema: [data-contract, decisions]
     enforcement_mechanism: [enforcement, foundation, operations, decisions]
+    # Exception subdomain: for enforcement *exception creation*, foundation is
+    # the gatekeeper — see foundations.md §Adding New Exceptions. enforcement.md
+    # owns enforcement mechanisms but cannot unilaterally expand the exception set.
     architecture_rule: [foundation, decisions]
     implementation_plan: [delivery, decisions]
     verification_strategy: [delivery, decisions]
@@ -58,3 +61,6 @@ boundary_rules:
   - on_change_to: [enforcement]
     review_authorities: [operations]
     reason: Hook behavior changes can alter which operation paths are authorized.
+  - on_change_to: [foundation]
+    review_authorities: [enforcement]
+    reason: Permitted exception additions/removals in foundations.md must be reflected in enforcement.md's enforcement exceptions table.

@@ -12,7 +12,7 @@ Six operations justify Engram's plugin scope. Three migrate and improve existing
 ## Core Rules
 
 - Target subsystem engine validates and writes. Envelopes are requests, not commands. Work and Knowledge engine invocations go through [`engram_guard`](enforcement.md#trust-injection) for trust injection before any mutating operation. Context subsystem writes use Write/Edit tools natively and are [excluded from trust triple validation](enforcement.md#step-2-validation-engine-entrypoint).
-- **Precondition:** All mutating Work and Knowledge engine entrypoints require trust triple validation before making state changes. Operations with missing or incomplete triples are rejected. The enforcement mandate (which validator to call, check ordering, per-entrypoint origin matching) is specified in [enforcement.md §Trust Injection](enforcement.md#trust-injection) — the authoritative source for `enforcement_mechanism` claims.
+- **Precondition:** All mutating Work and Knowledge engine entrypoints require trust triple validation before making state changes. See [enforcement.md §Trust Injection](enforcement.md#trust-injection) for the enforcement mandate — which validator to call, check ordering, per-entrypoint origin matching, and rejection behavior.
 - Every envelope carries a `source_ref: RecordRef` pinned at creation time. Downstream operations target this ref, never "latest file at path."
 - Every envelope carries an `idempotency_key`. Target engines deduplicate retried operations.
 - `/save` orchestrates cross-subsystem flows but each sub-operation is independently callable and retryable. See [/save orchestration rules](skill-surface.md#save-orchestration-rules).
@@ -148,12 +148,18 @@ Three-step state machine with marker-based location and reconciliation recovery.
         Branch A (no promote-meta): Eligible. Returns promotion plan with target_section.
             User sees proposed text and target_section, confirms before write. User confirmation
             is implicit in lesson selection — the user chose this lesson for promotion. No
-            separate approval prompt.
+            separate approval prompt. This is a skill-level behavioral contract (no enforcement mechanism) — the skill MUST display the promotion plan before proceeding to Step 2.
             **Branch A invariants:** (1) `transformed_text` MUST be a faithful rendering of the selected lesson, differing only by required promotion markers — no content transformation beyond marker wrapping. (2) `target_section` is advisory; if the user later moves the promoted block to a different section, relocation is handled by Branch B2 on subsequent `/promote`.
-        Branch D (promote-meta present, meta_version unrecognized or missing):
-            Exclude from candidate list. Surface warning: "Lesson <lesson_id> has
-            unreadable promote-meta (missing or unrecognized meta_version). Run
-            migration before re-promoting." The exclusion occurs before the lesson
+            Step 1 MUST verify `PromoteEnvelope.content_sha256 == lesson-meta.content_sha256` when no user edit is detected. If they diverge and the lesson content has not been modified since publication, this indicates a byte-range extraction bug — surface a diagnostic error and abort the promote. See [types.md §PromoteEnvelope](types.md#promoteenvelope--knowledge-to-claudemd-intent-record) for the equality constraint.
+        Branch D (promote-meta present, AND any of: meta_version unrecognized or missing, OR promote-meta.lesson_id does not match the immediately preceding lesson-meta.lesson_id):
+            Exclude from candidate list. Surface warning per cause:
+            - Missing/unrecognized meta_version: "Lesson <lesson_id> has
+              unreadable promote-meta (missing or unrecognized meta_version). Run
+              migration before re-promoting."
+            - lesson_id mismatch: "Lesson <lesson_id> has corrupt promote-meta
+              (lesson_id mismatch with lesson-meta). Run migration before
+              re-promoting."
+            The exclusion occurs before the lesson
             appears as a selectable candidate. See [legacy entries](types.md#legacy-entries-missing-meta-version).
         Branch B (promote-meta exists, promoted_content_sha256 == current content_sha256):
             B1 (target_section unchanged): Reject — already promoted. Return: `{"status": "already_promoted", "lesson_id": "<id>", "promoted_at": "<ISO8601>", "target_section": "<section>", "promoted_content_sha256": "<hex>"}`.
@@ -295,7 +301,7 @@ On completion (success or partial failure), `/save` writes `save_recovery.json` 
 }
 ```
 
-The manifest is an [operational aid](foundations.md#auxiliary-state-authority), not authoritative state. Primary records remain authoritative. Overwritten on each `/save` invocation (only the most recent is useful for retry). Not part of the Engram storage contract. The `save_recovery.json` schema does not include a `schema_version` field — recovery manifests are ephemeral operational aids, not versioned contracts. The file is overwritten on every `/save`, so no cross-version reader tolerance is needed. (Note: `migration_report.json` includes `schema_version: "1.0"` despite also being an operational aid — it may outlive its creating step and be read by downstream validation tools, unlike `save_recovery.json` which is consumed immediately on retry.)
+The manifest is an [operational aid](foundations.md#auxiliary-state-authority), not authoritative state. Primary records remain authoritative. Overwritten on each `/save` invocation (only the most recent is useful for retry). Not part of the Engram storage contract. The `save_recovery.json` schema does not include a `schema_version` field — recovery manifests are ephemeral operational aids, not versioned contracts. The file is overwritten on every `/save`, so no cross-version reader tolerance is needed. (Note: `migration_report.json` includes `schema_version` unlike `save_recovery.json` — see [delivery.md §Context Cutover](delivery.md#step-4-context-cutover) for the design rationale.)
 
 The `idempotency_key` in `EnvelopeHeader` is computed by the caller at envelope construction time (see [types.md §Idempotency](types.md#idempotency--same-operation-retried)). The engine uses the provided key — it does not recompute from fields.
 
