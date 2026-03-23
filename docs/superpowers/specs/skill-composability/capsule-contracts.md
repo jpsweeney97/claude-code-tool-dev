@@ -209,7 +209,7 @@ feedback_candidates:
     materiality_source: rule | model
 ```
 
-The feedback capsule MUST omit `source_artifacts` entries for any upstream capsule (NS handoff) that was not structurally consumed — do not reference an NS `artifact_id` that was not validated via two-stage admission (sentinel detected in conversation context, schema validated against expected format, normalized to `upstream_handoff` pipeline state). See [pipeline-integration.md](pipeline-integration.md#two-stage-admission) for the full admission procedure. Parallel to the [Contract 1 provenance rule](#consumer-class-contract-1). Both provenance rules share the same principle: `source_artifacts` entries represent structurally validated provenance, not prose-derived references (see [Contract 1](#consumer-class-contract-1) for the AR→NS direction).
+The `/dialogue` skill (emitter) MUST omit `source_artifacts` entries for any upstream NS handoff that was not structurally consumed during that invocation — do not reference an NS `artifact_id` that was not validated via two-stage admission ([pipeline-integration.md](pipeline-integration.md#two-stage-admission)). Two-stage admission is a pipeline-authority procedure executed by dialogue; AR and NS consumers of the feedback capsule do not perform admission and are not constrained by this rule. Parallel to the [Contract 1 provenance rule](#consumer-class-contract-1). Both provenance rules share the same principle: `source_artifacts` entries represent structurally validated provenance, not prose-derived references (see [Contract 1](#consumer-class-contract-1) for the AR→NS direction).
 
 ### Validity Criteria (Contract 3)
 
