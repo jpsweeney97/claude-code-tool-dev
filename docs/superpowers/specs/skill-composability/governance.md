@@ -221,10 +221,12 @@ Governance gates become active when their referenced artifacts are first created
 | Composition contract (`composition-contract.md`) | Contract Marker Verification, `topic_key` Scope Guard (extend grep scope to contract file) |
 | Composition stubs (AR, NS, dialogue) | Stub Composition Co-Review, Helper Function Tracking, Constrained Field Literal-Assignment, `budget_override_pending` Initialization, `hold_reason` Assignment and Placement Review |
 | Dialogue consumer stub (durable store behavior) | Consumer Durable Store Check Ordering, `upstream_handoff` Abort Teardown Check, Abort-Path Independent Test Fixtures Gate (two separate fixtures — one per abort path, no shared fixture — see governance.md §Abort-Path Independent Test Fixtures Gate) |
-| Dialogue correction pipeline code (correction rules 1-5) | Abort-Path Independent Test Fixtures Gate (partial correction failure path fixture) |
+| Dialogue correction pipeline code (correction rules 1-5) | Abort-Path Independent Test Fixtures Gate (partial correction failure path fixture), Correction Rule Sequential Ordering Gate, Emission-Time Validation Step Ordering Gate |
 | Dialogue composition stub (Stage A/B admission) | `tautology_filter_applied` key-presence grep-based CI check |
 | NS composition stub | Stub Composition Co-Review, `decomposition_seed` false-flag behavioral test (verification.md NS adapter row — P0 merge gate prerequisite) |
 | `COMPOSITION_HELPERS.md` | Helper Function Tracking (diffing requirement) |
+| Budget override code (in dialogue composition stub) | Budget Override Context-Compression Recovery Gate |
+| Materiality evaluator code (part of dialogue composition stub) | Step 0 Flag Read Source Verification |
 
 ## Promotion Gate
 
