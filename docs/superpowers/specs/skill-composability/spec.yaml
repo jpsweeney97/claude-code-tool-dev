@@ -64,6 +64,17 @@ precedence:
   # capsule wire format as a consequence of routing enforcement, not as an independent
   # interface contract claim.
 
+external_artifacts:
+  composition-contract:
+    path: packages/plugins/cross-model/references/composition-contract.md
+    status: planned  # transitions to active when file exists
+    governed_by: foundation  # exact key from authorities block
+    authority_context: design_and_review  # not runtime-loaded
+    conflict_rule: spec_files_win  # when contract diverges from spec
+    description: >
+      Canonical external contract for inter-skill composition semantics.
+      Used by stub authors at implementation time. Not runtime-loaded;
+      stubs carry the runtime projection.
 
 boundary_rules:
   - on_change_to: [capsule-contract]
