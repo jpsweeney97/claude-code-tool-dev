@@ -134,7 +134,7 @@ PR checklist requires reviewer to confirm:
 
 ## `source_artifacts` Provenance Review
 
-Validates: capsule-contracts.md §Consumer Class Contract 1 + §Contract 3 (provenance rule)
+Validates: capsule-contracts.md §Consumer Class (Contract 1) + §Contract 3 (provenance rule)
 
 PR checklist item: "Confirmed: when Stage A rejects a capsule (invalid schema), the dialogue feedback capsule emitted in that invocation omits `source_artifacts` entries for the rejected upstream artifact. Verified by tracing the rejection branch — `source_artifacts[]` is populated only from successfully consumed upstream artifacts, never from rejected capsules."
 
