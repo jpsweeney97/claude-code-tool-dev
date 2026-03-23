@@ -16,7 +16,7 @@ import os
 import re
 import tempfile
 
-from scripts.ccdi.types import DURABLE_STATES, RegistrySeed, TopicRegistryEntry
+from scripts.ccdi.types import RegistrySeed, TopicRegistryEntry
 
 logger = logging.getLogger(__name__)
 
