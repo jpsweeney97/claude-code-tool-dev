@@ -168,13 +168,23 @@ Validates: pipeline-integration.md §Three-Tier Tautology Filter (Tier 3 model c
 
 Validates: routing-and-materiality.md §Affected-Surface Validity (partial correction failure post-abort behavior)
 
-**[Activates when correction pipeline code is authored]** PR checklist item: "Confirmed: when rule 5 fires (partial correction failure), capsule assembly aborts and all 7 post-abort assertions hold: (1) no feedback capsule sentinel emitted, (2) no capsule body emitted, (3) no durable file written, (4) structured warning with entry index and unexpected state values emitted, (5) no hop suggestion text in prose output, (6) no `dialogue-orchestrated-briefing` sentinel in output, (7) all `upstream_handoff` capability flags torn down. Verified by tracing the abort code path."
+**[Activates when correction pipeline code is authored]** PR checklist items (verify each independently):
+
+1. "Confirmed: no `<!-- dialogue-feedback-capsule:v1 -->` sentinel appears in output. Verified by grep of output text."
+2. "Confirmed: no YAML block matching the feedback capsule schema appears in output, independently of sentinel presence. Verified by searching for `artifact_kind: dialogue_feedback` pattern regardless of sentinel."
+3. "Confirmed: no durable file written at `.claude/composition/feedback/`."
+4. "Confirmed: structured warning emitted containing the failing entry's index and unexpected state values (`affected_surface`, `material`, `suggested_arc`)."
+5. "Confirmed: no hop suggestion text appears in prose output. Verified by tracing post-abort code path and confirming no branch emits hop suggestion text after abort."
+6. "Confirmed: no `<!-- dialogue-orchestrated-briefing -->` sentinel in output."
+7. "Confirmed: all `upstream_handoff` capability flags torn down — flags either evaluate to `false` or are absent from state."
 
 ## Abort-Path Independent Test Fixtures Gate
 
 Validates: [verification.md §Capsule Contract Verification](verification.md#capsule-contract-verification) (partial correction failure row — "Independent test mandate" clause)
 
 **[Activates when dialogue stub abort-path code is authored]** PR checklist item: "Confirmed: two separate test fixtures exist — one for Step 0 case (c) abort path and one for partial correction failure abort path. No single shared fixture exercises both paths. Each fixture independently verifies all 6 post-abort assertions for its respective abort path. Verified by reviewing test file structure — two independent fixture functions/blocks, each with a complete assertion set."
+
+**Cross-activation check:** When the second abort path is authored (whichever comes second), the PR MUST verify both fixtures exist and pass independently. The reviewer confirms: "Both abort-path fixture functions exist — one for Step 0 case (c) and one for partial correction failure. Each has a complete, independent assertion set. Verified by reviewing test file structure."
 
 ## Correction Rule Sequential Ordering Gate
 
