@@ -7,6 +7,8 @@ authority: packet-contract
 
 # CCDI Fact Packet Builder
 
+> **Authority note:** Pipeline isolation behavioral invariants (scout/CLI separation, config file isolation) are defined under elevated `behavior_contract` authority in [integration.md#pipeline-isolation-invariants-subset](integration.md#pipeline-isolation-invariants-subset). See spec.yaml `elevated_sections` for the authority registration.
+
 Transforms docs search results into compact, citation-backed content for injection into Codex's context. Operates on results from `claude-code-docs` search and [registry](registry.md) coverage state.
 
 ## Packet Structure

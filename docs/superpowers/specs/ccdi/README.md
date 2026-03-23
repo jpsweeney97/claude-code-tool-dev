@@ -13,7 +13,7 @@ Modular specification for CCDI: automatic detection and injection of Claude Code
 
 ## Authority Model
 
-9 authorities govern the spec (8 normative files + this README as the `supporting` entry point). See [spec.yaml](spec.yaml) for the full manifest including precedence and boundary rules.
+8 normative authorities govern the spec; this README is a non-normative supporting entry point. See [spec.yaml](spec.yaml) for the full manifest including precedence and boundary rules.
 
 | Authority | Claims | Scope | Normative |
 |-----------|--------|-------|-----------|

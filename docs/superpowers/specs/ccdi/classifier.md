@@ -7,6 +7,8 @@ authority: classifier-contract
 
 # CCDI Topic Classifier
 
+> **Authority note:** Pipeline isolation behavioral invariants (scout/CLI separation, config file isolation) are defined under elevated `behavior_contract` authority in [integration.md#pipeline-isolation-invariants-subset](integration.md#pipeline-isolation-invariants-subset). See spec.yaml `elevated_sections` for the authority registration.
+
 Takes input text and resolves it to zero or more Claude Code extension topics with confidence levels and facet hints. Operates on a pinned snapshot of the [compiled topic inventory](data-model.md).
 
 ## Two-Stage Pipeline

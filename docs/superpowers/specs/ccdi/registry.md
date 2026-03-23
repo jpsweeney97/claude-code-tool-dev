@@ -7,6 +7,8 @@ authority: registry-contract
 
 # CCDI Topic Registry
 
+> **Authority note:** Pipeline isolation behavioral invariants (scout/CLI separation, config file isolation) are defined under elevated `behavior_contract` authority in [integration.md#pipeline-isolation-invariants-subset](integration.md#pipeline-isolation-invariants-subset). See spec.yaml `elevated_sections` for the authority registration.
+
 Per-conversation state machine tracking topic lifecycle. Prevents redundant injection and enables "materially new" detection. Used only in Full CCDI mode (not CCDI-lite). Registry state is read and written by the [`dialogue-turn` and `build-packet` CLI commands](integration.md#cli-tool-topicinventorypy).
 
 ## Entry Structure
@@ -24,7 +26,7 @@ TopicRegistryEntry
 ├── suppression_reason: "weak_results" | "redundant" | null
 ├── suppressed_docs_epoch: string | null  # docs_epoch at time of suppression. Written for all suppression reasons. For `weak_results`, used to determine re-entry when `docs_epoch` changes. For `redundant`, set but not consulted for re-entry — `redundant` re-entry is governed by coverage state changes and semantic hints only.
 ├── deferred_reason: "cooldown" | "scout_priority" | "target_mismatch" | null
-│   # Trace action mapping: the corresponding `ccdi_trace` `action` values use different names: `"skip_scout"` for `"scout_priority"`, `"skip_cooldown"` for `"cooldown"`, `"defer"` for `"target_mismatch"`. See [integration.md#ccditrace-output-contract](integration.md#ccditrace-output-contract).
+│   # Trace action mapping: see integration.md#ccditrace-output-contract for the action names used in ccdi_trace for each deferred_reason value.
 ├── deferred_ttl: integer | null      # turns remaining before re-evaluation
 ├── coverage_target: "family" | "leaf" # classifier's resolved coverage target; populated at detection time from ClassifierResult
 ├── facet: Facet                       # classifier's resolved facet; populated at detection time from ClassifierResult.resolved_topics[].facet

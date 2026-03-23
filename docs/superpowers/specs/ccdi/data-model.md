@@ -43,6 +43,8 @@ Four version axes prevent coupled evolution (three compatibility axes + one inst
 | Merge semantics | `merge_semantics_version` | How overlay operations apply to inventory | Code change (Python) |
 | Overlay instance | `overlay_meta.overlay_version` | Which version of the curated overlay file was applied | Manual edit (human) |
 
+**Non-axis version fields:** `config_version` and `inventory_snapshot_version` appear in the version string format (line above) but are NOT version-compatibility axes. They are runtime/transport version gates, not build-time compatibility axes: `config_version` gates config file loading (mismatch → fall back to built-in defaults), `inventory_snapshot_version` gates seed loading (mismatch → best-effort field mapping). They do not participate in the additive-only schema evolution constraint and are not owned by the same change drivers as the four axes.
+
 **Version string format:** All version fields (`schema_version`, `overlay_schema_version`, `merge_semantics_version`, `overlay_version`, `config_version`, `inventory_snapshot_version`) are opaque strings. The current convention uses integer strings (`"1"`, `"2"`, ...) for simplicity. Comparison is string equality — no semver parsing, no numeric ordering. A version mismatch means "not equal," not "older than."
 
 `overlay_version` is an **instance version** (which edit of the overlay file), not a **compatibility axis** (whether the overlay format is readable). It is monotonically incremented by the overlay curator on each manual edit. `build_inventory.py` records it in `overlay_meta` for traceability but does not validate compatibility — that is the job of `overlay_schema_version`.
@@ -114,7 +116,7 @@ These defaults ensure safe load-time migration for entries serialized before the
 | Field | Type | Purpose |
 |-------|------|---------|
 | `text` | string | e.g., `"PreToolUse"`, `"updatedInput"` |
-| `match_type` | `"exact" \| "phrase" \| "token" \| "regex"` | How to match against input |
+| `match_type` | `"exact" \| "phrase" \| "token" \| "regex"` | How to match against input. *(Note: `"exact"` is valid in Alias contexts but intentionally excluded from DenyRule — see [DenyRule.match_type](#denyrule) for rationale.)* |
 | `weight` | 0.0–1.0 | Classification strength |
 | `facet_hint` | Facet \| null | Which aspect this alias implies |
 | `source` | `"generated" \| "overlay"` | Provenance |
@@ -290,6 +292,8 @@ The overlay file (`topic_overlay.json`) is a JSON object with these root keys:
 | `replace_refs` | `rule_id`, `operation`, `topic_key`, `canonical_refs` (DocRef[]) | — |
 | `replace_queries` | `rule_id`, `operation`, `topic_key`, `query_plan` (QueryPlan — MUST include `default_facet`; a QueryPlan without `default_facet` makes the topic unsearchable. On violation: reject the overlay rule with descriptive error.) | — |
 | `override_config` | Expressed via `config_overrides` root key, not as a rule entry | — |
+
+*(Note: `topic_key` in an OverlayRule is recorded as `target` in the corresponding `AppliedRule` entry in `applied_rules[]` — see [AppliedRule.target](#appliedrule).)*
 
 `override_config` is not expressed as an `OverlayRule`. It uses the separate `config_overrides` root key. `build_inventory.py` records each applied config override as an `AppliedRule` with `operation: "override_config"` — see [Config Overrides in Overlay](#config-overrides-in-overlay).
 
