@@ -28,7 +28,7 @@ authorities:
 
   governance:
     description: PR review gate procedures — derivative enforcement that cites normative clauses from semantic owner files.
-    default_claims: [review_gate]
+    default_claims: [enforcement_mechanism]
 
   delivery-plan:
     description: Implementation plan per skill, open items, deferred work.
@@ -49,7 +49,7 @@ precedence:
     # Conflict resolution: fallback_authority_order determines which authority
     # wins when claims overlap. This is mechanical, not a defect signal.
     interface_contract: [capsule-contract, lineage]
-    review_gate: [governance]
+    enforcement_mechanism: [routing, governance]
   # decisions ranked 2nd (after foundation) in fallback_authority_order because locked
   # design decisions constrain behavior. Conflicts are resolved via the fallback path
   # — decisions does not appear in claim_precedence and cannot override via that route.
@@ -64,25 +64,6 @@ precedence:
   # capsule wire format as a consequence of routing enforcement, not as an independent
   # interface contract claim.
 
-  # NOTE: delivery_layers is informational — a convenience summary of the three-layer
-  # authority hierarchy defined normatively in foundations.md §Three-Layer Delivery Authority.
-  # On conflict, foundations.md is authoritative per fallback_authority_order.
-delivery_layers:
-  # Three-layer authority hierarchy for composition delivery.
-  # Full rationale: foundations.md#three-layer-delivery-authority
-  - layer: 1
-    name: spec_files
-    description: Normative spec authority files defined in the authorities block above.
-    precedence: highest
-  - layer: 2
-    name: composition_contract
-    description: Runtime projection of spec invariants for inter-skill composition.
-    precedence: below spec_files
-  - layer: 3
-    name: inline_stubs
-    description: Composition-specific blocks within each participating skill's SKILL.md.
-    precedence: lowest
-  precedence_order: [spec_files, composition_contract, inline_stubs]
 
 boundary_rules:
   - on_change_to: [capsule-contract]

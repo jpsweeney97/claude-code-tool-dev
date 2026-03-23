@@ -53,8 +53,20 @@ Validates: routing-and-materiality.md §Selective Durable Persistence (path cons
 
 PR checklist item: "Confirmed: `record_path` (absolute filesystem path) is assigned to a local variable before the correction pipeline gate runs. The error handler reads from this pre-computed variable, not from re-derived path logic. Verified by tracing the error handler code path from write-failure branch to `record_path` reference."
 
+## `record_path` Null-Prevention Review
+
+Validates: capsule-contracts.md §Schema Constraints (`record_path` non-null requirement)
+
+PR checklist item: "Confirmed: no null or uninitialized state is reachable for `record_path` from any emission path. Verified by tracing all code paths from capsule assembly entry to `record_path` assignment — including exception paths before write attempt (path construction failure). The path variable is assigned before any operation that could throw."
+
 ## Thread Freshness Numeric Comparison Check
 
 Validates: routing-and-materiality.md §Thread Continuation vs Fresh Start (timestamp comparison rule)
 
 PR checklist item: "Confirmed: thread continuation vs. fresh start comparison uses parsed numeric timestamps (millisecond precision), not string comparison. Verified by reviewing the comparison code path for `created_at` vs `thread_created_at`."
+
+## `budget_override_pending` Initialization Check
+
+Validates: routing-and-materiality.md §Budget Enforcement Mechanics (initialization invariant)
+
+PR checklist item: "Confirmed: `budget_override_pending` is explicitly initialized to `false` at dialogue stub entry — not left to default-falsy behavior. Verified by reviewing the initialization code path at stub entry point."
