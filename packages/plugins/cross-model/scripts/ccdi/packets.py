@@ -93,7 +93,7 @@ def _extract_paraphrase(content: str, facet: str, budget_chars: int) -> str:
     # Accumulate sentences within budget
     selected: list[str] = []
     total_chars = 0
-    for _neg_overlap, _idx, sentence in scored:
+    for *_sort_keys, sentence in scored:
         if total_chars + len(sentence) + 1 > budget_chars and selected:
             break
         selected.append(sentence)
