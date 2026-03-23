@@ -147,7 +147,7 @@ Three-step state machine with marker-based location and reconciliation recovery.
             Exclude from candidate list. Surface warning: "Lesson <lesson_id> has
             unreadable promote-meta (missing or unrecognized meta_version). Run
             migration before re-promoting." The exclusion occurs before the lesson
-            appears as a selectable candidate. See [legacy entries](types.md#legacy-entries-missing-meta_version).
+            appears as a selectable candidate. See [legacy entries](types.md#legacy-entries-missing-meta-version).
         Branch B (promote-meta exists, promoted_content_sha256 == current content_sha256):
             B1 (target_section unchanged): Reject — already promoted. Return existing details.
             B2 (target_section mismatch — promote-meta.target_section differs from

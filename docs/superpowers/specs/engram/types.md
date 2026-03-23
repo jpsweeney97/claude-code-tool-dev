@@ -69,11 +69,11 @@ class TrustPayload(TypedDict):
     session_id: str              # Claude session UUID, non-empty
 ```
 
-The `hook_request_origin` field accepts only `"user"` or `"agent"`. See [§Trust Validation](#trust-validation--collect_trust_triple_errors) below for the closed set validation. Adding a new origin value (e.g., `"mcp"`) requires updating the validator.
+The `hook_request_origin` field accepts only `"user"` or `"agent"`. See [§Trust Validation](#trust-validation) below for the closed set validation. Adding a new origin value (e.g., `"mcp"`) requires updating the validator.
 
 The shared validator `collect_trust_triple_errors()` in `engram_core/` accepts or parses from `TrustPayload` using these canonical field names. A field rename in the hook or engine without updating this type is a compilation error, not a silent divergence. `collect_trust_triple_errors()` returns `list[str]` — an empty list on success, or a list of human-readable error strings on validation failure. The caller joins these with `'; '` for the structured error response.
 
-### Trust Validation — collect_trust_triple_errors()
+### Trust Validation
 
 ```python
 # engram_core/trust.py
@@ -177,7 +177,7 @@ class PromoteMeta:
     lesson_id: str                # Matches lesson-meta lesson_id — used for marker pair identification
 ```
 
-**`meta_version`**: Version of the promote-meta format. Currently `"1.0"`. Entries lacking this field are treated as pre-versioned entries — see [Legacy Entries](#legacy-entries-missing-meta_version) for discovery, interpretation, and rewrite rules. See [Version Evolution Policy](#version-evolution-policy) for entry-level exact-match semantics and field preservation requirements.
+**`meta_version`**: Version of the promote-meta format. Currently `"1.0"`. Entries lacking this field are treated as pre-versioned entries — see [Legacy Entries](#legacy-entries-missing-meta-version) for discovery, interpretation, and rewrite rules. See [Version Evolution Policy](#version-evolution-policy) for entry-level exact-match semantics and field preservation requirements.
 
 **Serialization:** All fields are required. `promote-meta` (and `lesson-meta`) JSON is serialized with `sort_keys=True`. Stored as an HTML comment in learnings.md immediately after the entry's `lesson-meta` comment:
 
@@ -187,7 +187,7 @@ class PromoteMeta:
 
 Field names match the Python dataclass exactly (alphabetically sorted in serialized form). All string values. `promoted_at` uses ISO 8601 UTC.
 
-If a `promote-meta` comment is present but a required field is missing (other than `meta_version` which is handled by [legacy entry rules](#legacy-entries-missing-meta_version)), the Knowledge engine treats the entire promote-meta as corrupt — the entry's promotion status degrades to `unknown` with a per-entry warning in `QueryDiagnostics.warnings`.
+If a `promote-meta` comment is present but a required field is missing (other than `meta_version` which is handled by [legacy entry rules](#legacy-entries-missing-meta-version)), the Knowledge engine treats the entire promote-meta as corrupt — the entry's promotion status degrades to `unknown` with a per-entry warning in `QueryDiagnostics.warnings`.
 
 **`promoted_content_sha256` recomputation:** In Step 3, the Knowledge engine MUST recompute `content_hash(lesson_content)` from the current lesson body and use that value for `promoted_content_sha256`. If the result differs from `PromoteEnvelope.content_sha256` (i.e., the lesson was edited between Step 1 and Step 3), the engine surfaces a warning but proceeds — the envelope hash records intent at invocation time; the promote-meta hash records what was actually promoted. This divergence is expected when users edit lessons between `/promote` invocation and confirmation.
 
@@ -369,7 +369,7 @@ Entry content...
 ```
 
 **Fields:**
-- **`meta_version`**: Version of the lesson-meta format. Currently `"1.0"`. Entries lacking this field are treated as `legacy` — see [Legacy Entries](#legacy-entries-missing-meta_version). See [Version Evolution Policy](#version-evolution-policy) for compatibility rules.
+- **`meta_version`**: Version of the lesson-meta format. Currently `"1.0"`. Entries lacking this field are treated as `legacy` — see [Legacy Entries](#legacy-entries-missing-meta-version). See [Version Evolution Policy](#version-evolution-policy) for compatibility rules.
 - **`lesson_id`**: UUIDv4 generated at creation. Serves as `RecordRef.record_id` for knowledge entries. Stable across edits (content changes update `content_sha256`, not `lesson_id`).
 - **`content_sha256`**: [`Sha256Hex`](#scalar-types) produced by [`content_hash()`](#hash-producing-functions) on entry content (excluding the `lesson-meta` comment itself). The current entry's `### ` heading line is NOT included in the hash input. The byte range starts at the first character after the blank line following the `lesson-meta` comment and ends at (but excludes) the next `### ` heading line. Trailing blank lines before the next heading are excluded. For the last entry in the file, the byte range extends to the end of the file (after `knowledge_normalize`). If the file ends without a trailing newline, the normalizer adds one per rule 6. **Blank line absent:** If the blank line between the `lesson-meta` comment and content is absent (comment's closing `-->` immediately followed by content on the next line), the byte range starts at the character immediately after the first newline following the `-->`. The entry is malformed but parseable with this fallback. Log a per-entry warning in `QueryDiagnostics.warnings`. Producers MUST always emit the blank line. Used for cross-producer dedup: both `/learn` and `/curate` check `content_sha256` against all existing published entries before writing.
 - **`created_at`**: ISO 8601 UTC timestamp of initial creation (suffix `Z` or `+00:00`).
@@ -518,7 +518,7 @@ Five independent version spaces govern Engram's data contracts. Each evolves ind
 
 **`VERSION_UNSUPPORTED` error:** Returned by target engines when `envelope_version` does not match the engine's built-in version. Structure: `{"error_code": "VERSION_UNSUPPORTED", "received_version": "<received>", "expected_version": "<engine_version>"}`. Note: `expected_version` is singular (exact-match — there is only one valid version per engine build).
 
-### Legacy Entries (Missing meta_version)
+### Legacy Entries: Missing meta-version
 
 Existing `lesson-meta` and `promote-meta` comments written before the `meta_version` field was introduced will lack the field entirely. These are **not** treated as implicit `"1.0"`:
 

@@ -124,7 +124,9 @@ Two enforcement mechanisms share a single `engram_guard` hook, distinguished by 
 
 **Governing principle:** Uniformity of policy (every mutation is authorized), not uniformity of transport.
 
-**Guard capability rollout:** Each build step lists the `engram_guard` capabilities it requires. No subsystem may activate a mutating route before the guard capabilities required for that route are active.
+### Guard Capability Rollout
+
+Each build step lists the `engram_guard` capabilities it requires. No subsystem may activate a mutating route before the guard capabilities required for that route are active.
 
 | Capability | Ships At | Covers |
 |-----------|----------|--------|
@@ -186,9 +188,9 @@ When `engram_guard` detects an authorized engine invocation, it writes the [Trus
 
 ### Step 2: Validation (Engine Entrypoint)
 
-The `collect_trust_triple_errors()` function contract (signature, validation rules, stable error strings) is specified in [types.md §Trust Validation](types.md#trust-validation--collect_trust_triple_errors) — that is the canonical source. This section specifies the enforcement mandate: every mutating Work or Knowledge engine entrypoint must invoke `collect_trust_triple_errors()` before making state changes.
+The `collect_trust_triple_errors()` function contract (signature, validation rules, stable error strings) is specified in [types.md §Trust Validation](types.md#trust-validation) — that is the canonical source. This section specifies the enforcement mandate: every mutating Work or Knowledge engine entrypoint must invoke `collect_trust_triple_errors()` before making state changes.
 
-Every **mutating** entrypoint in Work and Knowledge subsystem engines must invoke [`collect_trust_triple_errors()`](types.md#trust-validation--collect_trust_triple_errors) before making state changes. Trust validation is verified after the `.engram-id` existence check (see [check ordering below](#check-ordering)), before all other processing including idempotency key lookups and dedup reads. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. See [types.md §Trust Validation](types.md#trust-validation--collect_trust_triple_errors) for validation rules, error format, and caller obligation. Read-only entrypoints are exempt.
+Every **mutating** entrypoint in Work and Knowledge subsystem engines must invoke [`collect_trust_triple_errors()`](types.md#trust-validation) before making state changes. Trust validation is verified after the `.engram-id` existence check (see [check ordering below](#check-ordering)), before all other processing including idempotency key lookups and dedup reads. This gates all [cross-subsystem operations](operations.md#core-rules) that flow through engine entrypoints. See [types.md §Trust Validation](types.md#trust-validation) for validation rules, error format, and caller obligation. Read-only entrypoints are exempt.
 
 **Mutating entrypoints** are any engine functions that create, update, or delete files in protected paths. Complete enumeration per subsystem:
 - **Work:** ticket creation, ticket update, ticket close

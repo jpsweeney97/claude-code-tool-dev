@@ -89,7 +89,7 @@ class IndexEntry:
 
 **Timezone normalization:** All `datetime` fields in `IndexEntry` are UTC-normalized (`datetime.timezone.utc`). NativeReaders **must** parse ISO 8601 timestamps from source formats and convert to UTC-aware datetime before populating `IndexEntry`. This ensures consistent ordering in `/search`, `/timeline`, and `query(since=...)` across subsystems.
 
-**RecordMeta field mapping per subsystem:**
+### RecordMeta Field Mapping per Subsystem
 
 | Subsystem | `schema_version` source | `worktree_id` source | `session_id` source | `visibility` |
 |---|---|---|---|---|
@@ -99,7 +99,7 @@ class IndexEntry:
 
 Work ticket YAML schema is inherited from the ticket plugin format — field requirements (`schema_version`, `worktree_id`, `session_id`, `status`) are specified in the RecordMeta field mapping table above.
 
-When `lesson-meta` is present but `meta_version` is absent, populate `RecordMeta.schema_version` with `"0.0"` (pre-versioned sentinel). See [types.md §Legacy Entries](types.md#legacy-entries-missing-meta_version).
+When `lesson-meta` is present but `meta_version` is absent, populate `RecordMeta.schema_version` with `"0.0"` (pre-versioned sentinel). See [types.md §Legacy Entries](types.md#legacy-entries-missing-meta-version).
 
 Fields marked N/A populate as `None` in `RecordMeta`. The Knowledge reader derives `schema_version` from `lesson-meta.meta_version` (not a separate field). Same-major `lesson-meta` versions (e.g., v1.1 read by a v1.0 reader) are indexed normally — the entry appears in query results and is addressable. Entries with a different major version are skipped with a warning in `QueryDiagnostics.warnings`. See [types.md §Compatibility Rules](types.md#compatibility-rules) for the governing contract.
 
