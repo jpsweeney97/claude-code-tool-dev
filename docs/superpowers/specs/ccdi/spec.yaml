@@ -65,7 +65,7 @@ precedence:
     behavior_contract: [classifier-contract, registry-contract, packet-contract, integration, decisions]
     interface_contract: [integration, classifier-contract, registry-contract, packet-contract, decisions]
     persistence_schema: [data-model, integration, decisions]  # integration included: RegistrySeed envelope and dump_index_metadata schema surface persistence concerns at the CLI interface
-    decision_record: [decisions, foundation, delivery]
+    decision_record: [decisions, foundation]  # delivery removed: delivery makes no decision_record claims
     implementation_plan: [delivery, integration, decisions]
     verification_strategy: [delivery, integration, decisions]
   # fallback_authority_order applies only when a claim is not covered by any defined
