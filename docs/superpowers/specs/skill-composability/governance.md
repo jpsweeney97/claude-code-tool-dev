@@ -65,7 +65,7 @@ PR checklist item: "Confirmed: `record_path` (absolute filesystem path) is assig
 
 Validates: routing-and-materiality.md §Selective Durable Persistence + capsule-contracts.md §Contract 3 (Dialogue Feedback Capsule) (`record_path` non-null requirement)
 
-PR checklist item: "Confirmed: no null or uninitialized state is reachable for `record_path` from any emission path. Verified by tracing all code paths from capsule assembly entry to `record_path` assignment — including exception paths before write attempt (path construction failure). The path variable is assigned before any operation that could throw."
+PR checklist item: "Confirmed: no null or uninitialized state is reachable for `record_path` from any emission path. Verified by tracing all code paths from capsule assembly entry to `record_path` assignment — including all exception paths before write attempt (path construction failure, permission errors, directory creation failures, and any other pre-write exception). The path variable is assigned before any operation that could throw."
 
 ## Thread Freshness Numeric Comparison Check
 

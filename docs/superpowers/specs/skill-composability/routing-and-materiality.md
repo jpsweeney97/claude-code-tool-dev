@@ -41,7 +41,7 @@ For items without explicit upstream ID references: constrained LLM classificatio
 | Condition | User-Facing Behavior (pre-correction) |
 |-----------|----------------------------------------|
 | `material: false` + `suggested_arc: ambiguous` | Informational only. Reported to user but does not surface as a routing decision. No hop suggested. Corrected to `dialogue_continue` (rule 1); omitted from `feedback_candidates[]` and `unresolved[]` as informational-only. |
-| `material: true` + `suggested_arc: ambiguous` | Manual routing bucket. User presented three actions: (1) send to adversarial-review, (2) send to next-steps, (3) hold. Default is **hold** — no hop occurs, no budget consumed. |
+| `material: true` + `suggested_arc: ambiguous` | Manual routing bucket. User presented three actions: (1) send to adversarial-review, (2) send to next-steps, (3) hold. Default is **hold** — no hop occurs, no budget consumed. Held items do not consume budget — the budget counter counts qualifying artifacts (which require an emitted capsule sentinel), and held items produce no emitted capsule. |
 
 For `material: false` + `ambiguous` items, "reported to user" means included in prose synthesis output only. These items pass through the correction pipeline first; rule 1 normalizes `suggested_arc` to `dialogue_continue`, and the placement stage then omits them from `feedback_candidates[]` and `unresolved[]`. They appear in prose synthesis only — not in the machine-readable capsule.
 
@@ -286,6 +286,8 @@ The durable file uses the same wire format as the conversation capsule. `record_
 **Re-encounter at level 3:** If the conversation-local sentinel scan (precedence level 3) discovers a capsule with the same `artifact_id` as the corrupt durable file, the consumer MUST still reject it if it fails the same validity checks (same content in both locations). Do NOT retry parsing — if the content was corrupt at level 2, it is corrupt at level 3. The consumer proceeds as if no feedback capsule exists and applies advisory/tolerant fallback behavior.
 
 **Write failure recovery:** If the durable file write fails (disk full, permission error, path unavailable): (1) surface a prose warning to the user identifying the write failure and the intended file path, (2) the emitted capsule MUST include `record_status: write_failed` and MUST set `record_path` to the intended path (the path that was attempted, not null), (3) the capsule remains consumable via conversation-local sentinel scan but cross-session resolution via durable store will fail. Do NOT emit a capsule with `record_path: null` — this violates the non-null MUST and silently degrades the feedback arc.
+
+**Single-writer assumption:** The durable file mechanism assumes a single writer per `subject_key` at any given time. Concurrent writers (e.g., parallel dialogue invocations producing feedback for the same subject) are unsupported in v1 — the last writer wins with no detection of the race condition. This is accepted because dialogue invocations within a single session are sequential, and cross-session concurrency is not a v1 target.
 
 On a successful durable file write, the emitted capsule MUST set `record_status: ok`. `record_status` MUST always be present; omitting it is an emitter bug (see consumer-side contract above for how absent `record_status` is handled).
 
