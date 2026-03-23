@@ -18,12 +18,13 @@ authority: delivery-plan
 
 ### Governance Gate Activation Checklist
 
-Governance gates in [governance.md](../skill-composability/governance.md) become active when their referenced artifacts are first created. When authoring any of the following, the PR MUST confirm the corresponding governance gates are applied:
+Governance gates in [governance.md](governance.md) become active when their referenced artifacts are first created. When authoring any of the following, the PR MUST confirm the corresponding governance gates are applied:
 
 | Artifact | Gates Activated |
 |----------|----------------|
-| Composition contract (`composition-contract.md`) | Contract Marker Verification, `topic_key` Scope Guard |
-| Composition stubs (AR, NS, dialogue) | Stub Composition Co-Review, Helper Function Tracking, Constrained Field Literal-Assignment, `budget_override_pending` Initialization |
+| Composition contract (`composition-contract.md`) | Contract Marker Verification, `topic_key` Scope Guard (extend grep scope to contract file) |
+| Composition stubs (AR, NS, dialogue) | Stub Composition Co-Review, Helper Function Tracking, Constrained Field Literal-Assignment, `budget_override_pending` Initialization, `hold_reason` Assignment and Placement Review |
+| Dialogue consumer stub (durable store behavior) | Consumer Durable Store Check Ordering, `upstream_handoff` Abort Teardown Check, Abort-Path Independent Test Fixtures (two separate fixtures — one per abort path, no shared fixture) |
 | `COMPOSITION_HELPERS.md` | Helper Function Tracking (diffing requirement) |
 
 ### AR Skill Text Addition
@@ -45,7 +46,7 @@ The dialogue skill receives the most extensive changes. Insert additions at thes
 1. **Stage A/B admission logic:** Before the existing decomposition step (Step 0). Add sentinel detection (reverse-scan for `<!-- next-steps-dialogue-handoff:v1 -->`), schema validation, and normalization to `upstream_handoff` via the NS adapter.
 2. **Feedback capsule emission:** After the existing Synthesis Checkpoint output. Assemble `feedback_candidates[]` from synthesis items, run routing classification and materiality evaluation, apply the correction pipeline, and emit the capsule with sentinel.
 3. **Routing classification + materiality evaluation:** Within the feedback capsule assembly path. Cross-reference [routing-and-materiality.md](routing-and-materiality.md#routing-classification) for the full evaluation flow.
-4. **Inline composition stub:** The largest stub of the three skills. Must cover: routing, materiality, budget enforcement, consumption discovery, capsule emit/consume, fallback behavior, and hop suggestion logic.
+4. **Composition stub:** The largest stub of the three skills. Must cover: routing, materiality, budget enforcement, consumption discovery, capsule emit/consume, fallback behavior, and hop suggestion logic.
 
 ## Open Items
 
@@ -63,5 +64,6 @@ The dialogue skill receives the most extensive changes. Insert additions at thes
 | 9 | `--profile` (multi-phase posture profiles) | Deferred from v1 | When implemented, would sit between `--posture` and `upstream_handoff` in the [posture precedence](pipeline-integration.md#posture-precedence) chain. Not defined in v1 — posture precedence is `--posture > upstream_handoff > default collaborative`. |
 | 10 | Consumer-side 5-step check ordering structural verification | Deferred | Add to `validate_composition_contract.py` scope: verify consumer code implements the 5-step durable store check in strict sequential order (nullity → existence → presence → value → integrity) with explicit short-circuit at each step. Activation: when consumer stub code is authored. |
 | 11 | Thread continuation parsed-numeric enforcement | Deferred | Add to `validate_composition_contract.py` scope: static analysis check that thread continuation comparison code uses parsed numeric timestamps (millisecond precision), not string comparison. Activation: when dialogue stub's thread continuation code is authored. Cross-reference: verification.md scenarios (7) and (8) provide behavioral regression tests; this item adds structural enforcement that the implementation uses parsed comparison, not just that specific inputs produce correct output. |
+| 12 | `COMPOSITION_HELPERS.md` CI check scope | Active (interim) | CI check triggers on PRs modifying files in the feedback capsule assembly path. Scope: skill stub files (AR, NS, dialogue composition sections), composition contract, and `COMPOSITION_HELPERS.md` itself. Do NOT apply to spec files, test fixtures, or documentation. |
 
 **Note on enforcement coverage gap:** The helper-mediated indirect delegation detection gap (see [routing-and-materiality.md](routing-and-materiality.md#no-auto-chaining) enforcement coverage note) has no closure timeline in v1. The gap is documented and mitigated by the co-review gate in [governance.md](governance.md#stub-composition-co-review-gate); deeper static analysis is deferred to `validate_composition_contract.py` (item #6). `validate_composition_contract.py` acceptance criteria MUST include (item #6 scope): behavioral test for helper functions listed in `COMPOSITION_HELPERS.md` — verify no listed function delegates to another skill via model output or helper delegation chains.
