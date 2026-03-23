@@ -204,6 +204,12 @@ Validates: [lineage.md §Key Propagation](lineage.md#key-propagation) (`lineage_
 
 **[Active for any PR touching key propagation or capsule minting logic]** PR checklist item: "Confirmed: `lineage_root_id` immutability regression test passes — multi-hop chain test asserting `lineage_root_id` string equality across all hops re-executed and passing."
 
+## Briefing Context Determinism Check
+
+Validates: pipeline-integration.md §Pipeline Threading (deterministic projection requirement)
+
+**[Activates when dialogue skill text is authored]** PR checklist item: "Confirmed: `briefing_context` injection in the briefing assembly code path uses deterministic data transformation (templatic/enumerative projection from structured input). No conditional branch invokes model calls, prompt-based selection, or sampling for content selection. Verified by structural review of the briefing assembly path for `source_findings` and `decision_gates` projection."
+
 ## Contract-Stub Bidirectional Review Gate
 
 Validates: foundations.md §Versioning and Drift Detection (drift detection invariant)
@@ -227,6 +233,7 @@ Governance gates become active when their referenced artifacts are first created
 | `COMPOSITION_HELPERS.md` | Helper Function Tracking (diffing requirement) |
 | Budget override code (in dialogue composition stub) | Budget Override Context-Compression Recovery Gate |
 | Materiality evaluator code (part of dialogue composition stub) | Step 0 Flag Read Source Verification |
+| Dialogue skill text (briefing assembly) | Briefing Context Determinism Check |
 
 ## Promotion Gate
 
