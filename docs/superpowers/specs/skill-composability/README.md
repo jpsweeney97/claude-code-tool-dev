@@ -18,7 +18,7 @@ Structural contracts for composing adversarial-review (AR), next-steps (NS), and
 | `foundation` | Composability model, scope, consumer classes, cross-cutting invariants | `architecture_rule`, `behavior_contract` |
 | `decisions` | Locked design decisions D1-D5 | `decision_record` |
 | `capsule-contract` | Capsule schemas, sentinels, consumer class assignments, wire format | `interface_contract` |
-| `pipeline` | Adaptive --plan, adapter pattern, decomposition, tautology filter | `behavior_contract` |
+| `pipeline` | Adaptive --plan, adapter pattern, decomposition, tautology filter, pipeline threading | `behavior_contract` |
 | `routing` | Routing classification, material-delta gating tiers, affected-surface validity matrix, guardrails, thread freshness, feedback persistence | `behavior_contract`, `enforcement_mechanism` |
 | `lineage` | Identity keys, DAG, discovery, staleness | `interface_contract`, `behavior_contract` |
 | `governance` | PR review gate procedures — derivative enforcement citing normative clauses | `enforcement_mechanism` |

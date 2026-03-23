@@ -90,7 +90,7 @@ After routing classification and materiality evaluation, validate the tuple `(af
 - Rule 2 covers `material: true, affected_surface: evidence-only` with any non-`dialogue_continue` arc (3 tuples).
 - Rule 3 covers `material: true, affected_surface: diagnosis` with `suggested_arc ∈ {next-steps, dialogue_continue}` (2 tuples).
 - Rule 4 covers `material: true, affected_surface: planning` with `suggested_arc ∈ {adversarial-review, dialogue_continue}` (2 tuples).
-- The 2 `material: true` + `suggested_arc: ambiguous` tuples (`diagnosis/true/ambiguous` and `planning/true/ambiguous`) are valid pass-throughs — they are not covered by rules 1-4 because `ambiguous` is in their valid set. These items traverse the correction pipeline as no-ops and proceed to the placement stage, where they are routed to `unresolved[]` with `hold_reason: routing_pending` (see Post-Correction Placement table above).
+- The 2 `material: true` + `suggested_arc: ambiguous` tuples (`diagnosis/true/ambiguous` and `planning/true/ambiguous`) are valid pass-throughs (`ambiguous` is only invalid under `material: false`, where rule 1 corrects it to `dialogue_continue`) — they are not covered by rules 1-4 because `ambiguous` is in their valid set. These items traverse the correction pipeline as no-ops and proceed to the placement stage, where they are routed to `unresolved[]` with `hold_reason: routing_pending` (see Post-Correction Placement table above).
 
 Rule 5 fires only if a tuple survives rules 1-4 with an unexpected state — this requires either an `affected_surface` value outside `{evidence-only, diagnosis, planning}` or a novel `suggested_arc` value, both of which indicate a schema evolution gap rather than a logic error.
 
@@ -195,7 +195,7 @@ Skills suggest the next arc; the user confirms. No skill auto-invokes another.
 
 **Capsule-level prohibition:** Feedback capsule fields (`continuation_warranted`, `feedback_candidates[].suggested_arc`) are informational signals to the user. Skill stubs MUST NOT use `continuation_warranted` or `suggested_arc` fields to programmatically trigger another skill invocation by any means — including direct invocation patterns, conditional branches leading to invocation (regardless of whether user-facing text is emitted), or indirect delegation chains through helper functions. These fields inform the hop suggestion text presented to the user only, not an automatic dispatch.
 
-Helper-mediated indirect delegation chains are a known coverage gap in the interim grep-based enforcement. See [governance.md](governance.md#stub-composition-co-review-gate) for the co-review gate that addresses this gap. This is a known coverage gap
+Helper-mediated indirect delegation chains are a known coverage gap in the interim grep-based enforcement. See [governance.md](governance.md#stub-composition-co-review-gate) for the co-review gate that addresses this gap.
 
 ### Material-Delta Gating (Guardrail)
 

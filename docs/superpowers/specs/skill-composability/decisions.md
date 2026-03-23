@@ -19,7 +19,7 @@ Each skill remains fully standalone and human-usable. Composition is additive â€
 
 ## D2: Two Consumer Classes
 
-Advisory/tolerant and strict/deterministic. Advisory/tolerant: validate if present, fall back to the appropriate alternative source if absent or invalid (see [foundations.md](foundations.md#consumer-classes) for per-arc fallback sources). Strict/deterministic: reject invalid input, proceed in baseline mode. See [foundations.md](foundations.md#consumer-classes) for the full normative specification. (Advisory/tolerant: validate if present, fall back to alternative source if absent or invalid.)
+Advisory/tolerant and strict/deterministic. Advisory/tolerant: validate if present, fall back to the appropriate alternative source if absent or invalid (see [foundations.md](foundations.md#consumer-classes) for per-arc fallback sources). Strict/deterministic: reject invalid input, proceed in baseline mode. See [foundations.md](foundations.md#consumer-classes) for the full normative specification.
 
 **Rationale:** NS consuming AR is advisory because AR capsule may be absent (standalone NS invocation). Dialogue consuming NS handoff is strict because if a handoff is present, it must be valid â€” partial handoff data is worse than no handoff.
 

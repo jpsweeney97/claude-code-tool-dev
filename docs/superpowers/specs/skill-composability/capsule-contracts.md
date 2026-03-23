@@ -238,5 +238,5 @@ When a required field is absent or not well-typed, the capsule is invalid and th
 ### Design Notes
 
 - `classifier_source` is narrowed to `rule | model` — no `ambiguous` value. Every classification is performed by either a rule or the model.
-- `record_path` MUST be non-null for feedback capsules. See [routing-and-materiality.md#selective-durable-persistence](routing-and-materiality.md#selective-durable-persistence) for the normative enforcement rule, write-failure recovery procedure (including the `record_path`-to-intended-path requirement on failure), and consumer-side contract.
+- `record_path` non-null requirement for feedback capsules: see [routing-and-materiality.md §Selective Durable Persistence](routing-and-materiality.md#selective-durable-persistence) (normative authority for the enforcement rule, write-failure recovery, and consumer-side contract).
 - The `implements_composition_contract: v1` marker is a presence signal only — see [foundations.md §Versioning and Drift Detection](foundations.md#versioning-and-drift-detection) for the normative conformance semantics and the necessary-but-not-sufficient interpretation.
