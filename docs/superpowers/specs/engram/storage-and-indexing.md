@@ -124,7 +124,7 @@ Fields marked N/A populate as `None` in `RecordMeta`. The Knowledge reader deriv
 | Field | Source |
 |---|---|
 | `title` | First line of markdown body (after staging-meta comment) |
-| `snippet` | Body first 200 chars (from markdown body, not JSON `content` field) |
+| `snippet` | First 200 chars of markdown body, starting from the remainder after removing the line used for `title`. If no remainder exists after the title line, `snippet` is empty string. |
 | `status` | `"staged"` unconditionally |
 | `tags` | Empty list |
 | `schema_version` | `"staged"` (sentinel — not a real version; distinguishes from published entries) |

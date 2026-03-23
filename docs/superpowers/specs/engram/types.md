@@ -94,7 +94,7 @@ def collect_trust_triple_errors(
 
 **Stable error strings:** `"hook_injected: must be True, got {value!r}"`, `"hook_request_origin: must be one of {{'user', 'agent'}}, got {value!r}"`, `"session_id: must be non-empty string, got {value!r}"`.
 
-**Caller obligation:** If the returned list is non-empty, the engine must reject the operation with a structured error containing the error list and return without making state changes. The engine must not catch or suppress errors from this function.
+**Caller obligation:** If `collect_trust_triple_errors()` returns a non-empty list, the engine must reject the operation, surface those errors in the structured error response (joined with `'; '`), and make no state changes.
 
 **Origin-matching responsibility:** `collect_trust_triple_errors()` validates that the triple is well-formed. Whether the `hook_request_origin` matches the expected origin for a given entrypoint (e.g., `_user.py` expects `"user"`) is the entrypoint's responsibility — the validator does not enforce route-specific origin rules.
 
@@ -147,6 +147,8 @@ Each `DistillCandidate` is written as a standalone file in the staging inbox. Fi
 - **`source_ref`** (`str`): The envelope's `source_ref.to_str()`. Set by the Knowledge engine at write time.
 - **`staged_at`** (`str`): ISO 8601 UTC timestamp of when the engine wrote the staging file (not envelope creation time). Used as the `YYYY-MM-DD` filename prefix source. The staging-meta JSON includes all `DistillCandidate` fields (`content`, `durability`, `source_section`, `content_sha256`) plus `source_ref` (the envelope's `source_ref.to_str()`) and `staged_at` (ISO 8601 UTC, used as the `YYYY-MM-DD` prefix source). The `content_sha256`-based filename suffix enables atomic file creation via `O_CREAT | O_EXCL` — identical candidates from concurrent operations coalesce.
 
+The `DistillEnvelope.header.idempotency_key` MUST NOT be included in staging-meta. Its omission is an active constraint — see [§Idempotency Enforcement Per Envelope Type](#idempotency-enforcement-per-envelope-type).
+
 **Content authority rule:** The markdown body (after the `staging-meta` comment) is authoritative for content. The `content` field in the staging-meta JSON is index-only — `/curate` publishes the markdown body, not the JSON `content` field. If `content_sha256` does not match `content_hash(body)` at read time, the staging file is treated as corrupt: `/curate` skips it with a warning in `QueryDiagnostics.warnings`. "Index-only" means: the Knowledge reader MUST derive `IndexEntry.snippet` from the markdown body (after the staging-meta comment), not from the JSON `content` field. The `content` field may be used for internal staging operations (e.g., logging, diagnostics) but must not drive display output.
 
 **Body identity invariant:** The markdown body (after the staging-meta comment) MUST be byte-identical to `DistillCandidate.content`. The Knowledge engine MUST write the body as the raw content string with no additional normalization. If normalization is required before writing, it must be applied to `DistillCandidate.content` before computing `content_sha256`.
@@ -161,7 +163,7 @@ class PromoteEnvelope:
     header: EnvelopeHeader
     target_section: str            # Advisory: insertion hint for CLAUDE.md section
     transformed_text: str          # Prescriptive prose, ready to insert
-    content_sha256: Sha256Hex      # content_hash(lesson_content) at envelope creation time
+    content_sha256: Sha256Hex      # content_hash(lesson_content) at envelope creation time — see §Knowledge Entry Format for byte-range definition. Must equal lesson-meta.content_sha256 if no edit occurred between publication and promotion.
 ```
 
 ## promote-meta — Promotion State Record
@@ -222,6 +224,10 @@ Promoted text here...
 **`target_section` is advisory.** It records the last requested destination for the promoted text. It is used as an insertion hint for new promotions (Branch A) and as context in the manual reconcile flow. It is **not** the primary locator — marker search is. If the user moves a managed block to a different section, `target_section` becomes stale; `/promote` updates it on the next successful promotion.
 
 **Uniqueness invariant:** At most one `promote-meta` comment per `lesson_id` may exist in `learnings.md`. On Step 3 write, the Knowledge engine scans for an existing `promote-meta` with matching `lesson_id` and replaces it in-place (not append). The scan-and-replace operation MUST hold `fcntl.flock(LOCK_EX)` on `learnings.md.lock` for its entire duration (same lock as the publish path) to preserve the uniqueness invariant against concurrent `/promote` invocations. If two `promote-meta` comments with the same `lesson_id` are found (corrupted state), treat as Branch D (unreadable promote-meta) and surface a migration warning.
+
+Before updating `target_section`, the scan-and-replace verifies the entry's current `target_section` differs from the user-confirmed value. If they already match, Branch B2 is a no-op (Branch B1 rejection applies instead).
+
+The promote-meta scan-and-replace and the publish path are never concurrent within the same engine call. Step 3 (promote-meta write) runs as a distinct operation from any publish path run. Both acquire `fcntl.flock(LOCK_EX)` on `learnings.md.lock` independently.
 
 ## Hash Types and Helpers
 
@@ -360,7 +366,7 @@ The Knowledge engine **must** recompute [`drift_hash()`](#hash-producing-functio
 
 **Rationale:** The Approve/modify/skip confirmation in Step 2 (Branches C1, C2) allows the user to modify the transformed text before writing. If Step 3 uses the pre-confirmation hash from the envelope, `transformed_text_sha256` would not match the actual CLAUDE.md content, causing spurious drift detection on the next `/promote` run.
 
-**If the exact post-write text is unavailable** (e.g., Step 2 wrote to CLAUDE.md but the skill cannot retrieve the final text between markers), Step 3 **must** reject the promote-meta write rather than persist a hash computed from pre-confirmation text. The lesson remains eligible for the next `/promote` run (same recovery as [Step 2 failure](operations.md#failure-handling)).
+**If the exact post-write text is unavailable** (e.g., Step 2 wrote to CLAUDE.md but the skill cannot locate the final text between markers), Step 3 **must** reject the promote-meta write rather than persist a hash computed from pre-confirmation text. The lesson remains eligible for the next `/promote` run (same recovery as [Step 2 failure](operations.md#failure-handling)). This applies to any write branch because Step 3's hash source is always the post-write marker-bounded text.
 
 ## Knowledge Entry Format — lesson-meta Contract
 
@@ -482,6 +488,8 @@ Payload is typed per event — see [Event Vocabulary](#event-vocabulary-v1) for 
 
 The `emitted_count` field is **required** in `defer_completed` and `distill_completed` payloads. A value of `0` means the operation completed with zero outputs (zero-output success — [triage case 3](operations.md#triage-read-work-and-context)). A missing `emitted_count` key is a producer bug — triage treats it as "completion not proven" (case 4). Producers must always emit `emitted_count`, including when the count is zero. Engines must emit `defer_completed` / `distill_completed` even when `emitted_count` is 0 — a zero-output operation is a successful completion and must be recorded. Omitting the event makes `/triage` report "completion not proven" for a successful operation.
 
+Both `source_ref` and `emitted_count` are required fields. `source_ref` identifies the attempted operation; `emitted_count` reports the outcome. If a reader encounters an event with missing or malformed `source_ref`, treat the event as a producer bug: skip with a warning in `QueryDiagnostics.warnings`. Do not use the event for completion inference or causal linking.
+
 In payload dicts, `RecordRef` values are stored as their [canonical serialization string](#recordref--lookup-key) (`RecordRef.to_str()`). Example: `{"ref": "context/snapshot/2026-03-21-abc123"}`.
 
 **Completion events are success-only.** Their presence proves the operation ran to completion. Their absence means "not proven completed" — not "failed." Failure events are [deferred](decisions.md#deferred-decisions) to a future recovery-phase extension.
@@ -525,11 +533,14 @@ class AuditEntry(TypedDict):
     source_ref: str | None      # RecordRef canonical serialization, if applicable
     session_id: str | None      # Correlational — see invariant below
     trust_triple_present: bool
+    auto_created: bool          # True for auto_audit-mode creates, False for user-approved creates
 ```
 
 **Serialization:** UTF-8 JSONL, compact, `sort_keys=True`, one object per line, newline-terminated.
 
 **`schema_version` writer/reader split:** The `Literal["1.0"]` annotation governs the write-time contract: writers MUST emit the version they were built for. Readers MUST apply same-major tolerance per the Version Evolution Policy — entries with `schema_version` matching the current major version (e.g., `"1.1"`) are accepted; entries with a different major version (e.g., `"2.0"`) are skipped with a warning. The Python type annotation constrains writers, not readers.
+
+The `auto_created` field was added in minor version `1.1`. Same-major readers encountering entries without `auto_created` MUST treat them as `auto_created: True` (conservative — counts toward cap). Writers at version `1.1`+ MUST emit `auto_created`.
 
 **Write semantics:** Append-only. An AuditEntry is written after a successful effective mutation (ticket created, updated, or closed). No `.audit/` entry on duplicate idempotent retry — the idempotency check prevents the effective mutation, so no audit entry is warranted.
 
@@ -550,7 +561,7 @@ Six independent version spaces govern Engram's data contracts. Each evolves inde
 | Ledger format | `LedgerEntry.schema_version` | Event ledger entries | `"1.0"` |
 | Knowledge entry metadata | `lesson-meta.meta_version` | `learnings.md` entries | `"1.0"` |
 | Promotion state metadata | `promote-meta.meta_version` | `learnings.md` promotion records | `"1.0"` |
-| Work audit trail format | `AuditEntry.schema_version` | Work audit JSONL entries | `"1.0"` |
+| Work audit trail format | `AuditEntry.schema_version` | Work audit JSONL entries | `"1.1"` |
 
 ### RecordMeta.schema_version Semantics
 
@@ -568,6 +579,8 @@ Six independent version spaces govern Engram's data contracts. Each evolves inde
 | Work audit trail format | **Same-major tolerance.** Same rules as ledger format — parse `schema_version` major, skip on mismatch, unknown fields ignored. | Writers emit the version they were built for. |
 
 **`VERSION_UNSUPPORTED` error:** Returned by target engines when `envelope_version` does not match the engine's built-in version. Structure: `{"error_code": "VERSION_UNSUPPORTED", "received_version": "<received>", "expected_version": "<engine_version>"}`. Note: `expected_version` is singular (exact-match — there is only one valid version per engine build).
+
+**Sentinel exemption (record provenance only):** The `RecordMeta.schema_version` values `"staged"` and `"0.0"` are sentinel values exempt from `<major>.<minor>` parsing. Readers encountering a sentinel value MUST NOT apply same-major tolerance — route to sentinel-specific handling instead. `"staged"` identifies entries in the staging inbox (not yet published). `"0.0"` identifies pre-versioned legacy entries (see [Legacy Entries](#legacy-entries-missing-meta-version)). This exemption applies only to the record provenance version space. Ledger (`LedgerEntry.schema_version`) and audit trail (`AuditEntry.schema_version`) version spaces do not use sentinel values.
 
 ### Legacy Entries: Missing meta-version
 
