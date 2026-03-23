@@ -275,6 +275,8 @@ Context subsystem writes (`/save`, `/quicksave`, `/load`) use the Write and Edit
 
 This is explicitly **path authorization plus provenance/integrity validation**, not engine trust injection. The `collect_trust_triple_errors()` validator is not invoked for direct-write paths. Context paths allow Write/Edit from any source. Identity verification is intentionally omitted — `/triage` anomaly detection (not `engram_guard`) is the enforcement layer for Context path integrity. See [decisions.md §Named Risks](decisions.md#named-risks) (Context any-source write authorization) for the accepted gap and rationale. See [§Autonomy Model](#autonomy-model).
 
+**Naming note:** Branch 2 performs path recognition (is this a Context-owned path?) with unconditional allow, not an authorization check. The "authorization" label is retained for continuity but the enforcement model is: recognize → allow → post-write quality → triage anomaly detection. See [decisions.md §Named Risks](decisions.md#named-risks) (Context any-source write authorization) for the accepted gap.
+
 ### Trust Triple Scope
 
 The trust triple is `{hook_injected, hook_request_origin, session_id}` — three fields, by design. `worktree_id` is **not** part of the trust triple. Engines derive `worktree_id` independently via `git rev-parse --git-dir` (see [identity resolution](types.md#identity-resolution)) and populate it in `RecordMeta`. This separation ensures that trust validation (was this request authorized?) and provenance tracking (which worktree originated this?) are independently verifiable.
@@ -399,4 +401,8 @@ ledger:
 
 ### Staging Inbox Cap
 
-The staging inbox cap is configured via `knowledge_max_stages` in `.claude/engram.local.md`. Values less than 1 are invalid; the engine rejects the configuration at parse time with `"knowledge_max_stages must be >= 1"`. The same validation applies to `work_max_creates`: values less than 1 are invalid, rejected at parse time with `"work_max_creates must be >= 1"`. This section owns the configuration schema and validation contract (`enforcement_mechanism`). The behavioral specification (rejection logic, formula, error message format, edge cases, and recovery path) is in [operations.md §Distill](operations.md#distill-context-to-knowledge-staged) (`behavior_contract`).
+The staging inbox cap is configured via `knowledge_max_stages` in `.claude/engram.local.md`. Values less than 1 are invalid; the engine rejects the configuration at parse time with `"knowledge_max_stages must be >= 1"`. The same validation applies to `work_max_creates`: values less than 1 are invalid, rejected at parse time with `"work_max_creates must be >= 1"`. This section owns the configuration schema, validation contract, and cap enforcement behavioral specification (`enforcement_mechanism` authority).
+
+**Cap enforcement formula:** The Knowledge engine checks the cumulative count of files in `knowledge_staging/` before writing new staged candidates. If `count + batch_size > knowledge_max_stages`, the entire batch is rejected (whole-batch reject for determinism — no partial staging). The rejection response includes current count, cap, and a suggestion to run `/curate` to clear the inbox.
+
+**Edge case — `batch_size > knowledge_max_stages`:** If a single distill batch exceeds the configured cap, the batch is rejected even with 0 files in staging. The rejection response must include: (1) current `batch_size` and cap values, (2) the exact config change needed, (3) instruction to re-run with the `snapshot_ref` from the recovery manifest.
