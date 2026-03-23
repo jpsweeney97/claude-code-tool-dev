@@ -262,6 +262,8 @@ Step 1 precedes step 2 so users see "Engram not initialized" rather than a confu
 
 `/learn` and `/curate` are user-initiated skills that route through the Knowledge engine publish path — they use `"user"` origin despite calling the same engine entrypoint as `/distill`'s staging write. The origin is determined by the calling skill, not the engine entrypoint. `/distill` is the only Knowledge operation that uses `"agent"` origin (it extracts candidates without user interaction).
 
+**Explicit call sites:** The Knowledge engine publish entrypoint (shared by `/learn` and `/curate`) must call `validate_origin_match("user", actual)`. The staging write entrypoint (`/distill`) must call `validate_origin_match("agent", actual)`. The promote-meta write entrypoint must call `validate_origin_match("user", actual)`.
+
 The `_user.py` / `_agent.py` naming convention reflects but does not define the expected origin. This table is the enforcement-level reference for origin-matching. The [interface_contract](types.md#trustpayload--trust-triple-wire-format) definition of `hook_request_origin` values is in types.md.
 
 **Enforcement mechanism:** Origin-matching uses `validate_origin_match(expected, actual)` defined in [types.md §Origin-Matching Validation](types.md#origin-matching-validation) as the shared enforcement primitive. `collect_trust_triple_errors()` validates structural correctness (`hook_request_origin` is a valid string in `{"user", "agent"}`) but does not enforce per-entrypoint origin rules — `validate_origin_match()` does.
