@@ -56,6 +56,8 @@ Two consumer classes govern how skills process upstream capsules:
 
 **Strict/deterministic baseline mode:** When the handoff is invalid or unknown-version, the pipeline runs in baseline mode — no enriched decomposition, no upstream context injection. This differs from advisory/tolerant in that no alternative source is consulted; the pipeline simply lacks upstream enrichment. The behavioral contract for strict/deterministic consumers is defined in [capsule-contracts.md](capsule-contracts.md#contract-2-ns-to-dialogue-ns-handoff-block).
 
+**`source_artifacts` provenance rule (all consumer classes):** When a consumer falls back (advisory/tolerant) or rejects (strict/deterministic), the downstream capsule's `source_artifacts[]` MUST omit entries for any upstream capsule that was not structurally consumed. See [capsule-contracts.md §Consumer Class (Contract 1)](capsule-contracts.md#consumer-class-contract-1) and [§Contract 3](capsule-contracts.md#contract-3-dialogue-feedback-capsule) for per-contract provenance rules.
+
 ## Three-Layer Delivery Authority
 
 The composition system distributes authority across three layers:
@@ -68,7 +70,7 @@ The composition system distributes authority across three layers:
 
 **External authority positioning:** The composition contract (`packages/plugins/cross-model/references/composition-contract.md`) sits between the spec (layer 1, highest) and composition stubs (layer 3, lowest) in the authority hierarchy. It is NOT runtime-loaded (stubs carry the runtime projection); it is authoritative for composition stub authors at implementation time. It inherits authority from spec modules via explicit delegation — it cannot introduce normative claims not traceable to a spec module. Composition stubs are the default runtime layer — they operate without the composition contract and without this spec in context.
 
-**Relationship between spec and contract:** Within this spec, the normative definitions live in the spec files ([routing-and-materiality.md](routing-and-materiality.md), [lineage.md](lineage.md), [capsule-contracts.md](capsule-contracts.md), etc.). The Composition contract is the runtime delivery artifact that must conform to — not supersede — these spec-file definitions. When the contract diverges from the spec, the spec is authoritative and the contract must be updated.
+**Relationship between spec and contract:** Within this spec, the normative definitions live in the spec files ([routing-and-materiality.md](routing-and-materiality.md), [lineage.md](lineage.md), [capsule-contracts.md](capsule-contracts.md), etc.). The Composition contract is the runtime delivery artifact that must conform to — not supersede — these spec-file definitions. When the contract diverges from the spec, the spec is authoritative and the contract must be updated. **Conflict resolution rule:** The `spec_files_win` conflict rule for the composition contract is machine-readable in `spec.yaml`'s `external_artifacts` block. See `spec.yaml` lines 67–77 for the full external artifact declaration including `governed_by`, `authority_context`, and `conflict_rule` fields.
 
 **Contract documents the runtime projection of protocol core (stubs carry it at runtime):**
 
