@@ -241,7 +241,8 @@ User prompt
 │  │              --registry-file /tmp/ccdi_registry_<id>.json \
 │  │              --mode initial --topic-key <entry.topic_key> \
 │  │              --facet <entry.facet> \
-│  │              --coverage-target <entry.coverage_target> --mark-injected
+│  │              --coverage-target <entry.coverage_target> \
+│  │              --inventory-snapshot <ccdi_inventory_snapshot_path> --mark-injected
 │  │       (commit mutates the seed file in-place — entries transition to `injected`)
 │  │       Per-topic postconditions (three outcomes):
 │  │       1. Exit non-zero: log error, continue with remaining entries — topic
@@ -269,7 +270,7 @@ The `ccdi-gatherer` subagent emits its [registry seed](data-model.md#registrysee
 
 ```
 <!-- ccdi-registry-seed -->
-{"entries": [...], "docs_epoch": "...", "inventory_snapshot_version": "1", "results_file": "/tmp/ccdi_results_<id>.json"}
+{"entries": [...], "docs_epoch": "...", "inventory_snapshot_version": "1", "results_file": "/tmp/ccdi_results_<id>.json", "inventory_snapshot_path": "/tmp/ccdi_snapshot_<id>.json"}
 <!-- /ccdi-registry-seed -->
 ```
 
@@ -277,8 +278,9 @@ The `/dialogue` skill:
 
 1. Extracts JSON between the sentinels from the ccdi-gatherer's output.
 2. Reads `results_file` from the extracted JSON (the search results path needed for the initial commit).
+2b. Reads `inventory_snapshot_path` from the extracted JSON (the pinned inventory snapshot path needed for `--inventory-snapshot` on initial commit `build-packet` calls and for the `ccdi_inventory_snapshot` delegation envelope field).
 3. Writes the seed to a temp file (`/tmp/ccdi_registry_<id>.json`).
-4. Passes the file path as `ccdi_seed: <path>` in the delegation envelope to `codex-dialogue`.
+4. Passes the file path as `ccdi_seed: <path>` and the inventory snapshot path as `ccdi_inventory_snapshot: <inventory_snapshot_path>` in the delegation envelope to `codex-dialogue`. These two fields are an atomic pair — both MUST be present or both absent.
 
 The `codex-dialogue` agent detects the `ccdi_seed` field and uses the file as its initial `--registry-file` for the mid-dialogue CCDI loop. If the field is absent, CCDI mid-dialogue is disabled for the session.
 
@@ -289,7 +291,7 @@ The `/dialogue` skill passes these optional fields to `codex-dialogue`:
 | Field | Type | Source | Purpose |
 |-------|------|--------|---------|
 | `ccdi_seed` | file path (string) | ccdi-gatherer output | Initial registry file for mid-dialogue CCDI loop. Absent → mid-dialogue CCDI disabled. |
-| `ccdi_inventory_snapshot` | file path (string) | ccdi-gatherer output | Pinned inventory snapshot for `--inventory-snapshot` on all `build-packet` CLI calls. Required when `ccdi_seed` is present. |
+| `ccdi_inventory_snapshot` | file path (string) | `inventory_snapshot_path` field in ccdi-gatherer sentinel block | Pinned inventory snapshot for `--inventory-snapshot` on all `build-packet` CLI calls. Required when `ccdi_seed` is present. |
 | `scope_envelope` | object | context-gatherers | Existing field — repo evidence scope. |
 | `ccdi_debug` | boolean \| absent | `/dialogue` skill | When `true`, `codex-dialogue` emits `ccdi_trace` in its output. Absent or `false` → no trace. Testing-only; see [below](#ccditrace-output-contract) for the output contract and [delivery.md#debug-gated-ccditrace](delivery.md#debug-gated-ccditrace) for the trace schema and replay harness. |
 | `ccdi_policy_snapshot`* | TBD | Phase B | *[Phase B — deferred]* Config snapshot for pinning CCDI tuning params during dialogue. Shape undefined — see [delivery.md#known-open-items](delivery.md#known-open-items). Not operative in Phase A. |
