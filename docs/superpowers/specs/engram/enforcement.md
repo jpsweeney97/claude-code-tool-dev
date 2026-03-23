@@ -160,7 +160,10 @@ The 'Ships At' column mirrors delivery.md §Build Sequence for convenience. deli
 engram_guard decision algorithm:
   1. If tool_name == Bash AND matches engine_*.py pattern:
      → Verify the Bash target matches an existing engine script file.
-       If the file does not exist: skip trust injection (fall through to branch 3/4).
+       If the file does not exist: block (exit code 2) with diagnostic:
+         "engram_guard: engine script not found at {resolved_path} —
+          invocation blocked. Expected scripts: {comma-separated list of
+          existing engine_*.py files in engram_scripts_dir}."
        If the file exists: Engine trust injection (write TrustPayload, allow)
   2. If tool_name in {Write, Edit} AND path within Context private root:
      → Direct-write path authorization (allow + post-write quality)
