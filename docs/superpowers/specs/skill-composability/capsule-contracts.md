@@ -44,7 +44,7 @@ Advisory/tolerant. NS validates the capsule if present; falls back to prose pars
 
 **Provenance in fallback:** When NS falls back to prose parsing (capsule absent, schema-invalid, or unknown-version rejected), the NS handoff MUST omit `source_artifacts` entries for the absent capsule. Do not reference an AR `artifact_id` that was not structurally consumed. This preserves lineage integrity — downstream consumers can trust that `source_artifacts` entries represent structurally validated provenance, not prose-derived references.
 
-**Validity criteria:** An AR capsule is invalid if any required field is absent or not well-typed. Required fields: `artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `review_target`, `findings`. `review_target` is basis data for `subject_key` derivation (see [lineage.md](lineage.md#basis-fields)) — without it, the capsule cannot mint a stable lineage key. Optional fields: `topic_key`, `supersedes`, `source_artifacts`, `record_path`, `overall_confidence`, `assumptions`, `open_questions`. This parallels the explicit validity criteria in Contracts 2 and 3.
+**Validity criteria:** An AR capsule is invalid if any required field is absent or not well-typed. Required fields: `artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `review_target`, `findings`. `review_target` is basis data for `subject_key` derivation (see [lineage.md](lineage.md#basis-fields-key-minting-at-chain-root)) — without it, the capsule cannot mint a stable lineage key. Optional fields: `topic_key`, `supersedes`, `source_artifacts`, `record_path`, `overall_confidence`, `assumptions`, `open_questions`. This parallels the explicit validity criteria in Contracts 2 and 3.
 
 See [Shared Validity Rules](#shared-validity-rules) for the optional field absence rule.
 
@@ -96,7 +96,7 @@ Give dialogue's `--plan` flag structured task context, dependencies, originating
 
 ### Consumer Class (Contract 2)
 
-Strict/deterministic. Dialogue rejects an invalid handoff block but continues its normal pipeline (gatherers, briefing assembly, delegation). It does not fall back to a different data source.
+Strict/deterministic. Dialogue rejects an invalid handoff block but continues its normal pipeline — see [pipeline-integration.md](pipeline-integration.md) for stage-level detail. It does not fall back to a different data source.
 
 **Validity criteria:** A handoff block is invalid if: (1) any required field (`artifact_id`, `artifact_kind`, `lineage_root_id`, `created_at`, `subject_key`, `focus_question`, `selected_tasks`) is absent or not well-typed, (2) `artifact_kind` is not `next_steps_plan`, or (3) `selected_tasks` is present but empty. Missing optional fields (`topic_key`, `recommended_posture`, `source_findings`, `source_assumptions`, `source_open_questions`, `out_of_scope`, `decision_gates`, `supersedes`) do not invalidate the capsule. `selected_tasks` validity: MUST be present AND non-empty. Absent `selected_tasks` key = invalid (criterion 1: missing required field). Present but empty `selected_tasks: []` = invalid (criterion 3: explicit validity rule). Both produce the same consumer behavior: rejection + normal pipeline proceeds.
 
