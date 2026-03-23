@@ -547,7 +547,7 @@ Each line in a work audit file (`engram/work/.audit/<session_id>.jsonl`) records
 
 ```python
 class AuditEntry(TypedDict):
-    schema_version: Literal["1.0"]
+    schema_version: Literal["1.1"]
     timestamp: str              # ISO 8601 UTC
     operation: str              # "create" | "update" | "close"
     ticket_ref: str             # RecordRef canonical serialization
@@ -559,9 +559,9 @@ class AuditEntry(TypedDict):
 
 **Serialization:** UTF-8 JSONL, compact, `sort_keys=True`, one object per line, newline-terminated.
 
-**`schema_version` writer/reader split:** The `Literal["1.0"]` annotation governs the write-time contract: writers MUST emit the version they were built for. Readers MUST apply same-major tolerance per the Version Evolution Policy — entries with `schema_version` matching the current major version (e.g., `"1.1"`) are accepted; entries with a different major version (e.g., `"2.0"`) are skipped with a warning. The Python type annotation constrains writers, not readers.
+**`schema_version` writer/reader split:** The `Literal["1.1"]` annotation governs the write-time contract: writers MUST emit the version they were built for. Readers MUST apply same-major tolerance per the Version Evolution Policy — entries with `schema_version` matching the current major version (e.g., `"1.1"`) are accepted; entries with a different major version (e.g., `"2.0"`) are skipped with a warning. The Python type annotation constrains writers, not readers.
 
-The `auto_created` field was added in minor version `1.1`. Same-major readers encountering entries without `auto_created` MUST treat them as `auto_created: True` (conservative — counts toward cap). Writers at version `1.1`+ MUST emit `auto_created`.
+The `auto_created` field is present from the initial version (`1.1`). No `1.0` AuditEntry format was ever shipped. The defensive read rule is retained for robustness: same-major readers encountering entries without `auto_created` MUST treat them as `auto_created: True` (conservative — counts toward cap). This handles corrupt or hand-edited entries, not a version transition.
 
 **Write semantics:** Append-only. An AuditEntry is written after a successful effective mutation (ticket created, updated, or closed). No `.audit/` entry on duplicate idempotent retry — the idempotency check prevents the effective mutation, so no audit entry is warranted.
 
