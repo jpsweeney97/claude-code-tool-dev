@@ -9,6 +9,9 @@ authorities:
   data-model:
     description: Topic inventory schema (CompiledInventory, TopicRecord, Alias, QueryPlan, DenyRule, DocRef), version axes, overlay merge semantics, configuration schema, and inventory lifecycle.
     default_claims: [persistence_schema, architecture_rule]
+    # NOTE: data-model.md's architecture_rule claim covers persistence-layer elaboration
+    # of architectural principles owned by foundations.md, not independent architectural
+    # authority. For cross-cutting architecture decisions, foundations.md governs.
 
   classifier-contract:
     description: Two-stage classifier pipeline (candidate generation, ambiguity resolution), confidence levels, injection thresholds, and classifier output structure.
@@ -29,11 +32,11 @@ authorities:
       - section: "pipeline-isolation-invariants-subset"
         claim: "behavior_contract"
         rationale: "Behavioral invariants cross-referenced from decisions.md elevated to outrank decision_record for behavioral claims"
-        # NOTE: This elevation is redundant with the claim_precedence chain for
-        # behavior_contract (integration already ranks above decisions there).
-        # Retained for explicitness: these invariants are cross-referenced from
-        # decisions.md and the elevation makes the authority relationship visible
-        # at the registration site rather than requiring chain traversal.
+        # NOTE: This elevation is normative. While claim_precedence already ranks
+        # integration above decisions for behavior_contract, the explicit elevation
+        # here provides direct visibility: these invariants are cross-referenced
+        # from decisions.md and registering the authority relationship at this site
+        # avoids requiring chain traversal to determine which file governs them.
 
   delivery:
     description: Rollout strategy (Phase A/B, shadow mode, kill criteria), testing strategy (four-layer approach, ccdi_trace replay), test matrices, and per-dialogue diagnostics schema.
@@ -65,7 +68,7 @@ precedence:
     behavior_contract: [classifier-contract, registry-contract, packet-contract, integration, decisions]
     interface_contract: [integration, classifier-contract, registry-contract, packet-contract, decisions]
     persistence_schema: [data-model, integration, decisions]  # integration included: RegistrySeed envelope and dump_index_metadata schema surface persistence concerns at the CLI interface
-    decision_record: [decisions, foundation, delivery]
+    decision_record: [decisions, foundation]  # delivery removed: delivery makes no decision_record claims
     implementation_plan: [delivery, integration, decisions]
     verification_strategy: [delivery, integration, decisions]
   # fallback_authority_order applies only when a claim is not covered by any defined

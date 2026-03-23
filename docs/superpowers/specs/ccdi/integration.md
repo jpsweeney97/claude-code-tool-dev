@@ -304,10 +304,10 @@ The `/dialogue` skill passes these optional fields to `codex-dialogue`:
 
 ### `ccdi_trace` Output Contract
 
-When `ccdi_debug: true` is set in the delegation envelope, `codex-dialogue` MUST emit a `ccdi_trace` key in its output containing an array of per-turn trace entries. Each trace entry MUST include all of the following keys regardless of value: `turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`. `semantic_hints` MUST be `null` when no hints exist (not absent from the entry).
-**`shadow_suppressed` field:** Each per-turn trace entry includes a `shadow_suppressed: boolean` field (9th field, not counted in the 8-key invariant for backward compatibility). Value is `true` when the trace entry describes an action whose registry mutation was suppressed by shadow mode — currently `skip_cooldown` (CLI-enforced via `--shadow-mode` flag) and `skip_scout` (agent-enforced abstention from `--mark-deferred scout_priority`); `false` otherwise. This field disambiguates whether the registry mutation described by the `action` value actually occurred.
-**Exception for diagnostic entries:** `shadow_defer_intent` trace entries are counterfactual observations, not turn-loop observations. They are exempt from the 8-key requirement and use a reduced schema: `turn`, `action`, `topic_key`, `reason`, `classify_result_hash`. See [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization) for the entry schema and semantics.
-**Type discrimination:** The `ccdi_trace` array contains two structurally different entry types: per-turn entries (8+ keys) and `shadow_defer_intent` entries (5 keys). Trace consumers MUST filter entries by `action` value before applying key-presence requirements. The 8-key invariant applies only to entries where `action != "shadow_defer_intent"`. Code iterating the trace array MUST NOT assume all entries have the same structure.
+When `ccdi_debug: true` is set in the delegation envelope, `codex-dialogue` MUST emit a `ccdi_trace` key in its output containing an array of per-turn trace entries. Each trace entry MUST include all of the following keys regardless of value: `turn`, `classifier_result`, `semantic_hints`, `candidates`, `action`, `packet_staged`, `scout_conflict`, `commit`, `shadow_suppressed`. `semantic_hints` MUST be `null` when no hints exist (not absent from the entry).
+**`shadow_suppressed` field:** Each per-turn trace entry includes a `shadow_suppressed: boolean` field (9th required key). Value is `true` when the trace entry describes an action whose registry mutation was suppressed by shadow mode — currently `skip_cooldown` (CLI-enforced via `--shadow-mode` flag) and `skip_scout` (agent-enforced abstention from `--mark-deferred scout_priority`); `false` otherwise. This field disambiguates whether the registry mutation described by the `action` value actually occurred.
+**Exception for diagnostic entries:** `shadow_defer_intent` trace entries are counterfactual observations, not turn-loop observations. They are exempt from the 9-key requirement and use a reduced schema: `turn`, `action`, `topic_key`, `reason`, `classify_result_hash`. See [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization) for the entry schema and semantics.
+**Type discrimination:** The `ccdi_trace` array contains two structurally different entry types: per-turn entries (9 keys) and `shadow_defer_intent` entries (5 keys). Trace consumers MUST filter entries by `action` value before applying key-presence requirements. The 9-key invariant applies only to entries where `action != "shadow_defer_intent"`. Code iterating the trace array MUST NOT assume all entries have the same structure.
 
 **`action` normative values:**
 
@@ -323,10 +323,10 @@ When `ccdi_debug: true` is set in the delegation envelope, `codex-dialogue` MUST
 | `defer` | Topic deferred (`--mark-deferred` committed). Corresponds to `deferred_reason: "target_mismatch"` — see [registry.md#entry-structure](registry.md#entry-structure). | Yes — active mode only; prohibited in shadow mode |
 | `suppress` | Topic suppressed (build-packet returned empty) | Yes — automatic suppression, both active and shadow modes |
 | `skip_cooldown` | Topic deferred due to per-turn cooldown. In active mode: `deferred: cooldown` state written by `dialogue-turn`, `shadow_suppressed: false`. In shadow mode: registry write suppressed by `--shadow-mode` flag, `shadow_suppressed: true`, and a separate `shadow_defer_intent` entry with `reason: "cooldown"` is emitted per [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization). Consumers MUST check `shadow_suppressed` to determine whether the registry mutation actually occurred. | Yes (active) / No (shadow — `shadow_suppressed: true`) |
-| `skip_scout` | Topic deferred due to scout priority (deferred_reason: `"scout_priority"` — see [registry.md#entry-structure](registry.md#entry-structure)). In active mode, `skip_scout` is emitted (not `defer`) even though `--mark-deferred` is committed — the scout reason takes priority over the generic defer action. In shadow mode, `skip_scout` has `shadow_suppressed: true` — the `--mark-deferred scout_priority` call that would have occurred in active mode is not made. | Yes via `--mark-deferred` (active) / No (shadow — `shadow_suppressed: true`) |
+| `skip_scout` | Topic deferred due to scout priority (deferred_reason: `"scout_priority"` — see [registry.md#entry-structure](registry.md#entry-structure)). In active mode, `skip_scout` is emitted (not `defer`) even though `--mark-deferred` is committed — the scout reason takes priority over the generic defer action. In shadow mode, `skip_scout` has `shadow_suppressed: true` — the `--mark-deferred scout_priority` call IS made with `--shadow-mode` appended; the CLI backstop makes `--mark-deferred` a no-op and the registry write is suppressed. | Yes via `--mark-deferred` (active) / No (shadow — `shadow_suppressed: true`) |
 | `shadow_defer_intent` | Shadow mode counterfactual deferral: agent would have called `--mark-deferred` in active mode but is prohibited in shadow mode. Emitted as a diagnostic-only trace entry — see [delivery.md#shadow-mode-denominator-normalization](delivery.md#shadow-mode-denominator-normalization). | N/A — diagnostic entry, no registry operation |
 
-**`shadow_defer_intent` entry schema:** Unlike per-turn trace entries (which use the 8-key structure above), `shadow_defer_intent` entries use a diagnostic-only schema:
+**`shadow_defer_intent` entry schema:** Unlike per-turn trace entries (which use the 9-key structure above), `shadow_defer_intent` entries use a diagnostic-only schema:
 
 ```json
 {"turn": 3, "action": "shadow_defer_intent", "topic_key": "hooks.pre_tool_use", "reason": "target_mismatch", "classify_result_hash": "a7f3..."}
@@ -363,10 +363,19 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 ├─ Step 5.5: CCDI PREPARE (after composition, before send)
 │   ├─ Write Codex's latest response to /tmp/ccdi_turn_<id>.txt
 │   ├─ Optionally write semantic hints to /tmp/ccdi_hints_<id>.json
-│   ├─ Bash: python3 topic_inventory.py dialogue-turn \
-│   │        --registry-file /tmp/ccdi_registry_<id>.json \
-│   │        --text-file /tmp/ccdi_turn_<id>.txt --source codex \
-│   │        [--semantic-hints-file /tmp/ccdi_hints_<id>.json]
+│   ├─ If active mode:
+│   │   └─ Bash: python3 topic_inventory.py dialogue-turn \
+│   │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │            --inventory-snapshot <ccdi_snapshot_path> \
+│   │            --text-file /tmp/ccdi_turn_<id>.txt --source codex \
+│   │            [--semantic-hints-file /tmp/ccdi_hints_<id>.json]
+│   ├─ If shadow mode:
+│   │   └─ Bash: python3 topic_inventory.py dialogue-turn \
+│   │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │            --inventory-snapshot <ccdi_snapshot_path> \
+│   │            --text-file /tmp/ccdi_turn_<id>.txt --source codex \
+│   │            --shadow-mode \
+│   │            [--semantic-hints-file /tmp/ccdi_hints_<id>.json]
 │   ├─ Read candidates from stdout
 │   ├─ If candidates AND no scout target for this turn:
 │   │   ├─ search_docs for the scheduled candidate's query plan
@@ -386,11 +395,13 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │       │   └─ Bash: python3 topic_inventory.py build-packet \
 │   │       │            --results-file /tmp/ccdi_results_<id>.json \
 │   │       │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │       │            --inventory-snapshot <ccdi_snapshot_path> \
 │   │       │            --mode mid_turn \
 │   │       │            --mark-deferred <topic_key> --deferred-reason target_mismatch \
 │   │       │            --skip-build
 │   │       └─ If shadow mode: Bash: python3 topic_inventory.py build-packet \
 │   │                    --registry-file /tmp/ccdi_registry_<id>.json \
+│   │                    --inventory-snapshot <ccdi_snapshot_path> \
 │   │                    --mode mid_turn \
 │   │                    --mark-deferred <topic_key> --deferred-reason target_mismatch \
 │   │                    --shadow-mode --skip-build
@@ -404,11 +415,13 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   ├─ If active mode:
 │   │   │   └─ Bash: python3 topic_inventory.py build-packet \
 │   │   │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │   │            --inventory-snapshot <ccdi_snapshot_path> \
 │   │   │            --mode mid_turn \
 │   │   │            --mark-deferred <topic_key> --deferred-reason scout_priority \
 │   │   │            --skip-build
 │   │   └─ If shadow mode: Bash: python3 topic_inventory.py build-packet \
 │   │                --registry-file /tmp/ccdi_registry_<id>.json \
+│   │                --inventory-snapshot <ccdi_snapshot_path> \
 │   │                --mode mid_turn \
 │   │                --mark-deferred <topic_key> --deferred-reason scout_priority \
 │   │                --shadow-mode --skip-build
@@ -436,6 +449,7 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 │   │   └─ Bash: python3 topic_inventory.py build-packet \
 │   │            --results-file /tmp/ccdi_results_<id>.json \
 │   │            --registry-file /tmp/ccdi_registry_<id>.json \
+│   │            --inventory-snapshot <ccdi_snapshot_path> \
 │   │            --mode mid_turn --topic-key <candidate.topic_key> \
 │   │            --facet <candidate.facet> \
 │   │            --coverage-target <candidate.coverage_target> --mark-injected
@@ -445,7 +459,9 @@ codex-dialogue agent — existing turn loop with CCDI prepare/commit
 └─ Continue dialogue loop
 ```
 
-**Shadow-mode registry invariant:** In shadow mode, the only permitted registry mutations are automatic suppressions written by `build-packet` empty output (`suppressed: weak_results` or `suppressed: redundant`). All other mutation types are prohibited, enforced at two distinct layers:
+#### Shadow-mode Registry Invariant
+
+In shadow mode, the only permitted registry mutations are automatic suppressions written by `build-packet` empty output (`suppressed: weak_results` or `suppressed: redundant`). All other mutation types are prohibited, enforced at two distinct layers:
 
 **CLI-enforced (via `--shadow-mode` flag):** `dialogue-turn` cooldown deferral writes (Step 5.5, the cooldown deferral bullet in `dialogue-turn` registry side-effects) are suppressed when the `--shadow-mode` flag is passed. The CLI itself prevents the `deferred: cooldown` state write — no agent logic is involved. `candidate_type: 'new'` entries excluded by the cooldown limit remain in `detected` state.
 
