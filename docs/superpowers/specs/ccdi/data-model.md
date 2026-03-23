@@ -111,6 +111,8 @@ Do NOT collapse Alias to plain strings — alias-level weights and facet hints a
 
 **Weight range enforcement:** `weight` MUST be in `[0.0, 1.0]`. `build_inventory.py` clamps out-of-range alias weights to this range with a warning. Clamping applies to all alias-producing operations: scaffold generation, `add_topic` (each alias in `topic_record.aliases`), `override_weight`, and `replace_aliases` (each alias in the replacement array). All four operations use identical clamping behavior: values above 1.0 are clamped to 1.0; values below 0.0 are clamped to 0.0.
 
+**`Alias.source` on `override_weight`:** When `override_weight` modifies an alias's weight, the `Alias.source` field is unchanged — it retains the value set at alias creation (scaffold or overlay).
+
 ## QueryPlan
 
 ```
