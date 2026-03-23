@@ -67,7 +67,7 @@ The Work subsystem operates in one of two modes, configured via `work_mode` in [
 
 **Edge case: `batch_size > knowledge_max_stages`.** If a single distill batch produces more candidates than the configured cap (e.g., a rich snapshot yields 15 candidates against a cap of 10), the batch is rejected even with 0 files in staging — the cap applies to `count + batch_size`, and `0 + 15 > 10`. The rejection response must include: (1) current `batch_size` and cap values, (2) the exact config change needed (`knowledge_max_stages: N` where N >= batch_size in `.claude/engram.local.md`), (3) instruction to re-run the failed distill with the `snapshot_ref` from the [recovery manifest](#recovery-manifest). This is a deliberate consequence of whole-batch rejection. Partial staging (accepting the first N candidates) is a [deferred decision](decisions.md#deferred-decisions).
 
-**`/curate` mechanics:** Lists staged candidates sorted by `durability` (likely_durable first), then by `staged_at` (oldest first). Shows snippet, source section, and durability classification. The user reviews and selects candidates to publish. `likely_ephemeral` candidates are surfaced with a warning but not filtered — the user decides. On publish, the knowledge engine deduplicates via `content_sha256` against both existing published entries and other staged entries (to remove or skip duplicates in the staging inbox), writes to `engram/knowledge/learnings.md`, and removes the staged file (plus any other staged files with identical `content_sha256`). The dedup check against published entries must occur within the same lock scope as the write (after acquiring `fcntl.flock(LOCK_EX)` on `learnings.md.lock`). This ensures no concurrent `/learn` write can interleave between dedup check and append.
+**`/curate` mechanics:** Lists staged candidates sorted by `durability` (likely_durable first), then by `staged_at` (oldest first). Shows snippet, source section, and durability classification. The user reviews and selects candidates to publish. `likely_ephemeral` candidates are surfaced with a warning but not filtered — the user decides. On publish, the knowledge engine deduplicates via `content_sha256` against both existing published entries and other staged entries (to remove or skip duplicates in the staging inbox), writes to `engram/knowledge/learnings.md`, and removes the staged file (plus any other staged files with identical `content_sha256`). **`/curate` publish dedup ordering (TOCTOU invariant):** The dedup check against published entries must occur within the same lock scope as the write (after acquiring `fcntl.flock(LOCK_EX)` on `learnings.md.lock`). This ensures no concurrent `/learn` write can interleave between dedup check and append.
 
 ### Triage: Read Work and Context
 
@@ -143,13 +143,14 @@ Three-step state machine with marker-based location and reconciliation recovery.
             User sees proposed text and target_section, confirms before write. User confirmation
             is implicit in lesson selection — the user chose this lesson for promotion. No
             separate approval prompt.
+            **Branch A invariants:** (1) `transformed_text` MUST be a faithful rendering of the selected lesson, differing only by required promotion markers — no content transformation beyond marker wrapping. (2) `target_section` is advisory; if the user later moves the promoted block to a different section, relocation is handled by Branch B2 on subsequent `/promote`.
         Branch D (promote-meta present, meta_version unrecognized or missing):
             Exclude from candidate list. Surface warning: "Lesson <lesson_id> has
             unreadable promote-meta (missing or unrecognized meta_version). Run
             migration before re-promoting." The exclusion occurs before the lesson
-            appears as a selectable candidate. See [legacy entries](types.md#legacy-entries-missing-meta_version).
+            appears as a selectable candidate. See [legacy entries](types.md#legacy-entries-missing-meta-version).
         Branch B (promote-meta exists, promoted_content_sha256 == current content_sha256):
-            B1 (target_section unchanged): Reject — already promoted. Return existing details.
+            B1 (target_section unchanged): Reject — already promoted. Return: `{"status": "already_promoted", "lesson_id": "<id>", "promoted_at": "<ISO8601>", "target_section": "<section>", "promoted_content_sha256": "<hex>"}`.
             B2 (target_section mismatch — promote-meta.target_section differs from
                 detected marker location via global marker search): Manual reconcile.
                 On re-entry after a prior B2 Step 3 failure, this mismatch is detected

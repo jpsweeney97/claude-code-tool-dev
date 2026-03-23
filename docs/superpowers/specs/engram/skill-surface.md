@@ -39,7 +39,7 @@ Three rules constrain `/save` to prevent [God Skill](decisions.md#named-risks) d
 
 **Structural verification:** `/save` sub-operations **must** call the same public entrypoint functions as their standalone counterparts. Verified by automated delegation test — see [cross-cutting verification](delivery.md#cross-cutting-verification) for test specification.
 
-## Chain Protocol — Session Lineage Tracking
+## Chain Protocol: Session Lineage Tracking
 
 Enables `resumed_from` tracking across sessions. Carried forward from the existing handoff contract with identity changes.
 
