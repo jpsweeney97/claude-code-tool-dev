@@ -19,6 +19,10 @@ Reviewer (not author) MUST independently verify the helper function list is comp
 
 The co-review gate MUST also verify the NS adapter sets `tautology_filter_applied` in `upstream_handoff` capability flags (key presence, not just value correctness) — absence is a gate failure requiring remediation before merge.
 
+The co-review gate MUST also verify the NS adapter sets `decomposition_seed: true` only when `--plan` was active AND decomposition seeding actually ran — per pipeline-integration.md §Two-Stage Admission Stage B. A false `decomposition_seed` causes Step 0 case (c) abort with no recovery path. PR checklist item: "Confirmed: NS adapter's `decomposition_seed` assignment is conditional on `--plan` being active. Verified by tracing the adapter code path."
+
+The co-review gate enforcement surface covers ALL adapter exit paths, including Stage A rejection (where `upstream_handoff` is never initialized). When Stage A rejects a capsule, the adapter exits before `upstream_handoff` is constructed — `tautology_filter_applied` key-presence cannot be checked on an object that does not exist. PR checklist item: "Confirmed: adapter exit paths are exhaustively enumerated — including schema-validation-failure paths where `upstream_handoff` is never initialized. For rejection paths: verified no capability flags leak into pipeline state."
+
 ## Helper Function Tracking
 
 Validates: routing-and-materiality.md §No Auto-Chaining (enforcement basis)
@@ -78,3 +82,34 @@ Validates: capsule-contracts.md §Sentinel Registry (internal sentinel scope)
 **[Activates when dialogue stub is authored]** PR checklist item: "Confirmed: `<!-- dialogue-orchestrated-briefing -->` does not appear in any code path that writes to conversation context or user-visible output. The sentinel is internal pipeline state only. Verified by reviewing all output-writing code paths in the dialogue stub."
 
 Retirement: when `validate_composition_contract.py` includes sentinel scope enforcement.
+
+## `upstream_handoff` Abort Teardown Check
+
+Validates: routing-and-materiality.md §Material-Delta Gating Step 0 case (c) + §Affected-Surface Validity post-abort behavior (flag teardown invariant)
+
+**[Activates when dialogue abort-path code is authored]** PR checklist item: "Confirmed: all `upstream_handoff` capability flags (`decomposition_seed`, `gatherer_seed`, `briefing_context`, `tautology_filter_applied`) are torn down after each abort path. Verified using the phase-and-abort coverage table below."
+
+**Phase-and-abort coverage table:** Each row names the stub phase where a capability flag becomes semantically live, the reachable abort condition, the required post-abort rule, and the linked reinvocation test case.
+
+| Flag | Semantically Live At | Abort Condition | Post-Abort Rule | Reinvocation Case |
+|------|---------------------|-----------------|-----------------|-------------------|
+| `decomposition_seed` | Step 0 materiality precondition | Case (c): filter not applied | Any later invocation MUST recompute from currently visible inputs; no prior flag carried forward | Post-abort reinvocation: no enriched decomposition behavior |
+| `gatherer_seed` | Steps 2-3 gatherer enrichment | Case (c) or partial correction failure | Same | Post-abort reinvocation: no gatherer enrichment from prior handoff |
+| `briefing_context` | Briefing assembly | Case (c) or partial correction failure | Same | Post-abort reinvocation: no upstream context injection |
+| `tautology_filter_applied` | Step 0 precondition check | Case (c) or partial correction failure | Same | Post-abort reinvocation: precondition re-evaluated from scratch |
+
+The reinvocation test (verification.md) is a **corroborating regression check** — absence of capability-flag-dependent behavior is evidence of teardown, not standalone proof. The governance gate (structural reviewer trace) is the primary enforcement layer.
+
+## Step 0 Flag Read Source Verification
+
+Validates: routing-and-materiality.md §Material-Delta Gating Step 0 (case c/d boundary)
+
+**[Activates when materiality evaluator code is authored]** PR checklist item: "Confirmed: materiality evaluator reads `decomposition_seed` from `upstream_handoff.decomposition_seed` (direct flag read from the capability flags set by the adapter at Stage B). The evaluator does NOT derive decomposition status from `--plan` CLI state or any other source. Verified by tracing the evaluator's data source for the case (c)/(d) branching decision."
+
+## Consumer Durable Store Check Ordering Gate
+
+Validates: routing-and-materiality.md §Selective Durable Persistence (check ordering invariant)
+
+PR checklist item: "Confirmed: consumer-side durable store lookup checks fields in order (1) `record_path` nullity, (2) file existence at `record_path`, (3) `record_status` field presence, (4) `record_status` value, (5) file content integrity. Step 3 precedes any file I/O. Verified by tracing the consumer code path as a sequential short-circuit chain."
+
+Cross-reference: routing-and-materiality.md §Check ordering defines the normative 5-step sequence. Consumer-side case (3) behavioral test (absent `record_status` with file existing at path) is the specific ordering verification test per verification.md.
