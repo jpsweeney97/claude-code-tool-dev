@@ -181,7 +181,7 @@ class PromoteEnvelope:
     header: EnvelopeHeader
     target_section: str            # Advisory: insertion hint for CLAUDE.md section
     transformed_text: str          # Prescriptive prose, ready to insert
-    content_sha256: Sha256Hex      # content_hash(lesson_content) at envelope creation time — see §Knowledge Entry Format for byte-range definition. Must equal lesson-meta.content_sha256 if no edit occurred between publication and promotion.
+    content_sha256: Sha256Hex      # content_hash(lesson_content) at envelope creation time — see §Knowledge Entry Format for byte-range definition. Must equal lesson-meta.content_sha256 if no edit occurred between publication and promotion. The `/promote` Step 1 engine MUST apply the same byte-range extraction logic and `knowledge_normalize` normalization as `lesson-meta.content_sha256` — extract content from the live `learnings.md` file at Step 1 invocation time, not from a cached or precomputed value.
 ```
 
 ## promote-meta — Promotion State Record
@@ -535,7 +535,7 @@ In payload dicts, `RecordRef` values are stored as their [canonical serializatio
 
 ### Write Semantics
 
-All ledger producers use a shared locked append primitive in `engram_core/`. Advisory lock (`fcntl.flock`) on the shard file. Lock scope: read-append-fsync. Multi-producer integrity replaces the previous "single writer by sharding" assumption (which broke when engines became ledger producers).
+All ledger producers use a shared locked append primitive in `engram_core/`. Advisory lock (`fcntl.flock`) on the shard file. Lock scope: read-append-fsync. Lock timeout: 5 seconds. On timeout: log warning, do not propagate to caller. This matches the `learnings.md.lock` timeout (§Write Concurrency) and the `engram_register` failure mode documented in enforcement.md. Multi-producer integrity replaces the previous "single writer by sharding" assumption (which broke when engines became ledger producers).
 
 **Ledger append failure never invalidates a successful write.** If a `defer_completed` event fails to append after a successful ticket creation, the ticket exists — the ledger gap is a diagnostic degradation, not data loss. The `append_event()` function is a single best-effort append attempt. Callers do not retry. **Engine/orchestrator append failure modes:** Lock timeout (5 seconds) → log warning, do not propagate to caller. Disk full / permission denied → log error, do not propagate. Failed appends are observable via `diagnostics.warnings` on the next query. These mirror the `engram_register` failure modes in [enforcement.md](enforcement.md#hooks).
 
