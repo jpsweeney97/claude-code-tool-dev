@@ -69,6 +69,8 @@ Validates: routing-and-materiality.md §Selective Durable Persistence + capsule-
 
 PR checklist item: "Confirmed: no null or uninitialized state is reachable for `record_path` from any emission path. Verified by tracing all code paths from capsule assembly entry to `record_path` assignment — including all exception paths before write attempt (path construction failure, permission errors, directory creation failures, and any other pre-write exception). The path variable is assigned before any operation that could throw."
 
+Additionally confirmed: the feedback capsule schema definition declares `record_path` as a required non-null field (schema-level enforcement), not just that no code path emits null (behavioral enforcement). These are distinct checks — the schema declaration prevents null at the type level; the code-path trace prevents null at the implementation level.
+
 ## Thread Freshness Numeric Comparison Check
 
 Validates: routing-and-materiality.md §Thread Continuation vs Fresh Start (timestamp comparison rule)
