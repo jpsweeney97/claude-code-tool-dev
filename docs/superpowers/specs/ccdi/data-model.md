@@ -217,6 +217,8 @@ Facets: `overview`, `schema`, `input`, `output`, `control`, `config`.
 
 Records which overlay operations were applied during inventory build. Stored in `overlay_meta.applied_rules[]`.
 
+**Serialization order:** `applied_rules[]` MUST be serialized in application order: `rules[]`-sourced entries first (in `rules[]` processing order), followed by `config_overrides`-sourced entries.
+
 **Dual-source note:** Most `applied_rules[]` entries correspond to items in the overlay's `rules[]` array. The exception is `operation: "override_config"` — these entries originate from the `config_overrides` root key, not from `rules[]`. Code reading `applied_rules[]` must handle this: there is no corresponding `OverlayRule` in `rules[]` for config override entries. **Schema discriminator:** `operation: "override_config"` entries MUST use the `config-override:` prefix in `rule_id` (e.g., `config-override:classifier.confidence_high_min_weight`). Consumers can distinguish config-override entries from rule-sourced entries by checking `rule_id.startswith("config-override:")` OR `operation == "override_config"` — both are reliable discriminators.
 
 | Field | Type | Purpose |

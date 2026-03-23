@@ -15,6 +15,8 @@ Modular specification for CCDI: automatic detection and injection of Claude Code
 
 8 normative authorities govern the spec; this README is a non-normative supporting entry point. See [spec.yaml](spec.yaml) for the full manifest including precedence and boundary rules.
 
+*(This table is an informative summary — see [spec.yaml](spec.yaml) for the authoritative source.)*
+
 | Authority | Claims | Scope | Normative |
 |-----------|--------|-------|-----------|
 | `foundation` | architecture_rule | Cross-cutting architecture, design principles, resilience principle, topic hierarchy, component inventory, scope boundary | Yes |
