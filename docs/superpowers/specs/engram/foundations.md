@@ -58,7 +58,7 @@ packages/plugins/engram/
 │   ├── types.py              # RecordRef, RecordMeta, contracts
 │   ├── reader_protocol.py    # NativeReader protocol definition only
 │   ├── canonical.py          # Deterministic JSON serialization for idempotency keys
-│   ├── trust.py             # collect_trust_triple_errors() — shared trust validator
+│   ├── trust.py             # collect_trust_triple_errors() + validate_origin_match() — shared trust validators
 │   └── query.py              # Discovery + query engine
 ├── skills/                   # User-facing skills (13 total, including engram init)
 ├── hooks/                    # PreToolUse/PostToolUse/SessionStart hooks

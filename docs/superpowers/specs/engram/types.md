@@ -98,6 +98,24 @@ def collect_trust_triple_errors(
 
 **Origin-matching responsibility:** `collect_trust_triple_errors()` validates that the triple is well-formed. Whether the `hook_request_origin` matches the expected origin for a given entrypoint (e.g., `_user.py` expects `"user"`) is the entrypoint's responsibility — the validator does not enforce route-specific origin rules.
 
+### Origin-Matching Validation
+
+```python
+# engram_core/trust.py
+def validate_origin_match(expected: str, actual: str) -> None:
+    """Verify hook_request_origin matches the entrypoint's expected origin.
+    Raises ValueError on mismatch. Called after collect_trust_triple_errors() succeeds."""
+```
+
+**Precondition:** `actual` has already passed `collect_trust_triple_errors()` validation (non-empty, in `{"user", "agent"}`). This function does NOT re-validate the value set — it only checks the entrypoint-specific match.
+
+**Behavior:** If `expected != actual`, raise `ValueError` with the stable error message:
+`"hook_request_origin: expected {expected!r} for this entrypoint, got {actual!r}"`
+
+**Stable error string:** `"hook_request_origin: expected {expected!r} for this entrypoint, got {actual!r}"` — this is a distinct error from `collect_trust_triple_errors()`'s structural validation error (`"hook_request_origin: must be one of {'user', 'agent'}, got {value!r}"`). The two errors cover different failure modes: structural (invalid value) vs. route-specific (valid value, wrong entrypoint).
+
+**Caller obligation:** Each mutating Work or Knowledge engine entrypoint must call `validate_origin_match(expected, actual)` after `collect_trust_triple_errors()` succeeds. On `ValueError`, the entrypoint must reject before any side effects and surface the error message in the structured response.
+
 ## Envelope Types
 
 All cross-subsystem writes use typed envelopes with a common header. See [envelope invariants](operations.md#envelope-invariants) for behavioral rules.

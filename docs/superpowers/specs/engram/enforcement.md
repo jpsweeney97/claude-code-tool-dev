@@ -251,7 +251,7 @@ If the payload file is absent or unparseable after the `.engram-id` check succee
 
 The `_user.py` / `_agent.py` naming convention reflects but does not define the expected origin. This table is the enforcement-level reference for origin-matching. The [interface_contract](types.md#trustpayload--trust-triple-wire-format) definition of `hook_request_origin` values is in types.md.
 
-**Enforcement mechanism:** Origin-matching has no shared runtime validator. `collect_trust_triple_errors()` validates structural correctness (`hook_request_origin` is a valid string in `{"user", "agent"}`) but does not enforce per-entrypoint origin rules. Each entrypoint is responsible for checking that the origin value matches its expected category (see table above).
+**Enforcement mechanism:** Origin-matching uses `validate_origin_match(expected, actual)` defined in [types.md §Origin-Matching Validation](types.md#origin-matching-validation) as the shared enforcement primitive. `collect_trust_triple_errors()` validates structural correctness (`hook_request_origin` is a valid string in `{"user", "agent"}`) but does not enforce per-entrypoint origin rules — `validate_origin_match()` does.
 
 **Per-entrypoint rejection contract:** When origin mismatch is detected, the entrypoint must:
 1. Reject before any side effects (no state changes).
