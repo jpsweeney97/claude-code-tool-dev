@@ -21,9 +21,13 @@ PR checklist item: "Confirmed: NS adapter sets `tautology_filter_applied` in `up
 
 The co-review gate MUST also verify the NS adapter sets `decomposition_seed: true` only when `--plan` was active AND decomposition seeding actually ran — per pipeline-integration.md §Two-Stage Admission Stage B. A false `decomposition_seed` causes Step 0 case (c) abort with no recovery path. PR checklist item: "Confirmed: `decomposition_seed: true` is only reachable when `--plan` was active AND decomposition seeding actually ran. Verified by enumerating ALL code paths that assign or initialize `decomposition_seed` (not only the adapter's primary path — include default initializers, copy-construction, merge operations, and conditional branches), and confirming none set it to `true` outside the conditional gate."
 
+Enumeration completeness is verified by `grep -n 'decomposition_seed' <stub-files>` — all occurrences must appear in the reviewer's enumeration. If any occurrence is absent, the gate fails.
+
 The co-review gate MUST additionally verify that the behavioral test for `decomposition_seed: true` when `--plan` not active (verification.md §Routing and Materiality Verification, NS adapter row) exists in the test suite and passes. Test file presence is a merge-blocking requirement — per verification.md, this is a P0 merge gate prerequisite.
 
 **NS stub authoring gate:** The NS stub PR MUST include the behavioral test for `decomposition_seed: true` when `--plan` not active as a merge-blocking requirement. Absence of this test in the PR is a gate failure, not a deferral. The test MUST produce a verifiable failure (downstream dialogue hits Step 0 case (c) abort) when `decomposition_seed` is incorrectly set to `true`. See verification.md §Routing and Materiality Verification (NS adapter `decomposition_seed` row) for the test specification.
+
+**Helper-mediated delegation mitigation (v1):** Helper functions in the capsule assembly path MUST NOT call any function not listed in `packages/plugins/cross-model/COMPOSITION_HELPERS.md`. Additionally, the grep-based CI check MUST scan `packages/plugins/cross-model/COMPOSITION_HELPERS.md` itself for slash-command patterns (`/adversarial-review`, `/next-steps`, `/dialogue`) and delegation keywords (`invoke`, `run_skill`, `dispatch`). This is a partial mitigation, not a closure of the helper-mediated delegation gap.
 
 The co-review gate enforcement surface covers ALL adapter exit paths, including Stage A rejection (where `upstream_handoff` is never initialized). When Stage A rejects a capsule, the adapter exits before `upstream_handoff` is constructed — `tautology_filter_applied` key-presence cannot be checked on an object that does not exist. PR checklist item: "Confirmed: adapter exit paths are exhaustively enumerated — including schema-validation-failure paths where `upstream_handoff` is never initialized. For rejection paths: verified `decomposition_seed`, `gatherer_seed`, `briefing_context`, and `tautology_filter_applied` are all absent from pipeline state — `upstream_handoff` is never initialized, so no capability flag key exists in any state object. Verified by tracing the Stage A rejection branch to confirm it exits before any capability flag assignment."
 
@@ -37,11 +41,17 @@ Note: Consumer-side tolerance (treating absent `supersedes` as `null` per capsul
 
 Validates: routing-and-materiality.md §No Auto-Chaining (enforcement basis)
 
-Any function called from the feedback capsule assembly path MUST be tracked in a checked-in list (`COMPOSITION_HELPERS.md` or equivalent) and diffed on each PR — this makes new helpers visible without requiring deep static analysis.
+Any function called from the feedback capsule assembly path MUST be tracked in a checked-in list (`packages/plugins/cross-model/COMPOSITION_HELPERS.md` — canonical location. No "or equivalent" — use this path exactly.) and diffed on each PR — this makes new helpers visible without requiring deep static analysis.
 
-`COMPOSITION_HELPERS.md` (or equivalent) is a required deliverable for any PR that introduces helper functions called from the feedback capsule assembly path. The file MUST exist before the co-review gate can pass — absence of the file when helper functions exist is a gate failure, not a deferral.
+`packages/plugins/cross-model/COMPOSITION_HELPERS.md` is a required deliverable for any PR that introduces helper functions called from the feedback capsule assembly path. The file MUST exist before the co-review gate can pass — absence of the file when helper functions exist is a gate failure, not a deferral.
+
+**Assembly path boundary:** The capsule assembly path begins at the point in the dialogue composition stub where `feedback_candidates[]` construction starts (post-synthesis item classification) and terminates at sentinel emission. A function is "in the assembly path" if it is reachable from this entry point via direct calls. The entry point name is defined by the dialogue stub author and MUST be documented in `packages/plugins/cross-model/COMPOSITION_HELPERS.md` as the root.
+
+**Enumeration completeness:** Reviewers verify completeness by running `grep -n '<entry-point-function>' <stub-file>` to locate the root, then tracing all calls reachable from it. Every function encountered MUST appear in `packages/plugins/cross-model/COMPOSITION_HELPERS.md`.
 
 **CI scope activation for composition contract:** The PR that creates `packages/plugins/cross-model/references/composition-contract.md` MUST enable the no-auto-chaining grep check for the contract file in CI configuration. The grep check self-activates during contract authoring — a co-reviewer MUST verify the CI scope was updated as part of the contract authoring PR.
+
+**Continuous CI invariant:** The CI configuration MUST verify the grep check file-scope list includes `composition-contract.md` whenever that file exists in the repository — not only when the creating PR adds it. This converts a one-time PR-time obligation into a persistent invariant.
 
 ## Constrained Field Literal-Assignment Assertion
 
@@ -69,6 +79,8 @@ Validates: routing-and-materiality.md §Selective Durable Persistence (path cons
 
 PR checklist item: "Confirmed: `record_path` (absolute filesystem path) is assigned to a local variable before the correction pipeline gate runs. The error handler reads from this pre-computed variable, not from re-derived path logic. Verified by tracing the error handler code path from write-failure branch to `record_path` reference."
 
+**Interim CI check (when dialogue stub is authored):** Verify that in the capsule assembly code, the `record_path` variable assignment appears before any line containing correction rule invocation. Pattern: grep line-ordering comparison of `record_path =` vs first correction-rule reference.
+
 ## `record_path` Null-Prevention Review
 
 Validates: routing-and-materiality.md §Selective Durable Persistence + capsule-contracts.md §Contract 3 (Dialogue Feedback Capsule) (`record_path` non-null requirement)
@@ -91,6 +103,8 @@ Validates: routing-and-materiality.md §Budget Enforcement Mechanics (initializa
 
 PR checklist item: "Confirmed: `budget_override_pending` is explicitly initialized to `false` at dialogue stub entry for each `lineage_root_id` — not left to default-falsy behavior. A new skill invocation always starts with a clean override state. Verified by reviewing the initialization code path at stub entry point — initialization is per-invocation, not session-persistent."
 
+**Per-invocation definition:** A skill invocation begins when the user explicitly invokes `/dialogue` — state initialized at this point is per-invocation. State initialized at skill file load time (e.g., in a module-level variable or skill-level constant) would be session-persistent and does NOT satisfy this requirement. Reviewer confirms: initialization appears inside the invocation handler logic, not outside it.
+
 ## Budget Override Context-Compression Recovery Gate
 
 Validates: [routing-and-materiality.md §Budget Enforcement Mechanics](routing-and-materiality.md#budget-enforcement-mechanics) (override context-compression recovery)
@@ -104,6 +118,8 @@ Validates: capsule-contracts.md §Sentinel Registry (internal sentinel scope)
 **[Activates when dialogue stub is authored]** PR checklist item: "Confirmed: `<!-- dialogue-orchestrated-briefing -->` does not appear in any code path that writes to conversation context or user-visible output. The sentinel is internal pipeline state only. Verified by reviewing all output-writing code paths in the dialogue stub."
 
 Retirement: when `validate_composition_contract.py` includes sentinel scope enforcement.
+
+**Test file deliverable:** Per delivery.md item #13, a test file covering all three cascade assertions MUST be created in the same PR that authors the dialogue stub. The PR checklist item is an interim gate only — the test file is the retirement condition for the interim gate.
 
 ## `upstream_handoff` Abort Teardown Check
 
@@ -124,6 +140,8 @@ The reinvocation test (verification.md) is a **corroborating regression check** 
 
 **Teardown semantics:** All four capability flags are set by the NS adapter at Stage B ([pipeline-integration.md §Two-Stage Admission](pipeline-integration.md#two-stage-admission) Stage B) — they are present when Step 0 runs. Teardown means: set the flag to `false` (or remove the key) regardless of whether the pipeline reached the stage where the flag is semantically consumed. A "torn down" flag MUST evaluate as `false` in any downstream check. Teardown is not a no-op — it clears flags that were initialized at Stage B but whose pipeline stage has not yet been reached.
 
+"Confirmed: torn-down flags either evaluate to `false` in boolean checks (set to `false`) or are absent from the state object (key removed). No abort path leaves capability flags set to `true`."
+
 ## Step 0 Flag Read Source Verification
 
 Validates: routing-and-materiality.md §Material-Delta Gating Step 0 (case c/d boundary)
@@ -138,6 +156,8 @@ PR checklist item: "Confirmed: consumer-side durable store lookup checks fields 
 
 Cross-reference: routing-and-materiality.md §Check ordering defines the normative 5-step sequence. Consumer-side case (3) behavioral test (absent `record_status` with file existing at path) is the specific ordering verification test per verification.md.
 
+"Confirmed: when `record_status` field is absent from the capsule, the consumer code path falls through immediately to conversation-local sentinel scan WITHOUT performing any file I/O on `record_path`. Verified by tracing the absent-`record_status` branch — no file read operation appears before falling through to precedence level 3."
+
 ## `hold_reason` Assignment and Placement Review
 
 Validates: routing-and-materiality.md §Ambiguous Item Behavior (assignment precedence) + §Affected-Surface Validity (emission-time gate, list-membership constraint)
@@ -149,6 +169,8 @@ PR checklist requires reviewer to confirm:
 3. "Confirmed: `hold_reason` assignments are only present in code paths that write to `unresolved[]`, not to `feedback_candidates[]`. Verified by reviewing all code paths that populate `feedback_candidates[]` — none contain `hold_reason` field assignments."
 
 **Accepted v1 limitation:** Stage differentiation (whether `hold_reason` was set at routing time vs capsule assembly time) cannot be proven mechanically without a new observable trace field. This governance gate is the sole enforcement for provenance claims. The behavioral test in verification.md asserts the final emitted value, not assignment timing.
+
+"Confirmed: `hold_reason` validation (step 4) runs after `materiality_source` validation (step 3) — verified by structural inspection of the emission-time validation code path. Cross-reference: Emission-Time Validation Step Ordering Gate."
 
 **Validator scope extension:** When `validate_composition_contract.py` is implemented (delivery.md item #6), add structural checks for: `hold_reason` at correct emitted path (`unresolved[]` only), never in `feedback_candidates[]`, value from allowed set `{routing_pending, null}`.
 
@@ -204,6 +226,20 @@ Validates: [lineage.md §Key Propagation](lineage.md#key-propagation) (`lineage_
 
 **[Active for any PR touching key propagation or capsule minting logic]** PR checklist item: "Confirmed: `lineage_root_id` immutability regression test passes — multi-hop chain test asserting `lineage_root_id` string equality across all hops re-executed and passing."
 
+## NS Empty-Tasks Omission Gate
+
+Validates: capsule-contracts.md §Emission (Contract 2) (NS MUST NOT emit handoff with empty `selected_tasks`)
+
+**[Activates when NS composition stub is authored]** PR checklist item: "Confirmed: NS stub code path for task selection contains a branch that omits the handoff block entirely when `selected_tasks` would be empty. Verified by tracing the code path from task selection logic to handoff emission — when zero tasks qualify, no sentinel is emitted."
+
+## Budget Counter Algorithm Gate
+
+Validates: routing-and-materiality.md §Budget Enforcement Mechanics (algorithm distinction)
+
+**[Activates when dialogue composition stub is authored]** PR checklist item: "Confirmed: budget counter implementation uses a complete-scan algorithm (continues past invalid/unparseable capsule entries). Verified by confirming the budget scan loop does NOT stop at the first invalid sentinel — distinct from consumption discovery's no-backtrack behavior. Budget scan loop explicitly named and traced."
+
+Enumeration completeness: `grep -n 'lineage_root_id\|budget' <dialogue-stub>` — all budget-related code paths must appear in the reviewer's trace.
+
 ## Briefing Context Determinism Check
 
 Validates: pipeline-integration.md §Pipeline Threading (deterministic projection requirement)
@@ -229,7 +265,7 @@ Governance gates become active when their referenced artifacts are first created
 | Dialogue consumer stub (durable store behavior) | Consumer Durable Store Check Ordering, `upstream_handoff` Abort Teardown Check, Abort-Path Independent Test Fixtures Gate (two separate fixtures — one per abort path, no shared fixture — see governance.md §Abort-Path Independent Test Fixtures Gate) |
 | Dialogue correction pipeline code (correction rules 1-5) | Abort-Path Independent Test Fixtures Gate (partial correction failure path fixture), Correction Rule Sequential Ordering Gate, Emission-Time Validation Step Ordering Gate |
 | Dialogue composition stub (Stage A/B admission) | `tautology_filter_applied` key-presence grep-based CI check |
-| NS composition stub | Stub Composition Co-Review, `decomposition_seed` false-flag behavioral test (verification.md NS adapter row — P0 merge gate prerequisite) |
+| NS composition stub | Stub Composition Co-Review, `decomposition_seed` false-flag behavioral test (verification.md NS adapter row — P0 merge gate prerequisite), NS Empty-Tasks Omission Gate |
 | `COMPOSITION_HELPERS.md` | Helper Function Tracking (diffing requirement) |
 | Budget override code (in dialogue composition stub) | Budget Override Context-Compression Recovery Gate |
 | Materiality evaluator code (part of dialogue composition stub) | Step 0 Flag Read Source Verification |
