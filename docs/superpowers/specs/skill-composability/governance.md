@@ -168,7 +168,7 @@ Validates: routing-and-materiality.md §Affected-Surface Validity (partial corre
 
 Validates: [verification.md §Capsule Contract Verification](verification.md#capsule-contract-verification) (partial correction failure row — "Independent test mandate" clause)
 
-**[Activates when dialogue stub abort-path code is authored]** PR checklist item: "Confirmed: two separate test fixtures exist — one for Step 0 case (c) abort path and one for partial correction failure abort path. No single shared fixture exercises both paths. Each fixture independently verifies all 7 post-abort assertions for its respective abort path. Verified by reviewing test file structure — two independent fixture functions/blocks, each with a complete assertion set."
+**[Activates when dialogue stub abort-path code is authored]** PR checklist item: "Confirmed: two separate test fixtures exist — one for Step 0 case (c) abort path and one for partial correction failure abort path. No single shared fixture exercises both paths. Each fixture independently verifies all 6 post-abort assertions for its respective abort path. Verified by reviewing test file structure — two independent fixture functions/blocks, each with a complete assertion set."
 
 ## Correction Rule Sequential Ordering Gate
 
