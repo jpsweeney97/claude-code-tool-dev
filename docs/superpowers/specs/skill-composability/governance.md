@@ -11,7 +11,7 @@ PR review gate procedures for composition system changes. Each gate cites the no
 
 ## Stub Composition Co-Review Gate
 
-Validates: routing-and-materiality.md §No Auto-Chaining (enforcement basis)
+Validates: routing-and-materiality.md §No Auto-Chaining + pipeline-integration.md §Two-Stage Admission Stage B (enforcement basis)
 
 Reviewer confirms no helper-mediated indirect skill delegation via static code inspection. PR checklist item: "Confirmed: stub does not programmatically invoke any skill via model output or helper delegation chains. Helper functions in the feedback capsule assembly path: [explicitly name each function]. Composition paths verified by static inspection of the named functions."
 
@@ -55,7 +55,7 @@ PR checklist item: "Confirmed: `record_path` (absolute filesystem path) is assig
 
 ## `record_path` Null-Prevention Review
 
-Validates: capsule-contracts.md §Schema Constraints (`record_path` non-null requirement)
+Validates: routing-and-materiality.md §Selective Durable Persistence + capsule-contracts.md §Contract 3 (Dialogue Feedback Capsule) (`record_path` non-null requirement)
 
 PR checklist item: "Confirmed: no null or uninitialized state is reachable for `record_path` from any emission path. Verified by tracing all code paths from capsule assembly entry to `record_path` assignment — including exception paths before write attempt (path construction failure). The path variable is assigned before any operation that could throw."
 
@@ -70,3 +70,11 @@ PR checklist item: "Confirmed: thread continuation vs. fresh start comparison us
 Validates: routing-and-materiality.md §Budget Enforcement Mechanics (initialization invariant)
 
 PR checklist item: "Confirmed: `budget_override_pending` is explicitly initialized to `false` at dialogue stub entry — not left to default-falsy behavior. Verified by reviewing the initialization code path at stub entry point."
+
+## `dialogue-orchestrated-briefing` Sentinel Suppression Check
+
+Validates: capsule-contracts.md §Sentinel Registry (internal sentinel scope)
+
+**[Activates when dialogue stub is authored]** PR checklist item: "Confirmed: `<!-- dialogue-orchestrated-briefing -->` does not appear in any code path that writes to conversation context or user-visible output. The sentinel is internal pipeline state only. Verified by reviewing all output-writing code paths in the dialogue stub."
+
+Retirement: when `validate_composition_contract.py` includes sentinel scope enforcement.
