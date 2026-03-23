@@ -161,11 +161,12 @@ class DistillCandidate:
 
 ### Staging File Format
 
-Each `DistillCandidate` is written as a standalone file in the staging inbox. Filename: `YYYY-MM-DD-<content_sha256[:16]>.md` (see [storage layout](storage-and-indexing.md#key-storage-decisions) for the canonical naming convention). The file contains all `DistillCandidate` fields serialized as a `<!-- staging-meta {...} -->` HTML comment (JSON with `sort_keys=True`) followed by the candidate content as markdown. The on-disk staging-meta format extends `DistillCandidate` with two engine-set fields not present in the in-memory dataclass:
+Each `DistillCandidate` is written as a standalone file in the staging inbox. Filename: `YYYY-MM-DD-<content_sha256[:16]>.md` (see [storage layout](storage-and-indexing.md#key-storage-decisions) for the canonical naming convention). The file contains all `DistillCandidate` fields serialized as a `<!-- staging-meta {...} -->` HTML comment (JSON with `sort_keys=True`) followed by the candidate content as markdown. The on-disk staging-meta format extends `DistillCandidate` with three engine-set fields not present in the in-memory dataclass:
+- **`meta_version`** (`str`): `"1.0"` — version of the staging-meta format. See [Version Spaces](#version-spaces).
 - **`source_ref`** (`str`): The envelope's `source_ref.to_str()`. Set by the Knowledge engine at write time.
-- **`staged_at`** (`str`): ISO 8601 UTC timestamp of when the engine wrote the staging file (not envelope creation time). Used as the `YYYY-MM-DD` filename prefix source. The staging-meta JSON includes all `DistillCandidate` fields (`content`, `durability`, `source_section`, `content_sha256`) plus `source_ref` (the envelope's `source_ref.to_str()`) and `staged_at` (ISO 8601 UTC, used as the `YYYY-MM-DD` prefix source). The `content_sha256`-based filename suffix enables atomic file creation via `O_CREAT | O_EXCL` — identical candidates from concurrent operations coalesce.
+- **`staged_at`** (`str`): ISO 8601 UTC timestamp of when the engine wrote the staging file (not envelope creation time). Used as the `YYYY-MM-DD` filename prefix source. The staging-meta JSON includes all `DistillCandidate` fields (`content`, `durability`, `source_section`, `content_sha256`) plus `meta_version` (`"1.0"`), `source_ref` (the envelope's `source_ref.to_str()`), and `staged_at` (ISO 8601 UTC, used as the `YYYY-MM-DD` prefix source). The `content_sha256`-based filename suffix enables atomic file creation via `O_CREAT | O_EXCL` — identical candidates from concurrent operations coalesce.
 
-The `DistillEnvelope.header.idempotency_key` MUST NOT be included in staging-meta. Its omission is an active constraint — see [§Idempotency Enforcement Per Envelope Type](#idempotency-enforcement-per-envelope-type).
+**Prohibited fields:** `DistillEnvelope.header.idempotency_key` MUST NOT be included in staging-meta — see [§Idempotency Enforcement Per Envelope Type](#idempotency-enforcement-per-envelope-type). Its omission is an active constraint: inclusion would make staging-meta a de facto dedup key, violating the trace-only contract for DistillEnvelope idempotency.
 
 **Content authority rule:** The markdown body (after the `staging-meta` comment) is authoritative for content. The `content` field in the staging-meta JSON is index-only — `/curate` publishes the markdown body, not the JSON `content` field. If `content_sha256` does not match `content_hash(body)` at read time, the staging file is treated as corrupt: `/curate` skips it with a warning in `QueryDiagnostics.warnings`. "Index-only" means: the Knowledge reader MUST derive `IndexEntry.snippet` from the markdown body (after the staging-meta comment), not from the JSON `content` field. The `content` field may be used for internal staging operations (e.g., logging, diagnostics) but must not drive display output.
 
@@ -370,7 +371,7 @@ These mechanisms are independent in purpose and enforcement stage: an idempotent
 |---|---|---|---|
 | `DeferEnvelope` | **Enforced** | Engine checks `idempotency_key` against existing tickets | Ticket creation is not content-addressed; envelope-level dedup is the sole protection against retry duplicates |
 | `DistillEnvelope` | **Trace-only** | `idempotency_key` is computed and included in the header but NOT persisted or checked | Per-candidate `content_sha256` dedup via `O_CREAT\|O_EXCL` provides content-addressed dedup. Published dedup uses `content_sha256` in `lesson-meta`. Envelope-level identity adds no correctness guarantee beyond what per-candidate dedup already provides. |
-| `PromoteEnvelope` | **Enforced** | State-machine re-entry detection via content-hash comparison (implemented by Branch B1: `promoted_content_sha256 == current content_sha256`). The `idempotency_key` is computed and present in `EnvelopeHeader` but is not compared against `promote-meta`. | Promote is a state-machine transition; re-entry detection is structural (Branch B1 rejection) |
+| `PromoteEnvelope` | **Enforced (state-machine, not idempotency_key)** | State-machine re-entry detection via content-hash comparison (implemented by Branch B1: `promoted_content_sha256 == current content_sha256`). The `idempotency_key` is computed and present in `EnvelopeHeader` but is not compared against `promote-meta`. | Promote is a state-machine transition; re-entry detection is structural (Branch B1 rejection) |
 
 The `idempotency_key` field remains in `EnvelopeHeader` (shared type) for all envelope types. For `DistillEnvelope`, the field serves as a trace/observability aid — it is available in the envelope for logging and debugging but is not persisted to staging-meta and is not checked at any dedup stage. The engine MUST NOT check `idempotency_key` for `DistillEnvelope` dedup — doing so would incorrectly deduplicate re-extractions with improved logic. This is an active prohibition, not just the absence of a check.
 
@@ -485,7 +486,7 @@ class LedgerEntry:
     producer: str                 # "engine" | "orchestrator" | "hook"
     session_id: str               # Claude session UUID
     worktree_id: str              # Derived from git rev-parse --git-dir
-    record_ref: str | None        # RecordRef canonical serialization; see Event Vocabulary for per-event-type population rules
+    record_ref: str | None        # RecordRef canonical serialization; non-null required for snapshot_written (see Event Vocabulary per-event-type rules)
     operation_id: str | None      # Groups related events (e.g., all events from one /save)
     payload: dict                 # Event-type-specific data (dict[str, Any] — see Event Vocabulary for per-event-type payload shapes; runtime validation is event-type-specific)
 ```
@@ -583,6 +584,7 @@ Six independent version spaces govern Engram's data contracts. Each evolves inde
 | Knowledge entry metadata | `lesson-meta.meta_version` | `learnings.md` entries | `"1.0"` |
 | Promotion state metadata | `promote-meta.meta_version` | `learnings.md` promotion records | `"1.0"` |
 | Work audit trail format | `AuditEntry.schema_version` | Work audit JSONL entries | `"1.1"` |
+| Knowledge staging format | `staging-meta.meta_version` | Knowledge staging files | `"1.0"` |
 
 ### RecordMeta.schema_version Semantics
 
@@ -598,6 +600,7 @@ Six independent version spaces govern Engram's data contracts. Each evolves inde
 | Knowledge entry metadata | **Same-major tolerance with field preservation.** The Knowledge engine accepts entries whose `lesson-meta.meta_version` shares the same major version (e.g., a v1.0 engine reads and operates on v1.1 entries). Unknown fields are preserved verbatim on rewrite — see [Field Preservation Requirement](#field-preservation-requirement). Entries with a different major version are skipped with a per-entry warning. This applies to query, addressability, dedup (`content_sha256`), and rewrite operations. Same-major tolerance is safe because minor bumps are constrained by the [Minor Bump Safety Contract](#minor-bump-safety-contract). When appending a new entry, existing entries with unrecognized major version are preserved verbatim. | Writers emit the version they were built for. |
 | Promotion state metadata | **Entry-level exact-match for state-machine interpretation.** Entries with unrecognized `promote-meta.meta_version` (different major or minor) are skipped per-entry for state-machine operations (Branch A/B/C decisions). promote-meta governs the promote state machine — a minor bump could change state-machine semantics (e.g., new branch logic), making same-major tolerance unsafe for interpretation. Unrelated entries are preserved verbatim on rewrite. Because promote-meta uses exact-match version semantics, a Knowledge engine at v1.0 never attempts to rewrite a promote-meta entry with a different version (Branch D excludes it from all operations). Field preservation does not apply to promote-meta version mismatches — they are fully excluded, not rewritten. | Writers emit the version they were built for. |
 | Work audit trail format | **Same-major tolerance.** Same rules as ledger format — parse `schema_version` major, skip on mismatch, unknown fields ignored. | Writers emit the version they were built for. |
+| Knowledge staging format | **Same-major tolerance.** /curate readers accept staging-meta with same major version. Unknown fields ignored. | Writers emit the version they were built for. |
 
 **`VERSION_UNSUPPORTED` error:** Returned by target engines when `envelope_version` does not match the engine's built-in version. Structure: `{"error_code": "VERSION_UNSUPPORTED", "received_version": "<received>", "expected_version": "<engine_version>"}`. Note: `expected_version` is singular (exact-match — there is only one valid version per engine build).
 

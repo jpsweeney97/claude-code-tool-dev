@@ -83,7 +83,7 @@ class IndexEntry:
     updated_at: datetime | None   # Last modification
     status: str | None            # Subsystem-native status string
     tags: list[str]               # Subsystem-native tags
-    snippet: str                  # Reader-extracted preview, max 200 chars. Display-only.
+    snippet: str                  # Reader-extracted preview, max 200 chars, truncated at word boundary. Display-only.
     source_path: str              # Absolute path to native file
 ```
 
@@ -117,7 +117,9 @@ Work ticket YAML schema is inherited from the ticket plugin format — field req
 
 When `lesson-meta` is present but `meta_version` is absent, populate `RecordMeta.schema_version` with `"0.0"` (pre-versioned sentinel). See [types.md §Legacy Entries](types.md#legacy-entries-missing-meta-version).
 
-Fields marked N/A populate as `None` in `RecordMeta`. The Knowledge reader derives `schema_version` from `lesson-meta.meta_version` (not a separate field). Same-major `lesson-meta` versions (e.g., v1.1 read by a v1.0 reader) are indexed normally — the entry appears in query results and is addressable. Entries with a different major version are skipped with a warning in `QueryDiagnostics.warnings`. See [types.md §Compatibility Rules](types.md#compatibility-rules) for the governing contract.
+Fields marked N/A populate as `None` in `RecordMeta`.
+
+**Knowledge join gap:** Knowledge `RecordMeta.worktree_id` and `session_id` are `None` (shared root, no worktree/session scope). Queries filtering by `worktree_id` will exclude Knowledge entries. `/timeline` and `/search` correlate Knowledge records by `created_at` and content, not `worktree_id`. This is by design — Knowledge is project-scoped. The Knowledge reader derives `schema_version` from `lesson-meta.meta_version` (not a separate field). Same-major `lesson-meta` versions (e.g., v1.1 read by a v1.0 reader) are indexed normally — the entry appears in query results and is addressable. Entries with a different major version are skipped with a warning in `QueryDiagnostics.warnings`. See [types.md §Compatibility Rules](types.md#compatibility-rules) for the governing contract.
 
 **Same-major version tolerance (Context and Work readers):** Context and Work readers apply the same `RecordMeta.schema_version` tolerance as Knowledge readers: parse `schema_version` as `<major>.<minor>`, accept entries with the same major version, skip entries with a different major version with a per-entry warning in `QueryDiagnostics.warnings`. Sentinel values (`"staged"`, `"0.0"`) are exempt from `<major>.<minor>` parsing — route to sentinel-specific handling instead. See [types.md §Compatibility Rules](types.md#compatibility-rules) for the governing contract and [types.md §Sentinel Exemption](types.md#compatibility-rules) for sentinel handling.
 
@@ -135,7 +137,7 @@ Fields marked N/A populate as `None` in `RecordMeta`. The Knowledge reader deriv
 
 **Hard rule: No mutation, policy, or lifecycle decisions from `IndexEntry` alone.** IndexEntry is display-only. Any operation that changes state must open the native file through the subsystem engine.
 
-**`snippet` is not `summary`.** It's a preview for display in search results and triage lists. Capped at 200 characters. Reader-extracted (not first-N-chars). Never used for dedup, triage decisions, or workflow logic.
+**`snippet` is not `summary`.** It's a preview for display in search results and triage lists. Capped at 200 characters. Reader-extracted. Each subsystem reader owns its extraction logic — the staged entry table and published entry readers each define their own approach. Capped at 200 characters. Never used for dedup, triage decisions, or workflow logic.
 
 ## NativeReader Protocol
 
