@@ -27,7 +27,11 @@ The co-review gate MUST additionally verify that the behavioral test for `decomp
 
 The co-review gate enforcement surface covers ALL adapter exit paths, including Stage A rejection (where `upstream_handoff` is never initialized). When Stage A rejects a capsule, the adapter exits before `upstream_handoff` is constructed — `tautology_filter_applied` key-presence cannot be checked on an object that does not exist. PR checklist item: "Confirmed: adapter exit paths are exhaustively enumerated — including schema-validation-failure paths where `upstream_handoff` is never initialized. For rejection paths: verified `decomposition_seed`, `gatherer_seed`, `briefing_context`, and `tautology_filter_applied` are all absent from pipeline state — `upstream_handoff` is never initialized, so no capability flag key exists in any state object. Verified by tracing the Stage A rejection branch to confirm it exits before any capability flag assignment."
 
-The co-review gate MUST verify that `supersedes` is always present (not omitted) in emitted capsules, per the emitter-side MUST in [capsule-contracts.md §Validity Criteria (Contract 3)](capsule-contracts.md#validity-criteria-contract-3) (field-presence obligation) and the minting rule in [lineage.md §DAG Structure](lineage.md#dag-structure) (value-assignment rule). Consumer-side tolerance (treating absent `supersedes` as null) does NOT relax the emitter obligation — the consumer compatibility exception is defensive, not normative.
+**`supersedes` Key-Presence (Emitter Gate)**
+
+PR checklist item: "Confirmed: emitted capsules always include the `supersedes` key (present with value `null` or prior `artifact_id`, never omitted). Verified by reviewing capsule assembly code paths for ALL three emitters (AR, NS, dialogue) — including primary emission path, fallback paths (advisory/tolerant rejection), abort-path edge cases, default initializers, and copy-construction."
+
+Note: Consumer-side tolerance (treating absent `supersedes` as `null` per capsule-contracts.md §Shared Validity Rules) is a defensive compatibility measure only — it does NOT relax this emitter requirement.
 
 ## Helper Function Tracking
 

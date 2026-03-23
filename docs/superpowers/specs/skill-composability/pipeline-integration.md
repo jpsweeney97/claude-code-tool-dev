@@ -83,6 +83,8 @@ The NS handoff threads through the full `/dialogue` pipeline via the generic `up
 explicit --posture > upstream_handoff recommended_posture > default collaborative
 ```
 
+**Invalid posture values:** An `upstream_handoff.recommended_posture` value outside the defined enum (`adversarial | collaborative | exploratory | evaluative | comparative`) MUST be treated as absent — default `collaborative` applies. Invalid values are not propagated.
+
 **Deferred:** `--profile` (multi-phase posture profiles) is deferred from v1. When implemented, it would sit between `--posture` and `upstream_handoff` in the precedence chain. See [delivery.md](delivery.md#open-items).
 
 Upstream handoffs do not derive multi-phase profiles from a single posture hint. If future handoff-driven phases are needed, upstream skills would emit `recommended_phases[]`.
