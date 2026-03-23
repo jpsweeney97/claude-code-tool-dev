@@ -51,7 +51,7 @@ precedence:
   normative_first: true
   # NOTE: Section-level claim elevation — registered via `elevated_sections` on an authority
   # entry above. See integration.`elevated_sections` for the formal registration of
-  # §pipeline-isolation-invariants claiming behavior_contract authority above decision_record.
+  # §pipeline-isolation-invariants-subset claiming behavior_contract authority above decision_record.
   # NOTE: Authorities appear in chains for claims they don't hold in
   # default_claims. Presence means "consulted for resolution," not "claims
   # this type." For example:

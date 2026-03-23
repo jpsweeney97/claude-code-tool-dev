@@ -351,7 +351,7 @@ The replay harness collects these traces and asserts on:
 | classify_result_hash input coverage | Same `topic_key` with different `matched_aliases` → different hashes. Verifies hash includes `confidence`, `facet`, and `matched_aliases`, not just `topic_key`. |
 | classify_result_hash stability | Same classify payload → same hash. Run classification twice with identical input → assert hashes are equal. |
 | Same topic_key, different confidence | `classify("hooks.pre_tool_use", confidence=0.8)` vs `classify("hooks.pre_tool_use", confidence=0.6)` | Different hashes |
-| Same topic_key, different facet | `classify("hooks.pre_tool_use", facet="overview")` vs `classify("hooks.pre_tool_use", facet="configuration")` | Different hashes |
+| Same topic_key, different facet | `classify("hooks.pre_tool_use", facet="overview")` vs `classify("hooks.pre_tool_use", facet="config")` | Different hashes |
 
 ### Packet Builder Tests
 
@@ -765,7 +765,7 @@ Exercises `shadow_suppressed: true` on a `skip_cooldown` entry in shadow mode.
 
 ### Layer 2b: Agent Sequence Tests
 
-**Authority source note:** Each pipeline isolation invariant test in this section is a normative `behavior_contract` test sourced from [integration.md#pipeline-isolation-invariants](integration.md#pipeline-isolation-invariants). These tests verify behavior_contract authority (outranking decision_record) — do not weaken or reclassify these tests during code review. Additionally, add a boundary contract test in `test_ccdi_contracts.py` verifying the sentinel structure invariant at the agent-behavior level: `ccdi_seed` field in the delegation envelope is a file path, not an inline JSON object.
+**Authority source note:** Each pipeline isolation invariant test in this section is a normative `behavior_contract` test sourced from [integration.md#pipeline-isolation-invariants-subset](integration.md#pipeline-isolation-invariants-subset). These tests verify behavior_contract authority (outranking decision_record) — do not weaken or reclassify these tests during code review. Additionally, add a boundary contract test in `test_ccdi_contracts.py` verifying the sentinel structure invariant at the agent-behavior level: `ccdi_seed` field in the delegation envelope is a file path, not an inline JSON object.
 
 Tests that the `codex-dialogue` agent invokes CLI commands in the correct sequence. Requires a live agent invocation with mocked tools — cannot be tested via the replay harness.
 
