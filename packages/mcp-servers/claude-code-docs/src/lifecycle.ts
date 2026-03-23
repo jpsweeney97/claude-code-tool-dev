@@ -25,6 +25,7 @@ export interface ServerStateDeps {
 
 export class ServerState {
   private index: BM25Index | null = null;
+  private contentHash: string | null = null;
   private loadError: string | null = null;
   private lastLoadAttempt = 0;
   private loadingPromise: Promise<BM25Index | null> | null = null;
@@ -79,6 +80,10 @@ export class ServerState {
     return [...this.warnings];
   }
 
+  getContentHash(): string | null {
+    return this.contentHash;
+  }
+
   async clearAndReload(): Promise<BM25Index | null> {
     const inProgress = this.loadingPromise;
     if (inProgress) {
@@ -127,6 +132,7 @@ export class ServerState {
         cached.metadata?.ingestionVersion === INGESTION_VERSION
       ) {
         this.index = this.deps.deserializeIndexFn(cached);
+        this.contentHash = cached.contentHash;
         console.error(`Loaded cached index (${this.index.chunks.length} chunks)`);
         return this.index;
       }
@@ -145,6 +151,7 @@ export class ServerState {
       }
 
       this.index = this.deps.buildIndexFn(chunks);
+      this.contentHash = contentHash;
       console.error(`Built fresh index (${chunks.length} chunks from ${files.length} sections)`);
 
       // Persist index

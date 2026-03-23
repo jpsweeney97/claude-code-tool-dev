@@ -15,6 +15,7 @@ import { readIndexCache, writeIndexCache, getDefaultIndexCachePath, clearIndexCa
 import { formatSearchError } from './error-messages.js';
 import { ServerState } from './lifecycle.js';
 import { SearchInputSchema, SearchOutputSchema } from './schemas.js';
+import { buildMetadataResponse, DumpIndexMetadataOutputSchema } from './dump-index-metadata.js';
 
 const serverState = new ServerState({
   loadFn: loadFromOfficial,
@@ -112,6 +113,39 @@ async function main() {
             }`,
           },
         ],
+      };
+    },
+  );
+
+  server.registerTool(
+    'dump_index_metadata',
+    {
+      title: 'Dump Index Metadata',
+      description:
+        'Dump full BM25 index metadata: categories, chunk IDs, headings, code literals, config keys, and distinctive terms. No parameters.',
+      inputSchema: z.object({}),
+      outputSchema: DumpIndexMetadataOutputSchema,
+    },
+    async () => {
+      const idx = await serverState.ensureIndex();
+      if (!idx) {
+        const error = serverState.getLoadError() ?? 'Index not available';
+        return {
+          isError: true,
+          content: [{ type: 'text' as const, text: `Metadata unavailable: ${error}` }],
+          structuredContent: {
+            index_version: '',
+            built_at: '',
+            docs_epoch: null,
+            categories: [],
+          },
+        };
+      }
+
+      const metadata = buildMetadataResponse(idx, serverState.getContentHash());
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(metadata, null, 2) }],
+        structuredContent: metadata,
       };
     },
   );
