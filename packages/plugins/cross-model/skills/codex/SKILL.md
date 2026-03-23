@@ -106,6 +106,60 @@ Before building a briefing:
 2. Include all 3 required sections: `## Context`, `## Material`, `## Question`.
 3. If the Briefing Contract cannot be read, build a minimal briefing with `## Context` (task and why) and `## Question` (specific ask); include `## Material: (none)` if no material applies.
 
+## Step 1b: CCDI-Lite (Extension Documentation Injection)
+
+After building the briefing, check whether the consultation involves Claude Code extension topics. If so, inject relevant documentation excerpts into the briefing.
+
+**This step is optional and additive.** CCDI-lite failure never blocks the consultation.
+
+### Capability Detection
+
+Check whether `mcp__claude-code-docs__search_docs` is available. If unavailable, skip CCDI-lite entirely — proceed to Step 2.
+
+### Classification
+
+1. Write the user's prompt text to a temp file.
+2. Run the classifier:
+   ```bash
+   python -m scripts.topic_inventory classify --text-file <temp_path> --inventory data/topic_inventory.json
+   ```
+3. Parse the `ClassifierResult` JSON from stdout.
+
+### Threshold Check
+
+Apply the hardcoded agent gate — do NOT read `ccdi_config.json`:
+- **Dispatch** if: 1+ high-confidence topic OR 2+ medium-confidence topics in the same family.
+- **Skip** otherwise: discard classifier results, proceed to Step 2.
+
+### Search and Build Packet
+
+For each resolved topic (up to 3):
+1. Call `search_docs` with queries from the topic's `query_plan` (resolved facet, then `default_facet` fallback). 1-2 queries per topic, limit 5 results each.
+2. Write combined search results to a temp file.
+
+Build the packet:
+```bash
+python -m scripts.topic_inventory build-packet \
+  --results-file <results_temp> \
+  --mode initial
+```
+
+Do NOT pass `--registry-file`, `--mark-injected`, `--topic-key`, or `--facet`. CCDI-lite has no registry and no state.
+
+### Inject into Briefing
+
+If `build-packet` stdout is non-empty, add it under `## Material` in the briefing as `### Claude Code Extension Reference`:
+
+```markdown
+## Material
+### Claude Code Extension Reference
+<build-packet output here>
+
+### <other material sections>
+```
+
+If `build-packet` stdout is empty (no results met quality threshold), proceed without CCDI content. Do not log or report the absence.
+
 ## Step 2: Choose Invocation Strategy
 
 **Direct invocation** (default):
