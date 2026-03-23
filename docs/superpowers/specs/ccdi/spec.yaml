@@ -26,9 +26,14 @@ authorities:
     description: CLI tool interface (topic_inventory.py commands), cross-plugin dependency, data flows (CCDI-lite and full CCDI), registry seed handoff, prepare/commit protocol, inventory generation, and dump_index_metadata schema.
     default_claims: [behavior_contract, interface_contract]
     elevated_sections:
-      - section: "pipeline-isolation-invariants"
+      - section: "pipeline-isolation-invariants-subset"
         claim: "behavior_contract"
         rationale: "Behavioral invariants cross-referenced from decisions.md elevated to outrank decision_record for behavioral claims"
+        # NOTE: This elevation is redundant with the claim_precedence chain for
+        # behavior_contract (integration already ranks above decisions there).
+        # Retained for explicitness: these invariants are cross-referenced from
+        # decisions.md and the elevation makes the authority relationship visible
+        # at the registration site rather than requiring chain traversal.
 
   delivery:
     description: Rollout strategy (Phase A/B, shadow mode, kill criteria), testing strategy (four-layer approach, ccdi_trace replay), test matrices, and per-dialogue diagnostics schema.
@@ -47,22 +52,19 @@ precedence:
   # NOTE: Section-level claim elevation — registered via `elevated_sections` on an authority
   # entry above. See integration.`elevated_sections` for the formal registration of
   # §pipeline-isolation-invariants claiming behavior_contract authority above decision_record.
-  # NOTE: claim_precedence lists include authorities that may not hold the
-  # arbitrated claim in their default_claims. This is intentional:
-  # - `decisions` appears in all chains as a fallback of last resort — component
-  #   contracts take priority for their own claims; decisions.md is consulted
-  #   only when component contracts are silent or conflicting. Exception:
-  #   decision_record chain, where decisions is first (it owns that claim).
-  # - Other authorities appear where they provide implementation-level
-  #   elaboration relevant to resolving conflicts in that claim family
-  # - `integration` ranks first for interface_contract because it defines the
-  #   external CLI interface consumed by agents; component contracts rank first
-  #   for behavior_contract because they own their internal behavioral rules
+  # NOTE: Authorities appear in chains for claims they don't hold in
+  # default_claims. Presence means "consulted for resolution," not "claims
+  # this type." For example:
+  # - `decisions` appears last in most chains as a fallback of last resort.
+  #   Exception: decision_record chain, where decisions is first (it owns
+  #   that claim).
+  # - `integration` ranks first for interface_contract because it defines
+  #   the external CLI interface consumed by agents.
   claim_precedence:
     architecture_rule: [foundation, data-model, decisions]
     behavior_contract: [classifier-contract, registry-contract, packet-contract, integration, decisions]
     interface_contract: [integration, classifier-contract, registry-contract, packet-contract, decisions]
-    persistence_schema: [data-model, integration, decisions]
+    persistence_schema: [data-model, integration, decisions]  # integration included: RegistrySeed envelope and dump_index_metadata schema surface persistence concerns at the CLI interface
     decision_record: [decisions, foundation, delivery]
     implementation_plan: [delivery, integration, decisions]
     verification_strategy: [delivery, integration, decisions]
@@ -74,14 +76,23 @@ precedence:
 
 boundary_rules:
   - on_change_to: [data-model]
-    review_authorities: [classifier-contract, registry-contract, packet-contract]
-    reason: Schema changes to inventory, aliases, config, or RegistrySeed durable-field subset affect all downstream consumers.
+    review_authorities: [classifier-contract, registry-contract, packet-contract, integration]
+    reason: Schema changes to inventory, aliases, config, or RegistrySeed durable-field subset affect all downstream consumers. Integration is included because RegistrySeed envelope and dump_index_metadata schema changes affect CLI interface contracts.
   - on_change_to: [classifier-contract]
     review_authorities: [registry-contract, integration]
     reason: Classifier output structure and confidence semantics drive registry scheduling and integration wiring.
   - on_change_to: [registry-contract]
     review_authorities: [integration, delivery, data-model]
-    reason: Registry state changes and semantic hints schema affect CLI command behavior, argument shapes, test strategy, and RegistrySeed.entries durable-field subset. NOTE: changes to RegistrySeed.entries durable-field semantics (which fields are durable vs attempt-local) in registry.md do NOT require data-model.md review — data-model.md owns only the envelope schema (entries, docs_epoch, inventory_snapshot_version, results_file). Only changes to the envelope itself require data-model.md review. NOTE (circular dependency): boundary rules 3 (registry-contract → data-model) and the data-model rule (data-model → registry-contract) create a bidirectional dependency for RegistrySeed.entries — changes to either file require reviewing the other. This is an accepted architectural trade-off of the authority split.
+    reason: >-
+      Registry state changes and semantic hints schema affect CLI command behavior, argument shapes,
+      test strategy, and RegistrySeed.entries durable-field subset. NOTE: changes to
+      RegistrySeed.entries durable-field semantics (which fields are durable vs attempt-local) in
+      registry.md do NOT require data-model.md review — data-model.md owns only the envelope schema
+      (entries, docs_epoch, inventory_snapshot_version, results_file). Only changes to the envelope
+      itself require data-model.md review. NOTE (circular dependency): boundary rules 3
+      (registry-contract -> data-model) and the data-model rule (data-model -> registry-contract)
+      create a bidirectional dependency for RegistrySeed.entries — changes to either file require
+      reviewing the other. This is an accepted architectural trade-off of the authority split.
   - on_change_to: [integration]
     review_authorities: [registry-contract, delivery, data-model]
     reason: CLI interface changes (including semantic hint schema) affect registry scheduling logic, test strategy, and dump_index_metadata schema changes affect inventory generation (data-model).

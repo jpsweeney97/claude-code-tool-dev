@@ -13,7 +13,7 @@ Modular specification for CCDI: automatic detection and injection of Claude Code
 
 ## Authority Model
 
-9 authorities govern the spec. See [spec.yaml](spec.yaml) for the full manifest including precedence and boundary rules.
+9 authorities govern the spec (8 normative files + this README as the `supporting` entry point). See [spec.yaml](spec.yaml) for the full manifest including precedence and boundary rules.
 
 | Authority | Claims | Scope | Normative |
 |-----------|--------|-------|-----------|
@@ -23,11 +23,11 @@ Modular specification for CCDI: automatic detection and injection of Claude Code
 | `registry-contract` | behavior_contract, interface_contract | State machine, transitions, scheduling, semantic hints | Yes |
 | `packet-contract` | behavior_contract, interface_contract | Fact packets, token budgets, citation format, rendering | Yes |
 | `integration` | behavior_contract, interface_contract | CLI interface, data flows, prepare/commit, delegation | Yes |
-
-*Note: §pipeline-isolation-invariants holds elevated `behavior_contract` authority for behavioral invariants cross-referenced from decisions.md. See spec.yaml `elevated_sections`.*
 | `delivery` | implementation_plan, verification_strategy | Rollout, testing, diagnostics | Yes |
 | `decisions` | decision_record | Locked design decisions from Codex dialogues | Yes |
 | `supporting` | *(none)* | README and reference material | No |
+
+*Note: §pipeline-isolation-invariants in integration.md holds elevated `behavior_contract` authority for behavioral invariants cross-referenced from decisions.md. See spec.yaml `elevated_sections`.*
 
 **Highest-risk review surface:** The classifier-registry boundary — where classifier output drives registry scheduling decisions. Changes to confidence semantics or injection thresholds in [classifier.md](classifier.md) directly affect scheduling behavior in [registry.md](registry.md).
 
