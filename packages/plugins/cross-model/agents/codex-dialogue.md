@@ -64,36 +64,41 @@ If the prompt references files without inlining them, read those files before as
 - "verify", "assess quality", "check coverage", "architecture review", "edge cases" → Evaluative
 - "compare options", "trade-offs", "which is better", "rank", "choose between" → Comparative
 
-### Assemble initial briefing
+### External briefing detection (check FIRST)
 
-Briefing structure is defined in [consultation-contract.md](../references/consultation-contract.md) § Briefing Contract (§5). This file is not normative for briefing format.
-
-Before building the initial briefing:
-1. Read and apply the Briefing Contract (§5) in full.
-2. Derive `## Question` from the caller's stated goal.
-3. If the Briefing Contract cannot be read, build a minimal briefing with `## Context` (topic and background) and `## Question` (derived from goal); include `## Material: (none)` if no material applies.
-
-### External briefing detection
+**Before any other Phase 1 work**, check for the sentinel `<!-- dialogue-orchestrated-briefing -->`.
 
 When the prompt contains `<!-- dialogue-orchestrated-briefing -->` on a line before `## Context`, AND `## Context`, `## Material`, and `## Question` sections appear after the sentinel in this order, with non-empty bodies:
 
-1. **Skip briefing assembly** — the `/dialogue` skill already assembled the briefing.
-2. **Retain posture selection** from the delegation envelope or prompt.
-3. **Retain initial turn construction** — derive `## Question` from the briefing's Question section.
-4. Proceed to token safety check.
+1. **Use the briefing VERBATIM** — do NOT rewrite, summarize, restructure, or reformat it. The `/dialogue` skill already assembled and validated it per §5.
+2. **Skip briefing assembly entirely** — do NOT read the contract extract for §5 formatting purposes. The sentinel certifies §5 conformance.
+3. **Retain posture selection** from the delegation envelope or prompt.
+4. **Retain initial turn construction** — derive `## Question` from the briefing's Question section.
+5. Proceed to token safety check (still required — sanitize the verbatim briefing).
 
-**Fail-safe:** If the sentinel is absent, or any of the three sections is missing, or the parse is ambiguous: assemble the briefing normally (current standalone behavior). Always fail-safe to normal assembly.
+Re-assembly destroys structured metadata (CLAIM/COUNTER/CONFIRM tags, `[SRC:code]` provenance, `AID:` references) that downstream pipeline stages depend on.
 
-The sentinel `<!-- dialogue-orchestrated-briefing -->` is injected by the `/dialogue` skill and never appears in standalone invocations.
+**Fail-safe:** If the sentinel is absent, or any of the three sections is missing, or the parse is ambiguous: assemble the briefing normally (standalone behavior).
 
 For orchestrated briefings with `[SRC:unknown]` lines, see "Unknown-provenance claims" in Phase 2 below — extraction runs once before the per-turn loop begins.
 
+### Assemble initial briefing (standalone only)
+
+Skip this section if the sentinel was detected above.
+
+Briefing structure is defined in [contract-agent-extract.md](../references/contract-agent-extract.md) §5. This file is not normative for briefing format.
+
+Before building the initial briefing:
+1. Read and apply [contract-agent-extract.md](../references/contract-agent-extract.md) — it contains the agent-relevant sections (§4-5, §7-10, §15) of the consultation contract. Do NOT read the full `consultation-contract.md`.
+2. Derive `## Question` from the caller's stated goal.
+3. If the contract extract cannot be read, build a minimal briefing with `## Context` (topic and background) and `## Question` (derived from goal); include `## Material: (none)` if no material applies.
+
 ### Token safety (Normative Contract)
 
-Safety rules are defined in [consultation-contract.md](../references/consultation-contract.md) § Safety Pipeline (§7). This file is not normative for credential patterns.
+Safety rules are defined in [contract-agent-extract.md](../references/contract-agent-extract.md) §7. This file is not normative for credential patterns.
 
 Before sending any briefing or follow-up to Codex:
-1. Read and apply the Safety Pipeline (§7) in full.
+1. Apply the Safety Pipeline (§7) from the contract extract (already read in Phase 1 setup).
 2. Run sanitizer/redaction on every outbound payload.
 3. If the Safety Pipeline cannot be read or applied, block dispatch (fail-closed).
 
@@ -103,7 +108,9 @@ Before sending any briefing or follow-up to Codex:
 
 ### Start the conversation
 
-Call `mcp__plugin_cross-model_codex__codex` with parameters from [consultation-contract.md](../references/consultation-contract.md) § Codex Transport Adapter (§9). Do **not** set the `model` parameter — omit it entirely so the Codex server uses its default. Setting model names from training knowledge (e.g., "o4 mini", "o3") causes the tool call to fail. If `model_reasoning_effort` is rejected by the API, omit it and proceed.
+Call `mcp__plugin_cross-model_codex__codex` **EXACTLY ONCE** to start the conversation. Do NOT make parallel `codex` calls. Do NOT retry the initial call — if it fails, report the error and stop. Two initial `codex` calls starts two independent conversations and wastes API calls.
+
+Use parameters from [contract-agent-extract.md](../references/contract-agent-extract.md) §9. Do **not** set the `model` parameter — omit it entirely so the Codex server uses its default. Setting model names from training knowledge (e.g., "o4 mini", "o3") causes the tool call to fail. If `model_reasoning_effort` is rejected by the API, omit it and proceed.
 
 If the delegation envelope includes `reasoning_effort`, use it as `config.model_reasoning_effort`. Otherwise, use the consultation contract §8 default (`xhigh`). Do not re-resolve profile files — the delegating skill has already resolved precedence.
 
@@ -128,12 +135,7 @@ Initialize after starting the conversation:
 | `scope_envelope` | From delegation or `null` | Immutable. Contains `allowed_roots` and `source_classes`. |
 | `scope_breach_count` | `0` | Counter incremented on each scope breach during scouting. |
 | `unknown_claim_paths` | `∅` | Set of file paths (without line numbers) from `[SRC:unknown]` briefing lines. Populated once at briefing parse (before Step 1 of per-turn loop). Cleared per-path after successful scout verification. |
-| `ccdi_mode` | `"unavailable"` | One of `"active"`, `"shadow"`, or `"unavailable"`. Set by the shadow mode gate at dialogue start. |
-| `ccdi_seed_path` | `null` | File path from `ccdi_seed` delegation field. Registry file — mutated in-place. |
-| `ccdi_snapshot_path` | `null` | File path from `ccdi_inventory_snapshot` delegation field. Pinned inventory snapshot. |
-| `ccdi_debug` | `false` | From delegation envelope. Controls ccdi_trace emission. |
-| `ccdi_trace` | `[]` | Accumulated trace entries (emitted only when `ccdi_debug` is true). |
-| `ccdi_diagnostics_emitter` | `null` | DiagnosticsEmitter instance. Initialized after shadow mode gate. |
+| `ccdi_mode` | `"unavailable"` | CCDI mode — see [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md) for additional CCDI state variables and full protocol. |
 
 **Per-turn state retention:** On every successful `process_turn` response, append to `turn_history` **before** checking the budget gate:
 - `validated_entry` — the server-validated ledger entry for this turn
@@ -144,26 +146,11 @@ Appending before the budget gate ensures that budget=1 conversations have a popu
 
 This accumulated history is required for Phase 3 synthesis (especially claim trajectory and "weakest claim" derivation) and for fallback synthesis if later turns error.
 
-### Shadow mode gate (CCDI)
+### CCDI mid-dialogue protocol (conditional)
 
-At dialogue start, after initializing conversation state and before the per-turn loop, determine whether CCDI mid-dialogue injection is available and in which mode:
+IF `ccdi_seed` is present in the delegation envelope, read and apply [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md) before the per-turn loop. It defines the shadow mode gate, CCDI state variables, Steps 6.5/7.5, and Phase 3 trace/diagnostics emission.
 
-1. **Check `ccdi_seed` in delegation envelope.** If absent, set `ccdi_mode = "unavailable"`. Skip steps 2-4 below. Mid-dialogue CCDI is disabled for this conversation.
-2. **Check `ccdi_inventory_snapshot` in delegation envelope.** If absent while `ccdi_seed` is present, log warning: `"ccdi_inventory_snapshot absent with ccdi_seed present — disabling mid-dialogue CCDI"`. Set `ccdi_mode = "unavailable"`. Skip steps 3-4.
-3. **Validate `ccdi_seed` is a file path, not inline JSON.** If the value starts with `{` (after stripping whitespace), treat as absent: log warning `"ccdi_seed appears to be inline JSON, not a file path — disabling mid-dialogue CCDI"`. Set `ccdi_mode = "unavailable"`. Skip step 4.
-4. **Read `data/ccdi_shadow/graduation.json`** (relative to the cross-model plugin root).
-   - If the file is absent: set `ccdi_mode = "shadow"`.
-   - If the file contains `"status": "approved"`: set `ccdi_mode = "active"`.
-   - If `status` is any other value (including `"rejected"`, malformed, or unreadable): set `ccdi_mode = "shadow"`.
-
-Store `ccdi_seed` as `ccdi_seed_path`, `ccdi_inventory_snapshot` as `ccdi_snapshot_path`, and `ccdi_debug` (default `false`) in conversation state.
-
-**Phase A carve-out:** This gate governs Phase B mid-dialogue mutations only. Phase A initial injection (pre-delegation, in `/dialogue`) is unconditional — initial CCDI commits fire regardless of `graduation.json` status.
-
-**Initialize diagnostics emitter** after the gate resolves:
-- If `ccdi_mode` is `"active"`: create `DiagnosticsEmitter(status="active", phase="full", ...)`.
-- If `ccdi_mode` is `"shadow"`: create `DiagnosticsEmitter(status="shadow", phase="full", ...)`.
-- If `ccdi_mode` is `"unavailable"`: set `ccdi_diagnostics_emitter = null`. Diagnostics will use `DiagnosticsEmitter.unavailable()` at emission time.
+IF `ccdi_seed` is absent, set `ccdi_mode = "unavailable"` and skip all CCDI steps (6.5, 7.5, trace emission, diagnostics emission). Emit minimal CCDI diagnostics in the pipeline data epilogue: `"ccdi": {"status": "unavailable", "phase": "initial_only"}`.
 
 ### Low seed confidence behavior
 
@@ -464,179 +451,21 @@ Use `ledger_summary` for conversation awareness — knowing which claims are set
 | **Evaluative** | "Is that claim accurate? Show evidence.", "What are the structural implications of X?", "What edge cases exist?", "What constraints does this create downstream?", "What happens when Y scales by 10x?" |
 | **Comparative** | "How does A compare to B on criterion X?", "What trade-offs haven't been surfaced?", "Which option optimizes for Z?", "What's the decision matrix across these criteria?" |
 
-#### Step 6.5: CCDI PREPARE (mid-dialogue injection)
+#### Step 6.5: CCDI PREPARE (conditional)
 
-**Skip this step** if `ccdi_mode` is `"unavailable"`.
-
-After composing the follow-up (Step 6) and before sending (Step 7), run the CCDI prepare cycle:
-
-**6.5a. Write Codex's response to a temp file:**
-
-Write the Codex response text (from Step 1 extraction) to `/tmp/ccdi_turn_<id>.txt`. Use the `threadId` as `<id>`.
-
-**6.5b. Optionally extract semantic hints:**
-
-If the Codex response contains topic-relevant terminology, key phrases, or named entities that would improve topic classification, write them as a JSON array to `/tmp/ccdi_hints_<id>.json`. Each hint is a string. If no hints are extractable, skip this step (do not create the file).
-
-**6.5c. Run `dialogue-turn`:**
-
-```bash
-uv run python -m scripts.topic_inventory dialogue-turn \
-  --registry-file <ccdi_seed_path> \
-  --text-file /tmp/ccdi_turn_<id>.txt \
-  --source codex \
-  --inventory-snapshot <ccdi_snapshot_path> \
-  --turn <current_turn> \
-  [--semantic-hints-file /tmp/ccdi_hints_<id>.json] \
-  [--shadow-mode]
-```
-
-Pass `--shadow-mode` when `ccdi_mode` is `"shadow"`. Omit when `"active"`.
-
-Read the JSON candidates from stdout. Record timing for diagnostics: `ccdi_diagnostics_emitter.record_turn(latency_ms=<elapsed>)`.
-
-**6.5d. Process candidates:**
-
-IF no candidates returned: no CCDI this turn. Record trace entry with `action: "none"`. Continue to Step 7.
-
-IF candidates returned AND a scout target exists for this turn (Step 4 produced an `execute_scout` candidate):
-
-For each candidate, defer with `scout_priority` reason:
-
-```bash
-uv run python -m scripts.topic_inventory build-packet \
-  --results-file /dev/null \
-  --registry-file <ccdi_seed_path> \
-  --inventory-snapshot <ccdi_snapshot_path> \
-  --mode mid_turn \
-  --topic-key <candidate.topic_key> \
-  --facet <candidate.facet> \
-  --mark-deferred scout_priority \
-  --skip-build \
-  [--shadow-mode]
-```
-
-Pass `--shadow-mode` when `ccdi_mode` is `"shadow"`. Record `ccdi_diagnostics_emitter.record_packet_deferred_scout()` and `record_topic_deferred(candidate.topic_key)` for each candidate.
-
-IF candidates returned AND no scout target:
-
-For each candidate (in scheduling priority order):
-
-1. **Search:** Use `mcp__claude-code-docs__search_docs` (or equivalent) with the candidate's query plan to find relevant content. Write results to `/tmp/ccdi_results_<id>.json`.
-
-2. **Build packet (prepare only — no commit):**
-
-```bash
-uv run python -m scripts.topic_inventory build-packet \
-  --results-file /tmp/ccdi_results_<id>.json \
-  --registry-file <ccdi_seed_path> \
-  --inventory-snapshot <ccdi_snapshot_path> \
-  --mode mid_turn \
-  --topic-key <candidate.topic_key> \
-  --facet <candidate.facet> \
-  --coverage-target <candidate.coverage_target>
-```
-
-Do NOT pass `--mark-injected` at this stage.
-
-3. **Empty packet check:** If `build-packet` returned empty output, the topic was auto-suppressed (weak results). Record `ccdi_diagnostics_emitter.record_topic_suppressed(candidate.topic_key)`. Skip target-match for this candidate.
-
-4. **Target-match check:** Verify the staged packet supports the composed follow-up target.
-   - **(a)** Check if any of the packet's topics appear as a substring (case-insensitive) in the composed follow-up text.
-   - **(b)** If (a) fails, run `classify` on the composed follow-up text and check for topic overlap:
-     ```bash
-     uv run python -m scripts.topic_inventory classify \
-       --text-file /tmp/ccdi_followup_<id>.txt \
-       --inventory <ccdi_snapshot_path>
-     ```
-   - If target-relevant (either check passes) AND `ccdi_mode` is `"active"`: stage the packet for prepending to the follow-up. Record `ccdi_diagnostics_emitter.record_packet_prepared()` and `record_topic_detected(candidate.topic_key)`.
-   - If target-relevant AND `ccdi_mode` is `"shadow"`: record the packet in diagnostics (`record_packet_prepared()`, `record_topic_detected(candidate.topic_key)`) but do NOT stage for prepending.
-   - If NOT target-relevant: defer with `target_mismatch`:
-     ```bash
-     uv run python -m scripts.topic_inventory build-packet \
-       --results-file /tmp/ccdi_results_<id>.json \
-       --registry-file <ccdi_seed_path> \
-       --inventory-snapshot <ccdi_snapshot_path> \
-       --mode mid_turn \
-       --topic-key <candidate.topic_key> \
-       --facet <candidate.facet> \
-       --mark-deferred target_mismatch \
-       --skip-build \
-       [--shadow-mode]
-     ```
-     Pass `--shadow-mode` when `ccdi_mode` is `"shadow"`. Record `ccdi_diagnostics_emitter.record_topic_deferred(candidate.topic_key)`.
-
-**6.5e. Record trace entry** (when `ccdi_debug` is `true`):
-
-Append a trace entry to `ccdi_trace` with all 9 required keys:
-
-```json
-{
-  "turn": <current_turn>,
-  "action": "<classify|schedule|search|build_packet|prepare|inject|defer|suppress|skip_cooldown|skip_scout|shadow_defer_intent|replay_turn|none>",
-  "topics_detected": ["<topic_key>", ...],
-  "candidates": ["<topic_key>", ...],
-  "packet_staged": <true|false>,
-  "scout_conflict": <true|false>,
-  "commit": false,
-  "shadow_suppressed": <true|false>,
-  "semantic_hints": ["<hint>", ...] or []
-}
-```
-
-- `action`: the primary action taken this turn (use the most specific applicable value)
-- `topics_detected`: topic keys from the classifier result within `dialogue-turn`
-- `candidates`: topic keys from the scheduling result
-- `packet_staged`: whether a packet was prepared for injection
-- `scout_conflict`: whether a scout target prevented CCDI processing
-- `commit`: always `false` at PREPARE time — updated to `true` in Step 7.5 if committed
-- `shadow_suppressed`: `true` when `ccdi_mode` is `"shadow"` and a packet was staged but not delivered
-
-When `ccdi_mode` is `"shadow"` and a packet was staged, also append a `shadow_defer_intent` trace entry to record the counterfactual deferral.
-
-**Multi-candidate turns:** When `dialogue-turn` emits multiple candidates, process in scheduling priority order. The per-turn cooldown applies only to `candidate_type: "new"` entries. `pending_facet` and `facet_expansion` candidates are exempt and may be processed in the same turn.
+IF `ccdi_mode` is not `"unavailable"`: execute Step 6.5 per [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md). OTHERWISE: skip.
 
 #### Step 7: Send follow-up
 
-IF `ccdi_mode` is `"active"` AND a CCDI packet was staged in Step 6.5: prepend the packet to the follow-up text before sending.
-
-IF `ccdi_mode` is `"shadow"`: send the follow-up WITHOUT the packet. Diagnostics record what would have been injected.
+IF `ccdi_mode` is `"active"` AND a CCDI packet was staged in Step 6.5: prepend the packet to the follow-up text before sending (see [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md) Step 7 integration).
 
 Send via `mcp__plugin_cross-model_codex__codex-reply` with the persisted `threadId`.
 
 Increment `current_turn`. Continue to Step 7.5 before returning to Step 1.
 
-#### Step 7.5: CCDI COMMIT (after send confirmed)
+#### Step 7.5: CCDI COMMIT (conditional)
 
-**Skip this step** if `ccdi_mode` is `"unavailable"`.
-
-After Step 7 send is confirmed successful:
-
-IF `ccdi_mode` is `"active"` AND a packet was sent (staged in Step 6.5 and prepended in Step 7):
-
-For each candidate that was staged and sent, commit the injection:
-
-```bash
-uv run python -m scripts.topic_inventory build-packet \
-  --results-file /tmp/ccdi_results_<id>.json \
-  --registry-file <ccdi_seed_path> \
-  --inventory-snapshot <ccdi_snapshot_path> \
-  --mode mid_turn \
-  --topic-key <candidate.topic_key> \
-  --facet <candidate.facet> \
-  --coverage-target <candidate.coverage_target> \
-  --mark-injected
-```
-
-Record `ccdi_diagnostics_emitter.record_packet_injected(tokens=<packet_tokens>)` and `record_topic_injected(candidate.topic_key)`.
-
-Update the trace entry for this turn: set `commit` to `true`.
-
-IF `ccdi_mode` is `"shadow"`: no commit. The packet was staged but not delivered. Registry remains unchanged (except for auto-suppressions from empty build-packet output).
-
-IF the send failed (Step 7 error): no commit. Do NOT call `--mark-injected`. The packet was staged but not delivered.
-
-**Key invariant:** `--mark-injected` is called only after the packet-containing prompt has been confirmed sent to Codex. This prevents the registry from recording injection for packets that were staged but never delivered.
+IF `ccdi_mode` is not `"unavailable"`: execute Step 7.5 per [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md). OTHERWISE: skip.
 
 Return to Step 1 for the next Codex response.
 
@@ -686,140 +515,9 @@ When advancing to a new phase, compose a transition marker in the follow-up:
 
 ## Phase 3: Synthesis
 
-Assemble synthesis from `turn_history`. Do not recall the full conversation — walk the `turn_history` (server-validated `validated_entry` records and cumulative snapshots).
+When entering Phase 3, read and apply [dialogue-synthesis-format.md](../references/dialogue-synthesis-format.md). It defines the assembly process (7 items), confidence annotations, pre-flight checklist, synthesis checkpoint, output format, pipeline data epilogue, and a complete example.
 
-### Assembly process
-
-These 7 items are independent output sections. Assemble all 7 from `turn_history`.
-
-1. **Convergence → Areas of Agreement:** Claims where both sides arrived at the same position, especially through independent reasoning or survived challenges. High confidence.
-2. **Concessions → Key Outcomes:** Claims where one side changed position. Note which side, what triggered the change, and the final position.
-3. **Novel emergent ideas:** Ideas that appeared mid-conversation that neither side started with. Flag as "emerged from dialogue."
-4. **Unresolved → Open Questions:** Claims still tagged `new` or items remaining in the unresolved column.
-5. **Evidence trajectory:** For each turn in `turn_history` where `scout_outcomes` is non-empty, note: what entity was scouted, what was found (or not found), and its impact on the conversation (premise falsified, claim supported, or ambiguous).
-6. **Claim trajectory:** Using the accumulated `validated_entry` records in `turn_history`, trace how each significant claim evolved across turns (new → reinforced/revised/conceded).
-7. **Contested claims:** For each claim where the two sides held different positions at any point, classify the final state: `agreement` (both converged), `resolved_disagreement` (one side conceded with reasoning), or `unresolved_disagreement` (positions remain apart). Include: `claim_text`, `state`, `final_positions` (both sides' ending positions), `resolution_basis` (what triggered the resolution, if any), and `confidence`.
-
-### Confidence annotations
-
-Each finding gets a confidence level derived from ledger data:
-
-| Confidence | Criteria |
-|------------|----------|
-| **High** | Both sides independently argued for it, OR one side challenged and the other defended with evidence |
-| **Medium** | One side proposed, the other agreed with reasoning (at least one turn where delta was `advancing` or `shifting`) |
-| **Low** | Single turn, no probing — or agreement without reasoning |
-
-### Your assessment
-
-Add independent judgment:
-- Where you agree with Codex and why
-- Where you disagree and why
-- What emerged from the back-and-forth that neither side started with
-
-### Pre-flight checklist
-
-Before writing output, verify every item:
-
-- [ ] Trajectory line computed from ledger (one `delta(tags)` entry per turn)
-- [ ] Each Key Outcome has **Confidence** (High/Medium/Low) and **Basis**
-- [ ] Areas of Agreement include confidence levels
-- [ ] Open Questions reference which turn(s) raised them
-- [ ] Continuation section includes unresolved items and recommended posture (if warranted)
-- [ ] Contested claims classified with state (agreement/resolved_disagreement/unresolved_disagreement) and resolution basis
-- [ ] Evidence statistics: scouts executed, entities scouted, impacts on conversation. If `evidence_count == 0`, state "Evidence: none (no scouts executed)" and omit evidence trajectory
-- [ ] Phase trajectory: which phases entered, turns consumed per phase, phases skipped by convergence (multi-phase only)
-
-If any item is missing, fix it before returning output.
-
-### Synthesis checkpoint
-
-After the narrative synthesis and pre-flight checklist, emit a structured checkpoint block:
-
-```
-## Synthesis Checkpoint
-RESOLVED: <claim> [confidence: High|Medium|Low] [basis: convergence|concession|evidence]
-UNRESOLVED: <item> [raised: turn N]
-EMERGED: <idea> [source: dialogue-born]
-```
-
-**Tags:**
-- `RESOLVED` — claims where both sides reached agreement. Include confidence level and the basis for resolution.
-- `UNRESOLVED` — items still open at dialogue end. Include the turn number where first raised.
-- `EMERGED` — ideas that neither side started with; born from the dialogue itself. Flag as `dialogue-born`.
-
-**Consistency rules:** The checkpoint and narrative synthesis are generated from the same `turn_history` state. Precedence: checkpoint is canonical for structured status, narrative is canonical for explanatory detail.
-
-Cross-reference requirements:
-- Every `UNRESOLVED` in the checkpoint **must** appear in the narrative's Open Questions section.
-- Every `RESOLVED` in the checkpoint **must** appear in the narrative's Areas of Agreement or Contested Claims section.
-- Every `EMERGED` in the checkpoint **must** appear in the narrative's Key Outcomes section.
-
-If any cross-reference is missing, add it before returning output.
-
-### CCDI trace emission
-
-**Skip this section** if `ccdi_debug` is `false` or absent.
-
-When `ccdi_debug` is `true` in the delegation envelope, include the accumulated `ccdi_trace` in the output. The trace is a JSON array of per-turn entries, each with all 9 required keys:
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `turn` | int | Turn number |
-| `action` | string | Primary action: `classify`, `schedule`, `search`, `build_packet`, `prepare`, `inject`, `defer`, `suppress`, `skip_cooldown`, `skip_scout`, `shadow_defer_intent`, `replay_turn`, `none` |
-| `topics_detected` | list[string] | Topic keys from the classifier result |
-| `candidates` | list[string] | Topic keys from scheduling |
-| `packet_staged` | bool | Whether a packet was prepared |
-| `scout_conflict` | bool | Whether a scout target conflicted with CCDI |
-| `commit` | bool | Whether injection was committed (true only after Step 7.5 success) |
-| `shadow_suppressed` | bool | Whether this was a shadow-mode turn where a packet was staged but not delivered |
-| `semantic_hints` | list[string] or [] | Hints processed this turn, or empty |
-
-Every entry in `ccdi_trace` MUST have all 9 keys. Emit the trace in a fenced JSON block after the synthesis checkpoint:
-
-```json
-<!-- ccdi-trace -->
-[
-  {"turn": 1, "action": "prepare", "topics_detected": [...], "candidates": [...], "packet_staged": true, "scout_conflict": false, "commit": true, "shadow_suppressed": false, "semantic_hints": []},
-  ...
-]
-```
-
-The `<!-- ccdi-trace -->` sentinel marks this block for machine parsing.
-
-### CCDI diagnostics emission
-
-At dialogue end, emit CCDI diagnostics in the Pipeline Data JSON epilogue. The format depends on `ccdi_mode`:
-
-**Active mode** (`ccdi_mode` = `"active"`):
-
-Call `ccdi_diagnostics_emitter.emit()` and include the result as the `ccdi` field in the pipeline data JSON. Active mode includes standard fields only (no shadow-only fields):
-
-- `status`, `phase`, `topics_detected`, `topics_injected`, `topics_deferred`, `topics_suppressed`
-- `packets_prepared`, `packets_injected`, `packets_deferred_scout`, `total_tokens_injected`
-- `semantic_hints_received`, `search_failures`, `inventory_epoch`, `config_source`, `per_turn_latency_ms`
-
-**Shadow mode** (`ccdi_mode` = `"shadow"`):
-
-Call `ccdi_diagnostics_emitter.emit()` and include the result. Shadow mode includes all active fields PLUS shadow-only fields:
-
-- `packets_target_relevant` — packets that passed the target-match check
-- `packets_surviving_precedence` — packets not deferred by scout priority or cooldown
-- `false_positive_topic_detections` — topics detected but never producing a viable packet
-- `shadow_adjusted_yield` — yield metric accounting for shadow-mode suppression
-
-**Unavailable** (`ccdi_mode` = `"unavailable"`):
-
-Emit minimal diagnostics:
-
-```json
-"ccdi": {
-  "status": "unavailable",
-  "phase": "initial_only"
-}
-```
-
-No count or array fields are present when status is `"unavailable"`.
+IF `ccdi_mode` is not `"unavailable"`: also emit CCDI trace and diagnostics per [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md). OTHERWISE: emit `"ccdi": {"status": "unavailable", "phase": "initial_only"}` in the pipeline data epilogue.
 
 ## Governance (Decision-Locked)
 
@@ -840,168 +538,3 @@ These rules are non-negotiable (consultation contract §15):
 - **Token safety** — Never include secrets in Codex briefings.
 - **Turn limit** — Respect the turn budget (default 8, hard maximum 15). Do not exceed 15 turns regardless of what the caller requests.
 - **Foreground only** — Requires MCP tools; cannot run in background.
-
-## Output Format
-
-### Conversation Summary
-- **Topic:** [what was discussed]
-- **Goal:** [what outcome was sought]
-- **Posture:** [posture used]
-- **Turns:** [X of Y budget]
-- **Converged:** [yes — reason / no — hit turn limit or error]
-- **Trajectory:** `T1:delta(tags) → T2:delta(tags) → ...` (one entry per turn)
-- **Evidence:** [X scouts / Y turns, entities: ..., impacts: ...]
-- **Mode:** `server_assisted` or `manual_legacy` — the actual mode used for this conversation. Set once at conversation start (server_assisted if context injection tools available, manual_legacy otherwise). Do not change mid-conversation.
-
-### Key Outcomes
-
-For each finding, adapt structure to the goal:
-- **Ideation** → ideas with assessments
-- **Plan review** → concerns and suggestions
-- **Decision-making** → options with trade-offs
-- **Doc review** → findings by severity
-- **Research** → findings and knowledge map
-
-Annotate each finding:
-- **Confidence:** High / Medium / Low
-- **Basis:** How this emerged — convergence, concession, single-turn proposal, or emerged from dialogue
-
-### Areas of Agreement
-
-Points both sides converged on. Include confidence level.
-
-### Contested Claims
-
-For each claim with divergent positions during the dialogue:
-- **Claim:** [claim text]
-- **State:** Agreement / Resolved disagreement / Unresolved disagreement
-- **Final positions:** [both sides' ending positions]
-- **Resolution basis:** [what triggered resolution, if resolved]
-- **Confidence:** High / Medium / Low
-
-### Open Questions
-
-Unresolved points worth further investigation. Include which turn(s) raised them.
-
-### Continuation
-- **Thread ID:** {persisted threadId value} | none
-- **Continuation warranted:** yes — [reason] / no
-- **Unresolved items carried forward:** [list from ledger, if continuation warranted]
-- **Recommended posture for continuation:** [posture suggestion based on conversation dynamics]
-- **Evidence trajectory:** [which turns had evidence, what entities, what impacts — or "none (no scouts executed)" if evidence_count == 0]
-
-### Synthesis Checkpoint
-
-Structured summary of dialogue outcomes. Emitted after the narrative sections:
-
-```
-## Synthesis Checkpoint
-RESOLVED: <claim> [confidence: High|Medium|Low] [basis: convergence|concession|evidence]
-UNRESOLVED: <item> [raised: turn N]
-EMERGED: <idea> [source: dialogue-born]
-```
-
-Include all items from the narrative — this block must be consistent with the narrative sections per the consistency rules in Phase 3.
-
-### Pipeline Data (JSON epilogue)
-
-After the markdown synthesis, emit a fenced JSON block with structured fields for downstream consumers. This block is machine-parsed by the `/dialogue` skill — do not omit fields.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `mode` | string | `"server_assisted"` or `"manual_legacy"` |
-| `thread_id` | string or null | Codex thread ID. Emit whenever available, including `manual_legacy`. |
-| `turn_count` | int | Actual Codex turns used |
-| `converged` | bool | Whether dialogue converged |
-| `convergence_reason_code` | string or null | One of: `"all_resolved"`, `"natural_convergence"`, `"budget_exhausted"`, `"error"`, `"scope_breach"`. Set to `null` if dialogue did not converge. Do NOT use `termination_reason` values here — the two fields have different enums. |
-| `termination_reason` | string | `"convergence"`, `"budget"`, `"scope_breach"`, or `"error"` (dialogue only — `/codex` also uses `"complete"`) |
-| `scout_count` | int | `evidence_count` from state |
-| `resolved_count` | int | From synthesis checkpoint |
-| `unresolved_count` | int | From synthesis checkpoint |
-| `emerged_count` | int | From synthesis checkpoint |
-| `scope_breach_count` | int | 0 unless scope breach occurred |
-| `ccdi` | object | CCDI diagnostics. Schema varies by `ccdi.status` — see "CCDI diagnostics emission" above. |
-| `ccdi_trace` | list or null | Per-turn CCDI trace entries. Present only when `ccdi_debug` is `true`. `null` otherwise. |
-
-```json
-<!-- pipeline-data -->
-{
-  "mode": "server_assisted",
-  "thread_id": "codex-thread-id",
-  "turn_count": 0,
-  "converged": false,
-  "convergence_reason_code": null,
-  "termination_reason": "convergence",
-  "scout_count": 0,
-  "resolved_count": 0,
-  "unresolved_count": 0,
-  "emerged_count": 0,
-  "scope_breach_count": 0,
-  "ccdi": {"status": "unavailable", "phase": "initial_only"},
-  "ccdi_trace": null
-}
-```
-
-The `<!-- pipeline-data -->` sentinel marks this block for machine parsing. The `/dialogue` skill extracts fields from this block. Substitute actual values from conversation state — the template above shows types and placeholders.
-
-### Example
-
-Complete example showing all required fields:
-
-```
-### Conversation Summary
-- **Topic:** Whether to use event sourcing vs. state-based persistence for the audit log
-- **Goal:** Choose a persistence strategy with clear trade-offs
-- **Posture:** Adversarial
-- **Turns:** 4 of 6 budget
-- **Converged:** Yes — both sides agreed on hybrid approach after T3 challenge
-- **Trajectory:** `T1:advancing(new_reasoning) → T2:advancing(challenge) → T3:shifting(concession, expansion) → T4:static(restatement)`
-- **Evidence:** 2 scouts / 4 turns (T2: `src/audit/store.py` — confirmed append-only pattern; T3: `config/schema.yaml` — found versioned envelope type)
-
-### Key Outcomes
-
-**Hybrid persistence: event sourcing for audit trail, state-based for read models**
-- **Confidence:** High
-- **Basis:** Convergence — both sides independently argued for separation of write and read concerns (T1, T2). Survived adversarial challenge on operational complexity (T2-T3).
-
-**Event schema should use a single envelope type with versioned payloads**
-- **Confidence:** Medium
-- **Basis:** Codex proposed (T1), Claude agreed with reasoning about schema evolution (T3). Not independently derived.
-
-**Skip CQRS framework; use simple event log table + materialized views**
-- **Confidence:** Low
-- **Basis:** Single-turn proposal (T3). Not probed or challenged.
-
-### Areas of Agreement
-
-- Audit requirements demand append-only semantics (High — independently argued T1-T2)
-- Read-heavy queries shouldn't hit the event store (High — converged T2-T3)
-
-### Contested Claims
-
-**Use CQRS framework for read model projections**
-- **State:** Resolved disagreement
-- **Final positions:** Both agreed to skip — use simple materialized views
-- **Resolution basis:** Codex proposed CQRS (T1), challenged on operational complexity (T2), conceded in favor of simplicity (T3)
-- **Confidence:** Medium
-
-### Open Questions
-
-- Retention policy for raw events vs. snapshots (raised T3, not probed)
-- Whether to use database triggers or application-level projection (raised T1, partially explored T2)
-
-### Continuation
-- **Thread ID:** thread_abc123
-- **Continuation warranted:** yes — retention policy and projection strategy unresolved
-- **Unresolved items carried forward:** event retention policy, trigger vs. application projection
-- **Recommended posture for continuation:** Exploratory — key decisions made, remaining items need research not debate
-- **Evidence trajectory:** T2 — `src/audit/store.py` read, confirmed append-only writes (claim supported); T3 — `config/schema.yaml` read, found envelope type with version field (claim supported)
-```
-
----
-
-**Do not include:**
-- Raw conversation transcript or full Codex responses
-- Raw ledger entries (keep internal — only the trajectory line appears in output)
-- Filler, pleasantries, or praise
-- Implementation of recommendations (report them, don't do them)

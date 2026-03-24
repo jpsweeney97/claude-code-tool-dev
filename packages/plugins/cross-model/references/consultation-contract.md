@@ -101,6 +101,15 @@ Every Codex consultation MUST use this 3-section structure:
 4. Do not inline entire repositories or large file trees — summarize or reference paths.
 5. Briefing assembly MUST be linear in input size — no recursive expansion.
 
+**Pre-assembled briefing (sentinel carve-out):**
+
+When a briefing contains `<!-- dialogue-orchestrated-briefing -->` before `## Context`, the assembling skill has already applied §5 formatting and verified conformance. The consumer MUST:
+1. Use the briefing **verbatim** as the `prompt` for the initial Codex call.
+2. Do NOT rewrite, summarize, restructure, or re-apply §5 formatting.
+3. Do NOT re-derive `## Context`, `## Material`, or `## Question` — they are already present and populated.
+
+The sentinel certifies §5 conformance. Re-assembly discards structured metadata (provenance tags, assumption IDs, citation formats) that downstream pipeline stages depend on.
+
 ---
 
 ## 6. Delegation Envelope Contract
