@@ -179,6 +179,7 @@ class DiagnosticsRecord:
 @dataclass(frozen=True)
 class ShadowDeferIntent:
     turn: int
+    action: str = "shadow_defer_intent"  # Discriminator for trace type filtering (integration.md L315)
     topic_key: str
     reason: str  # "target_mismatch" | "cooldown"
     classify_result_hash: str
@@ -286,6 +287,7 @@ Add to `tests/test_ccdi_registry.py`:
 - `test_deferred_ttl_load_time_recovery_absent`: Registry with deferred_ttl=0, topic absent → TTL reset
 - `test_cooldown_deferral_preserves_consecutive_medium_count`: Medium leaf at count=1, deferred by cooldown → count stays 1
 - `test_deferred_to_detected_consecutive_medium_initialization`: Topic deferred, TTL expires, reappears at medium → count=1; at high → count=0
+- `test_family_kind_consecutive_medium_load_validation`: Family-kind entry loaded with non-zero `consecutive_medium_count` → reset to 0 with warning logged. Per registry.md L280 (MUST requirement)
 - `test_registry_file_missing_reinitializes`: Missing registry file → `load_registry()` returns empty seed (no crash). Per registry.md#failure-modes line 273
 - `test_registry_file_corrupt_reinitializes`: Corrupt JSON in registry file → `load_registry()` returns empty seed with warning. Per registry.md#failure-modes line 273
 - `test_atomic_write_uses_temp_rename`: `_write_registry()` writes to tempfile then `os.replace()` — verify no partial writes by checking file exists and is valid JSON after write. Per registry.md#failure-modes line 274
@@ -505,6 +507,7 @@ Create `tests/test_ccdi_dialogue_turn.py` with tests:
 - `test_suppression_reentry_scan_redundant_no_epoch`: docs_epoch change does NOT re-enter redundant entries
 - `test_redundant_reentry_via_new_leaf`: New leaf in same family → redundant re-enters
 - `test_suppressed_redetection_noop`: Suppressed topic re-detected, no re-entry trigger → no field update
+- `test_suppressed_docs_epoch_written_for_redundant`: Auto-suppression with reason=redundant → `suppressed_docs_epoch` is set (non-null). Per registry.md L27 ("Written for all suppression reasons")
 - `test_overview_injected_propagation_facet_overview`: Injected with facet=overview → family context marked available. Per delivery.md rows 374-376 (graduation preflight prerequisite)
 - `test_overview_injected_propagation_family_context_available`: Family context available after overview injection → next lookup uses leaf facet
 - `test_overview_injected_propagation_non_overview_facet`: Injected with facet≠overview → family context NOT marked available
@@ -590,6 +593,7 @@ Add to `tests/test_ccdi_cli.py`:
 - `test_dialogue_turn_with_non_default_ttl`: Config-driven TTL reset
 - `test_dialogue_turn_missing_inventory_snapshot`: Non-zero exit with descriptive error
 - `test_dialogue_turn_rejects_inventory_flag`: --inventory → non-zero exit (wrong flag name)
+- `test_classify_rejects_inventory_snapshot_flag`: classify subcommand with --inventory-snapshot → non-zero exit (flag belongs to dialogue-turn/build-packet, not classify). Per integration.md L516
 - `test_dialogue_turn_shadow_mode`: --shadow-mode suppresses cooldown deferral writes
 
 - [ ] **Step 2: Write CLI tests for build-packet extensions**
@@ -613,6 +617,9 @@ Add to `tests/test_ccdi_cli.py`:
 - `test_agent_gate_config_isolation_phase_a`: Phase A agent gate independent of Phase B config. Per delivery.md row 442
 - `test_inventory_snapshot_version_mismatch_best_effort`: `inventory_snapshot_version` differs from current → best-effort field mapping with discarded entries on version mismatch. Per registry.md#failure-modes line 278
 - `test_build_packet_missing_results_file_without_skip_build`: --results-file absent without --skip-build → non-zero exit with descriptive error. Per integration.md line 34
+- `test_build_packet_missing_inventory_snapshot_without_registry`: --inventory-snapshot absent without --registry-file → no error (CCDI-lite mode). Per delivery.md row 424
+- `test_build_packet_missing_topic_key_with_mark_deferred`: --mark-deferred without --topic-key → non-zero exit. Per delivery.md row 426
+- `test_build_packet_missing_facet_with_mark_deferred`: --mark-deferred without --facet → non-zero exit. Per delivery.md row 427
 
 - [ ] **Step 3: Run tests — expect FAIL**
 
@@ -1054,7 +1061,7 @@ Add to `tests/test_ccdi_integration.py`:
 - `test_shadow_mode_diagnostics_fields_present`: Shadow mode → shadow-only fields present
 - `test_active_mode_diagnostics_fields_absent`: Active mode → shadow-only fields absent
 - `test_inventory_pinning_across_mid_dialogue_reload`: Pinned snapshot used, not on-disk changes
-- `test_ccdi_debug_gating_trace_emission`: ccdi_debug=true → ccdi_trace present with all 9 keys
+- `test_ccdi_debug_gating_trace_emission`: ccdi_debug=true → ccdi_trace present with all 9 keys; each entry's `action` value is in the normative set {none, classify, schedule, search, build_packet, prepare, inject, defer, suppress, skip_cooldown, skip_scout, shadow_defer_intent}. Per delivery.md row 506
 - `test_ccdi_debug_explicit_false_suppresses_trace`: ccdi_debug=false → no trace (separate named test)
 - `test_ccdi_trace_semantic_hints_conditional_presence`: Null when no hints, array when hints exist
 - `test_shadow_suppressed_field_presence`: shadow_suppressed present in all per-turn entries
@@ -1208,7 +1215,7 @@ Add with `@pytest.mark.skipif(not phase_a_resolved(), reason="Phase B only")`:
 
 Add:
 - `test_shadow_defer_intent_resolves_on_topic_disappearance`: Topic with shadow_defer_intent disappears from classifier → intent resolves (no longer emitted). Per delivery.md row 736
-- `test_shadow_defer_intent_resolves_on_committed_state_transition`: Topic transitions to committed (injected) → shadow_defer_intent no longer emitted. Per delivery.md row 737
+- `test_shadow_defer_intent_resolves_on_suppressed_state_transition`: Topic transitions to suppressed state → shadow_defer_intent no longer emitted. Per delivery.md row 737
 - `test_shadow_false_positive_field_present_and_zero`: Shadow diagnostics → `false_positive_topic_detections` key present with value 0. Per delivery.md row 735
 - `test_ccdi_inventory_snapshot_absent_with_seed_layer2b`: Layer 2b companion — ccdi_inventory_snapshot absent when ccdi_seed present → degraded behavior (no mid-dialogue CCDI). Per delivery.md row 487
 
@@ -1340,10 +1347,10 @@ T1 (types+hash)     ────────────────────
 |----------|----------|--------|
 | Types (Phase B extensions) | ~10 | test_ccdi_types.py (+2 shadow_adjusted_yield) |
 | classify_result_hash | 4 | test_ccdi_classifier.py |
-| Registry (Phase B) | ~49 | test_ccdi_registry.py (+4 corruption/recovery) |
-| dialogue-turn unit | ~20 | test_ccdi_dialogue_turn.py (+3 overview_injected propagation) |
+| Registry (Phase B) | ~50 | test_ccdi_registry.py (+5 corruption/recovery, family-kind load validation) |
+| dialogue-turn unit | ~22 | test_ccdi_dialogue_turn.py (+3 overview_injected, +1 suppressed_docs_epoch redundant) |
 | Cache | 5 | test_ccdi_cache.py |
-| CLI (Phase B) | ~28 | test_ccdi_cli.py (+8 idempotency, agent gate, version mismatch, results-file) |
+| CLI (Phase B) | ~32 | test_ccdi_cli.py (+12 idempotency, agent gate, version mismatch, results-file, classify rejection, build-packet errors) |
 | Diagnostics | 4 | test_ccdi_diagnostics.py |
 | Graduation validator | 17 | test_validate_graduation.py |
 | Replay fixtures | 52 | test_ccdi_replay.py (happy_path includes chunk ID determinism assertion) |
@@ -1351,6 +1358,6 @@ T1 (types+hash)     ────────────────────
 | Integration (Phase B) | ~15 | test_ccdi_integration.py (+4 sentinel extraction, seed file identity) |
 | Freshness guardrail | 3 | test_shadow_freshness_guardrail.py |
 | Layer 2b | ~19 | test_ccdi_agent_sequence.py (+4 shadow diagnostic, inventory companion) |
-| **Total new** | **~245** | |
+| **Total new** | **~251** | |
 
-Combined with Phase A (373 tests), total: **~618 tests**.
+Combined with Phase A (373 tests), total: **~624 tests**.
