@@ -1,13 +1,15 @@
-"""CCDI session registry — Phase A + Phase B deferred/TTL.
+"""CCDI session registry — Phase A + Phase B deferred/TTL + hints + consecutive-medium.
 
 Manages per-topic state transitions: load, inject, suppress, defer, persist.
 Atomic file writes via temp+rename. Fingerprint normalization for
-deduplication. TTL lifecycle for deferred entries.
+deduplication. TTL lifecycle for deferred entries. Semantic hint processing
+and consecutive-medium tracking.
 
 Import pattern:
     from scripts.ccdi.registry import (
         load_registry, mark_injected, write_suppressed, write_deferred,
         decrement_deferred_ttl, apply_ttl_transitions,
+        update_redetections, process_semantic_hints,
     )
 """
 
@@ -18,9 +20,18 @@ import logging
 import os
 import re
 import tempfile
+from typing import Callable
 
 from scripts.ccdi.config import CCDIConfig
-from scripts.ccdi.types import RegistrySeed, TopicRegistryEntry
+from scripts.ccdi.types import (
+    ClassifierResult,
+    CompiledInventory,
+    InjectionCandidate,
+    RegistrySeed,
+    ResolvedTopic,
+    SemanticHint,
+    TopicRegistryEntry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -420,6 +431,385 @@ def apply_ttl_transitions(
             entry.deferred_ttl -= 1
 
     return transitioned
+
+
+# ---------------------------------------------------------------------------
+# Consecutive-medium tracking
+# ---------------------------------------------------------------------------
+
+
+def update_redetections(
+    seed: RegistrySeed,
+    classifier_results: list[ResolvedTopic],
+    current_turn: int,
+) -> None:
+    """Update existing registry entries based on classifier re-detection.
+
+    In-memory function — mutates seed.entries directly. Does NOT handle new
+    topic creation (absent → detected). Only updates fields on EXISTING entries.
+
+    Per registry.md field update rules:
+    - Re-detection at medium (leaf-kind only): increment consecutive_medium_count
+    - Re-detection at non-medium: reset consecutive_medium_count to 0
+    - Re-detection on injected: update last_seen_turn only
+    - Re-detection on suppressed: no update
+    - Topic absent from classifier (non-suppressed): reset consecutive_medium_count to 0
+    """
+    # Build lookup of classifier results by topic_key
+    classifier_by_key: dict[str, ResolvedTopic] = {}
+    for rt in classifier_results:
+        classifier_by_key[rt.topic_key] = rt
+
+    classifier_keys = set(classifier_by_key.keys())
+
+    for entry in seed.entries:
+        topic_key = entry.topic_key
+
+        # Suppressed entries: no update from re-detection
+        if entry.state == "suppressed":
+            continue
+
+        if topic_key in classifier_keys:
+            resolved = classifier_by_key[topic_key]
+
+            if entry.state == "injected":
+                # Forward-only: only update last_seen_turn
+                entry.last_seen_turn = current_turn
+                continue
+
+            # detected or deferred state
+            entry.last_seen_turn = current_turn
+
+            if resolved.confidence == "medium" and entry.kind == "leaf":
+                entry.consecutive_medium_count += 1
+            elif resolved.confidence == "medium" and entry.kind == "family":
+                # Family-kind: last_seen_turn updated but count unchanged
+                pass
+            else:
+                # Non-medium confidence: reset count
+                entry.consecutive_medium_count = 0
+        else:
+            # Topic absent from classifier — reset count (non-suppressed only)
+            entry.consecutive_medium_count = 0
+
+
+# ---------------------------------------------------------------------------
+# Semantic hint processing
+# ---------------------------------------------------------------------------
+
+
+def _reenter_suppressed(entry: TopicRegistryEntry, current_turn: int) -> None:
+    """Transition a suppressed entry back to detected.
+
+    Per registry.md: state=detected, suppression_reason=null,
+    suppressed_docs_epoch=null, last_seen_turn=current_turn.
+    """
+    entry.state = "detected"
+    entry.suppression_reason = None
+    entry.suppressed_docs_epoch = None
+    entry.last_seen_turn = current_turn
+
+
+def _transition_deferred_to_detected(
+    entry: TopicRegistryEntry, current_turn: int
+) -> None:
+    """Transition a deferred entry to detected via hint elevation.
+
+    Per registry.md: clears deferred_reason, deferred_ttl, updates last_seen_turn.
+    """
+    entry.state = "detected"
+    entry.deferred_reason = None
+    entry.deferred_ttl = None
+    entry.last_seen_turn = current_turn
+
+
+def _resolve_facet_expansion(
+    entry: TopicRegistryEntry,
+    resolved_facet: str,
+    inventory: CompiledInventory,
+) -> str | None:
+    """Resolve the facet for a facet_expansion candidate via cascade.
+
+    Cascade per registry.md scheduling step 9:
+    1. facet resolved from claim_excerpt classification
+    2. pending_facets[0] if resolved facet already in facets_injected
+    3. default_facet if all pending facets exhausted
+    Returns None if all candidate facets are already in facets_injected.
+    """
+    injected = set(entry.coverage_facets_injected)
+
+    # Step 1: resolved facet
+    if resolved_facet not in injected:
+        return resolved_facet
+
+    # Step 2: pending_facets
+    for pending_facet in entry.coverage_pending_facets:
+        if pending_facet not in injected:
+            return pending_facet
+
+    # Step 3: default_facet from inventory
+    topic_record = inventory.topics.get(entry.topic_key)
+    if topic_record is not None:
+        default_facet = topic_record.query_plan.default_facet
+        if default_facet not in injected:
+            return default_facet
+
+    # All exhausted
+    return None
+
+
+def _make_injection_candidate(
+    entry: TopicRegistryEntry,
+    facet: str,
+    candidate_type: str,
+    confidence: str | None,
+    inventory: CompiledInventory,
+) -> InjectionCandidate:
+    """Build an InjectionCandidate from entry + resolution data."""
+    topic_record = inventory.topics.get(entry.topic_key)
+    query_plan = topic_record.query_plan if topic_record is not None else None
+
+    # Fallback if topic not in inventory (shouldn't happen in practice)
+    if query_plan is None:
+        from scripts.ccdi.types import QueryPlan
+
+        query_plan = QueryPlan(default_facet="overview", facets={})
+
+    return InjectionCandidate(
+        topic_key=entry.topic_key,
+        family_key=entry.family_key,
+        facet=facet,
+        confidence=confidence,
+        coverage_target=entry.coverage_target,
+        candidate_type=candidate_type,
+        query_plan=query_plan,
+    )
+
+
+def process_semantic_hints(
+    seed: RegistrySeed,
+    hints: list[SemanticHint],
+    inventory: CompiledInventory,
+    classifier_fn: Callable[
+        [str, CompiledInventory, CCDIConfig], ClassifierResult
+    ],
+    current_turn: int,
+) -> list[InjectionCandidate]:
+    """Process semantic hints and return injection candidates.
+
+    In-memory function — mutates seed entries, returns candidates.
+    The caller (dialogue-turn pipeline) handles persisting the seed.
+
+    Hints are processed sequentially in array order per registry.md.
+    Intra-turn mutations (e.g. contradicts_prior appending to pending_facets)
+    are visible to subsequent hints in the same call.
+
+    The classifier_fn is called with (claim_excerpt, inventory, config).
+    A default CCDIConfig is used internally for the classify call.
+    """
+    from scripts.ccdi.config import BUILTIN_DEFAULTS
+
+    # Build a config for classifier calls
+    config = _build_default_config()
+
+    candidates: list[InjectionCandidate] = []
+
+    # Build entry lookup
+    entry_by_key: dict[str, TopicRegistryEntry] = {}
+    for entry in seed.entries:
+        entry_by_key[entry.topic_key] = entry
+
+    for hint in hints:
+        # Classify the claim_excerpt
+        result = classifier_fn(hint.claim_excerpt, inventory, config)
+
+        if not result.resolved_topics:
+            # No topic resolved — hint ignored
+            continue
+
+        # Use first resolved topic
+        resolved = result.resolved_topics[0]
+        topic_key = resolved.topic_key
+
+        entry = entry_by_key.get(topic_key)
+        if entry is None:
+            # Topic not in registry — hint ignored
+            continue
+
+        resolved_facet = resolved.facet
+
+        if hint.hint_type == "prescriptive":
+            _apply_prescriptive(
+                entry, resolved, inventory, current_turn, candidates
+            )
+
+        elif hint.hint_type == "contradicts_prior":
+            _apply_contradicts_prior(
+                entry, resolved, inventory, current_turn, candidates
+            )
+
+        elif hint.hint_type == "extends_topic":
+            _apply_extends_topic(
+                entry, resolved, inventory, current_turn, candidates
+            )
+
+    return candidates
+
+
+def _apply_prescriptive(
+    entry: TopicRegistryEntry,
+    resolved: ResolvedTopic,
+    inventory: CompiledInventory,
+    current_turn: int,
+    candidates: list[InjectionCandidate],
+) -> None:
+    """Apply prescriptive hint effects per registry.md scheduling table."""
+    if entry.state == "detected":
+        # Elevate to materially new
+        candidates.append(
+            _make_injection_candidate(
+                entry, resolved.facet, "new", resolved.confidence, inventory
+            )
+        )
+    elif entry.state == "deferred":
+        # Transition deferred → detected, then elevate
+        _transition_deferred_to_detected(entry, current_turn)
+        candidates.append(
+            _make_injection_candidate(
+                entry, resolved.facet, "new", resolved.confidence, inventory
+            )
+        )
+    elif entry.state == "suppressed":
+        # Re-enter as detected
+        _reenter_suppressed(entry, current_turn)
+        candidates.append(
+            _make_injection_candidate(
+                entry, resolved.facet, "new", resolved.confidence, inventory
+            )
+        )
+    elif entry.state == "injected":
+        # No effect — already covered
+        pass
+
+
+def _apply_contradicts_prior(
+    entry: TopicRegistryEntry,
+    resolved: ResolvedTopic,
+    inventory: CompiledInventory,
+    current_turn: int,
+    candidates: list[InjectionCandidate],
+) -> None:
+    """Apply contradicts_prior hint effects per registry.md scheduling table."""
+    if entry.state == "injected":
+        # Append resolved facet to pending_facets
+        entry.coverage_pending_facets.append(resolved.facet)
+    elif entry.state == "detected":
+        # Elevate to materially new
+        candidates.append(
+            _make_injection_candidate(
+                entry, resolved.facet, "new", resolved.confidence, inventory
+            )
+        )
+    elif entry.state == "deferred":
+        # Transition deferred → detected, then elevate
+        _transition_deferred_to_detected(entry, current_turn)
+        candidates.append(
+            _make_injection_candidate(
+                entry, resolved.facet, "new", resolved.confidence, inventory
+            )
+        )
+    elif entry.state == "suppressed":
+        # Re-enter as detected
+        _reenter_suppressed(entry, current_turn)
+        candidates.append(
+            _make_injection_candidate(
+                entry, resolved.facet, "new", resolved.confidence, inventory
+            )
+        )
+
+
+def _apply_extends_topic(
+    entry: TopicRegistryEntry,
+    resolved: ResolvedTopic,
+    inventory: CompiledInventory,
+    current_turn: int,
+    candidates: list[InjectionCandidate],
+) -> None:
+    """Apply extends_topic hint effects per registry.md scheduling table."""
+    if entry.state == "injected":
+        # Emit facet_expansion candidate via cascade
+        target_facet = _resolve_facet_expansion(
+            entry, resolved.facet, inventory
+        )
+        if target_facet is not None:
+            candidates.append(
+                _make_injection_candidate(
+                    entry, target_facet, "facet_expansion", None, inventory
+                )
+            )
+        # else: all exhausted, discard silently
+    elif entry.state == "detected":
+        # Elevate to materially new
+        candidates.append(
+            _make_injection_candidate(
+                entry, resolved.facet, "new", resolved.confidence, inventory
+            )
+        )
+    elif entry.state == "deferred":
+        # Transition deferred → detected first, then follow detected path
+        _transition_deferred_to_detected(entry, current_turn)
+        candidates.append(
+            _make_injection_candidate(
+                entry, resolved.facet, "new", resolved.confidence, inventory
+            )
+        )
+    elif entry.state == "suppressed":
+        # Re-enter as detected
+        _reenter_suppressed(entry, current_turn)
+        candidates.append(
+            _make_injection_candidate(
+                entry, resolved.facet, "new", resolved.confidence, inventory
+            )
+        )
+
+
+def _build_default_config() -> CCDIConfig:
+    """Build a CCDIConfig from built-in defaults for classifier calls."""
+    from scripts.ccdi.config import BUILTIN_DEFAULTS
+
+    c = BUILTIN_DEFAULTS["classifier"]
+    i = BUILTIN_DEFAULTS["injection"]
+    p = BUILTIN_DEFAULTS["packets"]
+    return CCDIConfig(
+        classifier_confidence_high_min_weight=c["confidence_high_min_weight"],
+        classifier_confidence_medium_min_score=c["confidence_medium_min_score"],
+        classifier_confidence_medium_min_single_weight=c[
+            "confidence_medium_min_single_weight"
+        ],
+        injection_initial_threshold_high_count=i[
+            "initial_threshold_high_count"
+        ],
+        injection_initial_threshold_medium_same_family_count=i[
+            "initial_threshold_medium_same_family_count"
+        ],
+        injection_mid_turn_consecutive_medium_turns=i[
+            "mid_turn_consecutive_medium_turns"
+        ],
+        injection_cooldown_max_new_topics_per_turn=i[
+            "cooldown_max_new_topics_per_turn"
+        ],
+        injection_deferred_ttl_turns=i["deferred_ttl_turns"],
+        packets_initial_token_budget_min=p["initial_token_budget_min"],
+        packets_initial_token_budget_max=p["initial_token_budget_max"],
+        packets_initial_max_topics=p["initial_max_topics"],
+        packets_initial_max_facts=p["initial_max_facts"],
+        packets_mid_turn_token_budget_min=p["mid_turn_token_budget_min"],
+        packets_mid_turn_token_budget_max=p["mid_turn_token_budget_max"],
+        packets_mid_turn_max_topics=p["mid_turn_max_topics"],
+        packets_mid_turn_max_facts=p["mid_turn_max_facts"],
+        packets_quality_min_result_score=p["quality_min_result_score"],
+        packets_quality_min_useful_facts=p["quality_min_useful_facts"],
+    )
 
 
 # ---------------------------------------------------------------------------

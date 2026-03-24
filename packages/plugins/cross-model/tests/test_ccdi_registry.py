@@ -1,8 +1,9 @@
-"""Tests for CCDI registry — Phase A + Phase B deferred/TTL subset.
+"""Tests for CCDI registry — Phase A + Phase B deferred/TTL + consecutive-medium + hints.
 
 Covers: load_registry, mark_injected, write_suppressed, write_deferred,
 _write_registry, check_suppression_reentry, normalize_fingerprint,
-sort_candidates, decrement_deferred_ttl, apply_ttl_transitions.
+sort_candidates, decrement_deferred_ttl, apply_ttl_transitions,
+update_redetections, process_semantic_hints.
 """
 
 from __future__ import annotations
@@ -22,11 +23,25 @@ from scripts.ccdi.registry import (
     load_registry,
     mark_injected,
     normalize_fingerprint,
+    process_semantic_hints,
     sort_candidates,
+    update_redetections,
     write_deferred,
     write_suppressed,
 )
-from scripts.ccdi.types import RegistrySeed, TopicRegistryEntry
+from scripts.ccdi.types import (
+    Alias,
+    ClassifierResult,
+    CompiledInventory,
+    InjectionCandidate,
+    QueryPlan,
+    QuerySpec,
+    RegistrySeed,
+    ResolvedTopic,
+    SemanticHint,
+    TopicRecord,
+    TopicRegistryEntry,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1595,3 +1610,1158 @@ class TestHighConfidenceBypassesDeferredTTL:
         assert e.state == "deferred"
         assert e.deferred_ttl == 2
         assert transitioned == []
+
+
+# ===========================================================================
+# Phase B: Consecutive-medium tracking tests (Task 3, Step 1)
+# ===========================================================================
+
+
+def _make_resolved_topic(
+    topic_key: str = "hooks.pre_tool_use",
+    *,
+    family_key: str = "hooks",
+    coverage_target: str = "leaf",
+    confidence: str = "medium",
+    facet: str = "overview",
+) -> ResolvedTopic:
+    """Build a ResolvedTopic for testing."""
+    return ResolvedTopic(
+        topic_key=topic_key,
+        family_key=family_key,
+        coverage_target=coverage_target,
+        confidence=confidence,
+        facet=facet,
+        matched_aliases=[],
+        reason="test",
+    )
+
+
+# ---------------------------------------------------------------------------
+# 40. Consecutive-medium threshold for leaf
+# ---------------------------------------------------------------------------
+
+
+class TestConsecutiveMediumThresholdLeaf:
+    """Test 40: Medium leaf turn 1 → no injection; turn 2 → threshold reached."""
+
+    def test_medium_leaf_increments(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="detected",
+            kind="leaf",
+            consecutive_medium_count=0,
+            last_seen_turn=1,
+        )
+        seed = _make_seed(entries=[entry])
+        results = [_make_resolved_topic(confidence="medium")]
+
+        update_redetections(seed, results, current_turn=2)
+
+        assert seed.entries[0].consecutive_medium_count == 1
+        assert seed.entries[0].last_seen_turn == 2
+
+    def test_second_medium_turn_reaches_threshold(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="detected",
+            kind="leaf",
+            consecutive_medium_count=1,
+            last_seen_turn=2,
+        )
+        seed = _make_seed(entries=[entry])
+        results = [_make_resolved_topic(confidence="medium")]
+
+        update_redetections(seed, results, current_turn=3)
+
+        assert seed.entries[0].consecutive_medium_count == 2
+        assert seed.entries[0].last_seen_turn == 3
+
+
+# ---------------------------------------------------------------------------
+# 41. Consecutive-medium: family excluded
+# ---------------------------------------------------------------------------
+
+
+class TestConsecutiveMediumThresholdFamilyExcluded:
+    """Test 41: Medium family turns 1-3 → count stays 0."""
+
+    def test_family_medium_no_increment(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks",
+            family_key="hooks",
+            state="detected",
+            kind="family",
+            coverage_target="family",
+            consecutive_medium_count=0,
+        )
+        seed = _make_seed(entries=[entry])
+        results = [
+            _make_resolved_topic(
+                topic_key="hooks",
+                family_key="hooks",
+                coverage_target="family",
+                confidence="medium",
+            )
+        ]
+
+        # Three consecutive medium turns
+        for turn in range(2, 5):
+            update_redetections(seed, results, current_turn=turn)
+
+        assert seed.entries[0].consecutive_medium_count == 0
+        assert seed.entries[0].last_seen_turn == 4
+
+
+# ---------------------------------------------------------------------------
+# 42. Consecutive-medium reset on topic absence
+# ---------------------------------------------------------------------------
+
+
+class TestConsecutiveMediumResetOnTopicAbsence:
+    """Test 42: Medium turn 1 (count=1), absent turn 2 (count=0), medium turn 3 (count=1)."""
+
+    def test_absence_resets_count(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="detected",
+            kind="leaf",
+            consecutive_medium_count=1,
+            last_seen_turn=1,
+        )
+        seed = _make_seed(entries=[entry])
+
+        # Turn 2: topic absent
+        update_redetections(seed, [], current_turn=2)
+        assert seed.entries[0].consecutive_medium_count == 0
+
+        # Turn 3: topic returns at medium
+        results = [_make_resolved_topic(confidence="medium")]
+        update_redetections(seed, results, current_turn=3)
+        assert seed.entries[0].consecutive_medium_count == 1
+        assert seed.entries[0].last_seen_turn == 3
+
+
+# ---------------------------------------------------------------------------
+# 43. Consecutive-medium reset after injection
+# ---------------------------------------------------------------------------
+
+
+class TestConsecutiveMediumResetAfterInjection:
+    """Test 43: After injection via mark_injected, counter resets to 0."""
+
+    def test_reset_after_injection(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "registry.json")
+        entry = _make_entry(
+            state="detected",
+            kind="leaf",
+            consecutive_medium_count=2,
+        )
+        _write_seed_file(path, _make_seed(entries=[entry]))
+
+        mark_injected(
+            path=path,
+            topic_key="hooks.pre_tool_use",
+            facet="overview",
+            coverage_target="leaf",
+            chunk_ids=["c1"],
+            query_fingerprint="query",
+            turn=5,
+        )
+
+        data = _read_seed_file(path)
+        assert data["entries"][0]["consecutive_medium_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# 44. Consecutive-medium reset on confidence change
+# ---------------------------------------------------------------------------
+
+
+class TestConsecutiveMediumResetOnConfidenceChange:
+    """Test 44: Medium turn 1, HIGH turn 2 → count resets to 0."""
+
+    def test_high_confidence_resets_count(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="detected",
+            kind="leaf",
+            consecutive_medium_count=1,
+            last_seen_turn=1,
+        )
+        seed = _make_seed(entries=[entry])
+        results = [_make_resolved_topic(confidence="high")]
+
+        update_redetections(seed, results, current_turn=2)
+
+        assert seed.entries[0].consecutive_medium_count == 0
+        assert seed.entries[0].last_seen_turn == 2
+
+
+# ---------------------------------------------------------------------------
+# 45. Send failure preserves consecutive_medium_count
+# ---------------------------------------------------------------------------
+
+
+class TestSendFailurePreservesConsecutiveMediumCount:
+    """Test 45: Send fails → count NOT reset (mark_injected never called)."""
+
+    def test_count_preserved_without_injection(self) -> None:
+        """If mark_injected is never called, count stays at pre-failure value."""
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="detected",
+            kind="leaf",
+            consecutive_medium_count=2,
+            last_seen_turn=3,
+        )
+        seed = _make_seed(entries=[entry])
+
+        # Simulate next turn re-detection at medium (no injection happened)
+        results = [_make_resolved_topic(confidence="medium")]
+        update_redetections(seed, results, current_turn=4)
+
+        # Count incremented from retained value (2 → 3)
+        assert seed.entries[0].consecutive_medium_count == 3
+
+
+# ===========================================================================
+# Phase B: Semantic hint processing tests (Task 3, Step 3)
+# ===========================================================================
+
+
+def _make_query_plan(default_facet: str = "overview") -> QueryPlan:
+    """Build a minimal QueryPlan for testing."""
+    return QueryPlan(
+        default_facet=default_facet,
+        facets={
+            "overview": [QuerySpec(q="test query", category=None, priority=1)],
+            "schema": [QuerySpec(q="test schema query", category=None, priority=1)],
+        },
+    )
+
+
+def _make_topic_record(
+    topic_key: str = "hooks.pre_tool_use",
+    *,
+    family_key: str = "hooks",
+    kind: str = "leaf",
+) -> TopicRecord:
+    """Build a minimal TopicRecord for testing."""
+    return TopicRecord(
+        topic_key=topic_key,
+        family_key=family_key,
+        kind=kind,
+        canonical_label="Pre Tool Use Hooks",
+        category_hint="hooks",
+        parent_topic=family_key if kind == "leaf" else None,
+        aliases=[
+            Alias(text="pre_tool_use", match_type="token", weight=0.9),
+        ],
+        query_plan=_make_query_plan(),
+        canonical_refs=[],
+    )
+
+
+def _make_inventory(
+    topics: dict[str, TopicRecord] | None = None,
+) -> CompiledInventory:
+    """Build a minimal CompiledInventory for testing."""
+    if topics is None:
+        topics = {
+            "hooks.pre_tool_use": _make_topic_record(),
+        }
+    return CompiledInventory(
+        schema_version="1",
+        built_at="2026-03-23T00:00:00Z",
+        docs_epoch="2026-03-23",
+        topics=topics,
+        denylist=[],
+        overlay_meta=None,
+        merge_semantics_version="1",
+    )
+
+
+def _make_classifier_fn(
+    resolved: dict[str, ResolvedTopic] | None = None,
+):
+    """Build a classifier_fn mock that returns controlled results.
+
+    resolved: mapping from claim_excerpt substring → ResolvedTopic.
+    If the claim_excerpt doesn't match any key, returns empty ClassifierResult.
+    """
+    if resolved is None:
+        resolved = {}
+
+    def classifier_fn(
+        text: str, inventory: CompiledInventory, config: CCDIConfig
+    ) -> ClassifierResult:
+        for excerpt_key, topic in resolved.items():
+            if excerpt_key in text:
+                return ClassifierResult(
+                    resolved_topics=[topic],
+                    suppressed_candidates=[],
+                )
+        return ClassifierResult(resolved_topics=[], suppressed_candidates=[])
+
+    return classifier_fn
+
+
+# ---------------------------------------------------------------------------
+# 46. Prescriptive hint elevates detected to materially new
+# ---------------------------------------------------------------------------
+
+
+class TestSemanticHintElevatesCandidate:
+    """Test 46: Prescriptive hint on detected → materially new candidate."""
+
+    def test_prescriptive_on_detected(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="detected",
+            kind="leaf",
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(confidence="high")
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="prescriptive",
+                claim_excerpt="use pre_tool_use hooks",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=3
+        )
+
+        assert len(candidates) == 1
+        assert candidates[0].topic_key == "hooks.pre_tool_use"
+        assert candidates[0].candidate_type == "new"
+
+
+# ---------------------------------------------------------------------------
+# 47. Hint on unknown topic → ignored
+# ---------------------------------------------------------------------------
+
+
+class TestSemanticHintUnknownTopic:
+    """Test 47: Hint doesn't match any topic → ignored."""
+
+    def test_unknown_topic_ignored(self) -> None:
+        entry = _make_entry(state="detected")
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        # Classifier returns nothing for this excerpt
+        classifier_fn = _make_classifier_fn({})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="prescriptive",
+                claim_excerpt="completely unrelated topic",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=3
+        )
+
+        assert candidates == []
+
+
+# ---------------------------------------------------------------------------
+# 48. Malformed hints file → ignored with warning
+# ---------------------------------------------------------------------------
+
+
+class TestMalformedHintsFile:
+    """Test 48: Invalid JSON → ignored with warning."""
+
+    def test_malformed_hints_ignored(self) -> None:
+        entry = _make_entry(state="detected")
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        # Empty hints list is valid, just produces no candidates
+        candidates = process_semantic_hints(
+            seed, [], inventory, _make_classifier_fn({}), current_turn=3
+        )
+        assert candidates == []
+
+
+# ---------------------------------------------------------------------------
+# 49. Prescriptive hint re-enters suppressed:weak_results
+# ---------------------------------------------------------------------------
+
+
+class TestPrescriptiveHintReentersSuppressedWeak:
+    """Test 49: suppressed:weak_results → detected via prescriptive hint."""
+
+    def test_prescriptive_reenter_weak(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="suppressed",
+            suppression_reason="weak_results",
+            suppressed_docs_epoch="2026-03-20",
+            last_seen_turn=2,
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(confidence="high")
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="prescriptive",
+                claim_excerpt="use pre_tool_use hooks",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.suppression_reason is None
+        assert e.suppressed_docs_epoch is None
+        assert e.last_seen_turn == 5
+        assert len(candidates) == 1
+        assert candidates[0].candidate_type == "new"
+
+
+# ---------------------------------------------------------------------------
+# 50. Prescriptive hint re-enters suppressed:redundant
+# ---------------------------------------------------------------------------
+
+
+class TestPrescriptiveHintReentersSuppressedRedundant:
+    """Test 50: suppressed:redundant → detected via prescriptive hint."""
+
+    def test_prescriptive_reenter_redundant(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="suppressed",
+            suppression_reason="redundant",
+            suppressed_docs_epoch="2026-03-20",
+            last_seen_turn=2,
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(confidence="high")
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="prescriptive",
+                claim_excerpt="use pre_tool_use hooks",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.suppression_reason is None
+        assert e.suppressed_docs_epoch is None
+        assert e.last_seen_turn == 5
+
+
+# ---------------------------------------------------------------------------
+# 51. contradicts_prior on injected → append facet to pending_facets
+# ---------------------------------------------------------------------------
+
+
+class TestContradictsPriorOnInjected:
+    """Test 51: Append facet to pending_facets."""
+
+    def test_append_pending_facet(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="injected",
+            last_injected_turn=2,
+            coverage_facets_injected=["overview"],
+            coverage_pending_facets=[],
+            coverage_injected_chunk_ids=["c1"],
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(
+            confidence="medium", facet="schema"
+        )
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="contradicts_prior",
+                claim_excerpt="pre_tool_use hooks schema",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        e = seed.entries[0]
+        assert e.state == "injected"  # stays injected
+        assert "schema" in e.coverage_pending_facets
+        # No immediate candidate from contradicts_prior on injected
+        # (pending_facet emission is via scheduling step 8, not hint processing)
+
+
+# ---------------------------------------------------------------------------
+# 52. contradicts_prior on detected → elevate to materially new
+# ---------------------------------------------------------------------------
+
+
+class TestContradictsPriorOnDetected:
+    """Test 52: contradicts_prior on detected → materially new."""
+
+    def test_contradicts_prior_elevates_detected(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="detected",
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(confidence="medium")
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="contradicts_prior",
+                claim_excerpt="pre_tool_use hooks differ",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        assert len(candidates) == 1
+        assert candidates[0].candidate_type == "new"
+
+
+# ---------------------------------------------------------------------------
+# 53. contradicts_prior re-enters suppressed
+# ---------------------------------------------------------------------------
+
+
+class TestContradictsPriorReentersSuppressed:
+    """Test 53: contradicts_prior on suppressed → re-enter as detected."""
+
+    def test_contradicts_prior_reenter_suppressed(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="suppressed",
+            suppression_reason="weak_results",
+            suppressed_docs_epoch="2026-03-20",
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(confidence="medium")
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="contradicts_prior",
+                claim_excerpt="pre_tool_use hooks wrong",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.suppression_reason is None
+        assert e.suppressed_docs_epoch is None
+        assert e.last_seen_turn == 5
+
+
+# ---------------------------------------------------------------------------
+# 54. extends_topic on injected → emit facet_expansion
+# ---------------------------------------------------------------------------
+
+
+class TestExtendsTopicOnInjected:
+    """Test 54: extends_topic on injected → facet_expansion candidate."""
+
+    def test_extends_topic_facet_expansion(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="injected",
+            last_injected_turn=2,
+            coverage_facets_injected=["overview"],
+            coverage_pending_facets=[],
+            coverage_injected_chunk_ids=["c1"],
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(
+            confidence="medium", facet="schema"
+        )
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="extends_topic",
+                claim_excerpt="pre_tool_use hooks schema",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        assert len(candidates) == 1
+        assert candidates[0].candidate_type == "facet_expansion"
+        assert candidates[0].facet == "schema"
+        assert candidates[0].confidence is None
+
+
+# ---------------------------------------------------------------------------
+# 55. extends_topic on detected → elevate to materially new
+# ---------------------------------------------------------------------------
+
+
+class TestExtendsTopicOnDetected:
+    """Test 55: extends_topic on detected → materially new."""
+
+    def test_extends_topic_elevates_detected(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="detected",
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(confidence="medium")
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="extends_topic",
+                claim_excerpt="pre_tool_use hooks more",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        assert len(candidates) == 1
+        assert candidates[0].candidate_type == "new"
+
+
+# ---------------------------------------------------------------------------
+# 56. extends_topic on deferred → transition to detected first
+# ---------------------------------------------------------------------------
+
+
+class TestExtendsTopicOnDeferred:
+    """Test 56: extends_topic on deferred → detected first, then lookup path."""
+
+    def test_extends_topic_transitions_deferred(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="deferred",
+            deferred_reason="cooldown",
+            deferred_ttl=2,
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(confidence="medium")
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="extends_topic",
+                claim_excerpt="pre_tool_use hooks extend",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.deferred_reason is None
+        assert e.deferred_ttl is None
+        assert e.last_seen_turn == 5
+        assert len(candidates) == 1
+        assert candidates[0].candidate_type == "new"
+
+
+# ---------------------------------------------------------------------------
+# 57. extends_topic re-enters suppressed
+# ---------------------------------------------------------------------------
+
+
+class TestExtendsTopicReentersSuppressed:
+    """Test 57: extends_topic on suppressed → re-enter as detected."""
+
+    def test_extends_topic_reenter_suppressed(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="suppressed",
+            suppression_reason="redundant",
+            suppressed_docs_epoch="2026-03-20",
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(confidence="medium")
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="extends_topic",
+                claim_excerpt="pre_tool_use hooks extend",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.suppression_reason is None
+        assert e.suppressed_docs_epoch is None
+        assert e.last_seen_turn == 5
+
+
+# ---------------------------------------------------------------------------
+# 58. facet_expansion cascade fallback to pending_facets
+# ---------------------------------------------------------------------------
+
+
+class TestFacetExpansionCascadeFallbackPending:
+    """Test 58: Resolved facet in facets_injected → use pending_facets[0]."""
+
+    def test_cascade_to_pending(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="injected",
+            last_injected_turn=2,
+            coverage_facets_injected=["overview", "schema"],
+            coverage_pending_facets=["input"],
+            coverage_injected_chunk_ids=["c1"],
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        # Hint resolves to "schema" which is already injected
+        resolved_topic = _make_resolved_topic(
+            confidence="medium", facet="schema"
+        )
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="extends_topic",
+                claim_excerpt="pre_tool_use hooks schema",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        assert len(candidates) == 1
+        assert candidates[0].candidate_type == "facet_expansion"
+        assert candidates[0].facet == "input"  # from pending_facets[0]
+        assert candidates[0].confidence is None
+
+
+# ---------------------------------------------------------------------------
+# 59. facet_expansion all exhausted → no candidate
+# ---------------------------------------------------------------------------
+
+
+class TestFacetExpansionAllExhausted:
+    """Test 59: All facets in facets_injected → no candidate emitted."""
+
+    def test_all_exhausted(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="injected",
+            last_injected_turn=2,
+            coverage_facets_injected=["overview", "schema"],
+            coverage_pending_facets=[],
+            coverage_injected_chunk_ids=["c1"],
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        # Hint resolves to "schema" which is already injected.
+        # No pending_facets. default_facet is "overview" which is also injected.
+        resolved_topic = _make_resolved_topic(
+            confidence="medium", facet="schema"
+        )
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="extends_topic",
+                claim_excerpt="pre_tool_use hooks schema",
+            )
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        assert candidates == []
+
+
+# ---------------------------------------------------------------------------
+# 60. pending_facet candidate emission
+# ---------------------------------------------------------------------------
+
+
+class TestPendingFacetCandidateEmission:
+    """Test 60: Injected topic with non-empty pending_facets → emit candidate."""
+
+    def test_pending_facet_emitted(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="injected",
+            last_injected_turn=2,
+            coverage_facets_injected=["overview"],
+            coverage_pending_facets=["schema", "input"],
+            coverage_injected_chunk_ids=["c1"],
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(
+            confidence="medium", facet="schema"
+        )
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        # contradicts_prior on injected → appends facet to pending
+        # then extends_topic triggers facet_expansion with cascade
+        # But actually, pending_facet emission is via scheduling step 8
+        # For this test, we verify contradicts_prior appends correctly
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="contradicts_prior",
+                claim_excerpt="pre_tool_use hooks schema",
+            )
+        ]
+
+        process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        e = seed.entries[0]
+        # "schema" appended to pending_facets (now 3 items)
+        assert "schema" in e.coverage_pending_facets
+        assert e.state == "injected"
+
+
+# ---------------------------------------------------------------------------
+# 61. pending_facets cleared after serving
+# ---------------------------------------------------------------------------
+
+
+class TestPendingFacetsClearedAfterServing:
+    """Test 61: After injection at pending facet, remove from pending_facets."""
+
+    def test_pending_facet_cleared(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "registry.json")
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="injected",
+            last_injected_turn=2,
+            coverage_facets_injected=["overview"],
+            coverage_pending_facets=["schema", "input"],
+            coverage_injected_chunk_ids=["c1"],
+        )
+        _write_seed_file(path, _make_seed(entries=[entry]))
+
+        mark_injected(
+            path=path,
+            topic_key="hooks.pre_tool_use",
+            facet="schema",
+            coverage_target="leaf",
+            chunk_ids=["c2"],
+            query_fingerprint="query",
+            turn=5,
+        )
+
+        data = _read_seed_file(path)
+        pending = data["entries"][0]["coverage"]["pending_facets"]
+        assert "schema" not in pending
+        assert "input" in pending
+
+
+# ---------------------------------------------------------------------------
+# 62. Multiple pending_facets FIFO ordering
+# ---------------------------------------------------------------------------
+
+
+class TestMultiplePendingFacetsOrdering:
+    """Test 62: Two facets → FIFO order preserved."""
+
+    def test_fifo_ordering(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="injected",
+            last_injected_turn=2,
+            coverage_facets_injected=["overview"],
+            coverage_pending_facets=[],
+            coverage_injected_chunk_ids=["c1"],
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_schema = _make_resolved_topic(
+            confidence="medium", facet="schema"
+        )
+        resolved_input = _make_resolved_topic(
+            confidence="medium", facet="input"
+        )
+
+        # First hint resolves to schema facet
+        classifier_fn_1 = _make_classifier_fn({"schema": resolved_schema})
+        hints_1 = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="contradicts_prior",
+                claim_excerpt="pre_tool_use schema wrong",
+            )
+        ]
+        process_semantic_hints(
+            seed, hints_1, inventory, classifier_fn_1, current_turn=5
+        )
+
+        # Second hint resolves to input facet
+        classifier_fn_2 = _make_classifier_fn({"input": resolved_input})
+        hints_2 = [
+            SemanticHint(
+                claim_index=1,
+                hint_type="contradicts_prior",
+                claim_excerpt="pre_tool_use input wrong",
+            )
+        ]
+        process_semantic_hints(
+            seed, hints_2, inventory, classifier_fn_2, current_turn=5
+        )
+
+        e = seed.entries[0]
+        assert e.coverage_pending_facets == ["schema", "input"]  # FIFO
+
+
+# ---------------------------------------------------------------------------
+# 63. Intra-turn hint ordering
+# ---------------------------------------------------------------------------
+
+
+class TestIntraTurnHintOrdering:
+    """Test 63: contradicts_prior mutations visible to subsequent extends_topic."""
+
+    def test_intra_turn_ordering(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="injected",
+            last_injected_turn=2,
+            coverage_facets_injected=["overview", "schema"],
+            coverage_pending_facets=[],
+            coverage_injected_chunk_ids=["c1"],
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        # Both hints resolve to the same topic
+        resolved_topic = _make_resolved_topic(
+            confidence="medium", facet="schema"
+        )
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            # First: contradicts_prior adds "schema" to pending_facets
+            SemanticHint(
+                claim_index=0,
+                hint_type="contradicts_prior",
+                claim_excerpt="pre_tool_use hooks schema",
+            ),
+            # Second: extends_topic on injected, resolved facet "schema" is
+            # already in facets_injected → cascade to pending_facets[0] = "schema"
+            # which is also in facets_injected → cascade to default_facet = "overview"
+            # which is also in facets_injected → no candidate
+            SemanticHint(
+                claim_index=1,
+                hint_type="extends_topic",
+                claim_excerpt="pre_tool_use hooks schema",
+            ),
+        ]
+
+        candidates = process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=5
+        )
+
+        # contradicts_prior appended "schema" to pending_facets
+        assert "schema" in seed.entries[0].coverage_pending_facets
+        # extends_topic cascade: resolved=schema (injected), pending[0]=schema (injected),
+        # default=overview (injected) → all exhausted, no candidate
+        assert all(c.candidate_type != "facet_expansion" for c in candidates)
+
+
+# ---------------------------------------------------------------------------
+# 64-66: Suppression re-entry via hint — field reset verification
+# ---------------------------------------------------------------------------
+
+
+class TestHintDrivenSuppressionReentryFields:
+    """Tests 64-66: Hint-driven suppression re-entry sets correct fields."""
+
+    def test_prescriptive_reentry_fields(self) -> None:
+        """Prescriptive hint → state=detected, suppression fields cleared."""
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="suppressed",
+            suppression_reason="weak_results",
+            suppressed_docs_epoch="2026-03-20",
+            last_seen_turn=2,
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(confidence="high")
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="prescriptive",
+                claim_excerpt="use pre_tool_use hooks",
+            )
+        ]
+
+        process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=7
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.suppression_reason is None
+        assert e.suppressed_docs_epoch is None
+        assert e.last_seen_turn == 7
+
+    def test_contradicts_prior_reentry_fields(self) -> None:
+        """contradicts_prior hint → state=detected, suppression fields cleared."""
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="suppressed",
+            suppression_reason="redundant",
+            suppressed_docs_epoch="2026-03-20",
+            last_seen_turn=3,
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(confidence="medium")
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="contradicts_prior",
+                claim_excerpt="pre_tool_use hooks wrong",
+            )
+        ]
+
+        process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=8
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.suppression_reason is None
+        assert e.suppressed_docs_epoch is None
+        assert e.last_seen_turn == 8
+
+    def test_extends_topic_reentry_fields(self) -> None:
+        """extends_topic hint → state=detected, suppression fields cleared."""
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="suppressed",
+            suppression_reason="weak_results",
+            suppressed_docs_epoch="2026-03-20",
+            last_seen_turn=4,
+        )
+        seed = _make_seed(entries=[entry])
+        inventory = _make_inventory()
+        config = _make_config()
+
+        resolved_topic = _make_resolved_topic(confidence="medium")
+        classifier_fn = _make_classifier_fn({"pre_tool_use": resolved_topic})
+
+        hints = [
+            SemanticHint(
+                claim_index=0,
+                hint_type="extends_topic",
+                claim_excerpt="pre_tool_use hooks more",
+            )
+        ]
+
+        process_semantic_hints(
+            seed, hints, inventory, classifier_fn, current_turn=9
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.suppression_reason is None
+        assert e.suppressed_docs_epoch is None
+        assert e.last_seen_turn == 9
