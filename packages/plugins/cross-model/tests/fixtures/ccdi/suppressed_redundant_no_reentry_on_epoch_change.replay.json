@@ -1,0 +1,68 @@
+{
+  "name": "suppressed_redundant_no_reentry_on_epoch_change",
+  "description": "docs_epoch changes but suppressed:redundant entry does NOT re-enter. Only weak_results re-enters on epoch change. Initial registry has hooks.pre_tool_use suppressed:redundant with epoch v1. Turn with epoch v2 -> entry stays suppressed:redundant.",
+  "initial_registry": {
+    "entries": [
+      {
+        "topic_key": "hooks.pre_tool_use",
+        "family_key": "hooks",
+        "state": "suppressed",
+        "first_seen_turn": 1,
+        "last_seen_turn": 1,
+        "last_injected_turn": null,
+        "last_query_fingerprint": null,
+        "consecutive_medium_count": 0,
+        "suppression_reason": "redundant",
+        "suppressed_docs_epoch": "v1",
+        "deferred_reason": null,
+        "deferred_ttl": null,
+        "coverage_target": "leaf",
+        "facet": "overview",
+        "kind": "leaf",
+        "coverage": {
+          "overview_injected": false,
+          "facets_injected": [],
+          "pending_facets": [],
+          "family_context_available": false,
+          "injected_chunk_ids": ["hooks#pretooluse"]
+        }
+      }
+    ],
+    "docs_epoch": "v1",
+    "inventory_snapshot_version": "1"
+  },
+  "inventory_snapshot": "test_inventory.json",
+  "config": null,
+  "turns": [
+    {
+      "turn_number": 2,
+      "input_text": "How do I write a PreToolUse hook?",
+      "source": "codex",
+      "semantic_hints": null,
+      "shadow_mode": false,
+      "docs_epoch": "v2",
+      "expected_classifier_result": {
+        "resolved_topic_keys": ["hooks.pre_tool_use"]
+      },
+      "expected_candidates": null,
+      "search_results": {},
+      "composed_target": null,
+      "codex_reply_error": false
+    }
+  ],
+  "assertions": {
+    "cli_pipeline_sequence": [
+      "classify",
+      "dialogue-turn"
+    ],
+    "final_registry_file_assertions": [
+      {"path": "entries[0].topic_key", "operator": "equals", "expected": "hooks.pre_tool_use"},
+      {"path": "entries[0].state", "operator": "equals", "expected": "suppressed"},
+      {"path": "entries[0].suppression_reason", "operator": "equals", "expected": "redundant"},
+      {"path": "entries[0].suppressed_docs_epoch", "operator": "equals", "expected": "v1"}
+    ],
+    "trace_assertions": [
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "turn"}
+    ]
+  }
+}

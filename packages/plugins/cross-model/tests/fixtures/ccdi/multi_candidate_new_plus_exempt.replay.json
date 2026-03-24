@@ -1,0 +1,85 @@
+{
+  "name": "multi_candidate_new_plus_exempt",
+  "description": "2 new high topics + 1 pending_facet in one turn. Cooldown allows 1 new topic. The pending_facet is exempt from cooldown and gets processed. Assert: 1 new candidate + 1 pending_facet candidate emitted. Second new topic deferred:cooldown.",
+  "initial_registry": {
+    "entries": [
+      {
+        "topic_key": "hooks",
+        "family_key": "hooks",
+        "state": "injected",
+        "first_seen_turn": 1,
+        "last_seen_turn": 1,
+        "last_injected_turn": 1,
+        "last_query_fingerprint": "hooks overview|null",
+        "consecutive_medium_count": 0,
+        "suppression_reason": null,
+        "suppressed_docs_epoch": null,
+        "deferred_reason": null,
+        "deferred_ttl": null,
+        "coverage_target": "family",
+        "facet": "overview",
+        "kind": "family",
+        "coverage": {
+          "overview_injected": true,
+          "facets_injected": ["overview"],
+          "pending_facets": ["schema"],
+          "family_context_available": false,
+          "injected_chunk_ids": ["hooks#overview"]
+        }
+      }
+    ],
+    "docs_epoch": null,
+    "inventory_snapshot_version": "1"
+  },
+  "inventory_snapshot": "test_inventory.json",
+  "config": null,
+  "turns": [
+    {
+      "turn_number": 2,
+      "input_text": "How do I configure PreToolUse hooks and SKILL.md frontmatter?",
+      "source": "codex",
+      "semantic_hints": null,
+      "shadow_mode": false,
+      "docs_epoch": null,
+      "expected_classifier_result": {
+        "resolved_topic_keys": ["hooks.pre_tool_use", "skills.frontmatter"],
+        "min_resolved_count": 2
+      },
+      "expected_candidates": [
+        {"topic_key": "hooks.pre_tool_use"},
+        {"min_count": 2}
+      ],
+      "search_results": {
+        "hooks.pre_tool_use": [
+          {
+            "chunk_id": "hooks#pretooluse",
+            "category": "hooks",
+            "score": 0.8,
+            "content": "PreToolUse hooks run before tool execution.",
+            "source_file": "https://example.com"
+          }
+        ]
+      },
+      "composed_target": null,
+      "codex_reply_error": false
+    }
+  ],
+  "assertions": {
+    "cli_pipeline_sequence": [
+      "classify",
+      "dialogue-turn",
+      "build-packet",
+      "build-packet"
+    ],
+    "final_registry_file_assertions": [
+      {"path": "entries[1].topic_key", "operator": "equals", "expected": "hooks.pre_tool_use"},
+      {"path": "entries[1].state", "operator": "equals", "expected": "injected"},
+      {"path": "entries[2].topic_key", "operator": "equals", "expected": "skills.frontmatter"},
+      {"path": "entries[2].state", "operator": "equals", "expected": "deferred"},
+      {"path": "entries[2].deferred_reason", "operator": "equals", "expected": "cooldown"}
+    ],
+    "trace_assertions": [
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "candidates"}
+    ]
+  }
+}

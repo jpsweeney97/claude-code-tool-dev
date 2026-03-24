@@ -1,0 +1,96 @@
+{
+  "name": "pending_facet_exempt_from_cooldown",
+  "description": "pending_facet candidate processed same turn as new candidate (not blocked by cooldown). Initial registry has hooks.pre_tool_use injected with pending_facets=[schema]. Turn detects skills.frontmatter (new, gets cooldown slot) AND hooks.pre_tool_use pending_facet fires. Assert both appear in candidates.",
+  "initial_registry": {
+    "entries": [
+      {
+        "topic_key": "hooks.pre_tool_use",
+        "family_key": "hooks",
+        "state": "injected",
+        "first_seen_turn": 1,
+        "last_seen_turn": 1,
+        "last_injected_turn": 1,
+        "last_query_fingerprint": "pretooluse hook|null",
+        "consecutive_medium_count": 0,
+        "suppression_reason": null,
+        "suppressed_docs_epoch": null,
+        "deferred_reason": null,
+        "deferred_ttl": null,
+        "coverage_target": "leaf",
+        "facet": "overview",
+        "kind": "leaf",
+        "coverage": {
+          "overview_injected": false,
+          "facets_injected": ["overview"],
+          "pending_facets": ["schema"],
+          "family_context_available": false,
+          "injected_chunk_ids": ["hooks#pretooluse"]
+        }
+      }
+    ],
+    "docs_epoch": null,
+    "inventory_snapshot_version": "1"
+  },
+  "inventory_snapshot": "test_inventory.json",
+  "config": null,
+  "turns": [
+    {
+      "turn_number": 2,
+      "input_text": "Tell me about SKILL.md frontmatter and PreToolUse hook schema",
+      "source": "codex",
+      "semantic_hints": null,
+      "shadow_mode": false,
+      "docs_epoch": null,
+      "expected_classifier_result": {
+        "resolved_topic_keys": ["skills.frontmatter"],
+        "min_resolved_count": 1
+      },
+      "expected_candidates": [
+        {"topic_key": "skills.frontmatter"},
+        {"topic_key": "hooks.pre_tool_use"},
+        {"min_count": 2}
+      ],
+      "search_results": {
+        "skills.frontmatter": [
+          {
+            "chunk_id": "skills#frontmatter",
+            "category": "skills",
+            "score": 0.8,
+            "content": "SKILL.md frontmatter defines skill metadata.",
+            "source_file": "https://example.com"
+          }
+        ],
+        "hooks.pre_tool_use": [
+          {
+            "chunk_id": "hooks#pretooluse-schema",
+            "category": "hooks",
+            "score": 0.8,
+            "content": "PreToolUse hook JSON schema definition.",
+            "source_file": "https://example.com"
+          }
+        ]
+      },
+      "composed_target": null,
+      "codex_reply_error": false
+    }
+  ],
+  "assertions": {
+    "cli_pipeline_sequence": [
+      "classify",
+      "dialogue-turn",
+      "build-packet",
+      "build-packet",
+      "build-packet",
+      "build-packet"
+    ],
+    "final_registry_file_assertions": [
+      {"path": "entries[0].topic_key", "operator": "equals", "expected": "hooks.pre_tool_use"},
+      {"path": "entries[0].state", "operator": "equals", "expected": "injected"},
+      {"path": "entries[1].topic_key", "operator": "equals", "expected": "skills.frontmatter"},
+      {"path": "entries[1].state", "operator": "equals", "expected": "injected"}
+    ],
+    "trace_assertions": [
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "candidates"}
+    ]
+  }
+}
