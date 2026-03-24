@@ -1,7 +1,8 @@
-"""Tests for CCDI registry — Phase A subset.
+"""Tests for CCDI registry — Phase A + Phase B deferred/TTL subset.
 
-Covers: load_registry, mark_injected, write_suppressed, _write_registry,
-check_suppression_reentry, normalize_fingerprint, sort_candidates.
+Covers: load_registry, mark_injected, write_suppressed, write_deferred,
+_write_registry, check_suppression_reentry, normalize_fingerprint,
+sort_candidates, decrement_deferred_ttl, apply_ttl_transitions.
 """
 
 from __future__ import annotations
@@ -12,13 +13,17 @@ import os
 
 import pytest
 
+from scripts.ccdi.config import CCDIConfig, BUILTIN_DEFAULTS
 from scripts.ccdi.registry import (
     _write_registry,
+    apply_ttl_transitions,
     check_suppression_reentry,
+    decrement_deferred_ttl,
     load_registry,
     mark_injected,
     normalize_fingerprint,
     sort_candidates,
+    write_deferred,
     write_suppressed,
 )
 from scripts.ccdi.types import RegistrySeed, TopicRegistryEntry
@@ -98,6 +103,33 @@ def _read_seed_file(path: str) -> dict:
     """Read raw JSON from registry file."""
     with open(path) as f:
         return json.load(f)
+
+
+def _make_config(*, deferred_ttl_turns: int = 3) -> CCDIConfig:
+    """Build a CCDIConfig with overridable deferred_ttl_turns."""
+    c = BUILTIN_DEFAULTS["classifier"]
+    i = BUILTIN_DEFAULTS["injection"]
+    p = BUILTIN_DEFAULTS["packets"]
+    return CCDIConfig(
+        classifier_confidence_high_min_weight=c["confidence_high_min_weight"],
+        classifier_confidence_medium_min_score=c["confidence_medium_min_score"],
+        classifier_confidence_medium_min_single_weight=c["confidence_medium_min_single_weight"],
+        injection_initial_threshold_high_count=i["initial_threshold_high_count"],
+        injection_initial_threshold_medium_same_family_count=i["initial_threshold_medium_same_family_count"],
+        injection_mid_turn_consecutive_medium_turns=i["mid_turn_consecutive_medium_turns"],
+        injection_cooldown_max_new_topics_per_turn=i["cooldown_max_new_topics_per_turn"],
+        injection_deferred_ttl_turns=deferred_ttl_turns,
+        packets_initial_token_budget_min=p["initial_token_budget_min"],
+        packets_initial_token_budget_max=p["initial_token_budget_max"],
+        packets_initial_max_topics=p["initial_max_topics"],
+        packets_initial_max_facts=p["initial_max_facts"],
+        packets_mid_turn_token_budget_min=p["mid_turn_token_budget_min"],
+        packets_mid_turn_token_budget_max=p["mid_turn_token_budget_max"],
+        packets_mid_turn_max_topics=p["mid_turn_max_topics"],
+        packets_mid_turn_max_facts=p["mid_turn_max_facts"],
+        packets_quality_min_result_score=p["quality_min_result_score"],
+        packets_quality_min_useful_facts=p["quality_min_useful_facts"],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1010,3 +1042,556 @@ class TestAtomicWrite:
         _write_registry(path, seed)
         files = os.listdir(str(tmp_path))
         assert files == ["registry.json"]
+
+
+# ===========================================================================
+# Phase B: write_deferred() tests (Step 1)
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# 26. detected -> deferred with cooldown reason
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredCooldown:
+    """Test 26: detected -> deferred with cooldown reason, TTL set from config."""
+
+    def test_detected_to_deferred_cooldown(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "registry.json")
+        entry = _make_entry(state="detected")
+        _write_seed_file(path, _make_seed(entries=[entry]))
+
+        write_deferred(
+            path=path,
+            topic_key="hooks.pre_tool_use",
+            reason="cooldown",
+            deferred_ttl=3,
+        )
+
+        data = _read_seed_file(path)
+        e = data["entries"][0]
+        assert e["state"] == "deferred"
+        assert e["deferred_reason"] == "cooldown"
+        assert e["deferred_ttl"] == 3
+
+
+# ---------------------------------------------------------------------------
+# 27. detected -> deferred with scout_priority reason
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredScoutPriority:
+    """Test 27: detected -> deferred with scout_priority reason."""
+
+    def test_detected_to_deferred_scout_priority(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "registry.json")
+        entry = _make_entry(state="detected")
+        _write_seed_file(path, _make_seed(entries=[entry]))
+
+        write_deferred(
+            path=path,
+            topic_key="hooks.pre_tool_use",
+            reason="scout_priority",
+            deferred_ttl=3,
+        )
+
+        data = _read_seed_file(path)
+        e = data["entries"][0]
+        assert e["state"] == "deferred"
+        assert e["deferred_reason"] == "scout_priority"
+        assert e["deferred_ttl"] == 3
+
+
+# ---------------------------------------------------------------------------
+# 28. detected -> deferred with target_mismatch reason
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredTargetMismatch:
+    """Test 28: detected -> deferred with target_mismatch reason."""
+
+    def test_detected_to_deferred_target_mismatch(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "registry.json")
+        entry = _make_entry(state="detected")
+        _write_seed_file(path, _make_seed(entries=[entry]))
+
+        write_deferred(
+            path=path,
+            topic_key="hooks.pre_tool_use",
+            reason="target_mismatch",
+            deferred_ttl=3,
+        )
+
+        data = _read_seed_file(path)
+        e = data["entries"][0]
+        assert e["state"] == "deferred"
+        assert e["deferred_reason"] == "target_mismatch"
+        assert e["deferred_ttl"] == 3
+
+
+# ---------------------------------------------------------------------------
+# 29. TTL initialization at deferral time
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredTTLInitialization:
+    """Test 29: TTL set to deferred_ttl_turns config value at deferral time."""
+
+    def test_ttl_set_from_config(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "registry.json")
+        entry = _make_entry(state="detected")
+        _write_seed_file(path, _make_seed(entries=[entry]))
+
+        # Config says deferred_ttl_turns=5
+        write_deferred(
+            path=path,
+            topic_key="hooks.pre_tool_use",
+            reason="cooldown",
+            deferred_ttl=5,
+        )
+
+        data = _read_seed_file(path)
+        assert data["entries"][0]["deferred_ttl"] == 5
+
+
+# ---------------------------------------------------------------------------
+# 30. deferred vs suppressed distinction
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredVsSuppressedDistinction:
+    """Test 30: different reasons, different re-entry paths."""
+
+    def test_different_reasons_different_reentry(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "registry.json")
+        suppressed = _make_entry(
+            topic_key="a",
+            state="suppressed",
+            suppression_reason="weak_results",
+            suppressed_docs_epoch="2026-03-20",
+        )
+        deferred = _make_entry(
+            topic_key="b",
+            state="deferred",
+            deferred_reason="cooldown",
+            deferred_ttl=3,
+        )
+        _write_seed_file(path, _make_seed(entries=[suppressed, deferred]))
+
+        seed = load_registry(path)
+        s = next(e for e in seed.entries if e.topic_key == "a")
+        d = next(e for e in seed.entries if e.topic_key == "b")
+
+        # Suppressed: re-enters via docs_epoch change or semantic hint
+        assert s.state == "suppressed"
+        assert s.suppression_reason == "weak_results"
+        assert s.deferred_reason is None
+        assert s.deferred_ttl is None
+
+        # Deferred: re-enters via TTL expiry + classifier
+        assert d.state == "deferred"
+        assert d.deferred_reason == "cooldown"
+        assert d.deferred_ttl == 3
+        assert d.suppression_reason is None
+
+
+# ---------------------------------------------------------------------------
+# 31. write_deferred on missing topic_key logs warning
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredMissingTopicKey:
+    """Test 31: write_deferred on missing topic warns, no crash."""
+
+    def test_missing_topic_warns(
+        self, tmp_path: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        path = os.path.join(str(tmp_path), "registry.json")
+        entry = _make_entry(topic_key="a", state="detected")
+        _write_seed_file(path, _make_seed(entries=[entry]))
+
+        with caplog.at_level(logging.WARNING, logger="scripts.ccdi.registry"):
+            write_deferred(
+                path=path,
+                topic_key="nonexistent",
+                reason="cooldown",
+                deferred_ttl=3,
+            )
+
+        assert any("nonexistent" in msg for msg in caplog.messages)
+        # Original entry unchanged
+        data = _read_seed_file(path)
+        assert data["entries"][0]["state"] == "detected"
+
+
+# ===========================================================================
+# Phase B: TTL lifecycle tests (Step 4)
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# 32. TTL decrement per turn
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredTTLDecrementPerTurn:
+    """Test 32: TTL decrements by 1 on each dialogue-turn call."""
+
+    def test_decrement(self) -> None:
+        entry = _make_entry(
+            state="deferred", deferred_reason="cooldown", deferred_ttl=3
+        )
+        seed = _make_seed(entries=[entry])
+
+        decrement_deferred_ttl(seed)
+
+        assert seed.entries[0].deferred_ttl == 2
+
+    def test_decrement_multiple_entries(self) -> None:
+        e1 = _make_entry(
+            topic_key="a", state="deferred", deferred_reason="cooldown", deferred_ttl=3
+        )
+        e2 = _make_entry(
+            topic_key="b",
+            state="deferred",
+            deferred_reason="scout_priority",
+            deferred_ttl=1,
+        )
+        e3 = _make_entry(
+            topic_key="c", state="detected"
+        )
+        seed = _make_seed(entries=[e1, e2, e3])
+
+        decrement_deferred_ttl(seed)
+
+        assert seed.entries[0].deferred_ttl == 2
+        assert seed.entries[1].deferred_ttl == 0
+        # Non-deferred entry unaffected
+        assert seed.entries[2].deferred_ttl is None
+
+
+# ---------------------------------------------------------------------------
+# 33. TTL expiry with reappearance -> detected
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredTTLExpiryWithReappearance:
+    """Test 33: TTL=0 AND topic in classifier -> detected."""
+
+    def test_ttl_expiry_reappearance(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="deferred",
+            deferred_reason="cooldown",
+            deferred_ttl=0,
+        )
+        seed = _make_seed(entries=[entry])
+        config = _make_config()
+
+        transitioned = apply_ttl_transitions(
+            seed,
+            classifier_topic_keys={"hooks.pre_tool_use"},
+            classifier_confidences={"hooks.pre_tool_use": "medium"},
+            config=config,
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.deferred_reason is None
+        assert e.deferred_ttl is None
+        assert len(transitioned) == 1
+        assert transitioned[0].topic_key == "hooks.pre_tool_use"
+
+
+# ---------------------------------------------------------------------------
+# 34. TTL expiry without reappearance -> TTL resets, stays deferred
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredTTLExpiryWithoutReappearance:
+    """Test 34: TTL=0, topic absent -> TTL resets to config value, stays deferred."""
+
+    def test_ttl_reset_no_reappearance(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="deferred",
+            deferred_reason="cooldown",
+            deferred_ttl=0,
+        )
+        seed = _make_seed(entries=[entry])
+        # Use non-default TTL per spec requirement
+        config = _make_config(deferred_ttl_turns=5)
+
+        transitioned = apply_ttl_transitions(
+            seed,
+            classifier_topic_keys=set(),
+            classifier_confidences={},
+            config=config,
+        )
+
+        e = seed.entries[0]
+        assert e.state == "deferred"
+        assert e.deferred_reason == "cooldown"
+        assert e.deferred_ttl == 5
+        assert transitioned == []
+
+
+# ---------------------------------------------------------------------------
+# 35. Load-time recovery: deferred_ttl=0, topic present -> detected
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredTTLLoadTimeRecoveryPresent:
+    """Test 35: Registry with deferred_ttl=0, topic in classifier -> detected."""
+
+    def test_load_time_recovery_present(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="deferred",
+            deferred_reason="scout_priority",
+            deferred_ttl=0,
+        )
+        seed = _make_seed(entries=[entry])
+        config = _make_config()
+
+        # apply_ttl_transitions handles deferred_ttl=0 BEFORE decrement
+        transitioned = apply_ttl_transitions(
+            seed,
+            classifier_topic_keys={"hooks.pre_tool_use"},
+            classifier_confidences={"hooks.pre_tool_use": "high"},
+            config=config,
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.deferred_reason is None
+        assert e.deferred_ttl is None
+        assert len(transitioned) == 1
+
+
+# ---------------------------------------------------------------------------
+# 36. Load-time recovery: deferred_ttl=0, topic absent -> TTL reset
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredTTLLoadTimeRecoveryAbsent:
+    """Test 36: Registry with deferred_ttl=0, topic absent -> TTL reset."""
+
+    def test_load_time_recovery_absent(self) -> None:
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="deferred",
+            deferred_reason="target_mismatch",
+            deferred_ttl=0,
+        )
+        seed = _make_seed(entries=[entry])
+        config = _make_config(deferred_ttl_turns=5)
+
+        transitioned = apply_ttl_transitions(
+            seed,
+            classifier_topic_keys=set(),
+            classifier_confidences={},
+            config=config,
+        )
+
+        e = seed.entries[0]
+        assert e.state == "deferred"
+        assert e.deferred_reason == "target_mismatch"
+        assert e.deferred_ttl == 5
+        assert transitioned == []
+
+
+# ---------------------------------------------------------------------------
+# 37. Cooldown deferral preserves consecutive_medium_count
+# ---------------------------------------------------------------------------
+
+
+class TestCooldownDeferralPreservesConsecutiveMediumCount:
+    """Test 37: Medium leaf at count=1, deferred by cooldown -> count stays 1."""
+
+    def test_count_preserved(self, tmp_path: str) -> None:
+        path = os.path.join(str(tmp_path), "registry.json")
+        entry = _make_entry(
+            state="detected", consecutive_medium_count=1
+        )
+        _write_seed_file(path, _make_seed(entries=[entry]))
+
+        write_deferred(
+            path=path,
+            topic_key="hooks.pre_tool_use",
+            reason="cooldown",
+            deferred_ttl=3,
+        )
+
+        data = _read_seed_file(path)
+        e = data["entries"][0]
+        assert e["state"] == "deferred"
+        assert e["consecutive_medium_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 38. deferred -> detected: consecutive_medium_count initialization
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredToDetectedConsecutiveMediumInitialization:
+    """Test 38: TTL expires, reappears at medium leaf -> count=1; at high -> count=0."""
+
+    def test_medium_leaf_reappearance(self) -> None:
+        """Medium confidence + leaf kind -> consecutive_medium_count=1."""
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="deferred",
+            deferred_reason="cooldown",
+            deferred_ttl=0,
+            consecutive_medium_count=0,
+            kind="leaf",
+        )
+        seed = _make_seed(entries=[entry])
+        config = _make_config()
+
+        apply_ttl_transitions(
+            seed,
+            classifier_topic_keys={"hooks.pre_tool_use"},
+            classifier_confidences={"hooks.pre_tool_use": "medium"},
+            config=config,
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.consecutive_medium_count == 1
+
+    def test_high_reappearance(self) -> None:
+        """High confidence -> consecutive_medium_count=0."""
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="deferred",
+            deferred_reason="cooldown",
+            deferred_ttl=0,
+            consecutive_medium_count=2,
+            kind="leaf",
+        )
+        seed = _make_seed(entries=[entry])
+        config = _make_config()
+
+        apply_ttl_transitions(
+            seed,
+            classifier_topic_keys={"hooks.pre_tool_use"},
+            classifier_confidences={"hooks.pre_tool_use": "high"},
+            config=config,
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.consecutive_medium_count == 0
+
+    def test_family_kind_medium_reappearance(self) -> None:
+        """Family-kind at medium -> consecutive_medium_count=0 (families never count)."""
+        entry = _make_entry(
+            topic_key="hooks",
+            family_key="hooks",
+            kind="family",
+            coverage_target="family",
+            state="deferred",
+            deferred_reason="cooldown",
+            deferred_ttl=0,
+        )
+        seed = _make_seed(entries=[entry])
+        config = _make_config()
+
+        apply_ttl_transitions(
+            seed,
+            classifier_topic_keys={"hooks"},
+            classifier_confidences={"hooks": "medium"},
+            config=config,
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.consecutive_medium_count == 0
+
+
+# ===========================================================================
+# Phase B: High-confidence bypass test (Step 6)
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# 39. High-confidence bypass of deferred TTL
+# ---------------------------------------------------------------------------
+
+
+class TestHighConfidenceBypassesDeferredTTL:
+    """Test 39: Deferred topic re-detected at high confidence -> immediate detected."""
+
+    def test_high_confidence_bypass(self) -> None:
+        """TTL=2 but high confidence -> immediate transition, TTL not just decremented."""
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="deferred",
+            deferred_reason="cooldown",
+            deferred_ttl=2,
+        )
+        seed = _make_seed(entries=[entry])
+        config = _make_config()
+
+        transitioned = apply_ttl_transitions(
+            seed,
+            classifier_topic_keys={"hooks.pre_tool_use"},
+            classifier_confidences={"hooks.pre_tool_use": "high"},
+            config=config,
+        )
+
+        e = seed.entries[0]
+        assert e.state == "detected"
+        assert e.deferred_reason is None
+        assert e.deferred_ttl is None
+        assert e.consecutive_medium_count == 0
+        assert len(transitioned) == 1
+
+    def test_medium_confidence_no_bypass(self) -> None:
+        """Medium confidence at TTL>0 -> TTL decremented, stays deferred."""
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="deferred",
+            deferred_reason="cooldown",
+            deferred_ttl=2,
+        )
+        seed = _make_seed(entries=[entry])
+        config = _make_config()
+
+        transitioned = apply_ttl_transitions(
+            seed,
+            classifier_topic_keys={"hooks.pre_tool_use"},
+            classifier_confidences={"hooks.pre_tool_use": "medium"},
+            config=config,
+        )
+
+        e = seed.entries[0]
+        assert e.state == "deferred"
+        assert e.deferred_ttl == 1
+        assert transitioned == []
+
+    def test_low_confidence_no_bypass(self) -> None:
+        """Low confidence at TTL>0 -> TTL decremented, stays deferred."""
+        entry = _make_entry(
+            topic_key="hooks.pre_tool_use",
+            state="deferred",
+            deferred_reason="scout_priority",
+            deferred_ttl=3,
+        )
+        seed = _make_seed(entries=[entry])
+        config = _make_config()
+
+        transitioned = apply_ttl_transitions(
+            seed,
+            classifier_topic_keys={"hooks.pre_tool_use"},
+            classifier_confidences={"hooks.pre_tool_use": "low"},
+            config=config,
+        )
+
+        e = seed.entries[0]
+        assert e.state == "deferred"
+        assert e.deferred_ttl == 2
+        assert transitioned == []

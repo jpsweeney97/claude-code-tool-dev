@@ -1,11 +1,14 @@
-"""CCDI session registry — Phase A subset.
+"""CCDI session registry — Phase A + Phase B deferred/TTL.
 
-Manages per-topic state transitions: load, inject, suppress, persist.
+Manages per-topic state transitions: load, inject, suppress, defer, persist.
 Atomic file writes via temp+rename. Fingerprint normalization for
-deduplication.
+deduplication. TTL lifecycle for deferred entries.
 
 Import pattern:
-    from scripts.ccdi.registry import load_registry, mark_injected, write_suppressed
+    from scripts.ccdi.registry import (
+        load_registry, mark_injected, write_suppressed, write_deferred,
+        decrement_deferred_ttl, apply_ttl_transitions,
+    )
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import os
 import re
 import tempfile
 
+from scripts.ccdi.config import CCDIConfig
 from scripts.ccdi.types import RegistrySeed, TopicRegistryEntry
 
 logger = logging.getLogger(__name__)
@@ -301,6 +305,121 @@ def write_suppressed(
     entry.suppressed_docs_epoch = docs_epoch
 
     _write_registry(path, seed)
+
+
+# ---------------------------------------------------------------------------
+# Write deferred
+# ---------------------------------------------------------------------------
+
+
+def write_deferred(
+    path: str,
+    topic_key: str,
+    reason: str,
+    deferred_ttl: int,
+) -> None:
+    """Record deferral for a topic.
+
+    reason: 'cooldown' | 'scout_priority' | 'target_mismatch'.
+    Sets state -> deferred, deferred_reason, deferred_ttl.
+    consecutive_medium_count is preserved (not reset by deferral).
+    """
+    seed = load_registry(path)
+    entry = _find_entry(seed, topic_key)
+    if entry is None:
+        logger.warning("write_deferred: topic_key %r not found in registry", topic_key)
+        return
+    entry.state = "deferred"
+    entry.deferred_reason = reason
+    entry.deferred_ttl = deferred_ttl
+    _write_registry(path, seed)
+
+
+# ---------------------------------------------------------------------------
+# TTL lifecycle
+# ---------------------------------------------------------------------------
+
+
+def decrement_deferred_ttl(seed: RegistrySeed) -> None:
+    """Decrement deferred_ttl by 1 for all deferred entries.
+
+    Per registry.md#ttl-lifecycle: each dialogue-turn invocation decrements
+    deferred_ttl by 1 for all entries in deferred state.
+
+    This is a low-level primitive. For full per-turn processing, use
+    apply_ttl_transitions() instead -- it handles TTL=0 transitions,
+    high-confidence bypass, AND the per-turn decrement in one call.
+    Do NOT call both apply_ttl_transitions() and decrement_deferred_ttl()
+    in the same turn -- that would double-decrement.
+    """
+    for entry in seed.entries:
+        if entry.state == "deferred" and entry.deferred_ttl is not None:
+            entry.deferred_ttl -= 1
+
+
+def apply_ttl_transitions(
+    seed: RegistrySeed,
+    classifier_topic_keys: set[str],
+    classifier_confidences: dict[str, str],
+    config: CCDIConfig,
+) -> list[TopicRegistryEntry]:
+    """Apply TTL transition rules to deferred entries. Returns transitioned entries.
+
+    Processing order per registry.md:
+    1. High-confidence bypass: deferred entries re-detected at high confidence
+       transition to detected immediately, regardless of TTL value.
+    2. Load-time recovery (TTL=0): apply transition rule BEFORE per-turn
+       decrement. TTL=0 + classifier presence -> detected.
+       TTL=0 + absent -> reset TTL, stay deferred.
+    3. Per-turn decrement: decrement all remaining deferred entries by 1.
+
+    consecutive_medium_count initialization on deferred -> detected:
+    - 1 if medium confidence AND leaf-kind
+    - 0 otherwise (high, low, family-kind, absent-from-classifier)
+    """
+    transitioned: list[TopicRegistryEntry] = []
+
+    for entry in seed.entries:
+        if entry.state != "deferred":
+            continue
+
+        topic_key = entry.topic_key
+        confidence = classifier_confidences.get(topic_key)
+
+        # Step 1: High-confidence bypass (any TTL value)
+        if topic_key in classifier_topic_keys and confidence == "high":
+            entry.state = "detected"
+            entry.deferred_reason = None
+            entry.deferred_ttl = None
+            entry.consecutive_medium_count = 0
+            transitioned.append(entry)
+            continue
+
+        # Step 2: TTL=0 transition (load-time recovery)
+        if entry.deferred_ttl == 0:
+            if topic_key in classifier_topic_keys:
+                # deferred -> detected
+                entry.state = "detected"
+                entry.deferred_reason = None
+                entry.deferred_ttl = None
+                # consecutive_medium_count: 1 if medium AND leaf, else 0
+                if confidence == "medium" and entry.kind == "leaf":
+                    entry.consecutive_medium_count = 1
+                else:
+                    entry.consecutive_medium_count = 0
+                transitioned.append(entry)
+            else:
+                # deferred -> deferred (TTL reset)
+                entry.deferred_ttl = config.injection_deferred_ttl_turns
+                # consecutive_medium_count -> 0 (absent from classifier)
+                entry.consecutive_medium_count = 0
+            continue
+
+        # Step 3: Per-turn decrement for TTL > 0
+        if entry.deferred_ttl is not None:
+            entry.deferred_ttl -= 1
+
+    return transitioned
 
 
 # ---------------------------------------------------------------------------
