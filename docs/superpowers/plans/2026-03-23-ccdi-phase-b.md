@@ -26,7 +26,7 @@
 - Shadow mode gate in `codex-dialogue` agent
 - Mid-dialogue CCDI loop in `codex-dialogue` agent (Steps 5.5 and 7.5)
 - `ccdi_trace` output contract
-- Replay harness (`test_ccdi_replay.py`) with 51 fixture scenarios
+- Replay harness (`test_ccdi_replay.py`) with 52 fixture scenarios
 - Layer 2b agent sequence tests (feasibility gate + behavioral tests)
 - Freshness guardrail tests
 - Phase B boundary contract and integration tests
@@ -89,7 +89,7 @@
 
 - [ ] **Step 1: Write tests for new types in test_ccdi_types.py**
 
-Add tests for: `SemanticHint` construction and validation (`hint_type` enum, `claim_excerpt` ≤100 chars), `InjectionCandidate` construction (all 7 fields including `candidate_type` enum), `DiagnosticsRecord` active vs shadow field presence, `ShadowDeferIntent` fields.
+Add tests for: `SemanticHint` construction and validation (`hint_type` enum, `claim_excerpt` ≤100 chars), `InjectionCandidate` construction (all 7 fields including `candidate_type` enum), `DiagnosticsRecord` active vs shadow field presence, `ShadowDeferIntent` fields, `shadow_adjusted_yield` computation (`test_shadow_adjusted_yield_present_in_shadow_diagnostics`: shadow DiagnosticsRecord serialization includes `shadow_adjusted_yield` key; `test_shadow_adjusted_yield_absent_in_active_diagnostics`: active mode omits it).
 
 - [ ] **Step 2: Run tests — expect ImportError**
 
@@ -286,6 +286,10 @@ Add to `tests/test_ccdi_registry.py`:
 - `test_deferred_ttl_load_time_recovery_absent`: Registry with deferred_ttl=0, topic absent → TTL reset
 - `test_cooldown_deferral_preserves_consecutive_medium_count`: Medium leaf at count=1, deferred by cooldown → count stays 1
 - `test_deferred_to_detected_consecutive_medium_initialization`: Topic deferred, TTL expires, reappears at medium → count=1; at high → count=0
+- `test_registry_file_missing_reinitializes`: Missing registry file → `load_registry()` returns empty seed (no crash). Per registry.md#failure-modes line 273
+- `test_registry_file_corrupt_reinitializes`: Corrupt JSON in registry file → `load_registry()` returns empty seed with warning. Per registry.md#failure-modes line 273
+- `test_atomic_write_uses_temp_rename`: `_write_registry()` writes to tempfile then `os.replace()` — verify no partial writes by checking file exists and is valid JSON after write. Per registry.md#failure-modes line 274
+- `test_results_file_stripped_on_load`: Registry with transient `results_file` field → stripped from in-memory representation at load time, warning logged. Per registry.md#failure-modes line 277
 
 - [ ] **Step 5: Implement TTL lifecycle functions in registry.py**
 
@@ -501,6 +505,9 @@ Create `tests/test_ccdi_dialogue_turn.py` with tests:
 - `test_suppression_reentry_scan_redundant_no_epoch`: docs_epoch change does NOT re-enter redundant entries
 - `test_redundant_reentry_via_new_leaf`: New leaf in same family → redundant re-enters
 - `test_suppressed_redetection_noop`: Suppressed topic re-detected, no re-entry trigger → no field update
+- `test_overview_injected_propagation_facet_overview`: Injected with facet=overview → family context marked available. Per delivery.md rows 374-376 (graduation preflight prerequisite)
+- `test_overview_injected_propagation_family_context_available`: Family context available after overview injection → next lookup uses leaf facet
+- `test_overview_injected_propagation_non_overview_facet`: Injected with facet≠overview → family context NOT marked available
 
 - [ ] **Step 2: Run tests — expect ImportError**
 
@@ -598,6 +605,14 @@ Add to `tests/test_ccdi_cli.py`:
 - `test_build_packet_automatic_suppression_requires_registry`: No --registry-file → no suppression
 - `test_build_packet_missing_coverage_target_with_mark_injected`: Non-zero exit
 - `test_build_packet_facet_mismatch_mid_turn`: Prepare facet ≠ commit facet → non-zero exit
+- `test_prepare_commit_packet_idempotency_initial`: Initial build-packet → commit build-packet with same inputs → identical chunk IDs. Per delivery.md rows 429-430
+- `test_prepare_commit_packet_idempotency_mid_turn`: Mid-turn build-packet → commit with same inputs → identical chunk IDs
+- `test_agent_gate_unchanged_when_initial_threshold_overridden`: Config overrides initial threshold → agent gate still uses hardcoded value. Per delivery.md rows 438-440
+- `test_agent_gate_unchanged_when_config_more_permissive`: More permissive config → agent gate unaffected
+- `test_agent_gate_matches_builtin_defaults`: Agent gate threshold matches `BUILTIN_DEFAULTS` value
+- `test_agent_gate_config_isolation_phase_a`: Phase A agent gate independent of Phase B config. Per delivery.md row 442
+- `test_inventory_snapshot_version_mismatch_best_effort`: `inventory_snapshot_version` differs from current → best-effort field mapping with discarded entries on version mismatch. Per registry.md#failure-modes line 278
+- `test_build_packet_missing_results_file_without_skip_build`: --results-file absent without --skip-build → non-zero exit with descriptive error. Per integration.md line 34
 
 - [ ] **Step 3: Run tests — expect FAIL**
 
@@ -808,6 +823,14 @@ Add to `tests/test_ccdi_contracts.py`:
 - `test_classify_result_hash_boundary`: Hash contract across classifier→registry boundary
 - `test_candidate_type_new_for_standard`: Standard candidate → candidate_type: "new"
 - `test_confidence_null_for_hint_candidates`: facet_expansion/pending_facet → confidence: null
+- `test_transport_only_field_allowlist_completeness`: Every field in `TRANSPORT_ONLY_FIELDS` has a corresponding strip-on-load test. Per delivery.md row 489
+- `test_defaults_table_topicregistryentry_synchronization`: Every `TopicRegistryEntry` field has a default in the data-model defaults table. Per delivery.md row 490
+- `test_registry_null_field_serialization_includes_envelope`: Null-valued fields serialized in registry JSON (not omitted). Per delivery.md row 482
+- `test_pending_facets_serialization_preserves_insertion_order`: pending_facets array order preserved through serialize/deserialize roundtrip. Per delivery.md row 484
+- `test_results_file_write_time_exclusion_defense_in_depth`: `results_file` never written to persistent registry (defense-in-depth for transport-only stripping). Per delivery.md row 479
+- `test_registryseed_results_file_stripped_after_multi_topic_commit`: Multi-topic commit → results_file stripped from all entries. Per delivery.md row 476
+- `test_registryseed_results_file_stripped_when_all_commits_fail`: All commits fail → results_file still stripped. Per delivery.md row 477
+- `test_sentinel_structure_invariant`: Registry seed transmitted as JSON within `<!-- ccdi-registry-seed -->` sentinel tags in ccdi-gatherer output, not inline in delegation envelope. Per integration.md line 139
 - Replace Phase A xfail `test_ccdi_policy_snapshot_boundary` with updated xfail (still Phase B deferred)
 
 - [ ] **Step 2: Run tests — expect PASS**
@@ -861,7 +884,7 @@ Trace assertion operators: `assert_key_present`, `action` (equality check).
 
 - [ ] **Step 3: Write and validate happy_path.replay.json**
 
-First fixture: single topic detected → searched → injected → committed. Validates the harness works end-to-end. Must include `trace_assertions` with `assert_key_present` for all 9 required trace keys on at least one turn entry.
+First fixture: single topic detected → searched → injected → committed. Validates the harness works end-to-end. Must include `trace_assertions` with `assert_key_present` for all 9 required trace keys on at least one turn entry. Must also assert chunk ID determinism: prepare-phase chunk IDs equal commit-phase chunk IDs for the same (results-file, facet) pair. Per integration.md line 497 (idempotency invariant).
 
 - [ ] **Step 4: Run harness with happy_path fixture — expect PASS**
 
@@ -1038,6 +1061,10 @@ Add to `tests/test_ccdi_integration.py`:
 - `test_suppressed_redetection_noop_cli_file`: Registry file unchanged (deep JSON equality)
 - `test_temp_file_identity_per_turn`: Unique per-turn temp file paths
 - `test_initial_ccdi_commit_skip_on_briefing_send_failure`: All entries remain detected
+- `test_sentinel_extraction_from_ccdi_gatherer`: ccdi-gatherer output with valid sentinel → registry seed parsed correctly. Per delivery.md rows 509-511
+- `test_malformed_sentinel_handling`: Malformed sentinel block → graceful degradation (no crash, CCDI disabled)
+- `test_ccdi_gatherer_returns_no_sentinel`: ccdi-gatherer output without sentinel tags → ccdi_seed treated as absent
+- `test_seed_file_path_identity_prepare_commit`: Registry seed file path passed to initial commit is the same file path used in commit-phase build-packet --mark-injected call. Per integration.md line 355
 
 - [ ] **Step 2: Run tests — expect PASS**
 
@@ -1177,6 +1204,14 @@ Add with `@pytest.mark.skipif(not phase_a_resolved(), reason="Phase B only")`:
 - `test_graduation_gate_approved_active`: status:approved → active mode, at least one --mark-injected
 - `test_graduation_gate_phase_a_unconditional`: status:rejected → initial commits still fire
 
+- [ ] **Step 1b: Write Layer 2b shadow diagnostic assertion tests**
+
+Add:
+- `test_shadow_defer_intent_resolves_on_topic_disappearance`: Topic with shadow_defer_intent disappears from classifier → intent resolves (no longer emitted). Per delivery.md row 736
+- `test_shadow_defer_intent_resolves_on_committed_state_transition`: Topic transitions to committed (injected) → shadow_defer_intent no longer emitted. Per delivery.md row 737
+- `test_shadow_false_positive_field_present_and_zero`: Shadow diagnostics → `false_positive_topic_detections` key present with value 0. Per delivery.md row 735
+- `test_ccdi_inventory_snapshot_absent_with_seed_layer2b`: Layer 2b companion — ccdi_inventory_snapshot absent when ccdi_seed present → degraded behavior (no mid-dialogue CCDI). Per delivery.md row 487
+
 - [ ] **Step 2: Write pipeline isolation tests**
 
 - `test_scout_pipeline_no_ccdi_cli_calls`: execute_scout/process_turn contain zero topic_inventory.py calls
@@ -1303,19 +1338,19 @@ T1 (types+hash)     ────────────────────
 
 | Category | New Tests | Source |
 |----------|----------|--------|
-| Types (Phase B extensions) | ~8 | test_ccdi_types.py |
+| Types (Phase B extensions) | ~10 | test_ccdi_types.py (+2 shadow_adjusted_yield) |
 | classify_result_hash | 4 | test_ccdi_classifier.py |
-| Registry (Phase B) | ~45 | test_ccdi_registry.py |
-| dialogue-turn unit | ~17 | test_ccdi_dialogue_turn.py |
+| Registry (Phase B) | ~49 | test_ccdi_registry.py (+4 corruption/recovery) |
+| dialogue-turn unit | ~20 | test_ccdi_dialogue_turn.py (+3 overview_injected propagation) |
 | Cache | 5 | test_ccdi_cache.py |
-| CLI (Phase B) | ~18 | test_ccdi_cli.py |
+| CLI (Phase B) | ~28 | test_ccdi_cli.py (+8 idempotency, agent gate, version mismatch, results-file) |
 | Diagnostics | 4 | test_ccdi_diagnostics.py |
 | Graduation validator | 17 | test_validate_graduation.py |
-| Replay fixtures | 52 | test_ccdi_replay.py |
-| Boundary contracts (Phase B) | ~11 | test_ccdi_contracts.py |
-| Integration (Phase B) | ~11 | test_ccdi_integration.py |
+| Replay fixtures | 52 | test_ccdi_replay.py (happy_path includes chunk ID determinism assertion) |
+| Boundary contracts (Phase B) | ~19 | test_ccdi_contracts.py (+8 transport-only, defaults, null-field, sentinel) |
+| Integration (Phase B) | ~15 | test_ccdi_integration.py (+4 sentinel extraction, seed file identity) |
 | Freshness guardrail | 3 | test_shadow_freshness_guardrail.py |
-| Layer 2b | ~15 | test_ccdi_agent_sequence.py |
-| **Total new** | **~210** | |
+| Layer 2b | ~19 | test_ccdi_agent_sequence.py (+4 shadow diagnostic, inventory companion) |
+| **Total new** | **~245** | |
 
-Combined with Phase A (373 tests), total: **~583 tests**.
+Combined with Phase A (373 tests), total: **~618 tests**.
