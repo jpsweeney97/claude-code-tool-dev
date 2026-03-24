@@ -1,0 +1,27 @@
+{
+  "config_version": "1",
+  "classifier": {
+    "confidence_high_min_weight": 0.8,
+    "confidence_medium_min_score": 0.5,
+    "confidence_medium_min_single_weight": 0.5
+  },
+  "injection": {
+    "initial_threshold_high_count": 1,
+    "initial_threshold_medium_same_family_count": 2,
+    "mid_turn_consecutive_medium_turns": 2,
+    "cooldown_max_new_topics_per_turn": 1,
+    "deferred_ttl_turns": 3
+  },
+  "packets": {
+    "initial_token_budget_min": 600,
+    "initial_token_budget_max": 1000,
+    "initial_max_topics": 3,
+    "initial_max_facts": 8,
+    "mid_turn_token_budget_min": 250,
+    "mid_turn_token_budget_max": 450,
+    "mid_turn_max_topics": 1,
+    "mid_turn_max_facts": 3,
+    "quality_min_result_score": 0.3,
+    "quality_min_useful_facts": 1
+  }
+}
