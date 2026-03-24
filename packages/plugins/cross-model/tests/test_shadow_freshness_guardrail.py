@@ -154,6 +154,8 @@ class TestShadowFreshnessGuardrail:
         result = _run_validator(grad_path, ann_path, diag_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         assert "OK" in result.stdout
+        assert "shadow_adjusted_yield absent" in result.stderr
+        assert "freshness guardrail" in result.stderr
 
     def test_freshness_guardrail_positive_path(
         self, tmp_path: Path,
@@ -172,6 +174,7 @@ class TestShadowFreshnessGuardrail:
         result = _run_validator(grad_path, ann_path, diag_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         assert "OK" in result.stdout
+        assert "shadow_adjusted_yield absent" not in result.stderr
 
     def test_freshness_guardrail_negative_path(
         self, tmp_path: Path,
@@ -191,3 +194,90 @@ class TestShadowFreshnessGuardrail:
         assert result.returncode == 1
         assert "shadow_adjusted_yield" in result.stderr
         assert "0.35" in result.stderr or "0.40" in result.stderr
+
+    def test_freshness_guardrail_combined_warning_and_error(
+        self, tmp_path: Path,
+    ) -> None:
+        """Stale classify AND effective_prepare_yield below threshold -> exit 1.
+
+        shadow_adjusted_yield is absent (freshness guardrail), so the validator
+        falls back to effective_prepare_yield. But effective_prepare_yield (0.30)
+        is below the 0.40 threshold. Both the freshness warning and the
+        threshold error appear in stderr.
+        """
+        diag_dir = tmp_path / "diagnostics"
+        diag_dir.mkdir()
+        _write_json(
+            diag_dir / "dialogue_0.json",
+            _make_diagnostics(
+                packets_prepared=20,
+                packets_injected=6,
+                packets_surviving_precedence=6,
+                per_turn_latency_ms=[200],
+            ),
+        )
+        _write_annotations(
+            tmp_path / "annotations.jsonl", count=150, fp_count=8,
+        )
+        grad_path = _write_json(
+            tmp_path / "graduation.json",
+            {
+                "status": "approved",
+                "labeled_topics": 150,
+                "false_positive_rate": 8 / 150,
+                "evaluated_dialogues": 1,
+                "effective_prepare_yield": 0.30,
+                "avg_latency_ms": 200.0,
+                "notes": "Approved after review",
+            },
+        )
+        result = _run_validator(
+            grad_path, tmp_path / "annotations.jsonl", diag_dir,
+        )
+        assert result.returncode == 1
+        # Freshness warning present
+        assert "shadow_adjusted_yield absent" in result.stderr
+        assert "freshness guardrail" in result.stderr
+        # Threshold error also present
+        assert "effective_prepare_yield" in result.stderr
+        assert "below" in result.stderr
+
+    def test_freshness_guardrail_rejected_no_warning(
+        self, tmp_path: Path,
+    ) -> None:
+        """Rejected status, shadow absent -> exit 0, no freshness warning.
+
+        The freshness warning is approved-only. Rejected reports skip it.
+        """
+        diag_dir = tmp_path / "diagnostics"
+        diag_dir.mkdir()
+        _write_json(
+            diag_dir / "dialogue_0.json",
+            _make_diagnostics(
+                packets_prepared=20,
+                packets_injected=13,
+                packets_surviving_precedence=13,
+                per_turn_latency_ms=[200],
+            ),
+        )
+        _write_annotations(
+            tmp_path / "annotations.jsonl", count=150, fp_count=8,
+        )
+        grad_path = _write_json(
+            tmp_path / "graduation.json",
+            {
+                "status": "rejected",
+                "labeled_topics": 150,
+                "false_positive_rate": 8 / 150,
+                "evaluated_dialogues": 1,
+                "effective_prepare_yield": 0.65,
+                "avg_latency_ms": 200.0,
+                "notes": "Rejected - yield issues",
+            },
+        )
+        result = _run_validator(
+            grad_path, tmp_path / "annotations.jsonl", diag_dir,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "OK" in result.stdout
+        assert "shadow_adjusted_yield absent" not in result.stderr

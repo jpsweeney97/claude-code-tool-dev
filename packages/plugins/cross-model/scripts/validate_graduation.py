@@ -17,6 +17,7 @@ import argparse
 import json
 import math
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -33,6 +34,14 @@ MAX_FALSE_POSITIVE_RATE: float = 0.10
 MIN_SAMPLE_SIZE: int = 100
 ESCALATION_RATE_THRESHOLD: float = 0.07
 ESCALATED_SAMPLE_SIZE: int = 200
+
+
+@dataclass
+class ValidationResult:
+    """Result of graduation report validation."""
+
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -82,14 +91,15 @@ def _load_diagnostics(diag_dir: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def validate(
+def validate_detailed(
     graduation: dict,
     annotations: list[dict],
     diagnostics: list[dict],
     diag_file_count: int,
-) -> list[str]:
-    """Run all validation checks. Returns list of error strings (empty = pass)."""
+) -> ValidationResult:
+    """Run all validation checks. Returns ValidationResult with errors and warnings."""
     errors: list[str] = []
+    warnings: list[str] = []
     status = graduation.get("status", "")
 
     # --- Status validation ---
@@ -148,6 +158,7 @@ def validate(
         )
 
     # --- Yield metrics (global ratio) ---
+    effective_yield_valid = False
     if diagnostics:
         total_prepared = sum(d.get("packets_prepared", 0) for d in diagnostics)
         # Use packets_surviving_precedence if available, else packets_injected
@@ -163,6 +174,8 @@ def validate(
                     f"effective_prepare_yield: declared {declared_yield}, "
                     f"computed {computed_yield:.6f} (global ratio)"
                 )
+            else:
+                effective_yield_valid = True
 
         # --- Latency metrics (mean-of-all-turns) ---
         all_latencies: list[float] = []
@@ -208,7 +221,30 @@ def validate(
                 f"minimum threshold {MIN_YIELD} for approved status"
             )
 
-    return errors
+        # Freshness guardrail warning: shadow_adjusted_yield absent
+        if shadow_yield is None and effective_yield_valid:
+            warnings.append(
+                "warning: shadow_adjusted_yield absent; treating omission as "
+                "freshness guardrail activation and using "
+                "effective_prepare_yield as the gating metric"
+            )
+
+    return ValidationResult(errors=errors, warnings=warnings)
+
+
+def validate(
+    graduation: dict,
+    annotations: list[dict],
+    diagnostics: list[dict],
+    diag_file_count: int,
+) -> list[str]:
+    """Run all validation checks. Returns list of error strings (empty = pass).
+
+    Backward-compatible wrapper around validate_detailed().
+    """
+    return validate_detailed(
+        graduation, annotations, diagnostics, diag_file_count,
+    ).errors
 
 
 # ---------------------------------------------------------------------------
@@ -234,8 +270,6 @@ def main() -> None:
         help="Path to diagnostics directory",
     )
     args = parser.parse_args()
-
-    errors: list[str] = []
 
     # --- File existence checks ---
     if not args.graduation.exists():
@@ -266,10 +300,13 @@ def main() -> None:
     diag_file_count = len(list(args.diagnostics_dir.glob("*.json")))
 
     # --- Validate ---
-    errors = validate(graduation, annotations, diagnostics, diag_file_count)
+    result = validate_detailed(graduation, annotations, diagnostics, diag_file_count)
 
-    if errors:
-        for err in errors:
+    for warning in result.warnings:
+        print(warning, file=sys.stderr)
+
+    if result.errors:
+        for err in result.errors:
             print(err, file=sys.stderr)
         sys.exit(1)
 
