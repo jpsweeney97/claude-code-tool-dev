@@ -1,0 +1,39 @@
+{
+  "name": "both_facets_absent_suppressed",
+  "description": "Topic detected at high confidence but both resolved facet (overview) AND default_facet (overview) have empty QuerySpec arrays -> _resolve_candidate_facet returns None -> dialogue-turn suppresses with weak_results. Uses custom inventory where hooks.pre_tool_use has empty facets.",
+  "initial_registry": null,
+  "inventory_snapshot": "test_inventory_empty_facets.json",
+  "config": null,
+  "turns": [
+    {
+      "turn_number": 1,
+      "input_text": "How do I write a PreToolUse hook?",
+      "source": "codex",
+      "semantic_hints": null,
+      "shadow_mode": false,
+      "docs_epoch": null,
+      "expected_classifier_result": {
+        "resolved_topic_keys": ["hooks.pre_tool_use"]
+      },
+      "expected_candidates": null,
+      "search_results": {},
+      "composed_target": null,
+      "codex_reply_error": false
+    }
+  ],
+  "assertions": {
+    "cli_pipeline_sequence": [
+      "classify",
+      "dialogue-turn"
+    ],
+    "cli_calls_absent": ["build-packet"],
+    "final_registry_file_assertions": [
+      {"path": "entries[0].topic_key", "operator": "equals", "expected": "hooks.pre_tool_use"},
+      {"path": "entries[0].state", "operator": "equals", "expected": "suppressed"},
+      {"path": "entries[0].suppression_reason", "operator": "equals", "expected": "weak_results"}
+    ],
+    "trace_assertions": [
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "turn"}
+    ]
+  }
+}

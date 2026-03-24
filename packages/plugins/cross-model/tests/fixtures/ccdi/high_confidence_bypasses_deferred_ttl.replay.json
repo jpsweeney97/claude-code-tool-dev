@@ -1,0 +1,84 @@
+{
+  "name": "high_confidence_bypasses_deferred_ttl",
+  "description": "Topic deferred at TTL=3 (cooldown). Next turn re-detects at high confidence -> immediate transition to detected (TTL bypassed). The transitioned entry becomes a candidate and gets injected.",
+  "initial_registry": {
+    "entries": [
+      {
+        "topic_key": "skills.frontmatter",
+        "family_key": "skills",
+        "state": "deferred",
+        "first_seen_turn": 1,
+        "last_seen_turn": 1,
+        "last_injected_turn": null,
+        "last_query_fingerprint": null,
+        "consecutive_medium_count": 0,
+        "suppression_reason": null,
+        "suppressed_docs_epoch": null,
+        "deferred_reason": "cooldown",
+        "deferred_ttl": 3,
+        "coverage_target": "leaf",
+        "facet": "overview",
+        "kind": "leaf",
+        "coverage": {
+          "overview_injected": false,
+          "facets_injected": [],
+          "pending_facets": [],
+          "family_context_available": false,
+          "injected_chunk_ids": []
+        }
+      }
+    ],
+    "docs_epoch": null,
+    "inventory_snapshot_version": "1"
+  },
+  "inventory_snapshot": "test_inventory.json",
+  "config": null,
+  "turns": [
+    {
+      "turn_number": 2,
+      "input_text": "How do I configure SKILL.md frontmatter fields?",
+      "source": "codex",
+      "semantic_hints": null,
+      "shadow_mode": false,
+      "docs_epoch": null,
+      "expected_classifier_result": {
+        "resolved_topic_keys": ["skills.frontmatter"]
+      },
+      "expected_candidates": [
+        {"topic_key": "skills.frontmatter"}
+      ],
+      "search_results": {
+        "skills.frontmatter": [
+          {
+            "chunk_id": "skills#frontmatter",
+            "category": "skills",
+            "score": 0.8,
+            "content": "SKILL.md frontmatter defines skill metadata.",
+            "source_file": "https://example.com"
+          }
+        ]
+      },
+      "composed_target": null,
+      "codex_reply_error": false
+    }
+  ],
+  "assertions": {
+    "cli_pipeline_sequence": [
+      "classify",
+      "dialogue-turn",
+      "build-packet",
+      "build-packet"
+    ],
+    "cli_calls_absent": [],
+    "final_registry_file_assertions": [
+      {"path": "entries[0].topic_key", "operator": "equals", "expected": "skills.frontmatter"},
+      {"path": "entries[0].state", "operator": "equals", "expected": "injected"},
+      {"path": "entries[0].deferred_reason", "operator": "is_null", "expected": null},
+      {"path": "entries[0].deferred_ttl", "operator": "is_null", "expected": null},
+      {"path": "entries[0].coverage.injected_chunk_ids", "operator": "contains", "expected": "skills#frontmatter"}
+    ],
+    "trace_assertions": [
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "turn"}
+    ]
+  }
+}
