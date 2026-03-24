@@ -1,0 +1,74 @@
+{
+  "name": "happy_path",
+  "description": "Single topic detected, searched, and injected. Validates full pipeline: classify -> dialogue-turn -> build-packet prepare -> build-packet commit. Asserts all 9 trace keys and chunk ID determinism.",
+  "initial_registry": null,
+  "inventory_snapshot": "test_inventory.json",
+  "config": null,
+  "turns": [
+    {
+      "turn_number": 1,
+      "input_text": "How do I write a PreToolUse hook?",
+      "source": "codex",
+      "semantic_hints": null,
+      "shadow_mode": false,
+      "docs_epoch": null,
+      "expected_classifier_result": {
+        "resolved_topic_keys": ["hooks.pre_tool_use"],
+        "min_resolved_count": 1
+      },
+      "expected_candidates": [
+        {"topic_key": "hooks.pre_tool_use"}
+      ],
+      "search_results": {
+        "hooks.pre_tool_use": [
+          {
+            "chunk_id": "hooks#pretooluse",
+            "category": "hooks",
+            "score": 0.8,
+            "content": "PreToolUse hooks run before tool execution. They receive `tool_name` and `tool_input` as JSON.",
+            "source_file": "https://code.claude.com/docs/en/hooks"
+          }
+        ]
+      },
+      "composed_target": null,
+      "codex_reply_error": false,
+      "expected_trace": null
+    }
+  ],
+  "assertions": {
+    "cli_pipeline_sequence": [
+      "classify",
+      "dialogue-turn",
+      "build-packet",
+      "build-packet"
+    ],
+    "cli_calls_absent": [],
+    "final_registry_state": {
+      "entries[0].state": "injected",
+      "entries[0].topic_key": "hooks.pre_tool_use"
+    },
+    "final_registry_file_assertions": [
+      {"path": "entries[0].state", "operator": "equals", "expected": "injected"},
+      {"path": "entries[0].topic_key", "operator": "equals", "expected": "hooks.pre_tool_use"},
+      {"path": "entries[0].family_key", "operator": "equals", "expected": "hooks"},
+      {"path": "entries[0].coverage.injected_chunk_ids", "operator": "contains", "expected": "hooks#pretooluse"},
+      {"path": "entries[0].coverage.injected_chunk_ids", "operator": "length_gte", "expected": 1},
+      {"path": "entries[0].coverage.facets_injected", "operator": "contains", "expected": "overview"},
+      {"path": "entries[0].last_injected_turn", "operator": "not_null", "expected": null},
+      {"path": "entries[0].suppression_reason", "operator": "is_null", "expected": null},
+      {"path": "entries[0].deferred_reason", "operator": "is_null", "expected": null}
+    ],
+    "trace_assertions": [
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "turn"},
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "action"},
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "topics_detected"},
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "candidates"},
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "packet_staged"},
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "scout_conflict"},
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "commit"},
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "shadow_suppressed"},
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "semantic_hints"},
+      {"turn_index": 0, "operator": "action", "expected": "replay_turn"}
+    ]
+  }
+}
