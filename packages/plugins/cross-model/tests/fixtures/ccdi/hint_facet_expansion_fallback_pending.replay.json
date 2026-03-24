@@ -1,0 +1,68 @@
+{
+  "name": "hint_facet_expansion_fallback_pending",
+  "description": "extends_topic on injected topic where resolved facet is already in facets_injected -> falls back to pending_facets[0]. initial_registry has hooks.pre_tool_use injected with overview+schema facets, pending_facets=[\"input\"]. Hint claim_excerpt classifies to overview facet (already injected) -> cascade falls through to pending_facets[0] = input -> facet_expansion candidate emitted.",
+  "initial_registry": {
+    "entries": [
+      {
+        "topic_key": "hooks.pre_tool_use",
+        "family_key": "hooks",
+        "state": "injected",
+        "first_seen_turn": 1,
+        "last_seen_turn": 1,
+        "last_injected_turn": 1,
+        "last_query_fingerprint": "pretooluse hook|null",
+        "consecutive_medium_count": 0,
+        "suppression_reason": null,
+        "suppressed_docs_epoch": null,
+        "deferred_reason": null,
+        "deferred_ttl": null,
+        "coverage_target": "leaf",
+        "facet": "overview",
+        "kind": "leaf",
+        "coverage": {
+          "overview_injected": false,
+          "facets_injected": ["overview", "schema"],
+          "pending_facets": ["input"],
+          "family_context_available": false,
+          "injected_chunk_ids": ["hooks#pretooluse", "hooks#pretooluse-schema"]
+        }
+      }
+    ],
+    "docs_epoch": null,
+    "inventory_snapshot_version": "1"
+  },
+  "inventory_snapshot": "test_inventory.json",
+  "config": null,
+  "turns": [
+    {
+      "turn_number": 2,
+      "input_text": "Tell me about deployment strategies",
+      "source": "codex",
+      "semantic_hints": [
+        {"claim_index": 0, "hint_type": "extends_topic", "claim_excerpt": "PreToolUse hooks"}
+      ],
+      "shadow_mode": false,
+      "docs_epoch": null,
+      "expected_classifier_result": null,
+      "expected_candidates": [
+        {"topic_key": "hooks.pre_tool_use"}
+      ],
+      "search_results": {},
+      "composed_target": null,
+      "codex_reply_error": false
+    }
+  ],
+  "assertions": {
+    "cli_pipeline_sequence": [
+      "classify",
+      "dialogue-turn"
+    ],
+    "final_registry_file_assertions": [
+      {"path": "entries[0].topic_key", "operator": "equals", "expected": "hooks.pre_tool_use"},
+      {"path": "entries[0].state", "operator": "equals", "expected": "injected"}
+    ],
+    "trace_assertions": [
+      {"turn_index": 0, "operator": "assert_key_present", "expected": "semantic_hints"}
+    ]
+  }
+}
