@@ -458,3 +458,128 @@ class FactPacket:
     facet: str
     facts: list[FactItem]
     token_estimate: int
+
+
+# ---------------------------------------------------------------------------
+# Phase B types — per-turn detection and injection
+# ---------------------------------------------------------------------------
+
+VALID_HINT_TYPES: set[str] = {"prescriptive", "contradicts_prior", "extends_topic"}
+
+VALID_CANDIDATE_TYPES: set[str] = {"new", "facet_expansion", "pending_facet"}
+
+
+@dataclass(frozen=True)
+class SemanticHint:
+    """A semantic hint attached to a claim in the turn.
+
+    Constraints:
+    - hint_type must be one of VALID_HINT_TYPES
+    - claim_excerpt must be ≤100 characters
+    """
+
+    claim_index: int
+    hint_type: str  # "prescriptive" | "contradicts_prior" | "extends_topic"
+    claim_excerpt: str
+
+    def __post_init__(self) -> None:
+        if self.hint_type not in VALID_HINT_TYPES:
+            msg = f"Invalid hint_type: {self.hint_type!r}. Must be one of {VALID_HINT_TYPES}"
+            raise ValueError(msg)
+        if len(self.claim_excerpt) > 100:
+            msg = f"claim_excerpt exceeds 100 chars: {len(self.claim_excerpt)}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class InjectionCandidate:
+    """A candidate topic for mid-turn injection.
+
+    confidence is None for facet_expansion and pending_facet candidates.
+    """
+
+    topic_key: str
+    family_key: str
+    facet: str
+    confidence: str | None  # null for facet_expansion and pending_facet
+    coverage_target: str  # "family" | "leaf"
+    candidate_type: str  # "new" | "facet_expansion" | "pending_facet"
+    query_plan: QueryPlan
+
+
+@dataclass
+class DiagnosticsRecord:
+    """Per-turn diagnostics emitted by the injection pipeline.
+
+    Shadow-only fields are present only when status == "shadow".
+    Unavailable status returns only status and phase from to_dict().
+    """
+
+    status: str  # "active" | "shadow" | "unavailable"
+    phase: str  # "initial_only" | "full"
+    topics_detected: list[str]
+    topics_injected: list[str]
+    topics_deferred: list[str]
+    topics_suppressed: list[str]
+    packets_prepared: int
+    packets_injected: int
+    packets_deferred_scout: int
+    total_tokens_injected: int
+    semantic_hints_received: int
+    search_failures: int
+    inventory_epoch: str | None
+    config_source: str
+    per_turn_latency_ms: list[int]
+    # Shadow-only fields (present only when status == "shadow")
+    packets_target_relevant: int | None = None
+    packets_surviving_precedence: int | None = None
+    false_positive_topic_detections: int | None = None
+
+    def to_dict(self) -> dict:
+        """Serialize to dict. Shadow-only fields omitted when status != 'shadow'."""
+        d: dict = {
+            "status": self.status,
+            "phase": self.phase,
+        }
+        if self.status == "unavailable":
+            return d
+        d.update({
+            "topics_detected": self.topics_detected,
+            "topics_injected": self.topics_injected,
+            "topics_deferred": self.topics_deferred,
+            "topics_suppressed": self.topics_suppressed,
+            "packets_prepared": self.packets_prepared,
+            "packets_injected": self.packets_injected,
+            "packets_deferred_scout": self.packets_deferred_scout,
+            "total_tokens_injected": self.total_tokens_injected,
+            "semantic_hints_received": self.semantic_hints_received,
+            "search_failures": self.search_failures,
+            "inventory_epoch": self.inventory_epoch,
+            "config_source": self.config_source,
+            "per_turn_latency_ms": self.per_turn_latency_ms,
+        })
+        if self.status == "shadow":
+            d["packets_target_relevant"] = self.packets_target_relevant or 0
+            d["packets_surviving_precedence"] = self.packets_surviving_precedence or 0
+            d["false_positive_topic_detections"] = 0  # Always 0 per spec
+            d["shadow_adjusted_yield"] = (
+                self.packets_injected / self.packets_prepared
+                if self.packets_prepared > 0
+                else 0.0
+            )
+        return d
+
+
+@dataclass(frozen=True)
+class ShadowDeferIntent:
+    """Trace record for a shadow-mode deferred injection intent.
+
+    action defaults to "shadow_defer_intent" — discriminator for trace type
+    filtering (integration.md L315).
+    """
+
+    turn: int
+    topic_key: str
+    reason: str  # "target_mismatch" | "cooldown"
+    classify_result_hash: str
+    action: str = "shadow_defer_intent"

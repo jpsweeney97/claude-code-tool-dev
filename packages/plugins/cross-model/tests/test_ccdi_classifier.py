@@ -895,3 +895,49 @@ class TestMultiAliasAccumulationSum:
         matched_texts = {ma.text for ma in rt.matched_aliases}
         assert "Alpha" in matched_texts
         assert "beta gamma" in matched_texts
+
+
+# ---------------------------------------------------------------------------
+# classify_result_hash
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyResultHash:
+    """classify_result_hash from hash_utils — delivery.md Registry Tests."""
+
+    def test_classify_result_hash_stability(self) -> None:
+        """Same classify payload → same hash (stability invariant)."""
+        from scripts.ccdi.hash_utils import classify_result_hash
+
+        aliases = [{"text": "PreToolUse", "weight": 1.0}]
+        h1 = classify_result_hash("hooks.pre_tool_use", "high", "overview", aliases)
+        h2 = classify_result_hash("hooks.pre_tool_use", "high", "overview", aliases)
+        assert h1 == h2
+
+    def test_classify_result_hash_input_coverage(self) -> None:
+        """Same topic_key, different matched_aliases → different hashes."""
+        from scripts.ccdi.hash_utils import classify_result_hash
+
+        aliases_a = [{"text": "PreToolUse", "weight": 1.0}]
+        aliases_b = [{"text": "pre tool use", "weight": 0.95}]
+        h_a = classify_result_hash("hooks.pre_tool_use", "high", "overview", aliases_a)
+        h_b = classify_result_hash("hooks.pre_tool_use", "high", "overview", aliases_b)
+        assert h_a != h_b
+
+    def test_classify_result_hash_different_confidence(self) -> None:
+        """Same topic, different confidence → different hashes."""
+        from scripts.ccdi.hash_utils import classify_result_hash
+
+        aliases = [{"text": "PreToolUse", "weight": 1.0}]
+        h_high = classify_result_hash("hooks.pre_tool_use", "high", "overview", aliases)
+        h_med = classify_result_hash("hooks.pre_tool_use", "medium", "overview", aliases)
+        assert h_high != h_med
+
+    def test_classify_result_hash_different_facet(self) -> None:
+        """Same topic, different facet → different hashes."""
+        from scripts.ccdi.hash_utils import classify_result_hash
+
+        aliases = [{"text": "PreToolUse", "weight": 1.0}]
+        h_ov = classify_result_hash("hooks.pre_tool_use", "high", "overview", aliases)
+        h_sc = classify_result_hash("hooks.pre_tool_use", "high", "schema", aliases)
+        assert h_ov != h_sc

@@ -15,15 +15,19 @@ from scripts.ccdi.types import (
     ClassifierResult,
     CompiledInventory,
     DenyRule,
+    DiagnosticsRecord,
     DocRef,
     FactItem,
     FactPacket,
+    InjectionCandidate,
     MatchedAlias,
     OverlayMeta,
     QueryPlan,
     QuerySpec,
     RegistrySeed,
     ResolvedTopic,
+    SemanticHint,
+    ShadowDeferIntent,
     SuppressedCandidate,
     TopicRecord,
     TopicRegistryEntry,
@@ -672,3 +676,290 @@ class TestAncillaryTypes:
             token_estimate=100,
         )
         assert fp.packet_kind == "initial"
+
+
+# ---------------------------------------------------------------------------
+# SemanticHint
+# ---------------------------------------------------------------------------
+
+
+class TestSemanticHint:
+    """SemanticHint construction and validation."""
+
+    def test_valid_construction(self) -> None:
+        h = SemanticHint(
+            claim_index=0,
+            hint_type="prescriptive",
+            claim_excerpt="Use PreToolUse hooks for input validation",
+        )
+        assert h.claim_index == 0
+        assert h.hint_type == "prescriptive"
+        assert h.claim_excerpt == "Use PreToolUse hooks for input validation"
+
+    def test_all_valid_hint_types(self) -> None:
+        """All three enum values are accepted."""
+        for ht in ("prescriptive", "contradicts_prior", "extends_topic"):
+            h = SemanticHint(claim_index=0, hint_type=ht, claim_excerpt="x")
+            assert h.hint_type == ht
+
+    def test_invalid_hint_type_raises(self) -> None:
+        with pytest.raises(ValueError, match="Invalid hint_type"):
+            SemanticHint(claim_index=0, hint_type="unknown", claim_excerpt="x")
+
+    def test_claim_excerpt_at_100_chars(self) -> None:
+        """Exactly 100 chars is valid."""
+        excerpt = "a" * 100
+        h = SemanticHint(claim_index=0, hint_type="prescriptive", claim_excerpt=excerpt)
+        assert len(h.claim_excerpt) == 100
+
+    def test_claim_excerpt_over_100_chars_raises(self) -> None:
+        excerpt = "a" * 101
+        with pytest.raises(ValueError, match="claim_excerpt exceeds 100 chars"):
+            SemanticHint(claim_index=0, hint_type="prescriptive", claim_excerpt=excerpt)
+
+    def test_frozen(self) -> None:
+        h = SemanticHint(claim_index=0, hint_type="prescriptive", claim_excerpt="x")
+        with pytest.raises(AttributeError):
+            h.claim_index = 1  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# InjectionCandidate
+# ---------------------------------------------------------------------------
+
+
+class TestInjectionCandidate:
+    """InjectionCandidate construction with all 7 fields."""
+
+    def _make_query_plan(self) -> QueryPlan:
+        return QueryPlan(
+            default_facet="overview",
+            facets={"overview": [QuerySpec(q="hooks", category=None, priority=1)]},
+        )
+
+    def test_new_candidate(self) -> None:
+        ic = InjectionCandidate(
+            topic_key="hooks.pre_tool_use",
+            family_key="hooks",
+            facet="overview",
+            confidence="high",
+            coverage_target="leaf",
+            candidate_type="new",
+            query_plan=self._make_query_plan(),
+        )
+        assert ic.topic_key == "hooks.pre_tool_use"
+        assert ic.family_key == "hooks"
+        assert ic.facet == "overview"
+        assert ic.confidence == "high"
+        assert ic.coverage_target == "leaf"
+        assert ic.candidate_type == "new"
+        assert ic.query_plan.default_facet == "overview"
+
+    def test_facet_expansion_candidate_null_confidence(self) -> None:
+        """facet_expansion candidates have null confidence."""
+        ic = InjectionCandidate(
+            topic_key="hooks.pre_tool_use",
+            family_key="hooks",
+            facet="schema",
+            confidence=None,
+            coverage_target="leaf",
+            candidate_type="facet_expansion",
+            query_plan=self._make_query_plan(),
+        )
+        assert ic.confidence is None
+        assert ic.candidate_type == "facet_expansion"
+
+    def test_pending_facet_candidate_null_confidence(self) -> None:
+        """pending_facet candidates have null confidence."""
+        ic = InjectionCandidate(
+            topic_key="hooks.pre_tool_use",
+            family_key="hooks",
+            facet="input",
+            confidence=None,
+            coverage_target="leaf",
+            candidate_type="pending_facet",
+            query_plan=self._make_query_plan(),
+        )
+        assert ic.confidence is None
+        assert ic.candidate_type == "pending_facet"
+
+    def test_frozen(self) -> None:
+        ic = InjectionCandidate(
+            topic_key="hooks",
+            family_key="hooks",
+            facet="overview",
+            confidence="high",
+            coverage_target="family",
+            candidate_type="new",
+            query_plan=self._make_query_plan(),
+        )
+        with pytest.raises(AttributeError):
+            ic.topic_key = "other"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# DiagnosticsRecord
+# ---------------------------------------------------------------------------
+
+
+class TestDiagnosticsRecord:
+    """DiagnosticsRecord active vs shadow field presence."""
+
+    def _make_active(self) -> DiagnosticsRecord:
+        return DiagnosticsRecord(
+            status="active",
+            phase="full",
+            topics_detected=["hooks.pre_tool_use"],
+            topics_injected=["hooks.pre_tool_use"],
+            topics_deferred=[],
+            topics_suppressed=[],
+            packets_prepared=2,
+            packets_injected=2,
+            packets_deferred_scout=0,
+            total_tokens_injected=500,
+            semantic_hints_received=1,
+            search_failures=0,
+            inventory_epoch="2026-03-23",
+            config_source="builtin",
+            per_turn_latency_ms=[45, 62],
+        )
+
+    def _make_shadow(self) -> DiagnosticsRecord:
+        return DiagnosticsRecord(
+            status="shadow",
+            phase="full",
+            topics_detected=["hooks.pre_tool_use", "skills.frontmatter"],
+            topics_injected=["hooks.pre_tool_use"],
+            topics_deferred=["skills.frontmatter"],
+            topics_suppressed=[],
+            packets_prepared=4,
+            packets_injected=2,
+            packets_deferred_scout=1,
+            total_tokens_injected=500,
+            semantic_hints_received=2,
+            search_failures=0,
+            inventory_epoch="2026-03-23",
+            config_source="builtin",
+            per_turn_latency_ms=[45, 62, 38],
+            packets_target_relevant=3,
+            packets_surviving_precedence=2,
+            false_positive_topic_detections=0,
+        )
+
+    def test_active_to_dict_includes_core_fields(self) -> None:
+        d = self._make_active().to_dict()
+        assert d["status"] == "active"
+        assert d["phase"] == "full"
+        assert d["topics_detected"] == ["hooks.pre_tool_use"]
+        assert d["packets_injected"] == 2
+        assert d["total_tokens_injected"] == 500
+
+    def test_active_to_dict_omits_shadow_fields(self) -> None:
+        d = self._make_active().to_dict()
+        assert "packets_target_relevant" not in d
+        assert "packets_surviving_precedence" not in d
+        assert "false_positive_topic_detections" not in d
+
+    def test_shadow_to_dict_includes_shadow_fields(self) -> None:
+        d = self._make_shadow().to_dict()
+        assert d["packets_target_relevant"] == 3
+        assert d["packets_surviving_precedence"] == 2
+        assert d["false_positive_topic_detections"] == 0
+
+    def test_shadow_adjusted_yield_present_in_shadow_diagnostics(self) -> None:
+        """Shadow DiagnosticsRecord serialization includes shadow_adjusted_yield."""
+        d = self._make_shadow().to_dict()
+        assert "shadow_adjusted_yield" in d
+        # packets_injected=2, packets_prepared=4 → 0.5
+        assert d["shadow_adjusted_yield"] == pytest.approx(0.5)
+
+    def test_shadow_adjusted_yield_absent_in_active_diagnostics(self) -> None:
+        """Active mode omits shadow_adjusted_yield."""
+        d = self._make_active().to_dict()
+        assert "shadow_adjusted_yield" not in d
+
+    def test_shadow_adjusted_yield_zero_when_no_packets_prepared(self) -> None:
+        """shadow_adjusted_yield is 0.0 when packets_prepared is 0."""
+        rec = DiagnosticsRecord(
+            status="shadow",
+            phase="full",
+            topics_detected=[],
+            topics_injected=[],
+            topics_deferred=[],
+            topics_suppressed=[],
+            packets_prepared=0,
+            packets_injected=0,
+            packets_deferred_scout=0,
+            total_tokens_injected=0,
+            semantic_hints_received=0,
+            search_failures=0,
+            inventory_epoch=None,
+            config_source="builtin",
+            per_turn_latency_ms=[],
+        )
+        d = rec.to_dict()
+        assert d["shadow_adjusted_yield"] == 0.0
+
+    def test_unavailable_to_dict_minimal(self) -> None:
+        """Unavailable status returns only status and phase."""
+        rec = DiagnosticsRecord(
+            status="unavailable",
+            phase="initial_only",
+            topics_detected=[],
+            topics_injected=[],
+            topics_deferred=[],
+            topics_suppressed=[],
+            packets_prepared=0,
+            packets_injected=0,
+            packets_deferred_scout=0,
+            total_tokens_injected=0,
+            semantic_hints_received=0,
+            search_failures=0,
+            inventory_epoch=None,
+            config_source="builtin",
+            per_turn_latency_ms=[],
+        )
+        d = rec.to_dict()
+        assert d == {"status": "unavailable", "phase": "initial_only"}
+
+
+# ---------------------------------------------------------------------------
+# ShadowDeferIntent
+# ---------------------------------------------------------------------------
+
+
+class TestShadowDeferIntent:
+    """ShadowDeferIntent fields and defaults."""
+
+    def test_construction(self) -> None:
+        sdi = ShadowDeferIntent(
+            turn=3,
+            topic_key="hooks.pre_tool_use",
+            reason="target_mismatch",
+            classify_result_hash="abc123",
+        )
+        assert sdi.turn == 3
+        assert sdi.action == "shadow_defer_intent"
+        assert sdi.topic_key == "hooks.pre_tool_use"
+        assert sdi.reason == "target_mismatch"
+        assert sdi.classify_result_hash == "abc123"
+
+    def test_action_default(self) -> None:
+        """action defaults to 'shadow_defer_intent'."""
+        sdi = ShadowDeferIntent(
+            turn=1,
+            topic_key="skills",
+            reason="cooldown",
+            classify_result_hash="def456",
+        )
+        assert sdi.action == "shadow_defer_intent"
+
+    def test_frozen(self) -> None:
+        sdi = ShadowDeferIntent(
+            turn=1,
+            topic_key="hooks",
+            reason="cooldown",
+            classify_result_hash="abc",
+        )
+        with pytest.raises(AttributeError):
+            sdi.turn = 2  # type: ignore[misc]
