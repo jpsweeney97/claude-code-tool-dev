@@ -3,19 +3,19 @@ import { describe, it, expect } from 'vitest';
 import { KNOWN_CATEGORIES, SECTION_TO_CATEGORY, CATEGORY_ALIASES } from '../src/categories.js';
 
 describe('KNOWN_CATEGORIES', () => {
-  it('contains all 24 canonical categories', () => {
+  it('contains all 26 canonical categories', () => {
     const expected = [
-      // Extension categories (9)
+      // Extension categories (10)
       'hooks', 'skills', 'commands', 'agents', 'plugins',
-      'plugin-marketplaces', 'mcp', 'settings', 'memory',
-      // General categories (15)
+      'plugin-marketplaces', 'mcp', 'channels', 'settings', 'memory',
+      // General categories (16)
       'overview', 'getting-started', 'cli', 'best-practices',
       'interactive', 'security', 'providers', 'ide', 'ci-cd',
-      'desktop', 'integrations', 'config', 'operations',
+      'automation', 'desktop', 'integrations', 'config', 'operations',
       'troubleshooting', 'changelog',
     ];
 
-    expect(KNOWN_CATEGORIES.size).toBe(24);
+    expect(KNOWN_CATEGORIES.size).toBe(26);
     for (const cat of expected) {
       expect(KNOWN_CATEGORIES.has(cat)).toBe(true);
     }
@@ -47,7 +47,7 @@ describe('SECTION_TO_CATEGORY', () => {
     expect(SECTION_TO_CATEGORY['fast-mode']).toBe('interactive');
     expect(SECTION_TO_CATEGORY['keybindings']).toBe('interactive');
     expect(SECTION_TO_CATEGORY['permissions']).toBe('security');
-    expect(SECTION_TO_CATEGORY['remote-control']).toBe('ci-cd');
+    expect(SECTION_TO_CATEGORY['remote-control']).toBe('interactive');
     expect(SECTION_TO_CATEGORY['server-managed-settings']).toBe('settings');
     expect(SECTION_TO_CATEGORY['zero-data-retention']).toBe('security');
   });
@@ -61,6 +61,26 @@ describe('SECTION_TO_CATEGORY', () => {
     expect(SECTION_TO_CATEGORY['github-actions']).toBe('ci-cd');
     expect(SECTION_TO_CATEGORY['sandboxing']).toBe('security');
     expect(SECTION_TO_CATEGORY['model-config']).toBe('config');
+  });
+
+  it('maps channels segments to channels category', () => {
+    expect(SECTION_TO_CATEGORY['channels']).toBe('channels');
+    expect(SECTION_TO_CATEGORY['channels-reference']).toBe('channels');
+  });
+
+  it('maps automation segments to automation category', () => {
+    expect(SECTION_TO_CATEGORY['headless']).toBe('automation');
+    expect(SECTION_TO_CATEGORY['scheduled-tasks']).toBe('automation');
+    expect(SECTION_TO_CATEGORY['web-scheduled-tasks']).toBe('automation');
+  });
+
+  it('maps remaining unmapped segments to correct categories', () => {
+    expect(SECTION_TO_CATEGORY['code-review']).toBe('ci-cd');
+    expect(SECTION_TO_CATEGORY['env-vars']).toBe('config');
+    expect(SECTION_TO_CATEGORY['permission-modes']).toBe('security');
+    expect(SECTION_TO_CATEGORY['platforms']).toBe('overview');
+    expect(SECTION_TO_CATEGORY['tools-reference']).toBe('cli');
+    expect(SECTION_TO_CATEGORY['voice-dictation']).toBe('interactive');
   });
 });
 

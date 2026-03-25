@@ -2,10 +2,10 @@
 
 /**
  * Canonical list of all documentation categories.
- * These are the 24 categories used for categorizing all Claude Code docs.
+ * These are the 26 categories used for categorizing all Claude Code docs.
  */
 export const KNOWN_CATEGORIES = new Set([
-  // Extension categories (9)
+  // Extension categories (10)
   'hooks',
   'skills',
   'commands',
@@ -13,9 +13,10 @@ export const KNOWN_CATEGORIES = new Set([
   'plugins',
   'plugin-marketplaces',
   'mcp',
+  'channels',
   'settings',
   'memory',
-  // General categories (15)
+  // General categories (16)
   'overview',
   'getting-started',
   'cli',
@@ -25,6 +26,7 @@ export const KNOWN_CATEGORIES = new Set([
   'providers',
   'ide',
   'ci-cd',
+  'automation',
   'desktop',
   'integrations',
   'config',
@@ -51,23 +53,28 @@ export const SECTION_TO_CATEGORY: Record<string, string> = {
   'discover-plugins': 'plugins',
   'plugin-marketplaces': 'plugin-marketplaces',
   'mcp': 'mcp',
+  'channels': 'channels',
+  'channels-reference': 'channels',
   'settings': 'settings',
   'server-managed-settings': 'settings',
   'memory': 'memory',
   'claude-md': 'memory',
-  // New categories
+  // General categories
   'overview': 'overview',
   'features-overview': 'overview',
   'how-claude-code-works': 'overview',
+  'platforms': 'overview',
   'quickstart': 'getting-started',
   'setup': 'getting-started',
   'cli-reference': 'cli',
+  'tools-reference': 'cli',
   'best-practices': 'best-practices',
   'common-workflows': 'best-practices',
   'interactive-mode': 'interactive',
   'fast-mode': 'interactive',
   'keybindings': 'interactive',
   'checkpointing': 'interactive',
+  'voice-dictation': 'interactive',
   'security': 'security',
   'authentication': 'security',
   'data-usage': 'security',
@@ -75,6 +82,7 @@ export const SECTION_TO_CATEGORY: Record<string, string> = {
   'iam': 'security',
   'legal-and-compliance': 'security',
   'permissions': 'security',
+  'permission-modes': 'security',
   'zero-data-retention': 'security',
   'amazon-bedrock': 'providers',
   'google-vertex-ai': 'providers',
@@ -85,8 +93,11 @@ export const SECTION_TO_CATEGORY: Record<string, string> = {
   'devcontainer': 'ide',
   'github-actions': 'ci-cd',
   'gitlab-ci-cd': 'ci-cd',
-  'headless': 'ci-cd',
-  'remote-control': 'ci-cd',
+  'code-review': 'ci-cd',
+  'headless': 'automation',
+  'scheduled-tasks': 'automation',
+  'web-scheduled-tasks': 'automation',
+  'remote-control': 'interactive',
   'desktop': 'desktop',
   'desktop-quickstart': 'desktop',
   'chrome': 'desktop',
@@ -99,6 +110,7 @@ export const SECTION_TO_CATEGORY: Record<string, string> = {
   'terminal-config': 'config',
   'output-styles': 'config',
   'statusline': 'config',
+  'env-vars': 'config',
   'analytics': 'operations',
   'costs': 'operations',
   'monitoring-usage': 'operations',
