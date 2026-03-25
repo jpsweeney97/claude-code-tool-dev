@@ -194,6 +194,15 @@ def _has_usable_epilogue_data(payload: dict | None) -> TypeGuard[dict]:
     return any(key in payload for key in keys_with_non_null_values)
 
 
+def _detect_truncation(text: str) -> bool:
+    """Detect whether synthesis text appears truncated.
+
+    Counts triple-backtick fence markers at line starts (same anchor as
+    _strip_fenced_blocks). An odd count indicates an unclosed fence.
+    """
+    return len(re.findall(r"^```", text, re.MULTILINE)) % 2 != 0
+
+
 def _parse_markdown_synthesis(text: str) -> tuple[dict, bool]:
     """Extract legacy markdown heading fields from synthesis text."""
     sections, truncated = _split_sections(text)
@@ -288,7 +297,6 @@ def parse_synthesis(text: str) -> dict:
     - booleans: False
     """
     payload, warnings = _parse_epilogue(text)
-    markdown_data, markdown_usable = _parse_markdown_synthesis(text)
 
     if _has_usable_epilogue_data(payload):
         return {
@@ -303,17 +311,21 @@ def parse_synthesis(text: str) -> dict:
             "convergence_reason_code": payload.get("convergence_reason_code"),
             "scope_breach_count": payload.get("scope_breach_count", 0),
             "termination_reason": payload.get("termination_reason"),
-            "parse_truncated": markdown_data["parse_truncated"],
+            "parse_truncated": _detect_truncation(text),
             "parse_failed": False,
+            "parse_fallback_used": False,
         }
 
+    # Lazy fallback — only parse markdown when epilogue failed
     if warnings:
         print(
             "epilogue missing or malformed, falling back to markdown parsing",
             file=sys.stderr,
         )
 
+    markdown_data, markdown_usable = _parse_markdown_synthesis(text)
     markdown_data["parse_failed"] = not markdown_usable
+    markdown_data["parse_fallback_used"] = True
     return markdown_data
 
 

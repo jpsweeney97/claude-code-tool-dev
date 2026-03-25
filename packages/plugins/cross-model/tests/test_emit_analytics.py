@@ -359,3 +359,52 @@ class TestDelegationOutcomeValidation:
         event = _make_delegation_event(exit_code=0, dispatched=False)
         with pytest.raises(ValueError, match="dispatched"):
             validate(event, "delegation_outcome")
+
+
+class TestLazyMarkdownFallback:
+    """Markdown fallback should only run when epilogue fails."""
+
+    def test_epilogue_present_skips_markdown_parse(self, monkeypatch):
+        from unittest.mock import MagicMock
+        import scripts.emit_analytics as ea
+
+        mock_md = MagicMock(return_value=({"parse_truncated": False}, True))
+        monkeypatch.setattr(ea, "_parse_markdown_synthesis", mock_md)
+
+        text = ('### Summary\n\n'
+                '```json\n<!-- pipeline-data -->\n'
+                '{"mode":"server_assisted","turn_count":3,"converged":true,'
+                '"resolved_count":2,"unresolved_count":0,"emerged_count":1,'
+                '"scout_count":0,"scope_breach_count":0,'
+                '"termination_reason":"convergence"}\n```')
+        ea.parse_synthesis(text)
+        mock_md.assert_not_called()
+
+    def test_epilogue_missing_triggers_markdown_parse(self, monkeypatch):
+        from unittest.mock import MagicMock
+        import scripts.emit_analytics as ea
+
+        original = ea._parse_markdown_synthesis
+        mock_md = MagicMock(side_effect=original)
+        monkeypatch.setattr(ea, "_parse_markdown_synthesis", mock_md)
+
+        text = '### Conversation Summary\n- **Turns:** 4\n- **Converged:** Yes\n'
+        ea.parse_synthesis(text)
+        mock_md.assert_called_once()
+
+    def test_parse_fallback_used_true_when_markdown(self):
+        from scripts.emit_analytics import parse_synthesis
+        text = '### Conversation Summary\n- **Turns:** 4\n- **Converged:** Yes\n'
+        result = parse_synthesis(text)
+        assert result.get("parse_fallback_used") is True
+
+    def test_parse_fallback_used_false_when_epilogue(self):
+        from scripts.emit_analytics import parse_synthesis
+        text = ('### Summary\n\n'
+                '```json\n<!-- pipeline-data -->\n'
+                '{"mode":"server_assisted","turn_count":3,"converged":true,'
+                '"resolved_count":2,"unresolved_count":0,"emerged_count":1,'
+                '"scout_count":0,"scope_breach_count":0,'
+                '"termination_reason":"convergence"}\n```')
+        result = parse_synthesis(text)
+        assert result.get("parse_fallback_used") is False
