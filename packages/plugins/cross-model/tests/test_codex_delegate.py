@@ -141,7 +141,7 @@ class TestCredentialScan:
         result = scan_text(phase_a["prompt"])
         assert result.action == "block"
 
-    @patch("scripts.codex_delegate.scan_text", side_effect=RuntimeError("regex engine failure"))
+    @patch("scripts.codex_delegate._check_tool_input", side_effect=RuntimeError("regex engine failure"))
     @patch("scripts.codex_delegate.append_log", return_value=True)
     @patch("scripts.codex_delegate.subprocess")
     def test_scanner_error_blocks_not_errors(
@@ -931,6 +931,32 @@ class TestNonStringPromptRejection:
         f.write_text(json.dumps({"prompt": ["AKIAIOSFODNN7EXAMPLE", "fix tests"]}))
         exit_code = run(f)
         assert exit_code == 1
+
+
+def test_credential_scan_uses_check_tool_input(monkeypatch, tmp_path):
+    """Step 4 credential scan routes through consultation_safety.check_tool_input."""
+    from unittest.mock import MagicMock
+    from scripts.consultation_safety import SafetyVerdict
+
+    mock_check = MagicMock(return_value=SafetyVerdict(action="allow", reason=None, tier=None))
+    # NOTE: monkeypatch target must match the import alias in codex_delegate.py.
+    # If the alias changes from _check_tool_input, this patch breaks silently.
+    monkeypatch.setattr("scripts.codex_delegate._check_tool_input", mock_check)
+    monkeypatch.setattr("scripts.codex_delegate._check_codex_version", lambda: None)
+    monkeypatch.setattr("scripts.codex_delegate._check_clean_tree", lambda: None)
+    monkeypatch.setattr("scripts.codex_delegate._check_secret_files", lambda: None)
+    monkeypatch.setattr("scripts.codex_delegate._resolve_repo_root", lambda: tmp_path)
+
+    input_file = tmp_path / "input.json"
+    input_file.write_text('{"prompt": "test prompt", "sandbox": "read-only"}')
+
+    # Will fail at subprocess stage but credential scan should have fired
+    import scripts.codex_delegate as delegate
+    delegate.run(input_file)
+
+    mock_check.assert_called_once()
+    payload = mock_check.call_args[0][0]
+    assert "prompt" in payload
 
 
 class TestEmitAnalyticsValidation:

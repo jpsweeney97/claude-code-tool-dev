@@ -35,17 +35,23 @@ from tempfile import TemporaryFile
 
 # Sibling imports (same scripts/ directory)
 if __package__:
-    from scripts.credential_scan import scan_text
     from scripts.emit_analytics import validate as _raw_validate
     from scripts.event_log import ts, append_log, session_id
     from scripts.event_schema import resolve_schema_version as _resolve_schema_version
+    from scripts.consultation_safety import (
+        check_tool_input as _check_tool_input,
+        DELEGATION_POLICY as _DELEGATION_POLICY,
+    )
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
-        from credential_scan import scan_text  # type: ignore[import-not-found,no-redef]
         from emit_analytics import validate as _raw_validate  # type: ignore[import-not-found,no-redef]
         from event_log import ts, append_log, session_id  # type: ignore[import-not-found,no-redef]
         from event_schema import resolve_schema_version as _resolve_schema_version  # type: ignore[import-not-found,no-redef]
+        from consultation_safety import (  # type: ignore[import-not-found,no-redef]
+            check_tool_input as _check_tool_input,
+            DELEGATION_POLICY as _DELEGATION_POLICY,
+        )
     except ModuleNotFoundError as exc:
         print(f"codex-delegate: fatal: cannot import sibling modules: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -605,13 +611,13 @@ def run(input_path: Path) -> int:
             raise DelegationError("validation failed: prompt must be string")
         if prompt and isinstance(prompt, str):
             try:
-                scan_result = scan_text(prompt)
+                verdict = _check_tool_input({"prompt": prompt}, _DELEGATION_POLICY)
             except Exception as scan_exc:
                 raise CredentialBlockError(
                     f"credential scan failed: {scan_exc}"
                 ) from scan_exc
-            if scan_result.action == "block":
-                raise CredentialBlockError(scan_result.reason or "credential detected")
+            if verdict.action == "block":
+                raise CredentialBlockError(verdict.reason or "credential detected")
 
         # Step 5 — Phase B: field validation
         validated = _validate_input(phase_a)
