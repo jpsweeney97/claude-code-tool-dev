@@ -13,6 +13,8 @@ import { parseSections } from './parser.js';
 import { readCache, readCacheIfFresh, writeCache, getDefaultCachePath } from './cache.js';
 import { extractContentPath } from './url-helpers.js';
 import { deriveCategory, getUnmappedSegments } from './frontmatter.js';
+import type { SourceKind, CorpusProvenance } from './trust.js';
+import type { LoaderDiagnostics } from './canary.js';
 
 /**
  * Default minimum number of sections required for content to be considered valid.
@@ -64,11 +66,15 @@ function resolveCachePath(override?: string): string {
 export interface LoadResult {
   files: MarkdownFile[];
   contentHash: string;
+  provenance: CorpusProvenance;
+  diagnostics: LoaderDiagnostics;
 }
 
 interface FetchResult {
   sections: ParsedSection[];
   contentHash: string;
+  sourceKind: SourceKind;
+  obtainedAt: number;
 }
 
 /**
@@ -125,18 +131,21 @@ export async function loadFromOfficial(
   forceRefresh = false,
 ): Promise<LoadResult> {
   const resolvedCachePath = resolveCachePath(cachePath);
-  const { sections, contentHash } = await fetchAndParse(url, resolvedCachePath, forceRefresh);
+  const { sections, contentHash, sourceKind, obtainedAt } = await fetchAndParse(url, resolvedCachePath, forceRefresh);
   const filtered = sections.filter((s) => s.content.trim().length > 0);
 
   // Parse diagnostics: count only Source:-anchored sections (exclude preamble pseudo-section)
   const sourceAnchoredCount = sections.filter(s => s.sourceUrl !== '').length;
-  const diagnostics = {
-    sourceLineCount: sourceAnchoredCount,
-    nonEmptySectionCount: filtered.length,
-  };
+
+  // Count overview sections (sections where deriveCategory returns 'overview')
+  const overviewSectionCount = sections.filter(s => {
+    const sourceKey = s.sourceUrl || s.title || '';
+    return deriveCategory(sourceKey) === 'overview';
+  }).length;
+
   console.error(
-    `Parse diagnostics: ${diagnostics.sourceLineCount} Source: lines, ` +
-    `${diagnostics.nonEmptySectionCount} non-empty sections`
+    `Parse diagnostics: ${sourceAnchoredCount} Source: lines, ` +
+    `${filtered.length} non-empty sections`
   );
 
   // Report unmapped URL segments (per-load, no module-level state)
@@ -157,8 +166,22 @@ export async function loadFromOfficial(
     console.warn(`Category: ${unmapped.size} unmapped URL segment(s): ${entries}`);
   }
 
+  // Build sorted unmapped segments: count desc, then name asc
+  const sortedUnmapped: Array<[string, number]> = [...unmapped.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
   return {
     contentHash,
+    provenance: { sourceKind, obtainedAt },
+    // sectionCount = pre-filter total (includes empty preamble pseudo-sections);
+    // nonEmptySectionCount = post-filter. Canary thresholds compare against sectionCount.
+    diagnostics: {
+      sourceAnchoredCount,
+      nonEmptySectionCount: filtered.length,
+      sectionCount: sections.length,
+      overviewSectionCount,
+      unmappedSegments: sortedUnmapped,
+    },
     files: filtered.map((s) => {
       const sourceKey = s.sourceUrl || s.title || '';
       const topic = s.title?.trim() || undefined;
@@ -188,6 +211,8 @@ async function fetchAndParse(
       return {
         sections: parseSections(fresh.content),
         contentHash: hashContent(fresh.content),
+        sourceKind: 'cached',
+        obtainedAt: Date.now() - fresh.age,
       };
     }
   }
@@ -207,7 +232,7 @@ async function fetchAndParse(
 
     const contentHash = hashContent(content);
     await writeCache(cachePath, content);
-    return { sections, contentHash };
+    return { sections, contentHash, sourceKind: 'fetched', obtainedAt: Date.now() };
   } catch (err: unknown) {
     // Only fall back to stale cache for expected operational errors.
     // Programmer errors (TypeError, RangeError, etc.) propagate immediately
@@ -246,6 +271,8 @@ async function fetchAndParse(
       return {
         sections: parseSections(cached.content),
         contentHash: hashContent(cached.content),
+        sourceKind: 'stale-fallback',
+        obtainedAt: Date.now() - cached.age,
       };
     }
 
