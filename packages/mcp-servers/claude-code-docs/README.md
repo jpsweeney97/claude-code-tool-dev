@@ -89,11 +89,11 @@ Return shape:
 | `results[].snippet` | string | Snippet best matching the query. |
 | `results[].category` | string | Derived category. |
 | `results[].source_file` | string | Source URL/path. |
-| `meta` | object | Index provenance information for the search response. |
+| `meta` | object | Index provenance attached to each search response. |
 | `meta.trust_mode` | string | Active trust mode: `official` or `unsafe`. |
-| `meta.source_kind` | string | How the index was loaded: `cached`, `fetched`, or `cold`. |
-| `meta.index_created_at` | string | ISO timestamp when the current index was built. |
-| `meta.corpus_age_ms` | integer | Milliseconds since the index was built. |
+| `meta.source_kind` | string or null | How content was obtained: `fetched`, `cached`, `stale-fallback`, or `bundled-snapshot`. Null if no corpus loaded. |
+| `meta.index_created_at` | string or null | ISO timestamp when the BM25 index was built. Null if not yet loaded. |
+| `meta.corpus_age_ms` | integer or null | Milliseconds since the corpus content was obtained (`Date.now() - corpus.obtainedAt`). Null if no corpus loaded. |
 | `error` | string | Present only on failure. |
 
 ### `reload_docs`
@@ -113,16 +113,17 @@ Return shape:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `state` | string | Current server state: `ready`, `loading`, `error`, or `uninitialized`. |
 | `trust_mode` | string | Active trust mode: `official` or `unsafe`. |
-| `source_url` | string | Configured documentation source URL. |
-| `source_kind` | string | How the index was loaded: `cached`, `fetched`, or `cold`. |
-| `index_created_at` | string or null | ISO timestamp when the current index was built. Null if not yet loaded. |
-| `corpus_age_ms` | integer or null | Milliseconds since the index was built. Null if not yet loaded. |
-| `chunk_count` | integer or null | Number of chunks in the active index. Null if not yet loaded. |
-| `canary_passed` | boolean or null | Whether the most recent canary evaluation passed. Null if not yet evaluated. |
-| `canary_failures` | string[] | List of canary check names that failed. Empty if all passed or not yet evaluated. |
-| `error` | string | Present only on failure. |
+| `docs_origin` | string | Hostname of the documentation source URL. |
+| `docs_url` | string | Full documentation source URL. |
+| `source_kind` | string or null | How content was obtained: `fetched`, `cached`, `stale-fallback`, or `bundled-snapshot`. Null if no corpus loaded. |
+| `index_created_at` | string or null | ISO timestamp when the BM25 index was built. Null if not yet loaded. |
+| `corpus_age_ms` | number or null | Milliseconds since corpus content was obtained. Null if no corpus loaded. |
+| `corpus_obtained_at` | string or null | ISO timestamp when corpus content was obtained. Null if no corpus loaded. |
+| `last_load_attempt_at` | string or null | ISO timestamp of the most recent load attempt. Null if never attempted. |
+| `last_load_error` | string or null | Error message from the most recent failed load. Null if last load succeeded. |
+| `warning_codes` | string[] | Active warning codes: `taxonomy_drift`, `parse_issues`, `section_count_drift`, `stale_corpus`. |
+| `is_loading` | boolean | Whether a load/reload is currently in progress. |
 
 ### `dump_index_metadata`
 Returns structured index metadata useful for debugging ingestion, category mapping, and chunk coverage without dumping the full corpus.
