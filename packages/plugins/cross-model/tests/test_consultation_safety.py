@@ -144,3 +144,56 @@ class TestCheckToolInput:
             {"prompt": "test", "bogus_field": "data"}, START_POLICY
         )
         assert "bogus_field" in verdict.unexpected_fields
+
+
+class TestDelegationPolicy:
+    """DELEGATION_POLICY scans only the prompt field for credential egress."""
+
+    def test_delegation_policy_exists(self):
+        from scripts.consultation_safety import DELEGATION_POLICY
+        assert DELEGATION_POLICY is not None
+
+    def test_delegation_policy_content_fields(self):
+        from scripts.consultation_safety import DELEGATION_POLICY
+        assert DELEGATION_POLICY.content_fields == {"prompt"}
+
+    def test_delegation_policy_expected_fields(self):
+        from scripts.consultation_safety import DELEGATION_POLICY
+        assert "model" in DELEGATION_POLICY.expected_fields
+        assert "sandbox" in DELEGATION_POLICY.expected_fields
+        assert "reasoning_effort" in DELEGATION_POLICY.expected_fields
+        assert "full_auto" in DELEGATION_POLICY.expected_fields
+
+    def test_delegation_policy_does_not_scan_unknown_fields(self):
+        """Unknown fields are rejected by validation, not dispatched to Codex.
+        Scanning them conflates 'unexpected input' with 'egress risk'."""
+        from scripts.consultation_safety import DELEGATION_POLICY
+        assert DELEGATION_POLICY.scan_unknown_fields is False
+
+    def test_delegation_policy_blocks_credential_in_prompt(self):
+        from scripts.consultation_safety import DELEGATION_POLICY, check_tool_input
+        result = check_tool_input(
+            {"prompt": "AKIAIOSFODNN7EXAMPLE", "model": "o3-pro", "sandbox": "read-only"},
+            DELEGATION_POLICY,
+        )
+        assert result.action == "block"
+
+    def test_delegation_policy_allows_clean_prompt(self):
+        from scripts.consultation_safety import DELEGATION_POLICY, check_tool_input
+        result = check_tool_input(
+            {"prompt": "safe prompt", "model": "o3-pro", "sandbox": "read-only"},
+            DELEGATION_POLICY,
+        )
+        assert result.action == "allow"
+
+
+class TestTierRankExport:
+    """TIER_RANK is a public constant for use by codex_guard.py."""
+
+    def test_tier_rank_exported(self):
+        from scripts.consultation_safety import TIER_RANK
+        assert isinstance(TIER_RANK, dict)
+
+    def test_tier_rank_ordering(self):
+        from scripts.consultation_safety import TIER_RANK
+        assert TIER_RANK["strict"] < TIER_RANK["contextual"]

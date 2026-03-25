@@ -4,7 +4,8 @@ Extracted from codex_guard.py to serve both the PreToolUse hook and the
 codex_consult.py adapter. This module owns:
 - ToolScanPolicy: controls which tool_input fields are scanned
 - extract_strings: policy-driven traversal of tool_input dicts
-- Policy constants: START_POLICY, REPLY_POLICY
+- Policy constants: START_POLICY, REPLY_POLICY, DELEGATION_POLICY
+- TIER_RANK: public constant for tier ordering (importable by codex_guard.py)
 
 This module does NOT own:
 - Hook dispatch logic (stays in codex_guard.py)
@@ -57,6 +58,12 @@ REPLY_POLICY = ToolScanPolicy(
         "conversationId",
     },
     content_fields={"prompt", "base-instructions", "developer-instructions", "config"},
+)
+
+DELEGATION_POLICY = ToolScanPolicy(
+    expected_fields={"model", "sandbox", "reasoning_effort", "full_auto"},
+    content_fields={"prompt"},
+    scan_unknown_fields=False,
 )
 
 
@@ -140,7 +147,7 @@ def extract_strings(tool_input: object, policy: ToolScanPolicy) -> tuple[list[st
 
 
 _ACTION_RANK = {"block": 0, "shadow": 1, "allow": 2}
-_TIER_RANK = {"strict": 0, "contextual": 1}
+TIER_RANK = {"strict": 0, "contextual": 1}
 
 
 @dataclass(frozen=True)
@@ -172,7 +179,7 @@ def check_tool_input(tool_input: object, policy: ToolScanPolicy) -> SafetyVerdic
             worst_reason = result.reason
             worst_tier = result.tier
         elif result_rank == current_rank and result.action == "block":
-            if _TIER_RANK.get(result.tier or "", 99) < _TIER_RANK.get(worst_tier or "", 99):
+            if TIER_RANK.get(result.tier or "", 99) < TIER_RANK.get(worst_tier or "", 99):
                 worst_reason = result.reason
                 worst_tier = result.tier
 
