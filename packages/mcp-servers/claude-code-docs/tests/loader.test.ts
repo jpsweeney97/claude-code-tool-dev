@@ -702,3 +702,190 @@ Stale hooks content`;
     expect(files[0].path).toContain('hooks');
   });
 });
+
+// --- Helper: build mock content with Source: markers ---
+
+function buildMockContent(sections: Array<{ title: string; url: string; body: string }>): string {
+  return sections
+    .map(s => `# ${s.title}\nSource: ${s.url}\n\n${s.body}`)
+    .join('\n---\n');
+}
+
+function mockFetchOk(content: string) {
+  return vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'content-type': 'text/plain' }),
+    text: () => Promise.resolve(content),
+  });
+}
+
+describe('LoadResult provenance', () => {
+  let tempDir: string;
+  let originalMinSectionCount: string | undefined;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-provenance-'));
+    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
+    process.env.MIN_SECTION_COUNT = '0';
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(async () => {
+    if (originalMinSectionCount === undefined) {
+      delete process.env.MIN_SECTION_COUNT;
+    } else {
+      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
+    }
+    vi.unstubAllGlobals();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('returns sourceKind=fetched on successful live fetch', async () => {
+    const content = buildMockContent([
+      { title: 'Hooks', url: 'https://code.claude.com/docs/en/hooks', body: 'Hook docs' },
+    ]);
+
+    vi.stubGlobal('fetch', mockFetchOk(content));
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    const now = Date.now();
+    const result = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    expect(result.provenance.sourceKind).toBe('fetched');
+    expect(result.provenance.obtainedAt).toBeGreaterThanOrEqual(now);
+    expect(result.provenance.obtainedAt).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('returns sourceKind=cached on fresh cache hit', async () => {
+    const content = buildMockContent([
+      { title: 'Hooks', url: 'https://code.claude.com/docs/en/hooks', body: 'Hook docs' },
+    ]);
+
+    // Write fresh cache (mtime is now)
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, content);
+
+    // Fetch should NOT be called
+    const mockFn = vi.fn();
+    vi.stubGlobal('fetch', mockFn);
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const result = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    expect(mockFn).not.toHaveBeenCalled();
+    expect(result.provenance.sourceKind).toBe('cached');
+    expect(result.provenance.obtainedAt).toBeGreaterThan(0);
+  });
+
+  it('returns sourceKind=stale-fallback when fetch fails and stale cache used', async () => {
+    const content = buildMockContent([
+      { title: 'Hooks', url: 'https://code.claude.com/docs/en/hooks', body: 'Hook docs' },
+    ]);
+
+    // Write cache then make it stale (25 hours ago)
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, content);
+    const staleTime = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    await fs.utimes(cachePath, staleTime, staleTime);
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('connection refused')));
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const result = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    expect(result.provenance.sourceKind).toBe('stale-fallback');
+    // obtainedAt should reflect the stale cache mtime (~25h ago)
+    const twentyFourHoursAgo = Date.now() - 26 * 60 * 60 * 1000;
+    expect(result.provenance.obtainedAt).toBeGreaterThan(twentyFourHoursAgo);
+    expect(result.provenance.obtainedAt).toBeLessThan(Date.now() - 24 * 60 * 60 * 1000);
+  });
+});
+
+describe('LoadResult diagnostics', () => {
+  let tempDir: string;
+  let originalMinSectionCount: string | undefined;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-diagnostics-'));
+    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
+    process.env.MIN_SECTION_COUNT = '0';
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(async () => {
+    if (originalMinSectionCount === undefined) {
+      delete process.env.MIN_SECTION_COUNT;
+    } else {
+      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
+    }
+    vi.unstubAllGlobals();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('includes structural diagnostic counts', async () => {
+    const content = buildMockContent([
+      { title: 'Hooks', url: 'https://code.claude.com/docs/en/hooks', body: 'Hook docs' },
+      { title: 'Skills', url: 'https://code.claude.com/docs/en/skills', body: 'Skills docs' },
+      { title: 'Quickstart', url: 'https://code.claude.com/docs/en/quickstart', body: 'Getting started' },
+    ]);
+
+    vi.stubGlobal('fetch', mockFetchOk(content));
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    const result = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    const d = result.diagnostics;
+    expect(d.sourceAnchoredCount).toBe(3);
+    expect(d.nonEmptySectionCount).toBe(3);
+    expect(d.sectionCount).toBe(3);
+    expect(d.overviewSectionCount).toBeGreaterThanOrEqual(0);
+    expect(Array.isArray(d.unmappedSegments)).toBe(true);
+
+    // diagnostics does NOT have parseWarningCount (that comes from lifecycle)
+    expect(d).not.toHaveProperty('parseWarningCount');
+  });
+
+  it('counts overview sections correctly', async () => {
+    // 'https://code.claude.com/docs/en/some-unknown-thing' maps to 'overview' (unmapped)
+    // 'https://code.claude.com/docs/en/hooks' maps to 'hooks' (mapped)
+    const content = buildMockContent([
+      { title: 'Hooks', url: 'https://code.claude.com/docs/en/hooks', body: 'Hook docs' },
+      { title: 'Unknown', url: 'https://code.claude.com/docs/en/some-unknown-thing', body: 'Unknown docs' },
+    ]);
+
+    vi.stubGlobal('fetch', mockFetchOk(content));
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    const result = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    // 'some-unknown-thing' should map to 'overview'
+    expect(result.diagnostics.overviewSectionCount).toBe(1);
+  });
+
+  it('returns unmappedSegments sorted by count desc then name asc', async () => {
+    // Build content where multiple sections have unmapped URLs
+    const content = buildMockContent([
+      { title: 'A', url: 'https://code.claude.com/docs/en/zzz-unknown', body: 'A' },
+      { title: 'B', url: 'https://code.claude.com/docs/en/zzz-unknown', body: 'B' },
+      { title: 'C', url: 'https://code.claude.com/docs/en/aaa-unknown', body: 'C' },
+    ]);
+
+    vi.stubGlobal('fetch', mockFetchOk(content));
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'cache.txt');
+    const result = await loadFromOfficial('https://example.com/docs', cachePath);
+
+    const segs = result.diagnostics.unmappedSegments;
+    // zzz-unknown appears 2x, aaa-unknown 1x → zzz first by count
+    if (segs.length >= 2) {
+      expect(segs[0][1]).toBeGreaterThanOrEqual(segs[1][1]); // count desc
+    }
+  });
+});

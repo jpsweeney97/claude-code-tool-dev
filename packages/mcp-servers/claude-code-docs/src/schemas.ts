@@ -1,6 +1,7 @@
 // src/schemas.ts
 import { z } from 'zod';
 import { KNOWN_CATEGORIES, CATEGORY_ALIASES } from './categories.js';
+import { SearchMetaSchema } from './status.js';
 
 const CATEGORY_VALUES = [...KNOWN_CATEGORIES] as const;
 
@@ -38,4 +39,5 @@ export const SearchOutputSchema = z.object({
     }),
   ),
   error: z.string().optional().describe('Error message if search failed'),
+  meta: SearchMetaSchema.optional().describe('Provenance and trust metadata for the search index'),
 });

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { TrustMode } from './trust.js';
 
 const DEFAULT_DOCS_URL = 'https://code.claude.com/docs/llms-full.txt';
 const DEFAULT_RETRY_INTERVAL_MS = 60000;
@@ -8,6 +9,7 @@ const MAX_RETRY_INTERVAL_MS = 600000;
 export interface AppConfig {
   docsUrl: string;
   retryIntervalMs: number;
+  trustMode: TrustMode;
 }
 
 function formatInput(input: unknown): string {
@@ -48,7 +50,23 @@ function parseOptionalInt(
   return value;
 }
 
-function parseDocsUrl(env: NodeJS.ProcessEnv): string {
+function parseTrustMode(env: NodeJS.ProcessEnv): TrustMode {
+  const raw = env.DOCS_TRUST_MODE?.trim().toLowerCase();
+  if (!raw || raw.length === 0) return 'official';
+  if (raw === 'official' || raw === 'unsafe') return raw;
+  fail('parse env', 'DOCS_TRUST_MODE must be "official" or "unsafe"', raw);
+}
+
+function validateOfficialUrl(url: URL): void {
+  if (url.origin !== 'https://code.claude.com') {
+    fail('parse env', 'Official mode requires https://code.claude.com origin', url.toString());
+  }
+  if (!url.pathname.startsWith('/docs/')) {
+    fail('parse env', 'Official mode requires /docs/ path prefix', url.toString());
+  }
+}
+
+function parseDocsUrl(env: NodeJS.ProcessEnv, trustMode: TrustMode): string {
   const raw = env.DOCS_URL?.trim();
   const candidate = raw && raw.length > 0 ? raw : DEFAULT_DOCS_URL;
 
@@ -61,6 +79,10 @@ function parseDocsUrl(env: NodeJS.ProcessEnv): string {
 
   if (parsed.protocol !== 'https:') {
     fail('parse env', 'DOCS_URL must use https', candidate);
+  }
+
+  if (trustMode === 'official') {
+    validateOfficialUrl(parsed);
   }
 
   return parsed.toString();
@@ -81,7 +103,8 @@ function validateCachePath(env: NodeJS.ProcessEnv): void {
  * The server fails fast on invalid values instead of silently falling back.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const docsUrl = parseDocsUrl(env);
+  const trustMode = parseTrustMode(env);
+  const docsUrl = parseDocsUrl(env, trustMode);
   const retryIntervalMs = parseOptionalInt(env, 'RETRY_INTERVAL_MS', {
     min: MIN_RETRY_INTERVAL_MS,
     max: MAX_RETRY_INTERVAL_MS,
@@ -100,5 +123,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     docsUrl,
     retryIntervalMs,
+    trustMode,
   };
 }

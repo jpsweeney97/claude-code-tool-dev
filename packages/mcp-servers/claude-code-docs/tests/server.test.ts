@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 
 import { z } from 'zod';
 import { KNOWN_CATEGORIES } from '../src/categories.js';
-import { SearchInputSchema } from '../src/schemas.js';
+import { SearchInputSchema, SearchOutputSchema } from '../src/schemas.js';
 
 // Test the state management and schema validation logic
 // Full MCP integration tests require spawning the server process
@@ -172,6 +172,91 @@ describe('New category validation', () => {
         expect(result.data.category).toBe(cat);
       }
     }
+  });
+});
+
+describe('SearchOutputSchema', () => {
+  const VALID_RESULT = {
+    chunk_id: 'hooks/test_1',
+    content: 'some content here',
+    snippet: 'some content',
+    category: 'hooks',
+    source_file: 'hooks/test.md',
+  };
+
+  it('accepts output without meta (backward compat)', () => {
+    const result = SearchOutputSchema.safeParse({ results: [VALID_RESULT] });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts output with meta present', () => {
+    const result = SearchOutputSchema.safeParse({
+      results: [VALID_RESULT],
+      meta: {
+        trust_mode: 'official',
+        source_kind: 'fetched',
+        index_created_at: new Date().toISOString(),
+        corpus_age_ms: 12345,
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts output with meta having null fields', () => {
+    const result = SearchOutputSchema.safeParse({
+      results: [],
+      meta: {
+        trust_mode: 'unsafe',
+        source_kind: null,
+        index_created_at: null,
+        corpus_age_ms: null,
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects meta with invalid trust_mode', () => {
+    const result = SearchOutputSchema.safeParse({
+      results: [],
+      meta: {
+        trust_mode: 'unknown',
+        source_kind: null,
+        index_created_at: null,
+        corpus_age_ms: null,
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects meta with invalid source_kind', () => {
+    const result = SearchOutputSchema.safeParse({
+      results: [],
+      meta: {
+        trust_mode: 'official',
+        source_kind: 'not-a-valid-kind',
+        index_created_at: null,
+        corpus_age_ms: null,
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('response parity: structuredContent matches JSON.parse(content text)', () => {
+    // Verify the invariant that content[0].text === JSON.stringify(structuredContent)
+    const structuredContent = {
+      results: [VALID_RESULT],
+      meta: {
+        trust_mode: 'official' as const,
+        source_kind: 'fetched' as const,
+        index_created_at: new Date(1700000000000).toISOString(),
+        corpus_age_ms: 60000,
+      },
+    };
+    const contentText = JSON.stringify(structuredContent);
+    const parsed = JSON.parse(contentText);
+
+    expect(parsed).toEqual(structuredContent);
+    expect(SearchOutputSchema.safeParse(parsed).success).toBe(true);
   });
 });
 

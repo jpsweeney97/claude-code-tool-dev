@@ -30,7 +30,8 @@ const CategoryMetadataSchema = z.object({
 
 export const DumpIndexMetadataOutputSchema = z.object({
   index_version: z.string(),
-  built_at: z.string(),
+  index_created_at: z.string(),
+  built_at: z.string().describe('DEPRECATED: Response generation time. Use index_created_at for actual index build time.'),
   docs_epoch: z.string().nullable(),
   categories: z.array(CategoryMetadataSchema),
 });
@@ -163,10 +164,12 @@ const REVERSE_ALIASES = buildReverseAliases();
  *
  * @param index - The current BM25 index
  * @param contentHash - Content hash from the loader (docs_epoch); null when index is empty
+ * @param indexCreatedAt - Unix timestamp (ms) when the index was built; null falls back to now
  */
 export function buildMetadataResponse(
   index: BM25Index,
   contentHash: string | null,
+  indexCreatedAt: number | null = null,
 ): DumpIndexMetadataOutput {
   // Group chunks by category
   const categoryMap = new Map<string, Chunk[]>();
@@ -205,6 +208,7 @@ export function buildMetadataResponse(
 
   return {
     index_version: String(INDEX_FORMAT_VERSION),
+    index_created_at: new Date(indexCreatedAt ?? Date.now()).toISOString(),
     built_at: new Date().toISOString(),
     docs_epoch: contentHash,
     categories,
