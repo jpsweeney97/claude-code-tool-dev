@@ -209,6 +209,24 @@ describe('SerializedIndex v4 schema', () => {
     expect(serialized.compatibility.ingestion).toBe(INGESTION_VERSION);
   });
 
+  it('uses provided indexCreatedAt instead of Date.now()', () => {
+    const chunks = [makeChunk('ts-1', 'timestamp test', ['timestamp', 'test'])];
+    const index = buildBM25Index(chunks);
+    const preserved = 1700000000000;
+    const ctx = makeSerializeContext({ indexCreatedAt: preserved });
+    const serialized = serializeIndex(index, 'ts-hash', ctx);
+    expect(serialized.index.createdAt).toBe(preserved);
+  });
+
+  it('defaults to recent timestamp when indexCreatedAt omitted', () => {
+    const chunks = [makeChunk('ts-2', 'default test', ['default', 'test'])];
+    const index = buildBM25Index(chunks);
+    const before = Date.now();
+    const ctx = makeSerializeContext();
+    const serialized = serializeIndex(index, 'ts-hash', ctx);
+    expect(serialized.index.createdAt).toBeGreaterThanOrEqual(before);
+  });
+
   it('round-trips through serialize/deserialize/parse', () => {
     const chunks = [
       makeChunk('rt-1', 'round trip test', ['round', 'trip', 'test']),

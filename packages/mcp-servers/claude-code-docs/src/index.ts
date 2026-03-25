@@ -70,7 +70,7 @@ async function main() {
           trustMode: serverState.getTrustMode(),
           docsUrl: serverState.getDocsUrl(),
           corpus: serverState.getCorpusProvenance(),
-          index: idx ? { createdAt: serverState.getLastLoadAttempt() } : null,
+          index: idx ? { createdAt: serverState.getIndexCreatedAt()! } : null,
           lastLoadAttemptAt: serverState.getLastLoadAttempt() || null,
           lastLoadError: serverState.getLoadError(),
           warningCodes: serverState.getEvaluation()?.warnings.map(w => w.code) ?? [],
@@ -144,13 +144,12 @@ async function main() {
     },
     async () => {
       const corpusProvenance = serverState.getCorpusProvenance();
-      const lastLoadAttempt = serverState.getLastLoadAttempt();
       const status = buildRuntimeStatus({
         trustMode: serverState.getTrustMode(),
         docsUrl: serverState.getDocsUrl(),
         corpus: corpusProvenance,
-        index: serverState.getIndex() !== null ? { createdAt: lastLoadAttempt } : null,
-        lastLoadAttemptAt: lastLoadAttempt || null,
+        index: serverState.getIndex() !== null ? { createdAt: serverState.getIndexCreatedAt()! } : null,
+        lastLoadAttemptAt: serverState.getLastLoadAttempt() || null,
         lastLoadError: serverState.getLoadError(),
         warningCodes: serverState.getEvaluation()?.warnings.map(w => w.code) ?? [],
         isLoading: serverState.isLoading(),

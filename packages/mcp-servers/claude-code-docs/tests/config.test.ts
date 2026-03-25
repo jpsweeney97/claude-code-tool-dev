@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { loadConfig } from '../src/config.js';
-import type { TrustMode } from '../src/trust.js';
 
 function makeEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   return {
@@ -86,7 +85,13 @@ describe('trust mode', () => {
   it('official mode rejects non-code.claude.com origin', () => {
     expect(() =>
       loadConfig(makeEnv({ DOCS_URL: 'https://evil.com/docs/llms-full.txt' })),
-    ).toThrow(/Official mode requires code.claude.com/);
+    ).toThrow(/Official mode requires.*code\.claude\.com/);
+  });
+
+  it('official mode rejects non-standard port', () => {
+    expect(() =>
+      loadConfig(makeEnv({ DOCS_URL: 'https://code.claude.com:8443/docs/llms-full.txt' })),
+    ).toThrow(/Official mode requires.*code\.claude\.com/);
   });
 
   it('official mode rejects non-/docs/ path', () => {

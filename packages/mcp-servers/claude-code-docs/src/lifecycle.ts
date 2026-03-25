@@ -288,6 +288,7 @@ export class ServerState {
               warnings: evalResult.warnings,
               metrics: evalResult.metrics,
             },
+            indexCreatedAt: parsed!.index.createdAt,
           });
           await this.deps.writeCacheFn(indexCachePath, serialized);
           console.error('Cache updated (canary replay)');
@@ -336,6 +337,7 @@ export class ServerState {
               warnings: parsed!.evaluation.warnings,
               metrics: parsed!.evaluation.metrics,
             },
+            indexCreatedAt: parsed!.index.createdAt,
           });
           await this.deps.writeCacheFn(indexCachePath, serialized);
           console.error('Cache updated (provenance refresh)');

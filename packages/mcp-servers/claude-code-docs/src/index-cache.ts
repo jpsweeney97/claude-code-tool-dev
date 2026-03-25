@@ -142,6 +142,8 @@ export interface SerializeContext {
     warnings: CorpusWarning[];
     metrics: CanaryMetrics;
   };
+  /** Preserved index build time. Omit to use Date.now() (fresh rebuild). */
+  indexCreatedAt?: number;
 }
 
 // ---- Zod schemas ----
@@ -273,7 +275,7 @@ export function serializeIndex(
     },
 
     index: {
-      createdAt: Date.now(),
+      createdAt: context.indexCreatedAt ?? Date.now(),
       avgDocLength: index.avgDocLength,
       chunkCount: index.chunks.length,
     },

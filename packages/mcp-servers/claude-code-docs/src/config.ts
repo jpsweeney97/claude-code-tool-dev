@@ -58,8 +58,8 @@ function parseTrustMode(env: NodeJS.ProcessEnv): TrustMode {
 }
 
 function validateOfficialUrl(url: URL): void {
-  if (url.hostname !== 'code.claude.com') {
-    fail('parse env', 'Official mode requires code.claude.com origin', url.toString());
+  if (url.origin !== 'https://code.claude.com') {
+    fail('parse env', 'Official mode requires https://code.claude.com origin', url.toString());
   }
   if (!url.pathname.startsWith('/docs/')) {
     fail('parse env', 'Official mode requires /docs/ path prefix', url.toString());
