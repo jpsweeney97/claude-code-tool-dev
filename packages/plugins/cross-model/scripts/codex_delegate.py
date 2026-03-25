@@ -617,7 +617,11 @@ def run(input_path: Path) -> int:
             except _ToolInputLimitExceeded:
                 # Large prompts exceed the 256 KiB char cap in extract_strings.
                 # The prior scan_text path had no size gate — allow to preserve parity.
-                pass
+                # Prompts exceeding this cap bypass credential scanning entirely.
+                print(
+                    "codex-delegate: credential scan skipped: prompt exceeds char cap",
+                    file=sys.stderr,
+                )
             except Exception as scan_exc:
                 raise CredentialBlockError(
                     f"credential scan failed: {scan_exc}"

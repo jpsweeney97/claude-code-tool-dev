@@ -9,8 +9,6 @@ import json
 import re
 from pathlib import Path
 
-import pytest
-
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 _MCP_JSON = _PLUGIN_ROOT / ".mcp.json"
 _PLUGIN_JSON = _PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
@@ -122,6 +120,6 @@ class TestRawCodexExecGuardrail:
                 if not self._ADAPTER_DISCUSSION.search(line):
                     violations.append(f"{path.relative_to(_PLUGIN_ROOT)}: {line.strip()!r:.120}")
         assert not violations, (
-            f"Raw 'codex exec' instructions found in deny-listed files:\n"
+            "Raw 'codex exec' instructions found in deny-listed files:\n"
             + "\n".join(f"  - {v}" for v in violations)
         )

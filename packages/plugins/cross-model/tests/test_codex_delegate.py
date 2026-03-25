@@ -980,10 +980,11 @@ def test_large_prompt_not_blocked_by_char_cap(monkeypatch, tmp_path):
     input_file.write_text('{"prompt": "x" , "sandbox": "read-only"}')
 
     import scripts.codex_delegate as delegate
-    # Should NOT raise CredentialBlockError — large prompt is allowed through
+    # Should NOT raise CredentialBlockError — large prompt is allowed through.
+    # run() returns an int exit code; reaching this line without raising proves
+    # ToolInputLimitExceeded was caught and did not become CredentialBlockError.
     result = delegate.run(input_file)
-    # Will fail at a later step (subprocess), but NOT at credential scan
-    assert result != 0 or result == 0  # just verify it didn't raise CredentialBlockError
+    assert isinstance(result, int)
 
 
 class TestEmitAnalyticsValidation:

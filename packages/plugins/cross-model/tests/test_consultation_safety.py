@@ -197,3 +197,17 @@ class TestTierRankExport:
     def test_tier_rank_ordering(self):
         from scripts.consultation_safety import TIER_RANK
         assert TIER_RANK["strict"] < TIER_RANK["contextual"]
+
+
+class TestDelegationPolicyFieldSync:
+    """DELEGATION_POLICY fields must stay in sync with codex_delegate._KNOWN_FIELDS."""
+
+    def test_policy_covers_known_fields(self):
+        from scripts.consultation_safety import DELEGATION_POLICY
+        from scripts.codex_delegate import _KNOWN_FIELDS
+
+        policy_fields = DELEGATION_POLICY.expected_fields | DELEGATION_POLICY.content_fields
+        assert policy_fields == _KNOWN_FIELDS, (
+            f"DELEGATION_POLICY fields {policy_fields} != "
+            f"codex_delegate._KNOWN_FIELDS {_KNOWN_FIELDS}"
+        )
