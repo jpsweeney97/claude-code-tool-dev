@@ -132,6 +132,10 @@ export class ServerState {
     return this.trustMode;
   }
 
+  getDocsUrl(): string {
+    return this.docsUrl;
+  }
+
   getLastLoadAttempt(): number {
     return this.lastLoadAttempt;
   }

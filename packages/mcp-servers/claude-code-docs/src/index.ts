@@ -17,6 +17,8 @@ import { ServerState } from './lifecycle.js';
 import { SearchInputSchema, SearchOutputSchema } from './schemas.js';
 import { buildMetadataResponse, DumpIndexMetadataOutputSchema } from './dump-index-metadata.js';
 import { loadConfig } from './config.js';
+import { evaluateCanaries } from './canary.js';
+import { buildRuntimeStatus, projectSearchMeta, RuntimeStatusSchema } from './status.js';
 
 async function main() {
   const config = loadConfig();
@@ -31,8 +33,10 @@ async function main() {
     serializeIndexFn: serializeIndex,
     deserializeIndexFn: deserializeIndex,
     parseSerializedIndexFn: parseSerializedIndex,
+    evaluateCanariesFn: evaluateCanaries,
     docsUrl: config.docsUrl,
     retryIntervalMs: config.retryIntervalMs,
+    trustMode: config.trustMode,
   });
 
   const server = new McpServer({
@@ -62,9 +66,21 @@ async function main() {
 
       try {
         const results = search(idx, query, limit, category);
+        const status = buildRuntimeStatus({
+          trustMode: serverState.getTrustMode(),
+          docsUrl: serverState.getDocsUrl(),
+          corpus: serverState.getCorpusProvenance(),
+          index: idx ? { createdAt: serverState.getLastLoadAttempt() } : null,
+          lastLoadAttemptAt: serverState.getLastLoadAttempt() || null,
+          lastLoadError: serverState.getLoadError(),
+          warningCodes: serverState.getEvaluation()?.warnings.map(w => w.code) ?? [],
+          isLoading: serverState.isLoading(),
+        });
+        const meta = projectSearchMeta(status);
+        const structuredContent = { results, meta };
         return {
-          content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }],
-          structuredContent: { results },
+          content: [{ type: 'text' as const, text: JSON.stringify(structuredContent) }],
+          structuredContent,
         };
       } catch (err) {
         console.error('Search error:', err);
@@ -113,6 +129,35 @@ async function main() {
             }`,
           },
         ],
+      };
+    },
+  );
+
+  server.registerTool(
+    'get_status',
+    {
+      title: 'Get Server Status',
+      description:
+        'Get current status of the claude-code-docs server: trust mode, documentation source, index age, and any active warnings.',
+      inputSchema: z.object({}),
+      outputSchema: RuntimeStatusSchema,
+    },
+    async () => {
+      const corpusProvenance = serverState.getCorpusProvenance();
+      const lastLoadAttempt = serverState.getLastLoadAttempt();
+      const status = buildRuntimeStatus({
+        trustMode: serverState.getTrustMode(),
+        docsUrl: serverState.getDocsUrl(),
+        corpus: corpusProvenance,
+        index: serverState.getIndex() !== null ? { createdAt: lastLoadAttempt } : null,
+        lastLoadAttemptAt: lastLoadAttempt || null,
+        lastLoadError: serverState.getLoadError(),
+        warningCodes: serverState.getEvaluation()?.warnings.map(w => w.code) ?? [],
+        isLoading: serverState.isLoading(),
+      });
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(status) }],
+        structuredContent: status,
       };
     },
   );
