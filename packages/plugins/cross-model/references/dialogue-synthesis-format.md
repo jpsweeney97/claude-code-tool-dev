@@ -152,8 +152,6 @@ After the markdown synthesis, emit a fenced JSON block with structured fields fo
 | `unresolved_count` | int | From synthesis checkpoint |
 | `emerged_count` | int | From synthesis checkpoint |
 | `scope_breach_count` | int | 0 unless scope breach occurred |
-| `ccdi` | object | CCDI diagnostics. Schema varies by `ccdi.status` — see [ccdi-dialogue-protocol.md](ccdi-dialogue-protocol.md) or emit `{"status": "unavailable", "phase": "initial_only"}` when CCDI is unavailable. |
-| `ccdi_trace` | list or null | Per-turn CCDI trace entries. Present only when `ccdi_debug` is `true`. `null` otherwise. |
 
 ```json
 <!-- pipeline-data -->
@@ -168,9 +166,7 @@ After the markdown synthesis, emit a fenced JSON block with structured fields fo
   "resolved_count": 0,
   "unresolved_count": 0,
   "emerged_count": 0,
-  "scope_breach_count": 0,
-  "ccdi": {"status": "unavailable", "phase": "initial_only"},
-  "ccdi_trace": null
+  "scope_breach_count": 0
 }
 ```
 

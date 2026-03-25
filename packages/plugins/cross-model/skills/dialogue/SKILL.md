@@ -158,22 +158,7 @@ Assumptions:
 
 ### Step 2: Launch context gatherers
 
-Launch agents **in parallel** via the Task tool with a 120-second timeout each. This includes the existing code/falsifier gatherers plus (conditionally) the CCDI gatherer.
-
-#### CCDI Pre-Dispatch Gate
-
-Before launching gatherers, check whether CCDI should run:
-
-1. **Capability detection:** Check if `mcp__claude-code-docs__search_docs` is available. If unavailable, skip CCDI.
-2. **Classification:** Write prompt to temp, run:
-   ```bash
-   python -m scripts.topic_inventory classify --text-file <temp> --inventory data/topic_inventory.json
-   ```
-3. **Threshold check** (hardcoded agent gate — do NOT read `ccdi_config.json`):
-   - **Dispatch** if: 1+ high-confidence topic OR 2+ medium-confidence in same family.
-   - **Skip** otherwise.
-
-If threshold met, include **Gatherer C (ccdi-gatherer)** in the parallel launch below.
+Launch agents **in parallel** via the Task tool with a 120-second timeout each.
 
 **Gatherer A (code explorer):**
 ```
@@ -197,19 +182,7 @@ Task(
 )
 ```
 
-**Gatherer C (ccdi-gatherer) — only if CCDI threshold met:**
-```
-Task(
-  subagent_type: "cross-model:ccdi-gatherer",
-  description: "Search Claude Code docs for classified topics",
-  prompt: "classified_topics: {resolved_topics_json}\n\ninventory_path: data/topic_inventory.json",
-  timeout: 120000
-)
-```
-
-Launch Gatherer C in parallel with A and B. If threshold was not met, omit Gatherer C.
-
-**Timeout handling:** If a gatherer times out (120s), treat as 0 parseable lines. Proceed to the low-output retry in Step 3. For Gatherer C (ccdi-gatherer), timeout means no CCDI content — proceed without `ccdi_seed`.
+**Timeout handling:** If a gatherer times out (120s), treat as 0 parseable lines. Proceed to the low-output retry in Step 3.
 
 ### Learning retrieval (§17)
 
@@ -318,9 +291,6 @@ Store this value for use by Step 4b (reason evaluation) and Step 7 (analytics em
 {learning_entries from retrieval step, if non-empty}
 
 ## Material
-### Claude Code Extension Reference
-{ccdi-gatherer rendered markdown output, if non-empty — omit subsection if empty}
-
 {CLAIM items}
 
 ## Question
@@ -360,43 +330,6 @@ Collect reasons from all pipeline stages into `low_seed_confidence_reasons`:
 
 `seed_confidence: low` does **not** block the dialogue. It tells the dialogue agent to prioritize early scouting to compensate for thin initial context.
 
-### Step 4c: CCDI Sentinel Extraction + Initial Commit
-
-If ccdi-gatherer was launched (Step 2), extract the registry seed and perform the initial commit.
-
-**Sentinel extraction:**
-1. Parse ccdi-gatherer output for `<!-- ccdi-registry-seed -->` ... `<!-- /ccdi-registry-seed -->` block.
-2. If found: parse JSON between sentinels. Read `results_file` and `inventory_snapshot_path` from parsed JSON. Write seed to temp file (`/tmp/ccdi_registry_<id>.json`).
-3. If not found (no sentinel, malformed, invalid JSON, mismatched tags): proceed without `ccdi_seed` — log warning, set `phase: initial_only` in diagnostics.
-
-**Malformed sentinel handling:** All of these → graceful degradation (no `ccdi_seed`):
-- Missing closing `<!-- /ccdi-registry-seed -->` tag
-- Invalid JSON between sentinels
-- Mismatched tag names (e.g., open uses different separator than close)
-
-**Initial commit (after briefing send confirmed):**
-For each entry in the seed:
-```bash
-python -m scripts.topic_inventory build-packet \
-  --results-file <results_file_from_seed> \
-  --registry-file <seed_temp_path> \
-  --mode initial \
-  --topic-key <entry.topic_key> \
-  --facet <entry.facet> \
-  --coverage-target <entry.coverage_target> \
-  --inventory-snapshot <inventory_snapshot_path_from_seed> \
-  --mark-injected
-```
-
-**Per-topic outcome handling:**
-- Non-zero exit → log warning, continue. Topic remains `detected`.
-- Empty stdout → topic suppressed (automatic suppression writes to registry). This is OK.
-- Non-empty stdout → topic committed as `injected`.
-
-**If briefing send failed:** Skip ALL commits. All entries remain in `detected` state.
-
-**If no sentinel extracted:** No `ccdi_seed` in delegation envelope — mid-dialogue CCDI disabled.
-
 ### Step 5: Delegate to codex-dialogue
 
 Launch the `codex-dialogue` agent via the Task tool:
@@ -413,24 +346,10 @@ Task(
     seed_confidence: {normal or low}
     reasoning_effort: {resolved from profile or contract default}
     scope_envelope: {scope from §3 preflight — allowed roots and source classes}
-    ccdi_seed: {path to seed temp file, if sentinel extracted — omit if absent}
-    ccdi_inventory_snapshot: {inventory_snapshot_path from sentinel, if seed present — omit if absent}
-    ccdi_debug: {true if debug mode, omit otherwise}
 
     {assembled briefing with sentinel}
   """
 )
-```
-
-**CCDI delegation envelope fields:**
-
-| Field | When present | Value |
-|-------|-------------|-------|
-| `ccdi_seed` | Sentinel extracted AND initial commit completed | File path to the registry temp file |
-| `ccdi_inventory_snapshot` | Same as `ccdi_seed` — atomic pair | File path to pinned inventory snapshot |
-| `ccdi_debug` | Testing/debug mode | `true` — controls trace emission in Phase B |
-
-**Atomic pair invariant:** `ccdi_seed` and `ccdi_inventory_snapshot` MUST both be present or both absent. If one is missing (e.g., inventory_snapshot_path absent from sentinel), log warning and omit BOTH.
 ```
 
 **`reasoning_effort` resolution:** profile value > consultation contract §8 default (`xhigh`). When `--plan` is used without `--profile`, reasoning_effort falls through to the contract default (`xhigh`). Pass the resolved value in the envelope — the `codex-dialogue` agent uses it directly without re-resolving profiles. (A `-t` flag for explicit override is deferred — profile propagation covers the immediate need.)

@@ -135,7 +135,6 @@ Initialize after starting the conversation:
 | `scope_envelope` | From delegation or `null` | Immutable. Contains `allowed_roots` and `source_classes`. |
 | `scope_breach_count` | `0` | Counter incremented on each scope breach during scouting. |
 | `unknown_claim_paths` | `∅` | Set of file paths (without line numbers) from `[SRC:unknown]` briefing lines. Populated once at briefing parse (before Step 1 of per-turn loop). Cleared per-path after successful scout verification. |
-| `ccdi_mode` | `"unavailable"` | CCDI mode — see [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md) for additional CCDI state variables and full protocol. |
 
 **Per-turn state retention:** On every successful `process_turn` response, append to `turn_history` **before** checking the budget gate:
 - `validated_entry` — the server-validated ledger entry for this turn
@@ -145,12 +144,6 @@ Initialize after starting the conversation:
 Appending before the budget gate ensures that budget=1 conversations have a populated `turn_history` for Phase 3 synthesis. Step 4 updates `scout_outcomes` in place only if scouts execute; otherwise the `[]` placeholder stands.
 
 This accumulated history is required for Phase 3 synthesis (especially claim trajectory and "weakest claim" derivation) and for fallback synthesis if later turns error.
-
-### CCDI mid-dialogue protocol (conditional)
-
-IF `ccdi_seed` is present in the delegation envelope, read and apply [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md) before the per-turn loop. It defines the shadow mode gate, CCDI state variables, Steps 6.5/7.5, and Phase 3 trace/diagnostics emission.
-
-IF `ccdi_seed` is absent, set `ccdi_mode = "unavailable"` and skip all CCDI steps (6.5, 7.5, trace emission, diagnostics emission). Emit minimal CCDI diagnostics in the pipeline data epilogue: `"ccdi": {"status": "unavailable", "phase": "initial_only"}`.
 
 ### Low seed confidence behavior
 
@@ -451,23 +444,11 @@ Use `ledger_summary` for conversation awareness — knowing which claims are set
 | **Evaluative** | "Is that claim accurate? Show evidence.", "What are the structural implications of X?", "What edge cases exist?", "What constraints does this create downstream?", "What happens when Y scales by 10x?" |
 | **Comparative** | "How does A compare to B on criterion X?", "What trade-offs haven't been surfaced?", "Which option optimizes for Z?", "What's the decision matrix across these criteria?" |
 
-#### Step 6.5: CCDI PREPARE (conditional)
-
-IF `ccdi_mode` is not `"unavailable"`: execute Step 6.5 per [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md). OTHERWISE: skip.
-
 #### Step 7: Send follow-up
-
-IF `ccdi_mode` is `"active"` AND a CCDI packet was staged in Step 6.5: prepend the packet to the follow-up text before sending (see [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md) Step 7 integration).
 
 Send via `mcp__plugin_cross-model_codex__codex-reply` with the persisted `threadId`.
 
-Increment `current_turn`. Continue to Step 7.5 before returning to Step 1.
-
-#### Step 7.5: CCDI COMMIT (conditional)
-
-IF `ccdi_mode` is not `"unavailable"`: execute Step 7.5 per [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md). OTHERWISE: skip.
-
-Return to Step 1 for the next Codex response.
+Increment `current_turn`. Return to Step 1 for the next Codex response.
 
 ### Turn management
 
@@ -517,7 +498,7 @@ When advancing to a new phase, compose a transition marker in the follow-up:
 
 When entering Phase 3, read and apply [dialogue-synthesis-format.md](../references/dialogue-synthesis-format.md). It defines the assembly process (7 items), confidence annotations, pre-flight checklist, synthesis checkpoint, output format, pipeline data epilogue, and a complete example.
 
-IF `ccdi_mode` is not `"unavailable"`: also emit CCDI trace and diagnostics per [ccdi-dialogue-protocol.md](../references/ccdi-dialogue-protocol.md). OTHERWISE: emit `"ccdi": {"status": "unavailable", "phase": "initial_only"}` in the pipeline data epilogue.
+Emit `"ccdi": {"status": "removed"}` in the pipeline data epilogue.
 
 ## Governance (Decision-Locked)
 
