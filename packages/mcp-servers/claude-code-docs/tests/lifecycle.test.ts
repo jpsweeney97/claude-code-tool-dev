@@ -813,6 +813,91 @@ describe('ServerState', () => {
         expect(state.getLoadError()).toContain('Canary rejection');
         expect(deps.loadFn).toHaveBeenCalledOnce();
       });
+
+      it('terminates when forced fetch falls back to stale cache', async () => {
+        const evalFn = vi.fn()
+          .mockReturnValueOnce(makeRejectEvaluation());
+
+        const deps = makeDeps({
+          parseSerializedIndexFn: vi.fn().mockReturnValue(null), // no index cache → Path 3
+          evaluateCanariesFn: evalFn,
+          loadFn: vi.fn()
+            .mockResolvedValueOnce({
+              files: [{ path: 'hooks/test.md', content: '# Test' }],
+              contentHash: 'abc123',
+              provenance: { sourceKind: 'cached', obtainedAt: 1000 },
+              diagnostics: { ...DEFAULT_LOADER_DIAGNOSTICS },
+            })
+            .mockResolvedValueOnce({
+              // Forced fetch returns stale-fallback with DIFFERENT hash
+              files: [{ path: 'hooks/test.md', content: '# Test Stale' }],
+              contentHash: 'different-hash',
+              provenance: { sourceKind: 'stale-fallback', obtainedAt: 500 },
+              diagnostics: { ...DEFAULT_LOADER_DIAGNOSTICS },
+            }),
+        });
+        const state = new ServerState(deps);
+
+        const idx = await state.ensureIndex();
+
+        expect(idx).toBeNull();
+        expect(state.getLoadError()).toContain('stale cache');
+        // Should NOT have called evaluateCanariesFn a second time (no recursion)
+        expect(evalFn).toHaveBeenCalledOnce();
+      });
+
+      it('sets evaluation and policyState when forced fetch returns same content', async () => {
+        const rejection = makeRejectEvaluation();
+
+        const deps = makeDeps({
+          parseSerializedIndexFn: vi.fn().mockReturnValue(null),
+          evaluateCanariesFn: vi.fn().mockReturnValue(rejection),
+          loadFn: vi.fn()
+            .mockResolvedValueOnce({
+              files: [{ path: 'hooks/test.md', content: '# Test' }],
+              contentHash: 'abc123',
+              provenance: { sourceKind: 'cached', obtainedAt: 1000 },
+              diagnostics: { ...DEFAULT_LOADER_DIAGNOSTICS },
+            })
+            .mockResolvedValueOnce({
+              files: [{ path: 'hooks/test.md', content: '# Test' }],
+              contentHash: 'abc123', // same hash
+              provenance: { sourceKind: 'fetched', obtainedAt: 2000 },
+              diagnostics: { ...DEFAULT_LOADER_DIAGNOSTICS },
+            }),
+        });
+        const state = new ServerState(deps);
+
+        await state.ensureIndex();
+
+        expect(state.getEvaluation()).not.toBeNull();
+        expect(state.getEvaluation()?.decision).toBe('reject');
+        expect(state.getPolicyState()).toEqual(rejection.nextPolicyState);
+      });
+
+      it('sets evaluation and policyState when forced fetch fails', async () => {
+        const rejection = makeRejectEvaluation();
+
+        const deps = makeDeps({
+          parseSerializedIndexFn: vi.fn().mockReturnValue(null),
+          evaluateCanariesFn: vi.fn().mockReturnValue(rejection),
+          loadFn: vi.fn()
+            .mockResolvedValueOnce({
+              files: [{ path: 'hooks/test.md', content: '# Test' }],
+              contentHash: 'abc123',
+              provenance: { sourceKind: 'cached', obtainedAt: 1000 },
+              diagnostics: { ...DEFAULT_LOADER_DIAGNOSTICS },
+            })
+            .mockRejectedValueOnce(new Error('network timeout')),
+        });
+        const state = new ServerState(deps);
+
+        await state.ensureIndex();
+
+        expect(state.getEvaluation()).not.toBeNull();
+        expect(state.getEvaluation()?.decision).toBe('reject');
+        expect(state.getPolicyState()).toEqual(rejection.nextPolicyState);
+      });
     });
   });
 

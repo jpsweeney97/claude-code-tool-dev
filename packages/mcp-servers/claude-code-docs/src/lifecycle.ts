@@ -252,7 +252,7 @@ export class ServerState {
         if (evalResult.decision === 'reject') {
           // Canary replay rejected — try forced uncached fetch if content was cached
           if (provenance.sourceKind !== 'fetched') {
-            return this.forceFetchAndRebuild(contentHash, oldPolicyState, indexCachePath);
+            return this.forceFetchAndRebuild(contentHash, oldPolicyState, indexCachePath, evalResult);
           }
           // Content was live-fetched — fail loudly
           console.error(`ERROR: Canary replay rejected live-fetched content: ${evalResult.rejection?.reason}`);
@@ -293,7 +293,7 @@ export class ServerState {
           await this.deps.writeCacheFn(indexCachePath, serialized);
           console.error('Cache updated (canary replay)');
         } catch (err) {
-          console.error(`WARN: Failed to write index cache: ${err instanceof Error ? err.message : 'unknown'}`);
+          console.error(`ERROR: Failed to write index cache (policyState advancement will be lost on restart): ${err instanceof Error ? err.message : 'unknown'}`);
         }
 
         console.error(`Loaded cached index (${this.index.chunks.length} chunks)`);
@@ -342,7 +342,7 @@ export class ServerState {
           await this.deps.writeCacheFn(indexCachePath, serialized);
           console.error('Cache updated (provenance refresh)');
         } catch (err) {
-          console.error(`WARN: Failed to write index cache: ${err instanceof Error ? err.message : 'unknown'}`);
+          console.error(`ERROR: Failed to write index cache (policyState advancement will be lost on restart): ${err instanceof Error ? err.message : 'unknown'}`);
         }
 
         console.error(`Loaded cached index (${this.index.chunks.length} chunks)`);
@@ -400,7 +400,7 @@ export class ServerState {
     if (evalResult.decision === 'reject') {
       // If content was NOT fetched, force one uncached fetch and retry
       if (provenance.sourceKind !== 'fetched') {
-        return this.forceFetchAndRebuild(contentHash, oldPolicyState, indexCachePath);
+        return this.forceFetchAndRebuild(contentHash, oldPolicyState, indexCachePath, evalResult);
       }
       // Content was live-fetched — fail loudly
       console.error(`ERROR: Canary rejection on fresh build: ${evalResult.rejection?.reason}`);
@@ -446,21 +446,38 @@ export class ServerState {
 
   /**
    * Force an uncached fetch and do a full rebuild.
-   * If the forced fetch returns different content (different contentHash), full rebuild.
-   * If same contentHash or fetch fails, confirm rejection (return null).
+   * - If forced fetch returns non-fetched content (stale fallback): confirm rejection, terminate.
+   * - If forced fetch returns same contentHash: confirm rejection, terminate.
+   * - If forced fetch returns different content with sourceKind 'fetched': rebuild.
+   * - If forced fetch throws: confirm rejection, terminate.
+   *
+   * All termination paths set this.evaluation and this.policyState from triggeringEvaluation.
    */
   private async forceFetchAndRebuild(
     originalContentHash: string,
     oldPolicyState: PolicyState,
     indexCachePath: string,
+    triggeringEvaluation: CanaryEvaluation,
   ): Promise<BM25Index | null> {
     console.error('Canary rejection — forcing uncached fetch...');
     try {
       const freshResult = await this.deps.loadFn(this.docsUrl, undefined, true);
+
+      // Guard: forced fetch fell back to stale cache — don't recurse into buildFreshIndex
+      if (freshResult.provenance.sourceKind !== 'fetched') {
+        console.error('ERROR: Forced fetch fell back to stale cache — canary rejection confirmed');
+        this.loadError = 'Canary rejection confirmed (forced fetch fell back to stale cache)';
+        this.evaluation = triggeringEvaluation;
+        this.policyState = triggeringEvaluation.nextPolicyState;
+        return null;
+      }
+
       if (freshResult.contentHash === originalContentHash) {
         // Same content — confirmed rejection
         console.error('ERROR: Forced fetch returned same content — canary rejection confirmed');
         this.loadError = 'Canary rejection confirmed after forced fetch (same content)';
+        this.evaluation = triggeringEvaluation;
+        this.policyState = triggeringEvaluation.nextPolicyState;
         return null;
       }
       // Different content — full rebuild with new content
@@ -475,6 +492,8 @@ export class ServerState {
     } catch (err) {
       console.error(`ERROR: Forced fetch failed: ${err instanceof Error ? err.message : 'unknown'}`);
       this.loadError = `Canary rejection confirmed (forced fetch failed: ${err instanceof Error ? err.message : 'unknown'})`;
+      this.evaluation = triggeringEvaluation;
+      this.policyState = triggeringEvaluation.nextPolicyState;
       return null;
     }
   }
