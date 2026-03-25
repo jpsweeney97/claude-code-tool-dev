@@ -1,18 +1,5 @@
 /**
  * dump_index_metadata tool — exposes BM25 index structure as metadata.
- *
- * CCDI CONSUMER DEPENDENCY (cross-package contract):
- * The response schema of this tool is consumed by `build_inventory.py`
- * (packages/plugins/cross-model/context-injection/ccdi/build_inventory.py)
- * to populate the CCDI topic registry. Changes to field names, nesting,
- * or extraction semantics require coordinated updates to that consumer.
- *
- * Extraction contract:
- *   - category names       → family topics
- *   - headings             → leaf topics
- *   - code_literals        → exact aliases (backticked identifiers)
- *   - config_keys          → exact aliases with facet_hint: "config"
- *   - distinctive_terms    → phrase/token aliases (literals in ≤3 chunks)
  */
 
 import { z } from 'zod';

@@ -498,8 +498,6 @@ When advancing to a new phase, compose a transition marker in the follow-up:
 
 When entering Phase 3, read and apply [dialogue-synthesis-format.md](../references/dialogue-synthesis-format.md). It defines the assembly process (7 items), confidence annotations, pre-flight checklist, synthesis checkpoint, output format, pipeline data epilogue, and a complete example.
 
-Emit `"ccdi": {"status": "removed"}` in the pipeline data epilogue.
-
 ## Governance (Decision-Locked)
 
 These rules are non-negotiable (consultation contract §15):
