@@ -130,7 +130,7 @@ export class ServerState {
   }
 
   getEvaluation(): CanaryEvaluation | null {
-    return this.evaluation;
+    return this.evaluation ? { ...this.evaluation } : null;
   }
 
   getTrustMode(): TrustMode {

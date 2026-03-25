@@ -1166,6 +1166,18 @@ describe('ServerState', () => {
       expect(state.getEvaluation()).toBeNull();
     });
 
+    it('getEvaluation returns a copy, not the internal reference', async () => {
+      const deps = makeDeps();
+      const state = new ServerState(deps);
+      await state.ensureIndex();
+
+      const eval1 = state.getEvaluation();
+      const eval2 = state.getEvaluation();
+      expect(eval1).not.toBeNull();
+      expect(eval1).toEqual(eval2);
+      expect(eval1).not.toBe(eval2); // different object references
+    });
+
     it('getTrustMode returns configured trust mode', () => {
       const state = new ServerState(makeDeps({ trustMode: 'unsafe' }));
       expect(state.getTrustMode()).toBe('unsafe');
