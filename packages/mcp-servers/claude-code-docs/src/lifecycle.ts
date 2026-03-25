@@ -50,6 +50,7 @@ export class ServerState {
   private contentHash: string | null = null;
   private loadError: string | null = null;
   private lastLoadAttempt = 0;
+  private indexCreatedAt: number | null = null;
   private loadingPromise: Promise<BM25Index | null> | null = null;
   private warnings: ParseWarning[] = [];
   private policyState: PolicyState = { ...DEFAULT_POLICY_STATE };
@@ -110,6 +111,10 @@ export class ServerState {
 
   getContentHash(): string | null {
     return this.contentHash;
+  }
+
+  getIndexCreatedAt(): number | null {
+    return this.indexCreatedAt;
   }
 
   getPolicyState(): PolicyState {
@@ -210,6 +215,7 @@ export class ServerState {
       if (canaryMatch && !provenanceBetter) {
         this.index = this.deps.deserializeIndexFn(parsed!);
         this.contentHash = contentHash;
+        this.indexCreatedAt = parsed!.index.createdAt;
         this.corpusProvenance = cachedProvenance;
         this.policyState = oldPolicyState;
         this.evaluation = {
@@ -259,6 +265,7 @@ export class ServerState {
         // Canary replay accepted — update evaluation in cache, no rebuild needed
         this.index = this.deps.deserializeIndexFn(parsed!);
         this.contentHash = contentHash;
+        this.indexCreatedAt = parsed!.index.createdAt;
         this.policyState = evalResult.nextPolicyState;
         this.evaluation = evalResult;
         this.diagnostics = cachedDiagnostics;
@@ -296,6 +303,7 @@ export class ServerState {
       if (canaryMatch && provenanceBetter) {
         this.index = this.deps.deserializeIndexFn(parsed!);
         this.contentHash = contentHash;
+        this.indexCreatedAt = parsed!.index.createdAt;
         this.corpusProvenance = provenance;
         this.policyState = oldPolicyState;
         this.evaluation = {
@@ -403,6 +411,7 @@ export class ServerState {
     // Canaries accepted — build index
     this.index = this.deps.buildIndexFn(chunks);
     this.contentHash = contentHash;
+    this.indexCreatedAt = this.timer();
     this.corpusProvenance = provenance;
     this.policyState = evalResult.nextPolicyState;
     this.evaluation = evalResult;

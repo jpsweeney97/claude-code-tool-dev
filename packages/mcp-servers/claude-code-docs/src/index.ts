@@ -180,6 +180,7 @@ async function main() {
           content: [{ type: 'text' as const, text: `Metadata unavailable: ${error}` }],
           structuredContent: {
             index_version: '',
+            index_created_at: '',
             built_at: '',
             docs_epoch: null,
             categories: [],
@@ -187,7 +188,7 @@ async function main() {
         };
       }
 
-      const metadata = buildMetadataResponse(idx, serverState.getContentHash());
+      const metadata = buildMetadataResponse(idx, serverState.getContentHash(), serverState.getIndexCreatedAt());
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(metadata, null, 2) }],
         structuredContent: metadata,

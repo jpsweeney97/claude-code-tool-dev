@@ -216,6 +216,7 @@ describe('buildMetadataResponse — empty index', () => {
     expect(result.docs_epoch).toBeNull();
     expect(result.index_version).toBeDefined();
     expect(result.built_at).toBeDefined();
+    expect(result.index_created_at).toBeDefined();
   });
 
   it('validates against the output schema', () => {
@@ -223,6 +224,52 @@ describe('buildMetadataResponse — empty index', () => {
     const result = buildMetadataResponse(index, null);
     const parsed = DumpIndexMetadataOutputSchema.safeParse(result);
     expect(parsed.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildMetadataResponse — index_created_at and built_at semantics
+// ---------------------------------------------------------------------------
+describe('buildMetadataResponse — index_created_at', () => {
+  it('reflects the indexCreatedAt timestamp as ISO string', () => {
+    const index = makeIndex([]);
+    const knownTs = 1700000000000; // 2023-11-14T22:13:20.000Z
+    const result = buildMetadataResponse(index, null, knownTs);
+
+    expect(result.index_created_at).toBe(new Date(knownTs).toISOString());
+  });
+
+  it('falls back to approximately now when indexCreatedAt is null', () => {
+    const index = makeIndex([]);
+    const before = Date.now();
+    const result = buildMetadataResponse(index, null, null);
+    const after = Date.now();
+
+    const ts = new Date(result.index_created_at).getTime();
+    expect(ts).toBeGreaterThanOrEqual(before);
+    expect(ts).toBeLessThanOrEqual(after);
+  });
+
+  it('built_at is response generation time, not indexCreatedAt', () => {
+    const index = makeIndex([]);
+    const pastTs = 1000000000000; // well in the past
+    const before = Date.now();
+    const result = buildMetadataResponse(index, null, pastTs);
+    const after = Date.now();
+
+    // index_created_at is the past timestamp
+    expect(result.index_created_at).toBe(new Date(pastTs).toISOString());
+
+    // built_at is response time (between before and after)
+    const builtAtMs = new Date(result.built_at).getTime();
+    expect(builtAtMs).toBeGreaterThanOrEqual(before);
+    expect(builtAtMs).toBeLessThanOrEqual(after);
+  });
+
+  it('built_at is present and is an ISO string', () => {
+    const index = makeIndex([]);
+    const result = buildMetadataResponse(index, null, Date.now());
+    expect(result.built_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });
 });
 
@@ -418,7 +465,7 @@ describe('DumpIndexMetadataOutputSchema', () => {
 
   it('rejects response missing required fields', () => {
     const parsed = DumpIndexMetadataOutputSchema.safeParse({
-      // Missing index_version, built_at, categories
+      // Missing index_version, index_created_at, built_at, categories
       docs_epoch: null,
     });
     expect(parsed.success).toBe(false);
