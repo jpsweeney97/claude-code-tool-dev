@@ -79,6 +79,24 @@ describe('evaluateCanaries — official mode', () => {
     expect(result.rejection!.code).toBe('min_section_count');
   });
 
+  it('handles sectionCount=0 without division by zero', () => {
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: makeDiagnostics({
+        sourceAnchoredCount: 1,
+        sectionCount: 0,
+        nonEmptySectionCount: 0,
+        overviewSectionCount: 0,
+      }),
+      policyState: emptyPolicyState(),
+      now: 1000,
+    });
+
+    expect(result.decision).toBe('reject');
+    expect(result.rejection?.code).toBe('min_section_count');
+    expect(result.metrics.overviewRatio).toBe(0);
+  });
+
   // --- Section count drift ---
 
   it('accepts first load without baseline — no drift possible', () => {
@@ -332,5 +350,19 @@ describe('evaluateCanaries — unsafe mode', () => {
     });
     const parse = result.warnings.find(w => w.code === 'parse_issues');
     expect(parse).toBeDefined();
+  });
+
+  it('does not reject on large section count drop from baseline in unsafe mode', () => {
+    const result = evaluateCanaries({
+      trustMode: 'unsafe',
+      diagnostics: makeDiagnostics({ sectionCount: 20 }), // 60% drop from baseline of 50
+      policyState: establishedPolicyState(50),
+      now: 1000,
+    });
+
+    expect(result.decision).toBe('accept');
+    // No section_count_drift or section_count_collapse warnings
+    const codes = result.warnings.map(w => w.code);
+    expect(codes).not.toContain('section_count_drift');
   });
 });

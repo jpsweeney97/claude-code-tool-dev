@@ -367,6 +367,30 @@ describe('ServerState', () => {
         expect(idx).not.toBeNull();
       });
 
+      it('returns index even when cache write fails on canary replay (Path 2)', async () => {
+        const snapshot = makeFullCacheSnapshot({
+          evaluation: {
+            canaryVersion: CANARY_VERSION - 1, // triggers replay
+            warnings: [],
+            metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
+          },
+        });
+
+        const deps = makeDeps({
+          parseSerializedIndexFn: vi.fn().mockReturnValue(snapshot),
+          deserializeIndexFn: vi.fn().mockReturnValue(makeMockIndex()),
+          writeCacheFn: vi.fn().mockRejectedValue(new Error('disk full')),
+        });
+        const state = new ServerState(deps);
+
+        const idx = await state.ensureIndex();
+
+        expect(idx).not.toBeNull();
+        expect(idx!.chunks).toHaveLength(3);
+        // Cache write was attempted and failed
+        expect(deps.writeCacheFn).toHaveBeenCalledOnce();
+      });
+
       it('carries forward policyState through canary replay', async () => {
         const snapshot = makeFullCacheSnapshot({
           policyState: { lastHealthySectionCount: 42, lastHealthyObservedAt: 500 },
@@ -544,6 +568,31 @@ describe('ServerState', () => {
     });
 
     describe('Path 4: Provenance Refresh', () => {
+      it('returns index even when cache write fails on provenance refresh (Path 4)', async () => {
+        const snapshot = makeFullCacheSnapshot({
+          corpus: {
+            contentHash: 'abc123',
+            obtainedAt: 500, // older
+            sourceKind: 'cached',
+            trustMode: 'official',
+            docsUrl: 'https://test.example.com/docs',
+          },
+        });
+
+        const deps = makeDeps({
+          parseSerializedIndexFn: vi.fn().mockReturnValue(snapshot),
+          deserializeIndexFn: vi.fn().mockReturnValue(makeMockIndex()),
+          writeCacheFn: vi.fn().mockRejectedValue(new Error('disk full')),
+        });
+        const state = new ServerState(deps);
+
+        const idx = await state.ensureIndex();
+
+        expect(idx).not.toBeNull();
+        expect(idx!.chunks).toHaveLength(3);
+        expect(deps.writeCacheFn).toHaveBeenCalledOnce();
+      });
+
       it('rewrites cache when provenance improves, no rebuild', async () => {
         const snapshot = makeFullCacheSnapshot({
           corpus: {
@@ -844,6 +893,8 @@ describe('ServerState', () => {
         expect(state.getLoadError()).toContain('stale cache');
         // Should NOT have called evaluateCanariesFn a second time (no recursion)
         expect(evalFn).toHaveBeenCalledOnce();
+        expect(state.getEvaluation()).not.toBeNull();
+        expect(state.getEvaluation()?.decision).toBe('reject');
       });
 
       it('sets evaluation and policyState when forced fetch returns same content', async () => {
