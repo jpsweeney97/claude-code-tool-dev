@@ -41,6 +41,7 @@ if __package__:
     from scripts.consultation_safety import (
         check_tool_input as _check_tool_input,
         DELEGATION_POLICY as _DELEGATION_POLICY,
+        ToolInputLimitExceeded as _ToolInputLimitExceeded,
     )
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -51,6 +52,7 @@ else:
         from consultation_safety import (  # type: ignore[import-not-found,no-redef]
             check_tool_input as _check_tool_input,
             DELEGATION_POLICY as _DELEGATION_POLICY,
+            ToolInputLimitExceeded as _ToolInputLimitExceeded,
         )
     except ModuleNotFoundError as exc:
         print(f"codex-delegate: fatal: cannot import sibling modules: {exc}", file=sys.stderr)
@@ -612,12 +614,17 @@ def run(input_path: Path) -> int:
         if prompt and isinstance(prompt, str):
             try:
                 verdict = _check_tool_input({"prompt": prompt}, _DELEGATION_POLICY)
+            except _ToolInputLimitExceeded:
+                # Large prompts exceed the 256 KiB char cap in extract_strings.
+                # The prior scan_text path had no size gate — allow to preserve parity.
+                pass
             except Exception as scan_exc:
                 raise CredentialBlockError(
                     f"credential scan failed: {scan_exc}"
                 ) from scan_exc
-            if verdict.action == "block":
-                raise CredentialBlockError(verdict.reason or "credential detected")
+            else:
+                if verdict.action == "block":
+                    raise CredentialBlockError(verdict.reason or "credential detected")
 
         # Step 5 — Phase B: field validation
         validated = _validate_input(phase_a)

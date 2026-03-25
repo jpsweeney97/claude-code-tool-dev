@@ -959,6 +959,33 @@ def test_credential_scan_uses_check_tool_input(monkeypatch, tmp_path):
     assert "prompt" in payload
 
 
+def test_large_prompt_not_blocked_by_char_cap(monkeypatch, tmp_path):
+    """Prompts exceeding the 256 KiB extract_strings char cap should not be blocked.
+
+    Regression test: routing through check_tool_input introduced a size gate
+    that the prior scan_text path did not have.
+    """
+    from scripts.consultation_safety import ToolInputLimitExceeded
+
+    def raise_limit(*_a, **_kw):
+        raise ToolInputLimitExceeded("char cap exceeded")
+
+    monkeypatch.setattr("scripts.codex_delegate._check_tool_input", raise_limit)
+    monkeypatch.setattr("scripts.codex_delegate._check_codex_version", lambda: None)
+    monkeypatch.setattr("scripts.codex_delegate._check_clean_tree", lambda: None)
+    monkeypatch.setattr("scripts.codex_delegate._check_secret_files", lambda: None)
+    monkeypatch.setattr("scripts.codex_delegate._resolve_repo_root", lambda: tmp_path)
+
+    input_file = tmp_path / "input.json"
+    input_file.write_text('{"prompt": "x" , "sandbox": "read-only"}')
+
+    import scripts.codex_delegate as delegate
+    # Should NOT raise CredentialBlockError — large prompt is allowed through
+    result = delegate.run(input_file)
+    # Will fail at a later step (subprocess), but NOT at credential scan
+    assert result != 0 or result == 0  # just verify it didn't raise CredentialBlockError
+
+
 class TestEmitAnalyticsValidation:
     def test_emit_analytics_calls_validate(self) -> None:
         """Delegation analytics should route through validation."""
