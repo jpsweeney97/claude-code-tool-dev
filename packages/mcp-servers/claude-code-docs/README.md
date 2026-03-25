@@ -8,7 +8,7 @@
 ## Problem Statement
 Claude Code's documentation is large and frequently updated, but most MCP clients need fast, local search results rather than full-document scans. This server fetches the official docs, chunks them into semantic sections, builds an in-memory BM25 index, and exposes MCP tools that return ranked snippets.
 
-The result is a small, focused MCP server that provides deterministic, query-focused results with minimal client integration surface: a stdio transport, three tools, and a cache-backed indexing pipeline.
+The result is a small, focused MCP server that provides deterministic, query-focused results with minimal client integration surface: a stdio transport, four tools, and a cache-backed indexing pipeline.
 
 ## Quick Start
 1. From this directory, install dependencies:
@@ -39,6 +39,7 @@ Environment variables:
 | Variable | Default | Purpose | Constraints / Behavior |
 | --- | --- | --- | --- |
 | `DOCS_URL` | `https://code.claude.com/docs/llms-full.txt` | Source documentation URL. | Validated on startup; must be a valid `https` URL. |
+| `DOCS_TRUST_MODE` | `official` | Trust mode controlling source validation and canary policy. | `official`: pins source to `code.claude.com`, full canary evaluation (taxonomy + relative-drift checks). `unsafe`: accepts any HTTPS URL, structural canaries only (count + size checks). Use `unsafe` only for local testing or private mirrors. |
 | `RETRY_INTERVAL_MS` | `60000` | Retry backoff for failed index loads. | Validated on startup; must be an integer between `1000` and `600000`. |
 | `CACHE_TTL_MS` | `86400000` | Content cache freshness window in milliseconds. | Integer >=0. `0` means the cache is never considered fresh (fetch each load); values > 1 year are capped. |
 | `DOCS_CACHE_MAX_STALE_MS` | `0` | Maximum allowed age for stale cache fallback. | Validated on startup; must be an integer >=0. `0` disables the limit. |
@@ -88,6 +89,11 @@ Return shape:
 | `results[].snippet` | string | Snippet best matching the query. |
 | `results[].category` | string | Derived category. |
 | `results[].source_file` | string | Source URL/path. |
+| `meta` | object | Index provenance information for the search response. |
+| `meta.trust_mode` | string | Active trust mode: `official` or `unsafe`. |
+| `meta.source_kind` | string | How the index was loaded: `cached`, `fetched`, or `cold`. |
+| `meta.index_created_at` | string | ISO timestamp when the current index was built. |
+| `meta.corpus_age_ms` | integer | Milliseconds since the index was built. |
 | `error` | string | Present only on failure. |
 
 ### `reload_docs`
@@ -97,6 +103,26 @@ Parameters: none.
 
 Return:
 - Text message indicating success, chunk count, and any parse warnings.
+
+### `get_status`
+Returns a lightweight runtime status snapshot. Use this to check index health, trust configuration, and canary evaluation results without triggering a reload or dumping the full metadata.
+
+Parameters: none.
+
+Return shape:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `state` | string | Current server state: `ready`, `loading`, `error`, or `uninitialized`. |
+| `trust_mode` | string | Active trust mode: `official` or `unsafe`. |
+| `source_url` | string | Configured documentation source URL. |
+| `source_kind` | string | How the index was loaded: `cached`, `fetched`, or `cold`. |
+| `index_created_at` | string or null | ISO timestamp when the current index was built. Null if not yet loaded. |
+| `corpus_age_ms` | integer or null | Milliseconds since the index was built. Null if not yet loaded. |
+| `chunk_count` | integer or null | Number of chunks in the active index. Null if not yet loaded. |
+| `canary_passed` | boolean or null | Whether the most recent canary evaluation passed. Null if not yet evaluated. |
+| `canary_failures` | string[] | List of canary check names that failed. Empty if all passed or not yet evaluated. |
+| `error` | string | Present only on failure. |
 
 ### `dump_index_metadata`
 Returns structured index metadata useful for debugging ingestion, category mapping, and chunk coverage without dumping the full corpus.
