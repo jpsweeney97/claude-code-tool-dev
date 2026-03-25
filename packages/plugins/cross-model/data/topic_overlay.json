@@ -1,9 +1,0 @@
-{
-  "overlay_version": "1",
-  "overlay_schema_version": "1",
-  "rules": [
-    {"rule_id": "drop-overview", "operation": "add_deny_rule", "deny_rule": {"id": "drop-overview", "pattern": "overview", "match_type": "token", "action": "drop", "penalty": null, "reason": "too generic"}},
-    {"rule_id": "downrank-schema", "operation": "add_deny_rule", "deny_rule": {"id": "downrank-schema", "pattern": "schema", "match_type": "token", "action": "downrank", "penalty": 0.35, "reason": "facet word, not topic anchor"}}
-  ],
-  "config_overrides": {}
-}
