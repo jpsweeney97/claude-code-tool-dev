@@ -57,8 +57,9 @@ describe('generateChunkId with splitIndex', () => {
 
   it('handles file-only id with splitIndex', () => {
     const file: MarkdownFile = { path: 'hooks/test.md', content: '' };
-    // No heading, but has splitIndex (shouldn't happen in practice, but handle gracefully)
-    expect(generateChunkId(file, undefined, 2)).toBe('hooks-test');
+    expect(generateChunkId(file, undefined, 1)).toBe('hooks-test');
+    expect(generateChunkId(file, undefined, 2)).toBe('hooks-test-2');
+    expect(generateChunkId(file, undefined, 3)).toBe('hooks-test-3');
   });
 });
 

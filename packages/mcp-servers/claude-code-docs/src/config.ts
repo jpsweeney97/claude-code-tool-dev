@@ -4,13 +4,10 @@ const DEFAULT_DOCS_URL = 'https://code.claude.com/docs/llms-full.txt';
 const DEFAULT_RETRY_INTERVAL_MS = 60000;
 const MIN_RETRY_INTERVAL_MS = 1000;
 const MAX_RETRY_INTERVAL_MS = 600000;
-const MIN_REFRESH_INTERVAL_MS = 60000;
 
 export interface AppConfig {
   docsUrl: string;
   retryIntervalMs: number;
-  requireIndexOnStartup: boolean;
-  refreshIntervalMs: number;
 }
 
 function formatInput(input: unknown): string {
@@ -49,18 +46,6 @@ function parseOptionalInt(
   }
 
   return value;
-}
-
-function parseBoolean(env: NodeJS.ProcessEnv, key: string, defaultValue = false): boolean {
-  const raw = env[key];
-  if (raw === undefined || raw.trim().length === 0) {
-    return defaultValue;
-  }
-
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === '1' || normalized === 'true' || normalized === 'yes') return true;
-  if (normalized === '0' || normalized === 'false' || normalized === 'no') return false;
-  fail('parse env', `${key} must be one of: true,false,1,0,yes,no`, raw);
 }
 
 function parseDocsUrl(env: NodeJS.ProcessEnv): string {
@@ -102,12 +87,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     max: MAX_RETRY_INTERVAL_MS,
     defaultValue: DEFAULT_RETRY_INTERVAL_MS,
   }) ?? DEFAULT_RETRY_INTERVAL_MS;
-  const requireIndexOnStartup = parseBoolean(env, 'REQUIRE_INDEX_ON_STARTUP', false);
-  const refreshIntervalMs = parseOptionalInt(env, 'REFRESH_INTERVAL_MS', {
-    min: MIN_REFRESH_INTERVAL_MS,
-    allowZero: true,
-    defaultValue: 0,
-  }) ?? 0;
 
   // Validate additional env vars consumed in lower layers.
   parseOptionalInt(env, 'CACHE_TTL_MS', { min: 0 });
@@ -121,7 +100,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     docsUrl,
     retryIntervalMs,
-    requireIndexOnStartup,
-    refreshIntervalMs,
   };
 }

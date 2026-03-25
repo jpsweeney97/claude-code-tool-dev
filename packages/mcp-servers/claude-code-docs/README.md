@@ -8,7 +8,7 @@
 ## Problem Statement
 Claude Code's documentation is large and frequently updated, but most MCP clients need fast, local search results rather than full-document scans. This server fetches the official docs, chunks them into semantic sections, builds an in-memory BM25 index, and exposes MCP tools that return ranked snippets.
 
-The result is a small, focused MCP server that provides deterministic, query-focused results with minimal client integration surface: a stdio transport, two tools, and a cache-backed indexing pipeline.
+The result is a small, focused MCP server that provides deterministic, query-focused results with minimal client integration surface: a stdio transport, three tools, and a cache-backed indexing pipeline.
 
 ## Quick Start
 1. From this directory, install dependencies:
@@ -38,13 +38,13 @@ Environment variables:
 
 | Variable | Default | Purpose | Constraints / Behavior |
 | --- | --- | --- | --- |
-| `DOCS_URL` | `https://code.claude.com/docs/llms-full.txt` | Source documentation URL. | Used verbatim; should be https and return text content. |
-| `RETRY_INTERVAL_MS` | `60000` | Retry backoff for failed index loads. | If <1000, >600000, or non-numeric, it is clamped to `60000`. |
+| `DOCS_URL` | `https://code.claude.com/docs/llms-full.txt` | Source documentation URL. | Validated on startup; must be a valid `https` URL. |
+| `RETRY_INTERVAL_MS` | `60000` | Retry backoff for failed index loads. | Validated on startup; must be an integer between `1000` and `600000`. |
 | `CACHE_TTL_MS` | `86400000` | Content cache freshness window in milliseconds. | Integer >=0. `0` means the cache is never considered fresh (fetch each load); values > 1 year are capped. |
-| `DOCS_CACHE_MAX_STALE_MS` | `0` | Maximum allowed age for stale cache fallback. | Integer >=0. `0` disables the limit; invalid values are treated as `0`. |
+| `DOCS_CACHE_MAX_STALE_MS` | `0` | Maximum allowed age for stale cache fallback. | Validated on startup; must be an integer >=0. `0` disables the limit. |
 | `MIN_SECTION_COUNT` | `40` | Minimum parsed sections required to accept fetched content. | Integer >=0. `0` disables validation. If below the minimum, fetch is rejected and stale cache may be used. |
-| `MAX_INDEX_CACHE_BYTES` | `52428800` | Max serialized index size in bytes before writing cache. | Integer >0. If exceeded, index cache write is skipped (server keeps in-memory index). |
-| `MAX_RESPONSE_BYTES` | `10485760` | Max HTTP response size in bytes. | Integer >0. If declared or streamed size exceeds, fetch fails and may fall back to cache. |
+| `MAX_INDEX_CACHE_BYTES` | `52428800` | Max serialized index size in bytes before writing cache. | Validated on startup; must be an integer >0. If exceeded, index cache write is skipped (server keeps in-memory index). |
+| `MAX_RESPONSE_BYTES` | `10485760` | Max HTTP response size in bytes. | Integer >0. If declared or streamed size exceeds, fetch fails and falls back to stale cache when available. |
 | `FETCH_TIMEOUT_MS` | `30000` | HTTP fetch timeout in milliseconds. | Integer >=0. `0` results in immediate timeout. |
 | `CACHE_PATH` | unset | Override the content cache file path. | Must include a filename (not just a directory). Does not move the index cache. |
 | `XDG_CACHE_HOME` | unset | Base cache directory for defaults. | When set, affects default content and index cache paths. |
@@ -98,6 +98,24 @@ Parameters: none.
 Return:
 - Text message indicating success, chunk count, and any parse warnings.
 
+### `dump_index_metadata`
+Returns structured index metadata useful for debugging ingestion, category mapping, and chunk coverage without dumping the full corpus.
+
+Parameters: none.
+
+Return shape:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `index_version` | string | Serialized index format version. |
+| `built_at` | string | ISO timestamp for the response build time. |
+| `docs_epoch` | string or null | Content hash for the currently loaded docs. |
+| `categories[]` | object | Per-category chunk metadata. |
+| `categories[].name` | string | Canonical category name. |
+| `categories[].aliases` | string[] | Accepted aliases for the category. |
+| `categories[].chunk_count` | integer | Number of chunks in the category. |
+| `categories[].chunks[]` | object | Chunk-level metadata for debugging and inventory building. |
+
 ## Resources
 None.
 
@@ -122,36 +140,10 @@ Example `.mcp.json` entry:
 Run:
 `npm test`
 
-Latest run:
-- Total: 396 passed, 1 skipped (integration)
+The suite covers parser, chunker, loader, lifecycle, fetcher, metadata, and cache behavior. Special cases:
 
-Per-file breakdown:
-
-| Test file | Tests | Notes |
-| --- | --- | --- |
-| `tests/parser.test.ts` | 21 | |
-| `tests/bm25.test.ts` | 40 | |
-| `tests/lifecycle.test.ts` | 24 | |
-| `tests/frontmatter.test.ts` | 39 | |
-| `tests/chunker.test.ts` | 39 | |
-| `tests/golden-queries.test.ts` | 29 | |
-| `tests/jsx-block-tracker.test.ts` | 14 | |
-| `tests/fence-tracker.test.ts` | 13 | |
-| `tests/server.test.ts` | 23 | |
-| `tests/fetcher.test.ts` | 8 | |
-| `tests/index-cache.test.ts` | 7 | |
-| `tests/loader.test.ts` | 20 | |
-| `tests/url-helpers.test.ts` | 20 | |
-| `tests/chunk-helpers.test.ts` | 20 | |
-| `tests/tokenizer.test.ts` | 22 | |
-| `tests/categories.test.ts` | 6 | |
-| `tests/config.test.ts` | 10 | |
-| `tests/protected-block-tracker.test.ts` | 6 | |
-| `tests/integration.test.ts` | 1 | Skipped unless `INTEGRATION=1` |
-| `tests/error-messages.test.ts` | 8 | |
-| `tests/cache.mock.test.ts` | 1 | |
-| `tests/corpus-validation.test.ts` | 2 | |
-| `tests/cache.test.ts` | 24 | |
+- `tests/integration.test.ts` is skipped unless `INTEGRATION=1`.
+- `tests/corpus-validation.test.ts` depends on a populated content cache.
 
 ## Known Limitations
 - Stdio transport only; no HTTP/SSE transport.

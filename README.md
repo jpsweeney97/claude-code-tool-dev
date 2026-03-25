@@ -153,7 +153,7 @@ uv run --package context-metrics-plugin pytest
 cd packages/plugins/cross-model/context-injection && uv run pytest
 
 # TypeScript
-npm run test --workspace @claude-tools/claude-code-docs   # 386 tests
+npm run test --workspace @claude-tools/claude-code-docs
 
 # Root-level cross-cutting tests
 uv run pytest tests/
@@ -239,4 +239,4 @@ docs/              Plans, audits, frameworks, decisions, tickets, learnings
 
 ### CI
 
-GitHub Actions runs on the claude-code-docs MCP server only (test, typecheck, build, audit, smoke tests). Python plugin tests run locally — no CI pipeline.
+GitHub Actions runs on the claude-code-docs MCP server only (test, typecheck, build, audit). Python plugin tests run locally — no CI pipeline.

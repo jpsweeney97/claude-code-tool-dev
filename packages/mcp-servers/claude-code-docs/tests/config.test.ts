@@ -13,8 +13,6 @@ describe('loadConfig', () => {
     const config = loadConfig(makeEnv());
     expect(config.docsUrl).toBe('https://code.claude.com/docs/llms-full.txt');
     expect(config.retryIntervalMs).toBe(60000);
-    expect(config.requireIndexOnStartup).toBe(false);
-    expect(config.refreshIntervalMs).toBe(0);
   });
 
   it('parses valid runtime overrides', () => {
@@ -22,8 +20,6 @@ describe('loadConfig', () => {
       makeEnv({
         DOCS_URL: 'https://example.com/docs/llms-full.txt',
         RETRY_INTERVAL_MS: '120000',
-        REQUIRE_INDEX_ON_STARTUP: 'true',
-        REFRESH_INTERVAL_MS: '300000',
         CACHE_TTL_MS: '5000',
         DOCS_CACHE_MAX_STALE_MS: '9000',
         MIN_SECTION_COUNT: '10',
@@ -35,8 +31,6 @@ describe('loadConfig', () => {
 
     expect(config.docsUrl).toBe('https://example.com/docs/llms-full.txt');
     expect(config.retryIntervalMs).toBe(120000);
-    expect(config.requireIndexOnStartup).toBe(true);
-    expect(config.refreshIntervalMs).toBe(300000);
   });
 
   it('rejects non-https DOCS_URL', () => {
@@ -55,23 +49,6 @@ describe('loadConfig', () => {
     expect(() =>
       loadConfig(makeEnv({ RETRY_INTERVAL_MS: '600001' })),
     ).toThrow(/RETRY_INTERVAL_MS must be <= 600000/);
-  });
-
-  it('rejects refresh interval below minimum (except 0)', () => {
-    expect(() =>
-      loadConfig(makeEnv({ REFRESH_INTERVAL_MS: '5000' })),
-    ).toThrow(/REFRESH_INTERVAL_MS must be >= 60000/);
-  });
-
-  it('accepts refresh interval of 0 as disabled', () => {
-    const config = loadConfig(makeEnv({ REFRESH_INTERVAL_MS: '0' }));
-    expect(config.refreshIntervalMs).toBe(0);
-  });
-
-  it('rejects invalid boolean values', () => {
-    expect(() =>
-      loadConfig(makeEnv({ REQUIRE_INDEX_ON_STARTUP: 'maybe' })),
-    ).toThrow(/REQUIRE_INDEX_ON_STARTUP must be one of/);
   });
 
   it('rejects CACHE_PATH without filename', () => {

@@ -1,6 +1,6 @@
 ---
 name: claude-code-docs
-description: Use this skill when working with Claude Code's extension system — writing, debugging, or configuring hooks (PreToolUse, PostToolUse, PermissionRequest, SessionStart, Stop, SubagentStop), skills (SKILL.md frontmatter, allowed-tools, context: fork), plugins, MCP servers, subagents, or slash commands. Invoke it to look up exact JSON schemas, check frontmatter field names, or verify hook output formats. Never answer these from training memory alone — Claude Code's extension APIs evolve and documentation is authoritative. Not for general Claude API usage, Anthropic SDK questions, Claude Desktop settings, or non-Claude-Code development.
+description: "Use this skill when working with Claude Code's extension system — writing, debugging, or configuring hooks (PreToolUse, PostToolUse, PermissionRequest, SessionStart, Stop, SubagentStop), skills (SKILL.md frontmatter, allowed-tools, context: fork), plugins, MCP servers, subagents, or slash commands. Invoke it to look up exact JSON schemas, check frontmatter field names, or verify hook output formats. Never answer these from training memory alone — Claude Code's extension APIs evolve and documentation is authoritative. Not for general Claude API usage, Anthropic SDK questions, Claude Desktop settings, or non-Claude-Code development."
 allowed-tools:
   - mcp__claude-code-docs__search_docs
   - mcp__claude-code-docs__reload_docs

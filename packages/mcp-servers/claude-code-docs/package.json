@@ -11,9 +11,7 @@
     "dev": "tsc --watch",
     "test": "vitest run",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit",
-    "smoke:startup": "timeout 30 node dist/index.js </dev/null",
-    "smoke:refresh": "timeout 30 node dist/index.js </dev/null"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.0",

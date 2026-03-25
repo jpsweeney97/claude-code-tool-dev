@@ -2,7 +2,13 @@
 import { createHash } from 'crypto';
 import * as path from 'path';
 import type { MarkdownFile, ParsedSection } from './types.js';
-import { fetchOfficialDocs, FetchHttpError, FetchNetworkError, FetchTimeoutError } from './fetcher.js';
+import {
+  fetchOfficialDocs,
+  FetchHttpError,
+  FetchNetworkError,
+  FetchResponseTooLargeError,
+  FetchTimeoutError,
+} from './fetcher.js';
 import { parseSections } from './parser.js';
 import { readCache, readCacheIfFresh, writeCache, getDefaultCachePath } from './cache.js';
 import { extractContentPath } from './url-helpers.js';
@@ -209,6 +215,7 @@ async function fetchAndParse(
     const isExpected =
       err instanceof FetchHttpError ||
       err instanceof FetchNetworkError ||
+      err instanceof FetchResponseTooLargeError ||
       err instanceof FetchTimeoutError ||
       err instanceof ContentValidationError;
 

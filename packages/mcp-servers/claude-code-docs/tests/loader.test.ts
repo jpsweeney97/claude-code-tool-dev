@@ -456,9 +456,11 @@ Content`;
 
 describe('fetchAndParse error discrimination', () => {
   let tempDir: string;
+  let originalMaxResponseBytes: string | undefined;
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-error-test-'));
+    originalMaxResponseBytes = process.env.MAX_RESPONSE_BYTES;
     process.env.MIN_SECTION_COUNT = '0';
     vi.resetModules();
     vi.stubGlobal('fetch', vi.fn());
@@ -466,6 +468,11 @@ describe('fetchAndParse error discrimination', () => {
 
   afterEach(async () => {
     delete process.env.MIN_SECTION_COUNT;
+    if (originalMaxResponseBytes === undefined) {
+      delete process.env.MAX_RESPONSE_BYTES;
+    } else {
+      process.env.MAX_RESPONSE_BYTES = originalMaxResponseBytes;
+    }
     vi.unstubAllGlobals();
     await fs.rm(tempDir, { recursive: true, force: true });
   });
@@ -495,6 +502,57 @@ describe('fetchAndParse error discrimination', () => {
   it('still falls back to cache for network errors', async () => {
     // Error('connection refused') is wrapped by fetchOfficialDocs as FetchNetworkError
     const mockFetch = vi.fn().mockRejectedValue(new Error('connection refused'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, '# Cached\nSource: https://example.com/c\n\nCached content');
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath, true);
+    expect(files.length).toBeGreaterThan(0);
+  });
+
+  it('falls back to cache for oversized responses rejected by content-length', async () => {
+    process.env.MAX_RESPONSE_BYTES = '1';
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'text/plain',
+        'content-length': '2',
+      }),
+      body: null,
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, '# Cached\nSource: https://example.com/c\n\nCached content');
+
+    const { loadFromOfficial } = await import('../src/loader.js');
+    const { files } = await loadFromOfficial('https://example.com/docs', cachePath, true);
+    expect(files.length).toBeGreaterThan(0);
+  });
+
+  it('falls back to cache for oversized streaming responses', async () => {
+    process.env.MAX_RESPONSE_BYTES = '1';
+
+    const largeData = new Uint8Array([65, 66]);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(largeData);
+        controller.close();
+      },
+    });
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'text/plain',
+      }),
+      body: stream,
+    });
     vi.stubGlobal('fetch', mockFetch);
 
     const cachePath = path.join(tempDir, 'cache.txt');

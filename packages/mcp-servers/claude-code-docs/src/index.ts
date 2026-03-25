@@ -16,25 +16,25 @@ import { formatSearchError } from './error-messages.js';
 import { ServerState } from './lifecycle.js';
 import { SearchInputSchema, SearchOutputSchema } from './schemas.js';
 import { buildMetadataResponse, DumpIndexMetadataOutputSchema } from './dump-index-metadata.js';
-
-const serverState = new ServerState({
-  loadFn: loadFromOfficial,
-  chunkFn: chunkFile,
-  buildIndexFn: buildBM25Index,
-  readCacheFn: readIndexCache,
-  writeCacheFn: writeIndexCache,
-  clearCacheFn: clearIndexCache,
-  indexCachePathFn: getDefaultIndexCachePath,
-  serializeIndexFn: serializeIndex,
-  deserializeIndexFn: deserializeIndex,
-  parseSerializedIndexFn: parseSerializedIndex,
-  docsUrl: process.env.DOCS_URL,
-  retryIntervalMs: process.env.RETRY_INTERVAL_MS
-    ? parseInt(process.env.RETRY_INTERVAL_MS, 10)
-    : undefined,
-});
+import { loadConfig } from './config.js';
 
 async function main() {
+  const config = loadConfig();
+  const serverState = new ServerState({
+    loadFn: loadFromOfficial,
+    chunkFn: chunkFile,
+    buildIndexFn: buildBM25Index,
+    readCacheFn: readIndexCache,
+    writeCacheFn: writeIndexCache,
+    clearCacheFn: clearIndexCache,
+    indexCachePathFn: getDefaultIndexCachePath,
+    serializeIndexFn: serializeIndex,
+    deserializeIndexFn: deserializeIndex,
+    parseSerializedIndexFn: parseSerializedIndex,
+    docsUrl: config.docsUrl,
+    retryIntervalMs: config.retryIntervalMs,
+  });
+
   const server = new McpServer({
     name: 'claude-code-docs',
     version: '1.0.0',

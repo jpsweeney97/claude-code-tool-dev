@@ -19,7 +19,7 @@ export const CHUNKER_VERSION = 1;
  * - tokenizer.ts → TOKENIZER_VERSION
  * - chunker.ts → CHUNKER_VERSION
  */
-export const INGESTION_VERSION = 1;
+export const INGESTION_VERSION = 2;
 
 export interface SerializedIndex {
   version: number;

@@ -107,6 +107,34 @@ describe('chunkFile', () => {
       const fenceChunk = chunks.find((c) => c.content.includes('```python'));
       expect(fenceChunk?.content).toContain('## Not a heading');
     });
+
+    it('assigns unique ids to oversized headingless files', () => {
+      const updateBlocks = Array.from({ length: 60 }, (_, i) => [
+        `<Update label="2.0.${i}" description="Entry ${i}">`,
+        `Line ${i}a ${'detail '.repeat(12)}`,
+        `Line ${i}b ${'detail '.repeat(12)}`,
+        `</Update>`,
+      ].join('\n')).join('\n\n');
+
+      const file: MarkdownFile = {
+        path: 'https://code.claude.com/docs/en/changelog',
+        content: [
+          'Release notes for Claude Code.',
+          '',
+          'Run `claude --version` to check your installed version.',
+          '',
+          updateBlocks,
+        ].join('\n'),
+      };
+
+      const { chunks } = chunkFile(file);
+      const ids = chunks.map((chunk) => chunk.id);
+
+      expect(chunks.length).toBeGreaterThan(1);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(ids[0]).toBe('changelog');
+      expect(ids[1]).toBe('changelog-2');
+    });
   });
 
   describe('merging small chunks', () => {

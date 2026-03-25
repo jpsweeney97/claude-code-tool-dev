@@ -18,6 +18,10 @@ export function slugify(text: string): string {
  *
  * For file paths, uses the path directly:
  * - 'hooks/overview.md' → 'hooks-overview'
+ *
+ * Split chunks without headings still need stable unique IDs:
+ * - splitIndex undefined or 1 → 'changelog'
+ * - splitIndex 2 → 'changelog-2'
  */
 export function generateChunkId(
   file: MarkdownFile,
@@ -35,7 +39,10 @@ export function generateChunkId(
     fileSlug = slugify(file.path);
   }
 
-  if (!heading) return fileSlug;
+  if (!heading) {
+    const suffix = splitIndex != null && splitIndex > 1 ? `-${splitIndex}` : '';
+    return `${fileSlug}${suffix}`;
+  }
 
   const headingSlug = slugify(heading);
   // Append suffix for forced splits using 1-based indexing:

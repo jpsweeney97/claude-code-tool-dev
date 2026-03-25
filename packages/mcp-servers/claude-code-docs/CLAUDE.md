@@ -1,6 +1,6 @@
 # claude-code-docs MCP Server
 
-BM25-based search server for Claude Code documentation. Fetches docs from `https://code.claude.com/docs/llms-full.txt`, chunks into semantic sections, builds an in-memory BM25 index, and exposes two tools (`search_docs`, `reload_docs`) via MCP stdio transport.
+BM25-based search server for Claude Code documentation. Fetches docs from `https://code.claude.com/docs/llms-full.txt`, chunks into semantic sections, builds an in-memory BM25 index, and exposes three tools (`search_docs`, `reload_docs`, `dump_index_metadata`) via MCP stdio transport.
 
 ### Search Tool Parameters
 
@@ -13,7 +13,7 @@ BM25-based search server for Claude Code documentation. Fetches docs from `https
 ## Commands
 
 ```bash
-npm test              # vitest run (397 tests)
+npm test              # vitest run
 npx tsc --noEmit      # type check
 npm run build         # tsc → dist/
 npm start             # run server (fetches from code.claude.com)
@@ -37,7 +37,7 @@ loadFromOfficial (fetch + parse docs)
 
 | Module | Role |
 |--------|------|
-| `index.ts` | Entry point — MCP server setup, tool registration (`search_docs`, `reload_docs`) |
+| `index.ts` | Entry point — MCP server setup, tool registration (`search_docs`, `reload_docs`, `dump_index_metadata`) |
 | `lifecycle.ts` | `ServerState` class — index loading, caching, retry, concurrency control |
 | `loader.ts` | Fetch/cache pipeline — TTL, stale fallback |
 | `chunker.ts` | Document splitting — H2/H3/paragraph/hard split hierarchy |
@@ -50,6 +50,7 @@ loadFromOfficial (fetch + parse docs)
 | `parser.ts` | Parses `llms-full.txt` into `ParsedSection[]` via Source-line splitting |
 | `fetcher.ts` | HTTP fetch with redirect handling |
 | `schemas.ts` | Zod schemas for search tool input/output |
+| `dump-index-metadata.ts` | Metadata/introspection builder for `dump_index_metadata` |
 | `error-messages.ts` | User-facing error formatting |
 | `chunk-helpers.ts` | `computeTermFreqs`, `generateChunkId` |
 | `frontmatter.ts` | YAML frontmatter parsing |

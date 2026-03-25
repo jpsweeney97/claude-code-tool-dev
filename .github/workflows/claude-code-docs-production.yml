@@ -45,9 +45,3 @@ jobs:
 
       - name: Audit (High/Critical Gate)
         run: npm audit --omit=dev --audit-level=high --workspace @claude-tools/claude-code-docs
-
-      - name: Startup Smoke (REQUIRE_INDEX_ON_STARTUP=true)
-        run: npm run smoke:startup --workspace @claude-tools/claude-code-docs
-
-      - name: Refresh Smoke (REFRESH_INTERVAL_MS=60000)
-        run: npm run smoke:refresh --workspace @claude-tools/claude-code-docs
