@@ -63,6 +63,7 @@ if __package__:
         START_POLICY as CODEX_POLICY,
         REPLY_POLICY as CODEX_REPLY_POLICY,
         policy_for_tool as _policy_for_tool,
+        TIER_RANK,
     )
 else:
     from consultation_safety import (  # type: ignore[import-not-found,no-redef]
@@ -72,6 +73,7 @@ else:
         START_POLICY as CODEX_POLICY,
         REPLY_POLICY as CODEX_REPLY_POLICY,
         policy_for_tool as _policy_for_tool,
+        TIER_RANK,
     )
 
 
@@ -118,12 +120,11 @@ def handle_pre(data: dict) -> int:
             "unexpected_fields": unexpected_fields,
         })
 
-    _TIER_RANK = {"strict": 0, "contextual": 1}
     results = [scan_text(text) for text in texts_to_scan]
 
     blocks = [r for r in results if r.action == "block"]
     if blocks:
-        best = min(blocks, key=lambda r: _TIER_RANK.get(r.tier or "", 99))
+        best = min(blocks, key=lambda r: TIER_RANK.get(r.tier or "", 99))
         return _log_block(tool, session_id, str(best.reason), scanned_chars)
 
     for result in results:
