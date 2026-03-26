@@ -1,3 +1,4 @@
+<!-- extract-hash: 1bb426ca1305 -->
 # Consultation Contract — Agent Extract
 
 Extracted from [consultation-contract.md](consultation-contract.md) for use by the `codex-dialogue` agent. Contains only the sections the agent needs at runtime: §4 (vocabulary), §5 (briefing), §7 (safety), §8 (policy), §9 (transport), §10 (continuity), §15 (governance).

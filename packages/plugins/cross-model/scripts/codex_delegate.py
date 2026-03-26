@@ -615,12 +615,12 @@ def run(input_path: Path) -> int:
             try:
                 verdict = _check_tool_input({"prompt": prompt}, _DELEGATION_POLICY)
             except _ToolInputLimitExceeded:
-                # Large prompts exceed the 256 KiB char cap in extract_strings.
-                # The prior scan_text path had no size gate — allow to preserve parity.
-                # Prompts exceeding this cap bypass credential scanning entirely.
-                print(
-                    "codex-delegate: credential scan skipped: prompt exceeds char cap",
-                    file=sys.stderr,
+                # F1: Fail closed on oversized prompts. Governance lock #6
+                # requires egress sanitization on all outbound payloads.
+                # The prior allow-through preserved "parity" with a pre-refactor
+                # path that had no size gate — that rationale is now stale.
+                raise CredentialBlockError(
+                    "credential scan blocked: prompt exceeds 256 KiB char cap"
                 )
             except Exception as scan_exc:
                 raise CredentialBlockError(

@@ -204,6 +204,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "context-injection" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -216,6 +217,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "context-injection", editable = "packages/plugins/cross-model/context-injection" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.8" },
 ]
