@@ -1,21 +1,49 @@
 ---
 name: readme
 description: Create, audit, and improve README files for any codebase, plugin, or repo. Orchestrates an agent team to deeply explore the project before writing, so every README is grounded in what actually exists — not what the author remembers. Use this skill whenever a user asks to "write a README", "create documentation for this project", "audit this README", "update the README", "this repo needs a README", "document this codebase", or mentions README quality, accuracy, or completeness. Also trigger when a user asks to "document this project" and the request is about introducing the project to users or contributors (not about operational runbooks — redirect to the handbook skill for those). Covers root READMEs, nested package READMEs, and monorepo documentation hierarchies.
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - Bash
+  - Agent
+  - ToolSearch
+  - TeamCreate
+  - TeamDelete
+  - SendMessage
+  - TaskCreate
+  - TaskUpdate
+  - TaskList
+  - TaskGet
 ---
 
 # README Skill
 
 Create, audit, and improve READMEs grounded in comprehensive codebase exploration. Targets two audiences: humans who skim for quick starts, and agents who parse for structure, entry points, and contracts.
 
+**Announce at start:** "I'm using the readme skill to [create/audit/update] this README."
+
 ## Prerequisite
 
-This skill requires agent teams. Before proceeding, verify the feature is enabled:
+This skill requires agent teams. Verify the feature is enabled before any other work:
 
-```
-CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
-```
+Check for `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in environment or settings.json env block.
 
-If not enabled, tell the user: "This skill uses agent teams for deep parallel exploration. Enable them by adding `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` to your settings.json env block, then restart the session." Do not fall back to a shallow approach — the quality difference is the point.
+If not enabled, hard stop: "This skill requires agent teams for deep parallel exploration. Enable by setting `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your settings.json env block, then restart the session." Do NOT fall back to sequential exploration — parallel multi-perspective exploration is the skill's value proposition.
+
+## Constraints
+
+| # | Constraint | Detail |
+|---|-----------|--------|
+| 1 | Agent teams required | Hard prerequisite. Do NOT fall back to sequential or Agent-tool-only alternatives. |
+| 2 | Sonnet for teammates | Spawn all teammates with `model: "sonnet"`. Lead uses the session's default model. |
+| 3 | Teammates lack conversation history | Each teammate starts fresh with only its spawn prompt plus the project's CLAUDE.md/skills. The lead's conversation does NOT carry over — include everything teammates need in their spawn prompts. |
+| 4 | One team per session | No nested teams. Clean up before starting a new one. |
+| 5 | 5 teammates | Cartographer, Interface Analyst, DevEx Analyst, Archaeologist, Architect. |
+
+See `references/agent-teams.md` for the full agent teams API reference.
 
 ## Modes
 
@@ -57,145 +85,145 @@ Identify which README(s) to work on.
 
 **Full hierarchy:** When the user says "document this monorepo" or "all the READMEs need updating." Work on the root README first, then proceed to nested packages.
 
-For audit/update modes, read the existing README(s) before exploration so the team knows what claims to verify.
+For audit/update modes, read the existing README(s) before exploration so you know what claims to verify.
 
-## Step 2: Launch Exploration Team
+## Step 2: Explore the Project
 
-Create an agent team with 5 teammates. Each teammate has a distinct exploration mandate and reports findings to dedicated files in the workspace.
+Explore the project from 5 perspectives in parallel using an agent team. Each teammate investigates one dimension and writes structured findings to the workspace.
 
-Agent teams are coordinated via natural language — describe the team structure, teammates, and tasks to the lead. The lead handles spawning, task assignment, and coordination internally.
+### Phase 1: Setup
 
-**Critical: known failure modes to guard against:**
-- **Do not substitute the Agent tool for agent teams.** If `TeamCreate` is a deferred tool, fetch it with `ToolSearch` and use it. The Agent tool with `run_in_background` looks similar but lacks teammate-to-teammate messaging, coordinated completion detection, and shared task state — leading to polling races and lost coordination. Agent teams and the Agent tool are not interchangeable.
-- The lead may start doing exploration work itself instead of waiting for teammates. If you catch yourself exploring the codebase before teammates finish, stop. Your job is to coordinate, then synthesize.
-- The lead may declare the team finished before all teammates complete. Wait for all 5 idle notifications before proceeding to synthesis.
-- Task status can lag — a teammate may finish work without marking the task complete. Check the workspace for output files as a secondary completion signal.
+1. Create the workspace directory: `<project-root>/.readme-workspace/exploration/`
+2. Verify `.readme-workspace/` is in `.gitignore`. If absent, add it.
 
-Tell the lead to create these teammates with these prompts:
+### Phase 2: Create Team and Tasks
 
-### Teammate 1: Cartographer
+If `TeamCreate` is a deferred tool, fetch it with `ToolSearch` first.
 
-> Map the complete structure of this project. Your deliverable is a comprehensive inventory.
->
-> Tasks:
-> 1. **Directory tree** — full layout with annotations on what each top-level and second-level directory contains. For projects with over 500 files, limit the directory tree to 3 levels deep and sample 3-5 representative files per directory rather than enumerating all
-> 2. **File inventory** — count and categorize: source files, config files, test files, documentation, scripts, assets
-> 3. **Project type classification** — determine if this is a library, CLI tool, plugin/extension, monorepo, or hybrid. Evidence your classification with specific files (package.json bin field, setup.py entry_points, plugin manifest, workspace config)
-> 4. **Nested package detection** — identify all sub-packages, their own READMEs (or lack thereof), and their relationship to the root
-> 5. **Notable patterns** — anything unusual about the project structure that a README should explain (unconventional directory names, generated code, vendored dependencies)
->
-> When you discover something relevant to another teammate's mandate, message them directly. For example, if you find a `bin/` directory, message the Interface Analyst about potential CLI commands.
->
-> Write your findings to `<workspace>/exploration/cartographer.md`.
+1. **Create the team** via `TeamCreate` with `team_name: "readme-exploration"` and a description of the README task.
+2. **Create one task per teammate** via `TaskCreate`. Each task describes the teammate's exploration mandate and output path. Do NOT set `blockedBy` dependencies — all 5 tasks run in parallel.
 
-### Teammate 2: Interface Analyst
+| Task | Teammate ID | Output file |
+|------|-------------|-------------|
+| Map project structure | `cartographer` | `exploration/cartographer.md` |
+| Catalog public interfaces | `interface-analyst` | `exploration/interface.md` |
+| Map developer experience | `devex-analyst` | `exploration/devex.md` |
+| Audit existing documentation | `archaeologist` | `exploration/archaeologist.md` |
+| Map internal architecture | `architect` | `exploration/architect.md` |
 
-> Map everything this project exposes to its users. Your deliverable is a complete surface area inventory.
->
-> Tasks:
-> 1. **Public API surface** — all exported functions, classes, types, and constants. Include signatures and brief descriptions. For large APIs (>20 exports), group by module and note the top 10 most important
-> 2. **CLI commands** — if this is a CLI tool, every command and subcommand with flags, arguments, and defaults
-> 3. **Configuration schema** — all configuration options the user can set: config files, environment variables, constructor options. Include types and defaults
-> 4. **Extension points** — hooks, plugin APIs, middleware interfaces, event systems — anything that lets users extend the project's behavior
->
-> Focus on what's public and documented. Flag things that appear public but lack documentation.
->
-> Write your findings to `<workspace>/exploration/interface.md` in this structure:
-> ```
-> ## Public API
-> [exports grouped by module — signatures and descriptions]
->
-> ## CLI Commands
-> [commands with flags, arguments, defaults]
->
-> ## Configuration
-> [all config options: name, type, default, purpose]
->
-> ## Extension Points
-> [hooks, plugin APIs, middleware — what lets users extend behavior]
-> ```
+### Phase 3: Spawn Teammates
 
-### Teammate 3: DevEx Analyst
+Spawn all 5 teammates using the `Agent` tool. The `team_name` parameter is what makes a spawned agent a teammate with messaging, shared tasks, and idle notifications. Without `team_name`, the agent is an isolated subagent with none of those capabilities.
 
-> Map the complete developer experience — everything someone needs to know to install, use, and develop on this project.
->
-> Tasks:
-> 1. **Installation** — all supported installation methods. Check package registries, Docker, platform-specific installers, build-from-source instructions
-> 2. **Build system** — how to build the project. Build tools, commands, prerequisites, platform requirements
-> 3. **Test infrastructure** — test framework, how to run tests, test organization, coverage tools, fixtures
-> 4. **Development workflow** — dev server, watch mode, hot reload, linting, formatting, pre-commit hooks
-> 5. **CI/CD** — what CI runs, required checks, deployment pipeline if visible
-> 6. **Contributing prerequisites** — language/runtime version requirements, system dependencies, required accounts or credentials
->
-> Try each installation/build step mentally — if the README says "run npm install" but there's no package.json, that's a finding.
->
-> Write your findings to `<workspace>/exploration/devex.md`.
+**Design principle:** All teammates access all project files — they are scoped by perspective, not by directory. Do NOT partition directories among teammates. Directory-partitioned exploration creates gaps at boundaries where cross-cutting concerns live.
 
-### Teammate 4: Archaeologist
+For each teammate, call `Agent` with:
+- `team_name`: `"readme-exploration"` (must match TeamCreate)
+- `name`: the teammate ID from the table above — this is the addressing key for all communication
+- `model`: `"sonnet"`
+- `prompt`: the spawn prompt below
 
-> Excavate the project's existing documentation and identify what's stale, missing, or misleading.
->
-> Tasks:
-> 1. **Existing README analysis** — if a README exists, extract every factual claim it makes (file paths, command examples, feature descriptions). Create a claims checklist for other teammates to verify
-> 2. **Documentation inventory** — all docs/ files, inline doc comments, wiki references, external doc links. Assess coverage: what's documented, what isn't
-> 3. **Staleness signals** — docs that reference deleted files, old API signatures, deprecated features, or stale version numbers. Check git blame for doc file ages vs source file ages
-> 4. **Undocumented directories** — directories with significant code but no README or doc coverage. Prioritize by complexity and user-facing impact
-> 5. **Example quality** — existing examples in docs/, README, or test files. Are they runnable? Do they use current APIs?
->
-> Share your claims checklist with the specific teammates whose domains overlap with the claims. Message the Interface Analyst about API/config claims, the DevEx Analyst about install/build claims, the Architect about architecture claims, and the Cartographer about file path claims. Use targeted messages, not broadcast — broadcast costs scale with team size.
->
-> Write your findings to `<workspace>/exploration/archaeologist.md`.
+Spawn all 5 in the same message to maximize parallelism. Do NOT start your own exploration or analysis before all teammates are spawned — your job is to coordinate and then synthesize.
 
-### Teammate 5: Architect
-
-> Map how the project's internals connect. Your deliverable helps contributors and agents understand the system's design.
->
-> Tasks:
-> 1. **Dependency graph** — external dependencies and what each is used for. Flag heavy, unusual, or security-sensitive dependencies
-> 2. **Internal architecture** — how the project's modules/components connect. Data flow, control flow, key abstractions
-> 3. **Design patterns** — recurring patterns in the codebase (repository pattern, middleware pipeline, event bus, etc.). Name them so the README can reference them
-> 4. **Entry points** — where execution starts. Main files, handler registrations, initialization sequences
-> 5. **Cross-cutting concerns** — error handling strategy, logging approach, configuration loading, authentication/authorization patterns
->
-> When you discover something relevant to another teammate's mandate, message them directly. For example, if you find configuration loaded via a singleton pattern, message the Interface Analyst. If you find complex initialization sequences, message the DevEx Analyst.
->
-> Write your findings to `<workspace>/exploration/architect.md`.
-
-### Workspace Setup
-
-Before spawning the team, create the workspace directory:
+#### Cartographer
 
 ```
-<project-root>/.readme-workspace/exploration/
+Map the complete structure of the project at {project-root}. Write findings to {workspace}/exploration/cartographer.md.
+
+Tasks:
+1. **Directory tree** — full layout with annotations for top-level and second-level directories. For projects over 500 files, limit to 3 levels deep and sample 3-5 representative files per directory
+2. **File inventory** — count and categorize: source files, config files, test files, documentation, scripts, assets
+3. **Project type classification** — library, CLI tool, plugin/extension, monorepo, or hybrid. Evidence with specific files (package.json bin field, setup.py entry_points, plugin manifest, workspace config)
+4. **Nested package detection** — all sub-packages, their own READMEs (or lack thereof), and relationship to root
+5. **Notable patterns** — anything unusual about project structure that a README should explain
+
+When you discover something relevant to another teammate, message them directly via SendMessage. For example, if you find a bin/ directory, message interface-analyst about potential CLI commands.
 ```
 
-Tell each teammate to write their findings to this directory. Cleanup is handled automatically after completion (see Cleanup section).
+#### Interface Analyst
 
-**Small projects:** If the Cartographer reports fewer than 20 source files and no tests, the lead should consolidate remaining work rather than waiting for all teammates to produce near-empty reports. Dismiss teammates whose domain has no content and proceed to synthesis with whatever reports exist.
+```
+Map everything this project exposes to its users at {project-root}. Write findings to {workspace}/exploration/interface.md.
 
-### Task Structure
+Tasks:
+1. **Public API surface** — all exported functions, classes, types, constants with signatures. For large APIs (>20 exports), group by module and note the top 10
+2. **CLI commands** — every command and subcommand with flags, arguments, and defaults
+3. **Configuration schema** — all config options: config files, environment variables, constructor options with types and defaults
+4. **Extension points** — hooks, plugin APIs, middleware interfaces, event systems
 
-Instruct the lead to create tasks with these dependencies:
+Focus on what's public and documented. Flag things that appear public but lack documentation.
 
-1. All 5 exploration tasks (independent, no dependencies between them)
-2. "Synthesize exploration findings" (depends on all 5 completing)
-3. "Classify project type and select README pattern" (depends on synthesis)
-4. "Write README" (depends on classification)
+Structure output as: ## Public API, ## CLI Commands, ## Configuration, ## Extension Points
+```
 
-The lead manages task creation, assignment, and dependency resolution. Teammates self-claim tasks when they become unblocked.
+#### DevEx Analyst
 
-**Important:** Explicitly tell the lead: "Wait for all teammates to complete their exploration tasks before starting synthesis. Do not begin synthesis, classification, or writing until all 5 exploration reports exist in the workspace."
+```
+Map the complete developer experience at {project-root}. Write findings to {workspace}/exploration/devex.md.
+
+Tasks:
+1. **Installation** — all supported methods: package registries, Docker, platform-specific installers, build-from-source
+2. **Build system** — tools, commands, prerequisites, platform requirements
+3. **Test infrastructure** — framework, how to run tests, organization, coverage tools
+4. **Development workflow** — dev server, watch mode, hot reload, linting, formatting, pre-commit hooks
+5. **CI/CD** — what CI runs, required checks, deployment pipeline if visible
+6. **Contributing prerequisites** — language/runtime versions, system dependencies, required accounts
+
+Try each installation/build step mentally — if the README says "run npm install" but there's no package.json, that's a finding.
+```
+
+#### Archaeologist
+
+```
+Excavate existing documentation at {project-root}. Write findings to {workspace}/exploration/archaeologist.md.
+
+Tasks:
+1. **Existing README analysis** — if a README exists, extract every factual claim (file paths, command examples, feature descriptions) into a claims checklist
+2. **Documentation inventory** — all docs/ files, inline doc comments, wiki references, external doc links with coverage assessment
+3. **Staleness signals** — references to deleted files, old API signatures, deprecated features, stale version numbers
+4. **Undocumented directories** — directories with significant code but no doc coverage, ranked by user-facing impact
+5. **Example quality** — existing examples in docs/, README, or tests: are they runnable and using current APIs?
+
+Share your claims checklist with the specific teammates whose domains overlap. Message interface-analyst about API/config claims, devex-analyst about install/build claims, architect about architecture claims, cartographer about file path claims. Use targeted messages, not broadcast — broadcast costs scale with team size.
+```
+
+#### Architect
+
+```
+Map how the project's internals connect at {project-root}. Write findings to {workspace}/exploration/architect.md.
+
+Tasks:
+1. **Dependency graph** — external dependencies and purpose of each. Flag heavy, unusual, or security-sensitive ones
+2. **Internal architecture** — how modules/components connect: data flow, control flow, key abstractions
+3. **Design patterns** — recurring patterns (repository, middleware pipeline, event bus, etc.)
+4. **Entry points** — where execution starts: main files, handler registrations, initialization sequences
+5. **Cross-cutting concerns** — error handling, logging, configuration loading, auth patterns
+
+When you discover something relevant to another teammate, message them directly. If you find config loaded via singleton, message interface-analyst. If you find complex init sequences, message devex-analyst.
+```
+
+### Phase 4: Monitor Completion
+
+**Primary signal:** idle notifications from the team system. When a teammate finishes and goes idle, the lead receives a notification. Peer DM summaries appear in idle notifications — use these as synthesis input.
+
+**Completion rule:** Wait for all 5 idle notifications before proceeding to synthesis. Do NOT start synthesis early — partial exploration data produces incomplete READMEs.
+
+**Verification:** After all idle notifications, verify each expected output file exists in the workspace via `Glob` or `Read`.
+
+**Timeout:** If no idle notifications or task status changes (confirmed via `TaskGet`) arrive for 5 minutes, proceed with available findings. "Activity" means: idle notification received, or a task moving to `completed`.
+
+**Partial completion:** Always proceed with available findings rather than blocking. Note which teammates failed and why in your synthesis — a README with known coverage gaps is better than no README.
+
+**Small projects:** If the Cartographer reports fewer than 20 source files and no tests, dismiss remaining teammates and proceed to synthesis with whatever reports exist.
 
 ## Step 3: Synthesize Findings
 
-Teammates do not inherit the lead's conversation history — they start fresh with only their spawn prompt and the project's CLAUDE.md/skills. This is why each teammate prompt above is self-contained with explicit deliverables and output paths. Do not assume teammates know the user's original request or the README mode.
+After all teammates complete, read all reports from the workspace. Synthesize into a unified understanding:
 
-After all teammates complete their exploration tasks, read all 5 reports from the workspace. Synthesize into a single unified understanding:
-
-1. **Confirm project type** — the Cartographer's classification, corroborated by Interface Analyst's findings (API surface → library, CLI commands → CLI tool, plugin manifest → plugin, workspace config → monorepo)
-2. **Resolve contradictions** — if teammates found conflicting information, investigate and resolve. Note in the README if genuine ambiguity exists
-3. **Build the claims verdict** — for audit/update modes, go through the Archaeologist's claims checklist and mark each as confirmed, outdated, or wrong based on other teammates' findings
-4. **Identify coverage gaps** — topics that no teammate found information on but that the structural pattern expects. These become "Unknown" or "TODO" markers in the README rather than fabricated content
+1. **Confirm project type** — Cartographer's classification, corroborated by Interface Analyst's findings (API surface → library, CLI commands → CLI tool, plugin manifest → plugin, workspace config → monorepo)
+2. **Resolve contradictions** — if teammates found conflicting information, investigate. Note genuine ambiguity in the README rather than guessing
+3. **Build claims verdict** — for audit/update modes, go through the Archaeologist's claims checklist and mark each as confirmed, outdated, or wrong based on other teammates' findings
+4. **Identify coverage gaps** — topics no teammate found information on but the structural pattern expects. These become "Unknown" or "TODO" markers rather than fabricated content
 
 ## Step 4: Select Structural Pattern
 
@@ -203,7 +231,7 @@ Read `references/structural-patterns.md` and select the pattern matching the con
 
 For hybrid projects (e.g., a library that also has a CLI), use the dominant type's pattern and incorporate relevant sections from the secondary type.
 
-Determine which optional sections to include based on whether the exploration team found substantive content for them. An empty "Architecture" section is worse than no "Architecture" section.
+Include optional sections only when the exploration team found substantive content. An empty "Architecture" section is worse than no "Architecture" section.
 
 ## Step 5: Write the README
 
@@ -211,9 +239,9 @@ Determine which optional sections to include based on whether the exploration te
 
 Write the full README following the selected structural pattern.
 
-**Ground every claim in exploration findings.** Do not invent features, commands, or configuration options that the exploration team didn't discover. If a section in the pattern has no corresponding exploration data, either:
+**Ground every claim in exploration findings.** Do not invent features, commands, or configuration the exploration team didn't discover. If a section has no corresponding data, either:
 - Omit the section (if optional)
-- Write "TODO: [what's needed]" with a note explaining what information is missing (if required)
+- Write "TODO: [what's needed]" with a note explaining what's missing (if required)
 
 **Dual-audience writing:**
 - Lead each section with the human-readable narrative
@@ -223,7 +251,7 @@ Write the full README following the selected structural pattern.
 
 ### Audit Mode
 
-Produce an audit report, not a rewritten README. Structure:
+Produce an audit report, not a rewritten README:
 
 ```markdown
 # README Audit: [Project Name]
@@ -249,36 +277,48 @@ Produce an audit report, not a rewritten README. Structure:
 
 ### Update Mode
 
-Rewrite only the sections that the audit identified as outdated, incorrect, or missing. Preserve the existing README's structure and voice where it's accurate. If the audit reveals the README uses a fundamentally wrong structural pattern (e.g., Library pattern for what's actually a CLI tool), flag this to the user: "The existing README is structured as a [X] but the project is actually a [Y]. Want me to restructure it, or just update the content within the current structure?" Show a diff summary of what changed and why.
+Rewrite only sections identified as outdated, incorrect, or missing. Preserve the existing README's structure and voice where accurate. If the README uses a fundamentally wrong structural pattern (e.g., Library pattern for what's actually a CLI tool), flag this: "The existing README is structured as a [X] but the project is actually a [Y]. Want me to restructure it, or just update the content within the current structure?" Show a diff summary of what changed and why.
 
 ## Quality Checks
 
 Before presenting the final README, verify:
 
-1. **Every command example is real** — cross-reference with DevEx Analyst's findings. No `npm start` if there's no start script
-2. **Every file path exists** — cross-reference with Cartographer's inventory. No references to deleted or renamed files
-3. **Every config option is current** — cross-reference with Interface Analyst's config schema
-4. **Quick start is copy-paste-runnable** — the sequence of commands in Quick Start should work on a fresh clone
-5. **No fabricated content** — every claim traces back to an exploration finding. When uncertain, say so rather than guess
+1. **Every command example is real** — cross-reference with DevEx Analyst's findings
+2. **Every file path exists** — cross-reference with Cartographer's inventory
+3. **Every config option is current** — cross-reference with Interface Analyst's schema
+4. **Quick start is copy-paste-runnable** — commands work on a fresh clone
+5. **No fabricated content** — every claim traces to an exploration finding
 
-If any check fails, fix the content before presenting. Note corrections at the end: what was wrong and what you changed. Do not present a README with known inaccuracies — correct first, then deliver.
+If any check fails, fix before presenting. Do not deliver a README with known inaccuracies.
 
 ## Nested READMEs
 
 When working on a nested README (a package within a monorepo, a plugin within a collection):
 
 1. Scope the exploration team to that directory and its immediate dependencies
-2. Select the structural pattern for the nested project's type (the plugin within a monorepo gets the Plugin pattern, not the Monorepo pattern)
+2. Select the structural pattern for the nested project's type (the plugin gets the Plugin pattern, not the Monorepo pattern)
 3. Reference the root README for shared setup ("See the [root README](../README.md) for workspace setup")
 4. Don't duplicate information that belongs in the root README
 
+## Failure Modes
+
+| Failure | Detection | Response |
+|---------|-----------|----------|
+| Agent teams not enabled | Prerequisite check | Hard stop — do not fall back |
+| TeamCreate fails | Phase 2 step 1 | Hard stop — cannot proceed without team |
+| Teammate spawn fails | Phase 3 | Log, continue with remaining. All fail = hard stop |
+| Teammate timeout | No activity for 5 min | Treat as failed, proceed with available findings |
+| Missing output file | Phase 4 verification | Log as coverage gap in synthesis |
+| Stale workspace | Phase 1 setup | Warn user, offer: archive / remove / abort |
+| TeamDelete fails | Cleanup step 3 | Teammates still active — retry shutdown, then retry |
+
 ## Cleanup
 
-After the README is complete and delivered, clean up automatically — do not ask:
+After the README is complete and delivered:
 
-1. Shut down all teammates via `SendMessage` with `type: "shutdown_request"`
-2. Remove the workspace directory (`.readme-workspace/`)
-3. Remove team files (`~/.claude/teams/<team-name>/`)
-4. Remove task files (`~/.claude/tasks/<team-name>/`)
+1. Send a shutdown request to each teammate: `SendMessage` to each by name with `{type: "shutdown_request", reason: "README complete"}`.
+2. Teammates finish their current tool call before shutting down — this may take a moment. If a teammate rejects the shutdown, retry with additional context explaining that the README is complete.
+3. After all teammates go idle, call `TeamDelete` to remove shared team resources. `TeamDelete` fails if any teammate is still active — confirm all are idle first.
+4. Remove the workspace directory (`.readme-workspace/`).
 
-These are transient working artifacts, not deliverables.
+These are transient working artifacts — do not ask the user about cleanup.
