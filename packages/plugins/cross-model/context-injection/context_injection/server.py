@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -46,6 +47,7 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     _check_git_available()
     repo_root = os.environ.get("REPO_ROOT", os.getcwd())
     git_files = _load_git_files(repo_root)
+    print(f"context-injection: REPO_ROOT={repo_root}", file=sys.stderr)
     ctx = AppContext.create(repo_root=repo_root, git_files=git_files)
     yield ctx
 

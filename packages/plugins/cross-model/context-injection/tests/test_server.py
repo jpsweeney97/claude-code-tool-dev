@@ -70,3 +70,29 @@ def test_load_git_files_nonzero_exit_returns_empty() -> None:
     ):
         result = _load_git_files("/any")
     assert result == set()
+
+
+def test_app_lifespan_logs_repo_root_to_stderr(tmp_path, monkeypatch, capsys) -> None:
+    """app_lifespan prints REPO_ROOT=<path> to stderr at startup."""
+    import asyncio
+    from unittest.mock import MagicMock
+    from context_injection.server import app_lifespan
+
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
+
+    with (
+        patch("context_injection.server._check_posix"),
+        patch("context_injection.server._check_git_available"),
+        patch(
+            "context_injection.server._load_git_files",
+            return_value=set(),
+        ),
+    ):
+        async def run() -> None:
+            async with app_lifespan(MagicMock()):
+                pass
+
+        asyncio.run(run())
+
+    captured = capsys.readouterr()
+    assert f"REPO_ROOT={tmp_path}" in captured.err
