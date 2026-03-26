@@ -52,7 +52,7 @@ INTEGRATION=1 npm test -- integration  # run integration tests against live netw
   - Exception: `cache.mock.test.ts` for variant with filesystem mocking
 
 **Special test files (TypeScript):**
-- `golden-queries.test.ts` — search quality validation (34 queries, 26 categories) using inline mock corpus
+- `golden-queries.test.ts` — search quality validation (35 queries, 26 categories) using inline mock corpus
 - `integration.test.ts` — live network test, skipped by default, enabled with `INTEGRATION=1`
 - `corpus-validation.test.ts` — validates chunking invariants, skipped unless content cache present
 

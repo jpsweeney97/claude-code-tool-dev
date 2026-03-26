@@ -83,7 +83,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 
 | Test | Purpose |
 |------|---------|
-| `golden-queries.test.ts` | Multi-category query coverage (26 queries, 16 categories) — validates search quality |
+| `golden-queries.test.ts` | Multi-category query coverage (35 queries, 26 categories) — validates search quality |
 | `integration.test.ts` | End-to-end pipeline assessment (skipped by default — run with `INTEGRATION=1`) |
 | `corpus-validation.test.ts` | Validates chunking invariants across full corpus (requires content cache) |
 | `cache.mock.test.ts` | Cache behavior with mocked filesystem |
