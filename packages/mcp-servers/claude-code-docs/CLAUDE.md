@@ -123,3 +123,21 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 - **Zod strips unknown keys by default**: When adding fields to serialized structures, update both the TypeScript interface and the Zod schema in `index-cache.ts`.
 - **Unsafe mode is an escape hatch, not multi-corpus support**: In `unsafe` mode, taxonomy and relative-drift canary checks are disabled. The server accepts any HTTPS source URL but cannot verify corpus authenticity against expected Claude Code doc structure. Use only for local testing or private mirrors.
 - **Provenance refresh triggers a full rebuild**: When `DOCS_TRUST_MODE` or `DOCS_URL` changes between runs, the cached index is invalidated even if all version constants match — the policy change is a cache miss by design.
+
+## Auto-Build
+
+The MCP server is registered to start via `scripts/run-mcp.sh`, a wrapper that runs `tsc` before `exec node dist/index.js`. This ensures `dist/` always reflects the TypeScript source on every session restart.
+
+**How it works:**
+- Wrapper redirects tsc output to stderr (stdout is reserved for MCP JSON-RPC)
+- `exec` replaces bash with node so signals reach the server process directly
+- Incremental compilation (`incremental: true` in tsconfig) makes no-op builds fast
+- `.tsbuildinfo` lives in `dist/` — `rm -rf dist/` also clears the incremental cache
+
+**If tsc fails:** The server does not start. This is intentional — running stale compiled code is worse than no server. Fix the TypeScript error and restart the session.
+
+**Registration:** `claude mcp get claude-code-docs` shows the current config. To re-register after moving the repo:
+```bash
+claude mcp remove claude-code-docs -s user
+claude mcp add-json --scope user claude-code-docs '{"type":"stdio","command":"<repo>/packages/mcp-servers/claude-code-docs/scripts/run-mcp.sh","env":{"DOCS_PATH":"<repo>/docs/extension-reference"}}'
+```
