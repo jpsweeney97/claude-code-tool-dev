@@ -1,21 +1,49 @@
 ---
 name: changelog
 description: Create, audit, update, and refine CHANGELOGs with verified accuracy. Orchestrates an agent team to gather evidence from git history, GitHub PRs, and handoff archives in parallel, then cross-references all three sources to produce grounded entries. Trigger on: adding PRs/commits to a changelog, creating a changelog from scratch, checking changelog accuracy against git history, finding what changed between versions or since a date, preparing release documentation, or figuring out which version a feature shipped in. Applies to any request that touches CHANGELOG.md files, version history, or release notes — whether creating, editing, or verifying them.
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - Bash
+  - Agent
+  - ToolSearch
+  - TeamCreate
+  - TeamDelete
+  - SendMessage
+  - TaskCreate
+  - TaskUpdate
+  - TaskList
+  - TaskGet
 ---
 
 # Changelog Skill
 
 Create and maintain CHANGELOGs with verified accuracy by cross-referencing three evidence sources in parallel. Uses an agent team to deeply mine git history, GitHub PRs, and handoff archives simultaneously — producing entries grounded in evidence, not memory.
 
+**Announce at start:** "I'm using the changelog skill to [create/update/audit] this CHANGELOG."
+
 ## Prerequisite
 
-This skill requires agent teams. Before proceeding, verify the feature is enabled:
+This skill requires agent teams. Verify the feature is enabled before any other work:
 
-```
-CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
-```
+Check for `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in environment or settings.json env block.
 
-If not enabled, tell the user: "This skill uses agent teams to gather evidence from git, GitHub, and handoff archives in parallel. Enable them by adding `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` to your settings.json env block, then restart the session." Do not fall back to a sequential approach — parallel evidence gathering with cross-referencing is the core value proposition.
+If not enabled, hard stop: "This skill requires agent teams for parallel evidence gathering. Enable by setting `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your settings.json env block, then restart the session." Do NOT fall back to sequential evidence gathering — parallel cross-referencing is the skill's value proposition.
+
+## Constraints
+
+| # | Constraint | Detail |
+|---|-----------|--------|
+| 1 | Agent teams required | Hard prerequisite. Do NOT fall back to sequential or Agent-tool-only alternatives. |
+| 2 | Sonnet for teammates | Spawn all teammates with `model: "sonnet"`. Lead uses the session's default model. |
+| 3 | Teammates lack conversation history | Each teammate starts fresh with only its spawn prompt plus the project's CLAUDE.md/skills. The lead's conversation does NOT carry over — include everything teammates need in their spawn prompts. |
+| 4 | One team per session | No nested teams. Clean up before starting a new one. |
+| 5 | 3-4 teammates | Git Historian, PR Analyst, Handoff Archivist (always). Changelog Analyst (audit/update only). |
+
+See `references/agent-teams.md` for the full agent teams API reference.
 
 ## Modes
 
@@ -57,193 +85,145 @@ For package-level CHANGELOGs, scope evidence gathering to that package's directo
 
 For audit/update modes, read the existing CHANGELOG before launching the team so you can communicate the current state to the Changelog Analyst.
 
-## Step 2: Launch Evidence Team
+## Step 2: Gather Evidence
 
-Create an agent team to gather evidence from all three sources simultaneously. Each teammate specializes in one evidence source and writes structured findings to the workspace.
+Gather evidence from git history, GitHub PRs, and handoff archives in parallel using an agent team. Each teammate specializes in one evidence source and writes structured findings to the workspace.
 
-**Critical: known failure modes to guard against:**
-- **Do not substitute the Agent tool for agent teams.** If `TeamCreate` is a deferred tool, fetch it with `ToolSearch` and use it. The Agent tool with `run_in_background` looks similar but lacks teammate-to-teammate messaging, coordinated completion detection, and shared task state — leading to polling races and lost coordination. Agent teams and the Agent tool are not interchangeable.
-- The lead may start gathering evidence itself instead of waiting for teammates. If you catch yourself running git log or gh commands before teammates finish, stop. Your job is to coordinate, then reconcile.
-- The lead may declare the team finished before all teammates complete. Wait for all idle notifications (3 in create mode, 4 in audit/update mode) before proceeding to reconciliation.
-- Task status can lag — check the workspace for output files as a secondary completion signal.
+### Phase 1: Setup
 
-Tell the lead to create these teammates with these prompts:
+1. Create the workspace directory: `{project-root}/.changelog-workspace/evidence/`
+2. Verify `.changelog-workspace/` is in `.gitignore`. If absent, add it.
 
-### Teammate 1: Git Historian
+### Phase 2: Create Team and Tasks
 
-> Mine the complete git history for this project. Your deliverable is a structured change timeline.
->
-> **Scope:** `{scope-path}` — version range: `{version-range}`
->
-> Tasks:
-> 1. **Version boundaries** — identify all git tags in the scope. Map each tag to a date and commit. Classify each tag: version tags (v1.2.3, 1.0.0, release-1.2) are version boundaries; deployment tags (deploy/prod, staging-2024-01) and arbitrary labels should be noted but not used as version boundaries. If no version-like tags exist, note this so the lead can ask the user about versioning
-> 2. **Commit timeline** — all commits in the version range, scoped to the path. Capture: hash, date, message, author. For merge commits, also capture the branch name. For repos with over 500 commits in the version range, switch strategies: group commits by file or directory rather than listing individually, and summarize patterns (e.g., "47 commits touching auth/ — primarily refactoring and test additions"). If over 2000 commits, ask the lead to narrow the scope before proceeding
-> 3. **Diff analysis** — for each version boundary (or logical grouping if no tags), summarize what changed: files added/modified/deleted, with brief descriptions of the nature of changes
-> 4. **Direct pushes** — identify commits that were pushed directly (not via PR merge). These often represent small fixes or config changes that PRs miss
-> 5. **Superseded work** — identify WIP or fixup commits that were superseded by later work in the same range. Flag these so they don't become duplicate entries
->
-> When you find direct-push commits that have no corresponding merge commit, message the PR Analyst — these changes won't appear in their PR data. When you find commits referencing session work or handoff context, message the Handoff Archivist with the date range.
->
-> Write your findings to `{workspace}/evidence/git-history.md` in this structure:
-> ```
-> ## Version Boundaries
-> [tags with dates and commits]
->
-> ## Changes by Version
-> ### [version or date range]
-> - [commit hash] [date] [message] — [brief description of what changed]
->
-> ## Direct Pushes (no PR)
-> [commits not associated with merge commits]
->
-> ## Superseded Work
-> [WIP/fixup commits that were later replaced]
-> ```
+If `TeamCreate` is a deferred tool, fetch it with `ToolSearch` first.
 
-### Teammate 2: PR Analyst
+1. **Create the team** via `TeamCreate` with `team_name: "changelog-evidence"` and a description of the changelog task.
+2. **Create one task per teammate** via `TaskCreate`. Each task describes the teammate's evidence-gathering mandate and output path. Do NOT set `blockedBy` dependencies — all tasks run in parallel.
 
-> Mine all GitHub pull requests for this project. Your deliverable is a curated summary of logical changes.
->
-> **Scope:** `{scope-path}` — date range: `{date-range}`
->
-> Tasks:
-> 1. **Merged PRs** — list all merged PRs in the date range. Capture: number, title, merge date, description summary, labels, files changed
-> 2. **Logical grouping** — identify PRs that are part of the same feature (multiple PRs for one feature, or a PR with follow-up fixes). Group them
-> 3. **Multi-change PRs** — flag PRs whose description or diff reveals multiple distinct changes bundled together. Each distinct change should become a separate changelog entry
-> 4. **PR quality assessment** — for each PR, rate how well the title/description summarizes the actual change. Note cases where the title is misleading or too vague
-> 5. **Linked issues** — capture any linked issues that provide additional context about user-facing impact
->
-> Filter to PRs that touch files in the scope path. Use `gh pr list --state merged --json number,title,mergedAt,body,labels,files` and `gh pr view <n> --json title,body,files,commits` for details. For squash-merged PRs (where `commits` returns a single commit), the PR body and diff are the primary evidence — not the commit list. Read the full PR body and diff to reconstruct individual changes. If the PR body is empty and the title is vague, flag it in the "Missing Context" section. Before mining PRs, verify `gh` is available and authenticated. If `gh` fails (no GitHub remote, not authenticated, or API error), write a note explaining the specific failure and stop — the Git Historian's data will serve as primary structure instead. If `gh` works but returns no merged PRs for the scope, note this as a valid finding (all changes were direct pushes) and stop.
->
-> When you find PRs with vague titles or no description (the "Missing Context" category), message the Handoff Archivist — handoff files often contain the intent behind these changes.
->
-> Write your findings to `{workspace}/evidence/pr-analysis.md` in this structure:
-> ```
-> ## PRs by Date (newest first)
-> ### PR #N: [title] — [merge date]
-> Summary: [what actually changed, from the diff, not just the title]
-> Files: [key files changed]
-> Labels: [if any]
-> Multi-change: [yes/no — if yes, list the distinct changes]
->
-> ## Logical Groups
-> [PRs that belong together]
->
-> ## Missing Context
-> [PRs with vague titles or no description — flag for handoff enrichment]
-> ```
+| Task | Teammate ID | Output file | Modes |
+|------|-------------|-------------|-------|
+| Mine git history | `git-historian` | `evidence/git-history.md` | All |
+| Mine GitHub PRs | `pr-analyst` | `evidence/pr-analysis.md` | All |
+| Mine handoff archive | `handoff-archivist` | `evidence/handoff-context.md` | All |
+| Analyze existing CHANGELOG | `changelog-analyst` | `evidence/changelog-analysis.md` | Audit, Update |
 
-### Teammate 3: Handoff Archivist
+### Phase 3: Spawn Teammates
 
-> Mine the handoff archive for session context, decisions, and intent behind changes. Your deliverable enriches mechanical git/PR data with the "why."
->
-> **Scope:** Project `{project-name}` — date range: `{date-range}`
->
-> The handoff archive lives at `~/.claude/handoffs/{project-name}/.archive/`. Filenames follow `YYYY-MM-DD_HH-MM_<title-slug>.md`.
->
-> If the archive directory doesn't exist, write a note to your output file explaining the gap and stop — there's no handoff data to mine.
->
-> Tasks:
-> 1. **Locate relevant handoffs** — filter by date range and scope. For large archives (50+ files), grep the YAML frontmatter `files:` field to find handoffs touching the scope path
-> 2. **Extract high-value sections** — for each relevant handoff, read these sections in priority order:
->    - **Changes** (always read) — per-file implementation record with commit hashes. Direct material for entries. Each subsection typically maps to one changelog bullet
->    - **Decisions** (read for non-trivial changes) — the "why": alternatives rejected, trade-offs accepted. Transforms mechanical entries into meaningful ones
->    - **Goal** (read for non-trivial changes) — session scope, stakes, connection to project arc. Groups changes into logical features
->    - **In Progress** — completion status. Partial work → `[Unreleased]`, not a version
->    - **Next Steps** — deferred work. Exclude from changelog
->    - Ignore: Learnings, Risks, Gotchas, Codebase Knowledge, Context, User Preferences, References (session-continuation context, not changelog material)
-> 3. **Build enrichment map** — for each handoff: what was done, why, and user-facing impact. Map to corresponding PR(s) or commit(s) where visible
-> 4. **Flag multi-session arcs** — handoffs that are part of a larger feature spanning multiple sessions. These should be one logical feature in the changelog, not fragmented entries
->
-> When you find handoff sessions that reference specific PRs or commits, message the Git Historian and PR Analyst so they can cross-reference. When you find multi-session arcs, message both so they can look for the corresponding commit/PR patterns.
->
-> Write your findings to `{workspace}/evidence/handoff-context.md` in this structure:
-> ```
-> ## Handoffs Found
-> [count and date range]
->
-> ## Enrichment Map
-> ### [handoff filename]
-> What: [what was done]
-> Why: [key decisions and rationale]
-> Impact: [user-facing significance]
-> Related PRs/commits: [if identifiable]
->
-> ## Multi-Session Arcs
-> [groups of handoffs forming a single feature]
->
-> ## Deferred Work (exclude from changelog)
-> [items from Next Steps sections]
-> ```
+Spawn teammates using the `Agent` tool. The `team_name` parameter is what makes a spawned agent a teammate with messaging, shared tasks, and idle notifications. Without `team_name`, the agent is an isolated subagent with none of those capabilities.
 
-### Teammate 4: Changelog Analyst (Audit and Update modes only)
+**Design principle:** All teammates access all project files — they are scoped by evidence source, not by directory. Do NOT partition the repository among teammates.
 
-> Analyze the existing CHANGELOG and extract every factual claim for verification.
->
-> **File:** `{changelog-path}`
->
-> Tasks:
-> 1. **Extract claims** — for every entry, extract the factual claim: what changed, when, in which version, with which PR reference
-> 2. **Create verification checklist** — for each claim, note what evidence would confirm or deny it (specific commit, PR, file change)
-> 3. **Style analysis** — document the existing style: entry length, verb tense, specificity level, whether components are named, whether PR numbers are included. The lead will match this style for new entries
-> 4. **Coverage map** — identify the version ranges and date ranges already documented
-> 5. **Gap detection** — for update mode: identify where new entries should be inserted (after which version, in which section)
->
-> Share your claims checklist with the other teammates. Message the Git Historian about commit/tag claims, the PR Analyst about PR number claims, and the Handoff Archivist about feature/decision claims. Use targeted messages, not broadcast.
->
-> Write your findings to `{workspace}/evidence/changelog-analysis.md` in this structure:
-> ```
-> ## Claims by Version
-> ### [version]
-> - Claim: [what the entry says]
->   Verify: [what evidence would confirm — commit hash, PR number, file change]
->   Status: [pending — to be filled by lead during reconciliation]
->
-> ## Style Profile
-> Entry length: [terse/moderate/detailed]
-> Verb tense: [past/present/imperative]
-> Components named: [yes/no]
-> PR references: [yes/no]
->
-> ## Coverage Map
-> [version ranges and date ranges documented]
->
-> ## Insertion Points (update mode)
-> [where new entries should go]
-> ```
+For each teammate, call `Agent` with:
+- `team_name`: `"changelog-evidence"` (must match TeamCreate)
+- `name`: the teammate ID from the table above — this is the addressing key for all communication
+- `model`: `"sonnet"`
+- `prompt`: the spawn prompt below
 
-### Workspace Setup
+Spawn all teammates in the same message to maximize parallelism. In create mode, spawn 3 (skip `changelog-analyst`). In audit/update mode, spawn all 4. Do NOT start your own evidence gathering before all teammates are spawned — your job is to coordinate and then reconcile.
 
-Before spawning the team, create the workspace directory:
+#### Git Historian
 
 ```
-{project-root}/.changelog-workspace/evidence/
+Mine the complete git history for this project. Write findings to {workspace}/evidence/git-history.md.
+
+Scope: {scope-path} — version range: {version-range}
+
+Tasks:
+1. **Version boundaries** — identify all git tags in scope. Map each to date and commit. Classify: version tags (v1.2.3, 1.0.0, release-1.2) are boundaries; deployment tags (deploy/prod, staging-2024-01) are not. If no version-like tags exist, note this
+2. **Commit timeline** — all commits in range, scoped to path. Capture: hash, date, message, author. For merge commits, also capture branch name. Over 500 commits: group by file/directory and summarize patterns. Over 2000: message the lead to narrow scope
+3. **Diff analysis** — for each version boundary (or logical grouping if no tags), summarize: files added/modified/deleted with nature of changes
+4. **Direct pushes** — commits pushed directly (not via PR merge). These won't appear in PR data
+5. **Superseded work** — WIP or fixup commits later replaced. Flag to prevent duplicate entries
+
+When you find direct-push commits with no merge commit, message pr-analyst. When you find commits referencing session work, message handoff-archivist with the date range.
+
+Structure output as: ## Version Boundaries, ## Changes by Version, ## Direct Pushes (no PR), ## Superseded Work
 ```
 
-Tell each teammate to write their findings to this directory. Cleanup is handled automatically after completion (see Cleanup section).
+#### PR Analyst
 
-### Task Structure
+```
+Mine all GitHub pull requests for this project. Write findings to {workspace}/evidence/pr-analysis.md.
 
-Instruct the lead to create tasks with these dependencies:
+Scope: {scope-path} — date range: {date-range}
 
-1. Evidence gathering tasks (independent, no dependencies between them):
-   - "Gather git history evidence" (Git Historian)
-   - "Gather PR evidence" (PR Analyst)
-   - "Gather handoff context" (Handoff Archivist)
-   - "Analyze existing CHANGELOG" (Changelog Analyst — audit/update only)
-2. "Reconcile evidence from all sources" (depends on all evidence tasks)
-3. "Draft changelog entries" (depends on reconciliation)
-4. "Verify accuracy" (depends on draft)
+Before mining PRs, verify `gh` is available and authenticated. If `gh` fails (no GitHub remote, not authenticated, or API error), write a note explaining the failure and stop — the Git Historian's data will serve as primary structure instead.
 
-**Important:** Explicitly tell the lead: "Wait for all teammates to complete their evidence gathering before starting reconciliation. Do not begin reconciling, drafting, or writing until all evidence reports exist in the workspace."
+Tasks:
+1. **Merged PRs** — all merged PRs in date range. Capture: number, title, merge date, description summary, labels, files changed. Use `gh pr list --state merged --json number,title,mergedAt,body,labels,files` and `gh pr view <n> --json title,body,files,commits`
+2. **Logical grouping** — PRs that are part of the same feature (multi-PR features, PR with follow-up fixes)
+3. **Multi-change PRs** — PRs with multiple distinct changes bundled. Each should become a separate entry
+4. **PR quality assessment** — rate how well title/description summarizes actual change. For squash-merged PRs, the PR body and diff are primary evidence, not the commit list
+5. **Linked issues** — capture issues providing context about user-facing impact
+
+Filter to PRs touching files in scope path. If no merged PRs found, note this as a valid finding (all changes were direct pushes).
+
+When you find PRs with vague titles or no description, message handoff-archivist — handoffs often contain the intent behind these changes.
+
+Structure output as: ## PRs by Date (newest first), ## Logical Groups, ## Missing Context
+```
+
+#### Handoff Archivist
+
+```
+Mine the handoff archive for session context, decisions, and intent behind changes. Write findings to {workspace}/evidence/handoff-context.md.
+
+Scope: Project {project-name} — date range: {date-range}
+
+The handoff archive lives at ~/.claude/handoffs/{project-name}/.archive/. Filenames follow YYYY-MM-DD_HH-MM_<title-slug>.md.
+
+If the archive directory doesn't exist, write a note explaining the gap and stop — there's no handoff data to mine.
+
+Tasks:
+1. **Locate relevant handoffs** — filter by date range and scope. For large archives (50+), grep YAML frontmatter `files:` field
+2. **Extract high-value sections** — priority order: Changes (always), Decisions (non-trivial changes), Goal (non-trivial changes), In Progress (partial work → [Unreleased]). Ignore: Learnings, Risks, Gotchas, Codebase Knowledge, Context, User Preferences, References
+3. **Build enrichment map** — for each handoff: what was done, why, user-facing impact. Map to corresponding PR(s)/commit(s)
+4. **Flag multi-session arcs** — handoffs forming a larger feature. These should be one entry, not fragments
+
+When you find sessions referencing specific PRs or commits, message git-historian and pr-analyst. When you find multi-session arcs, message both.
+
+Structure output as: ## Handoffs Found, ## Enrichment Map, ## Multi-Session Arcs, ## Deferred Work (exclude from changelog)
+```
+
+#### Changelog Analyst (audit/update modes only)
+
+```
+Analyze the existing CHANGELOG and extract every factual claim for verification. Write findings to {workspace}/evidence/changelog-analysis.md.
+
+File: {changelog-path}
+
+Tasks:
+1. **Extract claims** — for every entry: what changed, when, in which version, with which PR reference
+2. **Create verification checklist** — for each claim, note what evidence would confirm or deny it
+3. **Style analysis** — entry length, verb tense, specificity level, component naming, PR references. The lead will match this style
+4. **Coverage map** — version ranges and date ranges already documented
+5. **Gap detection** — for update mode: where new entries should be inserted
+
+Share your claims checklist with specific teammates. Message git-historian about commit/tag claims, pr-analyst about PR number claims, handoff-archivist about feature/decision claims. Use targeted messages, not broadcast — broadcast costs scale with team size.
+
+Structure output as: ## Claims by Version, ## Style Profile, ## Coverage Map, ## Insertion Points (update mode)
+```
+
+### Phase 4: Monitor Completion
+
+**Primary signal:** idle notifications from the team system. When a teammate finishes and goes idle, the lead receives a notification. Peer DM summaries appear in idle notifications — use these as reconciliation input.
+
+**Completion rule:** Wait for all idle notifications (3 in create mode, 4 in audit/update mode) before proceeding to reconciliation. Do NOT start reconciliation early — partial evidence produces unreliable entries.
+
+**Verification:** After all idle notifications, verify each expected output file exists in the workspace via `Glob` or `Read`.
+
+**Timeout:** If no idle notifications or task status changes (confirmed via `TaskGet`) arrive for 5 minutes, proceed with available findings. "Activity" means: idle notification received, or a task moving to `completed`.
+
+**Partial completion:** Always proceed with available findings rather than blocking. Note which teammates failed and why in your reconciliation — a changelog with known evidence gaps is better than no changelog.
+
+**PR Analyst failure:** If `gh` was unavailable and the PR Analyst produced only a failure note, this is expected — use Git Historian's data as primary structure instead.
 
 ## Step 3: Reconcile Evidence
 
-Teammates do not inherit the lead's conversation history — they start fresh with only their spawn prompt and the project's CLAUDE.md/skills. This is why each teammate prompt above is self-contained with explicit deliverables and output paths. Do not assume teammates know the user's original request or the CHANGELOG mode.
-
 After all teammates complete, read all evidence reports. Cross-reference into a unified change list:
 
-1. **Start with PRs as primary structure** — each merged PR typically represents one logical change with a clean summary. If no PRs exist (the PR Analyst reported none), use git history as primary structure instead — group commits by logical change
+1. **Start with PRs as primary structure** — each merged PR typically represents one logical change with a clean summary. If no PRs exist (the PR Analyst reported none or `gh` was unavailable), use git history as primary structure instead — group commits by logical change
 2. **Fill gaps from git history** — direct-push commits and changes not associated with PRs
 3. **Enrich from handoffs** — for every non-trivial entry (new features, architectural changes, complex fixes), check the Handoff Archivist's enrichment map for the "why" behind the change
 4. **Filter superseded work** — the Git Historian flagged WIP and fixup commits. Remove duplicates
@@ -382,13 +362,27 @@ Refine mode works only with existing CHANGELOG content — no evidence gathering
 - Preserve PR references and version structure
 - Show proposed changes before applying
 
+## Failure Modes
+
+| Failure | Detection | Response |
+|---------|-----------|----------|
+| Agent teams not enabled | Prerequisite check | Hard stop — do not fall back |
+| TeamCreate fails | Phase 2 step 1 | Hard stop — cannot proceed without team |
+| Teammate spawn fails | Phase 3 | Log, continue with remaining. All fail = hard stop |
+| Teammate timeout | No activity for 5 min | Treat as failed, proceed with available findings |
+| Missing output file | Phase 4 verification | Log as evidence gap in reconciliation |
+| `gh` unavailable | PR Analyst reports failure | Expected — use Git Historian as primary structure |
+| No handoff archive | Handoff Archivist reports absence | Expected — proceed without handoff enrichment |
+| Stale workspace | Phase 1 setup | Warn user, offer: archive / remove / abort |
+| TeamDelete fails | Cleanup step 3 | Teammates still active — retry shutdown, then retry |
+
 ## Cleanup
 
-After the CHANGELOG is complete and delivered, clean up automatically — do not ask:
+After the CHANGELOG is complete and delivered:
 
-1. Shut down all teammates via `SendMessage` with `type: "shutdown_request"`
-2. Remove the workspace directory (`.changelog-workspace/`)
-3. Remove team files (`~/.claude/teams/<team-name>/`)
-4. Remove task files (`~/.claude/tasks/<team-name>/`)
+1. Send a shutdown request to each teammate: `SendMessage` to each by name with `{type: "shutdown_request", reason: "CHANGELOG complete"}`. If a teammate rejects the shutdown, retry with additional context explaining that the CHANGELOG is complete.
+2. Teammates finish their current tool call before shutting down — this may take a moment.
+3. After all teammates go idle, call `TeamDelete` to remove shared team resources. `TeamDelete` fails if any teammate is still active — confirm all are idle first.
+4. Remove the workspace directory (`.changelog-workspace/`).
 
-These are transient working artifacts, not deliverables.
+These are transient working artifacts — do not ask the user about cleanup.
