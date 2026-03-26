@@ -1,6 +1,6 @@
 # claude-code-docs MCP Server
 
-BM25-based search server for Claude Code documentation. Fetches docs from `https://code.claude.com/docs/llms-full.txt`, chunks into semantic sections, builds an in-memory BM25 index, and exposes three tools (`search_docs`, `reload_docs`, `dump_index_metadata`) via MCP stdio transport.
+BM25-based search server for Claude Code documentation. Fetches docs from `https://code.claude.com/docs/llms-full.txt`, chunks into semantic sections, builds an in-memory BM25 index, and exposes four tools (`search_docs`, `reload_docs`, `dump_index_metadata`, `get_status`) via MCP stdio transport.
 
 ### Search Tool Parameters
 
@@ -37,7 +37,7 @@ loadFromOfficial (fetch + parse docs)
 
 | Module | Role |
 |--------|------|
-| `index.ts` | Entry point — MCP server setup, tool registration (`search_docs`, `reload_docs`, `dump_index_metadata`) |
+| `index.ts` | Entry point — MCP server setup, tool registration (`search_docs`, `reload_docs`, `dump_index_metadata`, `get_status`) |
 | `lifecycle.ts` | `ServerState` class — index loading, caching, retry, concurrency control |
 | `loader.ts` | Fetch/cache pipeline — TTL, stale fallback |
 | `chunker.ts` | Document splitting — H2/H3/paragraph/hard split hierarchy |
