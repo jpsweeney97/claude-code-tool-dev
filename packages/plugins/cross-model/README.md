@@ -237,7 +237,7 @@ Two primary contracts are the authoritative source of truth for protocol behavio
 |----------|----------|-------|
 | Consultation Contract | `references/consultation-contract.md` | Briefing assembly, safety pipeline, transport, relay format |
 | Context Injection Contract | `references/context-injection-contract.md` | Two-call protocol, TurnRequest/TurnPacket shapes, scout validation |
-| Composition Contract | `references/composition-contract.md` | Multi-skill composition: sentinel detection, capsule exchange, lineage |
+| Composition Contract | `references/composition-contract.md` | Cross-plugin composition protocol (governs `adversarial-review`, `next-steps`, `dialogue`). No locally-instantiated consumers in this plugin; inline skill stubs are runtime-authoritative. Hosted here as the authoring origin. |
 | Dialogue Synthesis Format | `references/dialogue-synthesis-format.md` | Output format and pipeline data epilogue for dialogue synthesis |
 | Contract Agent Extract | `references/contract-agent-extract.md` | Agent-readable extract of consultation contract (§4-5, §7-10, §15) |
 
