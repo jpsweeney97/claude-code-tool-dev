@@ -22,7 +22,7 @@ Protocol details live in the contracts. This file and the handbook link to them 
 | Requirement | Purpose | Check |
 |-------------|---------|-------|
 | **Claude Code** | Plugin host | `claude --version` |
-| **Codex CLI** | Consultation transport | `codex --version` (v0.116.0+ (v0.111.0+ for `/delegate`)) |
+| **Codex CLI** | Consultation transport | `codex --version` (v0.111.0+) |
 | **Python 3.11+** | Plugin scripts and MCP server | `python3 --version` |
 | **uv** | Python package management | `uv --version` |
 | **git** | Evidence gathering, delegation gates | `git --version` |
@@ -131,7 +131,7 @@ Reads `~/.claude/.codex-events.jsonl` and computes convergence rates, posture ef
 
 | Agent | Spawned By | Purpose | Model |
 |-------|-----------|---------|-------|
-| `codex-dialogue` | `/dialogue` | Multi-turn conversation manager with 7-step scouting loop, ledger tracking, and convergence detection | Opus |
+| `codex-dialogue` | `/dialogue` | Multi-turn conversation manager with 7-step per-turn loop, ledger tracking, and convergence detection | Opus |
 | `codex-reviewer` | Direct invocation | Cross-model code review from git diffs (size limits: full <=500 lines, summarize 501-1500, reject >1500) | Opus |
 | `context-gatherer-code` | `/dialogue` (parallel) | Pre-dialogue codebase explorer; emits `CLAIM`/`OPEN` tagged lines with citations | Sonnet |
 | `context-gatherer-falsifier` | `/dialogue` (parallel) | Pre-dialogue assumption tester; searches for counterevidence | Sonnet |
@@ -181,6 +181,10 @@ Python scripts in `scripts/` provide the shared infrastructure:
 | `codex_consult.py` | Consultation adapter — wraps `codex exec` with programmatic `consult()` API | `codex_shim.py` |
 | `codex_shim.py` | FastMCP MCP shim translating tool calls to adapter | MCP server (`.mcp.json`) |
 | `consultation_safety.py` | Shared safety utilities (ToolScanPolicy, SafetyVerdict, check_tool_input) | `codex_guard.py`, `codex_consult.py` |
+| `retrieve_learnings.py` | Keyword-scored learning retrieval from `docs/learnings/learnings.md` | `/codex`, `/dialogue` |
+| `event_schema.py` | Event field definitions and schema version resolution | `codex_delegate.py`, `emit_analytics.py` |
+| `validate_graduation.py` | Learning graduation report validator | Scripts, tests |
+| `validate_profiles.py` | Consultation profile YAML validator (contract §14 invariants) | Scripts, tests |
 
 ## Configuration
 
@@ -192,7 +196,7 @@ Python scripts in `scripts/` provide the shared infrastructure:
 | `CODEX_SANDBOX` | `seatbelt` | Prevents Codex CLI startup panic on macOS (set in `.mcp.json`) |
 | `REPO_ROOT` | `${PWD}` | Repository root for context-injection server (set in `.mcp.json`) |
 | `CROSS_MODEL_NUDGE` | unset | Set to `1` to enable Bash failure nudges |
-| `CLAUDE_SESSION_ID` | auto | Session identifier appended to analytics events |
+| `CLAUDE_SESSION_ID` | set by host | Session identifier appended to analytics events (read from env, nullable) |
 
 ### Consultation Profiles
 
@@ -208,7 +212,7 @@ Named presets in `references/consultation-profiles.yaml` configure posture, turn
 | `adversarial-challenge` | 6 | adversarial | xhigh | Stress-test assumptions |
 | `planning` | 8 | comparative | xhigh | Architectural design review |
 | `decision-making` | 6 | comparative | xhigh | Choose between N options |
-| `debugging` | 7 | phased | xhigh | Multi-phase debugging |
+| `debugging` | 7 | exploratory/evaluative/collaborative | high | Multi-phase debugging (profile-only) |
 
 **Resolution order:** explicit CLI flags > named profile > contract defaults.
 
@@ -227,12 +231,15 @@ profiles:
 
 ### Normative Contracts
 
-Two contracts are the authoritative source of truth for protocol behavior. Code must conform to them.
+Two primary contracts are the authoritative source of truth for protocol behavior. Code must conform to them. Three supporting reference documents provide format specs and agent-optimized extracts.
 
 | Contract | Location | Scope |
 |----------|----------|-------|
 | Consultation Contract | `references/consultation-contract.md` | Briefing assembly, safety pipeline, transport, relay format |
 | Context Injection Contract | `references/context-injection-contract.md` | Two-call protocol, TurnRequest/TurnPacket shapes, scout validation |
+| Composition Contract | `references/composition-contract.md` | Multi-skill composition: sentinel detection, capsule exchange, lineage |
+| Dialogue Synthesis Format | `references/dialogue-synthesis-format.md` | Output format and pipeline data epilogue for dialogue synthesis |
+| Contract Agent Extract | `references/contract-agent-extract.md` | Agent-readable extract of consultation contract (§4-5, §7-10, §15) |
 
 ## Usage Patterns
 
@@ -280,8 +287,8 @@ The plugin is organized in five layers, each with a distinct responsibility:
 Layer 1: Skills           User-facing entrypoints (/codex, /dialogue, /delegate, /consultation-stats)
 Layer 2: Agents           Orchestration (codex-dialogue, codex-reviewer, context-gatherers)
 Layer 3: Scripts + Hooks  Enforcement (credential scanning) and analytics (event logging)
-Layer 4: Contracts        Normative specifications (consultation-contract, context-injection-contract)
-Layer 5: MCP Server       Stateful evidence gathering (context-injection)
+Layer 4: Contracts        Normative specifications (5 reference documents in references/)
+Layer 5: MCP Servers      Codex shim (codex_shim.py) + context-injection (context_injection/server.py)
 ```
 
 ### Execution Flows
@@ -302,7 +309,7 @@ Tier definitions, pattern families, and blocking behavior are specified in [cons
 
 ### Nested Package: Context Injection
 
-The `context-injection/` directory is a standalone Python MCP server (v0.2.0) with its own `pyproject.toml`, dependency set (`mcp>=1.9.0`), and test suite (991 tests). It ships inside the plugin because it's tightly coupled to the `codex-dialogue` agent's scouting loop.
+The `context-injection/` directory is a standalone Python MCP server (v0.2.0) with its own `pyproject.toml`, dependency set (`mcp>=1.9.0`), and test suite (~1000 tests). It ships inside the plugin because it's tightly coupled to the `codex-dialogue` agent's scouting loop.
 
 It can be developed and tested independently:
 
@@ -349,7 +356,7 @@ All skills emit events to `~/.claude/.codex-events.jsonl` via `emit_analytics.py
 cd packages/plugins/cross-model
 uv run pytest
 
-# Context-injection server (991 tests)
+# Context-injection server (~1000 tests)
 cd packages/plugins/cross-model/context-injection
 uv run pytest
 
@@ -361,7 +368,7 @@ uv run --package cross-model-plugin pytest tests
 
 ```
 cross-model/
-├── .claude-plugin/plugin.json     Plugin manifest (v3.1.0)
+├── .claude-plugin/plugin.json     Plugin manifest (v3.1.3)
 ├── .mcp.json                      MCP server registration
 ├── skills/                        4 user-facing skills
 │   ├── codex/SKILL.md
@@ -374,10 +381,11 @@ cross-model/
 │   ├── context-gatherer-code.md
 │   └── context-gatherer-falsifier.md
 ├── hooks/hooks.json               Hook configuration
-├── scripts/                       Shared Python modules (13 files)
+├── scripts/                       Shared Python modules (17 files)
 ├── references/                    Normative contracts + profiles
 ├── context-injection/             Bundled MCP server (canonical)
 ├── tests/                         Plugin-level tests
+├── testdata/                      Ground-truth test corpus (credential parity)
 ├── CHANGELOG.md                   Version history
 └── HANDBOOK.md                    Operational runbook
 ```
