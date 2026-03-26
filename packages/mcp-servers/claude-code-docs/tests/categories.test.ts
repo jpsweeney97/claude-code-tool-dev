@@ -82,6 +82,15 @@ describe('SECTION_TO_CATEGORY', () => {
     expect(SECTION_TO_CATEGORY['tools-reference']).toBe('cli');
     expect(SECTION_TO_CATEGORY['voice-dictation']).toBe('interactive');
   });
+
+  it('all values target a known category', () => {
+    for (const [segment, category] of Object.entries(SECTION_TO_CATEGORY)) {
+      expect(
+        KNOWN_CATEGORIES.has(category),
+        `segment '${segment}' maps to unknown category '${category}'`,
+      ).toBe(true);
+    }
+  });
 });
 
 describe('CATEGORY_ALIASES', () => {
