@@ -43,7 +43,8 @@ jobs:
         run: uv run --package cross-model-plugin pytest packages/plugins/cross-model/tests/ -v --tb=short
 
       - name: Run Context-Injection Tests
-        run: uv run --package context-injection pytest packages/plugins/cross-model/context-injection/tests/ -v --tb=short
+        working-directory: packages/plugins/cross-model/context-injection
+        run: uv run --package context-injection pytest tests/ -v --tb=short
 
       - name: Run Consultation Contract Sync Test
         run: uv run pytest tests/test_consultation_contract_sync.py -v
