@@ -82,6 +82,10 @@ The package is split into five layers:
 - [packages/plugins/cross-model/scripts/codex_consult.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/codex_consult.py): consultation adapter — wraps `codex exec` with programmatic `consult()` API
 - [packages/plugins/cross-model/scripts/codex_shim.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/codex_shim.py): FastMCP MCP shim translating tool calls to the consultation adapter
 - [packages/plugins/cross-model/scripts/consultation_safety.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/consultation_safety.py): shared safety utilities extracted from `codex_guard.py` (`ToolScanPolicy`, `SafetyVerdict`, `check_tool_input`)
+- [packages/plugins/cross-model/scripts/retrieve_learnings.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/retrieve_learnings.py): keyword/tag-scored learning retrieval for consultation briefings
+- [packages/plugins/cross-model/scripts/event_schema.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/event_schema.py): single source of truth for event field definitions, schema versioning, and enum value sets
+- [packages/plugins/cross-model/scripts/validate_graduation.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/validate_graduation.py): validates consistency between graduation.json, annotations.jsonl, and per-dialogue diagnostics
+- [packages/plugins/cross-model/scripts/validate_profiles.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/validate_profiles.py): validates consultation-profiles.yaml against contract §14 invariants
 
 ### Context-injection server
 
@@ -104,6 +108,8 @@ Primary modules:
 - [packages/plugins/cross-model/context-injection/context_injection/redact_formats.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection/context_injection/redact_formats.py): per-format redactors
 - [packages/plugins/cross-model/context-injection/context_injection/grep.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection/context_injection/grep.py): `rg` execution and grep evidence building
 - [packages/plugins/cross-model/context-injection/context_injection/truncate.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection/context_injection/truncate.py): marker-safe truncation
+- [packages/plugins/cross-model/context-injection/context_injection/checkpoint.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection/context_injection/checkpoint.py): checkpoint serialization and chain validation for opaque state snapshots
+- [packages/plugins/cross-model/context-injection/context_injection/canonical.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/context-injection/context_injection/canonical.py): canonical serialization and entity key functions for HMAC payload generation
 
 ## Bring-Up and Health Checks
 
@@ -167,6 +173,7 @@ The plugin also auto-configures hooks in [packages/plugins/cross-model/hooks/hoo
 | `CODEX_SANDBOX` | `seatbelt` | auto-set to prevent macOS Codex CLI panic |
 | `REPO_ROOT` | `${PWD}` via `.mcp.json` | repo root consumed by `context-injection` for git-backed evidence access |
 | `CROSS_MODEL_NUDGE` | unset | set to `1` to enable repeated-failure nudges |
+| `CLAUDE_SESSION_ID` | unset (injected by Claude Code host) | session identifier appended to every analytics event; nullable |
 
 ### Fast health check
 
@@ -180,7 +187,7 @@ Use this sequence when validating a machine or install:
 
 ```bash
 cd packages/plugins/cross-model
-uv run pytest tests
+uv run pytest
 ```
 
 6. Exercise the entrypoints in increasing order of complexity: `/codex`, `/dialogue`, `/delegate`, then `/consultation-stats`.
@@ -340,6 +347,8 @@ Key controls:
 | `--plan` | Step 0 question shaping before any Codex contact |
 
 Named profiles live in [packages/plugins/cross-model/references/consultation-profiles.yaml](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/references/consultation-profiles.yaml).
+
+Gatherer output format is defined in [packages/plugins/cross-model/skills/dialogue/references/tag-grammar.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/skills/dialogue/references/tag-grammar.md) — the grammar for `CLAIM`, `COUNTER`, `CONFIRM`, and `OPEN` tagged lines consumed by the briefing assembler.
 
 ### High-level flow
 
@@ -647,6 +656,7 @@ The HMAC layer is implemented across:
 | `/delegate` | Codex run fails after dispatch | changes may still exist | mandatory review |
 | analytics | emitter failure | user-facing result still returns | inspect stderr or rerun emitter separately |
 | stats | malformed log lines | skipped during computation | inspect log for corruption or old schema drift |
+| `codex_shim.py` | unknown status from `consult()` | falls through to `ok` path, returns success with empty content | add new status to `_build_response` before adding it to `consult()` |
 
 ## File-by-File Change Map
 
@@ -808,6 +818,21 @@ Edit these when changing plugin-wide enforcement or reporting:
 - [packages/plugins/cross-model/scripts/read_events.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/read_events.py)
 - [packages/plugins/cross-model/scripts/compute_stats.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/compute_stats.py)
 - [packages/plugins/cross-model/scripts/stats_common.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/stats_common.py)
+- [packages/plugins/cross-model/scripts/event_schema.py](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/scripts/event_schema.py): event field definitions and schema version resolution — edit when adding new analytics fields or event types
+
+### Reference documents
+
+Edit [packages/plugins/cross-model/references/composition-contract.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/references/composition-contract.md) when changing:
+
+- cross-skill artifact exchange (sentinel detection, capsule formats, lineage)
+
+Edit [packages/plugins/cross-model/references/dialogue-synthesis-format.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/references/dialogue-synthesis-format.md) when changing:
+
+- Phase 3 synthesis output sections, confidence annotations, or pipeline-data epilogue format
+
+Edit [packages/plugins/cross-model/references/contract-agent-extract.md](/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/cross-model/references/contract-agent-extract.md) when changing:
+
+- the agent-readable contract subset (must stay in sync with consultation-contract.md §§4-5, §7-10, §15)
 
 ## Guardrails and Known Limitations
 
@@ -815,8 +840,9 @@ Edit these when changing plugin-wide enforcement or reporting:
 - The context-injection tests live in `packages/plugins/cross-model/context-injection/tests`, not in `packages/plugins/cross-model/tests`.
 - Scope re-consent after mid-dialogue scope expansion is still only partially implemented in the broader contract path.
 - `nudge_codex.py` is opt-in only. If `CROSS_MODEL_NUDGE` is unset, repeated Bash failures do nothing. When enabled, the nudge fires after 3 consecutive Bash failures per session and resets after each nudge (so the suggestion recurs after another 3 failures).
-- `/delegate` secret-file detection is conservative but incomplete: filename-based, not content-based.
+- `/delegate` secret-file detection is conservative but incomplete: filename-based, not content-based. Known-safe artifacts like `certifi/cacert.pem` (Python root CA bundle) are exempt via component matching.
 - Analytics are best-effort and should not be used as the sole source of truth for success or failure.
+- Prompts exceeding 256 KiB trigger different behavior in different layers: `codex_guard.py` blocks (exit 2), while `codex_delegate.py` skips the credential scan with a stderr warning. In practice, the guard hook fires first on MCP calls, making the delegate bypass moot for interactive use — but programmatic delegate invocations bypass credential scanning on large prompts.
 
 ## Verification
 
@@ -837,6 +863,8 @@ uv run ruff check context_injection tests
 ```
 
 All tests should pass with no failures.
+
+Note: during the D4a→D4b schema migration, 18 `process_turn` tests in context-injection are marked `xfail(strict=True)` per `context-injection/tests/xfail_inventory_d4a.md`. These appear as expected failures, not errors.
 
 ### `/delegate` pre-dispatch smoke test
 

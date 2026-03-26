@@ -7,7 +7,7 @@ FastMCP server providing mid-conversation evidence gathering for the Codex dialo
 ## Commands
 
 ```bash
-uv run pytest                                # run all 991 tests from this canonical package
+uv run pytest                                # run all 997 tests from this canonical package
 uv run ruff check context_injection/ tests/  # lint
 python -m context_injection                  # start server
 ```

@@ -345,7 +345,7 @@ Add format handlers in `context-injection/context_injection/redact_formats.py`. 
 
 ### Analytics Events
 
-All skills emit events to `~/.claude/.codex-events.jsonl` via `emit_analytics.py`. Event types: `consultation_outcome`, `dialogue_outcome`, `delegation_outcome`, `security_event`. The `/consultation-stats` skill reads and aggregates these events.
+All skills emit events to `~/.claude/.codex-events.jsonl` via `emit_analytics.py`. Structured event types: `consultation_outcome`, `dialogue_outcome`, `delegation_outcome`. The `codex_guard.py` hook also logs `block`, `shadow`, and `consultation` events. The `/consultation-stats` skill reads and aggregates these events.
 
 ## Development
 
