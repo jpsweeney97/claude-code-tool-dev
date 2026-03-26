@@ -345,6 +345,19 @@ The /loop skill schedules a recurring prompt. Pass an optional interval and a pr
 
 Ask Claude to list or cancel scheduled tasks, or reference the CronCreate, CronList, and CronDelete tools directly.
 ---
+# Cloud-hosted scheduled tasks
+Source: https://code.claude.com/docs/en/web-scheduled-tasks
+
+Create durable scheduled tasks that run on Anthropic cloud infrastructure. Unlike session-scoped /loop tasks, web scheduled tasks survive restarts and run independently of any local CLI session.
+
+## Creating web scheduled tasks
+
+Use the web dashboard or API to create scheduled tasks with cron expressions. Each task runs a prompt against a specified repository on Anthropic-hosted runners.
+
+## Managing web scheduled tasks
+
+View, pause, and delete web scheduled tasks from the dashboard. Each run produces a log with the full conversation transcript.
+---
 # Overview
 Source: https://code.claude.com/docs/en/overview
 
@@ -672,7 +685,8 @@ describe('golden queries (URL-based)', () => {
     const cases: Array<{ urlFragment: string; expectedCategory: string }> = [
       { urlFragment: 'channels', expectedCategory: 'channels' },
       { urlFragment: 'headless', expectedCategory: 'automation' },
-      { urlFragment: 'scheduled-tasks', expectedCategory: 'automation' },
+      { urlFragment: '/en/scheduled-tasks', expectedCategory: 'automation' },
+      { urlFragment: 'web-scheduled-tasks', expectedCategory: 'automation' },
       { urlFragment: 'plugin-marketplaces', expectedCategory: 'plugin-marketplaces' },
       { urlFragment: 'best-practices', expectedCategory: 'best-practices' },
       { urlFragment: 'configuration', expectedCategory: 'config' },
