@@ -180,6 +180,7 @@ export async function loadFromOfficial(
       nonEmptySectionCount: filtered.length,
       sectionCount: sections.length,
       overviewSectionCount,
+      fallbackOverviewCount: sortedUnmapped.length,
       unmappedSegments: sortedUnmapped,
     },
     files: filtered.map((s) => {

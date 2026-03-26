@@ -16,6 +16,7 @@ export interface LoaderDiagnostics {
   nonEmptySectionCount: number;
   sectionCount: number;
   overviewSectionCount: number;
+  fallbackOverviewCount: number;
   unmappedSegments: Array<[segment: string, count: number]>;
 }
 
@@ -98,10 +99,11 @@ function reject(
 
 export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation {
   const { trustMode, diagnostics, policyState, now } = input;
-  const { sourceAnchoredCount, sectionCount, overviewSectionCount, parseWarningCount } = diagnostics;
+  const { sourceAnchoredCount, sectionCount, overviewSectionCount, fallbackOverviewCount, parseWarningCount } = diagnostics;
 
   const minSectionCount = trustMode === 'official' ? OFFICIAL_MIN_SECTION_COUNT : UNSAFE_MIN_SECTION_COUNT;
   const overviewRatio = sectionCount > 0 ? overviewSectionCount / sectionCount : 0;
+  const fallbackOverviewRatio = sectionCount > 0 ? fallbackOverviewCount / sectionCount : 0;
   const baselineSectionCount = policyState.lastHealthySectionCount;
   const sectionCountDropRatio =
     baselineSectionCount !== null && baselineSectionCount > 0
@@ -179,18 +181,20 @@ export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation
   }
 
   // Taxonomy drift warning (official mode only)
+  // Driven by fallbackOverviewCount (sections that defaulted to overview because no
+  // mapping exists), not overviewSectionCount (which includes explicitly-mapped overview pages).
   if (trustMode === 'official') {
     const warnMinSections = TAXONOMY_DRIFT_WARN_THRESHOLD.minSections;
     const warnMinRatio = TAXONOMY_DRIFT_WARN_THRESHOLD.minRatio;
     const warnThreshold = Math.max(warnMinSections, Math.ceil(sectionCount * warnMinRatio));
 
-    if (overviewSectionCount >= warnThreshold) {
+    if (fallbackOverviewCount >= warnThreshold) {
       warnings.push({
         code: 'taxonomy_drift',
         severity: 'warn',
         details: {
-          unmapped_section_count: overviewSectionCount,
-          unmapped_ratio: overviewRatio,
+          unmapped_section_count: fallbackOverviewCount,
+          unmapped_ratio: fallbackOverviewRatio,
           sample_segments: diagnostics.unmappedSegments
             .slice(0, 10)
             .map(([seg]) => seg),

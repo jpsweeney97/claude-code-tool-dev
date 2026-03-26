@@ -34,7 +34,7 @@ export const CHUNKER_VERSION = 1;
  * - tokenizer.ts → TOKENIZER_VERSION
  * - chunker.ts → CHUNKER_VERSION
  */
-export const INGESTION_VERSION = 3;
+export const INGESTION_VERSION = 4;
 
 /**
  * Bump when canary policy interpretation or threshold constants change:
@@ -63,6 +63,7 @@ export interface DiagnosticsBlock {
   nonEmptySectionCount: number;
   sectionCount: number;
   overviewSectionCount: number;
+  fallbackOverviewCount: number;
   unmappedSegments: Array<[string, number]>;
   parseWarningCount: number;
 }
@@ -175,6 +176,7 @@ const DiagnosticsBlockSchema = z.object({
   nonEmptySectionCount: z.number(),
   sectionCount: z.number(),
   overviewSectionCount: z.number(),
+  fallbackOverviewCount: z.number(),
   unmappedSegments: z.array(z.tuple([z.string(), z.number()])),
   parseWarningCount: z.number(),
 });
@@ -270,6 +272,7 @@ export function serializeIndex(
       nonEmptySectionCount: context.diagnostics.nonEmptySectionCount,
       sectionCount: context.diagnostics.sectionCount,
       overviewSectionCount: context.diagnostics.overviewSectionCount,
+      fallbackOverviewCount: context.diagnostics.fallbackOverviewCount,
       unmappedSegments: context.diagnostics.unmappedSegments,
       parseWarningCount: context.diagnostics.parseWarningCount,
     },

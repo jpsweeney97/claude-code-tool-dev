@@ -231,6 +231,7 @@ export class ServerState {
           nonEmptySectionCount: parsed!.diagnostics.nonEmptySectionCount,
           sectionCount: parsed!.diagnostics.sectionCount,
           overviewSectionCount: parsed!.diagnostics.overviewSectionCount,
+          fallbackOverviewCount: parsed!.diagnostics.fallbackOverviewCount,
           unmappedSegments: parsed!.diagnostics.unmappedSegments,
           parseWarningCount: parsed!.diagnostics.parseWarningCount,
         } : null;
@@ -319,6 +320,7 @@ export class ServerState {
           nonEmptySectionCount: parsed!.diagnostics.nonEmptySectionCount,
           sectionCount: parsed!.diagnostics.sectionCount,
           overviewSectionCount: parsed!.diagnostics.overviewSectionCount,
+          fallbackOverviewCount: parsed!.diagnostics.fallbackOverviewCount,
           unmappedSegments: parsed!.diagnostics.unmappedSegments,
           parseWarningCount: parsed!.diagnostics.parseWarningCount,
         } : null;

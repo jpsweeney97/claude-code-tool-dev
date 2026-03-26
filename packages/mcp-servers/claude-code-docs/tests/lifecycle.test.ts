@@ -43,6 +43,7 @@ const DEFAULT_LOADER_DIAGNOSTICS: CorpusDiagnostics = {
   nonEmptySectionCount: 50,
   sectionCount: 50,
   overviewSectionCount: 0,
+  fallbackOverviewCount: 0,
   unmappedSegments: [],
   parseWarningCount: 0,
 };
@@ -83,6 +84,7 @@ function makeFullCacheSnapshot(overrides: Partial<SerializedIndex> = {}): Serial
       nonEmptySectionCount: 50,
       sectionCount: 50,
       overviewSectionCount: 0,
+      fallbackOverviewCount: 0,
       unmappedSegments: [],
       parseWarningCount: 0,
     },

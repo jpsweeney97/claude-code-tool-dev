@@ -52,6 +52,7 @@ function makeSerializeContext(overrides?: Partial<SerializeContext>): SerializeC
       nonEmptySectionCount: 50,
       sectionCount: 55,
       overviewSectionCount: 2,
+      fallbackOverviewCount: 0,
       unmappedSegments: [],
       parseWarningCount: 0,
     },

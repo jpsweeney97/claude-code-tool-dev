@@ -38,6 +38,7 @@ function makeDiagnostics(overrides: Partial<CorpusDiagnostics> = {}): CorpusDiag
     nonEmptySectionCount: 50,
     sectionCount: 50,
     overviewSectionCount: 0,
+    fallbackOverviewCount: 0,
     unmappedSegments: [],
     parseWarningCount: 0,
     ...overrides,
@@ -147,11 +148,11 @@ describe('evaluateCanaries — official mode', () => {
 
   // --- Taxonomy drift ---
 
-  it('warns when overview sections reach max(3, 5%) threshold', () => {
+  it('warns when fallback overview count reaches max(3, 5%) threshold', () => {
     // 50 sections, 5% = 2.5 → max(3, 2.5) = 3
     const result = evaluateCanaries({
       trustMode: 'official',
-      diagnostics: makeDiagnostics({ overviewSectionCount: 3 }),
+      diagnostics: makeDiagnostics({ fallbackOverviewCount: 3, overviewSectionCount: 3 }),
       policyState: emptyPolicyState(),
       now: NOW,
     });
@@ -161,10 +162,23 @@ describe('evaluateCanaries — official mode', () => {
     expect(drift!.severity).toBe('warn');
   });
 
-  it('does not warn when overview sections are below threshold', () => {
+  it('does not warn when fallback overview count is below threshold', () => {
     const result = evaluateCanaries({
       trustMode: 'official',
-      diagnostics: makeDiagnostics({ overviewSectionCount: 2 }),
+      diagnostics: makeDiagnostics({ fallbackOverviewCount: 2, overviewSectionCount: 2 }),
+      policyState: emptyPolicyState(),
+      now: NOW,
+    });
+    expect(result.decision).toBe('accept');
+    expect(result.warnings.find(w => w.code === 'taxonomy_drift')).toBeUndefined();
+  });
+
+  it('does not warn when overviewSectionCount is high but fallbackOverviewCount is zero', () => {
+    // Explicitly-mapped overview sections should not trigger taxonomy_drift.
+    // This is the bypass-path test: 10 overview sections, all explicitly mapped, 0 fallback.
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: makeDiagnostics({ overviewSectionCount: 10, fallbackOverviewCount: 0, sectionCount: 70 }),
       policyState: emptyPolicyState(),
       now: NOW,
     });
@@ -236,7 +250,7 @@ describe('evaluateCanaries — official mode', () => {
   it('advances baseline even when taxonomy warnings fire (orthogonal)', () => {
     const result = evaluateCanaries({
       trustMode: 'official',
-      diagnostics: makeDiagnostics({ sectionCount: 55, overviewSectionCount: 4 }),
+      diagnostics: makeDiagnostics({ sectionCount: 55, overviewSectionCount: 4, fallbackOverviewCount: 4 }),
       policyState: establishedPolicyState(50),
       now: NOW,
     });
