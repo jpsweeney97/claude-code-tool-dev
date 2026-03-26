@@ -32,7 +32,7 @@ This contract governs interaction between:
 
 **Precedence:** This contract takes precedence over inline instructions in skill and agent files for 4 normative sections: Briefing Contract (§5), Safety Pipeline (§7), Continuity State Contract (§10), and Relay Assessment Contract (§11). Local stubs must include a fail-closed guard and defer to this contract.
 
-> **Sync obligation:** If you update §5, §7, §8, §9, §10, or §15, also update `contract-agent-extract.md` and recompute its `extract-hash` marker: `tail -n +4 references/contract-agent-extract.md | shasum -a 256 | cut -c1-12`
+> **Sync obligation:** If you update §4, §5, §7, §8, §9, §10, or §15, also update `contract-agent-extract.md` and recompute its `extract-hash` marker: `tail -n +4 references/contract-agent-extract.md | shasum -a 256 | cut -c1-12`
 
 ---
 

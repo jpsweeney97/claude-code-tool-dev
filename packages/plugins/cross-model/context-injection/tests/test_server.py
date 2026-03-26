@@ -96,3 +96,30 @@ def test_app_lifespan_logs_repo_root_to_stderr(tmp_path, monkeypatch, capsys) ->
 
     captured = capsys.readouterr()
     assert f"REPO_ROOT={tmp_path}" in captured.err
+
+
+def test_app_lifespan_logs_cwd_fallback_when_repo_root_unset(tmp_path, monkeypatch, capsys) -> None:
+    """F3: When REPO_ROOT is unset, the log shows os.getcwd() fallback for misconfiguration detection."""
+    import asyncio
+    from unittest.mock import MagicMock
+    from context_injection.server import app_lifespan
+
+    monkeypatch.delenv("REPO_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    with (
+        patch("context_injection.server._check_posix"),
+        patch("context_injection.server._check_git_available"),
+        patch(
+            "context_injection.server._load_git_files",
+            return_value=set(),
+        ),
+    ):
+        async def run() -> None:
+            async with app_lifespan(MagicMock()):
+                pass
+
+        asyncio.run(run())
+
+    captured = capsys.readouterr()
+    assert f"REPO_ROOT={tmp_path}" in captured.err

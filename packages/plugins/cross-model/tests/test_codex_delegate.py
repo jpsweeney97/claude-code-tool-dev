@@ -165,6 +165,7 @@ class TestCredentialScan:
     @patch("scripts.codex_delegate.subprocess")
     def test_oversized_prompt_blocks_not_allows(
         self, mock_sub: MagicMock, _mock_log: MagicMock, _mock_scan: MagicMock, tmp_path: Path,
+        capsys,
     ) -> None:
         """F1: ToolInputLimitExceeded produces status=blocked/exit 0 (governance lock #6)."""
         from scripts.codex_delegate import run
@@ -173,6 +174,12 @@ class TestCredentialScan:
         f.write_text(json.dumps({"prompt": "a" * 200_000}))
         exit_code = run(f)
         assert exit_code == 0  # blocked, not error (1) or allowed-through
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert output["status"] == "blocked"
+        assert output["dispatched"] is False
+        assert "char cap" in output["error"]
+        mock_sub.Popen.assert_not_called()
 
 
 class TestVersionCheck:
@@ -978,7 +985,7 @@ def test_credential_scan_uses_check_tool_input(monkeypatch, tmp_path):
     assert "prompt" in payload
 
 
-def test_large_prompt_blocked_by_char_cap(monkeypatch, tmp_path):
+def test_large_prompt_blocked_by_char_cap(monkeypatch, tmp_path, capsys):
     """Prompts exceeding the 256 KiB extract_strings char cap are blocked (exit 0, status=blocked).
 
     F1 fix: governance lock #6 requires egress sanitization on all outbound payloads.
@@ -994,6 +1001,7 @@ def test_large_prompt_blocked_by_char_cap(monkeypatch, tmp_path):
     monkeypatch.setattr("scripts.codex_delegate._check_clean_tree", lambda: None)
     monkeypatch.setattr("scripts.codex_delegate._check_secret_files", lambda: None)
     monkeypatch.setattr("scripts.codex_delegate._resolve_repo_root", lambda: tmp_path)
+    monkeypatch.setattr("scripts.codex_delegate.append_log", lambda *a, **kw: True)
 
     input_file = tmp_path / "input.json"
     input_file.write_text('{"prompt": "x" , "sandbox": "read-only"}')
@@ -1002,6 +1010,10 @@ def test_large_prompt_blocked_by_char_cap(monkeypatch, tmp_path):
     # Must return exit code 0 (status=blocked), not 1 (error) or proceed to dispatch.
     result = delegate.run(input_file)
     assert result == 0
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert output["status"] == "blocked"
+    assert output["dispatched"] is False
 
 
 class TestEmitAnalyticsValidation:
