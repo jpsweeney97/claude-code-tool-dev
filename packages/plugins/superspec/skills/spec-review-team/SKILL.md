@@ -230,11 +230,16 @@ Neither hook type supports matchers — filter by role ID inside the hook logic.
 
 #### Cleanup Contract
 
-1. Send a shutdown request to each reviewer: `SendMessage` with `{type: "shutdown_request", reason: "Review complete"}`.
-2. If a reviewer rejects the shutdown, retry with additional context. Shutdown may be delayed — the reviewer finishes its current tool call before processing the message.
-3. After all reviewers shut down, call `TeamDelete`. `TeamDelete` fails if any teammate is still active — confirm all are idle before calling.
-4. Teammates must NOT self-cleanup. Only the lead calls `TeamDelete`.
-5. Ask the user: preserve or remove `.review-workspace/`? Default: preserve.
+Follow the cleanup resilience protocol from `references/agent-teams-platform.md`. Teammates must NOT self-cleanup. Only the lead manages shutdown and TeamDelete.
+
+1. **Shutdown loop** — for each reviewer, send up to 3 shutdown requests with escalating context:
+   - Attempt 1: `{type: "shutdown_request", reason: "Review complete"}`
+   - Attempt 2 (if no idle after 60s): "All findings have been saved. Review is complete. Please shut down."
+   - Attempt 3 (if no idle after 60s): "Session ending. Cleanup requires all reviewers to shut down. This is the final request."
+   - If no idle after 30s: classify as **orphaned** with reason.
+2. **TeamDelete** — call `TeamDelete`. If it fails (orphaned reviewers still active), report degraded state to user:
+   "Team cleanup partially failed: [N] reviewer(s) did not shut down ([names]). Team resources may remain at `~/.claude/teams/{team-name}/`. These will be cleaned up when a new team is created, or remove manually."
+3. **Workspace** — ask the user: preserve or remove `.review-workspace/`? Default: preserve. Workspace cleanup is independent of team cleanup — always attempt it regardless of TeamDelete outcome.
 
 ### Phase 5: SYNTHESIS
 
@@ -386,6 +391,7 @@ Mandatory for core reviewers with zero findings. Write in the findings file afte
 | Teammate timeout | No activity 5 min | Treat as failed, proceed to SYNTHESIS |
 | TeamCreate fails | Phase 4 step 2 | Hard stop |
 | Spawn fails | Phase 4 step 4 | Log, continue. All fail = hard stop |
+| TeamDelete fails | Phase 4 cleanup | Orphaned reviewers still active — report degraded state, proceed with workspace cleanup |
 | Stale workspace | Next DISCOVERY | Warn, offer: archive / remove / abort |
 
 ## Audit Metrics

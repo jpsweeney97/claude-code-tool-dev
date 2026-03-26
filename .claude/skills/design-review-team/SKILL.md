@@ -139,9 +139,16 @@ Messages are informal coordination signals — each reviewer's structured findin
 
 #### Cleanup
 
-1. Send `{type: "shutdown_request", reason: "Review complete"}` to each reviewer.
-2. After all shut down, call `TeamDelete`.
-3. Teammates must NOT self-cleanup. Only the lead calls `TeamDelete`.
+Follow the cleanup resilience protocol from the agent teams reference. Teammates must NOT self-cleanup. Only the lead manages shutdown and TeamDelete.
+
+1. **Shutdown loop** — for each reviewer, send up to 3 shutdown requests with escalating context:
+   - Attempt 1: `{type: "shutdown_request", reason: "Review complete"}`
+   - Attempt 2 (if no idle after 60s): "All findings have been saved. Review is complete. Please shut down."
+   - Attempt 3 (if no idle after 60s): "Session ending. Cleanup requires all reviewers to shut down. This is the final request."
+   - If no idle after 30s: classify as **orphaned** with reason.
+2. **TeamDelete** — call `TeamDelete`. If it fails (orphaned reviewers still active), report degraded state to user:
+   "Team cleanup partially failed: [N] reviewer(s) did not shut down ([names]). Team resources may remain at `~/.claude/teams/design-review/`. These will be cleaned up when a new team is created, or remove manually."
+3. **Workspace** — prompt user about preserving `.design-review-workspace/`. Workspace cleanup is independent of team cleanup — always attempt it regardless of TeamDelete outcome.
 
 ### Phase 4: Synthesize
 
@@ -279,6 +286,7 @@ Mandatory when a reviewer has zero findings for any owned category.
 | Teammate timeout (5 min) | No idle notification activity | Treat as failed, proceed with available findings |
 | 2+ reviewers suppressed | Phase 2 staffing | Redirect to `system-design-review` |
 | 4+ categories insufficient evidence | Phase 4 synthesis | Label `reduced-depth`, cap findings |
+| TeamDelete fails | Phase 3 cleanup | Orphaned reviewers still active — report degraded state, proceed with workspace cleanup |
 | Stale workspace | Phase 3 start | Warn, offer: archive / remove / abort |
 
 ## Anti-Patterns

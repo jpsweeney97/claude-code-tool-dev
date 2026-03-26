@@ -374,15 +374,17 @@ Refine mode works only with existing CHANGELOG content — no evidence gathering
 | `gh` unavailable | PR Analyst reports failure | Expected — use Git Historian as primary structure |
 | No handoff archive | Handoff Archivist reports absence | Expected — proceed without handoff enrichment |
 | Stale workspace | Phase 1 setup | Warn user, offer: archive / remove / abort |
-| TeamDelete fails | Cleanup step 3 | Teammates still active — retry shutdown, then retry |
+| TeamDelete fails | Cleanup step 2 | Orphaned teammates still active — report degraded state, proceed with workspace cleanup |
 
 ## Cleanup
 
-After the CHANGELOG is complete and delivered:
+After the CHANGELOG is complete and delivered, follow the cleanup resilience protocol from `references/agent-teams.md`. These are transient working artifacts — do not ask the user about cleanup.
 
-1. Send a shutdown request to each teammate: `SendMessage` to each by name with `{type: "shutdown_request", reason: "CHANGELOG complete"}`. If a teammate rejects the shutdown, retry with additional context explaining that the CHANGELOG is complete.
-2. Teammates finish their current tool call before shutting down — this may take a moment.
-3. After all teammates go idle, call `TeamDelete` to remove shared team resources. `TeamDelete` fails if any teammate is still active — confirm all are idle first.
-4. Remove the workspace directory (`.changelog-workspace/`).
-
-These are transient working artifacts — do not ask the user about cleanup.
+1. **Shutdown loop** — for each teammate, send up to 3 shutdown requests with escalating context:
+   - Attempt 1: `{type: "shutdown_request", reason: "CHANGELOG complete"}`
+   - Attempt 2 (if no idle after 60s): "All evidence gathering is complete, findings have been saved. Please shut down."
+   - Attempt 3 (if no idle after 60s): "Session ending. Cleanup requires all teammates to shut down. This is the final request."
+   - If no idle after 30s: classify as **orphaned** with reason.
+2. **TeamDelete** — call `TeamDelete`. If it fails (orphaned teammates still active), report degraded state to user:
+   "Team cleanup partially failed: [N] teammate(s) did not shut down ([names]). Team resources may remain at `~/.claude/teams/changelog-evidence/`. These will be cleaned up when a new team is created, or remove manually."
+3. **Workspace** — remove `.changelog-workspace/`. Workspace cleanup is independent of team cleanup — always attempt it regardless of TeamDelete outcome.
