@@ -73,7 +73,7 @@ When the prompt contains `<!-- dialogue-orchestrated-briefing -->` on a line bef
 1. **Use the briefing VERBATIM** — do NOT rewrite, summarize, restructure, or reformat it. The `/dialogue` skill already assembled and validated it per §5.
 2. **Skip briefing assembly entirely** — do NOT read the contract extract for §5 formatting purposes. The sentinel certifies §5 conformance.
 3. **Retain posture selection** from the delegation envelope or prompt.
-4. **Retain initial turn construction** — derive `## Question` from the briefing's Question section.
+4. **The verbatim briefing IS the `prompt`** for the Phase 2 initial `codex` call. It already contains `## Context`, `## Material`, and `## Question`. Do NOT construct, assemble, or derive a separate prompt — the briefing satisfies §9's `prompt` requirement directly.
 5. Proceed to token safety check (still required — sanitize the verbatim briefing).
 
 Re-assembly destroys structured metadata (CLAIM/COUNTER/CONFIRM tags, `[SRC:code]` provenance, `AID:` references) that downstream pipeline stages depend on.
@@ -109,6 +109,8 @@ Before sending any briefing or follow-up to Codex:
 ### Start the conversation
 
 Call `mcp__plugin_cross-model_codex__codex` **EXACTLY ONCE** to start the conversation. Do NOT make parallel `codex` calls. Do NOT retry the initial call — if it fails, report the error and stop. Two initial `codex` calls starts two independent conversations and wastes API calls.
+
+**External briefing:** When the sentinel was detected in Phase 1, the verbatim briefing from the delegation prompt is the `prompt` parameter. Do NOT assemble a new briefing — the sentinel certifies §9's `prompt` requirement. A second `codex` call with a re-assembled prompt starts an independent conversation and discards the orchestrated briefing's structured metadata (CLAIM/COUNTER tags, provenance, assumption IDs).
 
 Use parameters from [contract-agent-extract.md](../references/contract-agent-extract.md) §9. Do **not** set the `model` parameter — omit it entirely so the Codex server uses its default. Setting model names from training knowledge (e.g., "o4 mini", "o3") causes the tool call to fail. If `model_reasoning_effort` is rejected by the API, omit it and proceed.
 
