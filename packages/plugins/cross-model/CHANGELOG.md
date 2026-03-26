@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Removed
+
+- CCDI (Claude Code Documentation Intelligence) subsystem — Codex has native access to `mcp__claude_code_docs__search_docs`, making the content delivery pipeline obsolete; 88 files removed (~25k lines, 616 tests); `"ccdi": {"status": "removed"}` retained in pipeline epilogue for analytics backward compatibility
+
+### Added
+
+- `DELEGATION_POLICY` config in `consultation_safety.py` — separate safety policy for delegation credential scanning (#82)
+- MCP tool name drift detection tests and `codex exec` guardrail tests (#82)
+
+### Changed
+
+- `codex-dialogue` agent instruction volume reduced by 50%
+- `codex_delegate.py` credential scan routed through `consultation_safety.check_tool_input` with `DELEGATION_POLICY` for boundary canonicalization (#82)
+- `_parse_markdown_synthesis` fallback in `codex_guard.py` now lazy — only runs when JSON epilogue absent or unusable; adds `parse_fallback_used` observability signal (#82)
+- `TIER_RANK` deduplicated — single definition in `consultation_safety.py`, removed from `codex_guard.py` (#82)
+
+### Fixed
+
+- Allow large prompts through delegation credential scan without false-positive blocking (#82)
+
 ## [3.1.3] — 2026-03-20
 
 ### Fixed
@@ -16,7 +36,13 @@
 
 ### Changed
 
-- `_build_command()` now applies `-s <sandbox>` only to new conversations, not resume conversations
+- `codex_consult.py` `_build_command()` now applies `-s <sandbox>` only to new conversations, not resume conversations
+
+## [3.1.1] — 2026-03-20
+
+### Fixed
+
+- Add `--skip-git-repo-check` to `codex exec` command in `codex_consult.py` — prevents consultation failures when the MCP server process runs from a directory Codex doesn't trust as a git repo
 
 ## [3.1.0] — 2026-03-20
 
@@ -26,6 +52,11 @@
 - `consultation_safety.py` — extracted shared safety module from `codex_guard.py` (`ToolScanPolicy`, `SafetyVerdict`, `check_tool_input`, `extract_strings`)
 - `codex_shim.py` — thin FastMCP MCP server exposing `codex` and `codex-reply` tools backed by the `consult()` adapter, with `structuredContent.threadId` for backward compatibility
 - `.mcp.json` wiring validation tests (`test_mcp_wiring.py`) — 4 tests ensuring codex entry uses local shim
+- `event_schema.py` — single source of truth for event field definitions, with frozen `REQUIRED_FIELDS_BY_EVENT` dict and disjointness assertion (#74)
+- `retrieve_learnings.py` script for §17 learning injection — queries `docs/learnings/learnings.md` for project-relevant learnings (#76, #80)
+- 4 new analytics sections in `compute_stats.py`: planning effectiveness, provenance health, parse diagnostics, consultation quality (#77)
+- `--threads` CLI flag in `compute_stats.py` for thread discovery and grouping (#77)
+- Reviewer analytics integration with `consultation_source` discriminator in `emit_analytics.py` (#77)
 
 ### Changed
 
@@ -33,24 +64,40 @@
 - `codex_guard.py` imports safety utilities from `consultation_safety.py` instead of inline implementation
 - `approval_policy` (underscore) added to `START_POLICY.expected_fields` alongside `approval-policy` (hyphen) for shim schema compatibility
 - `mcp>=1.9.0` added to root plugin dependencies (previously only in context-injection sub-package)
-- `context-injection` is now maintained only in `packages/plugins/cross-model/context-injection`
-- The vendoring sync script and vendored marker file were removed
-- `docs/references/context-injection-contract.md` symlink was removed in favor of the plugin reference path
+- Learning retrieval wired into `/codex` and `/dialogue` skills; consultation contract §17 activated (#76)
+- `codex_guard.py` delegates event logging to `event_log.py` for POSIX atomic writes with 0o600 file permissions (#74)
+- Tier-filtered credential family tuples cached at module level in `credential_scan.py` (#74)
+- Event consumers migrated to shared `event_schema.py` field definitions (#74)
+- `thread_id` extracted as actual string value (not just boolean) in `codex_guard.py`; added to `consultation_outcome` required fields (#75)
+- 370 cross-model tests migrated from repo root into `packages/plugins/cross-model/tests/`
 - Plugin version bumped from 3.0.0 to 3.1.0
 
 ### Fixed
 
-- Tighten credential scan placeholder bypass window from 200 to 100 chars — reduces risk of a nearby "example" token suppressing a real credential match; `PLACEHOLDER_BYPASS_WINDOW` now exported from `secret_taxonomy.py` and shared by both `credential_scan.py` and `check_placeholder_bypass`
+- Split `_AUTH_HEADER_RE` into `_BEARER_AUTH_RE` and `_BASIC_AUTH_RE` to prevent false positives on bearer tokens shorter than 20 chars (#74)
+- Use `family.name` in credential scan reason field; multi-field scan selects highest-tier result across all fields (#75)
+- Validate epilogue `convergence_reason_code` before use — prevents analytics emission failure on malformed Codex output
+- Degrade gracefully on synthesis parse failure instead of raising
+- Harden analytics instructions with explicit prohibitions against LLM-constructed field values
+- Deterministic imports via `__package__` guard in 5 cross-model scripts
+- Improve `codex_guard.py` error handling — log PostToolUse errors, narrow stdin catch, surface audit failures
+- Include learnings in Step 3c zero-output fallback briefing (#76)
+- Remediate 5 design review findings: per-event delegation validation, profile §14 invariant enforcement, credential assignment split policy (#80)
 
-## [3.0.0] — 2026-03-07
+## [3.0.0] — 2026-03-14
 
 ### Added
 
-- `/delegate` skill — autonomous Codex execution with sandbox containment, clean-tree gate, and secret-file gate
+- `/delegate` skill — autonomous Codex execution with sandbox containment, clean-tree gate, and secret-file gate (#53)
 - `delegation_outcome` analytics event type for tracking delegation results
 - `credential_scan.py` shared module — extracted credential detection logic for reuse across hooks and delegation
 - `event_log.py` shared module — extracted event logging logic for reuse across analytics emitters
 - `secret_taxonomy.py` shared module — consolidates all credential pattern families with independent `redact_enabled`/`egress_enabled` controls; adds Basic Auth and Slack token families (#55)
+- Phase-local convergence detection — each phase in a multi-phase profile gets independent plateau detection and closing probe opportunity
+- Phase delegation in `/dialogue` — `phases` array wired from SKILL.md through `codex-dialogue` agent with `phase_turns_completed` counter for unambiguous transition timing
+- `debugging` composed profile (exploratory → evaluative → collaborative) with 3-phase consultation
+- `comparative` posture type added to posture taxonomy
+- `context-injection` consolidated into `packages/plugins/cross-model/context-injection/` — canonical location replacing vendored copy and legacy `packages/context-injection/` (#58)
 
 ### Changed
 
@@ -61,10 +108,15 @@
 - `consultation-stats` skill updated with `--type delegation` filter
 - `approval-policy` default changed from `on-failure` to `on-request` for workspace-write sandboxes; `on-failure` remains valid for legacy compatibility (#57)
 - Analytics parsing migrated from `<!-- pipeline-data -->` comment blocks to JSON epilogue as sole machine contract; `thread_id` now always emitted when available (previously `null` in `manual_legacy` mode) (#56)
+- Closing probe policy changed from once-per-conversation to once-per-phase — ensures each phase in multi-phase profiles can independently detect convergence
+- Vendoring sync script and vendored marker file removed (#58)
+- `docs/references/context-injection-contract.md` symlink removed in favor of the plugin reference path (#58)
+- Dev dependencies migrated to PEP 735 dependency-groups (#34)
 
 ### Fixed
 
 - Exempt `certifi/cacert.pem` CA bundle from secret-file gate via `_SAFE_ARTIFACT_TAILS` frozenset (component-based matching) — `*.pem` glob was blocking all delegation in repos with a `.venv/` directory (#54)
+- Tighten credential scan placeholder bypass window from 200 to 100 chars — reduces risk of a nearby "example" token suppressing a real credential match; `PLACEHOLDER_BYPASS_WINDOW` now exported from `secret_taxonomy.py` and shared by both `credential_scan.py` and `check_placeholder_bypass` (#58)
 
 ## [2.0.0] — 2026-03-01
 
