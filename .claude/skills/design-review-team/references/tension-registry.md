@@ -1,6 +1,6 @@
 # Tension Registry
 
-Canonical tensions for design review, sourced from `system-design-review/references/system-design-dimensions.md`. This registry is a **default map, not a closed world** — custom tensions are valid when they pass all inclusion rules.
+Canonical tensions for design review, sourced from `references/system-design-dimensions.md`. This registry is a **default map, not a closed world** — custom tensions are valid when they pass all inclusion rules.
 
 The registry serves two purposes:
 1. A shared vocabulary of known architectural tensions

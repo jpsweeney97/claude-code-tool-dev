@@ -2,7 +2,7 @@
 
 Per-reviewer role definitions for the design review team. Each brief follows the domain brief structure from `spec-review-team`, adapted for design review.
 
-Reviewers: read YOUR section. The shared lens framework is in `system-design-review/references/system-design-dimensions.md` — read it for the full lens definitions, weighting table, and cross-cutting tensions.
+Reviewers: read YOUR section. The shared lens framework is in `references/system-design-dimensions.md` — read it for the full lens definitions, weighting table, and cross-cutting tensions.
 
 ---
 

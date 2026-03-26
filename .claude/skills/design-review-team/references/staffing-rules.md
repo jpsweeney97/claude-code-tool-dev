@@ -4,7 +4,7 @@ Rules for emphasis map generation, reviewer suppression, and workload calibratio
 
 ## Emphasis Map
 
-The emphasis map translates archetype weighting from `system-design-dimensions.md` into per-reviewer guidance. It tells each reviewer how much attention their categories deserve for this specific review.
+The emphasis map translates archetype weighting from `references/system-design-dimensions.md` into per-reviewer guidance. It tells each reviewer how much attention their categories deserve for this specific review.
 
 ### Emphasis Levels
 
@@ -18,7 +18,7 @@ The emphasis map translates archetype weighting from `system-design-dimensions.m
 ### Generation Algorithm
 
 1. Identify the top 1-2 archetypes from the framing phase.
-2. Look up each archetype in the weighting table (`system-design-dimensions.md`, "Weighting by System Type" section).
+2. Look up each archetype in the weighting table (`references/system-design-dimensions.md`, "Weighting by System Type" section).
 3. For each of the 8 categories:
    - If the category contains a **primary emphasis** (◆) lens for any identified archetype → `primary`
    - If the category contains a **secondary emphasis** (○) lens → `secondary`

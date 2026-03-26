@@ -1,5 +1,5 @@
 ---
-name: reviewing-designs
+name: design-review-team
 description: Thorough architecture review using a parallel agent team of 6 specialized reviewers. Each reviewer analyzes the design through a category-specific lens (Structural+Cognitive, Behavioral, Data, Reliability+Operational, Change, Trust & Safety), communicating cross-cutting findings via lateral messaging. The lead frames the review, generates an emphasis map, spawns the team, then synthesizes findings into a prioritized report with tension mapping. Use when the user asks for a "thorough design review", "deep architecture review", "team review of this design", "comprehensive design analysis", or wants maximum coverage of an architecture. Also trigger when the design is complex enough to benefit from multiple review perspectives — multi-service architectures, systems with cross-cutting concerns, or high-stakes designs. For quick single-pass reviews, use system-design-review instead.
 allowed-tools:
   - Read
