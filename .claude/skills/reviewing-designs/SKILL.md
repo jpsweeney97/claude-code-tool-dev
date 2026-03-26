@@ -114,7 +114,7 @@ Apply the staffing rules from [`references/staffing-rules.md`](references/staffi
    - Emphasis level for their categories (from emphasis map)
    - Path to `frame.md` for full framing context
    - Instruction to read their section of [`references/reviewer-briefs.md`](references/reviewer-briefs.md) for role brief and collaboration playbook
-   - Instruction to read shared [`system-design-review/references/system-design-dimensions.md`](../system-design-review/references/system-design-dimensions.md) for full lens definitions
+   - Instruction to read shared [`references/system-design-dimensions.md`](references/system-design-dimensions.md) for full lens definitions
    - Per-run tension playbook entries (generated in Phase 2)
    - Output file path: `.design-review-workspace/findings/{role-id}.md`
    - Finding schema (inline in spawn prompt — too critical to rely on file reference for Sonnet)
@@ -298,4 +298,4 @@ Mandatory when a reviewer has zero findings for any owned category.
 | [`references/staffing-rules.md`](references/staffing-rules.md) | Phase 1-2: emphasis map generation, suppression rules, deep-lens cap |
 | [`references/tension-registry.md`](references/tension-registry.md) | Phase 2 + Phase 4: per-run playbooks, tension inclusion rules, tension schema |
 | [`references/reviewer-briefs.md`](references/reviewer-briefs.md) | Phase 3: role briefs with collaboration playbooks for spawn prompts |
-| [`../system-design-review/references/system-design-dimensions.md`](../system-design-review/references/system-design-dimensions.md) | Shared lens framework: full lens definitions, archetype weighting, cross-cutting tensions |
+| [`references/system-design-dimensions.md`](references/system-design-dimensions.md) | Shared lens framework: full lens definitions, archetype weighting, cross-cutting tensions |
