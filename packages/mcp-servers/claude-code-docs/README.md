@@ -74,7 +74,7 @@ Parameters:
 | `category` | string | no | - | Canonical categories or aliases (see below). |
 
 Canonical categories:
-`hooks`, `skills`, `commands`, `agents`, `plugins`, `plugin-marketplaces`, `mcp`, `settings`, `memory`, `overview`, `getting-started`, `cli`, `best-practices`, `interactive`, `security`, `providers`, `ide`, `ci-cd`, `desktop`, `integrations`, `config`, `operations`, `troubleshooting`, `changelog`
+`hooks`, `skills`, `commands`, `agents`, `plugins`, `plugin-marketplaces`, `mcp`, `channels`, `settings`, `memory`, `overview`, `getting-started`, `cli`, `best-practices`, `interactive`, `security`, `providers`, `ide`, `ci-cd`, `automation`, `desktop`, `integrations`, `config`, `operations`, `troubleshooting`, `changelog`
 
 Aliases:
 `subagents` -> `agents`, `sub-agents` -> `agents`, `slash-commands` -> `commands`, `claude-md` -> `memory`, `configuration` -> `config`

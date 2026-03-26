@@ -306,6 +306,58 @@ Download and install the Claude Code desktop app from the official website. The 
 
 The desktop app provides a native window, system tray integration, and automatic updates.
 ---
+# Push events into a running session with channels
+Source: https://code.claude.com/docs/en/channels
+
+Channels push events into your running Claude Code session from an MCP server. Forward CI results, chat messages, and monitoring events so Claude can react while you're away.
+
+## Supported channels
+
+Each supported channel is a plugin. Telegram, Discord, and iMessage are included in the research preview.
+
+## Channel security
+
+Every approved channel plugin maintains a sender allowlist. Only IDs you've added can push messages, and everyone else is silently dropped.
+---
+# Run Claude Code programmatically
+Source: https://code.claude.com/docs/en/headless
+
+Use the Agent SDK to run Claude Code programmatically from the CLI, Python, or TypeScript for automated workflows and scripting.
+
+## Basic usage
+
+Add the -p flag to any claude command to run it non-interactively. All CLI options work with -p for automation.
+
+## Bare mode
+
+Add --bare to reduce startup time by skipping auto-discovery. Useful for CI scripts and automated pipelines.
+---
+# Run prompts on a schedule
+Source: https://code.claude.com/docs/en/scheduled-tasks
+
+Scheduled tasks let Claude re-run a prompt automatically on an interval. Use them to poll a deployment, babysit a PR, or check back on a long-running build.
+
+## Schedule a recurring prompt with /loop
+
+The /loop skill schedules a recurring prompt. Pass an optional interval and a prompt for automated execution.
+
+## Manage scheduled tasks
+
+Ask Claude to list or cancel scheduled tasks, or reference the CronCreate, CronList, and CronDelete tools directly.
+---
+# Cloud-hosted scheduled tasks
+Source: https://code.claude.com/docs/en/web-scheduled-tasks
+
+Create durable scheduled tasks that run on Anthropic cloud infrastructure. Unlike session-scoped /loop tasks, web scheduled tasks survive restarts and run independently of any local CLI session.
+
+## Creating web scheduled tasks
+
+Use the web dashboard or API to create scheduled tasks with cron expressions. Each task runs a prompt against a specified repository on Anthropic-hosted runners.
+
+## Managing web scheduled tasks
+
+View, pause, and delete web scheduled tasks from the dashboard. Each run produces a log with the full conversation transcript.
+---
 # Overview
 Source: https://code.claude.com/docs/en/overview
 
@@ -318,6 +370,84 @@ Claude Code can edit files, run commands, search code, manage git, create pull r
 ## How Claude Code works
 
 Claude Code operates as an interactive agent with access to tools for file editing, code search, and command execution.
+---
+# Discover plugins
+Source: https://code.claude.com/docs/en/plugin-marketplaces
+
+Browse and install plugins from community and official plugin marketplaces for Claude Code.
+
+## Official marketplace
+
+The official Anthropic plugin marketplace hosts curated and reviewed plugins. Install plugins with /plugin install.
+
+## Community marketplaces
+
+Third-party marketplace repositories can be added with /plugin marketplace add for community-contributed extensions.
+---
+# Best practices
+Source: https://code.claude.com/docs/en/best-practices
+
+Tips and best practices for getting the most out of Claude Code in your daily development workflow.
+
+## Writing effective prompts
+
+Be specific about what you want Claude to do. Include file paths, function names, and expected behavior in your prompts for best results.
+
+## Iterative development workflow
+
+Work in small, incremental steps. Review each change before moving to the next task for a productive iterative workflow.
+---
+# Configure Claude Code
+Source: https://code.claude.com/docs/en/configuration
+
+Customize Claude Code behavior through configuration files and environment variables.
+
+## Configuration files
+
+Claude Code reads configuration from settings.json at global and project levels. Project configuration overrides global defaults.
+
+## Model configuration
+
+Set your preferred model, temperature, and token limits through the model configuration options.
+---
+# Monitor usage and costs
+Source: https://code.claude.com/docs/en/costs
+
+Track token usage, API costs, and session analytics for Claude Code across your organization.
+
+## Usage dashboard
+
+View token consumption and cost breakdowns per session, per user, and per project in the usage analytics dashboard.
+
+## Cost management
+
+Set spending limits and budget alerts to manage API costs across your team or organization.
+---
+# Slack integration
+Source: https://code.claude.com/docs/en/slack
+
+Connect Claude Code to Slack so team members can trigger tasks and receive results directly in channels and threads.
+
+## Setting up Slack integration
+
+Install the Claude Code Slack app from the Slack App Directory and connect it to your Anthropic organization.
+
+## Using Claude in Slack
+
+Mention @Claude in any channel or thread to start a task. Claude creates a pull request and posts the link back to the thread.
+---
+# Changelog
+Source: https://code.claude.com/docs/en/changelog
+
+Track new features, improvements, and fixes in each Claude Code release.
+
+## Recent releases
+
+Each release includes new features, bug fixes, and performance improvements. Check the changelog for details on what changed.
+
+## Version history
+
+Browse the full version history to find when specific features were added or bugs were fixed in Claude Code.
 `;
 
 describe('golden queries (URL-based)', () => {
@@ -403,6 +533,18 @@ describe('golden queries (URL-based)', () => {
     { query: 'vim mode interactive editing', expectedTopCategory: 'interactive' },
     { query: 'desktop application native install', expectedTopCategory: 'desktop' },
     { query: 'overview agentic terminal tool', expectedTopCategory: 'overview' },
+    // New categories (channels, automation)
+    { query: 'channel push events Telegram Discord', expectedTopCategory: 'channels' },
+    { query: 'sender allowlist channel security', expectedTopCategory: 'channels' },
+    { query: 'Agent SDK programmatic CLI automation', expectedTopCategory: 'automation' },
+    { query: 'scheduled tasks loop recurring prompt', expectedTopCategory: 'automation' },
+    // Remaining categories (full coverage)
+    { query: 'plugin marketplace browse install community', expectedTopCategory: 'plugin-marketplaces' },
+    { query: 'effective prompts iterative workflow tips', expectedTopCategory: 'best-practices' },
+    { query: 'configuration files model settings override', expectedTopCategory: 'config' },
+    { query: 'token usage cost dashboard spending limits', expectedTopCategory: 'operations' },
+    { query: 'Slack app mention channel thread integration', expectedTopCategory: 'integrations' },
+    { query: 'changelog release version history fixes', expectedTopCategory: 'changelog' },
     // Morphological variant queries (stemming coverage)
     { query: 'configuring MCP servers', expectedTopCategory: 'mcp' },
     { query: 'creating custom skills', expectedTopCategory: 'skills' },
@@ -536,6 +678,29 @@ describe('golden queries (URL-based)', () => {
     }
     for (const chunk of overviewChunks) {
       expect(chunk.category).toBe('overview');
+    }
+  });
+
+  it('channels, automation, and remaining category chunks have correct categories', () => {
+    const cases: Array<{ urlFragment: string; expectedCategory: string }> = [
+      { urlFragment: 'channels', expectedCategory: 'channels' },
+      { urlFragment: 'headless', expectedCategory: 'automation' },
+      { urlFragment: '/en/scheduled-tasks', expectedCategory: 'automation' },
+      { urlFragment: 'web-scheduled-tasks', expectedCategory: 'automation' },
+      { urlFragment: 'plugin-marketplaces', expectedCategory: 'plugin-marketplaces' },
+      { urlFragment: 'best-practices', expectedCategory: 'best-practices' },
+      { urlFragment: 'configuration', expectedCategory: 'config' },
+      { urlFragment: 'costs', expectedCategory: 'operations' },
+      { urlFragment: 'slack', expectedCategory: 'integrations' },
+      { urlFragment: 'changelog', expectedCategory: 'changelog' },
+    ];
+
+    for (const { urlFragment, expectedCategory } of cases) {
+      const chunks = index.chunks.filter((c) => c.source_file.includes(urlFragment));
+      expect(chunks.length, `expected chunks for ${urlFragment}`).toBeGreaterThan(0);
+      for (const chunk of chunks) {
+        expect(chunk.category).toBe(expectedCategory);
+      }
     }
   });
 

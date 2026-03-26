@@ -8,7 +8,7 @@ BM25-based search server for Claude Code documentation. Fetches docs from `https
 |-----------|------|----------|---------|-------------|
 | `query` | string | yes | — | Max 500 chars, trimmed |
 | `limit` | integer | no | `5` | 1–20 |
-| `category` | string | no | — | One of 24 categories or 5 aliases (see `categories.ts`) |
+| `category` | string | no | — | One of 26 categories or 5 aliases (see `categories.ts`) |
 
 ## Commands
 
@@ -44,7 +44,7 @@ loadFromOfficial (fetch + parse docs)
 | `bm25.ts` | BM25 scoring, heading boost, snippet extraction |
 | `index-cache.ts` | Serialization, version constants, Zod schemas |
 | `tokenizer.ts` | Porter stemmer + CamelCase splitting |
-| `categories.ts` | 24 canonical categories, URL-to-category mapping, 5 aliases (`subagents`→`agents`, `sub-agents`→`agents`, `slash-commands`→`commands`, `claude-md`→`memory`, `configuration`→`config`) |
+| `categories.ts` | 26 canonical categories, URL-to-category mapping, 5 aliases (`subagents`→`agents`, `sub-agents`→`agents`, `slash-commands`→`commands`, `claude-md`→`memory`, `configuration`→`config`) |
 | `types.ts` | `Chunk`, `SearchResult`, `MarkdownFile`, `ParsedSection` interfaces |
 | `cache.ts` | Filesystem cache read/write for index persistence |
 | `parser.ts` | Parses `llms-full.txt` into `ParsedSection[]` via Source-line splitting |
@@ -90,7 +90,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 
 | Test | Purpose |
 |------|---------|
-| `golden-queries.test.ts` | Multi-category query coverage (26 queries, 16 categories) — validates search quality |
+| `golden-queries.test.ts` | Multi-category query coverage (35 queries, 26 categories) — validates search quality |
 | `integration.test.ts` | End-to-end pipeline assessment (skipped by default — run with `INTEGRATION=1`) |
 | `corpus-validation.test.ts` | Validates chunking invariants across full corpus (requires content cache) |
 | `cache.mock.test.ts` | Cache behavior with mocked filesystem |
