@@ -92,15 +92,31 @@ def extract_client_methods(client_request_schema_path: Path) -> frozenset[str]:
 
     The schema is a JSON Schema with oneOf variants, each containing a method enum
     with exactly one value.
+
+    Raises ValueError if the schema lacks the expected structure (no oneOf key,
+    or oneOf variants present but no methods extracted).
     """
     with open(client_request_schema_path) as f:
         schema = json.load(f)
 
+    variants = schema.get("oneOf")
+    if variants is None:
+        raise ValueError(
+            f"Schema extraction failed: no 'oneOf' key in {client_request_schema_path.name}. "
+            f"Top-level keys: {sorted(schema.keys())!r:.200}"
+        )
+
     methods: set[str] = set()
-    for variant in schema.get("oneOf", []):
+    for variant in variants:
         method_enum = variant.get("properties", {}).get("method", {}).get("enum", [])
         if method_enum:
             methods.add(method_enum[0])
+
+    if not methods:
+        raise ValueError(
+            f"Schema extraction failed: {len(variants)} oneOf variants but 0 methods extracted "
+            f"from {client_request_schema_path.name}. Schema structure may have changed."
+        )
 
     return frozenset(methods)
 

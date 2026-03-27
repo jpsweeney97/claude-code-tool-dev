@@ -9,6 +9,8 @@ No live codex binary required. Tests verify:
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from pathlib import Path
@@ -22,6 +24,7 @@ from server.codex_compat import (
     TESTED_CODEX_VERSION,
     SemVer,
     check_method_surface,
+    check_version_floor,
     extract_client_methods,
     get_codex_version,
 )
@@ -98,6 +101,84 @@ class TestGetCodexVersionParsing:
             self._mock_version_output("something-else 0.117.0\n")
 
 
+class TestGetCodexVersionErrors:
+    """Unit tests for get_codex_version() failure-mode translation."""
+
+    def test_binary_not_found(self):
+        with patch(
+            "server.codex_compat.subprocess.run", side_effect=FileNotFoundError
+        ):
+            with pytest.raises(RuntimeError, match="not found on PATH"):
+                get_codex_version()
+
+    def test_timeout(self):
+        with patch(
+            "server.codex_compat.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="codex", timeout=10),
+        ):
+            with pytest.raises(RuntimeError, match="timed out"):
+                get_codex_version()
+
+    def test_nonzero_exit(self):
+        mock_result = subprocess.CompletedProcess(
+            args=["codex", "--version"], returncode=1, stdout="", stderr="error msg"
+        )
+        with patch("server.codex_compat.subprocess.run", return_value=mock_result):
+            with pytest.raises(RuntimeError, match="exit code 1"):
+                get_codex_version()
+
+
+class TestCheckVersionFloorMocked:
+    """Mocked unit tests for check_version_floor() — the three startup outcomes."""
+
+    def test_binary_unavailable(self):
+        with patch(
+            "server.codex_compat.get_codex_version",
+            side_effect=RuntimeError("Codex binary not found on PATH"),
+        ):
+            result = check_version_floor()
+        assert result.passed is False
+        assert result.codex_version is None
+        assert result.available_methods == frozenset()
+        assert len(result.errors) == 1
+        assert "not found" in result.errors[0]
+
+    def test_below_minimum(self):
+        old_version = SemVer(0, 1, 0)
+        with patch(
+            "server.codex_compat.get_codex_version", return_value=old_version
+        ):
+            result = check_version_floor()
+        assert result.passed is False
+        assert result.codex_version == old_version
+        assert result.available_methods == frozenset()
+        assert len(result.errors) == 1
+        assert "below minimum" in result.errors[0]
+
+    def test_exact_tested_version(self):
+        tested = SemVer.parse(TESTED_CODEX_VERSION)
+        with patch(
+            "server.codex_compat.get_codex_version", return_value=tested
+        ):
+            result = check_version_floor()
+        assert result.passed is True
+        assert result.codex_version == tested
+        assert result.errors == ()
+        assert REQUIRED_METHODS <= result.available_methods
+        assert OPTIONAL_METHODS <= result.available_methods
+
+    def test_newer_than_tested_version(self):
+        newer = SemVer(99, 0, 0)
+        with patch(
+            "server.codex_compat.get_codex_version", return_value=newer
+        ):
+            result = check_version_floor()
+        assert result.passed is True
+        assert result.codex_version == newer
+        assert result.errors == ()
+        assert result.available_methods == frozenset()
+
+
 class TestVersionConstants:
     def test_tested_version_is_valid_semver(self):
         v = SemVer.parse(TESTED_CODEX_VERSION)
@@ -136,6 +217,18 @@ class TestExtractClientMethods:
     def test_vendored_schema_contains_initialize(self, client_request_schema: Path):
         methods = extract_client_methods(client_request_schema)
         assert "initialize" in methods
+
+    def test_rejects_schema_without_one_of(self, tmp_path: Path):
+        schema_file = tmp_path / "ClientRequest.json"
+        schema_file.write_text('{"anyOf": []}')
+        with pytest.raises(ValueError, match="no 'oneOf' key"):
+            extract_client_methods(schema_file)
+
+    def test_rejects_variants_with_no_methods(self, tmp_path: Path):
+        schema_file = tmp_path / "ClientRequest.json"
+        schema_file.write_text('{"oneOf": [{"properties": {}}]}')
+        with pytest.raises(ValueError, match="0 methods extracted"):
+            extract_client_methods(schema_file)
 
 
 class TestCheckMethodSurface:
