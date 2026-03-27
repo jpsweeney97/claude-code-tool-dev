@@ -130,6 +130,8 @@ Responsibilities:
 - Delegation policy checks before job creation
 - Explicit deny or ask decisions before the plugin MCP tool runs
 
+The hook guard does not select or assemble context. It validates the final packet produced by the control plane and may reject or escalate it before the plugin MCP tool runs.
+
 ### Middle Boundary: Control Plane Policy Engine
 
 The plugin MCP server validates:
@@ -196,6 +198,89 @@ The plugin owns Codex-side prompt templates. Each capability builds a structured
 
 The plugin does not rely on Codex-side skills, plugin discovery, or App Server collaboration modes for core behavior in v1. The stable baseline is: explicit prompt packets plus stable thread/turn APIs.
 
+## Context Assembly Contract
+
+The control plane owns context selection, redaction, trimming, and final packet assembly for all Codex-facing calls. The caller provides the objective, user constraints, and optional candidate references such as file paths, artifact identifiers, or promoted summary material. Candidate references are hints, not entitlements: the control plane may omit, trim, or reject them as needed to satisfy the active capability profile, budget caps, and policy rules. The hook guard remains rejection-only: it validates the final assembled packet and may reject or escalate it, but it does not participate in context selection.
+
+### Ownership and Profiles
+
+Context assembly uses one control-plane framework with two capability profiles:
+
+- **Advisory profile** for consultation and dialogue in the read-only advisory runtime
+- **Execution profile** for delegation in an isolated writable worktree
+
+These profiles are filters over a shared assembly pipeline, not separate architectures. The profile determines which source categories are eligible, how packet fields are populated, and which budget caps apply.
+
+### Source Rules
+
+#### Source Categories
+
+| Source category | Advisory | Execution | Notes |
+|---|---|---|---|
+| User objective | Required | Required | Caller-provided |
+| User constraints and acceptance criteria | Required | Required | Caller-provided |
+| Repository identity (`repo_root`, branch, HEAD) | Required | Required | Control-plane supplied |
+| Worktree identity and writable scope | N/A | Required | Execution only |
+| Explicit user-named files, snippets, or artifacts | Allowed | Allowed | Subject to trimming |
+| Control-plane selected task-local files | Allowed | Allowed | Must be tied to the active objective |
+| Broad repository discovery summaries | Allowed | Denied by default | Advisory-only category |
+| Caller-promoted advisory summary material | Allowed | Allowed only if explicitly promoted | Must be summary-form only |
+| Raw advisory thread history | Internal only | Denied | Not eligible for packet assembly |
+| Verbatim Codex turn output | Internal only | Denied | Not eligible for packet assembly |
+| Delegation result summaries, diffs, and test outputs | Allowed | Allowed when directly relevant | Subject to trimming |
+| Secrets, credentials, raw tokens, or auth material | Denied | Denied | Must be redacted or omitted |
+| External research material | Allowed only under widened advisory policy | Denied in v1 | Revisit if execution networking is introduced |
+
+`Relevant repository context` is populated differently by profile. For advisory calls, it may include the minimum cited excerpts or summaries needed to ground an answer, plus broader repository context when the question is exploratory, architectural, or comparative. For execution calls, it includes only task-scoped files, directly relevant diffs or artifacts, and context required to act safely inside the isolated worktree. Broad repository discovery, exploratory narrative, and raw advisory history do not enter execution packets by default.
+
+`Safety envelope` is also profile-specific. For advisory calls, it states the read-only sandbox, per-request approval model, network status, and explicit prohibitions on file mutation or other disallowed operations. For execution calls, it states the isolated worktree path, writable scope, network status, escalation behavior, and the rule that promotion into the primary workspace is a separate reviewed step.
+
+Advisory material may enter execution only through explicit caller promotion of summary-form advisory conclusions. The control plane never carries advisory material into execution implicitly. Raw advisory thread history and verbatim Codex turn output are never eligible for execution packets.
+
+### Assembly Mechanics
+
+The assembly minimum is structural, not semantic. A packet is structurally valid if the control plane can assemble:
+
+- Objective
+- Repository identity
+- Safety envelope
+- Capability-specific instructions
+
+This minimum does not guarantee that a request is adequate to run. Request adequacy, including whether a delegation objective is specific enough to act on safely, is validated elsewhere in the control plane.
+
+Budget caps apply to the final packet actually sent to Codex. `context_size` is measured as the UTF-8 byte length of the fully assembled, redacted packet at dispatch time.
+
+| Profile | Soft target | Hard cap |
+|---|---|---|
+| Advisory | 24 KiB | 48 KiB |
+| Execution | 12 KiB | 24 KiB |
+
+If the packet exceeds the soft target, the control plane trims lower-priority context before dispatch. If it still exceeds the hard cap after trimming, the call fails before Codex invocation with an explicit context-assembly rejection.
+
+Trimming order is deterministic.
+
+Execution trimming priority, highest to lowest:
+
+1. Objective and user constraints
+2. Repository identity and safety envelope
+3. Explicit user-named file and artifact references
+4. Directly relevant task files, diffs, and delegation result summaries
+5. Caller-promoted advisory summary material
+6. Control-plane discovered supplementary context
+
+Advisory trimming priority, highest to lowest:
+
+1. Objective and user constraints
+2. Repository identity and safety envelope
+3. Explicit user-named file and artifact references
+4. Directly relevant task-local files, diffs, and delegation result summaries
+5. Caller-promoted summary material
+6. Broad repository discovery summaries
+7. Control-plane supplementary context
+8. External research material
+
+Within a priority tier, trimming is also deterministic. Caller-provided candidates preserve caller order and trim from the end. Control-plane discovered items use a stable normalized path or artifact-identifier order and trim from the end.
+
 ## Chosen Defaults
 
 | Topic | Default |
@@ -215,11 +300,19 @@ The plugin does not rely on Codex-side skills, plugin discovery, or App Server c
 
 ## Compatibility Invariants
 
-The system fails closed if its required contract is not met.
+The system fails closed if its active required contract is not met. Delivery stages compatibility checks incrementally, so the foundation distinguishes the current baseline from the expanded runtime invariant.
+
+### Current Baseline (T1)
 
 - A minimum Codex CLI / App Server version is pinned.
 - The generated schema for that version is vendored into tests.
-- Startup verifies: `codex` present, auth available, App Server initialize handshake succeeds, required stable methods present.
-- If any check fails, the plugin refuses to start.
+- Startup verifies: `codex` present and version floor met.
+- Contract tests against the vendored schema verify that required stable methods exist for the pinned version.
+
+### Expanded Runtime Invariant (Runtime Milestone R1 Onward)
+
+- Runtime bring-up and health verification additionally verify: auth available, App Server initialize handshake succeeds, and required stable methods present via live capability probe.
+- Optional methods are recorded for feature gating and do not block startup.
+- Exact failure behavior for each staged check is defined in [delivery.md §Startup Checks](delivery.md#startup-checks).
 
 The system does not rely on: WebSocket transport, dynamic tools, `plugin/list`, `plugin/read`, `plugin/install`, `plugin/uninstall`, or other experimental APIs for core functionality.

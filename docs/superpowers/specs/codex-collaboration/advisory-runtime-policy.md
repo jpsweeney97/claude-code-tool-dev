@@ -116,6 +116,25 @@ The primary trigger is intentionally conservative: the frozen runtime survives u
 3. Policy evaluation (widen/narrow decision) occurs between turns.
 4. The control plane records which runtime served each turn, enabling audit trail reconstruction across rotation boundaries.
 
+## Post-Promotion Coherence
+
+A successful promotion can invalidate the advisory runtime's workspace view without changing its policy fingerprint. In v1, this is handled as a coherence event, not a policy-rotation event.
+
+When a promotion changes HEAD for a repo root that currently has an advisory runtime:
+
+1. The control plane marks the advisory runtime's workspace context as stale.
+2. The stale marker records the promoted HEAD and is persisted per [recovery-and-journal.md §Stale Advisory Context Marker](recovery-and-journal.md#stale-advisory-context-marker).
+3. On the next advisory turn for that repo root, the control plane reuses the existing advisory runtime unless a separate policy decision requires rotation.
+4. Before dispatching the turn, the control plane injects a workspace-changed summary plus refreshed repository identity/context into the packet.
+5. After the first successful post-promotion advisory turn is dispatched, the stale marker is cleared.
+
+Additional rules:
+
+- Freshness changes do not mutate advisory policy in place and do not by themselves trigger rotation.
+- v1 does not require automatic post-promotion thread fork or `turn/steer` for coherence.
+- If multiple promotions occur before the next advisory turn, only the most recent promoted HEAD is carried forward.
+- If no advisory runtime exists for the repo root, no stale marker is created.
+
 ## Recovery and Journal Interactions
 
 Rotation events affect crash recovery and journaling:
@@ -123,4 +142,5 @@ Rotation events affect crash recovery and journaling:
 - Each rotation emits an [audit event](contracts.md#auditevent) with `action: rotate`, linking the old and new runtimes.
 - If the control plane crashes mid-rotation, the [operation journal](recovery-and-journal.md#operation-journal) ensures the rotation is either completed or rolled back on restart.
 - Crash recovery for advisory runtimes follows the path defined in [recovery-and-journal.md §Advisory Runtime Crash](recovery-and-journal.md#advisory-runtime-crash). Frozen runtimes that survive a crash are rediscovered and scheduled for reaping during recovery.
+- Successful promotions write a `stale_advisory_context` marker to the operation journal before success is acknowledged. Crash recovery reloads any surviving marker and preserves the next-turn injection requirement until the first post-promotion advisory turn is successfully dispatched.
 - Reap timing follows [retention defaults](recovery-and-journal.md#retention-defaults) for the TTL fallback condition.

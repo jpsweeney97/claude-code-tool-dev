@@ -105,7 +105,7 @@ Append-only event record for human reconstruction and diagnostics. Write behavio
 | `artifact_hash` | string? | For promotions and approvals |
 | `decision` | enum? | `approve`, `deny`, `escalate` |
 | `causal_parent` | string? | `event_id` of the triggering event |
-| `context_size` | integer? | Bytes sent to Codex (for monitoring) |
+| `context_size` | integer? | UTF-8 byte length of the final assembled packet sent to Codex, post-assembly and post-redaction. Used for budget enforcement and monitoring. |
 
 ### Audit Event Actions
 

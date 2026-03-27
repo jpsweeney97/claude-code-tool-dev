@@ -95,7 +95,7 @@ The vendored schema defines which methods are required vs optional. Contract tes
 | Required | `thread/start`, `thread/resume`, `thread/fork`, `thread/read`, `turn/start`, `turn/interrupt` | Must be present in vendored schema. Verified by contract tests. |
 | Optional | `turn/steer` | Should be present. Availability recorded at startup for runtime feature gating. |
 
-Code paths that use optional methods must check capability at runtime via `CompatCheckResult.has_capability()` and degrade cleanly if absent. `turn/steer` is optional pending the T3 decision on post-promotion advisory coherence strategy.
+Code paths that use optional methods must check capability at runtime via `CompatCheckResult.has_capability()` and degrade cleanly if absent. `turn/steer` remains optional after T3: v1 post-promotion advisory coherence uses stale-context marking plus next-turn context injection in the control plane.
 
 ### Startup Checks
 
@@ -109,7 +109,7 @@ Startup checks are implemented incrementally across build steps:
 | Required methods present | Build step 1 (JSON-RPC client) | Capability probe during handshake | Plugin refuses to start |
 | Optional methods present | Build step 1 (JSON-RPC client) | Same probe | Warn, record in `codex.status` |
 
-T1 implements the version-floor check. The version floor plus vendored-schema contract tests are sufficient for the baseline: if the installed version meets the floor, and the contract tests prove the vendored schema for that version contains all required methods, then the methods are present. The handshake and method-surface probe provide defense-in-depth and are added in build step 1 when the JSON-RPC client exists.
+T1 implements the version-floor check. The version floor plus vendored-schema contract tests are sufficient for the baseline: if the installed version meets the floor, and the contract tests prove the vendored schema for that version contains all required methods, then the methods are present. The handshake and method-surface probe provide defense-in-depth and are added in Runtime Milestone R1 when the JSON-RPC client exists.
 
 ### Vendored Schema
 
@@ -120,6 +120,14 @@ The vendored schema bundle at `tests/fixtures/codex-app-server/<version>/` is ge
 - A derived `required-methods.json` manifest is generated for readable assertions. The manifest is a convenience view — the vendored `ClientRequest.json` is the primary truth.
 
 Fixture generation uses the CLI's `[experimental]` `generate-json-schema` command. This is a build-time maintenance step — no runtime dependency on experimental CLI surfaces.
+
+### Context Assembly Implementation
+
+[Foundations](foundations.md#context-assembly-contract) defines the normative context assembly contract. Delivery defines when the control plane implements that contract: the assembler, profile filter, redactor, trimmer, and budget enforcement are runtime behaviors added as the tool surface comes online.
+
+Context assembly is per-call behavior, not a startup check. `codex.status` may report related diagnostics, but it does not require full prompt-packet assembly. The assembler is required for any tool that dispatches turns to Codex, including consultation, dialogue replies, and delegation start.
+
+Runtime Milestone R1 implements the advisory-side consumption path for the v1 post-promotion coherence protocol defined in [advisory-runtime-policy.md §Post-Promotion Coherence](advisory-runtime-policy.md#post-promotion-coherence): if a stale marker exists, the next advisory turn injects a workspace-changed summary without depending on `turn/steer`. Creation of the stale marker occurs later when promotion enters scope.
 
 ### Excluded Dependencies
 
@@ -136,15 +144,49 @@ The following are not used for core functionality in v1:
 
 Build the smallest slice that proves the architecture without recreating the old plugin.
 
+### Milestones and Delivery Steps
+
+Delivery Steps are the numbered rows in the table below. Runtime Milestones are named `R1`, `R2`, and so on, and define scope-freezing checkpoints across one or more delivery steps.
+
+Runtime Milestone `R1` is the first runtime-bearing milestone. It is not identical to Delivery Step 1 (`codex.status`): it spans the smallest coherent subset of delivery work needed to prove live advisory runtime bring-up and one-shot consultation without reopening the resolved T2/T3 design decisions.
+
 | Step | Component | Dependencies |
 |---|---|---|
 | 1 | `codex.status` | App Server connection, auth, version check |
-| 2 | `codex.consult` | Advisory runtime, prompt builder, thread lifecycle |
+| 2 | `codex.consult` | Advisory runtime, prompt builder, context assembler/profile filter, thread lifecycle |
 | 3 | Lineage store | Persistent collaboration handle tracking |
-| 4 | `codex.dialogue.start` + `.reply` + `.read` | Advisory runtime, lineage store, thread management |
-| 5 | Hook guard | Secret scanning, path validation, policy checks |
-| 6 | `codex.delegate.start` | Execution runtime, worktree manager, isolation |
+| 4 | `codex.dialogue.start` + `.reply` + `.read` | Advisory runtime, lineage store, thread management, context assembler/profile filter |
+| 5 | Hook guard | Secret scanning, path validation, policy checks, final packet validation (post-assembly) |
+| 6 | `codex.delegate.start` | Execution runtime, worktree manager, isolation, context assembler/profile filter |
 | 7 | `codex.delegate.poll` + `.decide` + `.promote` | [Promotion protocol](promotion-protocol.md), [operation journal](recovery-and-journal.md#operation-journal) |
+
+### Runtime Milestone R1
+
+**In scope**
+
+- JSON-RPC client and runtime bootstrap sufficient for advisory runtime bring-up
+- Live runtime health verification: auth status, `initialize` handshake, required-method probe, optional-method recording, and `codex.status`
+- Prompt builder and context assembly contract implementation: assembler, profile filter, redactor, trimmer, budget enforcement, and `context_size` audit measurement
+- One-shot `codex.consult` through the read-only advisory runtime, including the minimum thread/turn lifecycle required for consultation
+- Structured consult result projection back to Claude
+- Advisory-side consumption of the post-promotion coherence protocol: if a `stale_advisory_context` marker is already present, the next advisory turn injects a workspace-changed summary and clears the marker after successful dispatch
+
+**Deferred**
+
+- Full `codex.dialogue.*` surface and persistent lineage management
+- Delegation runtime, worktree orchestration, and promotion, including creation of the `stale_advisory_context` marker on successful promotion
+- Automatic post-promotion thread fork
+- `turn/steer`-based coherence
+- Hook guard integration as a required end-to-end enforcement gate
+
+**Acceptance gates**
+
+- `codex.status` reports version, auth status, and required/optional method availability from a live runtime
+- Advisory runtime bring-up fails closed when auth is unavailable, `initialize` fails, or required methods are missing
+- `codex.consult` executes an advisory turn end-to-end in the read-only advisory runtime and returns the structured result shape defined by the consult flow
+- Context packets obey the normative assembly contract, enforce budget caps before dispatch, and record `context_size`
+- If a `stale_advisory_context` marker is present before an advisory turn, the next advisory turn injects the workspace-changed summary and clears the marker after successful dispatch
+- No R1 path depends on `turn/steer`, automatic thread fork, delegation, or promotion
 
 ### Not in First Slice
 

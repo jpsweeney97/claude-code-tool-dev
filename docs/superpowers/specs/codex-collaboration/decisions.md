@@ -69,8 +69,10 @@ The [audit event model](contracts.md#auditevent) defines the record shape and [r
 
 ### Context Assembly Pipeline
 
-The architecture names secret scanning and overbroad-context rejection as [hook guard responsibilities](foundations.md#outer-boundary-claude-hook-guard), but the canonical context-selection and redaction contract — allowlisted sources, size caps, capability-specific minima — is not yet a formal protocol. This is an implementation-time design decision.
+**Resolved.** The canonical context-selection and redaction protocol is defined in [foundations.md §Context Assembly Contract](foundations.md#context-assembly-contract). That contract assigns assembly ownership to the control plane, keeps the hook guard in a rejection-only role, defines advisory and execution capability profiles, and sets the source allowlist, budget caps, trimming rules, and advisory-to-execution promotion boundary.
 
 ### Advisory Domain Stale Context After Promotion
 
-After a [promotion](promotion-protocol.md) changes HEAD, the advisory runtime's cached context may be stale. Whether to use `turn/steer` or thread forking to signal workspace changes is an implementation-time decision that depends on App Server's mid-session context invalidation capabilities.
+**Resolved.** v1 restores advisory coherence after promotion by marking advisory context stale and injecting a workspace-changed summary plus refreshed repository identity/context on the next advisory turn in the same advisory thread. This protocol is defined in [advisory-runtime-policy.md §Post-Promotion Coherence](advisory-runtime-policy.md#post-promotion-coherence).
+
+`turn/steer` remains optional in v1, and automatic post-promotion thread fork is not required by the normative path. The [context assembly contract](foundations.md#context-assembly-contract) continues to define the advisory-to-execution promotion boundary: only explicitly caller-promoted summary-form advisory conclusions may cross into later execution packets.

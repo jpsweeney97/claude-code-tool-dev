@@ -59,6 +59,16 @@ In v1, the operation journal is session-bounded. It does not survive across Clau
 
 Completed operations are trimmed from the journal after their outcome is confirmed. The journal should be near-empty during normal operation and only accumulate records for in-flight operations.
 
+### Stale Advisory Context Marker
+
+When a successful promotion changes HEAD and an advisory runtime exists for the same repo root, the control plane writes a session-scoped `stale_advisory_context` marker to the operation journal before acknowledging promotion success. The marker stores at least the repo root and the promoted HEAD.
+
+The marker is crash-recovery state, not a dispatchable App Server operation. It guarantees that the next advisory turn for that repo root applies the post-promotion coherence protocol in [advisory-runtime-policy.md §Post-Promotion Coherence](advisory-runtime-policy.md#post-promotion-coherence).
+
+If multiple promotions occur before the next advisory turn, the marker is replaced with the newest promoted HEAD for that repo root.
+
+The marker is trimmed after the first successful advisory turn dispatched with the required workspace-changed injection, or when the Claude session ends.
+
 ## Audit Log
 
 The audit log records [AuditEvent](contracts.md#auditevent) records for human reconstruction and diagnostics.
@@ -96,8 +106,9 @@ An audit event is emitted for every state transition that crosses a trust or cap
 1. Restart the advisory runtime.
 2. Rebuild handle mappings from the lineage store.
 3. Use `thread/read` and `thread/resume` to recover the latest completed state.
-4. Mark any pending server requests as canceled.
-5. Allow Claude to continue from the last completed turn or fork from the interrupted snapshot.
+4. Reload any `stale_advisory_context` marker from the operation journal and preserve the post-promotion injection requirement for the next advisory turn.
+5. Mark any pending server requests as canceled.
+6. Allow Claude to continue from the last completed turn or fork from the interrupted snapshot.
 
 An [audit event](contracts.md#auditevent) with `action: crash` is emitted when the crash is detected. An event with `action: restart` is emitted when recovery completes, with `causal_parent` linking to the crash event.
 
@@ -147,7 +158,7 @@ Advisory turns and promotion checks can race with workspace drift:
 
 This does not break safety — the advisory runtime's read-only sandbox prevents writes. It breaks **coherence**: Codex's advisory responses are grounded in a workspace state that no longer exists.
 
-The recommended signal is a workspace-changed notification after promotion. Whether this uses `turn/steer`, thread forking, or context injection is an [open question](decisions.md#advisory-domain-stale-context-after-promotion).
+v1 resolves this with same-thread next-turn context injection. Successful promotion marks advisory context stale; the next advisory turn receives a workspace-changed summary plus refreshed repository identity/context, and the stale marker is cleared after that turn is successfully dispatched. See [advisory-runtime-policy.md §Post-Promotion Coherence](advisory-runtime-policy.md#post-promotion-coherence).
 
 ## Retention Defaults
 
