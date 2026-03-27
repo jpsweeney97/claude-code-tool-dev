@@ -11,4 +11,5 @@ members = [
     "packages/plugins/handoff",
     "packages/plugins/ticket",
     "packages/plugins/superspec",
+    "packages/plugins/codex-collaboration",
 ]
