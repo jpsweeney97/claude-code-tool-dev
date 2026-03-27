@@ -1,0 +1,98 @@
+shared_contract_version: 1
+readme: README.md
+
+authorities:
+  foundation:
+    description: >-
+      Scope, trust model (three-layer boundaries), approval invariant,
+      runtime domain definitions, core flow baselines, chosen defaults,
+      compatibility invariants, and terminology.
+    default_claims: [architecture_rule]
+
+  contracts:
+    description: >-
+      MCP tool surface, logical data model types (CollaborationHandle,
+      DelegationJob, PendingServerRequest), audit event schema, typed
+      rejection and response shapes, and protocol message formats.
+    default_claims: [interface_contract]
+
+  promotion-contract:
+    description: >-
+      Promotion protocol state machine, preconditions (HEAD match,
+      clean tree, clean index, artifact-hash integrity), typed
+      rejections, conflict detection, and rollback semantics.
+    default_claims: [behavior_contract]
+
+  advisory-policy:
+    description: >-
+      Advisory runtime lifecycle, policy fingerprints, privilege
+      widening and narrowing rules, freeze-and-rotate semantics,
+      reap conditions, and turn-boundary invariants.
+    default_claims: [behavior_contract, enforcement_mechanism]
+
+  recovery-contract:
+    description: >-
+      Operation journal (session-bounded, fsync), audit log behavior
+      (write triggers, retention, correlation), idempotency keys,
+      crash recovery paths, pending request ordering, unknown state
+      handling, and concurrency limits.
+    default_claims: [behavior_contract]
+
+  delivery:
+    description: >-
+      Implementation slice ordering, build sequence, compatibility
+      policy, version pinning, startup checks, language choice,
+      and test strategy.
+    default_claims: [implementation_plan, verification_strategy]
+
+  decisions:
+    description: >-
+      Locked migration decisions (greenfield rules), accepted
+      tradeoffs (isolation vs. simplicity, isolation vs.
+      reversibility), open questions, and architecture option
+      rationale references.
+    default_claims: [decision_record]
+
+  supporting:
+    description: Overview, reading order, and reference material.
+    default_claims: []
+
+precedence:
+  normative_first: true
+  claim_precedence:
+    behavior_contract:
+      [promotion-contract, advisory-policy, recovery-contract, foundation]
+    architecture_rule: [foundation]
+    interface_contract: [contracts, foundation]
+    enforcement_mechanism: [advisory-policy, foundation]
+    implementation_plan: [delivery]
+    verification_strategy: [delivery]
+    decision_record: [decisions]
+  fallback_authority_order:
+    [foundation, contracts, promotion-contract, advisory-policy,
+     recovery-contract, delivery, decisions]
+  unresolved: ambiguity_finding
+
+boundary_rules:
+  - on_change_to: [promotion-contract]
+    review_authorities: [recovery-contract, advisory-policy, contracts]
+    reason: >-
+      Promotion state changes affect journal records, advisory context
+      after workspace mutation, and typed rejection shapes.
+  - on_change_to: [advisory-policy]
+    review_authorities: [recovery-contract, contracts]
+    reason: >-
+      Advisory rotation changes affect crash recovery paths, journal
+      entry semantics, and may surface in typed status or policy
+      responses.
+  - on_change_to: [contracts]
+    review_authorities: [promotion-contract, advisory-policy, recovery-contract]
+    reason: >-
+      Interface shape changes (types, tool surface, message formats)
+      can break protocol implementations.
+  - on_change_to: [foundation]
+    review_authorities:
+      [contracts, promotion-contract, advisory-policy, recovery-contract]
+    reason: >-
+      Trust model, approval invariant, or domain definition changes
+      affect all contract and protocol files.
