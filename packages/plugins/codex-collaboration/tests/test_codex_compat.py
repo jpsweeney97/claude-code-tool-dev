@@ -136,3 +136,35 @@ class TestCheckMethodSurface:
         missing_req, missing_opt = check_method_surface(frozenset())
         assert missing_req == REQUIRED_METHODS
         assert missing_opt == OPTIONAL_METHODS
+
+
+class TestDerivedManifest:
+    def test_manifest_required_matches_constant(self, vendored_schema_dir: Path):
+        manifest_path = vendored_schema_dir / "required-methods.json"
+        if not manifest_path.exists():
+            pytest.skip("required-methods.json not yet generated")
+        import json
+
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        assert frozenset(manifest["required"]) == REQUIRED_METHODS
+
+    def test_manifest_optional_matches_constant(self, vendored_schema_dir: Path):
+        manifest_path = vendored_schema_dir / "required-methods.json"
+        if not manifest_path.exists():
+            pytest.skip("required-methods.json not yet generated")
+        import json
+
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        assert frozenset(manifest["optional"]) == OPTIONAL_METHODS
+
+    def test_manifest_version_matches_constant(self, vendored_schema_dir: Path):
+        manifest_path = vendored_schema_dir / "required-methods.json"
+        if not manifest_path.exists():
+            pytest.skip("required-methods.json not yet generated")
+        import json
+
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        assert manifest["codex_version"] == TESTED_CODEX_VERSION
