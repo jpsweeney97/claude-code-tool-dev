@@ -13,7 +13,7 @@ Use this reference when `.git-hygiene.json` exists at repo root or when the user
     "src/api/": "api",
     "tests/": "test"
   },
-  "branchProtection": ["main", "develop", "release/*"],
+  "branchProtection": ["main", "release/*"],
   "defaultCommitPrefix": "chore"
 }
 ```

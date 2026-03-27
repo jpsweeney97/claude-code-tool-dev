@@ -17,6 +17,7 @@ CLAUDE.local.md
 
 # Ephemeral
 tmp/
+docs/decisions/
 
 # Node
 node_modules/

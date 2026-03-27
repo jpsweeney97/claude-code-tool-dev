@@ -57,7 +57,7 @@ Set via environment variables:
 | `GITFLOW_BYPASS` | (unset) | Set to `1` to bypass all checks (emergency) |
 | `GITFLOW_ALLOW_FILES` | (unset) | Glob patterns for files allowed on protected branches |
 
-To add `develop` as a protected branch (for repos using GitFlow):
+Optional: add extra protected branches when a repo uses them. For example, to also protect `develop`:
 ```bash
 PROTECTED_BRANCHES=main,master,develop claude
 ```
