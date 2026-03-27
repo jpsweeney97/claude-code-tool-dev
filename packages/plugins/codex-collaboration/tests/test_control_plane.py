@@ -23,6 +23,7 @@ class FakeRuntimeSession:
         self,
         *,
         auth_status: str = "authenticated",
+        auth_status_sequence: tuple[str, ...] | None = None,
         requires_openai_auth: bool = True,
         initialize_error: Exception | None = None,
         account_read_error: Exception | None = None,
@@ -30,6 +31,7 @@ class FakeRuntimeSession:
         agent_message: str | None = None,
     ) -> None:
         self.auth_status = auth_status
+        self.auth_status_sequence = list(auth_status_sequence) if auth_status_sequence is not None else None
         self.requires_openai_auth = requires_openai_auth
         self.initialize_error = initialize_error
         self.account_read_error = account_read_error
@@ -46,6 +48,8 @@ class FakeRuntimeSession:
         self.started_threads: list[str] = []
         self.last_prompt_text: str | None = None
         self.last_output_schema: dict[str, object] | None = None
+        self.read_account_calls = 0
+        self.run_turn_calls = 0
 
     def initialize(self) -> RuntimeHandshake:
         if self.initialize_error is not None:
@@ -60,9 +64,14 @@ class FakeRuntimeSession:
     def read_account(self) -> AccountState:
         if self.account_read_error is not None:
             raise self.account_read_error
+        self.read_account_calls += 1
+        if self.auth_status_sequence is not None and self.auth_status_sequence:
+            current_auth_status = self.auth_status_sequence.pop(0)
+        else:
+            current_auth_status = self.auth_status
         return AccountState(
-            auth_status=self.auth_status,  # type: ignore[arg-type]
-            account_type="chatgpt" if self.auth_status == "authenticated" else None,
+            auth_status=current_auth_status,  # type: ignore[arg-type]
+            account_type="chatgpt" if current_auth_status == "authenticated" else None,
             requires_openai_auth=self.requires_openai_auth,
         )
 
@@ -83,6 +92,7 @@ class FakeRuntimeSession:
     ) -> TurnExecutionResult:
         if self.run_turn_error is not None:
             raise self.run_turn_error
+        self.run_turn_calls += 1
         self.last_prompt_text = prompt_text
         self.last_output_schema = output_schema
         return TurnExecutionResult(
@@ -114,6 +124,16 @@ def _failed_compat_result() -> CompatCheckResult:
     )
 
 
+class _CompatSequence:
+    def __init__(self, *results: CompatCheckResult) -> None:
+        self._results = list(results)
+
+    def __call__(self) -> CompatCheckResult:
+        if len(self._results) > 1:
+            return self._results.pop(0)
+        return self._results[0]
+
+
 def test_codex_status_bootstraps_advisory_runtime(tmp_path: Path) -> None:
     session = FakeRuntimeSession()
     plane = ControlPlane(
@@ -138,6 +158,28 @@ def test_codex_status_bootstraps_advisory_runtime(tmp_path: Path) -> None:
     }
     assert status["required_methods"]["thread/start"] is True
     assert status["optional_methods"]["turn/steer"] is True
+
+
+def test_codex_status_invalidates_cached_runtime_on_compat_drift(tmp_path: Path) -> None:
+    session = FakeRuntimeSession()
+    compat_checker = _CompatSequence(_compat_result(), _failed_compat_result())
+    plane = ControlPlane(
+        plugin_data_path=tmp_path / "plugin-data",
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=compat_checker,
+        repo_identity_loader=_repo_identity,
+        clock=lambda: 100.0,
+        uuid_factory=lambda: "uuid-1",
+    )
+
+    first_status = plane.codex_status(tmp_path)
+    second_status = plane.codex_status(tmp_path)
+
+    assert first_status["advisory_runtime"] is not None
+    assert second_status["advisory_runtime"] is None
+    assert second_status["required_methods"]["thread/start"] is False
+    assert "compatibility checks failed" in second_status["errors"][0]
+    assert session.closed is True
 
 
 def test_codex_status_reports_missing_auth_without_runtime(tmp_path: Path) -> None:
@@ -208,6 +250,7 @@ def test_codex_consult_returns_structured_result_and_audits_context_size(tmp_pat
     assert audit_record["action"] == "consult"
     assert audit_record["context_size"] == result.context_size
     assert session.last_output_schema is not None
+    assert session.read_account_calls == 1
 
 
 def test_codex_consult_fails_closed_on_compat_failure(tmp_path: Path) -> None:
@@ -354,6 +397,41 @@ def test_codex_consult_invalidates_cached_runtime_after_parse_failure(tmp_path: 
         )
     )
     assert result.runtime_id == "runtime-2"
+
+
+def test_codex_consult_revalidates_cached_runtime_auth_before_reuse(tmp_path: Path) -> None:
+    focus = tmp_path / "focus.py"
+    focus.write_text("print('focus')\n", encoding="utf-8")
+    session = FakeRuntimeSession(
+        auth_status_sequence=("authenticated", "missing"),
+    )
+    plane = ControlPlane(
+        plugin_data_path=tmp_path / "plugin-data",
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+        uuid_factory=iter(("runtime-1", "collab-1", "event-1")).__next__,
+    )
+
+    first_result = plane.codex_consult(
+        ConsultRequest(
+            repo_root=tmp_path,
+            objective="First consult succeeds",
+            explicit_paths=(Path("focus.py"),),
+        )
+    )
+
+    assert first_result.runtime_id == "runtime-1"
+    with pytest.raises(RuntimeError, match="advisory auth unavailable"):
+        plane.codex_consult(
+            ConsultRequest(
+                repo_root=tmp_path,
+                objective="Second consult must fail closed",
+                explicit_paths=(Path("focus.py"),),
+            )
+        )
+    assert session.closed is True
+    assert session.run_turn_calls == 1
 
 
 def test_codex_consult_rejects_network_widening_in_r1(tmp_path: Path) -> None:

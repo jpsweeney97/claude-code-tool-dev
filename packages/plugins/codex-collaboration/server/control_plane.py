@@ -37,6 +37,7 @@ class _RuntimeProbeResult:
     runtime: AdvisoryRuntimeState | None
     app_server_version: str | None
     auth_status: str | None
+    available_methods: frozenset[str]
     error: str | None
 
 
@@ -78,22 +79,24 @@ class ControlPlane:
         app_server_version = runtime.handshake.user_agent if runtime is not None else None
         auth_status = runtime.account_state.auth_status if runtime is not None else "missing"
         advisory_runtime = None
+        available_methods = getattr(compat_result, "available_methods", frozenset())
 
-        if runtime is None:
-            probe_result = self._probe_runtime(
-                resolved_root,
-                compat_result=compat_result,
-            )
-            if probe_result.app_server_version is not None:
-                app_server_version = probe_result.app_server_version
-            if probe_result.auth_status is not None:
-                auth_status = probe_result.auth_status
-            if probe_result.error is not None:
-                errors.append(probe_result.error)
-            runtime = probe_result.runtime
-            if runtime is not None:
-                app_server_version = runtime.handshake.user_agent
-                auth_status = runtime.account_state.auth_status
+        probe_result = self._probe_runtime(
+            resolved_root,
+            compat_result=compat_result,
+            existing_runtime=runtime,
+        )
+        if probe_result.app_server_version is not None:
+            app_server_version = probe_result.app_server_version
+        if probe_result.auth_status is not None:
+            auth_status = probe_result.auth_status
+        available_methods = probe_result.available_methods
+        if probe_result.error is not None:
+            errors.append(probe_result.error)
+        runtime = probe_result.runtime
+        if runtime is not None:
+            app_server_version = runtime.handshake.user_agent
+            auth_status = runtime.account_state.auth_status
 
         if runtime is not None:
             advisory_runtime = {
@@ -114,11 +117,11 @@ class ControlPlane:
             "active_delegation": None,
             "plugin_data_path": str(self._plugin_data_path),
             "required_methods": {
-                method: method in getattr(compat_result, "available_methods", frozenset())
+                method: method in available_methods
                 for method in sorted(REQUIRED_METHODS)
             },
             "optional_methods": {
-                method: method in getattr(compat_result, "available_methods", frozenset())
+                method: method in available_methods
                 for method in sorted(OPTIONAL_METHODS)
             },
             "errors": tuple(dict.fromkeys(errors)),
@@ -205,11 +208,12 @@ class ControlPlane:
 
     def _bootstrap_runtime(self, repo_root: Path, *, strict: bool) -> AdvisoryRuntimeState | None:
         cached = self._advisory_runtimes.get(str(repo_root))
-        if cached is not None:
-            return cached
-
         compat_result = self._compat_checker()
-        probe_result = self._probe_runtime(repo_root, compat_result=compat_result)
+        probe_result = self._probe_runtime(
+            repo_root,
+            compat_result=compat_result,
+            existing_runtime=cached,
+        )
         if probe_result.error is not None:
             if strict:
                 raise RuntimeError(probe_result.error)
@@ -221,6 +225,7 @@ class ControlPlane:
         repo_root: Path,
         *,
         compat_result: object,
+        existing_runtime: AdvisoryRuntimeState | None = None,
     ) -> _RuntimeProbeResult:
         codex_version = getattr(compat_result, "codex_version", None)
         if codex_version is None:
@@ -228,18 +233,24 @@ class ControlPlane:
                 runtime=None,
                 app_server_version=None,
                 auth_status=None,
+                available_methods=frozenset(),
                 error="Runtime bootstrap failed: codex version unavailable. Got: None",
             )
 
-        session = self._runtime_factory(repo_root)
+        runtime_key = str(repo_root)
+        session = existing_runtime.session if existing_runtime is not None else self._runtime_factory(repo_root)
         try:
-            handshake = session.initialize()
+            handshake = existing_runtime.handshake if existing_runtime is not None else session.initialize()
         except Exception as exc:  # pragma: no cover - defensive path
-            session.close()
+            if existing_runtime is not None:
+                self._invalidate_runtime(repo_root)
+            else:
+                session.close()
             return _RuntimeProbeResult(
                 runtime=None,
                 app_server_version=None,
                 auth_status=None,
+                available_methods=frozenset(),
                 error=(
                     "Runtime bootstrap failed: initialize failed. "
                     f"Got: {str(exc)!r:.100}"
@@ -248,11 +259,15 @@ class ControlPlane:
         try:
             account_state = session.read_account()
         except Exception as exc:  # pragma: no cover - defensive path
-            session.close()
+            if existing_runtime is not None:
+                self._invalidate_runtime(repo_root)
+            else:
+                session.close()
             return _RuntimeProbeResult(
                 runtime=None,
                 app_server_version=handshake.user_agent,
                 auth_status=None,
+                available_methods=getattr(compat_result, "available_methods", frozenset()),
                 error=(
                     "Runtime bootstrap failed: account/read failed. "
                     f"Got: {str(exc)!r:.100}"
@@ -260,46 +275,63 @@ class ControlPlane:
             )
 
         if not getattr(compat_result, "passed", False):
-            session.close()
+            if existing_runtime is not None:
+                self._invalidate_runtime(repo_root)
+            else:
+                session.close()
             return _RuntimeProbeResult(
                 runtime=None,
                 app_server_version=handshake.user_agent,
                 auth_status=account_state.auth_status,
+                available_methods=getattr(compat_result, "available_methods", frozenset()),
                 error=(
                     "Runtime bootstrap failed: compatibility checks failed. "
                     f"Got: {getattr(compat_result, 'errors', ())!r:.200}"
                 ),
             )
         if account_state.auth_status != "authenticated":
-            session.close()
+            if existing_runtime is not None:
+                self._invalidate_runtime(repo_root)
+            else:
+                session.close()
             return _RuntimeProbeResult(
                 runtime=None,
                 app_server_version=handshake.user_agent,
                 auth_status=account_state.auth_status,
+                available_methods=getattr(compat_result, "available_methods", frozenset()),
                 error=(
                     "Runtime bootstrap failed: advisory auth unavailable. "
                     f"Got: {account_state.auth_status!r:.100}"
                 ),
             )
 
-        runtime = AdvisoryRuntimeState(
-            runtime_id=self._uuid_factory(),
-            repo_root=repo_root,
-            policy_fingerprint=build_policy_fingerprint(),
-            handshake=handshake,
-            account_state=account_state,
-            available_methods=getattr(compat_result, "available_methods", frozenset()),
-            required_methods=REQUIRED_METHODS,
-            optional_methods=OPTIONAL_METHODS,
-            session=session,
-            started_at=self._clock(),
-            app_server_version=handshake.user_agent,
-        )
-        self._advisory_runtimes[str(repo_root)] = runtime
+        available_methods = getattr(compat_result, "available_methods", frozenset())
+        if existing_runtime is not None:
+            existing_runtime.account_state = account_state
+            existing_runtime.available_methods = available_methods
+            existing_runtime.app_server_version = handshake.user_agent
+            runtime = existing_runtime
+            self._advisory_runtimes[runtime_key] = runtime
+        else:
+            runtime = AdvisoryRuntimeState(
+                runtime_id=self._uuid_factory(),
+                repo_root=repo_root,
+                policy_fingerprint=build_policy_fingerprint(),
+                handshake=handshake,
+                account_state=account_state,
+                available_methods=available_methods,
+                required_methods=REQUIRED_METHODS,
+                optional_methods=OPTIONAL_METHODS,
+                session=session,
+                started_at=self._clock(),
+                app_server_version=handshake.user_agent,
+            )
+            self._advisory_runtimes[runtime_key] = runtime
         return _RuntimeProbeResult(
             runtime=runtime,
             app_server_version=handshake.user_agent,
             auth_status=account_state.auth_status,
+            available_methods=available_methods,
             error=None,
         )
 
