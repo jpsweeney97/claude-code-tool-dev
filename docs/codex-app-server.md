@@ -5,6 +5,7 @@
 ## Table of Contents
 
 - [Protocol](#protocol)
+- [Stability](#stability)
 - [Message Schema](#message-schema)
 - [Core Primitives](#core-primitives)
 - [Lifecycle Overview](#lifecycle-overview)
@@ -53,6 +54,10 @@ Backpressure behavior:
 - The server uses bounded queues between transport ingress, request processing, and outbound writes.
 - When request ingress is saturated, new requests are rejected with a JSON-RPC error code `-32001` and message `"Server overloaded; retry later."`.
 - Clients should treat this as retryable and use exponential backoff with jitter.
+
+## Stability
+
+The protocol follows semantic versioning. Output from `generate-ts` and `generate-json-schema` is version-specific and guaranteed to match that release. Methods and fields not gated behind `experimentalApi` are part of the stable API surface.
 
 ## Message Schema
 
@@ -1310,15 +1315,17 @@ Codex supports these authentication modes. The current mode is surfaced in `acco
 
 - **API key (`apiKey`)**: Caller supplies an OpenAI API key via `account/login/start` with `type: "apiKey"`. The API key is saved and used for API requests.
 - **ChatGPT managed (`chatgpt`)** (recommended): Codex owns the ChatGPT OAuth flow and refresh tokens. Start via `account/login/start` with `type: "chatgpt"`; Codex persists tokens to disk and refreshes them automatically.
+- **ChatGPT external tokens (`chatgptAuthTokens`)**: A host app supplies `idToken` and `accessToken` directly via `account/login/start` with `type: "chatgptAuthTokens"`. Codex stores these tokens in memory. When the server receives a `401 Unauthorized`, it sends an `account/chatgptAuthTokens/refresh` server request to the client, which must respond with fresh tokens within ~10 seconds.
 
 ### API Overview
 
 - `account/read` — fetch current account info; optionally refresh tokens.
-- `account/login/start` — begin login (`apiKey`, `chatgpt`).
+- `account/login/start` — begin login (`apiKey`, `chatgpt`, or `chatgptAuthTokens`).
 - `account/login/completed` (notify) — emitted when a login attempt finishes (success or error).
 - `account/login/cancel` — cancel a pending ChatGPT login by `loginId`.
 - `account/logout` — sign out; triggers `account/updated`.
-- `account/updated` (notify) — emitted whenever auth mode changes (`authMode`: `apikey`, `chatgpt`, or `null`) and includes the current ChatGPT `planType` when available.
+- `account/updated` (notify) — emitted whenever auth mode changes (`authMode`: `apikey`, `chatgpt`, `chatgptAuthTokens`, or `null`) and includes the current ChatGPT `planType` when available.
+- `account/chatgptAuthTokens/refresh` (server request) — request fresh externally managed ChatGPT tokens after a 401; client must respond with `{ idToken, accessToken }` within ~10 seconds.
 - `account/rateLimits/read` — fetch ChatGPT rate limits; updates arrive via `account/rateLimits/updated` (notify).
 - `account/rateLimits/updated` (notify) — emitted whenever a user's ChatGPT rate limits change.
 - `mcpServer/oauthLogin/completed` (notify) — emitted after a `mcpServer/oauth/login` flow finishes for a server; payload includes `{ name, success, error? }`.
@@ -1380,6 +1387,41 @@ Field notes:
    { "method": "account/updated", "params": { "authMode": "chatgpt", "planType": "plus" } }
    ```
 
+### 3b) Log in with externally managed ChatGPT tokens (`chatgptAuthTokens`)
+
+Use this mode when a host application owns the user's ChatGPT auth lifecycle and supplies tokens directly.
+
+1. Send:
+   ```json
+   {
+     "method": "account/login/start",
+     "id": 7,
+     "params": {
+       "type": "chatgptAuthTokens",
+       "idToken": "<jwt>",
+       "accessToken": "<jwt>"
+     }
+   }
+   ```
+2. Expect:
+   ```json
+   { "id": 7, "result": { "type": "chatgptAuthTokens" } }
+   ```
+3. Notifications:
+   ```json
+   { "method": "account/login/completed", "params": { "loginId": null, "success": true, "error": null } }
+   { "method": "account/updated", "params": { "authMode": "chatgptAuthTokens", "planType": null } }
+   ```
+
+When the server receives a `401 Unauthorized`, it requests refreshed tokens:
+
+```json
+{ "method": "account/chatgptAuthTokens/refresh", "id": 8, "params": { "reason": "unauthorized", "previousAccountId": "org-123" } }
+{ "id": 8, "result": { "idToken": "<jwt>", "accessToken": "<jwt>" } }
+```
+
+The server retries the original request after a successful refresh response. Requests time out after ~10 seconds.
+
 ### 4) Cancel a ChatGPT login
 
 ```json
@@ -1399,12 +1441,36 @@ Field notes:
 
 ```json
 { "method": "account/rateLimits/read", "id": 6 }
-{ "id": 6, "result": { "rateLimits": { "primary": { "usedPercent": 25, "windowDurationMins": 15, "resetsAt": 1730947200 }, "secondary": null } } }
-{ "method": "account/rateLimits/updated", "params": { "rateLimits": { … } } }
+{ "id": 6, "result": {
+  "rateLimits": {
+    "limitId": "codex",
+    "limitName": null,
+    "primary": { "usedPercent": 25, "windowDurationMins": 15, "resetsAt": 1730947200 },
+    "secondary": null
+  },
+  "rateLimitsByLimitId": {
+    "codex": {
+      "limitId": "codex",
+      "limitName": null,
+      "primary": { "usedPercent": 25, "windowDurationMins": 15, "resetsAt": 1730947200 },
+      "secondary": null
+    }
+  }
+} }
+{ "method": "account/rateLimits/updated", "params": {
+  "rateLimits": {
+    "limitId": "codex",
+    "primary": { "usedPercent": 31, "windowDurationMins": 15, "resetsAt": 1730948100 }
+  }
+} }
 ```
 
 Field notes:
 
+- `rateLimits` is the backward-compatible single-bucket view.
+- `rateLimitsByLimitId` (when present) is the multi-bucket view keyed by metered `limitId`.
+- `limitId` is the metered bucket identifier (e.g., `codex`).
+- `limitName` is an optional user-facing label for the bucket.
 - `usedPercent` is current usage within the OpenAI quota window.
 - `windowDurationMins` is the quota window length.
 - `resetsAt` is a Unix timestamp (seconds) for the next reset.
