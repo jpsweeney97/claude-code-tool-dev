@@ -23,17 +23,6 @@ Monorepo for developing Claude Code extensions: skills, commands, agents, hooks,
 ├── sessions/     # Session notes (gitignored)
 └── worktrees/    # Git worktree state (gitignored)
 
-packages/
-├── plugins/
-│   ├── cross-model/          # Codex MCP + context injection + dialogue agent
-│   │   └── context-injection/  # Mid-conversation evidence gathering MCP server
-│   ├── handoff/              # Session state persistence
-│   ├── ticket/               # Repo-local ticket management
-│   ├── context-metrics/      # Context window usage tracking
-│   └── superspec/            # Spec writing, review, and modularization
-└── mcp-servers/
-    └── claude-code-docs/     # BM25-indexed doc search (TypeScript)
-
 scripts/          # Utility scripts (run with uv run scripts/<name>)
 
 docs/
@@ -53,47 +42,14 @@ docs/
 | Package | Path | Language | Purpose |
 |---------|------|----------|---------|
 | cross-model | `packages/plugins/cross-model/` | Python | Codex MCP server + enforcement hooks + dialogue agent |
-| context-injection | `packages/plugins/cross-model/context-injection/` | Python | Mid-conversation evidence gathering with redaction (991 tests) |
+| context-injection | `packages/plugins/cross-model/context-injection/` | Python | Mid-conversation evidence gathering with redaction |
 | handoff | `packages/plugins/handoff/` | Python | Session state persistence (save/load/search) |
 | ticket | `packages/plugins/ticket/` | Python | Repo-local ticket lifecycle management |
 | context-metrics | `packages/plugins/context-metrics/` | Python | Context window usage analysis |
 | superspec | `packages/plugins/superspec/` | Shell/Markdown | Spec writing system — write, review, modularize specs with shared contract |
-| claude-code-docs | `packages/mcp-servers/claude-code-docs/` | TypeScript | BM25-indexed Claude Code doc search (397 tests) |
+| claude-code-docs | `packages/mcp-servers/claude-code-docs/` | TypeScript | BM25-indexed Claude Code doc search |
 
 Plugins deploy via `turbo-mode` marketplace. MCP servers and extensions deploy via `uv run scripts/promote`.
-
-## Systems
-
-Three systems form the cross-model collaboration stack:
-
-| System | Status | Key Resources |
-|--------|--------|---------------|
-| **Codex Integration** — Cross-model dialogue with OpenAI Codex | Deployed | MCP tools: `mcp__plugin_cross-model_codex__codex`, `codex-reply`. Agent: `packages/plugins/cross-model/agents/codex-dialogue.md` |
-| **Context Injection** — Mid-conversation evidence gathering for Codex dialogues | Complete | MCP tools: `mcp__plugin_cross-model_context-injection__process_turn`, `execute_scout`. Server: `packages/plugins/cross-model/context-injection/`. Contract: `packages/plugins/cross-model/references/context-injection-contract.md` |
-| **Learning System** — Capture insights, stage in learnings.md, promote to CLAUDE.md | Complete | Skills: `/learn`, `/distill`, `/promote` |
-
-**Context Injection security:** Over-redaction is always preferable to under-redaction. Footgun tests (`test_footgun_*`) verify which pipeline layer catches secrets.
-
-**Codex hook delivery:** `PostToolUseFailure` `additionalContext` confirmed working (verified 2026-02-17).
-
-## Rules
-
-### Thoroughness over cost
-
-Always prefer rigorous, thorough approaches (parallel dialogues, exhaustive analysis) over cheap/fast shortcuts. Do not optimize for token cost or speed at the expense of quality.
-
-### Branch Protection
-
-A hook blocks Edit/Write on `main` and `master`. Create a working branch first.
-
-**Exceptions (edits allowed on protected branches):**
-
-- `docs/plans/*.md`, `docs/audits/*.md`
-- `CHANGELOG.md`, `README.md`, `settings.json`
-- `*/.claude/handoffs/*`, `*/.claude/notes/*`
-- Gitignored paths (no commit anyway)
-
-Full details: `.claude/rules/workflow/git.md`
 
 ## Gotchas
 
@@ -132,7 +88,6 @@ Run with `uv run scripts/<name>`:
 
 | Script | Purpose |
 |--------|---------|
-| `promote` | Validate and deploy extensions to `~/.claude/` |
 | `sync-settings` | Sync hook config to `settings.json` (run after hook changes) |
 | `inventory` | List all extensions and packages |
 | `migrate` | Extension schema migrations |
@@ -141,23 +96,3 @@ Run with `uv run scripts/<name>`:
 
 Additional scripts in `scripts/` for benchmarking and analysis. See directory listing for full inventory.
 
-### Quick Reference
-
-| #   | Principle             | Core Rule                                                   | Red Flag                                                  |
-| --- | --------------------- | ----------------------------------------------------------- | --------------------------------------------------------- |
-| 1   | Be Specific           | Replace vague language with concrete values                 | Vague pronouns, hedge words, unspecified quantities       |
-| 2   | Define Terms          | Explain jargon and acronyms on first use                    | Unexplained acronyms, assumed project knowledge           |
-| 3   | Show Examples         | Illustrate rules with concrete instances                    | Rules without demonstration, abstract patterns            |
-| 4   | Verify Interpretation | Include confirmation checkpoints for high-risk instructions | No verification for ambiguous scope, irreversible actions |
-| 5   | State Boundaries      | Explicitly declare scope and mutability                     | Implicit "obvious" scope, unstated read-only              |
-| 6   | Specify Failure Modes | Define behavior when preconditions fail                     | Happy-path-only instructions, vague error handling        |
-| 7   | Specify Defaults      | State behavior when no instruction applies                  | Implicit defaults, unhandled case improvisation           |
-| 8   | Declare Preconditions | State requirements and verification before execution        | Assumed working directory, tools, or state                |
-| 9   | Close Loopholes       | Anticipate and block creative misinterpretations            | Rules without rationale, unaddressed edge cases           |
-| 10  | Front-Load            | Put critical information first                              | Commands buried after context                             |
-| 11  | Group Related         | Keep conditions near consequences                           | Cross-references, scattered related content               |
-| 12  | Keep Parallel         | Match structure across similar content                      | Mixed voice in lists, inconsistent hierarchy              |
-| 13  | Specify Outcomes      | Define observable success criteria                          | "Ensure it works," process without verification           |
-| 14  | Economy               | Remove words that don't advance meaning; use active voice   | Filler phrases, passive voice, double negatives           |
-
-Lower numbers = higher priority in conflicts. See full document for priority hierarchy, self-check procedure, and document-type notes.
