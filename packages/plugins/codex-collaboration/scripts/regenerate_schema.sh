@@ -64,8 +64,19 @@ echo ""
 echo "Generating schema to temp directory ..."
 codex app-server generate-json-schema --out "$TEMP_DIR"
 
+# Canonicalize JSON key order for reproducible output.
+# The Codex CLI emits definition keys in non-deterministic order across runs.
+echo "Canonicalizing JSON key order ..."
+python3 -c "
+import json, pathlib
+temp = pathlib.Path('${TEMP_DIR}')
+for f in sorted(temp.rglob('*.json')):
+    data = json.loads(f.read_text())
+    f.write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')
+"
+
 FILE_COUNT=$(find "$TEMP_DIR" -type f -name '*.json' | wc -l | tr -d ' ')
-echo "Generated ${FILE_COUNT} schema files"
+echo "Generated ${FILE_COUNT} schema files (keys sorted)"
 
 # Replace target directory atomically
 if [[ -d "$TARGET_DIR" ]]; then
