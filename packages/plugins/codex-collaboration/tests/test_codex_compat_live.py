@@ -59,7 +59,7 @@ class TestCheckVersionFloor:
 
 
 class TestFeatureGating:
-    def test_has_capability_true_for_required(self):
+    def test_has_capability_true_for_required_with_explicit_methods(self):
         result = CompatCheckResult.from_version_check(
             codex_version=SemVer.parse("0.117.0"),
             available_methods=REQUIRED_METHODS | OPTIONAL_METHODS,
@@ -73,7 +73,7 @@ class TestFeatureGating:
         )
         assert not result.has_capability("nonexistent/method")
 
-    def test_has_capability_for_optional_method(self):
+    def test_has_capability_for_optional_method_when_excluded(self):
         result = CompatCheckResult.from_version_check(
             codex_version=SemVer.parse("0.117.0"),
             available_methods=REQUIRED_METHODS,  # no optional
@@ -86,3 +86,20 @@ class TestFeatureGating:
             available_methods=REQUIRED_METHODS | OPTIONAL_METHODS,
         )
         assert isinstance(result.has_capability("turn/steer"), bool)
+
+    def test_exact_baseline_populates_methods(self):
+        """Exact tested version gets vendored schema methods without explicit list."""
+        result = CompatCheckResult.from_version_check(
+            codex_version=SemVer.parse("0.117.0"),
+        )
+        assert result.has_capability("thread/start")
+        assert result.has_capability("turn/steer")
+
+    def test_newer_version_has_empty_methods(self):
+        """Newer version gets empty methods — unverified until build step 1."""
+        result = CompatCheckResult.from_version_check(
+            codex_version=SemVer.parse("0.118.0"),
+        )
+        assert not result.has_capability("thread/start")
+        assert not result.has_capability("turn/steer")
+        assert result.passed  # startup still passes, just no capability claims

@@ -48,26 +48,37 @@ echo "Target version:      $VERSION"
 
 if [[ "$INSTALLED_VERSION" != "$VERSION" ]]; then
     echo "" >&2
-    echo "WARNING: Installed version ($INSTALLED_VERSION) != target ($VERSION)" >&2
-    echo "The vendored schema will reflect the INSTALLED version." >&2
-    echo "You should also update TESTED_CODEX_VERSION in server/codex_compat.py." >&2
-    read -p "Continue? [y/N] " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
+    echo "ERROR: Installed version ($INSTALLED_VERSION) != target ($VERSION)" >&2
+    echo "Install codex-cli $VERSION first, or pass the installed version as argument." >&2
+    echo "The vendored directory name must match the binary that generated it." >&2
+    exit 1
 fi
 
-# Generate schema (non-experimental only)
+# Generate into a temp directory first, then swap atomically.
+# This prevents stale files from surviving across regenerations.
 TARGET_DIR="${PLUGIN_DIR}/tests/fixtures/codex-app-server/${VERSION}"
-mkdir -p "$TARGET_DIR"
+TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
 echo ""
-echo "Generating schema to ${TARGET_DIR} ..."
-codex app-server generate-json-schema --out "$TARGET_DIR"
+echo "Generating schema to temp directory ..."
+codex app-server generate-json-schema --out "$TEMP_DIR"
 
-FILE_COUNT=$(find "$TARGET_DIR" -type f -name '*.json' | wc -l | tr -d ' ')
+FILE_COUNT=$(find "$TEMP_DIR" -type f -name '*.json' | wc -l | tr -d ' ')
 echo "Generated ${FILE_COUNT} schema files"
+
+# Replace target directory atomically
+if [[ -d "$TARGET_DIR" ]]; then
+    BACKUP_DIR=$(mktemp -d)
+    mv "$TARGET_DIR" "$BACKUP_DIR/old"
+    mv "$TEMP_DIR" "$TARGET_DIR"
+    rm -rf "$BACKUP_DIR"
+else
+    mkdir -p "$(dirname "$TARGET_DIR")"
+    mv "$TEMP_DIR" "$TARGET_DIR"
+fi
+# Disarm the trap — temp dir has been moved
+trap - EXIT
 
 # Generate derived required-methods.json
 echo ""

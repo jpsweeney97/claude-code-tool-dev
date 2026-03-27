@@ -188,11 +188,19 @@ class CompatCheckResult:
     ) -> CompatCheckResult:
         """Create a result from a successful version-floor check.
 
-        If available_methods is not provided, populates from the vendored schema
-        for the tested version (used until build step 1 adds live probing).
+        If available_methods is not provided, behavior depends on whether the
+        installed version exactly matches the tested baseline:
+        - Exact match: populate from vendored schema (proven by contract tests).
+        - Newer version: leave empty (unverified — build step 1 adds live probing).
         """
         if available_methods is None:
-            available_methods = REQUIRED_METHODS | OPTIONAL_METHODS
+            tested = SemVer.parse(TESTED_CODEX_VERSION)
+            if codex_version == tested:
+                available_methods = REQUIRED_METHODS | OPTIONAL_METHODS
+            else:
+                # Newer binary — can't prove methods exist without live probe.
+                # has_capability() returns False for everything until build step 1.
+                available_methods = frozenset()
         return cls(
             passed=True,
             codex_version=codex_version,
@@ -203,11 +211,17 @@ class CompatCheckResult:
 def check_version_floor() -> CompatCheckResult:
     """Run the T1 startup check: binary present + version floor.
 
-    Returns a CompatCheckResult. Feature gating for optional methods uses
-    the vendored schema until build step 1 adds live method-surface probing.
+    Returns a CompatCheckResult with three possible outcomes:
+
+    - **Below minimum**: passed=False, plugin refuses to start.
+    - **Exact tested baseline**: passed=True, available_methods populated from
+      vendored schema (contract tests prove these methods exist in this version).
+    - **Above tested baseline**: passed=True, available_methods empty (unverified).
+      has_capability() returns False for everything until build step 1 adds live
+      method-surface probing via the App Server handshake.
 
     Build step 1 will extend this to also run the initialize handshake and
-    method-surface probe.
+    populate available_methods from the live binary regardless of version.
     """
     try:
         codex_version = get_codex_version()
@@ -230,6 +244,4 @@ def check_version_floor() -> CompatCheckResult:
             ),
         )
 
-    # Version floor passed — assume vendored schema methods are available.
-    # Build step 1 replaces this assumption with a live handshake probe.
     return CompatCheckResult.from_version_check(codex_version)
