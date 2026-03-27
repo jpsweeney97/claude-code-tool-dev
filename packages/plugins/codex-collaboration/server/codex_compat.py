@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -115,3 +116,120 @@ def check_method_surface(
         REQUIRED_METHODS - available_methods,
         OPTIONAL_METHODS - available_methods,
     )
+
+
+# ──────────────────────────────────────────
+# Live binary checks
+# ──────────────────────────────────────────
+
+_CODEX_VERSION_RE = re.compile(r"codex-cli\s+(\d+\.\d+\.\d+)")
+
+
+def get_codex_version() -> SemVer:
+    """Get the installed Codex CLI version by running ``codex --version``.
+
+    Raises RuntimeError if the binary is missing, times out, or returns unexpected output.
+    """
+    try:
+        result = subprocess.run(
+            ["codex", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except FileNotFoundError:
+        raise RuntimeError("Codex binary not found on PATH")
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("codex --version timed out after 10s")
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"codex --version failed with exit code {result.returncode}. "
+            f"Got: {result.stderr.strip()!r:.100}"
+        )
+
+    output = result.stdout.strip()
+    match = _CODEX_VERSION_RE.match(output)
+    if not match:
+        raise RuntimeError(
+            f"Unexpected codex version format. Got: {output!r:.100}"
+        )
+    return SemVer.parse(match.group(1))
+
+
+# ──────────────────────────────────────────
+# Compatibility check result
+# ──────────────────────────────────────────
+
+@dataclass(frozen=True)
+class CompatCheckResult:
+    """Result of startup compatibility checks.
+
+    Cache this for the plugin's lifetime — it is used for feature gating.
+
+    T1 populates this from the version-floor check only. Build step 1 extends
+    startup to also populate available_methods from the initialize handshake.
+    """
+
+    passed: bool
+    codex_version: SemVer | None
+    available_methods: frozenset[str]
+    errors: tuple[str, ...] = ()
+
+    def has_capability(self, method: str) -> bool:
+        """Check if a method is available. Use for runtime feature gating of optional methods."""
+        return method in self.available_methods
+
+    @classmethod
+    def from_version_check(
+        cls,
+        codex_version: SemVer,
+        available_methods: frozenset[str] | None = None,
+    ) -> CompatCheckResult:
+        """Create a result from a successful version-floor check.
+
+        If available_methods is not provided, populates from the vendored schema
+        for the tested version (used until build step 1 adds live probing).
+        """
+        if available_methods is None:
+            available_methods = REQUIRED_METHODS | OPTIONAL_METHODS
+        return cls(
+            passed=True,
+            codex_version=codex_version,
+            available_methods=available_methods,
+        )
+
+
+def check_version_floor() -> CompatCheckResult:
+    """Run the T1 startup check: binary present + version floor.
+
+    Returns a CompatCheckResult. Feature gating for optional methods uses
+    the vendored schema until build step 1 adds live method-surface probing.
+
+    Build step 1 will extend this to also run the initialize handshake and
+    method-surface probe.
+    """
+    try:
+        codex_version = get_codex_version()
+    except RuntimeError as e:
+        return CompatCheckResult(
+            passed=False,
+            codex_version=None,
+            available_methods=frozenset(),
+            errors=(str(e),),
+        )
+
+    min_version = SemVer.parse(MINIMUM_CODEX_VERSION)
+    if codex_version < min_version:
+        return CompatCheckResult(
+            passed=False,
+            codex_version=codex_version,
+            available_methods=frozenset(),
+            errors=(
+                f"Codex version {codex_version} below minimum {MINIMUM_CODEX_VERSION}",
+            ),
+        )
+
+    # Version floor passed — assume vendored schema methods are available.
+    # Build step 1 replaces this assumption with a live handshake probe.
+    return CompatCheckResult.from_version_check(codex_version)
