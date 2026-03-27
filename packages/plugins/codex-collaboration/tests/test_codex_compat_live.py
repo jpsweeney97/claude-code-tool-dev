@@ -20,8 +20,10 @@ from server.codex_compat import (
     REQUIRED_METHODS,
     CompatCheckResult,
     SemVer,
+    check_live_runtime_compatibility,
     check_version_floor,
     get_codex_version,
+    probe_live_method_surface,
 )
 
 pytestmark = pytest.mark.skipif(
@@ -103,3 +105,18 @@ class TestFeatureGating:
         assert not result.has_capability("thread/start")
         assert not result.has_capability("turn/steer")
         assert result.passed  # startup still passes, just no capability claims
+
+
+class TestLiveRuntimeCompatibility:
+    def test_live_probe_returns_required_methods(self):
+        available = probe_live_method_surface()
+        missing = REQUIRED_METHODS - available
+        assert missing == frozenset(), f"Live probe missing required methods: {sorted(missing)}"
+
+    def test_live_runtime_compatibility_passes(self):
+        result = check_live_runtime_compatibility()
+        assert result.passed, f"Live runtime compatibility failed: {result.errors}"
+
+    def test_optional_method_reported(self):
+        result = check_live_runtime_compatibility()
+        assert isinstance(result.has_capability("turn/steer"), bool)

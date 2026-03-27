@@ -14,6 +14,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 # ──────────────────────────────────────────
@@ -261,3 +262,91 @@ def check_version_floor() -> CompatCheckResult:
         )
 
     return CompatCheckResult.from_version_check(codex_version)
+
+
+def probe_live_method_surface() -> frozenset[str]:
+    """Probe the installed binary's App Server method surface.
+
+    This uses ``codex app-server generate-json-schema`` against the installed
+    binary, then extracts methods from the generated ``ClientRequest.json``.
+    """
+
+    try:
+        with TemporaryDirectory(prefix="codex-collab-schema-") as temp_dir:
+            result = subprocess.run(
+                [
+                    "codex",
+                    "app-server",
+                    "generate-json-schema",
+                    "--out",
+                    temp_dir,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    "Live method probe failed: schema generation returned "
+                    f"exit code {result.returncode}. Got: {result.stderr.strip()!r:.100}"
+                )
+            schema_path = Path(temp_dir) / "ClientRequest.json"
+            if not schema_path.exists():
+                raise RuntimeError(
+                    "Live method probe failed: generated ClientRequest.json missing. "
+                    f"Got: {str(schema_path)!r:.100}"
+                )
+            return extract_client_methods(schema_path)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "Live method probe failed: codex binary not found on PATH"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "Live method probe failed: schema generation timed out after 30s"
+        ) from exc
+
+
+def check_live_runtime_compatibility() -> CompatCheckResult:
+    """Run the R1 compatibility checks against the installed binary.
+
+    R1 extends the T1 version-floor check with a live method-surface probe from
+    the installed binary. Required methods fail closed. Optional methods are
+    recorded for feature gating.
+    """
+
+    version_result = check_version_floor()
+    if not version_result.passed:
+        return version_result
+
+    assert version_result.codex_version is not None
+
+    try:
+        available_methods = probe_live_method_surface()
+    except RuntimeError as exc:
+        return CompatCheckResult(
+            passed=False,
+            codex_version=version_result.codex_version,
+            available_methods=frozenset(),
+            errors=(str(exc),),
+        )
+
+    missing_required, missing_optional = check_method_surface(available_methods)
+    errors: list[str] = []
+    if missing_required:
+        errors.append(
+            "Live runtime compatibility failed: required methods missing. "
+            f"Got: {sorted(missing_required)!r:.200}"
+        )
+    if missing_optional:
+        errors.append(
+            "Live runtime compatibility warning: optional methods missing. "
+            f"Got: {sorted(missing_optional)!r:.200}"
+        )
+
+    return CompatCheckResult(
+        passed=not missing_required,
+        codex_version=version_result.codex_version,
+        available_methods=available_methods,
+        errors=tuple(errors),
+    )

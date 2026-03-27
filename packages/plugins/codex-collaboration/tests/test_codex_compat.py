@@ -22,7 +22,9 @@ from server.codex_compat import (
     OPTIONAL_METHODS,
     REQUIRED_METHODS,
     TESTED_CODEX_VERSION,
+    CompatCheckResult,
     SemVer,
+    check_live_runtime_compatibility,
     check_method_surface,
     check_version_floor,
     extract_client_methods,
@@ -254,6 +256,54 @@ class TestCheckMethodSurface:
         missing_req, missing_opt = check_method_surface(frozenset())
         assert missing_req == REQUIRED_METHODS
         assert missing_opt == OPTIONAL_METHODS
+
+
+class TestLiveRuntimeCompatibilityMocked:
+    def test_live_probe_success(self):
+        available = REQUIRED_METHODS | OPTIONAL_METHODS
+        with patch(
+            "server.codex_compat.check_version_floor",
+            return_value=CompatCheckResult.from_version_check(
+                codex_version=SemVer.parse(TESTED_CODEX_VERSION),
+                available_methods=available,
+            ),
+        ), patch(
+            "server.codex_compat.probe_live_method_surface",
+            return_value=available,
+        ):
+            result = check_live_runtime_compatibility()
+        assert result.passed is True
+        assert result.available_methods == available
+
+    def test_live_probe_missing_required_fails_closed(self):
+        available = REQUIRED_METHODS - {"thread/start"}
+        with patch(
+            "server.codex_compat.check_version_floor",
+            return_value=CompatCheckResult.from_version_check(
+                codex_version=SemVer.parse(TESTED_CODEX_VERSION),
+                available_methods=available,
+            ),
+        ), patch(
+            "server.codex_compat.probe_live_method_surface",
+            return_value=available,
+        ):
+            result = check_live_runtime_compatibility()
+        assert result.passed is False
+        assert "required methods missing" in result.errors[0]
+
+    def test_live_probe_error_translates_to_failed_result(self):
+        with patch(
+            "server.codex_compat.check_version_floor",
+            return_value=CompatCheckResult.from_version_check(
+                codex_version=SemVer.parse(TESTED_CODEX_VERSION),
+            ),
+        ), patch(
+            "server.codex_compat.probe_live_method_surface",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = check_live_runtime_compatibility()
+        assert result.passed is False
+        assert result.errors == ("boom",)
 
 
 class TestDerivedManifest:
