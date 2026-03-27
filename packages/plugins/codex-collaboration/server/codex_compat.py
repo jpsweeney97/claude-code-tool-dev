@@ -9,8 +9,10 @@ Fixture regeneration: scripts/regenerate_schema.sh
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 
 # ──────────────────────────────────────────
@@ -58,3 +60,58 @@ class SemVer:
 
     def __str__(self) -> str:
         return f"{self.major}.{self.minor}.{self.patch}"
+
+
+# ──────────────────────────────────────────
+# Method surface
+# ──────────────────────────────────────────
+
+REQUIRED_METHODS: frozenset[str] = frozenset({
+    "thread/start",
+    "thread/resume",
+    "thread/fork",
+    "thread/read",
+    "turn/start",
+    "turn/interrupt",
+})
+"""Methods that must be present for the plugin to start. Missing = fail-closed."""
+
+OPTIONAL_METHODS: frozenset[str] = frozenset({
+    "turn/steer",
+})
+"""Methods checked at startup but not required. Missing = warn, record in status."""
+
+
+# ──────────────────────────────────────────
+# Schema extraction
+# ──────────────────────────────────────────
+
+def extract_client_methods(client_request_schema_path: Path) -> frozenset[str]:
+    """Extract method names from a ClientRequest.json schema file.
+
+    The schema is a JSON Schema with oneOf variants, each containing a method enum
+    with exactly one value.
+    """
+    with open(client_request_schema_path) as f:
+        schema = json.load(f)
+
+    methods: set[str] = set()
+    for variant in schema.get("oneOf", []):
+        method_enum = variant.get("properties", {}).get("method", {}).get("enum", [])
+        if method_enum:
+            methods.add(method_enum[0])
+
+    return frozenset(methods)
+
+
+def check_method_surface(
+    available_methods: frozenset[str],
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Check required and optional methods against available methods.
+
+    Returns (missing_required, missing_optional).
+    """
+    return (
+        REQUIRED_METHODS - available_methods,
+        OPTIONAL_METHODS - available_methods,
+    )

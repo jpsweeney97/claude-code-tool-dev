@@ -11,7 +11,17 @@ from __future__ import annotations
 
 import pytest
 
-from server.codex_compat import SemVer
+from pathlib import Path
+
+from server.codex_compat import (
+    MINIMUM_CODEX_VERSION,
+    OPTIONAL_METHODS,
+    REQUIRED_METHODS,
+    TESTED_CODEX_VERSION,
+    SemVer,
+    check_method_surface,
+    extract_client_methods,
+)
 
 
 class TestSemVerParsing:
@@ -61,3 +71,68 @@ class TestSemVerComparison:
 
     def test_str(self):
         assert str(SemVer(0, 117, 0)) == "0.117.0"
+
+
+class TestVersionConstants:
+    def test_tested_version_is_valid_semver(self):
+        v = SemVer.parse(TESTED_CODEX_VERSION)
+        assert v.major >= 0
+
+    def test_minimum_version_is_valid_semver(self):
+        v = SemVer.parse(MINIMUM_CODEX_VERSION)
+        assert v.major >= 0
+
+    def test_minimum_not_above_tested(self):
+        tested = SemVer.parse(TESTED_CODEX_VERSION)
+        minimum = SemVer.parse(MINIMUM_CODEX_VERSION)
+        assert minimum <= tested, "MINIMUM_CODEX_VERSION must not exceed TESTED_CODEX_VERSION"
+
+    def test_required_and_optional_disjoint(self):
+        overlap = REQUIRED_METHODS & OPTIONAL_METHODS
+        assert overlap == frozenset(), f"Methods in both required and optional: {overlap}"
+
+
+class TestExtractClientMethods:
+    def test_extracts_methods_from_vendored_schema(self, client_request_schema: Path):
+        methods = extract_client_methods(client_request_schema)
+        assert isinstance(methods, frozenset)
+        assert len(methods) > 0
+
+    def test_vendored_schema_contains_all_required_methods(self, client_request_schema: Path):
+        methods = extract_client_methods(client_request_schema)
+        missing = REQUIRED_METHODS - methods
+        assert missing == frozenset(), f"Vendored schema missing required methods: {sorted(missing)}"
+
+    def test_vendored_schema_contains_all_optional_methods(self, client_request_schema: Path):
+        methods = extract_client_methods(client_request_schema)
+        missing = OPTIONAL_METHODS - methods
+        assert missing == frozenset(), f"Vendored schema missing optional methods: {sorted(missing)}"
+
+    def test_vendored_schema_contains_initialize(self, client_request_schema: Path):
+        methods = extract_client_methods(client_request_schema)
+        assert "initialize" in methods
+
+
+class TestCheckMethodSurface:
+    def test_all_present_returns_empty(self):
+        available = REQUIRED_METHODS | OPTIONAL_METHODS | {"extra/method"}
+        missing_req, missing_opt = check_method_surface(available)
+        assert missing_req == frozenset()
+        assert missing_opt == frozenset()
+
+    def test_missing_required_detected(self):
+        available = frozenset({"thread/start", "turn/start"})
+        missing_req, _missing_opt = check_method_surface(available)
+        assert len(missing_req) > 0
+        assert "thread/resume" in missing_req
+
+    def test_missing_optional_detected(self):
+        available = REQUIRED_METHODS  # no optional methods
+        missing_req, missing_opt = check_method_surface(available)
+        assert missing_req == frozenset()
+        assert "turn/steer" in missing_opt
+
+    def test_empty_available_misses_all(self):
+        missing_req, missing_opt = check_method_surface(frozenset())
+        assert missing_req == REQUIRED_METHODS
+        assert missing_opt == OPTIONAL_METHODS
