@@ -13,6 +13,8 @@ import pytest
 
 from pathlib import Path
 
+from unittest.mock import patch
+
 from server.codex_compat import (
     MINIMUM_CODEX_VERSION,
     OPTIONAL_METHODS,
@@ -21,6 +23,7 @@ from server.codex_compat import (
     SemVer,
     check_method_surface,
     extract_client_methods,
+    get_codex_version,
 )
 
 
@@ -71,6 +74,28 @@ class TestSemVerComparison:
 
     def test_str(self):
         assert str(SemVer(0, 117, 0)) == "0.117.0"
+
+
+class TestGetCodexVersionParsing:
+    """Unit tests for get_codex_version() output parsing with mocked subprocess."""
+
+    def _mock_version_output(self, stdout: str) -> SemVer:
+        """Run get_codex_version() with mocked subprocess returning stdout."""
+        mock_result = type("Result", (), {"stdout": stdout, "returncode": 0, "stderr": ""})()
+        with patch("server.codex_compat.subprocess.run", return_value=mock_result):
+            return get_codex_version()
+
+    def test_parses_codex_cli_prefix(self):
+        v = self._mock_version_output("codex-cli 0.117.0\n")
+        assert v == SemVer(0, 117, 0)
+
+    def test_parses_codex_prefix(self):
+        v = self._mock_version_output("codex 0.117.0\n")
+        assert v == SemVer(0, 117, 0)
+
+    def test_rejects_unrecognized_output(self):
+        with pytest.raises(RuntimeError, match="Unexpected codex version format"):
+            self._mock_version_output("something-else 0.117.0\n")
 
 
 class TestVersionConstants:

@@ -122,7 +122,7 @@ def check_method_surface(
 # Live binary checks
 # ──────────────────────────────────────────
 
-_CODEX_VERSION_RE = re.compile(r"codex-cli\s+(\d+\.\d+\.\d+)")
+_CODEX_VERSION_RE = re.compile(r"codex(?:-cli)?\s+(\d+\.\d+\.\d+)")
 
 
 def get_codex_version() -> SemVer:
