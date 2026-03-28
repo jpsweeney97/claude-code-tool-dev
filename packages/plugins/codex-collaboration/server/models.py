@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 CapabilityProfile = Literal["advisory", "execution"]
 AuthStatus = Literal["authenticated", "expired", "missing"]
+HandleStatus = Literal["active", "completed", "crashed", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -150,3 +151,89 @@ class AuditEvent:
     # such as job_id, request_id, artifact_hash, decision, and causal_parent
     # are deferred until those flows exist in code.
     extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CollaborationHandle:
+    """Lineage-persisted handle for dialogue or delegation.
+
+    Consultation handles are ephemeral (not lineage-persisted).
+    See contracts.md §CollaborationHandle.
+    """
+
+    collaboration_id: str
+    capability_class: CapabilityProfile
+    runtime_id: str
+    codex_thread_id: str
+    claude_session_id: str
+    repo_root: str
+    created_at: str
+    status: HandleStatus
+    parent_collaboration_id: str | None = None
+    fork_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class DialogueStartResult:
+    """Response shape for codex.dialogue.start. See contracts.md §Dialogue Start."""
+
+    collaboration_id: str
+    runtime_id: str
+    status: HandleStatus
+    created_at: str
+
+
+@dataclass(frozen=True)
+class DialogueTurnSummary:
+    """Single turn entry within a DialogueReadResult."""
+
+    turn_sequence: int
+    position: str
+    context_size: int
+    timestamp: str
+
+
+@dataclass(frozen=True)
+class DialogueReplyResult:
+    """Response shape for codex.dialogue.reply. See contracts.md §Dialogue Reply."""
+
+    collaboration_id: str
+    runtime_id: str
+    position: str
+    evidence: tuple[ConsultEvidence, ...]
+    uncertainties: tuple[str, ...]
+    follow_up_branches: tuple[str, ...]
+    turn_sequence: int
+    context_size: int
+
+
+@dataclass(frozen=True)
+class DialogueReadResult:
+    """Response shape for codex.dialogue.read. See contracts.md §Dialogue Read."""
+
+    collaboration_id: str
+    status: HandleStatus
+    turn_count: int
+    created_at: str
+    turns: tuple[DialogueTurnSummary, ...]
+
+
+@dataclass(frozen=True)
+class OperationJournalEntry:
+    """Phased operation record for deterministic crash recovery replay.
+
+    Lifecycle: intent (before dispatch) → dispatched (after dispatch, with
+    outcome correlation data) → completed (confirmed, eligible for compaction).
+    See recovery-and-journal.md §Write Ordering.
+    """
+
+    idempotency_key: str
+    operation: Literal["thread_creation", "turn_dispatch"]
+    phase: Literal["intent", "dispatched", "completed"]
+    collaboration_id: str
+    created_at: str
+    repo_root: str
+    # Outcome correlation — set when logically knowable
+    codex_thread_id: str | None = None  # thread_creation: set at dispatched; turn_dispatch: set at intent
+    turn_sequence: int | None = None  # turn_dispatch only
+    runtime_id: str | None = None  # turn_dispatch only
