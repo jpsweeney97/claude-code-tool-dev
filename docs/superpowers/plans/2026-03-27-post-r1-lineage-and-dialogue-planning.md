@@ -1,6 +1,6 @@
 # Post-R1 Lineage & Dialogue Milestone Planning
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. This plan produces **spec artifacts and decision records**, not runtime code.
+> **Status:** Executed on 2026-03-28. All tasks committed on `chore/post-r1-planning` (`078e5a39`..`5129f08d`).
 
 **Goal:** Land the normative lineage-store spec section, triage R1 debt into durable backlog artifacts, and freeze the next implementation milestone boundary for the codex-collaboration plugin.
 

@@ -263,7 +263,7 @@ Returned by `codex.dialogue.reply`.
 | `evidence` | list\[object\] | Supporting evidence: each has `claim` (string) and `citation` (string) |
 | `uncertainties` | list\[string\] | Noted uncertainties |
 | `follow_up_branches` | list\[string\] | Suggested follow-up directions |
-| `turn_sequence` | integer | Turn number within this dialogue |
+| `turn_sequence` | integer | 1-based turn number. Assigned by the control plane before dispatch; `dialogue.start` does not consume a slot. After crash recovery, derived from completed turn count via `thread/read`. |
 | `context_size` | integer | UTF-8 byte length of assembled packet |
 
 ### Dialogue Read
@@ -276,4 +276,4 @@ Returned by `codex.dialogue.read`.
 | `status` | enum | Current handle lifecycle status |
 | `turn_count` | integer | Number of completed turns |
 | `created_at` | ISO 8601 | Handle creation time |
-| `turns` | list\[object\] | Each has: `turn_sequence` (integer), `position` (string summary), `context_size` (integer), `timestamp` (ISO 8601) |
+| `turns` | list\[object\] | Each has: `turn_sequence` (integer, 1-based per [Dialogue Reply](#dialogue-reply)), `position` (string summary), `context_size` (integer), `timestamp` (ISO 8601) |
