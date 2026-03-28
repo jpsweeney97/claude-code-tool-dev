@@ -99,7 +99,7 @@ class TestDialogueStart:
             controller.start(tmp_path)
 
 
-from server.models import ConsultRequest, DialogueReplyResult
+from server.models import ConsultRequest, DialogueReplyResult, OperationJournalEntry
 
 
 class TestDialogueReply:
@@ -194,3 +194,179 @@ class TestDialogueReply:
         # Verify the prompt contains the assembled packet (same pipeline as consult)
         assert session.last_prompt_text is not None
         assert "focus.py" in session.last_prompt_text
+
+
+class TestRecoverPendingOperations:
+    def test_recover_thread_creation_at_intent_phase(self, tmp_path: Path) -> None:
+        """Crash before thread/start — intent only. Recovery resolves as no-op."""
+        controller, _, store, journal = _build_dialogue_stack(tmp_path)
+
+        # Manually write an intent entry (simulating crash before dispatch)
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="sess-1:orphan-1",
+                operation="thread_creation",
+                phase="intent",
+                collaboration_id="orphan-1",
+                created_at="2026-03-28T00:00:00Z",
+                repo_root=str(tmp_path.resolve()),
+            ),
+            session_id="sess-1",
+        )
+
+        recovered = controller.recover_pending_operations()
+
+        # Intent-only thread_creation resolved as no-op terminal
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+        assert store.get("orphan-1") is None  # no handle created
+
+    def test_recover_thread_creation_at_dispatched_phase(self, tmp_path: Path) -> None:
+        """Crash after thread/start but before lineage persist.
+        Recovery performs thread/read + thread/resume reattach, then persists handle."""
+        session = FakeRuntimeSession()
+        controller, _, store, journal = _build_dialogue_stack(tmp_path, session=session)
+
+        # Manually write intent + dispatched entries
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="sess-1:orphan-2",
+                operation="thread_creation",
+                phase="intent",
+                collaboration_id="orphan-2",
+                created_at="2026-03-28T00:00:00Z",
+                repo_root=str(tmp_path.resolve()),
+            ),
+            session_id="sess-1",
+        )
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="sess-1:orphan-2",
+                operation="thread_creation",
+                phase="dispatched",
+                collaboration_id="orphan-2",
+                created_at="2026-03-28T00:00:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-orphan",
+            ),
+            session_id="sess-1",
+        )
+
+        recovered = controller.recover_pending_operations()
+
+        assert "orphan-2" in recovered
+        handle = store.get("orphan-2")
+        assert handle is not None
+        # Handle uses the resumed thread_id, not the original
+        assert handle.codex_thread_id == "thr-orphan-resumed"
+        assert handle.status == "active"
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+
+    def test_recover_turn_dispatch_at_dispatched_phase_completed(
+        self, tmp_path: Path
+    ) -> None:
+        """Crash after run_turn. thread/read confirms turn completed. Recovery marks complete."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        session = FakeRuntimeSession()
+        # Simulate: thread has 1 completed turn (from before the crash)
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [{"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""}],
+            },
+        }
+        controller, _, store, journal = _build_dialogue_stack(tmp_path, session=session)
+
+        # Set up: create a real handle first
+        start = controller.start(tmp_path)
+
+        # Manually write a dispatched turn_dispatch entry (simulating crash after run_turn)
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="rt-sess-1:thr-start:1",
+                operation="turn_dispatch",
+                phase="dispatched",
+                collaboration_id=start.collaboration_id,
+                created_at="2026-03-28T00:01:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-start",
+                turn_sequence=1,
+                runtime_id="rt-sess-1",
+            ),
+            session_id="sess-1",
+        )
+
+        controller.recover_pending_operations()
+
+        # Turn confirmed via thread/read — marked completed
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+
+    def test_recover_turn_dispatch_at_dispatched_phase_incomplete(
+        self, tmp_path: Path
+    ) -> None:
+        """Crash during run_turn. thread/read shows turn did not complete.
+        Handle marked 'unknown' (not 'crashed' — runtime crash is not confirmed)."""
+        session = FakeRuntimeSession()
+        # Thread has NO completed turns
+        session.read_thread_response = {
+            "thread": {"id": "thr-start", "turns": []},
+        }
+        controller, _, store, journal = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        # Manually write dispatched turn_dispatch
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="rt-sess-1:thr-start:1",
+                operation="turn_dispatch",
+                phase="dispatched",
+                collaboration_id=start.collaboration_id,
+                created_at="2026-03-28T00:01:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-start",
+                turn_sequence=1,
+                runtime_id="rt-sess-1",
+            ),
+            session_id="sess-1",
+        )
+
+        controller.recover_pending_operations()
+
+        # Turn not confirmed — handle marked unknown
+        handle = store.get(start.collaboration_id)
+        assert handle is not None
+        assert handle.status == "unknown"
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+
+    def test_recover_intent_only_turn_dispatch(self, tmp_path: Path) -> None:
+        """Crash before run_turn. Intent-only turn_dispatch resolved as no-op."""
+        controller, _, store, journal = _build_dialogue_stack(tmp_path)
+        start = controller.start(tmp_path)
+
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="rt-sess-1:thr-start:1",
+                operation="turn_dispatch",
+                phase="intent",
+                collaboration_id=start.collaboration_id,
+                created_at="2026-03-28T00:01:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-start",
+                turn_sequence=1,
+                runtime_id="rt-sess-1",
+            ),
+            session_id="sess-1",
+        )
+
+        controller.recover_pending_operations()
+
+        # Intent-only — dispatch never happened, resolved as completed
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+        # Handle stays active (not marked unknown — dispatch didn't happen)
+        handle = store.get(start.collaboration_id)
+        assert handle.status == "active"

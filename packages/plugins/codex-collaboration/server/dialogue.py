@@ -263,6 +263,149 @@ class DialogueController:
             context_size=packet.context_size,
         )
 
+    def recover_pending_operations(self) -> list[str]:
+        """Scan journal for incomplete operations and resolve them deterministically.
+
+        Called on controller startup after crash. Returns collaboration_ids
+        of handles that were recovered or affected.
+
+        Ownership: DialogueController reconciles dialogue journal entries.
+        ControlPlane owns advisory runtime restart, thread/resume, and update_runtime.
+        """
+        unresolved = self._journal.list_unresolved(session_id=self._session_id)
+        recovered: list[str] = []
+        for entry in unresolved:
+            if entry.operation == "thread_creation":
+                cid = self._recover_thread_creation(entry)
+                if cid:
+                    recovered.append(cid)
+            elif entry.operation == "turn_dispatch":
+                self._recover_turn_dispatch(entry)
+        return recovered
+
+    def _recover_thread_creation(self, entry: OperationJournalEntry) -> str | None:
+        """Recover a pending thread_creation entry.
+
+        intent: dispatch never happened — resolve as no-op.
+        dispatched: thread exists (codex_thread_id in entry) — persist handle if missing.
+        """
+        if entry.phase == "intent":
+            # Dispatch never happened. Resolve as terminal no-op.
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=entry.idempotency_key,
+                    operation=entry.operation,
+                    phase="completed",
+                    collaboration_id=entry.collaboration_id,
+                    created_at=entry.created_at,
+                    repo_root=entry.repo_root,
+                ),
+                session_id=self._session_id,
+            )
+            return None
+
+        # dispatched: thread was created, codex_thread_id is in the entry.
+        # Reattach via thread/read + thread/resume per contracts.md §Crash Recovery (steps 3-4).
+        existing = self._lineage_store.get(entry.collaboration_id)
+        if entry.codex_thread_id is not None:
+            resolved_root = Path(entry.repo_root)
+            runtime = self._control_plane.get_advisory_runtime(resolved_root)
+
+            # Reattach: read latest state, then resume to bind to live runtime
+            runtime.session.read_thread(entry.codex_thread_id)
+            resumed_thread_id = runtime.session.resume_thread(entry.codex_thread_id)
+
+            if existing is None:
+                # Crash between thread/start and lineage persist — persist now
+                handle = CollaborationHandle(
+                    collaboration_id=entry.collaboration_id,
+                    capability_class="advisory",
+                    runtime_id=runtime.runtime_id,
+                    codex_thread_id=resumed_thread_id,
+                    claude_session_id=self._session_id,
+                    repo_root=entry.repo_root,
+                    created_at=entry.created_at,
+                    status="active",
+                )
+                self._lineage_store.create(handle)
+            else:
+                # Handle exists but may point at stale runtime/thread identity
+                self._lineage_store.update_runtime(
+                    entry.collaboration_id,
+                    runtime_id=runtime.runtime_id,
+                    codex_thread_id=resumed_thread_id,
+                )
+
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=entry.idempotency_key,
+                operation=entry.operation,
+                phase="completed",
+                collaboration_id=entry.collaboration_id,
+                created_at=entry.created_at,
+                repo_root=entry.repo_root,
+            ),
+            session_id=self._session_id,
+        )
+        return entry.collaboration_id
+
+    def _recover_turn_dispatch(self, entry: OperationJournalEntry) -> None:
+        """Recover a pending turn_dispatch entry.
+
+        intent: dispatch never happened — resolve as no-op (handle stays active).
+        dispatched: check thread/read for completed turn at turn_sequence.
+          - If completed: resolve.
+          - If not: mark handle 'unknown' (not 'crashed' — runtime crash not confirmed).
+        """
+        if entry.phase == "intent":
+            # Dispatch never happened. No state change to handle.
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=entry.idempotency_key,
+                    operation=entry.operation,
+                    phase="completed",
+                    collaboration_id=entry.collaboration_id,
+                    created_at=entry.created_at,
+                    repo_root=entry.repo_root,
+                ),
+                session_id=self._session_id,
+            )
+            return
+
+        # dispatched: check if turn completed via thread/read
+        handle = self._lineage_store.get(entry.collaboration_id)
+        if handle is not None and entry.codex_thread_id is not None:
+            try:
+                runtime = self._control_plane.get_advisory_runtime(Path(entry.repo_root))
+                thread_data = runtime.session.read_thread(entry.codex_thread_id)
+                raw_turns = thread_data.get("thread", {}).get("turns", [])
+                completed_count = sum(
+                    1 for t in raw_turns
+                    if isinstance(t, dict) and t.get("status") == "completed"
+                )
+                turn_confirmed = (
+                    entry.turn_sequence is not None
+                    and completed_count >= entry.turn_sequence
+                )
+            except Exception:
+                turn_confirmed = False
+
+            if not turn_confirmed:
+                # Outcome uncertain — mark handle 'unknown' per contracts.md §Handle Lifecycle
+                self._lineage_store.update_status(entry.collaboration_id, "unknown")
+
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=entry.idempotency_key,
+                operation=entry.operation,
+                phase="completed",
+                collaboration_id=entry.collaboration_id,
+                created_at=entry.created_at,
+                repo_root=entry.repo_root,
+            ),
+            session_id=self._session_id,
+        )
+
     def _next_turn_sequence(
         self,
         handle: CollaborationHandle,
