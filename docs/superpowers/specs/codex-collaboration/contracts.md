@@ -123,7 +123,7 @@ The session-id subdirectory isolates each session's handles. `${CLAUDE_PLUGIN_DA
 |---|---|---|
 | `create` | Persist a new handle | `codex.dialogue.start` |
 | `get` | Retrieve handle by `collaboration_id` | `codex.dialogue.reply`, `codex.dialogue.read`, control plane routing |
-| `list` | Query handles by session, repo root, and optional status filter | `codex.dialogue.read` (listing dialogues) |
+| `list` | Query handles by session, repo root, and optional status filter | Crash recovery (step 2), internal enumeration |
 | `update_status` | Transition handle lifecycle status | Handle completion, crash recovery |
 | `update_runtime` | Remap handle to a new runtime | Advisory runtime rotation ([advisory-runtime-policy.md §Rotate](advisory-runtime-policy.md#rotate) step 4) |
 
@@ -144,8 +144,8 @@ When an advisory runtime crashes ([recovery-and-journal.md §Advisory Runtime Cr
 
 1. The control plane restarts the advisory runtime.
 2. The control plane reads all handles with `status: active` from the lineage store for the current session and repo root.
-3. For each active handle, the control plane uses Codex `thread/read` on the handle's `codex_thread_id` to recover the latest completed state.
-4. The control plane calls `update_runtime` on each recovered handle to point to the new runtime instance.
+3. For each active handle, the control plane uses Codex `thread/read` on the handle's `codex_thread_id` to recover the latest completed state, then `thread/resume` to reattach the thread in the replacement runtime.
+4. The control plane calls `update_runtime` on each recovered handle to point to the new runtime instance. If `thread/resume` yields a new thread identity, the handle's `codex_thread_id` must also be updated.
 5. Pending server requests associated with crashed handles are marked canceled.
 6. Claude may continue from the last completed turn. Forking from the interrupted snapshot requires `codex.dialogue.fork` to be in scope.
 
