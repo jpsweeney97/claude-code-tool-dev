@@ -125,7 +125,7 @@ The session-id subdirectory isolates each session's handles. `${CLAUDE_PLUGIN_DA
 | `get` | Retrieve handle by `collaboration_id` | `codex.dialogue.reply`, `codex.dialogue.read`, control plane routing |
 | `list` | Query handles by session, repo root, and optional status filter | Crash recovery (step 2), internal enumeration |
 | `update_status` | Transition handle lifecycle status | Handle completion, crash recovery |
-| `update_runtime` | Remap handle to a new runtime | Advisory runtime rotation ([advisory-runtime-policy.md §Rotate](advisory-runtime-policy.md#rotate) step 4) |
+| `update_runtime` | Remap handle to a new runtime and, if `thread/resume` yields a new thread identity, update `codex_thread_id` | Advisory runtime rotation ([advisory-runtime-policy.md §Rotate](advisory-runtime-policy.md#rotate) step 4), crash recovery (step 4) |
 
 Fork-specific operations (`get_children`, `get_parent`, tree reconstruction) are deferred until `codex.dialogue.fork` enters scope. See [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope).
 

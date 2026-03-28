@@ -199,7 +199,7 @@ R2 implements the lineage store (delivery step 3) and the minimum dialogue surfa
 - `codex.dialogue.start`: create a durable dialogue thread in the advisory runtime, persist handle in lineage store, return [Dialogue Start](contracts.md#dialogue-start) response shape
 - `codex.dialogue.reply`: continue a dialogue turn on an existing handle, dispatch via advisory runtime using the same context assembly pipeline as consultation, return [Dialogue Reply](contracts.md#dialogue-reply) response shape
 - `codex.dialogue.read`: read dialogue state for a given `collaboration_id` from lineage store data plus Codex `thread/read`, return [Dialogue Read](contracts.md#dialogue-read) response shape
-- Operation journal entries for dialogue turns: journal-before-dispatch per [recovery-and-journal.md §Write Ordering](recovery-and-journal.md#write-ordering), with idempotency keys per [§Idempotency Keys](recovery-and-journal.md#idempotency-keys) (`runtime_id` + `thread_id` + `turn_sequence`). Trim on turn completion.
+- Operation journal entries for all dispatched dialogue operations (including `dialogue.start`): journal-before-dispatch per [recovery-and-journal.md §Write Ordering](recovery-and-journal.md#write-ordering), with idempotency keys per [§Idempotency Keys](recovery-and-journal.md#idempotency-keys) (`runtime_id` + `thread_id` + `turn_sequence`). Trim on completion.
 - Audit events for `dialogue_turn` with required fields per [recovery-and-journal.md §Write Triggers](recovery-and-journal.md#write-triggers): `collaboration_id`, `runtime_id`, `turn_id`
 - Context assembly reuse: dialogue turns use the same advisory profile, assembler, redactor, trimmer, and budget caps as consultation
 
