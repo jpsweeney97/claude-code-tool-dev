@@ -34,7 +34,7 @@ The plugin maintains its own logical identifiers. Raw Codex IDs (thread IDs, tur
 
 ### CollaborationHandle
 
-A logical identifier for a Codex interaction (consultation, dialogue turn, or delegation job). Handle records are persisted by the [lineage store](#lineage-store) for routing, crash recovery, and lifecycle management.
+A logical identifier for a Codex interaction (consultation, dialogue turn, or delegation job). Dialogue and delegation handles are persisted by the [lineage store](#lineage-store) for routing, crash recovery, and lifecycle management. Consultation handles are ephemeral — created for audit correlation via `collaboration_id` but not persisted in the lineage store.
 
 | Field | Type | Description |
 |---|---|---|

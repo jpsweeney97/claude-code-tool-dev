@@ -45,6 +45,7 @@ Each journaled operation carries a unique idempotency key. If the same key is re
 | Operation | Idempotency Key Components | Effect of Replay |
 |---|---|---|
 | Job creation | `claude_session_id` + `delegation_request_hash` | Check if job already exists |
+| Thread creation | `claude_session_id` + `collaboration_id` | Check if thread already started |
 | Turn dispatch | `runtime_id` + `thread_id` + `turn_sequence` | Check if turn already started |
 | Approval resolution | `request_id` + `decision` | Check if already resolved |
 | Promotion | `job_id` + `promotion_attempt` | Check promotion state |
