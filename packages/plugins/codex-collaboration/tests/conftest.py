@@ -24,3 +24,27 @@ def client_request_schema(vendored_schema_dir: Path) -> Path:
     if not path.exists():
         pytest.skip("ClientRequest.json not found in vendored schema")
     return path
+
+
+from server.models import CollaborationHandle
+
+
+def make_test_handle(
+    collaboration_id: str = "collab-1",
+    runtime_id: str = "rt-1",
+    thread_id: str = "thr-1",
+    session_id: str = "sess-1",
+    repo_root: str = "/repo",
+    status: str = "active",
+) -> CollaborationHandle:
+    """Factory for test CollaborationHandle instances."""
+    return CollaborationHandle(
+        collaboration_id=collaboration_id,
+        capability_class="advisory",
+        runtime_id=runtime_id,
+        codex_thread_id=thread_id,
+        claude_session_id=session_id,
+        repo_root=repo_root,
+        created_at="2026-03-28T00:00:00Z",
+        status=status,
+    )
