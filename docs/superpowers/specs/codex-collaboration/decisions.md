@@ -76,3 +76,13 @@ The [audit event model](contracts.md#auditevent) defines the record shape and [r
 **Resolved.** v1 restores advisory coherence after promotion by marking advisory context stale and injecting a workspace-changed summary plus refreshed repository identity/context on the next advisory turn in the same advisory thread. This protocol is defined in [advisory-runtime-policy.md §Post-Promotion Coherence](advisory-runtime-policy.md#post-promotion-coherence).
 
 `turn/steer` remains optional in v1, and automatic post-promotion thread fork is not required by the normative path. The [context assembly contract](foundations.md#context-assembly-contract) continues to define the advisory-to-execution promotion boundary: only explicitly caller-promoted summary-form advisory conclusions may cross into later execution packets.
+
+### Dialogue Fork Scope
+
+**Resolved.** `codex.dialogue.fork` is deferred from the first post-R1 dialogue milestone. The milestone implements `.start`, `.reply`, and `.read` only, matching [delivery.md step 4](delivery.md).
+
+**Rationale:** [delivery.md:158](delivery.md) explicitly scopes step 4 without fork. Deferring fork allows the [lineage store](contracts.md#lineage-store) to start as flat handle tracking without tree-traversal operations. The [CollaborationHandle](contracts.md#collaborationhandle) schema already includes `parent_collaboration_id` and `fork_reason` — no schema migration will be needed when fork enters scope.
+
+**Forward compatibility:** `thread/fork` is already implemented in `runtime.py` for consultation branching. Adding `codex.dialogue.fork` is additive, not architectural.
+
+**Change trigger:** When a use case for branched dialogue is identified. Fork is not blocked — it is deferred for scope reasons, not design reasons.
