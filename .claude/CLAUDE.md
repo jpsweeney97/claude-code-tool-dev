@@ -8,7 +8,6 @@ Monorepo for developing Claude Code extensions: skills, commands, agents, hooks,
 
 - Develop extensions in `.claude/` and `packages/`
 - Promote to `~/.claude/` when ready
-- Most common: **Skills** and **Subagents**
 
 ## Directory Structure
 
@@ -93,6 +92,3 @@ Run with `uv run scripts/<name>`:
 | `migrate` | Extension schema migrations |
 | `validate_consultation_contract.py` | Validate Codex contract + governance rules |
 | `validate_episode.py` | Validate learning episode format |
-
-Additional scripts in `scripts/` for benchmarking and analysis. See directory listing for full inventory.
-
